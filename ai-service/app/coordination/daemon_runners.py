@@ -1122,6 +1122,32 @@ async def create_coordinator_disk_manager() -> None:
         raise
 
 
+async def create_node_availability() -> None:
+    """Create and run node availability daemon (December 28, 2025).
+
+    Synchronizes cloud provider instance state with distributed_hosts.yaml:
+    - Queries Vast.ai, Lambda, RunPod APIs for current instance states
+    - Updates YAML status when instances change (terminated, stopped, etc.)
+    - Atomic YAML updates with backup
+    - Dry-run mode by default for testing
+
+    Solves the problem of stale config where nodes are marked 'ready'
+    but are actually terminated in the cloud provider.
+    """
+    try:
+        from app.coordination.node_availability.daemon import (
+            NodeAvailabilityDaemon,
+            get_node_availability_daemon,
+        )
+
+        daemon = get_node_availability_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"NodeAvailabilityDaemon not available: {e}")
+        raise
+
+
 async def create_sync_push() -> None:
     """Create and run sync push daemon (December 28, 2025).
 
@@ -1406,6 +1432,98 @@ async def create_integrity_check() -> None:
 
 
 # =============================================================================
+# Cluster Availability Manager (December 28, 2025)
+# =============================================================================
+
+
+async def create_availability_node_monitor() -> None:
+    """Create and run availability NodeMonitor daemon.
+
+    Multi-layer health checking for cluster nodes:
+    - P2P heartbeat checks
+    - SSH connectivity
+    - GPU health monitoring
+    - Provider API status
+
+    Emits NODE_UNHEALTHY, NODE_RECOVERED events.
+    """
+    try:
+        from app.coordination.availability.node_monitor import get_node_monitor
+
+        daemon = get_node_monitor()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"NodeMonitor not available: {e}")
+        raise
+
+
+async def create_availability_recovery_engine() -> None:
+    """Create and run availability RecoveryEngine daemon.
+
+    Escalating recovery strategies:
+    - RESTART_P2P
+    - RESTART_TAILSCALE
+    - REBOOT_INSTANCE
+    - RECREATE_INSTANCE
+
+    Subscribes to NODE_UNHEALTHY events.
+    Emits RECOVERY_INITIATED, RECOVERY_COMPLETED events.
+    """
+    try:
+        from app.coordination.availability.recovery_engine import get_recovery_engine
+
+        daemon = get_recovery_engine()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"RecoveryEngine not available: {e}")
+        raise
+
+
+async def create_availability_capacity_planner() -> None:
+    """Create and run availability CapacityPlanner daemon.
+
+    Budget-aware capacity management:
+    - Tracks hourly/daily spending
+    - Provides scaling recommendations
+    - Monitors cluster utilization
+
+    Subscribes to NODE_PROVISIONED, NODE_TERMINATED events.
+    Emits BUDGET_ALERT events.
+    """
+    try:
+        from app.coordination.availability.capacity_planner import get_capacity_planner
+
+        daemon = get_capacity_planner()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"CapacityPlanner not available: {e}")
+        raise
+
+
+async def create_availability_provisioner() -> None:
+    """Create and run availability Provisioner daemon.
+
+    Auto-provision new instances when capacity drops below thresholds.
+    Respects budget constraints via CapacityPlanner integration.
+
+    Subscribes to CAPACITY_LOW, NODE_FAILED_PERMANENTLY events.
+    Emits NODE_PROVISIONED, PROVISION_FAILED events.
+    """
+    try:
+        from app.coordination.availability.provisioner import get_provisioner
+
+        daemon = get_provisioner()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"Provisioner not available: {e}")
+        raise
+
+
+# =============================================================================
 # Runner Registry
 # =============================================================================
 
@@ -1477,6 +1595,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.DATA_CLEANUP.name: create_data_cleanup,
         DaemonType.DISK_SPACE_MANAGER.name: create_disk_space_manager,
         DaemonType.COORDINATOR_DISK_MANAGER.name: create_coordinator_disk_manager,
+        DaemonType.NODE_AVAILABILITY.name: create_node_availability,
         DaemonType.SYNC_PUSH.name: create_sync_push,
         DaemonType.UNIFIED_DATA_PLANE.name: create_unified_data_plane,
         DaemonType.S3_BACKUP.name: create_s3_backup,
@@ -1491,6 +1610,11 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.METRICS_ANALYSIS.name: create_metrics_analysis,
         DaemonType.DATA_CONSOLIDATION.name: create_data_consolidation,
         DaemonType.INTEGRITY_CHECK.name: create_integrity_check,
+        # Cluster Availability Manager (December 28, 2025)
+        DaemonType.AVAILABILITY_NODE_MONITOR.name: create_availability_node_monitor,
+        DaemonType.AVAILABILITY_RECOVERY_ENGINE.name: create_availability_recovery_engine,
+        DaemonType.AVAILABILITY_CAPACITY_PLANNER.name: create_availability_capacity_planner,
+        DaemonType.AVAILABILITY_PROVISIONER.name: create_availability_provisioner,
     }
 
 

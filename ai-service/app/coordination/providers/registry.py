@@ -9,9 +9,18 @@ Usage:
     provider = ProviderRegistry.get_for_node("vast-12345")
     idle_threshold = provider.idle_threshold_seconds
     shutdown_method = provider.get_shutdown_command
+
+    # Get CloudProvider instance for API operations
+    from app.coordination.providers.registry import get_provider, get_all_providers
+
+    lambda_provider = get_provider("lambda")
+    if lambda_provider and lambda_provider.is_configured():
+        instances = await lambda_provider.list_instances()
 """
 
 from __future__ import annotations
+
+import logging
 
 import re
 from dataclasses import dataclass, field
@@ -324,3 +333,89 @@ class ProviderRegistry:
             if config.idle_threshold_seconds <= max_threshold
         ]
         return sorted(matching, key=lambda c: c.idle_threshold_seconds)
+
+
+# ============================================================================
+# CloudProvider instance factory functions
+# ============================================================================
+# Re-exports from package-level __init__.py for convenience.
+# These allow importing get_provider/get_all_providers from registry.py
+# as documented in the module docstring.
+# ============================================================================
+
+logger = logging.getLogger(__name__)
+
+
+def get_provider(provider_name: str) -> "CloudProvider | None":
+    """Get a CloudProvider instance by name.
+
+    Factory function that returns actual CloudProvider instances capable
+    of performing API operations (listing instances, scaling, etc.).
+
+    This is different from ProviderRegistry.get() which returns ProviderConfig
+    (static configuration data).
+
+    Args:
+        provider_name: Provider name (e.g., "vast", "lambda", "vultr")
+
+    Returns:
+        CloudProvider instance if found and configured, None otherwise
+
+    Example:
+        >>> provider = get_provider("vast")
+        >>> if provider and provider.is_configured():
+        ...     instances = await provider.list_instances()
+    """
+    # Import from package to avoid circular imports
+    from app.coordination.providers import (
+        get_provider as _get_provider,
+        ProviderType,
+    )
+
+    # Map string name to ProviderType enum
+    name_to_type = {
+        "vast": ProviderType.VAST,
+        "vultr": ProviderType.VULTR,
+        "hetzner": ProviderType.HETZNER,
+        "lambda": ProviderType.LAMBDA,
+        "runpod": ProviderType.RUNPOD if hasattr(ProviderType, "RUNPOD") else None,
+    }
+
+    provider_type = name_to_type.get(provider_name.lower())
+    if provider_type is None:
+        logger.warning(f"Unknown provider name: {provider_name}")
+        return None
+
+    try:
+        return _get_provider(provider_type)
+    except (ImportError, ValueError) as e:
+        logger.warning(f"Failed to get provider {provider_name}: {e}")
+        return None
+
+
+def get_all_providers() -> "list[CloudProvider]":
+    """Get all configured CloudProvider instances.
+
+    Returns a list of CloudProvider instances that are properly configured
+    and can perform API operations.
+
+    Returns:
+        List of configured CloudProvider instances
+
+    Example:
+        >>> for provider in get_all_providers():
+        ...     if provider.is_configured():
+        ...         gpus = await provider.get_available_gpus()
+        ...         print(f"{provider.name}: {gpus}")
+    """
+    # Import from package to avoid circular imports
+    from app.coordination.providers import get_all_providers as _get_all_providers
+
+    return _get_all_providers()
+
+
+# Type hint for CloudProvider (avoid import at module level)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.coordination.providers.base import CloudProvider

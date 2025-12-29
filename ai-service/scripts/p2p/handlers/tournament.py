@@ -50,8 +50,7 @@ class TournamentHandlersMixin(BaseP2PHandler):
     - peers: dict
     - peers_lock: threading.Lock
     - distributed_tournament_state: dict
-    - _propose_tournament() method
-    - _run_distributed_tournament() method
+    - job_manager: JobManager (with run_distributed_tournament method)
     - _play_tournament_match() method
     """
 
@@ -61,6 +60,7 @@ class TournamentHandlersMixin(BaseP2PHandler):
     peers: dict
     peers_lock: Any
     distributed_tournament_state: dict
+    job_manager: Any  # JobManager
 
     async def handle_tournament_start(self, request: web.Request) -> web.Response:
         """Start or propose a distributed tournament.
@@ -83,26 +83,31 @@ class TournamentHandlersMixin(BaseP2PHandler):
         try:
             data = await request.json()
 
-            # Non-leaders propose tournaments via gossip consensus
+            # Non-leaders forward tournament requests to the leader
             if self.role != NodeRole.LEADER:
-                agent_ids = data.get("agent_ids", [])
-                if len(agent_ids) < 2:
-                    return self.error_response("At least 2 agents required", status=400)
+                # Find the leader's endpoint and forward the request
+                leader_id = getattr(self, 'leader_id', None)
+                if leader_id and leader_id in self.peers:
+                    leader_info = self.peers[leader_id]
+                    leader_url = getattr(leader_info, 'url', None)
+                    if leader_url:
+                        import aiohttp
+                        try:
+                            async with aiohttp.ClientSession() as session:
+                                async with session.post(
+                                    f"{leader_url.rstrip('/')}/tournament/start",
+                                    json=data,
+                                    timeout=aiohttp.ClientTimeout(total=30)
+                                ) as resp:
+                                    result = await resp.json()
+                                    return self.json_response(result)
+                        except Exception as e:
+                            logger.warning(f"Failed to forward to leader: {e}")
 
-                proposal = self._propose_tournament(
-                    board_type=data.get("board_type", "square8"),
-                    num_players=data.get("num_players", 2),
-                    agent_ids=agent_ids,
-                    games_per_pairing=data.get("games_per_pairing", 2),
+                return self.error_response(
+                    "This node is not the leader. Please send tournament requests to the leader.",
+                    status=400
                 )
-
-                return self.json_response({
-                    "success": True,
-                    "mode": "proposal",
-                    "proposal_id": proposal["proposal_id"],
-                    "status": "Proposal created, awaiting gossip consensus",
-                    "agents": agent_ids,
-                })
 
             # Leader can start tournaments directly
             job_id = f"tournament_{uuid.uuid4().hex[:8]}"
@@ -148,8 +153,8 @@ class TournamentHandlersMixin(BaseP2PHandler):
 
             logger.info(f"Started tournament {job_id}: {len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
 
-            # Launch coordinator task
-            asyncio.create_task(self._run_distributed_tournament(job_id))
+            # Launch coordinator task via JobManager
+            asyncio.create_task(self.job_manager.run_distributed_tournament(job_id))
 
             return self.json_response({
                 "success": True,

@@ -12,7 +12,12 @@ Created: Dec 28, 2025
 from .node_monitor import NodeMonitor, HealthCheckLayer, NodeHealthResult
 from .recovery_engine import RecoveryEngine, RecoveryAction, RecoveryResult
 from .provisioner import Provisioner, ProvisionResult
-from .capacity_planner import CapacityPlanner, CapacityBudget, ScaleRecommendation
+from .capacity_planner import (
+    CapacityPlanner,
+    CapacityBudget,
+    ScaleRecommendation,
+    ScaleAction,
+)
 
 __all__ = [
     # NodeMonitor
@@ -30,4 +35,5 @@ __all__ = [
     "CapacityPlanner",
     "CapacityBudget",
     "ScaleRecommendation",
+    "ScaleAction",
 ]

@@ -89,9 +89,24 @@ class NodeHealthDetails:
     # Error info
     last_error: str | None = None
     consecutive_failures: int = 0
+    last_failure_time: float = 0.0  # December 2025: For failure decay
 
     # Instance info
     instance: ProviderInstance | None = None
+
+    def decay_failures(self, decay_half_life_hours: float = 1.0) -> None:
+        """Decay consecutive failures over time.
+
+        Nodes recover reputation over time - a node that had failures
+        an hour ago shouldn't be penalized as heavily as one that just failed.
+
+        Args:
+            decay_half_life_hours: Time in hours for failures to halve (default: 1 hour)
+        """
+        if self.consecutive_failures > 0 and self.last_failure_time > 0:
+            elapsed_hours = (time.time() - self.last_failure_time) / 3600
+            decay_factor = 0.5 ** (elapsed_hours / decay_half_life_hours)
+            self.consecutive_failures = max(0, int(self.consecutive_failures * decay_factor))
 
     def is_available(self) -> bool:
         """Check if node is available for task assignment."""
@@ -228,9 +243,74 @@ class HealthCheckOrchestrator:
             self._check_loop(),
             name="health_check_loop",
         )
+
+        # December 2025: Subscribe to P2P events for fast failure detection
+        self._subscribe_to_events()
+
         logger.info(
             f"[HealthCheckOrchestrator] Started (interval={self.check_interval}s)"
         )
+
+    def _subscribe_to_events(self) -> None:
+        """Subscribe to P2P node death events for fast failure detection.
+
+        December 2025: Reduces failure detection from 120s to ~10s by responding
+        to P2P heartbeat failures immediately rather than waiting for next health check.
+        """
+        try:
+            from app.coordination.event_router import get_router
+            from app.distributed.data_events import DataEventType
+
+            router = get_router()
+            router.subscribe(DataEventType.P2P_NODE_DEAD, self._on_node_dead)
+            router.subscribe(DataEventType.P2P_NODES_DEAD, self._on_nodes_dead)
+            router.subscribe(DataEventType.HOST_OFFLINE, self._on_node_dead)
+            logger.info("[HealthCheckOrchestrator] Subscribed to P2P node death events")
+        except ImportError as e:
+            logger.debug(f"[HealthCheckOrchestrator] Event router not available: {e}")
+        except Exception as e:
+            logger.warning(f"[HealthCheckOrchestrator] Failed to subscribe to events: {e}")
+
+    async def _on_node_dead(self, event: dict) -> None:
+        """Handle P2P_NODE_DEAD or HOST_OFFLINE - immediate node status update.
+
+        This provides ~10x faster failure detection compared to waiting for the
+        next health check cycle (120s default -> ~10s P2P heartbeat timeout).
+        """
+        payload = event.get("payload", event)
+        node_id = payload.get("node_id")
+        if not node_id:
+            return
+
+        if node_id in self.node_health:
+            health = self.node_health[node_id]
+            health.state = NodeHealthState.OFFLINE
+            health.consecutive_failures += 1
+            health.last_failure_time = time.time()
+            health.last_error = payload.get("reason", "P2P dead")
+            logger.warning(
+                f"[HealthCheckOrchestrator] Node {node_id} marked OFFLINE via P2P event "
+                f"(failures={health.consecutive_failures})"
+            )
+        else:
+            # Create entry for unknown node
+            self.node_health[node_id] = NodeHealthDetails(
+                node_id=node_id,
+                provider=Provider.LAMBDA,  # Default, will be updated on next check
+                state=NodeHealthState.OFFLINE,
+                last_error=payload.get("reason", "P2P dead"),
+                consecutive_failures=1,
+                last_failure_time=time.time(),
+            )
+            logger.warning(
+                f"[HealthCheckOrchestrator] Unknown node {node_id} marked OFFLINE via P2P event"
+            )
+
+    async def _on_nodes_dead(self, event: dict) -> None:
+        """Handle batch P2P_NODES_DEAD event."""
+        payload = event.get("payload", event)
+        for node_id in payload.get("node_ids", []):
+            await self._on_node_dead({"payload": {"node_id": node_id, "reason": "batch P2P dead"}})
 
     async def stop(self) -> None:
         """Stop the health check orchestrator."""
@@ -260,16 +340,22 @@ class HealthCheckOrchestrator:
     async def run_full_health_check(self) -> dict[str, NodeHealthDetails]:
         """Run complete health check cycle.
 
-        1. Discover all instances from all providers
-        2. Run health checks in parallel
-        3. Update health state
-        4. Emit events if needed
+        1. Decay failure counters (December 2025: nodes recover reputation over time)
+        2. Discover all instances from all providers
+        3. Run health checks in parallel
+        4. Update health state
+        5. Emit events if needed
 
         Returns:
             Dict mapping node_id to health details
         """
         start = time.time()
         logger.info("[HealthCheckOrchestrator] Starting health check cycle...")
+
+        # Phase 0: Decay failure counters (December 2025)
+        # Nodes that haven't failed recently should have their failure count reduced
+        for health in self.node_health.values():
+            health.decay_failures()
 
         # Phase 1: Discover instances from all providers
         await self._discover_all_instances()
@@ -287,6 +373,7 @@ class HealthCheckOrchestrator:
                 logger.error(f"[HealthCheckOrchestrator] Check failed for {node_id}: {result}")
                 if node_id in self.node_health:
                     self.node_health[node_id].consecutive_failures += 1
+                    self.node_health[node_id].last_failure_time = time.time()  # December 2025
                     self.node_health[node_id].last_error = str(result)
                     self.node_health[node_id].state = NodeHealthState.UNHEALTHY
             else:
@@ -417,6 +504,7 @@ class HealthCheckOrchestrator:
             old_details = self.node_health.get(node_id)
             if old_details:
                 details.consecutive_failures = old_details.consecutive_failures + 1
+            details.last_failure_time = time.time()  # December 2025: Track for decay
 
         return details
 

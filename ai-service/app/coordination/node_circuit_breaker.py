@@ -1,0 +1,465 @@
+"""Per-Node Circuit Breaker for Health Checks.
+
+December 2025: Provides per-node granularity for circuit breakers in health monitoring.
+
+Problem: The existing per-component circuit breaker causes cascading failures:
+- Circuit breaker trips for "health_check" component
+- ALL nodes affected when one node is slow
+- False positives cascade across cluster
+
+Solution: Per-node circuit breakers isolate failures to individual nodes.
+A slow node only affects its own circuit, not the entire cluster.
+
+Usage:
+    from app.coordination.node_circuit_breaker import (
+        NodeCircuitBreakerRegistry,
+        get_node_circuit_breaker,
+    )
+
+    # Get circuit breaker for a specific node
+    breaker = get_node_circuit_breaker()
+
+    # Check before health check
+    if breaker.can_check(node_id):
+        try:
+            result = await check_node_health(node_id)
+            breaker.record_success(node_id)
+        except (ConnectionError, TimeoutError):
+            breaker.record_failure(node_id)
+    else:
+        # Circuit open for this node - skip check, use cached state
+
+    # Get all node states
+    summary = breaker.get_summary()
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from threading import RLock
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "NodeCircuitBreaker",
+    "NodeCircuitBreakerRegistry",
+    "NodeCircuitState",
+    "NodeCircuitStatus",
+    "get_node_circuit_breaker",
+]
+
+
+class NodeCircuitState(Enum):
+    """Circuit breaker states for node health checks."""
+
+    CLOSED = "closed"  # Normal operation - checks allowed
+    OPEN = "open"  # Too many failures - checks blocked
+    HALF_OPEN = "half_open"  # Testing recovery - limited checks
+
+
+@dataclass
+class NodeCircuitStatus:
+    """Status of a circuit for a specific node."""
+
+    node_id: str
+    state: NodeCircuitState
+    failure_count: int
+    success_count: int
+    last_failure_time: float | None
+    last_success_time: float | None
+    opened_at: float | None
+    recovery_timeout: float
+
+    @property
+    def time_until_recovery(self) -> float:
+        """Seconds until circuit transitions to half-open."""
+        if self.state != NodeCircuitState.OPEN or self.opened_at is None:
+            return 0.0
+        elapsed = time.time() - self.opened_at
+        return max(0.0, self.recovery_timeout - elapsed)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "node_id": self.node_id,
+            "state": self.state.value,
+            "failure_count": self.failure_count,
+            "success_count": self.success_count,
+            "last_failure_time": self.last_failure_time,
+            "last_success_time": self.last_success_time,
+            "opened_at": self.opened_at,
+            "recovery_timeout": self.recovery_timeout,
+            "time_until_recovery": self.time_until_recovery,
+        }
+
+
+@dataclass
+class _NodeCircuitData:
+    """Internal circuit data per node."""
+
+    state: NodeCircuitState = NodeCircuitState.CLOSED
+    failure_count: int = 0
+    success_count: int = 0
+    last_failure_time: float | None = None
+    last_success_time: float | None = None
+    opened_at: float | None = None
+    half_open_at: float | None = None
+
+
+@dataclass
+class NodeCircuitConfig:
+    """Configuration for per-node circuit breakers."""
+
+    # Number of consecutive failures to open circuit
+    failure_threshold: int = field(
+        default_factory=lambda: int(
+            os.environ.get("RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD", "5")
+        )
+    )
+
+    # Seconds to wait before testing recovery
+    recovery_timeout: float = field(
+        default_factory=lambda: float(
+            os.environ.get("RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT", "60.0")
+        )
+    )
+
+    # Successes needed in half-open to close circuit
+    success_threshold: int = 1
+
+    # Enable event emission on state changes
+    emit_events: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate configuration."""
+        if self.failure_threshold <= 0:
+            raise ValueError("failure_threshold must be > 0")
+        if self.recovery_timeout <= 0:
+            raise ValueError("recovery_timeout must be > 0")
+
+
+class NodeCircuitBreaker:
+    """Per-node circuit breaker for health check isolation.
+
+    Each node has its own circuit that can trip independently.
+    This prevents a slow/failing node from affecting health checks
+    for other nodes in the cluster.
+
+    Features:
+    - Per-node failure tracking
+    - Configurable thresholds
+    - Half-open state for gradual recovery
+    - Event callbacks for state changes
+    """
+
+    def __init__(
+        self,
+        config: NodeCircuitConfig | None = None,
+        on_state_change: Callable[[str, NodeCircuitState, NodeCircuitState], None] | None = None,
+    ):
+        """Initialize the per-node circuit breaker.
+
+        Args:
+            config: Circuit breaker configuration
+            on_state_change: Optional callback for state transitions.
+                            Called with (node_id, old_state, new_state).
+        """
+        self.config = config or NodeCircuitConfig()
+        self._on_state_change = on_state_change
+        self._circuits: dict[str, _NodeCircuitData] = {}
+        self._lock = RLock()
+
+    def _get_or_create_circuit(self, node_id: str) -> _NodeCircuitData:
+        """Get or create circuit data for a node."""
+        if node_id not in self._circuits:
+            self._circuits[node_id] = _NodeCircuitData()
+        return self._circuits[node_id]
+
+    def _check_recovery(self, circuit: _NodeCircuitData) -> None:
+        """Check if circuit should transition to half-open."""
+        if circuit.state == NodeCircuitState.OPEN:
+            if circuit.opened_at and (time.time() - circuit.opened_at) >= self.config.recovery_timeout:
+                circuit.state = NodeCircuitState.HALF_OPEN
+                circuit.half_open_at = time.time()
+
+    def _notify_state_change(
+        self, node_id: str, old_state: NodeCircuitState, new_state: NodeCircuitState
+    ) -> None:
+        """Notify callback of state change."""
+        if self._on_state_change and old_state != new_state:
+            try:
+                self._on_state_change(node_id, old_state, new_state)
+            except Exception as e:
+                logger.warning(f"[NodeCircuitBreaker] State change callback error: {e}")
+
+    def can_check(self, node_id: str) -> bool:
+        """Check if a health check is allowed for this node.
+
+        Returns True if:
+        - Circuit is CLOSED (normal operation)
+        - Circuit is HALF_OPEN (testing recovery)
+
+        Returns False if:
+        - Circuit is OPEN (blocking checks)
+        """
+        with self._lock:
+            circuit = self._get_or_create_circuit(node_id)
+            self._check_recovery(circuit)
+
+            if circuit.state == NodeCircuitState.CLOSED:
+                return True
+            elif circuit.state == NodeCircuitState.HALF_OPEN:
+                return True
+            else:  # OPEN
+                return False
+
+    def record_success(self, node_id: str) -> None:
+        """Record a successful health check for a node."""
+        old_state = None
+        new_state = None
+
+        with self._lock:
+            circuit = self._get_or_create_circuit(node_id)
+            old_state = circuit.state
+            circuit.success_count += 1
+            circuit.last_success_time = time.time()
+
+            if circuit.state == NodeCircuitState.HALF_OPEN:
+                if circuit.success_count >= self.config.success_threshold:
+                    circuit.state = NodeCircuitState.CLOSED
+                    circuit.failure_count = 0
+                    circuit.opened_at = None
+                    circuit.half_open_at = None
+                    logger.info(f"[NodeCircuitBreaker] Circuit CLOSED for {node_id}")
+            elif circuit.state == NodeCircuitState.CLOSED:
+                circuit.failure_count = 0
+
+            new_state = circuit.state
+
+        if old_state is not None and new_state is not None:
+            self._notify_state_change(node_id, old_state, new_state)
+
+    def record_failure(self, node_id: str, error: Exception | None = None) -> None:
+        """Record a failed health check for a node."""
+        old_state = None
+        new_state = None
+
+        with self._lock:
+            circuit = self._get_or_create_circuit(node_id)
+            old_state = circuit.state
+            circuit.failure_count += 1
+            circuit.last_failure_time = time.time()
+
+            if circuit.state == NodeCircuitState.HALF_OPEN:
+                circuit.state = NodeCircuitState.OPEN
+                circuit.opened_at = time.time()
+                circuit.success_count = 0
+                logger.warning(
+                    f"[NodeCircuitBreaker] Circuit OPEN for {node_id} (half-open test failed)"
+                )
+            elif circuit.state == NodeCircuitState.CLOSED:
+                if circuit.failure_count >= self.config.failure_threshold:
+                    circuit.state = NodeCircuitState.OPEN
+                    circuit.opened_at = time.time()
+                    logger.warning(
+                        f"[NodeCircuitBreaker] Circuit OPEN for {node_id} "
+                        f"({circuit.failure_count} failures)"
+                    )
+
+            new_state = circuit.state
+
+        if old_state is not None and new_state is not None:
+            self._notify_state_change(node_id, old_state, new_state)
+
+    def get_state(self, node_id: str) -> NodeCircuitState:
+        """Get current circuit state for a node."""
+        with self._lock:
+            circuit = self._get_or_create_circuit(node_id)
+            self._check_recovery(circuit)
+            return circuit.state
+
+    def get_status(self, node_id: str) -> NodeCircuitStatus:
+        """Get detailed circuit status for a node."""
+        with self._lock:
+            circuit = self._get_or_create_circuit(node_id)
+            self._check_recovery(circuit)
+            return NodeCircuitStatus(
+                node_id=node_id,
+                state=circuit.state,
+                failure_count=circuit.failure_count,
+                success_count=circuit.success_count,
+                last_failure_time=circuit.last_failure_time,
+                last_success_time=circuit.last_success_time,
+                opened_at=circuit.opened_at,
+                recovery_timeout=self.config.recovery_timeout,
+            )
+
+    def get_all_states(self) -> dict[str, NodeCircuitStatus]:
+        """Get status for all tracked nodes."""
+        with self._lock:
+            result = {}
+            for node_id in self._circuits:
+                result[node_id] = self.get_status(node_id)
+            return result
+
+    def get_open_circuits(self) -> list[str]:
+        """Get list of nodes with open circuits."""
+        with self._lock:
+            result = []
+            for node_id, circuit in self._circuits.items():
+                self._check_recovery(circuit)
+                if circuit.state == NodeCircuitState.OPEN:
+                    result.append(node_id)
+            return result
+
+    def get_summary(self) -> dict[str, Any]:
+        """Get summary of all circuit states."""
+        with self._lock:
+            closed_count = 0
+            open_count = 0
+            half_open_count = 0
+
+            for circuit in self._circuits.values():
+                self._check_recovery(circuit)
+                if circuit.state == NodeCircuitState.CLOSED:
+                    closed_count += 1
+                elif circuit.state == NodeCircuitState.OPEN:
+                    open_count += 1
+                else:
+                    half_open_count += 1
+
+            return {
+                "total_nodes": len(self._circuits),
+                "closed": closed_count,
+                "open": open_count,
+                "half_open": half_open_count,
+                "open_nodes": self.get_open_circuits(),
+            }
+
+    def reset(self, node_id: str) -> None:
+        """Reset circuit for a node to CLOSED state."""
+        with self._lock:
+            if node_id in self._circuits:
+                old_state = self._circuits[node_id].state
+                self._circuits[node_id] = _NodeCircuitData()
+                self._notify_state_change(node_id, old_state, NodeCircuitState.CLOSED)
+                logger.info(f"[NodeCircuitBreaker] Reset circuit for {node_id}")
+
+    def reset_all(self) -> None:
+        """Reset all circuits to CLOSED state."""
+        with self._lock:
+            for node_id in list(self._circuits.keys()):
+                old_state = self._circuits[node_id].state
+                self._circuits[node_id] = _NodeCircuitData()
+                self._notify_state_change(node_id, old_state, NodeCircuitState.CLOSED)
+            logger.info(f"[NodeCircuitBreaker] Reset all circuits ({len(self._circuits)} nodes)")
+
+    def force_open(self, node_id: str) -> None:
+        """Force circuit open for a node (manual intervention)."""
+        with self._lock:
+            circuit = self._get_or_create_circuit(node_id)
+            old_state = circuit.state
+            circuit.state = NodeCircuitState.OPEN
+            circuit.opened_at = time.time()
+            self._notify_state_change(node_id, old_state, NodeCircuitState.OPEN)
+
+    def force_close(self, node_id: str) -> None:
+        """Force circuit closed for a node (manual intervention)."""
+        with self._lock:
+            circuit = self._get_or_create_circuit(node_id)
+            old_state = circuit.state
+            circuit.state = NodeCircuitState.CLOSED
+            circuit.failure_count = 0
+            circuit.opened_at = None
+            circuit.half_open_at = None
+            self._notify_state_change(node_id, old_state, NodeCircuitState.CLOSED)
+
+
+# =============================================================================
+# Registry and Singleton Access
+# =============================================================================
+
+
+class NodeCircuitBreakerRegistry:
+    """Registry for per-operation-type node circuit breakers.
+
+    Different operation types (health_check, gossip, sync) may have
+    different circuit breaker configurations.
+    """
+
+    _instance: NodeCircuitBreakerRegistry | None = None
+    _lock = RLock()
+
+    def __init__(self):
+        self._breakers: dict[str, NodeCircuitBreaker] = {}
+        self._default_config = NodeCircuitConfig()
+
+    @classmethod
+    def get_instance(cls) -> NodeCircuitBreakerRegistry:
+        """Get singleton instance."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton instance (for testing)."""
+        with cls._lock:
+            cls._instance = None
+
+    def get_breaker(
+        self,
+        operation_type: str = "health_check",
+        config: NodeCircuitConfig | None = None,
+    ) -> NodeCircuitBreaker:
+        """Get or create a node circuit breaker for an operation type."""
+        with self._lock:
+            if operation_type not in self._breakers:
+                self._breakers[operation_type] = NodeCircuitBreaker(
+                    config=config or self._default_config
+                )
+            return self._breakers[operation_type]
+
+    def get_all_summaries(self) -> dict[str, dict[str, Any]]:
+        """Get summary for all operation types."""
+        with self._lock:
+            return {
+                op_type: breaker.get_summary()
+                for op_type, breaker in self._breakers.items()
+            }
+
+
+# Module-level singleton access
+_registry: NodeCircuitBreakerRegistry | None = None
+
+
+def get_node_circuit_breaker(operation_type: str = "health_check") -> NodeCircuitBreaker:
+    """Get the node circuit breaker for an operation type.
+
+    This is the main entry point for per-node circuit breaking in health checks.
+
+    Args:
+        operation_type: Type of operation (default: "health_check")
+
+    Returns:
+        NodeCircuitBreaker instance
+    """
+    global _registry
+    if _registry is None:
+        _registry = NodeCircuitBreakerRegistry.get_instance()
+    return _registry.get_breaker(operation_type)
+
+
+def get_node_circuit_registry() -> NodeCircuitBreakerRegistry:
+    """Get the global node circuit breaker registry."""
+    global _registry
+    if _registry is None:
+        _registry = NodeCircuitBreakerRegistry.get_instance()
+    return _registry

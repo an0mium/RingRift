@@ -273,6 +273,24 @@ class DaemonType(Enum):
     # Components: DataCatalog, SyncPlanner v2, TransportManager, EventBridge
     UNIFIED_DATA_PLANE = "unified_data_plane"
 
+    # Node availability daemon (December 28, 2025) - syncs provider instance state with YAML config
+    # Queries cloud provider APIs (Vast, Lambda, RunPod) and updates distributed_hosts.yaml
+    # Solves the problem of stale config where nodes are marked 'ready' but actually terminated
+    NODE_AVAILABILITY = "node_availability"
+
+    # =========================================================================
+    # Cluster Availability Manager daemons (December 28, 2025)
+    # Provides automated cluster availability management:
+    # - NodeMonitor: Multi-layer health checking (P2P, SSH, GPU, Provider API)
+    # - RecoveryEngine: Escalating recovery strategies
+    # - Provisioner: Auto-provision new instances when capacity drops
+    # - CapacityPlanner: Budget-aware capacity management
+    # =========================================================================
+    AVAILABILITY_NODE_MONITOR = "availability_node_monitor"
+    AVAILABILITY_RECOVERY_ENGINE = "availability_recovery_engine"
+    AVAILABILITY_PROVISIONER = "availability_provisioner"
+    AVAILABILITY_CAPACITY_PLANNER = "availability_capacity_planner"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -610,6 +628,20 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     DaemonType.HEALTH_CHECK: set(),  # DEPRECATED: Use NODE_HEALTH_MONITOR
     DaemonType.CLUSTER_DATA_SYNC: set(),  # DEPRECATED: Use AUTO_SYNC
     DaemonType.EPHEMERAL_SYNC: set(),  # DEPRECATED: Use AUTO_SYNC
+
+    # =========================================================================
+    # Cluster Availability Manager dependencies (December 28, 2025)
+    # =========================================================================
+    DaemonType.AVAILABILITY_NODE_MONITOR: {DaemonType.EVENT_ROUTER},
+    DaemonType.AVAILABILITY_RECOVERY_ENGINE: {
+        DaemonType.EVENT_ROUTER,
+        DaemonType.AVAILABILITY_NODE_MONITOR,
+    },
+    DaemonType.AVAILABILITY_CAPACITY_PLANNER: {DaemonType.EVENT_ROUTER},
+    DaemonType.AVAILABILITY_PROVISIONER: {
+        DaemonType.EVENT_ROUTER,
+        DaemonType.AVAILABILITY_CAPACITY_PLANNER,
+    },
 }
 
 

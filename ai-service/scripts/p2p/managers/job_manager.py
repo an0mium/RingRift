@@ -264,6 +264,156 @@ class JobManager(EventSubscriptionMixin):
         logger.debug(f"Cannot determine GPU capability for worker: {worker}")
         return False
 
+    # =========================================================================
+    # Pre-flight Node Validation (December 2025)
+    # =========================================================================
+
+    async def _preflight_check_node(
+        self, node_id: str, timeout: float = 5.0
+    ) -> tuple[bool, str]:
+        """Quick health check before dispatching job to node.
+
+        Performs a fast SSH probe and checks P2P alive status to avoid
+        dispatching jobs to dead or unreachable nodes.
+
+        Args:
+            node_id: The node ID to check
+            timeout: Maximum time to wait for probe response (default: 5s)
+
+        Returns:
+            Tuple of (is_available, reason).
+            - (True, "ok") if node is available
+            - (False, reason) if node is unavailable with reason string
+
+        December 2025: Added as part of cluster availability fix to prevent
+        dispatching jobs to unavailable nodes.
+        """
+        # Check 1: Node in alive peers
+        with self.peers_lock:
+            if node_id not in self.peers:
+                return False, "not_in_peers"
+            peer = self.peers.get(node_id)
+            if peer and hasattr(peer, "status"):
+                if peer.status in ("offline", "dead", "retired"):
+                    return False, f"peer_status_{peer.status}"
+
+        # Check 2: Quick SSH probe
+        try:
+            from app.core.ssh import run_ssh_command_async
+
+            result = await asyncio.wait_for(
+                run_ssh_command_async(node_id, "echo ok", timeout=timeout),
+                timeout=timeout + 1
+            )
+            if not result or not result.success:
+                stderr_preview = (result.stderr[:100] if result and result.stderr else "no result")
+                return False, f"ssh_probe_failed: {stderr_preview}"
+
+            return True, "ok"
+        except asyncio.TimeoutError:
+            return False, "ssh_timeout"
+        except ImportError:
+            # SSH module not available, skip check
+            logger.debug(f"SSH module not available for preflight check of {node_id}")
+            return True, "ssh_unavailable_skipped"
+        except Exception as e:
+            return False, f"preflight_error: {e}"
+
+    async def _check_gpu_health(self, node_id: str, timeout: float = 10.0) -> tuple[bool, str]:
+        """Verify GPU is available and not in error state.
+
+        Runs nvidia-smi on the target node to check for CUDA errors,
+        busy GPUs, or other GPU-related issues before dispatching GPU jobs.
+
+        Args:
+            node_id: The node ID to check
+            timeout: Maximum time to wait for nvidia-smi (default: 10s)
+
+        Returns:
+            Tuple of (is_healthy, reason).
+            - (True, "ok") if GPU is healthy
+            - (False, reason) if GPU has issues
+
+        December 2025: Added as part of cluster availability fix to prevent
+        dispatching to nodes with CUDA errors.
+        """
+        try:
+            from app.core.ssh import run_ssh_command_async
+
+            result = await asyncio.wait_for(
+                run_ssh_command_async(
+                    node_id,
+                    "nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader 2>&1",
+                    timeout=timeout
+                ),
+                timeout=timeout + 1
+            )
+            if not result or not result.success:
+                stderr = result.stderr if result else "no result"
+                return False, f"nvidia_smi_failed: {stderr[:100]}"
+
+            output = (result.stdout or "").lower()
+            stderr = (result.stderr or "").lower()
+
+            # Check for CUDA errors
+            if "cuda" in stderr and "error" in stderr:
+                return False, f"cuda_error: {result.stderr[:100]}"
+            if "no devices" in output or "no devices" in stderr:
+                return False, "no_gpu_devices"
+            if "busy" in stderr or "unavailable" in stderr:
+                return False, "gpu_busy_or_unavailable"
+            if "failed" in stderr:
+                return False, f"nvidia_smi_error: {stderr[:100]}"
+
+            return True, "ok"
+        except asyncio.TimeoutError:
+            return False, "gpu_check_timeout"
+        except ImportError:
+            logger.debug(f"SSH module not available for GPU health check of {node_id}")
+            return True, "ssh_unavailable_skipped"
+        except Exception as e:
+            return False, f"gpu_check_error: {e}"
+
+    async def validate_node_for_job(
+        self,
+        node_id: str,
+        requires_gpu: bool = False,
+        preflight_timeout: float = 5.0,
+        gpu_check_timeout: float = 10.0,
+    ) -> tuple[bool, str]:
+        """Validate that a node is suitable for running a job.
+
+        Combines preflight check and optional GPU health check into a single
+        validation call that can be used before job dispatch.
+
+        Args:
+            node_id: The node ID to validate
+            requires_gpu: Whether the job requires GPU (triggers GPU health check)
+            preflight_timeout: Timeout for SSH probe
+            gpu_check_timeout: Timeout for GPU health check
+
+        Returns:
+            Tuple of (is_valid, reason).
+            - (True, "ok") if node is valid for the job
+            - (False, reason) if node cannot accept the job
+
+        December 2025: Convenience method combining preflight and GPU checks.
+        """
+        # Step 1: Basic preflight check
+        is_available, reason = await self._preflight_check_node(node_id, preflight_timeout)
+        if not is_available:
+            logger.warning(f"Node {node_id} failed preflight check: {reason}")
+            return False, f"preflight_{reason}"
+
+        # Step 2: GPU health check if required
+        if requires_gpu:
+            is_healthy, gpu_reason = await self._check_gpu_health(node_id, gpu_check_timeout)
+            if not is_healthy:
+                logger.warning(f"Node {node_id} failed GPU health check: {gpu_reason}")
+                return False, f"gpu_{gpu_reason}"
+
+        return True, "ok"
+
     # Event Subscriptions (December 2025)
     # =========================================================================
 
@@ -868,6 +1018,22 @@ class JobManager(EventSubscriptionMixin):
                     }
                     continue
 
+                # December 2025: Pre-flight validation before dispatch
+                # Verify node is reachable and GPU is healthy (if required)
+                is_valid, validation_reason = await self.validate_node_for_job(
+                    worker_id, requires_gpu=gpu_required
+                )
+                if not is_valid:
+                    logger.warning(
+                        f"Skipping worker {worker_id}: failed validation - {validation_reason}"
+                    )
+                    results[worker_id] = {
+                        "success": False,
+                        "error": f"validation_failed: {validation_reason}",
+                        "skipped": True,
+                    }
+                    continue
+
                 url = f"http://{worker_ip}:{worker_port}/run-selfplay"
                 payload = {
                     "job_id": f"{job_id}_{worker_id}",
@@ -1271,22 +1437,23 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
             state.status = "running"
 
             # Get tournament configuration
-            models = getattr(state, "models", [])
-            games_per_pair = getattr(state, "games_per_pair", 10)
+            # Support both old (models/games_per_pair) and new (agent_ids/games_per_pairing) attribute names
+            agent_ids = getattr(state, "agent_ids", None) or getattr(state, "models", [])
+            games_per_pairing = getattr(state, "games_per_pairing", None) or getattr(state, "games_per_pair", 10)
             board_type = getattr(state, "board_type", "hex8")
             num_players = getattr(state, "num_players", 2)
 
-            if len(models) < 2:
-                logger.warning(f"Tournament {job_id} needs at least 2 models")
-                state.status = "error: not enough models"
+            if len(agent_ids) < 2:
+                logger.warning(f"Tournament {job_id} needs at least 2 agents")
+                state.status = "error: not enough agents"
                 return
 
             # Generate match pairings (round-robin)
-            matches = self._generate_tournament_matches(models, games_per_pair)
+            matches = self._generate_tournament_matches(agent_ids, games_per_pairing)
             state.total_matches = len(matches)
             state.completed_matches = 0
 
-            logger.info(f"Tournament {job_id}: {len(matches)} matches for {len(models)} models")
+            logger.info(f"Tournament {job_id}: {len(matches)} matches for {len(agent_ids)} agents")
 
             # Get available workers
             workers = self._get_tournament_workers()

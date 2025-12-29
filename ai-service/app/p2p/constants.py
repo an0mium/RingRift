@@ -46,16 +46,18 @@ TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 # Dec 2025 (Phase 2): Reduced from 30s to 15s for faster failure detection
 # Matches RELAY_HEARTBEAT_INTERVAL. 10s would match voters but may cause
 # false positives on congested networks.
-HEARTBEAT_INTERVAL = 15  # seconds
+# Dec 2025: Now configurable via environment variable for cluster tuning.
+HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_HEARTBEAT_INTERVAL", "15") or 15)
 # Dec 2025: Increased from 60s to 90s - 2x HTTP_TOTAL_TIMEOUT (45s) to prevent
 # false-positive node deaths from slow HTTP requests. With 15s heartbeats, 6 missed = dead.
 # Environment variable allows runtime tuning without code changes.
 PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "90") or 90)
 # SUSPECT grace period: nodes transition ALIVE -> SUSPECT -> DEAD
-# Dec 2025: 30s grace prevents transient network issues from causing failover
-# With 15s heartbeats, this means 2 missed = suspect, 4 missed = dead
-SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "30") or 30)
-ELECTION_TIMEOUT = 10  # seconds to wait for election responses
+# Dec 2025: Increased from 30s to 60s to reduce false positives from transient network issues
+# With 15s heartbeats, this means 4 missed = suspect, 8 missed = dead
+SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "60") or 60)
+# Election timeout configurable for aggressive failover mode
+ELECTION_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_ELECTION_TIMEOUT", "10") or 10)
 
 # Leader lease must be comfortably larger than the heartbeat cadence
 # LEARNED LESSONS: Increased from 90s to 180s - network latency between cloud providers
@@ -172,7 +174,11 @@ GOSSIP_MAX_PEER_ENDPOINTS = int(
 
 # Peer lifecycle
 PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "3600") or 3600)
-RETRY_RETIRED_NODE_INTERVAL = int(os.environ.get("RINGRIFT_P2P_RETRY_RETIRED_NODE_INTERVAL", "3600") or 3600)
+# Dec 2025: CRITICAL FIX - Changed from 3600 (1 hour) to 120 (2 minutes) for active peer recovery
+# Renamed from RETRY_RETIRED_NODE_INTERVAL to PEER_RECOVERY_RETRY_INTERVAL for clarity
+PEER_RECOVERY_RETRY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "120") or 120)
+# Backward compat alias (deprecated - use PEER_RECOVERY_RETRY_INTERVAL)
+RETRY_RETIRED_NODE_INTERVAL = PEER_RECOVERY_RETRY_INTERVAL
 PEER_PURGE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_PURGE_AFTER_SECONDS", "21600") or 21600)
 
 # Peer cache / reputation settings
@@ -184,8 +190,9 @@ PEER_REPUTATION_ALPHA = float(os.environ.get("RINGRIFT_P2P_PEER_REPUTATION_ALPHA
 # NAT/Relay Settings
 # ============================================
 
-NAT_INBOUND_HEARTBEAT_STALE_SECONDS = 180
-RELAY_HEARTBEAT_INTERVAL = 15
+# Dec 2025: Made configurable for cluster tuning
+NAT_INBOUND_HEARTBEAT_STALE_SECONDS = int(os.environ.get("RINGRIFT_P2P_NAT_STALE_SECONDS", "180") or 180)
+RELAY_HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_RELAY_HEARTBEAT_INTERVAL", "15") or 15)
 RELAY_COMMAND_TTL_SECONDS = 1800
 RELAY_COMMAND_MAX_BATCH = 16
 RELAY_COMMAND_MAX_ATTEMPTS = 3
@@ -283,6 +290,47 @@ SWIM_INDIRECT_PING_COUNT = int(os.environ.get("RINGRIFT_SWIM_INDIRECT_PING_COUNT
 
 MEMBERSHIP_MODE = os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "http")
 CONSENSUS_MODE = os.environ.get("RINGRIFT_CONSENSUS_MODE", "bully")
+
+# ============================================
+# Aggressive Failover Mode (Dec 2025)
+# ============================================
+# When enabled, reduces failover time from ~270s to ~120s at the cost of
+# potential false positives during network congestion. Opt-in only.
+#
+# Default timeline (conservative): 90s peer timeout + 60s suspect + 180s lease = ~330s worst case
+# Aggressive timeline: 45s peer timeout + 30s suspect + 60s lease = ~135s worst case
+AGGRESSIVE_FAILOVER_ENABLED = os.environ.get("RINGRIFT_P2P_AGGRESSIVE_FAILOVER", "").lower() in {"1", "true", "yes", "on"}
+
+# Aggressive mode timeout overrides (only used when AGGRESSIVE_FAILOVER_ENABLED=true)
+AGGRESSIVE_PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_AGGRESSIVE_PEER_TIMEOUT", "45") or 45)
+AGGRESSIVE_SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_AGGRESSIVE_SUSPECT_TIMEOUT", "30") or 30)
+AGGRESSIVE_LEADER_LEASE_DURATION = int(os.environ.get("RINGRIFT_P2P_AGGRESSIVE_LEASE_DURATION", "60") or 60)
+AGGRESSIVE_ELECTION_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_AGGRESSIVE_ELECTION_TIMEOUT", "5") or 5)
+
+# Helper functions to get effective timeout values based on mode
+def get_effective_peer_timeout() -> int:
+    """Return peer timeout based on failover mode."""
+    if AGGRESSIVE_FAILOVER_ENABLED:
+        return AGGRESSIVE_PEER_TIMEOUT
+    return PEER_TIMEOUT
+
+def get_effective_suspect_timeout() -> int:
+    """Return suspect timeout based on failover mode."""
+    if AGGRESSIVE_FAILOVER_ENABLED:
+        return AGGRESSIVE_SUSPECT_TIMEOUT
+    return SUSPECT_TIMEOUT
+
+def get_effective_leader_lease_duration() -> int:
+    """Return leader lease duration based on failover mode."""
+    if AGGRESSIVE_FAILOVER_ENABLED:
+        return AGGRESSIVE_LEADER_LEASE_DURATION
+    return LEADER_LEASE_DURATION
+
+def get_effective_election_timeout() -> int:
+    """Return election timeout based on failover mode."""
+    if AGGRESSIVE_FAILOVER_ENABLED:
+        return AGGRESSIVE_ELECTION_TIMEOUT
+    return ELECTION_TIMEOUT
 
 # ============================================
 # Environment Variable Names (for reference)

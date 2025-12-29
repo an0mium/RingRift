@@ -91,6 +91,10 @@ from .discovery_loop import (
 )
 from .manifest_collection_loop import ManifestCollectionLoop
 from .queue_populator_loop import QueuePopulatorLoop
+from .peer_recovery_loop import (
+    PeerRecoveryConfig,
+    PeerRecoveryLoop,
+)
 from .resilience_loops import (
     PredictiveMonitoringConfig,
     PredictiveMonitoringLoop,
@@ -155,6 +159,9 @@ __all__ = [
     "TrainingSyncLoop",
     # Manifest
     "ManifestCollectionLoop",
+    # Peer Recovery (Dec 2025)
+    "PeerRecoveryConfig",
+    "PeerRecoveryLoop",
     # Resilience
     "PredictiveMonitoringConfig",
     "PredictiveMonitoringLoop",
