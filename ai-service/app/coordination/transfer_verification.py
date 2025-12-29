@@ -130,6 +130,26 @@ class TransferVerifier(SingletonMixin):
         self._local = threading.local()
         self._init_db()
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance, closing thread-local connections first.
+
+        December 28, 2025: Override to properly close thread-local SQLite
+        connections before resetting, preventing connection leaks in tests.
+        """
+        # Close the current thread's connection before reset
+        if cls.has_instance():
+            instance = cls._instances.get(cls)
+            if instance is not None and hasattr(instance, "_local"):
+                if hasattr(instance._local, "conn") and instance._local.conn is not None:
+                    try:
+                        instance._local.conn.close()
+                    except Exception:
+                        pass  # Ignore errors during cleanup
+                    instance._local.conn = None
+        # Call parent reset
+        super().reset_instance()
+
     # =========================================================================
     # Database Management
     # =========================================================================
