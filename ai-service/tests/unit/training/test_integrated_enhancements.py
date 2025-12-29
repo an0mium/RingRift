@@ -176,14 +176,20 @@ class TestIntegratedTrainingManagerMethods:
         return IntegratedTrainingManager(config=config)
 
     def test_update_step(self, manager) -> None:
-        """Test step counter updates."""
+        """Test step counter increments on each call."""
         assert manager._step == 0
 
-        manager.update_step(100)
-        assert manager._step == 100
+        # update_step() increments by 1 each call
+        manager.update_step()
+        assert manager._step == 1
 
-        manager.update_step(200)
-        assert manager._step == 200
+        manager.update_step()
+        assert manager._step == 2
+
+        # Call multiple times
+        for _ in range(5):
+            manager.update_step()
+        assert manager._step == 7
 
     def test_get_batch_size_without_scheduler(self, manager) -> None:
         """Test batch size returns default when scheduler not initialized."""

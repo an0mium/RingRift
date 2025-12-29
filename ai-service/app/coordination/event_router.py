@@ -1217,7 +1217,8 @@ class UnifiedEventRouter:
                         f"[EventRouter] Could not load handler for {sub.subscriber_name}: "
                         f"{sub.handler_path}"
                     )
-            except Exception as e:
+            except (ImportError, ModuleNotFoundError, AttributeError, ValueError, TypeError) as e:
+                # Dec 29: Narrowed from Exception to specific handler loading errors
                 logger.warning(
                     f"[EventRouter] Failed to restore subscription {sub.subscriber_name}: {e}"
                 )
@@ -1282,7 +1283,8 @@ class UnifiedEventRouter:
                 "[EventRouter] Subscription store unavailable - cannot replay DLQ"
             )
             return 0
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError, TypeError, asyncio.CancelledError) as e:
+            # Dec 29: Narrowed from Exception to specific store/async errors
             logger.warning(f"[EventRouter] Failed to replay DLQ events: {e}")
             return 0
 
