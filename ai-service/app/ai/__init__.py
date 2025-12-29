@@ -29,8 +29,8 @@ Architecture (December 2025):
 """
 
 # Factory is safe to import (uses lazy loading internally)
-# Import base class (no circular dependency issues)
-from app.ai.base import BaseAI
+# NOTE (Dec 2025): BaseAI is NOW LAZY to avoid triggering app.training imports
+# The import chain was: base.py -> training.seed_utils -> training/__init__.py -> torch
 from app.ai.factory import (
     CANONICAL_DIFFICULTY_PROFILES,
     DIFFICULTY_DESCRIPTIONS,
@@ -50,7 +50,9 @@ from app.ai.factory import (
 )
 
 # Lazy-load AI implementations to avoid circular imports
+# NOTE (Dec 2025): BaseAI is now lazy to avoid triggering app.training imports
 _AI_CLASSES = {
+    "BaseAI": "app.ai.base",  # LAZY to avoid training.seed_utils -> training/__init__ -> torch
     "HeuristicAI": "app.ai.heuristic_ai",
     "MCTSAI": "app.ai.mcts_ai",
     "DescentAI": "app.ai.descent_ai",
