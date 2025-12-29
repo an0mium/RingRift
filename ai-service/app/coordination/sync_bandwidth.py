@@ -108,11 +108,39 @@ class BandwidthAllocation:
     allocated_at: float = field(default_factory=time.time)
     transfer_id: str = ""
     expires_at: float = 0.0
+    # December 2025: Added for backward compatibility with tests
+    granted: bool = True
+    allocation_id: str = ""
+
+    def __post_init__(self):
+        """Set allocation_id from transfer_id if not provided."""
+        if not self.allocation_id and self.transfer_id:
+            self.allocation_id = self.transfer_id
 
     @property
     def is_expired(self) -> bool:
         """Check if allocation has expired."""
         return self.expires_at > 0 and time.time() > self.expires_at
+
+    @property
+    def bwlimit_mbps(self) -> float:
+        """Get bandwidth limit in MB/s."""
+        return self.bwlimit_kbps / 1024.0
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary representation."""
+        return {
+            "host": self.host,
+            "priority": self.priority.value,
+            "bwlimit_kbps": self.bwlimit_kbps,
+            "bwlimit_mbps": self.bwlimit_mbps,
+            "allocated_at": self.allocated_at,
+            "transfer_id": self.transfer_id,
+            "allocation_id": self.allocation_id,
+            "expires_at": self.expires_at,
+            "granted": self.granted,
+            "is_expired": self.is_expired,
+        }
 
 
 @dataclass
@@ -437,6 +465,159 @@ class BandwidthManager:
                 status=CoordinatorStatus.ERROR,
                 message=f"BandwidthManager health check error: {e}",
             )
+
+    # =========================================================================
+    # Sync API (December 2025) - Wrapper methods for convenience functions
+    # =========================================================================
+
+    def request(
+        self,
+        host: str,
+        estimated_mb: int,
+        priority: TransferPriority = TransferPriority.NORMAL,
+    ) -> BandwidthAllocation:
+        """Request bandwidth allocation (sync version).
+
+        This is a synchronous wrapper for convenience functions.
+        For async code, use request_allocation() instead.
+
+        Args:
+            host: Target host for the transfer.
+            estimated_mb: Estimated transfer size in MB.
+            priority: Transfer priority level.
+
+        Returns:
+            BandwidthAllocation with granted=True and allocation details.
+        """
+        import uuid
+        transfer_id = str(uuid.uuid4())
+
+        # Calculate bandwidth limit based on priority and host
+        if self.config.enable_adaptive and host in self.config.host_bandwidth_hints:
+            base_limit = self.config.host_bandwidth_hints[host]
+        else:
+            base_limit = self.config.per_host_limit_kbps
+
+        multiplier = self.config.priority_multipliers.get(priority, 1.0)
+
+        # Adjust for current host usage
+        current_host_usage = self._host_usage.get(host, 0)
+        host_max = self.config.host_bandwidth_hints.get(host, self.config.per_host_limit_kbps)
+        available = host_max - current_host_usage
+
+        # Apply priority multiplier but cap at available
+        bwlimit = int(min(base_limit * multiplier, available, self.config.max_bwlimit_kbps))
+        bwlimit = max(bwlimit, self.config.min_bwlimit_kbps)
+
+        allocation = BandwidthAllocation(
+            host=host,
+            priority=priority,
+            bwlimit_kbps=bwlimit,
+            transfer_id=transfer_id,
+            expires_at=time.time() + self.config.allocation_timeout_seconds,
+            granted=True,
+            allocation_id=transfer_id,
+        )
+
+        # Track allocation
+        self._allocations[transfer_id] = allocation
+        self._host_usage[host] = self._host_usage.get(host, 0) + bwlimit
+        self._host_transfers[host] = self._host_transfers.get(host, 0) + 1
+
+        return allocation
+
+    def release(
+        self,
+        allocation_id: str,
+        bytes_transferred: int = 0,
+        duration_seconds: float = 0,
+    ) -> bool:
+        """Release bandwidth allocation (sync version).
+
+        This is a synchronous wrapper for convenience functions.
+        For async code, use release_allocation() instead.
+
+        Args:
+            allocation_id: ID of the allocation to release.
+            bytes_transferred: Actual bytes transferred (for stats).
+            duration_seconds: Transfer duration (for stats).
+
+        Returns:
+            True if allocation was found and released, False otherwise.
+        """
+        if allocation_id not in self._allocations:
+            return False
+
+        allocation = self._allocations[allocation_id]
+        del self._allocations[allocation_id]
+
+        # Update host tracking
+        host = allocation.host
+        self._host_usage[host] = max(
+            0, self._host_usage.get(host, 0) - allocation.bwlimit_kbps
+        )
+        self._host_transfers[host] = max(
+            0, self._host_transfers.get(host, 0) - 1
+        )
+
+        # Cleanup any other expired allocations
+        self._cleanup_expired()
+
+        return True
+
+    def get_host_status(self, host: str) -> dict:
+        """Get bandwidth status for a specific host.
+
+        Args:
+            host: Host to get status for.
+
+        Returns:
+            Dict with host bandwidth status.
+        """
+        return {
+            "host": host,
+            "usage_kbps": self._host_usage.get(host, 0),
+            "transfers": self._host_transfers.get(host, 0),
+            "limit_kbps": self.config.host_bandwidth_hints.get(
+                host, self.config.per_host_limit_kbps
+            ),
+            "available_kbps": self.config.host_bandwidth_hints.get(
+                host, self.config.per_host_limit_kbps
+            ) - self._host_usage.get(host, 0),
+        }
+
+    def get_optimal_time(self, host: str, size_mb: int) -> tuple:
+        """Get optimal time to transfer based on current load.
+
+        Args:
+            host: Target host.
+            size_mb: Transfer size in MB.
+
+        Returns:
+            Tuple of (estimated_seconds, reason).
+        """
+        status = self.get_host_status(host)
+        available_kbps = max(status.get("available_kbps", 0), self.config.min_bwlimit_kbps)
+        size_kb = size_mb * 1024
+
+        estimated_seconds = size_kb / available_kbps if available_kbps > 0 else float("inf")
+
+        if estimated_seconds == float("inf"):
+            reason = "no_bandwidth_available"
+        elif status.get("transfers", 0) == 0:
+            reason = "host_idle"
+        else:
+            reason = f"{status.get('transfers', 0)}_active_transfers"
+
+        return (estimated_seconds, reason)
+
+    def get_stats_sync(self) -> dict:
+        """Get bandwidth stats (sync version).
+
+        Returns:
+            Dict with bandwidth statistics.
+        """
+        return self.get_status()
 
 
 # Phase 5 (Dec 2025): Use canonical SyncResult from sync_constants

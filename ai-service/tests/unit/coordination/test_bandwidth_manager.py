@@ -21,19 +21,11 @@ from app.coordination.bandwidth_manager import (
 
 
 @pytest.fixture
-def temp_db():
-    """Provide a temporary database path."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        yield Path(tmpdir) / "test_bandwidth.db"
-
-
-@pytest.fixture
-def manager(temp_db):
+def manager():
     """Provide a fresh BandwidthManager for each test."""
     reset_bandwidth_manager()
-    mgr = BandwidthManager(db_path=temp_db)
+    mgr = BandwidthManager()
     yield mgr
-    mgr.close()
     reset_bandwidth_manager()
 
 
