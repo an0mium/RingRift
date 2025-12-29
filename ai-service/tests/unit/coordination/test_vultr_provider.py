@@ -201,8 +201,13 @@ class TestVultrProviderFindCli:
     def test_find_cli_via_which(self):
         """Find CLI via shutil.which."""
         from app.coordination.providers.vultr_provider import VultrProvider
+
+        def mock_exists(self):
+            """Mock Path.exists - returns True only for the which() result."""
+            return str(self) == "/usr/bin/vultr-cli"
+
         with patch("shutil.which", return_value="/usr/bin/vultr-cli"):
-            with patch.object(Path, "exists", return_value=False):  # Prevent fallback paths
+            with patch.object(Path, "exists", mock_exists):
                 provider = VultrProvider.__new__(VultrProvider)
                 result = provider._find_cli()
                 assert result == "/usr/bin/vultr-cli"
@@ -210,11 +215,17 @@ class TestVultrProviderFindCli:
     def test_find_cli_home_local(self):
         """Find CLI in ~/.local/bin."""
         from app.coordination.providers.vultr_provider import VultrProvider
+
+        def mock_exists(self):
+            """Mock Path.exists - returns True for home .local path."""
+            return ".local/bin/vultr-cli" in str(self)
+
         with patch("shutil.which", return_value=None):
-            with patch.object(Path, "exists", return_value=True):
+            with patch.object(Path, "exists", mock_exists):
                 provider = VultrProvider.__new__(VultrProvider)
                 result = provider._find_cli()
                 assert result is not None
+                assert ".local/bin/vultr-cli" in result
 
     def test_find_cli_not_found(self):
         """Return None when CLI not found."""

@@ -116,9 +116,9 @@ class TestDeterministicTiebreaker:
         # We verify the tiebreaker exists in the code
         import inspect
 
-        source = inspect.getsource(MutableGameState._check_for_game_end)
+        source = inspect.getsource(MutableGameState._check_victory_conditions)
         assert "all_player_numbers" in source, (
-            "Deterministic tiebreaker not found in MutableGameState._check_for_game_end"
+            "Deterministic tiebreaker not found in MutableGameState._check_victory_conditions"
         )
         assert "min(all_player_numbers)" in source, (
             "Tiebreaker should use min() to select lowest player number"
