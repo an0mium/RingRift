@@ -175,9 +175,10 @@ class NodeConfig:
     hostname: str
     tailscale_ip: str | None = None
     ssh_port: int = 22
-    http_port: int = 8080
+    http_port: int = 8770  # P2P port for HTTP file sync
     http_scheme: str = "http"
     base_path: str = "ai-service"
+    p2p_port: int = 8770  # Explicit P2P port for file download endpoints
 
     @property
     def http_base_url(self) -> str:
@@ -280,10 +281,12 @@ class ClusterTransport:
         # 1. Tailscale (direct IP, fastest if available)
         # 2. SSH/rsync (hostname-based, reliable, supports resume)
         # 3. Base64 (text-safe, works when binary streams fail)
+        # 4. HTTP (P2P file download endpoints, works when all SSH fails)
         transports = [
             ("tailscale", self._transfer_via_tailscale),
             ("ssh", self._transfer_via_ssh),
             ("base64", self._transfer_via_base64),
+            ("http", self._transfer_via_http),
         ]
 
         for transport_name, transport_fn in transports:
@@ -511,6 +514,105 @@ class ClusterTransport:
             return TransportResult(success=False, error=f"Base64 decode error: {e}")
         except (OSError, IOError) as e:
             return TransportResult(success=False, error=str(e))
+
+    async def _transfer_via_http(
+        self,
+        local_path: Path,
+        remote_path: str,
+        node: NodeConfig,
+        direction: str,
+    ) -> TransportResult:
+        """Transfer file via HTTP using P2P file download endpoints.
+
+        This transport uses the /files/models/ and /files/data/ endpoints
+        on the P2P orchestrator (port 8770) to download files when SSH fails.
+
+        **When this is useful:**
+        - All SSH-based transports fail (connection resets, timeouts)
+        - Pulling files from nodes with P2P orchestrator running
+        - Large files where SSH connections are unstable
+
+        **Limitations:**
+        - Currently only supports "pull" direction (remote -> local)
+        - Requires P2P orchestrator to be running on the remote node
+        - Only supports files in models/ or data/ directories
+
+        December 2025 - Added as permanent workaround for SSH connectivity issues
+        """
+        if direction == "push":
+            # HTTP push not supported yet - would need to implement upload endpoint
+            return TransportResult(
+                success=False,
+                error="HTTP push not implemented - use rsync/base64 for push",
+            )
+
+        try:
+            import aiohttp
+        except ImportError:
+            return TransportResult(success=False, error="aiohttp not available")
+
+        # Determine the file type and endpoint from the path
+        # Expected remote_path format: ai-service/models/foo.pth or ai-service/data/foo.db
+        if "models/" in remote_path:
+            # Extract filename after models/
+            file_name = remote_path.split("models/")[-1]
+            endpoint = f"/files/models/{file_name}"
+        elif "data/" in remote_path:
+            # Extract filename after data/
+            file_name = remote_path.split("data/")[-1]
+            endpoint = f"/files/data/{file_name}"
+        else:
+            return TransportResult(
+                success=False,
+                error=f"HTTP transfer only supports models/ or data/ paths, got: {remote_path}",
+            )
+
+        # Build URL using P2P port
+        host = node.tailscale_ip or node.hostname
+        p2p_port = getattr(node, 'p2p_port', 8770)
+        url = f"http://{host}:{p2p_port}{endpoint}"
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=self.operation_timeout)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(url) as resp:
+                    if resp.status == 404:
+                        return TransportResult(
+                            success=False,
+                            error=f"File not found via HTTP: {endpoint}",
+                        )
+                    if resp.status != 200:
+                        error_text = await resp.text()
+                        return TransportResult(
+                            success=False,
+                            error=f"HTTP {resp.status}: {error_text[:100]}",
+                        )
+
+                    # Stream download to file
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    bytes_downloaded = 0
+                    with open(local_path, "wb") as f:
+                        async for chunk in resp.content.iter_chunked(1024 * 1024):
+                            f.write(chunk)
+                            bytes_downloaded += len(chunk)
+
+                    logger.info(
+                        f"HTTP download complete: {url} -> {local_path} "
+                        f"({bytes_downloaded / 1024 / 1024:.1f} MB)"
+                    )
+
+                    return TransportResult(
+                        success=True,
+                        transport_used="http",
+                        bytes_transferred=bytes_downloaded,
+                    )
+
+        except aiohttp.ClientError as e:
+            return TransportResult(success=False, error=f"HTTP client error: {e}")
+        except asyncio.TimeoutError:
+            return TransportResult(success=False, error="HTTP transfer timeout")
+        except (OSError, IOError) as e:
+            return TransportResult(success=False, error=f"HTTP file write error: {e}")
 
     async def _rsync_transfer(
         self,

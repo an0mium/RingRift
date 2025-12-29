@@ -22,7 +22,9 @@ Usage:
         rsync_pull,
         base64_push,
         base64_pull,
+        http_pull,      # NEW: HTTP via P2P endpoints
         robust_push,
+        robust_pull,    # NEW: Multi-transport with HTTP fallback
         chunked_push,
         chunked_push_progressive,
         compute_checksum,
@@ -38,6 +40,12 @@ Usage:
 
     # Base64 transfer (for flaky connections with binary stream issues)
     result = base64_push("file.npz", "host", 22, "/path/file.npz", config)
+
+    # HTTP transfer via P2P endpoints (when SSH fails completely)
+    result = http_pull("100.127.112.31", "models/canonical_hex8_2p.pth", "/tmp/model.pth")
+
+    # Robust pull with automatic fallback (rsync -> scp -> base64 -> http)
+    result = robust_pull("host", 22, "models/model.pth", "local/model.pth", config)
 
     # Chunked transfer with progressive verification (for large files)
     result = chunked_push_progressive(
@@ -1198,6 +1206,219 @@ def base64_pull(
         destination=str(local_path),
         error=last_error,
         attempts=attempts,
+    )
+
+
+# =============================================================================
+# HTTP P2P File Transfer (December 2025)
+# =============================================================================
+# HTTP-based file transfer using P2P orchestrator endpoints.
+# Works when SSH connections are unstable but P2P is running.
+
+def http_pull(
+    host: str,
+    remote_path: str,
+    local_path: str | Path,
+    port: int = 8770,
+    timeout: int = 300,
+) -> TransferResult:
+    """Pull a file via HTTP from P2P orchestrator endpoints.
+
+    Uses /files/models/ and /files/data/ endpoints on the P2P orchestrator
+    to download files when SSH-based transfers fail.
+
+    **When this is useful:**
+    - SSH connections reset or timeout
+    - All other transports fail
+    - P2P orchestrator is running on remote node
+
+    **Limitations:**
+    - Only supports files in models/ or data/ directories
+    - Requires P2P orchestrator running (port 8770)
+
+    Keywords for searchability:
+    - HTTP transfer / HTTP pull / HTTP download
+    - P2P file sync / P2P download
+    - connection reset workaround
+
+    Args:
+        host: Remote hostname or IP (Tailscale IP preferred)
+        remote_path: Source path (e.g., "models/canonical_hex8_2p.pth")
+        local_path: Local destination path
+        port: P2P orchestrator port (default 8770)
+        timeout: Download timeout in seconds
+
+    Returns:
+        TransferResult with operation details
+
+    Example:
+        result = http_pull(
+            "100.127.112.31",  # Tailscale IP
+            "models/canonical_hex8_2p.pth",
+            "/tmp/model.pth",
+        )
+    """
+    import urllib.request
+    import urllib.error
+
+    local_path = Path(local_path)
+    start_time = time.time()
+
+    # Determine endpoint from path
+    if "models/" in remote_path or remote_path.endswith(".pth") or remote_path.endswith(".pt"):
+        # Extract filename if path contains models/
+        if "models/" in remote_path:
+            file_name = remote_path.split("models/")[-1]
+        else:
+            file_name = remote_path
+        endpoint = f"/files/models/{file_name}"
+    elif "data/" in remote_path or remote_path.endswith(".db") or remote_path.endswith(".npz"):
+        # Extract filename if path contains data/
+        if "data/" in remote_path:
+            file_name = remote_path.split("data/")[-1]
+        else:
+            file_name = remote_path
+        endpoint = f"/files/data/{file_name}"
+    else:
+        return TransferResult(
+            success=False,
+            method="http_pull",
+            source=f"http://{host}:{port}{remote_path}",
+            destination=str(local_path),
+            error=f"Cannot determine file type from path: {remote_path}",
+        )
+
+    url = f"http://{host}:{port}{endpoint}"
+
+    try:
+        logger.info(f"http_pull: Downloading {url} -> {local_path}")
+
+        # Ensure parent directory exists
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Stream download
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            total_size = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk_size = 1024 * 1024  # 1 MB
+
+            with open(local_path, "wb") as f:
+                while True:
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+
+        duration = time.time() - start_time
+        file_size = local_path.stat().st_size
+
+        logger.info(
+            f"http_pull: Complete {file_size / 1024 / 1024:.1f} MB "
+            f"in {duration:.1f}s ({file_size / duration / 1024 / 1024:.1f} MB/s)"
+        )
+
+        return TransferResult(
+            success=True,
+            bytes_transferred=file_size,
+            duration_seconds=duration,
+            method="http_pull",
+            source=url,
+            destination=str(local_path),
+        )
+
+    except urllib.error.HTTPError as e:
+        return TransferResult(
+            success=False,
+            duration_seconds=time.time() - start_time,
+            method="http_pull",
+            source=url,
+            destination=str(local_path),
+            error=f"HTTP {e.code}: {e.reason}",
+        )
+    except urllib.error.URLError as e:
+        return TransferResult(
+            success=False,
+            duration_seconds=time.time() - start_time,
+            method="http_pull",
+            source=url,
+            destination=str(local_path),
+            error=f"URL error: {e.reason}",
+        )
+    except TimeoutError:
+        return TransferResult(
+            success=False,
+            duration_seconds=time.time() - start_time,
+            method="http_pull",
+            source=url,
+            destination=str(local_path),
+            error="HTTP transfer timed out",
+        )
+    except Exception as e:
+        return TransferResult(
+            success=False,
+            duration_seconds=time.time() - start_time,
+            method="http_pull",
+            source=url,
+            destination=str(local_path),
+            error=str(e),
+        )
+
+
+def robust_pull(
+    host: str,
+    port: int,
+    remote_path: str,
+    local_path: str | Path,
+    config: TransferConfig,
+    p2p_port: int = 8770,
+) -> TransferResult:
+    """Pull a file using the most reliable method available.
+
+    Tries transfer methods in order of preference, falling back automatically:
+    1. rsync (fastest, supports resume)
+    2. scp (simpler, widely compatible)
+    3. base64 (works when binary streams fail)
+    4. http (uses P2P endpoints, works when SSH fails completely)
+
+    Args:
+        host: Remote hostname or IP
+        port: SSH port
+        remote_path: Source path on remote
+        local_path: Local destination path
+        config: Transfer configuration
+        p2p_port: P2P port for HTTP fallback (default 8770)
+
+    Returns:
+        TransferResult with operation details
+    """
+    local_path = Path(local_path)
+
+    # Try methods in order
+    methods = [
+        ("rsync", lambda: rsync_pull(host, port, remote_path, local_path, config)),
+        ("scp", lambda: scp_pull(host, port, remote_path, local_path, config)),
+        ("base64", lambda: base64_pull(host, port, remote_path, local_path, config)),
+        ("http", lambda: http_pull(host, remote_path, local_path, p2p_port)),
+    ]
+
+    for method_name, method_fn in methods:
+        logger.debug(f"robust_pull: Trying {method_name}...")
+        result = method_fn()
+        if result.success:
+            logger.info(f"robust_pull: Success with {method_name}")
+            result.method = f"robust_pull/{method_name}"
+            return result
+        logger.debug(f"robust_pull: {method_name} failed: {result.error}")
+
+    # All methods failed
+    return TransferResult(
+        success=False,
+        method="robust_pull",
+        source=f"{host}:{remote_path}",
+        destination=str(local_path),
+        error="All transfer methods failed (rsync, scp, base64, http)",
     )
 
 

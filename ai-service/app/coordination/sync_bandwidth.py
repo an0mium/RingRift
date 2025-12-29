@@ -942,11 +942,13 @@ class BandwidthCoordinatedRsync:
         verify_checksum: bool | None = None,
         use_base64_fallback: bool = True,
         use_chunked_fallback: bool = True,
+        use_http_fallback: bool = True,
+        p2p_port: int = 8770,
     ) -> SyncResult:
         """Execute bandwidth-coordinated rsync with automatic fallback.
 
         December 2025: This method wraps `sync()` and automatically falls back
-        to base64 or chunked transfer when rsync fails with connection reset
+        to base64, chunked, or HTTP transfer when rsync fails with connection reset
         errors. This is useful for connections that experience "Connection reset
         by peer" errors due to firewall/proxy binary corruption.
 
@@ -954,6 +956,7 @@ class BandwidthCoordinatedRsync:
         1. rsync with bandwidth coordination (fastest)
         2. base64 transfer (works when binary streams fail)
         3. chunked transfer (for very unstable connections)
+        4. HTTP transfer via P2P endpoints (December 2025 - permanent workaround)
 
         Args:
             source: Source path (local or remote)
@@ -1023,6 +1026,16 @@ class BandwidthCoordinatedRsync:
                 )
                 return chunked_result
             logger.warning(f"[BandwidthCoordinatedRsync] chunked fallback failed: {chunked_result.error}")
+
+        # Try HTTP fallback via P2P endpoints (December 2025)
+        if use_http_fallback:
+            http_result = await self._fallback_http(source, dest, host, p2p_port)
+            if http_result.success:
+                logger.info(
+                    f"[BandwidthCoordinatedRsync] HTTP fallback succeeded for {source} -> {dest}"
+                )
+                return http_result
+            logger.warning(f"[BandwidthCoordinatedRsync] HTTP fallback failed: {http_result.error}")
 
         # All fallbacks failed - return original result with updated error
         result.error = (
@@ -1313,6 +1326,152 @@ class BandwidthCoordinatedRsync:
                 dest=dest,
                 host=host,
                 error=f"chunked fallback error: {e}",
+                duration_seconds=time.time() - start_time,
+            )
+
+    async def _fallback_http(
+        self, source: str, dest: str, host: str, p2p_port: int = 8770
+    ) -> SyncResult:
+        """Execute HTTP transfer fallback via P2P endpoints.
+
+        December 2025: Uses P2P orchestrator's /files/ endpoints as permanent
+        workaround for SSH "Connection reset by peer" errors on some hosts.
+
+        Note: HTTP is only supported for PULL operations (remote -> local).
+        For PUSH, this method returns an error.
+        """
+        import time
+        import urllib.request
+        import urllib.error
+        from pathlib import Path
+
+        start_time = time.time()
+
+        try:
+            # Parse source to determine direction
+            if ":" in source and "@" in source.split(":")[0]:
+                # Pull: remote -> local
+                return await self._http_pull(source, dest, host, p2p_port, start_time)
+            else:
+                # Push: local -> remote - not supported via HTTP
+                return SyncResult(
+                    success=False,
+                    source=source,
+                    dest=dest,
+                    host=host,
+                    error="HTTP push not supported - use rsync/base64 for push operations",
+                    duration_seconds=time.time() - start_time,
+                )
+
+        except Exception as e:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"HTTP fallback error: {e}",
+                duration_seconds=time.time() - start_time,
+            )
+
+    async def _http_pull(
+        self,
+        source: str,
+        dest: str,
+        host: str,
+        p2p_port: int,
+        start_time: float,
+    ) -> SyncResult:
+        """Pull remote file to local via HTTP from P2P endpoints."""
+        import time
+        import urllib.request
+        import urllib.error
+        from pathlib import Path
+
+        # Parse source to get user@host and path
+        remote_target, remote_path = source.rsplit(":", 1)
+        dest_path = Path(dest)
+
+        # Get host IP for HTTP request
+        try:
+            from app.config.cluster_config import get_cluster_nodes
+
+            nodes = get_cluster_nodes()
+            node_config = nodes.get(host)
+            if node_config:
+                http_host = node_config.best_ip or node_config.ssh_host
+            else:
+                # Extract from remote_target
+                http_host = remote_target.split("@")[-1]
+        except Exception:
+            http_host = remote_target.split("@")[-1]
+
+        # Determine endpoint from path
+        if "models" in remote_path or remote_path.endswith(".pth"):
+            # Extract just the filename for models
+            filename = Path(remote_path).name
+            url = f"http://{http_host}:{p2p_port}/files/models/{filename}"
+        elif "data/games" in remote_path or remote_path.endswith(".db"):
+            filename = Path(remote_path).name
+            url = f"http://{http_host}:{p2p_port}/files/data/{filename}"
+        elif "data/training" in remote_path or remote_path.endswith(".npz"):
+            filename = Path(remote_path).name
+            url = f"http://{http_host}:{p2p_port}/files/data/{filename}"
+        else:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"Unsupported file type for HTTP transfer: {remote_path}",
+                duration_seconds=time.time() - start_time,
+            )
+
+        # Download via HTTP
+        try:
+            req = urllib.request.Request(url)
+            req.add_header("User-Agent", "RingRift-SyncBandwidth/1.0")
+
+            with urllib.request.urlopen(req, timeout=300) as response:
+                # Create parent directory
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Stream to file
+                with open(dest_path, "wb") as f:
+                    while True:
+                        chunk = response.read(65536)  # 64KB chunks
+                        if not chunk:
+                            break
+                        f.write(chunk)
+
+            file_size = dest_path.stat().st_size
+            duration = time.time() - start_time
+
+            return SyncResult(
+                success=True,
+                source=source,
+                dest=dest,
+                host=host,
+                bytes_transferred=file_size,
+                duration_seconds=duration,
+                effective_rate_kbps=file_size / 1024 / duration if duration > 0 else 0,
+            )
+
+        except urllib.error.HTTPError as e:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"HTTP {e.code}: {e.reason} for {url}",
+                duration_seconds=time.time() - start_time,
+            )
+        except urllib.error.URLError as e:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"HTTP connection error: {e.reason}",
                 duration_seconds=time.time() - start_time,
             )
 
