@@ -2653,12 +2653,14 @@ def is_pipeline_paused() -> bool:
 __all__ = [
     # Enums
     "ErrorSeverity",
+    "JobRecoveryAction",
     "PipelineState",
     "RecoveryAction",
     "RecoveryResult",
     "RecoveryStatus",
     "SystemHealthLevel",
     # Data classes
+    "DaemonHealthState",
     "ErrorRecord",
     "HealthStats",
     "JobHealthState",

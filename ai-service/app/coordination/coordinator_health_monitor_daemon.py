@@ -502,36 +502,41 @@ class CoordinatorHealthMonitorDaemon(MonitorBase[CoordinatorHealthMonitorConfig]
         )
 
 
-# Singleton instance
-_monitor_instance: CoordinatorHealthMonitorDaemon | None = None
-_monitor_lock = asyncio.Lock()
+# =============================================================================
+# Singleton Accessor Functions (for backward compatibility)
+# =============================================================================
 
 
 async def get_coordinator_health_monitor() -> CoordinatorHealthMonitorDaemon:
-    """Get or create the singleton CoordinatorHealthMonitorDaemon instance."""
-    global _monitor_instance
+    """Get or create the singleton CoordinatorHealthMonitorDaemon instance.
 
-    async with _monitor_lock:
-        if _monitor_instance is None:
-            _monitor_instance = CoordinatorHealthMonitorDaemon()
-        return _monitor_instance
+    Now uses MonitorBase.get_instance() internally.
+    """
+    return CoordinatorHealthMonitorDaemon.get_instance()
 
 
 def get_coordinator_health_monitor_sync() -> CoordinatorHealthMonitorDaemon:
-    """Get the singleton instance synchronously (may create if not exists)."""
-    global _monitor_instance
-    if _monitor_instance is None:
-        _monitor_instance = CoordinatorHealthMonitorDaemon()
-    return _monitor_instance
+    """Get the singleton instance synchronously.
+
+    Now uses MonitorBase.get_instance() internally.
+    """
+    return CoordinatorHealthMonitorDaemon.get_instance()
+
+
+def reset_coordinator_health_monitor() -> None:
+    """Reset the singleton instance (for testing)."""
+    CoordinatorHealthMonitorDaemon.reset_instance()
 
 
 __all__ = [
     "CoordinatorHealthMonitorDaemon",
+    "CoordinatorHealthMonitorConfig",
     "CoordinatorHealthSummary",
     "CoordinatorInfo",
     "CoordinatorState",
     "get_coordinator_health_monitor",
     "get_coordinator_health_monitor_sync",
+    "reset_coordinator_health_monitor",
     "HEARTBEAT_STALE_THRESHOLD_SECONDS",
     "INIT_FAILURE_MAX_RETRIES",
 ]

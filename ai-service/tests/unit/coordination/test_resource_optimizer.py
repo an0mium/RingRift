@@ -1728,3 +1728,412 @@ class TestClusterStateComprehensive:
         assert state.get_gpu_memory_status() == "ok"
         assert not state.is_gpu_memory_constrained()
         assert not state.is_gpu_memory_critical()
+
+
+# =============================================================================
+# Health Check Tests (December 2025)
+# =============================================================================
+
+
+class TestHealthCheck:
+    """Tests for ResourceOptimizer.health_check() method."""
+
+    @pytest.fixture
+    def optimizer(self, temp_path, reset_optimizer):
+        """Provide ResourceOptimizer instance for health check tests."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            _get_targets,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "health-test-node"
+                mock_env.orchestrator_id = "test-orchestrator"
+                ResourceOptimizer._instance = None
+                opt = ResourceOptimizer()
+                yield opt
+
+    def test_health_check_healthy_with_nodes(self, optimizer):
+        """health_check should return healthy when nodes are reporting."""
+        # Report a healthy node
+        node = NodeResources(
+            node_id="healthy-node",
+            cpu_percent=65.0,
+            gpu_percent=70.0,
+            has_gpu=True,
+            active_jobs=5,
+        )
+        optimizer.report_node_resources(node)
+
+        result = optimizer.health_check()
+
+        assert result.healthy is True
+        assert "healthy" in result.message.lower() or "running" in str(result.status).lower()
+
+    def test_health_check_degraded_high_utilization(self, optimizer):
+        """health_check should return degraded for very high utilization."""
+        # Report severely overloaded node
+        node = NodeResources(
+            node_id="overloaded-node",
+            cpu_percent=98.0,
+            gpu_percent=99.0,
+            has_gpu=True,
+        )
+        optimizer.report_node_resources(node)
+
+        result = optimizer.health_check()
+
+        assert result.healthy is True  # Still healthy, but degraded
+        # Check that the high utilization is detected
+        assert "cpu" in result.message.lower() or "gpu" in result.message.lower() or "high" in result.message.lower()
+
+    def test_health_check_no_nodes(self, optimizer):
+        """health_check should handle no nodes reporting."""
+        result = optimizer.health_check()
+
+        # Should still be healthy but may note no nodes
+        assert result.healthy is True
+
+    def test_health_check_db_error_handling(self, optimizer):
+        """health_check should handle database errors gracefully."""
+        # Close the db connection to force an error
+        with patch.object(optimizer, "_get_connection", side_effect=sqlite3.DatabaseError("Test error")):
+            result = optimizer.health_check()
+
+            # Should not raise, and should return unhealthy
+            assert result.healthy is False
+            assert "error" in result.message.lower() or "database" in result.message.lower()
+
+
+class TestGetMaxSelfplayForNodeById:
+    """Tests for get_max_selfplay_for_node_by_id function."""
+
+    def test_node_in_database(self, reset_optimizer, temp_path):
+        """Should return hardware-aware limit for known node."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            get_max_selfplay_for_node_by_id,
+            NodeResources,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                # Report a node with hardware info
+                node = NodeResources(
+                    node_id="known-node",
+                    gpu_count=2,
+                    gpu_name="RTX 4090",
+                    cpu_count=32,
+                    memory_gb=64.0,
+                    has_gpu=True,
+                )
+                optimizer.report_node_resources(node)
+
+                result = get_max_selfplay_for_node_by_id("known-node")
+
+                assert result >= 4
+                assert result <= 32
+
+    def test_node_not_in_database_h100_pattern(self):
+        """Should use hostname pattern for unknown H100 nodes."""
+        from app.coordination.resource_optimizer import get_max_selfplay_for_node_by_id
+
+        # The function should fall back to pattern matching
+        result = get_max_selfplay_for_node_by_id("runpod-h100-1")
+
+        assert result == 12  # HIGH_END tier
+
+    def test_node_not_in_database_4090_pattern(self):
+        """Should use hostname pattern for unknown 4090 nodes."""
+        from app.coordination.resource_optimizer import get_max_selfplay_for_node_by_id
+
+        result = get_max_selfplay_for_node_by_id("vast-4090-node")
+
+        assert result == 8  # MID_TIER
+
+    def test_node_not_in_database_unknown(self):
+        """Should use conservative default for unknown nodes."""
+        from app.coordination.resource_optimizer import get_max_selfplay_for_node_by_id
+
+        result = get_max_selfplay_for_node_by_id("unknown-mystery-node")
+
+        assert result == 6  # Conservative default
+
+
+class TestGetNodeHardwareInfo:
+    """Tests for get_node_hardware_info function."""
+
+    def test_node_found(self, reset_optimizer, temp_path):
+        """Should return hardware info dict for known node."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            get_node_hardware_info,
+            NodeResources,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                # Report a node
+                node = NodeResources(
+                    node_id="hw-info-node",
+                    gpu_count=4,
+                    gpu_name="A100",
+                    cpu_count=64,
+                    memory_gb=256.0,
+                    has_gpu=True,
+                )
+                optimizer.report_node_resources(node)
+
+                result = get_node_hardware_info("hw-info-node")
+
+                assert result is not None
+                assert result["gpu_count"] == 4
+                assert result["gpu_name"] == "A100"
+                assert result["cpu_count"] == 64
+                assert result["memory_gb"] == 256.0
+                assert result["has_gpu"] is True
+
+    def test_node_not_found(self, reset_optimizer, temp_path):
+        """Should return None for unknown node."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            get_node_hardware_info,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                ResourceOptimizer()
+
+                result = get_node_hardware_info("nonexistent-node")
+
+                assert result is None
+
+
+class TestGetConfigWeightDetails:
+    """Tests for get_config_weight_details method."""
+
+    def test_returns_detailed_list(self, reset_optimizer, temp_path):
+        """Should return list of detailed config weight info."""
+        from app.coordination.resource_optimizer import ResourceOptimizer
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                # Update weights
+                optimizer.update_config_weights(
+                    game_counts={"hex8_2p": 1000, "square8_2p": 200},
+                    throughput={"hex8_2p": 100.0, "square8_2p": 30.0},
+                )
+
+                details = optimizer.get_config_weight_details()
+
+                assert isinstance(details, list)
+                assert len(details) >= 2
+
+                # Check that details contain expected fields
+                for d in details:
+                    assert "config_key" in d
+                    assert "weight" in d
+                    assert "game_count" in d
+
+    def test_empty_on_no_weights(self, reset_optimizer, temp_path):
+        """Should return empty list when no weights configured."""
+        from app.coordination.resource_optimizer import ResourceOptimizer
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                details = optimizer.get_config_weight_details()
+
+                assert isinstance(details, list)
+                assert len(details) == 0
+
+
+class TestGetRecommendation:
+    """Tests for _get_recommendation internal method."""
+
+    def test_recommendation_no_nodes(self, reset_optimizer, temp_path):
+        """Should recommend checking connectivity when no nodes."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            ClusterState,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                state = ClusterState(nodes=[])
+                state.compute_aggregates()
+
+                rec = optimizer._get_recommendation(state)
+
+                assert "no active nodes" in rec.lower() or "connectivity" in rec.lower()
+
+    def test_recommendation_scale_up(self, reset_optimizer, temp_path):
+        """Should recommend scaling up when underutilized."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            ClusterState,
+            NodeResources,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                nodes = [
+                    NodeResources(node_id="low", cpu_percent=30.0, has_gpu=False),
+                ]
+                state = ClusterState(nodes=nodes)
+                state.compute_aggregates()
+
+                rec = optimizer._get_recommendation(state)
+
+                assert "scale up" in rec.lower() or "increase" in rec.lower()
+
+    def test_recommendation_scale_down(self, reset_optimizer, temp_path):
+        """Should recommend scaling down when overutilized."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            ClusterState,
+            NodeResources,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                nodes = [
+                    NodeResources(node_id="hot", cpu_percent=95.0, has_gpu=False),
+                ]
+                state = ClusterState(nodes=nodes)
+                state.compute_aggregates()
+
+                rec = optimizer._get_recommendation(state)
+
+                assert "scale down" in rec.lower() or "reduce" in rec.lower()
+
+    def test_recommendation_optimal(self, reset_optimizer, temp_path):
+        """Should indicate optimal when in target range."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            ClusterState,
+            NodeResources,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                nodes = [
+                    NodeResources(node_id="good", cpu_percent=70.0, has_gpu=False),
+                ]
+                state = ClusterState(nodes=nodes)
+                state.compute_aggregates()
+
+                rec = optimizer._get_recommendation(state)
+
+                assert "optimal" in rec.lower()
+
+
+class TestUtilizationHistoryEdgeCases:
+    """Edge case tests for utilization history."""
+
+    def test_history_with_resolution(self, reset_optimizer, temp_path):
+        """Should aggregate history by resolution."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            NodeResources,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                # Report multiple samples
+                for i in range(5):
+                    node = NodeResources(
+                        node_id="test-node",
+                        cpu_percent=50.0 + i * 5,
+                        gpu_percent=60.0 + i * 5,
+                        has_gpu=True,
+                    )
+                    optimizer.report_node_resources(node)
+
+                # Get history with specific resolution
+                history = optimizer.get_utilization_history(
+                    node_id="test-node",
+                    hours=1.0,
+                    resolution_seconds=60,
+                )
+
+                assert isinstance(history, list)
+
+    def test_cluster_average_history(self, reset_optimizer, temp_path):
+        """Should compute cluster-wide average when node_id is None."""
+        from app.coordination.resource_optimizer import (
+            ResourceOptimizer,
+            NodeResources,
+        )
+
+        with patch("app.coordination.resource_optimizer.COORDINATION_DB_PATH", temp_path):
+            with patch("app.coordination.resource_optimizer.env") as mock_env:
+                mock_env.node_id = "test-node"
+                mock_env.orchestrator_id = "test"
+                ResourceOptimizer._instance = None
+                optimizer = ResourceOptimizer()
+
+                # Report samples for multiple nodes
+                for i in range(3):
+                    node = NodeResources(
+                        node_id=f"node-{i}",
+                        cpu_percent=50.0 + i * 10,
+                        has_gpu=False,
+                    )
+                    optimizer.report_node_resources(node)
+
+                # Get cluster average
+                history = optimizer.get_utilization_history(
+                    node_id=None,  # Cluster average
+                    hours=1.0,
+                )
+
+                assert isinstance(history, list)

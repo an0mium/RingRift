@@ -192,9 +192,9 @@ class TestHandleTournamentStartLeader:
     @pytest.mark.asyncio
     async def test_leader_starts_tournament_directly(self, handler):
         """Leader starts tournament directly (no proposal)."""
-        with patch("scripts.p2p.handlers.tournament.NodeRole", MockNodeRole):
+        with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             with patch(
-                "scripts.p2p.handlers.tournament.DistributedTournamentState",
+                "scripts.p2p.models.DistributedTournamentState",
                 MockDistributedTournamentState,
             ):
                 request = MockRequest(
@@ -218,9 +218,9 @@ class TestHandleTournamentStartLeader:
     @pytest.mark.asyncio
     async def test_creates_correct_pairings(self, handler):
         """Creates round-robin pairings correctly."""
-        with patch("scripts.p2p.handlers.tournament.NodeRole", MockNodeRole):
+        with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             with patch(
-                "scripts.p2p.handlers.tournament.DistributedTournamentState",
+                "scripts.p2p.models.DistributedTournamentState",
                 MockDistributedTournamentState,
             ):
                 request = MockRequest(
@@ -239,9 +239,9 @@ class TestHandleTournamentStartLeader:
     @pytest.mark.asyncio
     async def test_stores_tournament_state(self, handler):
         """Tournament state is stored for tracking."""
-        with patch("scripts.p2p.handlers.tournament.NodeRole", MockNodeRole):
+        with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             with patch(
-                "scripts.p2p.handlers.tournament.DistributedTournamentState",
+                "scripts.p2p.models.DistributedTournamentState",
                 MockDistributedTournamentState,
             ):
                 request = MockRequest(
@@ -260,9 +260,9 @@ class TestHandleTournamentStartLeader:
     @pytest.mark.asyncio
     async def test_launches_coordinator_task(self, handler):
         """Tournament coordinator task is launched."""
-        with patch("scripts.p2p.handlers.tournament.NodeRole", MockNodeRole):
+        with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             with patch(
-                "scripts.p2p.handlers.tournament.DistributedTournamentState",
+                "scripts.p2p.models.DistributedTournamentState",
                 MockDistributedTournamentState,
             ):
                 request = MockRequest(
@@ -281,7 +281,7 @@ class TestHandleTournamentStartLeader:
     @pytest.mark.asyncio
     async def test_too_few_agents_returns_400(self, handler):
         """Less than 2 agents returns 400."""
-        with patch("scripts.p2p.handlers.tournament.NodeRole", MockNodeRole):
+        with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             request = MockRequest(
                 json_data={
                     "agent_ids": ["only_one"],
@@ -302,9 +302,9 @@ class TestHandleTournamentStartLeader:
             peers={},  # No peers
         )
 
-        with patch("scripts.p2p.handlers.tournament.NodeRole", MockNodeRole):
+        with patch("scripts.p2p.types.NodeRole", MockNodeRole):
             with patch(
-                "scripts.p2p.handlers.tournament.DistributedTournamentState",
+                "scripts.p2p.models.DistributedTournamentState",
                 MockDistributedTournamentState,
             ):
                 request = MockRequest(

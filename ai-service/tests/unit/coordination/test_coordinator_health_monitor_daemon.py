@@ -87,18 +87,20 @@ class TestCoordinatorHealthMonitorDaemon:
         """Test daemon initializes correctly."""
         daemon = CoordinatorHealthMonitorDaemon()
         assert daemon._running is False
-        assert daemon._subscribed is False
+        assert daemon._event_subscribed is False  # MonitorBase uses _event_subscribed
         assert len(daemon._coordinators) == 0
 
     def test_singleton_accessor(self):
         """Test singleton accessor returns same instance."""
-        # Reset for clean test
-        import app.coordination.coordinator_health_monitor_daemon as module
-        module._monitor_instance = None
+        # Reset for clean test (uses MonitorBase.reset_instance() internally)
+        reset_coordinator_health_monitor()
 
         daemon1 = get_coordinator_health_monitor_sync()
         daemon2 = get_coordinator_health_monitor_sync()
         assert daemon1 is daemon2
+
+        # Cleanup
+        reset_coordinator_health_monitor()
 
     @pytest.mark.asyncio
     async def test_start_stop_lifecycle(self):

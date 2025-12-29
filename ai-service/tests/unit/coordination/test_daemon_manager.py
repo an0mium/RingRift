@@ -2057,12 +2057,13 @@ class TestEventHandlers:
             "previous_elo": 1550,
         }
 
-        # Mock the router to avoid import/method issues
-        with patch("app.coordination.daemon_manager.get_router") as mock_get_router:
+        # Mock the router module to avoid import/method issues
+        # The import happens inside the function, so we patch the source module
+        with patch("app.coordination.event_router.get_router") as mock_get_router:
             mock_router = MagicMock()
-            # Mock publish as async method (the actual method name)
+            # Mock all publish methods as async
             mock_router.publish = AsyncMock()
-            # Also mock publish_async in case it's called (fallback compatibility)
+            mock_router.publish_sync = MagicMock()
             mock_router.publish_async = AsyncMock()
             mock_get_router.return_value = mock_router
 
