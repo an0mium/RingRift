@@ -251,52 +251,78 @@ class MembershipMixin(P2PMixinBase):
     def is_peer_alive_hybrid(self, peer_id: str) -> bool:
         """Check if a peer is alive using SWIM or HTTP based on MEMBERSHIP_MODE.
 
+        December 29, 2025: Fixed to use true hybrid logic - if EITHER SWIM or HTTP
+        reports the peer as alive, consider it alive. This prevents SWIM startup
+        delays (when alive_count=0) from blocking quorum detection.
+
         Args:
             peer_id: Node ID to check
 
         Returns:
-            True if peer is alive, False otherwise
+            True if peer is alive (by SWIM or HTTP), False otherwise
         """
-        # Use SWIM if available and enabled
+        swim_alive = False
+        http_alive = False
+
+        # Check SWIM if available and enabled
         if MEMBERSHIP_MODE in ("swim", "hybrid") and self._swim_started and self._swim_manager:
             try:
-                return self._swim_manager.is_peer_alive(peer_id)
+                swim_alive = self._swim_manager.is_peer_alive(peer_id)
             except Exception as e:
                 self._log_debug(f"SWIM is_peer_alive error for {peer_id}: {e}")
-                # Fall through to HTTP check
 
-        # HTTP fallback (or primary if MEMBERSHIP_MODE == "http")
+        # Always check HTTP for hybrid mode (or primary if MEMBERSHIP_MODE == "http")
         with self.peers_lock:
             peer = self.peers.get(peer_id)
-            if peer is None:
-                return False
-            return peer.is_alive()
+            if peer is not None:
+                http_alive = peer.is_alive()
+
+        # In hybrid mode: peer is alive if EITHER source reports it alive
+        # This prevents SWIM startup delays from blocking leader election
+        if MEMBERSHIP_MODE == "hybrid":
+            return swim_alive or http_alive
+        elif MEMBERSHIP_MODE == "swim":
+            return swim_alive
+        else:  # http mode
+            return http_alive
 
     def get_alive_peers_hybrid(self) -> list[str]:
         """Get list of alive peer node IDs using best available method.
 
-        Uses SWIM when available in swim/hybrid mode, falls back to HTTP heartbeats.
+        December 29, 2025: Fixed to use true hybrid logic - returns union of
+        SWIM and HTTP alive peers. This prevents SWIM startup delays from
+        returning empty lists when HTTP shows many alive peers.
 
         Returns:
-            List of node IDs that are currently alive
+            List of node IDs that are currently alive (union of sources)
         """
-        # Use SWIM if available and enabled
+        swim_alive: set[str] = set()
+        http_alive: set[str] = set()
+
+        # Get SWIM alive peers if available
         if MEMBERSHIP_MODE in ("swim", "hybrid") and self._swim_started and self._swim_manager:
             try:
-                swim_alive = self._swim_manager.get_alive_peers()
-                if swim_alive:
-                    return swim_alive
+                result = self._swim_manager.get_alive_peers()
+                if result:
+                    swim_alive = set(result)
             except Exception as e:
                 self._log_debug(f"SWIM get_alive_peers error: {e}")
-                # Fall through to HTTP check
 
-        # HTTP fallback
+        # Get HTTP alive peers
         with self.peers_lock:
-            return [
+            http_alive = {
                 node_id
                 for node_id, peer in self.peers.items()
                 if peer.is_alive()
-            ]
+            }
+
+        # In hybrid mode: return union of both sources
+        if MEMBERSHIP_MODE == "hybrid":
+            return list(swim_alive | http_alive)
+        elif MEMBERSHIP_MODE == "swim":
+            return list(swim_alive)
+        else:  # http mode
+            return list(http_alive)
 
     def get_swim_membership_summary(self) -> dict[str, Any]:
         """Get SWIM membership status summary.
