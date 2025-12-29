@@ -258,24 +258,28 @@ class EloSyncManager(DatabaseSyncManager):
             remote_cur.execute("SELECT * FROM match_history")
             remote_matches = remote_cur.fetchall()
 
-            # Find new matches
-            inserted = 0
+            # December 29, 2025: Optimized to use bulk insert with executemany()
+            # Filter to only new matches first, then bulk insert
+            new_matches = []
             for match in remote_matches:
                 match_dict = dict(zip(columns, match, strict=False))
                 match_id = match_dict.get("game_id") or \
                     f"{match_dict.get('participant_a')}|{match_dict.get('participant_b')}|{match_dict.get('timestamp')}"
 
                 if match_id not in existing_ids:
-                    # Insert new match
-                    cols = ", ".join(columns)
-                    placeholders = ", ".join(["?" for _ in columns])
-                    local_cur.execute(
-                        f"INSERT OR IGNORE INTO match_history ({cols}) VALUES ({placeholders})",
-                        match
-                    )
-                    if local_cur.rowcount > 0:
-                        inserted += 1
-                        existing_ids.add(match_id)
+                    new_matches.append(match)
+                    existing_ids.add(match_id)
+
+            # Bulk insert using executemany (much faster than N individual INSERTs)
+            inserted = 0
+            if new_matches:
+                cols = ", ".join(columns)
+                placeholders = ", ".join(["?" for _ in columns])
+                local_cur.executemany(
+                    f"INSERT OR IGNORE INTO match_history ({cols}) VALUES ({placeholders})",
+                    new_matches
+                )
+                inserted = len(new_matches)
 
             local_conn.commit()
             remote_conn.close()
@@ -545,7 +549,7 @@ class EloSyncManager(DatabaseSyncManager):
             temp_file = f.name
 
         try:
-            # Copy and merge on remote
+            # Copy and merge on remote (December 29, 2025: optimized to use executemany)
             result = await asyncio.create_subprocess_exec(
                 "ssh", "-o", "ConnectTimeout=10", host,
                 """python3 -c "
@@ -559,22 +563,27 @@ cur = db.cursor()
 cur.execute('SELECT game_id FROM match_history WHERE game_id IS NOT NULL')
 existing = {r[0] for r in cur.fetchall()}
 
-inserted = 0
+# Filter to new matches and prepare for bulk insert
+new_matches = []
 for m in matches:
     gid = m.get('game_id')
     if gid and gid in existing:
         continue
-    cur.execute('''INSERT INTO match_history
-        (participant_a, participant_b, board_type, num_players, winner, timestamp, game_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)''',
-        (m['participant_a'], m['participant_b'], m['board_type'], m['num_players'],
-         m.get('winner'), m.get('timestamp', time.time()), gid))
-    inserted += 1
+    new_matches.append((
+        m['participant_a'], m['participant_b'], m['board_type'], m['num_players'],
+        m.get('winner'), m.get('timestamp', time.time()), gid
+    ))
     if gid:
         existing.add(gid)
 
+# Bulk insert using executemany
+if new_matches:
+    cur.executemany('''INSERT INTO match_history
+        (participant_a, participant_b, board_type, num_players, winner, timestamp, game_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)''', new_matches)
+
 db.commit()
-print(f'Inserted {inserted} matches')
+print(f'Inserted {len(new_matches)} matches')
 "
 """,
                 stdin=asyncio.subprocess.PIPE,
