@@ -161,6 +161,12 @@ class MomentumToCurriculumBridge:
                 router.subscribe(DataEventType.CURRICULUM_ADVANCEMENT_NEEDED, self._on_curriculum_advancement_needed)
 
             logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED")
+
+            # December 29, 2025: Only set _event_subscribed = True after successful subscription
+            # Previously this was in finally block which caused race condition:
+            # - If subscription failed, _event_subscribed was still True
+            # - Next call would skip re-subscription, events silently missed
+            self._event_subscribed = True
             return True
 
         except (ImportError, AttributeError, TypeError, RuntimeError) as e:
@@ -169,11 +175,8 @@ class MomentumToCurriculumBridge:
             # TypeError: invalid subscription arguments
             # RuntimeError: subscription failed
             logger.debug(f"[MomentumToCurriculumBridge] Event subscription failed: {e}")
+            # Note: _event_subscribed stays False on failure, allowing retry
             return False
-        finally:
-            # December 27, 2025: Always set _event_subscribed = True in finally block
-            # This ensures cleanup runs even if subscription partially fails
-            self._event_subscribed = True
 
     def _unsubscribe_from_events(self) -> None:
         """Unsubscribe from events."""

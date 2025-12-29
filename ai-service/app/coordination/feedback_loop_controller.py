@@ -484,13 +484,16 @@ class FeedbackLoopController:
 
             logger.info(f"[FeedbackLoopController] Subscribed to {event_count} event types")
 
+            # December 29, 2025: Only set _subscribed = True after successful subscription
+            # Previously this was in finally block which caused race condition:
+            # - If subscription failed, _subscribed was still True
+            # - Next start() call would skip re-subscription entirely
+            # - Events would be silently missed
+            self._subscribed = True
+
         except (AttributeError, TypeError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Failed to subscribe: {e}")
-        finally:
-            # December 27, 2025: Always set _subscribed = True in finally block
-            # This ensures cleanup runs even if subscription partially fails
-            # (some subscriptions may exist that need unsubscribing)
-            self._subscribed = True
+            # Note: _subscribed stays False on failure, allowing retry on next start()
 
     def _unsubscribe_from_events(self) -> None:
         """Unsubscribe from events."""

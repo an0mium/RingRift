@@ -556,6 +556,22 @@ Interval between Elo rating sync cycles in seconds.
 
 Interval between registry sync cycles in seconds.
 
+### `RINGRIFT_FAST_SYNC_INTERVAL`
+
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| Type     | `float` | `30.0`      |
+
+Fast sync interval in seconds (high-priority syncs).
+
+### `RINGRIFT_SYNC_FULL_INTERVAL`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `3600`      |
+
+Full sync interval in seconds.
+
 ### `RINGRIFT_MIN_SYNC_INTERVAL`
 
 | Property | Default | Description |

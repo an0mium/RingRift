@@ -645,7 +645,7 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
 
                 # Insert game into target
                 try:
-                    columns = [desc[0] for desc in cursor.description]
+                    # Note: columns already defined above from cursor.description
                     values = list(row)
 
                     # Add/update consolidated_at
