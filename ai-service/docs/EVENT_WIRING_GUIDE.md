@@ -293,7 +293,8 @@ dpo = get_data_pipeline_orchestrator()
 
 - `CLAUDE.md` - Daemon management and lifecycle
 - `daemon_registry.py` - Daemon specifications and dependencies
-- `coordination_bootstrap.py` - Coordinator initialization and wiring
+- `event_subscription_registry.py` - Delegated event wiring (DELEGATION_REGISTRY)
+- `coordination_bootstrap.py` - Coordinator initialization and wiring glue
 - `DEPRECATION_GUIDE.md` - Deprecated event patterns
 
 ---

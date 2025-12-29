@@ -306,7 +306,8 @@ NPZ combination and data freshness gates). For a complete event list, see
 
 ## Bootstrap Initialization Order
 
-Coordinators are initialized in `coordination_bootstrap.py` in dependency order:
+Coordinators are initialized in `coordination_bootstrap.py` in dependency order.
+Delegated event wiring lives in `event_subscription_registry.py`.
 
 ### Layer 1: Foundational (No Dependencies)
 
@@ -449,6 +450,7 @@ os.environ["RINGRIFT_EVENT_TRACE"] = "true"
 - `EVENT_WIRING_GUIDE.md` - Detailed event wiring instructions
 - `EVENT_SYSTEM_REFERENCE.md` - Full event type catalog
 - `DAEMON_REGISTRY.md` - Daemon specifications and dependencies
+- `event_subscription_registry.py` - Delegated event wiring registry
 - `coordination_bootstrap.py` - Coordinator initialization
 - `docs/runbooks/EVENT_WIRING_VERIFICATION.md` - Verification procedures
 

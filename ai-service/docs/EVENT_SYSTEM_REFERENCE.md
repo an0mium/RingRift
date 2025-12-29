@@ -440,24 +440,24 @@ while resource-based backpressure emits `none/low/medium/high/critical`.
 
 ### Daemon Lifecycle Events
 
-| Event                       | Value                       | Emitters         | Subscribers             | Purpose                |
-| --------------------------- | --------------------------- | ---------------- | ----------------------- | ---------------------- |
-| `DAEMON_STARTED`            | `daemon_started`            | DaemonManager    | HealthCheckOrchestrator | Track lifecycle        |
-| `DAEMON_STOPPED`            | `daemon_stopped`            | DaemonManager    | HealthCheckOrchestrator | Track lifecycle        |
-| `DAEMON_STATUS_CHANGED`     | `daemon_status_changed`     | DaemonWatchdog   | DaemonManager           | Auto-restart           |
-| `DAEMON_PERMANENTLY_FAILED` | `daemon_permanently_failed` | DaemonManager    | AlertManager            | Exceeded restart limit |
-| `COORDINATOR_HEARTBEAT`     | `coordinator_heartbeat`     | All Coordinators | DaemonWatchdog          | Liveness check         |
+| Event                       | Value                       | Emitters         | Subscribers                         | Purpose                |
+| --------------------------- | --------------------------- | ---------------- | ----------------------------------- | ---------------------- |
+| `DAEMON_STARTED`            | `daemon_started`            | DaemonManager    | DaemonManager, UnifiedHealthManager | Track lifecycle        |
+| `DAEMON_STOPPED`            | `daemon_stopped`            | DaemonManager    | DaemonManager, UnifiedHealthManager | Track lifecycle        |
+| `DAEMON_STATUS_CHANGED`     | `daemon_status_changed`     | DaemonWatchdog   | DaemonManager                       | Auto-restart           |
+| `DAEMON_PERMANENTLY_FAILED` | `daemon_permanently_failed` | DaemonManager    | AlertManager                        | Exceeded restart limit |
+| `COORDINATOR_HEARTBEAT`     | `coordinator_heartbeat`     | All Coordinators | DaemonWatchdog                      | Liveness check         |
 
 ### Health & Recovery Events
 
-| Event                 | Value                 | Emitters                | Subscribers                 | Purpose                |
-| --------------------- | --------------------- | ----------------------- | --------------------------- | ---------------------- |
-| `HEALTH_CHECK_PASSED` | `health_check_passed` | HealthCheckOrchestrator | MetricsAnalysisOrchestrator | Node healthy           |
-| `HEALTH_CHECK_FAILED` | `health_check_failed` | HealthCheckOrchestrator | NodeRecoveryDaemon          | Node unhealthy         |
-| `HEALTH_ALERT`        | `health_alert`        | HealthCheckOrchestrator | AlertManager                | General health warning |
-| `RECOVERY_INITIATED`  | `recovery_initiated`  | NodeRecoveryDaemon      | MetricsAnalysisOrchestrator | Auto-recovery started  |
-| `RECOVERY_COMPLETED`  | `recovery_completed`  | NodeRecoveryDaemon      | MetricsAnalysisOrchestrator | Auto-recovery finished |
-| `RECOVERY_FAILED`     | `recovery_failed`     | NodeRecoveryDaemon      | AlertManager                | Auto-recovery failed   |
+| Event                 | Value                 | Emitters                | Subscribers                                                             | Purpose                |
+| --------------------- | --------------------- | ----------------------- | ----------------------------------------------------------------------- | ---------------------- |
+| `HEALTH_CHECK_PASSED` | `health_check_passed` | ClusterWatchdogDaemon   | HealthCheckOrchestrator, FeedbackLoopController, NodeHealthOrchestrator | Node healthy           |
+| `HEALTH_CHECK_FAILED` | `health_check_failed` | ClusterWatchdogDaemon   | HealthCheckOrchestrator, FeedbackLoopController, NodeHealthOrchestrator | Node unhealthy         |
+| `HEALTH_ALERT`        | `health_alert`        | HealthCheckOrchestrator | AlertManager                                                            | General health warning |
+| `RECOVERY_INITIATED`  | `recovery_initiated`  | NodeRecoveryDaemon      | MetricsAnalysisOrchestrator                                             | Auto-recovery started  |
+| `RECOVERY_COMPLETED`  | `recovery_completed`  | NodeRecoveryDaemon      | MetricsAnalysisOrchestrator                                             | Auto-recovery finished |
+| `RECOVERY_FAILED`     | `recovery_failed`     | NodeRecoveryDaemon      | AlertManager                                                            | Auto-recovery failed   |
 
 ### Task Lifecycle Events
 

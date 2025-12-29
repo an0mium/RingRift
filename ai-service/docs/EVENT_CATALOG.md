@@ -557,5 +557,6 @@ emit_training_complete(
 - `app/distributed/data_events.py` - Event type definitions
 - `app/coordination/event_router.py` - Unified event router
 - `app/coordination/event_emitters.py` - Typed event emitters
-- `app/coordination/coordination_bootstrap.py` - Event wiring at startup
+- `app/coordination/event_subscription_registry.py` - Delegated event wiring registry
+- `app/coordination/coordination_bootstrap.py` - Event wiring glue + coordinator init
 - `docs/runbooks/EVENT_WIRING_VERIFICATION.md` - Verification procedures
