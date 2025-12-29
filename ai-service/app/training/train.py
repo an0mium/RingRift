@@ -8,7 +8,11 @@ Recommended Usage (December 2025):
     - TrainingDataCoordinator: app.training.data_coordinator
     - UnifiedTrainingOrchestrator: app.training.unified_orchestrator
 
-    Example:
+    For modular training step/epoch logic (December 2025 extraction):
+    - train_step: Core batch-level training (forward, loss, backward, step)
+    - train_epoch: Epoch-level training loop with validation and early stopping
+
+    Example using data coordinator and orchestrator:
         from app.training.data_coordinator import get_data_coordinator
         from app.training.unified_orchestrator import UnifiedTrainingOrchestrator
 
@@ -20,6 +24,21 @@ Recommended Usage (December 2025):
         orchestrator = UnifiedTrainingOrchestrator.from_config(config)
         await orchestrator.initialize()
         # Run training with orchestrator...
+
+    Example using modular train_step/train_epoch:
+        from app.training.train_step import TrainStepContext, TrainStepConfig, run_training_step
+        from app.training.train_epoch import EpochContext, EpochConfig, run_all_epochs
+
+        # Create contexts
+        step_config = TrainStepConfig(use_mixed_precision=True)
+        epoch_config = EpochConfig(epochs=20, patience=10)
+        epoch_context = EpochContext(
+            model=model, optimizer=optimizer, train_loader=train_loader,
+            val_loader=val_loader, device=device, config=epoch_config,
+        )
+
+        # Run all epochs with early stopping
+        results = run_all_epochs(epoch_context)
 """
 
 import contextlib
@@ -138,6 +157,28 @@ from app.training.train_setup import (
     setup_fault_tolerance,
 )
 from app.training.value_calibration import CalibrationTracker
+
+# December 2025: Modular training step/epoch logic
+# These modules extract core training logic for testability and reuse
+from app.training.train_step import (
+    BatchData,
+    LossComponents,
+    TrainStepConfig,
+    TrainStepContext,
+    TrainStepResult,
+    parse_batch,
+    run_training_step,
+    transfer_batch_to_device,
+)
+from app.training.train_epoch import (
+    EarlyStopState,
+    EpochConfig,
+    EpochContext,
+    EpochResult,
+    run_all_epochs,
+    run_training_epoch,
+    run_validation_loop,
+)
 
 # Data validation (2025-12) - use unified module
 try:

@@ -1,3 +1,10 @@
+"""Territory validator for validating territory processing moves.
+
+This module provides the TerritoryValidator class which validates territory-related
+moves during the TERRITORY_PROCESSING phase, including region selection, ring
+elimination, and territory claims.
+"""
+
 from app.board_manager import BoardManager
 from app.models import GamePhase, GameState, Move, MoveType
 from app.rules.elimination import EliminationContext, is_stack_eligible_for_elimination
@@ -5,6 +12,13 @@ from app.rules.interfaces import Validator
 
 
 class TerritoryValidator(Validator):
+    """Validator for territory processing moves.
+
+    Validates PROCESS_TERRITORY_REGION, ELIMINATE_RINGS_FROM_STACK,
+    TERRITORY_CLAIM, and CHOOSE_TERRITORY_OPTION moves during the
+    territory processing phase.
+    """
+
     def validate(self, state: GameState, move: Move) -> bool:
         # 1. Phase Check
         if state.current_phase != GamePhase.TERRITORY_PROCESSING:

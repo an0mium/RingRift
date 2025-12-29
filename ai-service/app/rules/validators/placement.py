@@ -1,3 +1,10 @@
+"""Placement validator for validating ring placement moves.
+
+This module provides the PlacementValidator class which validates PLACE_RING
+and SKIP_PLACEMENT moves during the ring placement phase, delegating board
+geometry and ring cap validation to the canonical placement module.
+"""
+
 from app.models import GamePhase, GameState, Move, MoveType
 from app.rules.core import BOARD_CONFIGS
 from app.rules.interfaces import Validator

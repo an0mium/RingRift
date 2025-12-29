@@ -1,3 +1,10 @@
+"""Capture validator for validating capture moves.
+
+This module provides the CaptureValidator class which validates capture moves
+during movement and chain capture phases, delegating geometric validation to
+the canonical capture_chain module.
+"""
+
 from app.board_manager import BoardManager
 from app.models import GamePhase, GameState, Move
 from app.rules.capture_chain import validate_capture_segment_on_board_py

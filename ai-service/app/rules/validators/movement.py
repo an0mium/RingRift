@@ -1,3 +1,10 @@
+"""Movement validator for validating stack movement moves.
+
+This module provides the MovementValidator class which validates stack movement
+during the movement phase, checking phase/turn constraints, position validity,
+stack ownership, and path reachability.
+"""
+
 # from app.game_engine import GameEngine
 from app.board_manager import BoardManager
 from app.models import GamePhase, GameState, Move

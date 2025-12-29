@@ -1,3 +1,10 @@
+"""Line validator for validating line processing moves.
+
+This module provides the LineValidator class which validates PROCESS_LINE,
+CHOOSE_LINE_REWARD, and CHOOSE_LINE_OPTION moves during the LINE_PROCESSING
+phase, ensuring selected lines match pending lines in the game state.
+"""
+
 from typing import TYPE_CHECKING
 
 from app.models import GamePhase, GameState, Move, MoveType, Position
