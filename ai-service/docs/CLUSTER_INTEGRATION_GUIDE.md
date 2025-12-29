@@ -255,17 +255,17 @@ See `config/distributed_hosts.yaml` for full node configuration.
 
 ---
 
-## Deprecated Modules
+## Deprecated/Removed Modules
 
-These modules have been superseded and emit deprecation warnings:
+These legacy modules have been superseded (some removed during consolidation):
 
-| Deprecated                                      | Replacement                       |
-| ----------------------------------------------- | --------------------------------- |
-| `app/coordination/sync_coordinator.py`          | `SyncFacade` + `AutoSyncDaemon`   |
-| `app/coordination/node_health_monitor.py`       | `HealthCheckOrchestrator`         |
-| `app/coordination/model_distribution_daemon.py` | `UnifiedDistributionDaemon`       |
-| `app/coordination/npz_distribution_daemon.py`   | `UnifiedDistributionDaemon`       |
-| `app/coordination/cluster/p2p.py`               | `app/coordination/p2p_backend.py` |
+| Deprecated                                          | Replacement                                                |
+| --------------------------------------------------- | ---------------------------------------------------------- |
+| `app/coordination/sync_coordinator.py`              | `SyncFacade` + `AutoSyncDaemon`                            |
+| `app/coordination/node_health_monitor.py` (removed) | `health_check_orchestrator.py` (`HealthCheckOrchestrator`) |
+| `app/coordination/model_distribution_daemon.py`     | `UnifiedDistributionDaemon`                                |
+| `app/coordination/npz_distribution_daemon.py`       | `UnifiedDistributionDaemon`                                |
+| `app/coordination/cluster/p2p.py`                   | `app/coordination/p2p_backend.py`                          |
 
 ---
 

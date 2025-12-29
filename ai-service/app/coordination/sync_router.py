@@ -488,7 +488,10 @@ class SyncRouter:
         try:
             self._manifest.update_local_capacity()
             logger.debug("[SyncRouter] Refreshed local capacity")
-        except Exception as e:
+        except (AttributeError, RuntimeError, OSError) as e:
+            # AttributeError: manifest not initialized
+            # RuntimeError: capacity update failed internally
+            # OSError: disk/network probe failed
             logger.debug(f"[SyncRouter] Failed to refresh local capacity: {e}")
 
         # Emit capacity refresh event for cluster-wide updates
@@ -501,7 +504,10 @@ class SyncRouter:
                     "node_id": self.node_id,
                     "reason": "capacity_refresh",
                 })
-        except Exception as e:
+        except (ImportError, AttributeError, RuntimeError) as e:
+            # ImportError: event_router not available
+            # AttributeError: bus or DataEventType missing
+            # RuntimeError: event emission failed
             logger.debug(f"[SyncRouter] Failed to emit capacity event: {e}")
 
     def refresh_all_capacity(self) -> None:
@@ -517,7 +523,10 @@ class SyncRouter:
         try:
             self._manifest.update_local_capacity()
             logger.info("[SyncRouter] Force refreshed local capacity")
-        except Exception as e:
+        except (AttributeError, RuntimeError, OSError) as e:
+            # AttributeError: manifest not initialized
+            # RuntimeError: capacity update failed internally
+            # OSError: disk/network probe failed
             logger.warning(f"[SyncRouter] Failed to refresh capacity: {e}")
 
     def _shares_storage_with(self, target_node: str) -> bool:
@@ -649,7 +658,15 @@ class SyncRouter:
                     loaded_count += 1
             if loaded_count:
                 logger.debug(f"[SyncRouter] Loaded sync timestamps for {loaded_count} nodes")
-        except Exception as e:
+        except (
+            json.JSONDecodeError,  # Corrupted JSON
+            FileNotFoundError,     # File removed between exists() and open()
+            PermissionError,       # Access denied
+            OSError,               # General I/O error
+            KeyError,              # Missing expected key
+            TypeError,             # Invalid data type in JSON
+            ValueError,            # Invalid timestamp value
+        ) as e:
             logger.warning(f"[SyncRouter] Failed to load sync timestamps: {e}")
 
     def _save_sync_timestamps(self) -> None:
@@ -663,7 +680,12 @@ class SyncRouter:
             }
             with open(self._SYNC_STATE_FILE, "w") as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:
+        except (
+            FileNotFoundError,     # Parent directory doesn't exist (shouldn't happen with mkdir)
+            PermissionError,       # Write access denied
+            OSError,               # Disk full or other I/O error
+            TypeError,             # Non-serializable data (shouldn't happen with float timestamps)
+        ) as e:
             logger.warning(f"[SyncRouter] Failed to save sync timestamps: {e}")
 
     def record_sync_success(self, node_id: str) -> None:

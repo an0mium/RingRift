@@ -199,18 +199,18 @@ python -c "from app.coordination.data_pipeline_orchestrator import get_pipeline_
 2. Verify sync completed: `DATA_SYNC_COMPLETED` event
 3. Check pipeline stage progression
 
-## Deprecated Modules
+## Deprecated/Removed Modules
 
-Use unified replacements for:
+Use unified replacements for legacy module names:
 
-| Deprecated                     | Replacement                            |
-| ------------------------------ | -------------------------------------- |
-| `cluster_data_sync.py`         | `AutoSyncDaemon(strategy="broadcast")` |
-| `ephemeral_sync.py`            | `AutoSyncDaemon(strategy="ephemeral")` |
-| `model_distribution_daemon.py` | `UnifiedDistributionDaemon`            |
-| `npz_distribution_daemon.py`   | `UnifiedDistributionDaemon`            |
-| `node_health_monitor.py`       | `health_check_orchestrator.py`         |
-| `system_health_monitor.py`     | `unified_health_manager.py`            |
+| Deprecated                           | Replacement                                  |
+| ------------------------------------ | -------------------------------------------- |
+| `cluster_data_sync.py` (removed)     | `auto_sync_daemon.py` (strategy="broadcast") |
+| `ephemeral_sync.py` (removed)        | `auto_sync_daemon.py` (strategy="ephemeral") |
+| `model_distribution_daemon.py`       | `UnifiedDistributionDaemon`                  |
+| `npz_distribution_daemon.py`         | `UnifiedDistributionDaemon`                  |
+| `node_health_monitor.py` (removed)   | `health_check_orchestrator.py`               |
+| `system_health_monitor.py` (removed) | `unified_health_manager.py`                  |
 
 ## Integration Test Commands
 
