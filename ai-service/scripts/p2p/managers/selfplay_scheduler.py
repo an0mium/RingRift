@@ -279,6 +279,10 @@ class SelfplayScheduler(EventSubscriptionMixin):
         self._exploration_boosts: dict[str, tuple[float, float]] = {}  # config_key -> (boost_factor, expiry_time)
         self._training_complete_boosts: dict[str, float] = {}  # config_key -> expiry_time
 
+        # Dec 2025 Phase 2B: Track configs currently in training pipeline
+        # Used to reduce selfplay allocation while training is active
+        self._configs_in_training_pipeline: set[str] = set()
+
     def get_elo_based_priority_boost(self, board_type: str, num_players: int) -> int:
         """Get priority boost based on ELO performance for this config.
 
