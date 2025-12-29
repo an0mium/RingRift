@@ -168,11 +168,14 @@ await router.emit(DataEventType.TRAINING_STARTED, {"config_key": "hex8_2p"})
 
 ### Environment Variables
 
-| Variable                      | Default | Description                            |
-| ----------------------------- | ------- | -------------------------------------- |
-| `RINGRIFT_DAEMON_INTERVAL`    | 60      | Default daemon loop interval (seconds) |
-| `RINGRIFT_SYNC_INTERVAL`      | 60      | Sync daemon interval                   |
-| `RINGRIFT_EPHEMERAL_INTERVAL` | 5       | Ephemeral sync interval (Vast.ai)      |
+| Variable                            | Default | Description                            |
+| ----------------------------------- | ------- | -------------------------------------- |
+| `RINGRIFT_DAEMON_HEALTH_INTERVAL`   | 60      | Daemon health check interval (seconds) |
+| `RINGRIFT_DATA_SYNC_INTERVAL`       | 120     | Games sync interval (seconds)          |
+| `RINGRIFT_FAST_SYNC_INTERVAL`       | 30      | Fast sync interval (seconds)           |
+| `RINGRIFT_MIN_SYNC_INTERVAL`        | 2.0     | Minimum auto-sync interval             |
+| `RINGRIFT_AUTO_SYNC_MAX_CONCURRENT` | 6       | Max concurrent auto-sync transfers     |
+| `RINGRIFT_SYNC_TIMEOUT`             | 300     | Sync timeout (seconds)                 |
 
 ### YAML Configuration
 

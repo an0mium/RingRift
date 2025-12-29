@@ -46,9 +46,9 @@ def db(temp_db_path: Path) -> GameReplayDB:
 @pytest.fixture
 def sample_initial_state() -> GameState:
     """Create a sample initial game state for testing."""
-    from app.rules.game_engine import GameEngine
+    from app.training.initial_state import create_initial_state
 
-    return GameEngine.create_initial_state(
+    return create_initial_state(
         board_type=BoardType.HEX8,
         num_players=2,
         rng_seed=42,
@@ -382,7 +382,7 @@ class TestGameWriter:
         sample_move: Move,
     ) -> None:
         """Test adding moves via GameWriter."""
-        from app.rules.game_engine import GameEngine
+        from app.game_engine import GameEngine
 
         with GameWriter(db, sample_initial_state, source="test") as writer:
             # Apply move and add it
