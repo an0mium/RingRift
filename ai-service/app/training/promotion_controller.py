@@ -1143,7 +1143,10 @@ class PromotionController:
             logger.warning(f"[PromotionController] Failed to create inference symlink: {e}")
 
     def _execute_tier_promotion(self, decision: PromotionDecision) -> bool:
-        """Execute tier promotion."""
+        """Execute tier promotion.
+
+        Dec 2025: Now emits TIER_PROMOTION event for downstream coordination.
+        """
         try:
             from app.training.tier_promotion_registry import (
                 load_square8_two_player_registry,
@@ -1152,6 +1155,16 @@ class PromotionController:
 
             registry = load_square8_two_player_registry()
             tier = decision.target_tier
+            old_tier = None
+
+            # Track old tier for event
+            if tier and "tiers" in registry:
+                # Find current tier for this config
+                config_key = f"{decision.board_type or 'unknown'}_{decision.num_players or 2}p"
+                for t, t_data in registry.get("tiers", {}).items():
+                    if t_data.get("promoted_model"):
+                        old_tier = t
+                        break
 
             if tier and tier not in registry.get("tiers", {}):
                 registry.setdefault("tiers", {})[tier] = {}
@@ -1163,6 +1176,29 @@ class PromotionController:
 
                 save_square8_two_player_registry(registry)
                 logger.info(f"Promoted {decision.model_id} to tier {tier}")
+
+                # Dec 2025: Emit TIER_PROMOTION event for curriculum integration
+                try:
+                    from app.distributed.event_helpers import emit_tier_promotion_safe
+                    import asyncio
+
+                    config_key = f"{decision.board_type or 'unknown'}_{decision.num_players or 2}p"
+                    asyncio.get_event_loop().create_task(
+                        emit_tier_promotion_safe(
+                            config_key=config_key,
+                            old_tier=old_tier or "unknown",
+                            new_tier=tier,
+                            model_id=decision.model_id,
+                            elo=decision.current_elo or 0.0,
+                            win_rate=decision.win_rate or 0.0,
+                            source="promotion_controller",
+                        )
+                    )
+                    logger.debug(f"Emitted TIER_PROMOTION event: {config_key} -> {tier}")
+                except Exception as emit_err:
+                    # Event emission failure shouldn't block promotion
+                    logger.warning(f"Failed to emit TIER_PROMOTION event: {emit_err}")
+
                 return True
         except Exception as e:
             logger.error(f"Tier promotion failed: {e}")

@@ -51,19 +51,13 @@ class MockEventCapture:
     """Captures events in order for verification.
 
     Provides methods to wait for specific events with timeout.
+    Note: This is a test utility, no locking needed for single-threaded tests.
     """
 
     def __init__(self):
         self.events: list[CapturedEvent] = []
         self.subscribers: dict[str, list] = {}
         self._event_signals: dict[str, asyncio.Event] = {}
-        self._lock = None  # Lazily initialized
-
-    def _ensure_lock(self):
-        """Lazily initialize the asyncio lock."""
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        return self._lock
 
     async def publish(self, event_type: str | Any, payload: dict, source: str = "test") -> None:
         """Publish an event and notify waiting handlers."""
@@ -80,23 +74,23 @@ class MockEventCapture:
             source=source,
         )
 
-        async with self._ensure_lock():
-            self.events.append(event)
+        self.events.append(event)
 
-            # Signal waiters
-            if event_type_str in self._event_signals:
-                self._event_signals[event_type_str].set()
+        # Signal waiters
+        if event_type_str in self._event_signals:
+            self._event_signals[event_type_str].set()
 
-            # Call registered handlers
-            if event_type_str in self.subscribers:
-                for handler in self.subscribers[event_type_str]:
-                    try:
-                        if asyncio.iscoroutinefunction(handler):
-                            await handler(payload)
-                        else:
-                            handler(payload)
-                    except Exception:
-                        pass  # Ignore handler errors in test
+        # Call registered handlers (copy list to allow modification during iteration)
+        if event_type_str in self.subscribers:
+            handlers = list(self.subscribers[event_type_str])
+            for handler in handlers:
+                try:
+                    if asyncio.iscoroutinefunction(handler):
+                        await handler(payload)
+                    else:
+                        handler(payload)
+                except Exception:
+                    pass  # Ignore handler errors in test
 
     def subscribe(self, event_type: str | Any, handler) -> None:
         """Subscribe a handler to an event type."""
@@ -138,10 +132,9 @@ class MockEventCapture:
                 return event
 
         # Create signal and wait
-        async with self._ensure_lock():
-            if event_type_str not in self._event_signals:
-                self._event_signals[event_type_str] = asyncio.Event()
-            signal = self._event_signals[event_type_str]
+        if event_type_str not in self._event_signals:
+            self._event_signals[event_type_str] = asyncio.Event()
+        signal = self._event_signals[event_type_str]
 
         try:
             await asyncio.wait_for(signal.wait(), timeout=timeout)
