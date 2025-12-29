@@ -282,7 +282,7 @@ class TestEloDriftDataclass:
             participants_in_source=100,
             participants_in_target=95,
             participants_in_both=90,
-            rating_diffs={"model_a": 25.5},
+            rating_diffs={"model_a": 10.0},  # Small diff, not significant
             board_type="square8",
             num_players=4,
         )
@@ -295,10 +295,10 @@ class TestEloDriftDataclass:
         assert d["participants_in_source"] == 100
         assert d["participants_in_target"] == 95
         assert d["participants_in_both"] == 90
-        assert d["max_rating_diff"] == 25.5
-        assert d["avg_rating_diff"] == 25.5
-        assert d["is_significant"] is False
-        assert d["rating_diffs"] == {"model_a": 25.5}
+        assert d["max_rating_diff"] == 10.0
+        assert d["avg_rating_diff"] == 10.0
+        assert d["is_significant"] is False  # max < 50 and avg < 25
+        assert d["rating_diffs"] == {"model_a": 10.0}
         assert d["board_type"] == "square8"
         assert d["num_players"] == 4
 
@@ -1434,7 +1434,7 @@ class TestEloReconcilerLoadHosts:
             yield Path(d)
 
     def test_load_hosts_missing_config(self, temp_dir):
-        """Test _load_p2p_hosts returns empty when config missing."""
+        """Test _load_p2p_hosts returns empty when config missing and no legacy fallback."""
         db_path = temp_dir / "unified_elo.db"
         config_path = temp_dir / "nonexistent.yaml"
 
@@ -1444,8 +1444,10 @@ class TestEloReconcilerLoadHosts:
             track_history=False,
         )
 
-        hosts = reconciler._load_p2p_hosts()
-        assert hosts == []
+        # Mock the AI_SERVICE_ROOT to prevent fallback to real config
+        with patch('app.training.elo_reconciliation.AI_SERVICE_ROOT', temp_dir):
+            hosts = reconciler._load_p2p_hosts()
+            assert hosts == []
 
     def test_load_hosts_from_yaml(self, temp_dir):
         """Test _load_p2p_hosts parses YAML config."""

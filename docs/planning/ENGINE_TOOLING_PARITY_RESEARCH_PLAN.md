@@ -18,6 +18,9 @@ Week 1 focused on mapping surfaces and gaps. Weeks 2–3 implemented:
 - Schema v5 with full‑fidelity recording metadata.
 - A golden‑game differential replay test hook for CI/regressions.
 
+Note: Schema/version references in this plan reflect late-2025 work. The current
+GameReplayDB schema is v15; see `ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`.
+
 ---
 
 ## A. TS↔Python Parity – Current Signals and Surfaces
