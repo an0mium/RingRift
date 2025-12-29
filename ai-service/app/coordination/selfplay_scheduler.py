@@ -2024,6 +2024,9 @@ class SelfplayScheduler:
                 _safe_subscribe(DataEventType.P2P_CLUSTER_HEALTHY, self._on_cluster_healthy, "P2P_CLUSTER_HEALTHY")
             if hasattr(DataEventType, 'HOST_OFFLINE'):
                 _safe_subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline, "HOST_OFFLINE")
+            # Dec 2025: NODE_TERMINATED from idle shutdown - reuse host_offline handler
+            if hasattr(DataEventType, 'NODE_TERMINATED'):
+                _safe_subscribe(DataEventType.NODE_TERMINATED, self._on_host_offline, "NODE_TERMINATED")
 
             # Dec 2025: Subscribe to regression events for curriculum rebalancing
             if hasattr(DataEventType, 'REGRESSION_DETECTED'):
