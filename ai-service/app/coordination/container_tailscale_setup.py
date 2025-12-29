@@ -450,6 +450,29 @@ async def setup_container_networking(
         _status_cache = status
         return False, "Tailscale not installed. Run: curl -fsSL https://tailscale.com/install.sh | sh"
 
+    # First, check if kernel Tailscale is already working
+    # Some containers (like Vast.ai with proper setup) have kernel mode working
+    connected, ip = await _check_tailscale_status()
+    if connected and ip:
+        status.tailscale_running = True
+        status.tailscale_connected = True
+        status.tailscale_ip = ip
+        status.socks5_available = await _check_socks5_proxy(config.socks5_port)
+        status.last_check = datetime.now()
+        _status_cache = status
+
+        if status.socks5_available:
+            logger.info(f"Container networking ready: kernel Tailscale with SOCKS5 (IP: {ip})")
+            return True, f"Container networking ready (Tailscale IP: {ip}, SOCKS5: localhost:{config.socks5_port})"
+        else:
+            # Kernel Tailscale working without SOCKS5 - this is actually fine!
+            # Direct Tailscale connectivity is better than SOCKS5 proxy
+            logger.info(f"Container networking ready: kernel Tailscale (IP: {ip}, no SOCKS5 needed)")
+            return True, f"Container networking ready (Tailscale IP: {ip}, kernel mode - no SOCKS5 needed)"
+
+    # Kernel Tailscale not working - try userspace mode with SOCKS5
+    logger.info("Kernel Tailscale not connected, attempting userspace mode setup...")
+
     # Setup userspace Tailscale
     if not await ensure_userspace_tailscale(config):
         status.error = "Failed to setup userspace Tailscale"

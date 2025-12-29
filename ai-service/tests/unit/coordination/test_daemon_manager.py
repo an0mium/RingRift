@@ -2051,12 +2051,15 @@ class TestCheckHealth:
 
         manager.register_factory(DaemonType.EVENT_ROUTER, factory)
         await manager.start(DaemonType.EVENT_ROUTER, wait_for_deps=False)
-        manager._daemons[DaemonType.EVENT_ROUTER].instance = UnhealthyDaemon()
+
+        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        info.instance = UnhealthyDaemon()
+        # Set start_time far in the past to simulate past startup grace period
+        info.start_time = time.time() - 120  # 2 minutes ago (past 60s grace period)
 
         await manager._check_health()
 
-        # Should have recorded error or triggered restart
-        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        # Should have recorded error from unhealthy check
         assert info.last_error is not None or info.restart_count > 0
 
         await manager.shutdown()

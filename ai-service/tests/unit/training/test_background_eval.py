@@ -1,24 +1,96 @@
-"""Unit tests for background_eval module.
+"""Comprehensive unit tests for background_eval module.
 
 Tests cover:
 - BackgroundEvalConfig dataclass and defaults
 - EvalResult dataclass
-- BackgroundEvaluator initialization
+- BackgroundEvaluator initialization and state management
 - Threshold imports from app.config.thresholds
 - Baseline gating logic
+- Circuit breaker functionality
+- Failure/success recording
+- Health status reporting
+- Thread management (start/stop)
+- Step updating and event subscription
+- Placeholder evaluation
+- Result processing and checkpointing
+- Factory functions and singleton management
+- Auto-wiring from training coordinator
+- Edge cases and error conditions
 
 Created: December 2025
+Updated: December 29, 2025 - Expanded to 40+ tests
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
+from __future__ import annotations
+
+import threading
+import time
 from dataclasses import fields
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from app.training.background_eval import (
     BackgroundEvalConfig,
+    BackgroundEvaluator,
     EvalConfig,  # Alias
     EvalResult,
+    auto_wire_from_training_coordinator,
+    create_background_evaluator,
+    get_background_evaluator,
+    reset_background_evaluator,
+    wire_background_evaluator,
 )
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_model_getter():
+    """Create a mock model getter function."""
+    return MagicMock(return_value={"state_dict": {}, "path": None})
+
+
+@pytest.fixture
+def custom_config(tmp_path):
+    """Create a custom BackgroundEvalConfig with test values."""
+    return BackgroundEvalConfig(
+        eval_interval_steps=100,
+        games_per_eval=10,
+        baselines=["random", "heuristic"],
+        elo_checkpoint_threshold=5.0,
+        elo_drop_threshold=30.0,
+        auto_checkpoint=False,
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        min_baseline_win_rates={"random": 0.6, "heuristic": 0.4},
+        max_consecutive_failures=3,
+        failure_cooldown_seconds=30.0,
+        max_failures_per_hour=10,
+        eval_timeout_seconds=60.0,
+    )
+
+
+@pytest.fixture
+def evaluator(mock_model_getter, custom_config):
+    """Create a BackgroundEvaluator with custom config."""
+    return BackgroundEvaluator(
+        model_getter=mock_model_getter,
+        config=custom_config,
+        board_type=None,
+        use_real_games=False,
+    )
+
+
+@pytest.fixture(autouse=True)
+def reset_singleton():
+    """Reset the global singleton before and after each test."""
+    reset_background_evaluator()
+    yield
+    reset_background_evaluator()
 
 
 class TestBackgroundEvalConfigDataclass:

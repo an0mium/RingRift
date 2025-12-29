@@ -262,6 +262,7 @@ from Python scripts.
   - v5: `metadata_json` on `games` for full recording metadata.
   - v6: `available_moves_json` and `available_moves_count` on
     `game_history_entries` for per-step move enumeration parity/debugging.
+  - Current schema is v15; see `ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`.
 
 **Tables and key columns**
 
