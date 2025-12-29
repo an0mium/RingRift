@@ -162,6 +162,19 @@ is_coordinator = env.is_coordinator
 
 ---
 
+## Master Loop Settings
+
+| Variable                             | Type  | Default | Description                                   |
+| ------------------------------------ | ----- | ------- | --------------------------------------------- |
+| `RINGRIFT_MASTER_LOOP_INTERVAL`      | float | `30`    | Master loop tick interval (seconds)           |
+| `RINGRIFT_TRAINING_CHECK_INTERVAL`   | float | `60`    | Training readiness check interval (seconds)   |
+| `RINGRIFT_ALLOCATION_CHECK_INTERVAL` | float | `120`   | Allocation rebalance check interval (seconds) |
+| `RINGRIFT_MIN_GAMES_FOR_EXPORT`      | int   | `500`   | Minimum new games before export               |
+| `RINGRIFT_STATE_SAVE_INTERVAL`       | float | `300`   | Master loop state save interval (seconds)     |
+| `RINGRIFT_MAX_DATA_STALENESS_HOURS`  | float | `24.0`  | Deprecated legacy staleness threshold         |
+
+---
+
 ## Lambda/Cloud Provider
 
 | Variable                         | Type  | Default | Description                   |
@@ -225,6 +238,18 @@ Use `{PROVIDER}_IDLE_*` prefix (e.g., `VAST_IDLE_ENABLED`, `RUNPOD_IDLE_THRESHOL
 | `RINGRIFT_SYNC_TIMEOUT`             | float | `300`   | Sync timeout (seconds)               |
 | `RINGRIFT_MIN_SYNC_INTERVAL`        | float | `2.0`   | Minimum auto-sync interval (seconds) |
 | `RINGRIFT_AUTO_SYNC_MAX_CONCURRENT` | int   | `6`     | Max concurrent auto-sync transfers   |
+
+---
+
+## Data Freshness
+
+| Variable                           | Type  | Default | Description                                      |
+| ---------------------------------- | ----- | ------- | ------------------------------------------------ |
+| `RINGRIFT_MAX_DATA_AGE_HOURS`      | float | `4.0`   | Max acceptable training data age (hours)         |
+| `RINGRIFT_FRESHNESS_WARNING_HOURS` | float | `1.0`   | Warning threshold for stale data (hours)         |
+| `RINGRIFT_STRICT_DATA_FRESHNESS`   | bool  | `false` | Reject stale data without attempting sync        |
+| `RINGRIFT_FRESHNESS_ENFORCE_SYNC`  | bool  | `true`  | Trigger sync when data is stale                  |
+| `RINGRIFT_FRESHNESS_SYNC_TIMEOUT`  | float | `300.0` | Sync timeout (seconds) for freshness enforcement |
 
 ---
 

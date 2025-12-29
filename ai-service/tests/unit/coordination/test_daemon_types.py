@@ -212,11 +212,15 @@ class TestDaemonManagerConfig:
     """Tests for DaemonManagerConfig dataclass."""
 
     def test_default_values(self):
-        """Test default configuration values."""
+        """Test default configuration values.
+
+        Note: These values come from coordination_defaults.py and may change.
+        Dec 2025: shutdown_timeout changed from 10s to 30s for slow-shutting daemons.
+        """
         config = DaemonManagerConfig()
         assert config.auto_start is False
         assert config.health_check_interval == 30.0
-        assert config.shutdown_timeout == 10.0
+        assert config.shutdown_timeout == 30.0  # Dec 2025: Extended from 10s to 30s
         assert config.auto_restart_failed is True
         assert config.max_restart_attempts == 5
         assert config.recovery_cooldown == 10.0

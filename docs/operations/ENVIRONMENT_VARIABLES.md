@@ -513,6 +513,68 @@ Explicit override for gauntlet/evaluation on this node. When unset, defaults are
 Explicit override for export jobs on this node. When unset, defaults are resolved from
 `distributed_hosts.yaml` (coordinator nodes default to disabled).
 
+### `RINGRIFT_MASTER_LOOP_INTERVAL`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `30`     |
+| Required | No       |
+
+Master loop tick interval in seconds (`ai-service/scripts/master_loop.py`).
+
+### `RINGRIFT_TRAINING_CHECK_INTERVAL`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `60`     |
+| Required | No       |
+
+Interval (seconds) between training readiness checks in the master loop.
+
+### `RINGRIFT_ALLOCATION_CHECK_INTERVAL`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `120`    |
+| Required | No       |
+
+Interval (seconds) between allocation rebalance checks in the master loop.
+
+### `RINGRIFT_MIN_GAMES_FOR_EXPORT`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `500`    |
+| Required | No       |
+
+Minimum number of new games before export triggers. Use per‑player thresholds
+where applicable (see master loop export helpers).
+
+### `RINGRIFT_STATE_SAVE_INTERVAL`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `300`    |
+| Required | No       |
+
+Interval (seconds) between master loop state persistence saves.
+
+### `RINGRIFT_MAX_DATA_STALENESS_HOURS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `24.0`   |
+| Required | No       |
+
+Deprecated legacy staleness threshold. Active freshness enforcement uses
+`RINGRIFT_MAX_DATA_AGE_HOURS`.
+
 ### `RINGRIFT_TRAINING_RETRY_SLEEP`
 
 | Property | Value    |
@@ -534,6 +596,59 @@ after recoverable failures.
 
 Minimum delay in seconds between AutoSyncDaemon sync cycles. Used when the
 AutoSync configuration does not specify `min_sync_interval_seconds`.
+
+### `RINGRIFT_MAX_DATA_AGE_HOURS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `4.0`    |
+| Required | No       |
+
+Maximum acceptable training data age (hours) before it is considered stale.
+Used by data freshness checks in the training pipeline.
+
+### `RINGRIFT_FRESHNESS_WARNING_HOURS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `1.0`    |
+| Required | No       |
+
+Warning threshold (hours) for stale data alerts.
+
+### `RINGRIFT_STRICT_DATA_FRESHNESS`
+
+| Property | Value                     |
+| -------- | ------------------------- |
+| Type     | `boolean`                 |
+| Values   | `true`, `false`, `1`, `0` |
+| Default  | `false`                   |
+| Required | No                        |
+
+When enabled, stale data fails fast (no auto‑sync attempt).
+
+### `RINGRIFT_FRESHNESS_ENFORCE_SYNC`
+
+| Property | Value                     |
+| -------- | ------------------------- |
+| Type     | `boolean`                 |
+| Values   | `true`, `false`, `1`, `0` |
+| Default  | `true`                    |
+| Required | No                        |
+
+When enabled, stale data triggers a sync attempt instead of rejection.
+
+### `RINGRIFT_FRESHNESS_SYNC_TIMEOUT`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `300.0`  |
+| Required | No       |
+
+Timeout (seconds) for freshness‑triggered sync operations.
 
 ### `RINGRIFT_IDLE_RESOURCE_ENABLED`
 

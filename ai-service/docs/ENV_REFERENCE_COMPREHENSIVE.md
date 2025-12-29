@@ -216,6 +216,19 @@ value = env.get("CUSTOM_VAR", "default")
 
 ---
 
+## Master Loop Settings
+
+| Variable                             | Type  | Default | In env.py | Description                                   |
+| ------------------------------------ | ----- | ------- | --------- | --------------------------------------------- |
+| `RINGRIFT_MASTER_LOOP_INTERVAL`      | float | `30`    | ✓         | Master loop tick interval (seconds)           |
+| `RINGRIFT_TRAINING_CHECK_INTERVAL`   | float | `60`    | ✓         | Training readiness check interval (seconds)   |
+| `RINGRIFT_ALLOCATION_CHECK_INTERVAL` | float | `120`   | ✓         | Allocation rebalance check interval (seconds) |
+| `RINGRIFT_MIN_GAMES_FOR_EXPORT`      | int   | `500`   | ✓         | Minimum new games before export               |
+| `RINGRIFT_STATE_SAVE_INTERVAL`       | float | `300`   | ✓         | Master loop state save interval (seconds)     |
+| `RINGRIFT_MAX_DATA_STALENESS_HOURS`  | float | `24.0`  | ✓         | Deprecated: use `RINGRIFT_MAX_DATA_AGE_HOURS` |
+
+---
+
 ## Training
 
 | Variable                              | Type  | Default | In env.py | Description                        |
@@ -234,6 +247,18 @@ value = env.get("CUSTOM_VAR", "default")
 | `RINGRIFT_PROFILE_TRAINING`           | bool  | None    |           | Profile training                   |
 | `RINGRIFT_MIN_HOURS_BETWEEN_TRAINING` | int   | None    |           | Min hours between runs             |
 | `RINGRIFT_TRAINING_RETRY_SLEEP`       | float | `2.0`   |           | Pause between training retries (s) |
+
+---
+
+## Data Freshness
+
+| Variable                           | Type  | Default | In env.py | Description                                      |
+| ---------------------------------- | ----- | ------- | --------- | ------------------------------------------------ |
+| `RINGRIFT_MAX_DATA_AGE_HOURS`      | float | `4.0`   |           | Max acceptable training data age (hours)         |
+| `RINGRIFT_FRESHNESS_WARNING_HOURS` | float | `1.0`   |           | Warning threshold for stale data (hours)         |
+| `RINGRIFT_STRICT_DATA_FRESHNESS`   | bool  | `false` |           | Reject stale data without attempting sync        |
+| `RINGRIFT_FRESHNESS_ENFORCE_SYNC`  | bool  | `true`  |           | Trigger sync when data is stale                  |
+| `RINGRIFT_FRESHNESS_SYNC_TIMEOUT`  | float | `300.0` |           | Sync timeout (seconds) for freshness enforcement |
 
 ---
 

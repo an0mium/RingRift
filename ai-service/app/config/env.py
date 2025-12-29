@@ -900,9 +900,10 @@ class RingRiftEnv:
 
     @cached_property
     def max_data_staleness_hours(self) -> float:
-        """Trigger sync if data older than this many hours.
+        """Deprecated staleness threshold (hours).
 
-        December 29, 2025: Changed default from 4.0 to 24.0 for more relaxed freshness.
+        Legacy alias retained for compatibility. Active freshness enforcement uses
+        RINGRIFT_MAX_DATA_AGE_HOURS in DataFreshnessDefaults.
         """
         return float(os.environ.get("RINGRIFT_MAX_DATA_STALENESS_HOURS", "24.0"))
 

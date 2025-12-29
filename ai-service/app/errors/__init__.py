@@ -356,7 +356,7 @@ class TrainingError(RingRiftError):
     - Model convergence problems
     - Checkpoint loading errors
     """
-    code = ErrorCode.TRAINING_INTERRUPTED
+    code: str = "TRAINING_ERROR"
     retryable = False  # Usually need intervention
 
 
@@ -409,29 +409,29 @@ class ConvergenceError(TrainingError):
     code = ErrorCode.CONVERGENCE_FAILED
 
 
-class ModelVersioningError(TrainingError):
-    """Error in model versioning or compatibility."""
-    code = ErrorCode.MODEL_LOAD_FAILED
-
-
 class CheckpointError(TrainingError):
     """Error during checkpoint save/load operations."""
-    code = ErrorCode.CHECKPOINT_CORRUPT
+    code: str = "CHECKPOINT_ERROR"
+
+
+class ModelVersioningError(CheckpointError):
+    """Error in model versioning or compatibility."""
+    code: str = "MODEL_VERSIONING_ERROR"
 
 
 class DataLoadError(TrainingError):
     """Error loading training data."""
-    code = ErrorCode.DATA_QUALITY_LOW
+    code: str = "DATA_LOAD_ERROR"
 
 
 class EvaluationError(TrainingError):
     """Error during model evaluation."""
-    code = ErrorCode.TRAINING_INTERRUPTED
+    code: str = "EVALUATION_ERROR"
 
 
 class SelfplayError(TrainingError):
     """Error during self-play data generation."""
-    code = ErrorCode.TRAINING_INTERRUPTED
+    code: str = "SELFPLAY_ERROR"
 
 
 # =============================================================================

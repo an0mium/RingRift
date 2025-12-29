@@ -125,7 +125,7 @@ TRAINING_CHECK_INTERVAL = env.training_check_interval  # RINGRIFT_TRAINING_CHECK
 ALLOCATION_CHECK_INTERVAL = env.allocation_check_interval  # RINGRIFT_ALLOCATION_CHECK_INTERVAL (default: 120)
 
 # Thresholds - now configurable via environment (Dec 2025)
-MIN_GAMES_FOR_EXPORT = env.min_games_for_export  # RINGRIFT_MIN_GAMES_FOR_EXPORT (default: 100)
+MIN_GAMES_FOR_EXPORT = env.min_games_for_export  # RINGRIFT_MIN_GAMES_FOR_EXPORT (default: 500)
 # Dec 29, 2025: Use DataFreshnessDefaults for unified freshness config
 MAX_DATA_STALENESS_HOURS = DataFreshnessDefaults().MAX_DATA_AGE_HOURS
 

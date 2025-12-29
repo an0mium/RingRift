@@ -16,6 +16,7 @@ For the curated cross-service overview (with defaults), see the "AI Service" and
 - [SSH & Connectivity](#ssh--connectivity)
 - [Resource Management](#resource-management)
 - [Process Management](#process-management)
+- [Master Loop Settings](#master-loop-settings)
 - [Training Pipeline](#training-pipeline)
 - [Sync & Transfer](#sync--transfer)
 - [Circuit Breakers & Timeouts](#circuit-breakers--timeouts)
@@ -387,6 +388,60 @@ Maximum selfplay processes per node before cleanup.
 
 ---
 
+## Master Loop Settings
+
+### `RINGRIFT_MASTER_LOOP_INTERVAL`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `30`        |
+
+Master loop tick interval in seconds (`scripts/master_loop.py`).
+
+### `RINGRIFT_TRAINING_CHECK_INTERVAL`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `60`        |
+
+Interval (seconds) between training readiness checks in the master loop.
+
+### `RINGRIFT_ALLOCATION_CHECK_INTERVAL`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `120`       |
+
+Interval (seconds) between allocation rebalance checks in the master loop.
+
+### `RINGRIFT_MIN_GAMES_FOR_EXPORT`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `500`       |
+
+Minimum number of new games before export triggers. Use per‑player thresholds
+where applicable (see `get_min_games_for_export()` in the master loop helpers).
+
+### `RINGRIFT_STATE_SAVE_INTERVAL`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `300`       |
+
+Interval (seconds) between master loop state persistence saves.
+
+### `RINGRIFT_MAX_DATA_STALENESS_HOURS`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `24.0`      |
+
+Deprecated legacy staleness threshold. Active freshness enforcement uses
+`RINGRIFT_MAX_DATA_AGE_HOURS` (see Sync & Transfer).
+
+---
+
 ## Training Pipeline
 
 ### `RINGRIFT_TRAINING_THRESHOLD`
@@ -579,6 +634,46 @@ Full sync interval in seconds.
 | Type     | `float` | `2.0`       |
 
 Minimum seconds between AutoSyncDaemon sync cycles when not set in config.
+
+### `RINGRIFT_MAX_DATA_AGE_HOURS`
+
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| Type     | `float` | `4.0`       |
+
+Maximum acceptable age of training data before it is considered stale.
+
+### `RINGRIFT_FRESHNESS_WARNING_HOURS`
+
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| Type     | `float` | `1.0`       |
+
+Warning threshold (hours) for stale data alerts.
+
+### `RINGRIFT_STRICT_DATA_FRESHNESS`
+
+| Property | Default   | Description |
+| -------- | --------- | ----------- |
+| Type     | `boolean` | `false`     |
+
+Fail immediately if training data is stale (no auto‑sync attempt).
+
+### `RINGRIFT_FRESHNESS_ENFORCE_SYNC`
+
+| Property | Default   | Description |
+| -------- | --------- | ----------- |
+| Type     | `boolean` | `true`      |
+
+When true, trigger a sync attempt instead of rejecting on stale data.
+
+### `RINGRIFT_FRESHNESS_SYNC_TIMEOUT`
+
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| Type     | `float` | `300.0`     |
+
+Timeout (seconds) for freshness‑triggered sync operations.
 
 ### `RINGRIFT_AUTO_SYNC_MAX_CONCURRENT`
 

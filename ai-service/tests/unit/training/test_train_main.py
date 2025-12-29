@@ -994,7 +994,7 @@ class TestCMAESHeuristicOptimization:
 
     def test_get_heuristic_tier_by_id_import(self):
         """_get_heuristic_tier_by_id can be imported."""
-        from app.training.train import _get_heuristic_tier_by_id
+        from app.training.heuristic_tuning import _get_heuristic_tier_by_id
         assert callable(_get_heuristic_tier_by_id)
 
 
