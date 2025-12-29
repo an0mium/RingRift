@@ -437,11 +437,56 @@ class HandlerBase(ABC):
         await self.stop()
 
     async def _on_start(self) -> None:
-        """Hook called before main loop starts. Override in subclass."""
+        """Hook called before main loop starts. Override for initialization.
+
+        This method is called once during start(), after event subscriptions
+        are set up but before the main _run_cycle loop begins.
+
+        Use Cases:
+            - Load persistent state from disk/database
+            - Initialize connections (database, network, etc.)
+            - Emit startup events
+            - Validate configuration
+
+        Error Handling:
+            - Exceptions here will prevent the handler from starting
+            - If an error occurs, _on_stop() will NOT be called
+            - Use try/finally patterns for cleanup if needed
+
+        Example:
+            async def _on_start(self) -> None:
+                self._db = await self._connect_database()
+                self._state = await self._load_state()
+                logger.info(f"[{self.name}] Loaded {len(self._state)} items")
+        """
         pass
 
     async def _on_stop(self) -> None:
-        """Hook called after main loop stops. Override in subclass."""
+        """Hook called after main loop stops. Override for cleanup.
+
+        This method is called once during stop(), after the main _run_cycle
+        loop has been cancelled and all pending work is complete.
+
+        Use Cases:
+            - Save persistent state to disk/database
+            - Close connections cleanly
+            - Emit shutdown events
+            - Flush queues or buffers
+
+        Error Handling:
+            - Exceptions here are caught and logged (won't prevent stop)
+            - Handler will be marked as stopped even if _on_stop fails
+            - Use best-effort cleanup patterns
+
+        Example:
+            async def _on_stop(self) -> None:
+                try:
+                    await self._save_state()
+                    await self._db.close()
+                except Exception as e:
+                    logger.warning(f"[{self.name}] Cleanup error: {e}")
+                logger.info(f"[{self.name}] Shutdown complete")
+        """
         pass
 
     async def _main_loop(self) -> None:
@@ -462,7 +507,39 @@ class HandlerBase(ABC):
 
     @abstractmethod
     async def _run_cycle(self) -> None:
-        """Main work loop iteration. Implement in subclass."""
+        """Main work loop iteration. Must be implemented by subclasses.
+
+        This method is called periodically (every `cycle_interval` seconds)
+        by the main loop. It should perform one iteration of the handler's
+        core work.
+
+        Error Handling:
+            - Exceptions are caught and logged by the main loop
+            - The cycle count is only incremented on success
+            - After an error, the handler continues running (no crash)
+            - Errors are recorded via _record_error() for health checks
+
+        Cancellation:
+            - asyncio.CancelledError is caught and used to stop the loop
+            - Do NOT catch CancelledError within this method
+            - Use `self._running` check for graceful shutdown awareness
+
+        Guidelines:
+            - Keep cycles short (< 30 seconds recommended)
+            - Use asyncio.sleep for delays, not time.sleep
+            - Access shared state atomically or use locks
+            - Emit events for significant state changes
+            - Update self._stats.last_activity for health monitoring
+
+        Example:
+            async def _run_cycle(self) -> None:
+                # Check for pending work
+                items = await self._get_pending_items()
+                for item in items:
+                    if not self._running:  # Graceful shutdown
+                        break
+                    await self._process_item(item)
+        """
         pass
 
     # =========================================================================
@@ -470,9 +547,53 @@ class HandlerBase(ABC):
     # =========================================================================
 
     def health_check(self) -> HealthCheckResult:
-        """Get handler health status.
+        """Get handler health status. Override for custom health logic.
 
-        Override in subclass for custom logic.
+        The default implementation checks:
+        1. Running state: Returns unhealthy if handler is stopped
+        2. Error rate: Calculated as errors / (cycles + events)
+           - > 50% error rate: UNHEALTHY (healthy=False)
+           - > 20% error rate: DEGRADED (healthy=True)
+           - <= 20% error rate: RUNNING (healthy=True)
+
+        Returns:
+            HealthCheckResult with fields:
+            - healthy (bool): Overall health flag for DaemonManager
+            - status (CoordinatorStatus): RUNNING, DEGRADED, ERROR, STOPPED
+            - message (str): Human-readable status description
+            - details (dict): Metrics including uptime, cycles, errors
+
+        Health Details Include:
+            - name: Handler name
+            - running: Current running state
+            - uptime_seconds: Time since start
+            - cycles_completed: Number of _run_cycle completions
+            - events_processed: Number of events handled
+            - events_deduplicated: Number of duplicate events skipped
+            - errors_count: Total error count
+            - last_error: Most recent error message
+            - subscription_count: Number of event subscriptions
+
+        Override Guidelines:
+            - Call super().health_check() to get base metrics
+            - Add domain-specific health checks (e.g., queue depth)
+            - Return DEGRADED instead of ERROR for recoverable issues
+            - Include actionable information in the message
+
+        Example:
+            def health_check(self) -> HealthCheckResult:
+                base = super().health_check()
+                if not base.healthy:
+                    return base
+                # Add custom check
+                if self._queue_depth > 1000:
+                    return HealthCheckResult(
+                        healthy=True,
+                        status=CoordinatorStatus.DEGRADED,
+                        message=f"Queue depth high: {self._queue_depth}",
+                        details={**base.details, "queue_depth": self._queue_depth},
+                    )
+                return base
         """
         if not self._running:
             return HealthCheckResult(
@@ -546,19 +667,53 @@ class HandlerBase(ABC):
     # =========================================================================
 
     def _get_event_subscriptions(self) -> dict[str, Callable[[dict[str, Any]], Any]]:
-        """Return event_type -> handler mapping.
+        """Return event_type -> handler mapping. Override to subscribe to events.
 
-        Supports both naming conventions for backward compatibility:
-        - Canonical (new): override _get_event_subscriptions()
-        - Legacy (old): override _get_subscriptions()
+        This method is called once during start() to set up event subscriptions.
+        Each returned mapping creates a subscription to the UnifiedEventRouter.
 
-        The legacy method will emit a deprecation warning on first use.
+        Returns:
+            dict mapping event type names to async handler coroutines.
+            Handler signature: async def handler(event: dict) -> None
+
+        Event Types:
+            Use lowercase snake_case event names matching DataEventType enum:
+            - "training_completed", "evaluation_completed", "model_promoted"
+            - "data_sync_completed", "regression_detected", "node_recovered"
+            See app/distributed/data_events.py for full list (118 types).
+
+        Event Deduplication:
+            If self._dedup_enabled is True (default), use _is_duplicate_event()
+            in handlers to skip duplicate events:
+
+            async def _on_training_completed(self, event: dict) -> None:
+                if self._is_duplicate_event(event):
+                    return  # Skip - already processed this event
+                # Process unique event...
+
+        Handler Guidelines:
+            - Handlers must be async coroutines
+            - Keep handlers short (<5 seconds) to avoid blocking other events
+            - Catch and log exceptions - don't let handlers crash
+            - Use _record_success() and _record_error() for metrics
+
+        Backward Compatibility:
+            - Legacy _get_subscriptions() is still supported with deprecation warning
+            - New code should use _get_event_subscriptions() (no leading underscore)
 
         Example:
             def _get_event_subscriptions(self) -> dict:
                 return {
                     "training_completed": self._on_training_completed,
+                    "model_promoted": self._on_model_promoted,
                 }
+
+            async def _on_training_completed(self, event: dict) -> None:
+                if self._is_duplicate_event(event):
+                    return
+                config_key = event.get("config_key", "")
+                logger.info(f"Training completed for {config_key}")
+                self._record_success()
         """
         # Check if subclass overrode legacy _get_subscriptions method
         if "_get_subscriptions" in type(self).__dict__:

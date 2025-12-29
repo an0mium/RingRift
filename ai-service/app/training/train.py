@@ -2357,16 +2357,9 @@ def train_model(
                 f"blocks={effective_blocks}, filters={effective_filters}"
             )
     elif model_version == 'v3-spatial':
-        # V3 with spatial policy heads (DEPRECATED - use v3 for flat policy)
-        # Spatial heads can cause loss instability due to -1e4 masking
-        import warnings
-        warnings.warn(
-            "model_version='v3-spatial' uses spatial policy heads which can cause "
-            "training instability. Use 'v3' (flat policy) unless you have a specific "
-            "reason for spatial policy heads.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        # V3 with spatial policy heads
+        # Spatial heads offer position-aware learning and weight sharing advantages
+        # Now stable with masked_log_softmax (Dec 2025 fix)
         v3_num_players = MAX_PLAYERS if multi_player else num_players
         model = RingRiftCNN_v3(
             board_size=board_size,
@@ -4316,7 +4309,16 @@ def train_model(
                             )
 
                     # Apply log_softmax to policy prediction for KLDivLoss
-                    policy_log_probs = torch.log_softmax(policy_pred, dim=1)
+                    # For spatial policy heads (V3/V4), use masked_log_softmax to avoid
+                    # numerical instability from -1e4/-1e9 masked positions
+                    if detect_masked_policy_output(policy_pred):
+                        # Valid positions are either: (1) target distribution > 0, or
+                        # (2) model logits > -1e3 (not masked by spatial scatter)
+                        valid_mask = (policy_targets > 0) | (policy_pred > -1e3)
+                        policy_log_probs = masked_log_softmax(policy_pred, valid_mask)
+                    else:
+                        # Flat policy heads (V2, V3_Flat) - use standard log_softmax
+                        policy_log_probs = torch.log_softmax(policy_pred, dim=1)
 
                     # Use multi-player value loss for vector value targets
                     if use_multi_player_loss:
@@ -4882,7 +4884,12 @@ def train_model(
                             value_pred, policy_pred = out
                             rank_dist_pred = None
 
-                        policy_log_probs = torch.log_softmax(policy_pred, dim=1)
+                        # Use masked log_softmax for spatial policy heads
+                        if detect_masked_policy_output(policy_pred):
+                            valid_mask = (policy_targets > 0) | (policy_pred > -1e3)
+                            policy_log_probs = masked_log_softmax(policy_pred, valid_mask)
+                        else:
+                            policy_log_probs = torch.log_softmax(policy_pred, dim=1)
 
                         # Policy accuracy: compare predicted move vs target move
                         pred_move = policy_pred.argmax(dim=1)

@@ -182,3 +182,191 @@ class TestBackpressureMonitorSingleton:
         reset_backpressure_monitor()
         m2 = get_backpressure_monitor()
         assert m1 is not m2
+
+
+class TestBackpressureMonitorHealthCheck:
+    """Tests for health_check() method."""
+
+    @pytest.fixture
+    def monitor(self):
+        """Create a fresh monitor for testing."""
+        reset_backpressure_monitor()
+        return BackpressureMonitor()
+
+    def test_health_check_returns_result(self, monitor):
+        """health_check should return a HealthCheckResult."""
+        result = monitor.health_check()
+        assert hasattr(result, "healthy")
+        assert hasattr(result, "status")
+        assert hasattr(result, "message")
+        assert hasattr(result, "details")
+
+    def test_health_check_healthy_before_first_signal(self, monitor):
+        """Monitor should be healthy even before first signal fetch."""
+        result = monitor.health_check()
+        assert result.healthy is True
+        assert result.details["has_cached_signal"] is False
+
+    @pytest.mark.asyncio
+    async def test_health_check_after_signal_fetch(self, monitor):
+        """Health check should report cached signal after fetch."""
+        await monitor.get_signal()
+        result = monitor.health_check()
+        assert result.healthy is True
+        assert result.details["has_cached_signal"] is True
+        assert result.details["cache_age_seconds"] >= 0
+
+    def test_health_check_includes_config(self, monitor):
+        """Health check should include config details."""
+        result = monitor.health_check()
+        assert "config" in result.details
+        config = result.details["config"]
+        assert "cache_ttl" in config
+        assert "queue_low" in config
+        assert "queue_high" in config
+
+
+class TestNormalizeEdgeCases:
+    """Tests for _normalize edge cases."""
+
+    @pytest.fixture
+    def monitor(self):
+        """Create a fresh monitor for testing."""
+        reset_backpressure_monitor()
+        return BackpressureMonitor()
+
+    def test_normalize_equal_thresholds(self, monitor):
+        """Equal thresholds should return 0.0 (avoid division by zero)."""
+        # When high <= low, should return 0.0
+        result = monitor._normalize(50, 50, 50)
+        assert result == 0.0
+
+    def test_normalize_inverted_thresholds(self, monitor):
+        """Inverted thresholds (high < low) should return 0.0."""
+        result = monitor._normalize(50, 100, 10)
+        assert result == 0.0
+
+    def test_normalize_at_low_threshold(self, monitor):
+        """Value at low threshold should return 0.0."""
+        result = monitor._normalize(10, 10, 100)
+        assert result == 0.0
+
+    def test_normalize_at_high_threshold(self, monitor):
+        """Value at high threshold should return 1.0."""
+        result = monitor._normalize(100, 10, 100)
+        assert result == 1.0
+
+    def test_normalize_negative_value(self, monitor):
+        """Negative values should clamp to 0.0."""
+        result = monitor._normalize(-10, 0, 100)
+        assert result == 0.0
+
+
+class TestBackpressureConvenienceFunctions:
+    """Tests for convenience functions."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        reset_backpressure_monitor()
+
+    @pytest.mark.asyncio
+    async def test_get_spawn_rate_multiplier(self):
+        """get_spawn_rate_multiplier should return float 0-1."""
+        from app.coordination.backpressure import get_spawn_rate_multiplier
+
+        multiplier = await get_spawn_rate_multiplier()
+        assert isinstance(multiplier, float)
+        assert 0.0 <= multiplier <= 1.0
+
+    @pytest.mark.asyncio
+    async def test_should_pause_spawning(self):
+        """should_pause_spawning should return bool."""
+        from app.coordination.backpressure import should_pause_spawning
+
+        should_pause = await should_pause_spawning()
+        assert isinstance(should_pause, bool)
+
+    @pytest.mark.asyncio
+    async def test_convenience_functions_use_singleton(self):
+        """Convenience functions should use the singleton monitor."""
+        from app.coordination.backpressure import (
+            get_spawn_rate_multiplier,
+            should_pause_spawning,
+        )
+
+        # Call convenience functions
+        await get_spawn_rate_multiplier()
+        await should_pause_spawning()
+
+        # Singleton should now have a cached signal
+        monitor = get_backpressure_monitor()
+        assert monitor.get_cached_signal() is not None
+
+
+class TestBackpressureSignalEdgeCases:
+    """Additional edge case tests for BackpressureSignal."""
+
+    def test_spawn_rate_at_exact_threshold_low(self):
+        """Spawn rate at exactly 0.3 pressure should be 1.0."""
+        signal = BackpressureSignal(
+            queue_pressure=0.3,  # 0.3 * 0.30 = 0.09
+            training_pressure=0.3,  # 0.3 * 0.25 = 0.075
+            disk_pressure=0.3,  # 0.3 * 0.20 = 0.06
+            sync_pressure=0.3,  # 0.3 * 0.15 = 0.045
+            memory_pressure=0.3,  # 0.3 * 0.10 = 0.03
+        )
+        # Overall = 0.09 + 0.075 + 0.06 + 0.045 + 0.03 = 0.3
+        assert abs(signal.overall_pressure - 0.3) < 0.01
+        assert signal.spawn_rate_multiplier == 1.0  # Below threshold
+
+    def test_spawn_rate_just_above_threshold(self):
+        """Spawn rate just above 0.3 should start decreasing."""
+        signal = BackpressureSignal(
+            queue_pressure=0.35,
+            training_pressure=0.35,
+            disk_pressure=0.35,
+            sync_pressure=0.35,
+            memory_pressure=0.35,
+        )
+        # Overall = 0.35 (all pressures weighted sum)
+        assert signal.overall_pressure > 0.3
+        assert signal.spawn_rate_multiplier < 1.0
+
+    def test_source_details_field(self):
+        """source_details should be accessible and default to empty dict."""
+        signal = BackpressureSignal()
+        assert signal.source_details == {}
+
+        signal_with_details = BackpressureSignal(
+            source_details={"queue_depth": 50}
+        )
+        assert signal_with_details.source_details["queue_depth"] == 50
+
+    def test_timestamp_auto_generated(self):
+        """Timestamp should be auto-generated."""
+        before = time.time()
+        signal = BackpressureSignal()
+        after = time.time()
+        assert before <= signal.timestamp <= after
+
+
+class TestBackpressureConfigEdgeCases:
+    """Additional tests for BackpressureConfig."""
+
+    def test_custom_config_values(self):
+        """Custom config values should be accepted."""
+        config = BackpressureConfig(
+            queue_low_threshold=5,
+            queue_high_threshold=50,
+            cache_ttl_seconds=5.0,
+        )
+        assert config.queue_low_threshold == 5
+        assert config.queue_high_threshold == 50
+        assert config.cache_ttl_seconds == 5.0
+
+    def test_memory_thresholds(self):
+        """Memory pressure thresholds should have valid defaults."""
+        config = BackpressureConfig()
+        assert config.memory_low_threshold < config.memory_high_threshold
+        assert 0.0 <= config.memory_low_threshold <= 1.0
+        assert 0.0 <= config.memory_high_threshold <= 1.0

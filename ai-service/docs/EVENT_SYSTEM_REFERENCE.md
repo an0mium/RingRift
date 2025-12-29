@@ -238,7 +238,7 @@ To bridge a new event type:
 | `PROMOTION_STARTED`     | `promotion_started`     | PromotionController  | ProgressMonitor                         | Track promotion        |
 | `MODEL_PROMOTED`        | `model_promoted`        | PromotionController  | ModelDistribution, FeedbackLoop         | Distribute new model   |
 | `PROMOTION_FAILED`      | `promotion_failed`      | PromotionController  | ModelLifecycleCoordinator, DataPipeline | Track failures         |
-| `PROMOTION_REJECTED`    | `promotion_rejected`    | PromotionController  | FeedbackLoop                            | Adjust training        |
+| `PROMOTION_REJECTED`    | `promotion_rejected`    | PromotionController  | FeedbackLoop, CurriculumFeedback        | Adjust training        |
 | `PROMOTION_ROLLED_BACK` | `promotion_rolled_back` | RecoveryOrchestrator | ModelLifecycleCoordinator               | Restore previous model |
 | `MODEL_UPDATED`         | `model_updated`         | ModelRegistry        | UnifiedDistributionDaemon               | Sync model metadata    |
 

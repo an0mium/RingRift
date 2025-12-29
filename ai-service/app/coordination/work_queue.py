@@ -87,7 +87,8 @@ class SlackWorkQueueNotifier:
             )
             urllib.request.urlopen(req, timeout=10)
             return True
-        except (urllib.error.URLError, OSError, TimeoutError) as e:
+        except (OSError, TimeoutError, ValueError) as e:
+            # URLError inherits from OSError; ValueError for malformed URLs
             logger.warning(f"Failed to send Slack notification: {e}")
             return False
 
@@ -412,7 +413,7 @@ class WorkQueue:
                     retry_delay *= 2
                 else:
                     logger.error(f"Failed to initialize work queue database after {attempt + 1} attempts: {e}")
-            except Exception as e:
+            except (sqlite3.Error, OSError, PermissionError) as e:
                 logger.error(f"Failed to initialize work queue database: {e}")
                 break
 
@@ -620,7 +621,7 @@ class WorkQueue:
             logger.error(f"Database error saving work item {item.work_id}: {e}")
         except sqlite3.IntegrityError as e:
             logger.error(f"Database integrity error saving work item {item.work_id}: {e}")
-        except Exception as e:
+        except (OSError, sqlite3.Error) as e:
             logger.error(f"Failed to save work item {item.work_id}: {e}")
         finally:
             # Dec 2025: Ensure connection is closed even on error
@@ -961,7 +962,7 @@ class WorkQueue:
             try:
                 self.notifier.on_work_completed(item)
                 self._emit_work_event("WORK_COMPLETED", item, result=result or {})
-            except Exception as e:
+            except (ImportError, RuntimeError, AttributeError) as e:
                 # Event emission failure should not break work completion
                 logger.warning(f"Failed to emit WORK_COMPLETED event: {e}")
 
