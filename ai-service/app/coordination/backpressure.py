@@ -291,14 +291,16 @@ class BackpressureMonitor:
         try:
             import torch
             if torch.cuda.is_available():
-                memory_allocated = torch.cuda.memory_allocated() / torch.cuda.max_memory_allocated()
-                signal.memory_pressure = self._normalize(
-                    memory_allocated,
-                    self.config.memory_low_threshold,
-                    self.config.memory_high_threshold,
-                )
-                details["gpu_memory_percent"] = memory_allocated * 100
-        except (ImportError, RuntimeError) as e:
+                max_mem = torch.cuda.max_memory_allocated()
+                if max_mem > 0:
+                    memory_allocated = torch.cuda.memory_allocated() / max_mem
+                    signal.memory_pressure = self._normalize(
+                        memory_allocated,
+                        self.config.memory_low_threshold,
+                        self.config.memory_high_threshold,
+                    )
+                    details["gpu_memory_percent"] = memory_allocated * 100
+        except (ImportError, RuntimeError, ZeroDivisionError) as e:
             logger.debug(f"[Backpressure] CUDA unavailable: {e}")
 
         signal.source_details = details
