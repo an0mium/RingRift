@@ -84,17 +84,9 @@ class BaseSyncProgress:
 # Use canonical circuit breaker from distributed module
 from app.distributed.circuit_breaker import CircuitBreaker as CanonicalCircuitBreaker
 
-
-@dataclass
-class CircuitBreakerConfig:
-    """Configuration for circuit breaker behavior.
-
-    Kept for backward compatibility - maps to canonical CircuitBreaker parameters.
-    """
-    failure_threshold: int = 3
-    recovery_timeout: float = 60.0
-    half_open_max_calls: int = 1
-
+# CircuitBreakerConfig consolidated to transport_base.py (December 2025)
+# Import from canonical location to avoid duplicate definitions
+from app.coordination.transport_base import CircuitBreakerConfig
 
 # Alias for backward compatibility - use canonical CircuitBreaker directly
 # Old code using SimpleCircuitBreaker should migrate to CanonicalCircuitBreaker
