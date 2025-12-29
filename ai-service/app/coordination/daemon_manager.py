@@ -51,6 +51,7 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
+from app.config.coordination_defaults import DaemonHealthDefaults
 from app.config.ports import DATA_SERVER_PORT
 from app.core.async_context import fire_and_forget, safe_create_task
 

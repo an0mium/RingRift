@@ -47,14 +47,28 @@ class TestFastIntegrityCheck:
         assert "Invalid SQLite header" in errors[0]
 
     def test_empty_database(self, tmp_path: Path) -> None:
-        """Test fast check handles database with no tables."""
+        """Test fast check handles database with no user tables."""
         db_path = tmp_path / "empty.db"
         conn = sqlite3.connect(str(db_path))
+        # Create and drop a table to force SQLite to write header
+        conn.execute("CREATE TABLE temp (id INTEGER)")
+        conn.execute("DROP TABLE temp")
+        conn.commit()
         conn.close()
 
         is_valid, errors = _run_fast_integrity_check(db_path)
+        # Database with valid header but no tables should fail
         assert is_valid is False
         assert any("No tables found" in e for e in errors)
+
+    def test_zero_byte_file(self, tmp_path: Path) -> None:
+        """Test fast check handles zero-byte file."""
+        db_path = tmp_path / "zero.db"
+        db_path.write_bytes(b"")
+
+        is_valid, errors = _run_fast_integrity_check(db_path)
+        assert is_valid is False
+        assert any("Invalid SQLite header" in e for e in errors)
 
     def test_file_not_found(self, tmp_path: Path) -> None:
         """Test fast check handles missing file."""
