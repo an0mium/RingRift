@@ -91,6 +91,7 @@ from .elo_sync import EloSyncHandlersMixin
 from .gauntlet import GauntletHandlersMixin
 from .gossip import GossipHandlersMixin
 from .improvement import ImprovementHandlersMixin
+from .jobs_api import JobsApiHandlersMixin
 from .raft import RaftHandlersMixin
 from .relay import RelayHandlersMixin
 from .ssh_tournament import SSHTournamentHandlersMixin
@@ -119,6 +120,7 @@ __all__ = [
     "GauntletHandlersMixin",
     "GossipHandlersMixin",
     "ImprovementHandlersMixin",
+    "JobsApiHandlersMixin",
     "NetworkDiscoveryMixin",
     "RaftHandlersMixin",
     "RegistryHandlersMixin",

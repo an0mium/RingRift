@@ -1,10 +1,8 @@
 """Lambda Labs cloud provider manager.
 
-DEPRECATED (December 2025): Lambda Labs account permanently terminated.
-This module is retained for historical reference only. All Lambda nodes
-have been removed from the cluster. Use Vast.ai, RunPod, or Nebius instead.
+UPDATE (December 28, 2025): Lambda Labs account restored.
+6 GH200 nodes (96GB each) now available for training workloads.
 
-Original description:
 Manages Lambda Labs GPU instances via their REST API.
 Supports GH200, H100, A10, and other GPU types.
 
@@ -13,14 +11,7 @@ API Documentation: https://cloud.lambdalabs.com/api/v1
 
 from __future__ import annotations
 
-import warnings
-
-warnings.warn(
-    "Lambda Labs account terminated Dec 2025. "
-    "lambda_manager.py is deprecated. Use other providers (Vast, RunPod, Nebius).",
-    DeprecationWarning,
-    stacklevel=2,
-)
+# Note: Deprecation warning removed Dec 28, 2025 - Lambda account restored
 
 import asyncio
 import logging

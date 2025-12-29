@@ -209,23 +209,32 @@ class TestCircuitBreakerConfig:
     """Tests for CircuitBreakerConfig."""
 
     def test_default_values(self):
-        """Default config values."""
+        """Default config values.
+
+        Dec 2025: Updated for P2P cluster stability:
+        - failure_threshold: 3 → 5 (tolerate network blips)
+        - recovery_timeout: 300s → 60s (faster recovery)
+        - Added backoff parameters (backoff_multiplier, max_backoff, jitter_factor)
+        """
         config = CircuitBreakerConfig()
-        assert config.failure_threshold == 3
-        assert config.recovery_timeout == 300.0
+        assert config.failure_threshold == 5
+        assert config.recovery_timeout == 60.0
         assert config.half_open_max_calls == 1
+        assert config.backoff_multiplier == 2.0
+        assert config.max_backoff == 300.0
+        assert config.jitter_factor == 0.1
 
     def test_aggressive_factory(self):
         """Aggressive config for unreliable targets."""
         config = CircuitBreakerConfig.aggressive()
         assert config.failure_threshold == 2
-        assert config.recovery_timeout == 60.0
+        assert config.recovery_timeout == 30.0
 
     def test_patient_factory(self):
         """Patient config for occasionally-failing targets."""
         config = CircuitBreakerConfig.patient()
-        assert config.failure_threshold == 5
-        assert config.recovery_timeout == 600.0
+        assert config.failure_threshold == 10
+        assert config.recovery_timeout == 120.0
 
 
 # =============================================================================

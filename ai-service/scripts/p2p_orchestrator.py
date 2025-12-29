@@ -459,6 +459,7 @@ from scripts.p2p.handlers import (
     GauntletHandlersMixin,
     GossipHandlersMixin,
     ImprovementHandlersMixin,
+    JobsApiHandlersMixin,
     RegistryHandlersMixin,
     ManifestHandlersMixin,
     RelayHandlersMixin,
@@ -18176,7 +18177,10 @@ print(json.dumps({{
             if self.node_id not in self.peers:
                 final_alive_count += 1
                 final_node_count += 1
-            self._emit_cluster_health_event_sync(final_alive_count, final_node_count)
+            # Dec 28, 2025: Fixed signature mismatch - pass correct parameters
+            is_healthy = final_alive_count > 0
+            quorum_met = self._has_voter_quorum() if hasattr(self, '_has_voter_quorum') else True
+            self._emit_cluster_health_event_sync(is_healthy, final_alive_count, quorum_met)
 
         # Clear stale leader IDs after restarts/partitions
         if self.leader_id and not self._is_leader_lease_valid():
@@ -18320,7 +18324,10 @@ print(json.dumps({{
             if self.node_id not in self.peers:
                 final_alive_count += 1
                 final_node_count += 1
-            self._emit_cluster_health_event_sync(final_alive_count, final_node_count)
+            # Dec 28, 2025: Fixed signature mismatch - pass correct parameters
+            is_healthy = final_alive_count > 0
+            quorum_met = self._has_voter_quorum() if hasattr(self, '_has_voter_quorum') else True
+            self._emit_cluster_health_event_sync(is_healthy, final_alive_count, quorum_met)
 
         # LEARNED LESSONS - Clear stale leader IDs after restarts/partitions.
         #

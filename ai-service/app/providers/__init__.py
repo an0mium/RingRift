@@ -9,8 +9,8 @@ across multiple cloud providers:
 - AWS EC2 (staging/proxy) - Keep updated, light utilization
 - Tailscale (mesh networking) - Cross-provider connectivity
 
-DEPRECATED (Dec 2025): Lambda Labs account terminated.
-LambdaManager is kept for backward compatibility but will emit DeprecationWarning.
+UPDATE (Dec 28, 2025): Lambda Labs account restored. 6 GH200 nodes (96GB each) available.
+LambdaManager is active again for Lambda node management.
 
 Usage:
     from app.providers import VastManager, HetznerManager
