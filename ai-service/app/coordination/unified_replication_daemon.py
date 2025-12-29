@@ -80,12 +80,8 @@ __all__ = [
 # Enums
 # =============================================================================
 
-
-class ReplicationAlertLevel(str, Enum):
-    """Alert severity levels."""
-    INFO = "info"
-    WARNING = "warning"
-    CRITICAL = "critical"
+# Import from canonical location (December 2025 consolidation)
+from app.coordination.alert_types import ReplicationAlertLevel
 
 
 class RepairPriority(Enum):
