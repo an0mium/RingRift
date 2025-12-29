@@ -747,10 +747,19 @@ class TestAutoTournamentPipelineTournament:
             mock_model_file_2, metadata=sample_metadata_2, initial_elo=1500.0
         )
 
+        # Use a real dict that gets modified by run()
+        ratings_dict = {"A": 1500.0, "B": 1500.0}
+
+        def run_side_effect():
+            # Simulate tournament updating ratings after games
+            ratings_dict["A"] = 1540.0
+            ratings_dict["B"] = 1460.0
+            return {"A": 7, "B": 3, "Draw": 0}
+
         mock_tournament = MagicMock()
-        mock_tournament.ratings = {"A": 1540.0, "B": 1460.0}
+        mock_tournament.ratings = ratings_dict
         mock_tournament.victory_reasons = {}
-        mock_tournament.run.return_value = {"A": 7, "B": 3, "Draw": 0}
+        mock_tournament.run.side_effect = run_side_effect
         mock_tournament_class.return_value = mock_tournament
 
         pipeline.run_tournament(games_per_match=10)
@@ -795,11 +804,19 @@ class TestAutoTournamentPipelineChallenger:
         # Register champion
         pipeline.register_model(mock_model_file, metadata=sample_metadata)
 
-        # Mock tournament with challenger winning decisively
+        # Use a real dict that gets modified by run()
+        ratings_dict = {"A": 1500.0, "B": 1500.0}
+
+        def run_side_effect():
+            # Simulate tournament updating ratings - challenger wins decisively
+            ratings_dict["A"] = 1600.0  # Challenger (A) gains rating
+            ratings_dict["B"] = 1400.0  # Champion (B) loses rating
+            return {"A": 35, "B": 15, "Draw": 0}
+
         mock_tournament = MagicMock()
-        mock_tournament.ratings = {"A": 1600.0, "B": 1400.0}
+        mock_tournament.ratings = ratings_dict
         mock_tournament.victory_reasons = {"territory": 35, "rings": 15}
-        mock_tournament.run.return_value = {"A": 35, "B": 15, "Draw": 0}
+        mock_tournament.run.side_effect = run_side_effect
         mock_tournament_class.return_value = mock_tournament
 
         result = pipeline.evaluate_challenger(
