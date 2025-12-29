@@ -1970,7 +1970,9 @@ class TestCheckHealth:
     @pytest.mark.asyncio
     async def test_check_health_object_result(self):
         """_check_health() handles object with .healthy attribute."""
-        manager = DaemonManager()
+        # Disable coordination wiring to avoid hanging in tests
+        config = DaemonManagerConfig(enable_coordination_wiring=False)
+        manager = DaemonManager(config)
         manager._factories.clear()
         manager._daemons.clear()
         manager._running = True
