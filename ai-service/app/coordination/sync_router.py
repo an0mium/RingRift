@@ -1082,7 +1082,8 @@ class SyncRouter:
 
         except ImportError as e:
             logger.warning(f"[SyncRouter] Event router not available: {e}")
-        except Exception as e:
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            # Specific errors from subscription configuration issues
             logger.error(f"[SyncRouter] Failed to wire to event router: {e}")
 
     async def _on_new_games_available(self, event: Any) -> None:

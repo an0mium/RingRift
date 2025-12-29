@@ -72,6 +72,11 @@ class CheckpointConfig:
     init_weights_path: str | None = None
     init_weights_strict: bool = False
 
+    # Checkpoint averaging (2025-12)
+    # Averages last N checkpoints at end of training for +10-20 Elo improvement
+    enable_checkpoint_averaging: bool = True
+    num_checkpoints_to_average: int = 5
+
 
 @dataclass
 class LearningRateConfig:
@@ -124,6 +129,12 @@ class EnhancementConfig:
     quality_ranking_margin: float = 0.5  # Margin for ranking loss
     quality_min_weight: float = 0.1  # Minimum sample weight
     quality_temperature: float = 1.0  # Temperature for weight computation
+
+    # Outcome-weighted policy loss (2025-12)
+    # Weights policy loss by game outcome: winner's moves → higher weight, loser's → lower
+    # Dec 28: Enabled by default to improve move quality learning
+    enable_outcome_weighted_policy: bool = True
+    outcome_weight_scale: float = 0.5  # How much to scale by outcome (0=no effect, 1=full)
 
 
 @dataclass

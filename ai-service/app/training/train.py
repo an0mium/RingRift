@@ -5980,6 +5980,8 @@ def train_with_config(full_config: FullTrainingConfig) -> dict[str, Any]:
         resume_path=full_config.checkpoint.resume_path,
         init_weights_path=full_config.checkpoint.init_weights_path,
         init_weights_strict=full_config.checkpoint.init_weights_strict,
+        enable_checkpoint_averaging=full_config.checkpoint.enable_checkpoint_averaging,
+        num_checkpoints_to_average=full_config.checkpoint.num_checkpoints_to_average,
         # Learning rate scheduling
         warmup_epochs=full_config.lr.warmup_epochs,
         lr_scheduler=full_config.lr.lr_scheduler,
@@ -6039,6 +6041,8 @@ def train_with_config(full_config: FullTrainingConfig) -> dict[str, Any]:
         enable_quality_weighting=full_config.enhancements.enable_quality_weighting,
         quality_weight_blend=full_config.enhancements.quality_weight_blend,
         quality_ranking_weight=full_config.enhancements.quality_ranking_weight,
+        enable_outcome_weighted_policy=full_config.enhancements.enable_outcome_weighted_policy,
+        outcome_weight_scale=full_config.enhancements.outcome_weight_scale,
         # Fault tolerance
         enable_circuit_breaker=full_config.fault_tolerance.enable_circuit_breaker,
         enable_anomaly_detection=full_config.fault_tolerance.enable_anomaly_detection,
