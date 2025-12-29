@@ -752,10 +752,24 @@ def generate_dataset_parallel(
         futures = {executor.submit(_generate_single_game, args): args[0]
                    for args in game_args}
 
+        # Calculate adaptive timeout based on board complexity and player count
+        # Base: 300s for square8_2p, scaled up for larger boards and more players
+        board_complexity = {
+            "square8": 1.0, "hex8": 1.0,
+            "square19": 2.0, "hexagonal": 2.5,
+        }
+        player_multiplier = {2: 1.0, 3: 1.5, 4: 2.0}
+        board_type_str = config_dict.get("board_type", "square8")
+        num_players = config_dict.get("num_players", 2)
+        complexity = board_complexity.get(board_type_str, 1.0)
+        player_mult = player_multiplier.get(num_players, 1.0)
+        game_timeout = int(300 * complexity * player_mult * 2)  # 2x safety margin
+        logger.info(f"[parallel-selfplay] Using {game_timeout}s timeout for {board_type_str}_{num_players}p")
+
         for future in as_completed(futures):
             game_idx = futures[future]
             try:
-                result = future.result(timeout=300)
+                result = future.result(timeout=game_timeout)
                 if result is not None:
                     results.append(result)
                 completed += 1

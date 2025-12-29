@@ -23,6 +23,7 @@ Event Integration:
 - Subscribes to COORDINATOR_HEALTH_DEGRADED: Track coordinator health issues (Dec 2025)
 - Subscribes to DAEMON_STARTED: Track daemon lifecycle for health visibility (Dec 2025)
 - Subscribes to DAEMON_STOPPED: Track daemon stops and detect unexpected failures (Dec 2025)
+- Subscribes to DAEMON_PERMANENTLY_FAILED: Handle daemons that exceeded restart limit (Dec 2025)
 
 Usage:
     from app.coordination.unified_health_manager import (
@@ -544,6 +545,9 @@ class UnifiedHealthManager(CoordinatorBase):
 
             # Daemon watchdog alerts (December 2025 - wires watchdog → health manager)
             router.subscribe(DataEventType.DAEMON_STATUS_CHANGED, self._on_daemon_status_changed)
+
+            # Daemon permanent failure (December 2025 - wires exceeded restart limit to health manager)
+            router.subscribe(DataEventType.DAEMON_PERMANENTLY_FAILED, self._on_daemon_permanently_failed)
 
             self._subscribed = True
             logger.info("[UnifiedHealthManager] Subscribed to health events via event router")
@@ -1516,6 +1520,76 @@ class UnifiedHealthManager(CoordinatorBase):
             logger.debug(
                 f"[UnifiedHealthManager] Unknown watchdog alert: {alert_type} for {daemon_name}"
             )
+
+    async def _on_daemon_permanently_failed(self, event) -> None:
+        """Handle DAEMON_PERMANENTLY_FAILED event - daemon exceeded restart limit (December 2025).
+
+        When a daemon exceeds its hourly restart limit (typically 5 restarts),
+        the DaemonManager emits this event. This indicates:
+        1. A persistent failure that auto-restart cannot solve
+        2. Likely configuration, import, or dependency issue
+        3. Manual intervention is required
+
+        This handler:
+        1. Records a CRITICAL error
+        2. Updates daemon state as permanently failed
+        3. Trips circuit breaker for the daemon
+        4. Escalates for human intervention
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        daemon_type = payload.get("daemon_type", "unknown")
+        restart_count = payload.get("restart_count", 0)
+        error_message = payload.get("error", "")
+        hostname = payload.get("hostname", "local")
+        daemon_key = f"{daemon_type}@{hostname}"
+
+        logger.critical(
+            f"[UnifiedHealthManager] DAEMON_PERMANENTLY_FAILED: {daemon_type} "
+            f"(restarts: {restart_count}, host: {hostname})"
+        )
+
+        # Get or create daemon state
+        if daemon_key not in self._daemon_states:
+            self._daemon_states[daemon_key] = DaemonHealthState(
+                daemon_name=daemon_type,
+                hostname=hostname,
+            )
+
+        state = self._daemon_states[daemon_key]
+        state.is_running = False
+        state.restart_count = restart_count
+        state.consecutive_failures = restart_count
+        state.last_error = f"permanently_failed: {error_message}"
+
+        # Record as CRITICAL error
+        error = ErrorRecord(
+            error_id=f"daemon_perm_fail_{int(time.time() * 1000)}",
+            timestamp=time.time(),
+            component=f"daemon:{daemon_type}",
+            error_type="daemon_permanently_failed",
+            message=f"Daemon {daemon_type} exceeded restart limit ({restart_count} restarts)",
+            node_id=hostname,
+            severity=ErrorSeverity.CRITICAL,
+            context={
+                "daemon_type": daemon_type,
+                "restart_count": restart_count,
+                "error": error_message,
+                "hostname": hostname,
+            },
+        )
+        self._record_error(error)
+
+        # Trip circuit breaker multiple times to ensure it's open
+        component_key = f"daemon:{daemon_type}"
+        for _ in range(5):  # Multiple failures to ensure breaker trips
+            self._on_component_failure(component_key)
+
+        # Escalate for human intervention
+        await self._escalate_to_human(
+            f"daemon:{daemon_type}",
+            f"Daemon permanently failed after {restart_count} restarts: {error_message}",
+        )
 
     def get_daemon_states(self) -> dict[str, DaemonHealthState]:
         """Get all tracked daemon states (December 2025).

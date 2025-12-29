@@ -420,10 +420,11 @@ class TestPushPendingFiles:
 
         with patch.object(daemon, "_push_file", new_callable=AsyncMock) as mock_push:
             mock_push.return_value = True
+            # Mock _emit_event to avoid event bus initialization issues
+            with patch.object(daemon, "_emit_event", new_callable=AsyncMock) as mock_emit:
+                await daemon._push_pending_files()
 
-            await daemon._push_pending_files()
-
-            assert mock_push.call_count <= 2
+                assert mock_push.call_count <= 2
 
 
 # =============================================================================

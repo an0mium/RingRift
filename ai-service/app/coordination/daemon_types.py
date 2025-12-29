@@ -268,6 +268,11 @@ class DaemonType(Enum):
     # Part of "sync then clean" pattern - never delete without verified receipt
     SYNC_PUSH = "sync_push"
 
+    # Unified data plane daemon (December 28, 2025) - consolidated data synchronization
+    # Replaces fragmented sync infrastructure (~4,514 LOC consolidated)
+    # Components: DataCatalog, SyncPlanner v2, TransportManager, EventBridge
+    UNIFIED_DATA_PLANE = "unified_data_plane"
+
 
 class DaemonState(Enum):
     """State of a daemon."""

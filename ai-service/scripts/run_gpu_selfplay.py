@@ -1905,10 +1905,14 @@ def main():
     parser.add_argument("--sync-target", type=str, help="Target directory for ramdrive sync")
     parser.add_argument("--skip-resource-check", action="store_true",
                        help="Skip resource limit checks (use when resources are known to be available)")
+    # Canonical export is now enabled by default (Dec 2025)
+    # Use --no-canonical-export to disable if needed for debugging
+    parser.set_defaults(canonical_export=True)
     parser.add_argument(
-        "--canonical-export",
-        action="store_true",
-        help="Export moves in canonical format (phase/type strings) for DB import",
+        "--no-canonical-export",
+        action="store_false",
+        dest="canonical_export",
+        help="Disable canonical export (use raw GPU coordinates - not recommended)",
     )
     parser.add_argument(
         "--snapshot-interval",

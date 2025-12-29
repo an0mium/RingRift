@@ -262,6 +262,30 @@ DATA_TO_CROSS_PROCESS_MAP: Final[dict[str, str]] = {
     # Node lifecycle events
     "node_terminated": "NODE_TERMINATED",
     "cluster_stall_detected": "CLUSTER_STALL_DETECTED",
+    # December 28, 2025: High-impact events from coordinator audit
+    # Daemon health events
+    "daemon_permanently_failed": "DAEMON_PERMANENTLY_FAILED",
+    "coordinator_health_degraded": "COORDINATOR_HEALTH_DEGRADED",
+    "coordinator_init_failed": "COORDINATOR_INIT_FAILED",
+    # Resource and disk events
+    "disk_space_low": "DISK_SPACE_LOW",
+    "node_overloaded": "NODE_OVERLOADED",
+    "deadlock_detected": "DEADLOCK_DETECTED",
+    # Model and data integrity events
+    "model_corrupted": "MODEL_CORRUPTED",
+    "promotion_rolled_back": "PROMOTION_ROLLED_BACK",
+    # Training health events
+    "training_blocked_by_quality": "TRAINING_BLOCKED_BY_QUALITY",
+    "training_loss_anomaly": "TRAINING_LOSS_ANOMALY",
+    "training_rollback_needed": "TRAINING_ROLLBACK_NEEDED",
+    "training_rollback_completed": "TRAINING_ROLLBACK_COMPLETED",
+    "training_early_stopped": "TRAINING_EARLY_STOPPED",
+    # Health monitoring events
+    "health_alert": "HEALTH_ALERT",
+    "health_check_failed": "HEALTH_CHECK_FAILED",
+    "health_check_passed": "HEALTH_CHECK_PASSED",
+    # Handler events
+    "handler_timeout": "HANDLER_TIMEOUT",
 }
 
 # Reverse mapping: CrossProcess → DataEventType

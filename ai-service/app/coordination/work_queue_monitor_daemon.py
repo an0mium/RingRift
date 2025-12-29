@@ -195,11 +195,13 @@ class WorkQueueMonitorDaemon(MonitorBase[WorkQueueMonitorConfig]):
             "WORK_FAILED": self._on_work_failed,
         }
 
-        # WORK_RETRY may not exist in all versions
+        # WORK_RETRY and WORK_CANCELLED may not exist in all versions
         try:
             from app.distributed.data_events import DataEventType
             if hasattr(DataEventType, "WORK_RETRY"):
                 subscriptions["WORK_RETRY"] = self._on_work_retry
+            if hasattr(DataEventType, "WORK_CANCELLED"):
+                subscriptions["WORK_CANCELLED"] = self._on_work_cancelled
         except ImportError:
             pass
 
@@ -372,6 +374,30 @@ class WorkQueueMonitorDaemon(MonitorBase[WorkQueueMonitorConfig]):
                 self._total_retries += 1
 
         self.record_event()
+
+    async def _on_work_cancelled(self, event: Any) -> None:
+        """Handle WORK_CANCELLED event.
+
+        Dec 28, 2025 - Added handler for previously orphan event.
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        work_id = payload.get("work_id", "")
+        reason = payload.get("reason", "unknown")
+
+        async with self._jobs_lock:
+            if work_id in self._jobs:
+                job = self._jobs[work_id]
+                # Decrement node job count if job was claimed
+                if job.claimed_by and job.claimed_by in self._node_job_counts:
+                    self._node_job_counts[job.claimed_by] = max(
+                        0, self._node_job_counts[job.claimed_by] - 1
+                    )
+                # Remove from active tracking
+                del self._jobs[work_id]
+
+        self.record_event()
+        logger.debug(f"[{self._get_daemon_name()}] Work cancelled: {work_id}, reason: {reason}")
 
     # =========================================================================
     # Backpressure and Overload Detection

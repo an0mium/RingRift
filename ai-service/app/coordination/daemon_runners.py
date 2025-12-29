@@ -1132,6 +1132,41 @@ async def create_sync_push() -> None:
         raise
 
 
+async def create_unified_data_plane() -> None:
+    """Create and run unified data plane daemon (December 28, 2025).
+
+    Consolidated data synchronization daemon that replaces fragmented sync
+    infrastructure (~4,514 LOC consolidated):
+    - AutoSyncDaemon (P2P gossip sync)
+    - SyncFacade (backend routing)
+    - S3NodeSyncDaemon (S3 backup)
+    - dynamic_data_distribution.py (OWC distribution)
+    - SyncRouter (intelligent routing)
+
+    Key Components:
+    - DataCatalog: Central registry of what data exists where
+    - SyncPlanner v2: Intelligent routing (what to sync where and when)
+    - TransportManager: Unified transfer layer with fallback chains
+    - EventBridge: Event routing with chain completion
+
+    Event Chain Completion:
+        SELFPLAY_COMPLETE → DATA_SYNC_STARTED → DATA_SYNC_COMPLETED → NEW_GAMES_AVAILABLE
+        TRAINING_COMPLETED → MODEL_PROMOTED → MODEL_DISTRIBUTION_STARTED → MODEL_DISTRIBUTION_COMPLETE
+    """
+    try:
+        from app.coordination.unified_data_plane_daemon import (
+            UnifiedDataPlaneDaemon,
+            get_data_plane_daemon,
+        )
+
+        daemon = get_data_plane_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"UnifiedDataPlaneDaemon not available: {e}")
+        raise
+
+
 # =============================================================================
 # Miscellaneous Daemons
 # =============================================================================
@@ -1430,6 +1465,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.DISK_SPACE_MANAGER.name: create_disk_space_manager,
         DaemonType.COORDINATOR_DISK_MANAGER.name: create_coordinator_disk_manager,
         DaemonType.SYNC_PUSH.name: create_sync_push,
+        DaemonType.UNIFIED_DATA_PLANE.name: create_unified_data_plane,
         DaemonType.S3_BACKUP.name: create_s3_backup,
         DaemonType.S3_NODE_SYNC.name: create_s3_node_sync,
         DaemonType.S3_CONSOLIDATION.name: create_s3_consolidation,

@@ -182,12 +182,9 @@ def parse_move(
 
     from_pos = parse_pos_flexible(from_data, effective_board_type)
     to_pos = parse_pos_flexible(to_data, effective_board_type)
-    capture_target_dict = move_dict.get("capture_target") or move_dict.get("captureTarget")
-    capture_target = (
-        parse_position(capture_target_dict, effective_board_type)
-        if isinstance(capture_target_dict, dict)
-        else None
-    )
+    # Handle capture_target in both dict and array format
+    capture_target_data = move_dict.get("capture_target") or move_dict.get("captureTarget")
+    capture_target = parse_pos_flexible(capture_target_data, effective_board_type)
 
     # Parse placement_count for place_ring moves
     placement_count = move_dict.get("placement_count")
@@ -215,6 +212,8 @@ def get_board_type(board_str: str) -> BoardType:
         "square25": BoardType.HEXAGONAL,
         "hexagonal": BoardType.HEXAGONAL,
         "hex": BoardType.HEXAGONAL,
+        # hex8 is a distinct board type (radius 4, 61 cells)
+        "hex8": BoardType.HEX8,
     }
     return board_map.get(board_str, BoardType.SQUARE8)
 

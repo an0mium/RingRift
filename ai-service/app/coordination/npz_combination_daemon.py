@@ -189,6 +189,9 @@ class NPZCombinationDaemon(HandlerBase):
         self.combination_stats.combinations_triggered += 1
         logger.info(f"Triggering NPZ combination for {config_key}")
 
+        # Emit start event (Dec 28, 2025 - was previously orphan event)
+        self._emit_combination_started(config_key)
+
         try:
             result = await self._combine_for_config(config_key)
             if result and result.success:
@@ -280,6 +283,22 @@ class NPZCombinationDaemon(HandlerBase):
             )
         except Exception as e:
             logger.warning(f"Failed to emit NPZ_COMBINATION_FAILED: {e}")
+
+    def _emit_combination_started(self, config_key: str) -> None:
+        """Emit NPZ_COMBINATION_STARTED event.
+
+        Dec 28, 2025 - Added to fix orphan event (was defined but never emitted).
+        """
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                DataEventType.NPZ_COMBINATION_STARTED,
+                config_key=config_key,
+                source="NPZCombinationDaemon",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to emit NPZ_COMBINATION_STARTED: {e}")
 
     def health_check(self) -> HealthCheckResult:
         """Return health status for daemon manager."""

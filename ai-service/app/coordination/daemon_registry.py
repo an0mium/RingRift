@@ -475,6 +475,18 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         auto_restart=True,
         health_check_interval=60.0,
     ),
+    # Unified data plane (December 28, 2025) - consolidated data synchronization
+    # Replaces fragmented sync infrastructure (~4,514 LOC consolidated)
+    # Components: DataCatalog, SyncPlanner v2, TransportManager, EventBridge
+    # IMPORTANT: Depends on DATA_PIPELINE and FEEDBACK_LOOP to ensure event
+    # handlers are subscribed before this daemon emits sync events
+    DaemonType.UNIFIED_DATA_PLANE: DaemonSpec(
+        runner_name="create_unified_data_plane",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE, DaemonType.FEEDBACK_LOOP),
+        category="sync",
+        auto_restart=True,
+        health_check_interval=60.0,
+    ),
     # =========================================================================
     # Data Consolidation
     # =========================================================================
