@@ -154,13 +154,18 @@ class MomentumToCurriculumBridge:
             if hasattr(DataEventType, 'TIER_PROMOTION'):
                 router.subscribe(DataEventType.TIER_PROMOTION, self._on_tier_promotion)
 
+            # December 29, 2025: Subscribe to CROSSBOARD_PROMOTION to adjust curriculum when
+            # a model achieves multi-config promotion (high Elo across multiple configurations)
+            if hasattr(DataEventType, 'CROSSBOARD_PROMOTION'):
+                router.subscribe(DataEventType.CROSSBOARD_PROMOTION, self._on_crossboard_promotion)
+
             # December 29, 2025: Subscribe to CURRICULUM_ADVANCEMENT_NEEDED to handle
             # stagnant configs (3+ evaluations with minimal Elo improvement).
             # Emitted by TrainingTriggerDaemon._signal_curriculum_advancement().
             if hasattr(DataEventType, 'CURRICULUM_ADVANCEMENT_NEEDED'):
                 router.subscribe(DataEventType.CURRICULUM_ADVANCEMENT_NEEDED, self._on_curriculum_advancement_needed)
 
-            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED")
+            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED")
 
             # December 29, 2025: Only set _event_subscribed = True after successful subscription
             # Previously this was in finally block which caused race condition:
@@ -203,6 +208,9 @@ class MomentumToCurriculumBridge:
                 # December 2025: Unsubscribe from TIER_PROMOTION
                 if hasattr(DataEventType, 'TIER_PROMOTION'):
                     router.unsubscribe(DataEventType.TIER_PROMOTION, self._on_tier_promotion)
+                # December 29, 2025: Unsubscribe from CROSSBOARD_PROMOTION
+                if hasattr(DataEventType, 'CROSSBOARD_PROMOTION'):
+                    router.unsubscribe(DataEventType.CROSSBOARD_PROMOTION, self._on_crossboard_promotion)
                 # December 29, 2025: Unsubscribe from CURRICULUM_ADVANCEMENT_NEEDED
                 if hasattr(DataEventType, 'CURRICULUM_ADVANCEMENT_NEEDED'):
                     router.unsubscribe(DataEventType.CURRICULUM_ADVANCEMENT_NEEDED, self._on_curriculum_advancement_needed)
@@ -466,6 +474,64 @@ class MomentumToCurriculumBridge:
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling tier promotion: {e}")
+
+    def _on_crossboard_promotion(self, event) -> None:
+        """Handle CROSSBOARD_PROMOTION event - adjust curriculum for multi-config achievements.
+
+        December 29, 2025: When a model achieves high Elo across multiple configurations
+        (crossboard promotion), curriculum should be adjusted to:
+        - Celebrate the milestone with reduced training intensity
+        - Shift focus to configurations that haven't achieved crossboard status
+        - Balance exploration across all configurations
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else {}
+
+            model_id = payload.get("model_id", payload.get("model", ""))
+            configs = payload.get("configs", [])
+            avg_elo = payload.get("avg_elo", 0.0)
+            min_elo = payload.get("min_elo", 0.0)
+            timestamp = payload.get("timestamp", 0.0)
+
+            if not model_id:
+                return
+
+            logger.info(
+                f"[MomentumToCurriculumBridge] CROSSBOARD_PROMOTION: {model_id} "
+                f"achieved Elo >= {min_elo:.0f} across {len(configs)} configs, "
+                f"avg_elo={avg_elo:.0f}"
+            )
+
+            # Trigger full curriculum weight sync after crossboard promotion
+            # This ensures training resources are rebalanced across all configs
+            self._sync_weights()
+
+            # Emit curriculum advanced event for downstream consumers
+            try:
+                from app.coordination.event_emitters import emit_curriculum_advanced
+                import asyncio
+
+                async def _emit():
+                    await emit_curriculum_advanced(
+                        config_key=",".join(configs) if configs else "crossboard",
+                        old_tier="pre_crossboard",
+                        new_tier="crossboard_achieved",
+                        trigger="crossboard_promotion",
+                        source="curriculum_integration",
+                    )
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(_emit())
+                except RuntimeError:
+                    # No running loop - skip async emission
+                    pass
+
+            except ImportError:
+                pass
+
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            logger.warning(f"[MomentumToCurriculumBridge] Error handling crossboard promotion: {e}")
 
     def _on_curriculum_advancement_needed(self, event) -> None:
         """Handle CURRICULUM_ADVANCEMENT_NEEDED event - advance curriculum for stagnant configs.
