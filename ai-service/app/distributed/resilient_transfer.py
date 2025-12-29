@@ -52,10 +52,24 @@ logger = logging.getLogger(__name__)
 # Transport thresholds
 LARGE_FILE_THRESHOLD = 50_000_000  # 50MB - use BitTorrent above this
 HUGE_FILE_THRESHOLD = 500_000_000  # 500MB - require BitTorrent
+BASE64_SIZE_LIMIT = 100_000_000  # 100MB - warn when using base64 above this
 
 # Retry configuration
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
+
+# Connection reset error patterns (Dec 2025)
+# These indicate binary stream corruption from firewalls/proxies
+CONNECTION_RESET_PATTERNS = [
+    "connection reset by peer",
+    "connection reset",
+    "broken pipe",
+    "connection timed out",
+    "network is unreachable",
+    "ssh_exchange_identification",
+    "read: connection reset",
+    "write failed: broken pipe",
+]
 
 
 @dataclass
@@ -157,31 +171,34 @@ class ResilientTransfer:
             request.expected_size = await self._fetch_remote_size(request)
 
         # 3. Select transport based on file size and preferences
+        # December 2025: Added base64 and chunked as final fallbacks for
+        # connections that experience "Connection reset by peer" errors
         if request.expected_size and request.expected_size > HUGE_FILE_THRESHOLD:
-            # Huge files MUST use BitTorrent
+            # Huge files MUST use BitTorrent, with chunked fallback for
+            # connections where BitTorrent/rsync fail due to connection resets
             logger.info(
                 f"File {request.source_path} is {request.expected_size / 1024 / 1024:.0f}MB, "
                 "using BitTorrent (required for >500MB)"
             )
             result = await self._transfer_with_retry(
-                request, ["bittorrent", "rsync_verified"]
+                request, ["bittorrent", "rsync_verified", "chunked"]
             )
 
         elif request.expected_size and request.expected_size > LARGE_FILE_THRESHOLD:
-            # Large files prefer BitTorrent
+            # Large files prefer BitTorrent, with base64 fallback
             if self.prefer_bittorrent:
                 result = await self._transfer_with_retry(
-                    request, ["bittorrent", "aria2", "rsync_verified"]
+                    request, ["bittorrent", "aria2", "rsync_verified", "base64"]
                 )
             else:
                 result = await self._transfer_with_retry(
-                    request, ["aria2", "rsync_verified"]
+                    request, ["aria2", "rsync_verified", "base64"]
                 )
 
         else:
-            # Small files use aria2 or rsync
+            # Small files use aria2 or rsync, with base64 fallback
             result = await self._transfer_with_retry(
-                request, ["aria2", "rsync_verified"]
+                request, ["aria2", "rsync_verified", "base64"]
             )
 
         # 4. Post-transfer type-specific validation
@@ -198,12 +215,32 @@ class ResilientTransfer:
 
         return result
 
+    def _is_connection_reset_error(self, error_msg: str) -> bool:
+        """Check if error indicates connection reset/binary corruption.
+
+        These errors typically occur when firewalls or proxies corrupt
+        binary streams during SCP/rsync transfers. The solution is to
+        use base64 encoding which converts binary to text-safe format.
+
+        Args:
+            error_msg: Error message to check
+
+        Returns:
+            True if error matches connection reset patterns
+        """
+        error_lower = error_msg.lower()
+        return any(pattern in error_lower for pattern in CONNECTION_RESET_PATTERNS)
+
     async def _transfer_with_retry(
         self,
         request: TransferRequest,
         transports: list[str],
     ) -> TransferResult:
         """Try transfer with multiple transports and retry logic.
+
+        December 2025: Added connection-reset detection. When we detect
+        repeated connection reset errors, we automatically escalate to
+        base64 transfer which encodes binary as text to avoid corruption.
 
         Args:
             request: Transfer request
@@ -213,6 +250,7 @@ class ResilientTransfer:
             TransferResult from first successful transport
         """
         last_result = TransferResult(success=False)
+        connection_reset_count = 0
 
         for transport in transports:
             for attempt in range(MAX_RETRIES):
@@ -223,6 +261,10 @@ class ResilientTransfer:
                         result = await self._transfer_via_aria2(request)
                     elif transport == "rsync_verified":
                         result = await self._transfer_via_rsync(request)
+                    elif transport == "base64":
+                        result = await self._transfer_via_base64(request)
+                    elif transport == "chunked":
+                        result = await self._transfer_via_chunked(request)
                     else:
                         result = TransferResult(
                             success=False, error=f"Unknown transport: {transport}"
@@ -234,17 +276,43 @@ class ResilientTransfer:
                         return result
 
                     last_result = result
-                    logger.warning(
-                        f"Transfer attempt {attempt + 1}/{MAX_RETRIES} failed with {transport}: "
-                        f"{result.error}"
-                    )
+
+                    # Track connection reset errors for escalation
+                    if self._is_connection_reset_error(result.error):
+                        connection_reset_count += 1
+                        logger.warning(
+                            f"Connection reset detected ({connection_reset_count}x) with {transport}: "
+                            f"{result.error}"
+                        )
+
+                        # After 2 connection resets, escalate to base64 immediately
+                        if connection_reset_count >= 2 and "base64" not in transports:
+                            logger.info(
+                                "Escalating to base64 transport after repeated connection resets"
+                            )
+                            # Try base64 directly
+                            base64_result = await self._transfer_via_base64(request)
+                            if base64_result.success:
+                                base64_result.transport_used = "base64 (escalated)"
+                                return base64_result
+                            last_result = base64_result
+                    else:
+                        logger.warning(
+                            f"Transfer attempt {attempt + 1}/{MAX_RETRIES} failed with {transport}: "
+                            f"{result.error}"
+                        )
 
                 except Exception as e:
+                    error_str = str(e)
                     logger.warning(
                         f"Transfer attempt {attempt + 1}/{MAX_RETRIES} raised exception "
                         f"with {transport}: {e}"
                     )
-                    last_result = TransferResult(success=False, error=str(e))
+                    last_result = TransferResult(success=False, error=error_str)
+
+                    # Check exception message for connection reset patterns
+                    if self._is_connection_reset_error(error_str):
+                        connection_reset_count += 1
 
                 # Wait before retry (exponential backoff)
                 if attempt < MAX_RETRIES - 1:
@@ -408,6 +476,265 @@ class ResilientTransfer:
 
         except Exception as e:
             result.error = f"rsync transfer error: {e}"
+
+        return result
+
+    async def _transfer_via_base64(self, request: TransferRequest) -> TransferResult:
+        """Transfer file via base64 encoding through SSH.
+
+        December 2025: This transport encodes binary as base64 text before
+        sending through SSH stdin. This avoids binary stream corruption
+        from firewalls/proxies that cause "Connection reset by peer" errors.
+
+        How it works:
+        1. Read remote file and encode as base64
+        2. Pipe through SSH as text
+        3. Decode on local side
+        4. Verify file size/checksum
+
+        This is slower than rsync but more reliable for problematic connections.
+        """
+        result = TransferResult(success=False)
+
+        try:
+            host = await self._get_host_config(request.source_node)
+            if not host:
+                result.error = f"Unknown host: {request.source_node}"
+                return result
+
+            # Warn for large files
+            if request.expected_size and request.expected_size > BASE64_SIZE_LIMIT:
+                logger.warning(
+                    f"base64 transfer: Large file ({request.expected_size / 1024 / 1024:.1f}MB) - "
+                    "consider chunked transfer for better memory efficiency"
+                )
+
+            import os
+            import subprocess
+            import base64
+            import tempfile
+
+            # Build SSH command options
+            ssh_opts = [
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=30",
+            ]
+
+            if host.ssh_key:
+                key_path = os.path.expanduser(host.ssh_key)
+                ssh_opts.extend(["-i", key_path])
+
+            if host.ssh_port != 22:
+                ssh_opts.extend(["-p", str(host.ssh_port)])
+
+            # Command to read and base64-encode remote file
+            remote_cmd = f"base64 '{request.source_path}'"
+
+            ssh_cmd = ["ssh", *ssh_opts, host.ssh_target, remote_cmd]
+
+            # Execute and capture base64-encoded data
+            proc_result = subprocess.run(
+                ssh_cmd,
+                capture_output=True,
+                timeout=600,  # 10 minute timeout for large files
+            )
+
+            if proc_result.returncode != 0:
+                result.error = f"SSH base64 read failed: {proc_result.stderr.decode('utf-8', errors='replace')[:200]}"
+                return result
+
+            # Decode base64 data
+            try:
+                file_data = base64.b64decode(proc_result.stdout)
+            except Exception as e:
+                result.error = f"Base64 decode failed: {e}"
+                return result
+
+            # Create parent directory
+            request.target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write to target file
+            with open(request.target_path, "wb") as f:
+                f.write(file_data)
+
+            # Verify size
+            actual_size = request.target_path.stat().st_size
+            if request.expected_size and actual_size != request.expected_size:
+                result.error = f"Size mismatch: expected {request.expected_size}, got {actual_size}"
+                if self.quarantine_on_failure:
+                    await self._quarantine_file(request.target_path, "base64_size_mismatch")
+                return result
+
+            # Verify checksum if provided
+            if request.expected_checksum:
+                from app.distributed.sync_utils import _compute_checksum
+                actual_checksum = _compute_checksum(request.target_path)
+                if actual_checksum != request.expected_checksum:
+                    result.error = f"Checksum mismatch after base64 transfer"
+                    if self.quarantine_on_failure:
+                        await self._quarantine_file(request.target_path, "base64_checksum_mismatch")
+                    return result
+                result.checksum = actual_checksum
+                result.verification_passed = True
+            else:
+                result.verification_passed = False  # Unverified
+
+            result.success = True
+            result.bytes_transferred = actual_size
+            result.transport_used = "base64"
+
+        except subprocess.TimeoutExpired:
+            result.error = "base64 transfer timed out (10 minutes)"
+        except Exception as e:
+            result.error = f"base64 transfer error: {e}"
+
+        return result
+
+    async def _transfer_via_chunked(self, request: TransferRequest) -> TransferResult:
+        """Transfer file in chunks for very unstable connections.
+
+        December 2025: This transport splits large files into 5MB chunks,
+        transfers each separately with retries, then reassembles. Each chunk
+        can succeed independently, making this robust for connections that
+        reset during large transfers.
+
+        Use this when:
+        - Base64 transfer also fails
+        - Connection drops after transferring partial data
+        - Very long-distance or high-latency connections
+        """
+        result = TransferResult(success=False)
+
+        try:
+            host = await self._get_host_config(request.source_node)
+            if not host:
+                result.error = f"Unknown host: {request.source_node}"
+                return result
+
+            # Get file size if not known
+            file_size = request.expected_size
+            if not file_size:
+                file_size = await self._fetch_remote_size(request)
+                if not file_size:
+                    result.error = "Could not determine file size for chunked transfer"
+                    return result
+
+            import os
+            import subprocess
+            import tempfile
+            import hashlib
+            import json
+
+            chunk_size = 5 * 1024 * 1024  # 5MB chunks
+            num_chunks = (file_size + chunk_size - 1) // chunk_size
+
+            if num_chunks == 1:
+                # Small file - just use base64
+                return await self._transfer_via_base64(request)
+
+            logger.info(
+                f"chunked transfer: Splitting {file_size / 1024 / 1024:.1f}MB into {num_chunks} chunks"
+            )
+
+            # Build SSH options
+            ssh_opts = [
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=30",
+            ]
+
+            if host.ssh_key:
+                key_path = os.path.expanduser(host.ssh_key)
+                ssh_opts.extend(["-i", key_path])
+
+            if host.ssh_port != 22:
+                ssh_opts.extend(["-p", str(host.ssh_port)])
+
+            # Create local temp directory for chunks
+            with tempfile.TemporaryDirectory(prefix="chunked_transfer_") as temp_dir:
+                temp_path = Path(temp_dir)
+                chunk_files = []
+
+                # Download each chunk
+                bytes_transferred = 0
+                for i in range(num_chunks):
+                    offset = i * chunk_size
+                    length = min(chunk_size, file_size - offset)
+
+                    # Command to read chunk and base64 encode
+                    chunk_cmd = f"dd if='{request.source_path}' bs=1 skip={offset} count={length} 2>/dev/null | base64"
+
+                    ssh_cmd = ["ssh", *ssh_opts, host.ssh_target, chunk_cmd]
+
+                    chunk_result = subprocess.run(
+                        ssh_cmd,
+                        capture_output=True,
+                        timeout=120,  # 2 minute timeout per chunk
+                    )
+
+                    if chunk_result.returncode != 0:
+                        result.error = f"Chunk {i} download failed: {chunk_result.stderr.decode('utf-8', errors='replace')[:100]}"
+                        return result
+
+                    import base64
+                    try:
+                        chunk_data = base64.b64decode(chunk_result.stdout)
+                    except Exception as e:
+                        result.error = f"Chunk {i} decode failed: {e}"
+                        return result
+
+                    # Verify chunk size
+                    if len(chunk_data) != length:
+                        result.error = f"Chunk {i} size mismatch: expected {length}, got {len(chunk_data)}"
+                        return result
+
+                    # Save chunk
+                    chunk_path = temp_path / f"chunk_{i:04d}"
+                    with open(chunk_path, "wb") as cf:
+                        cf.write(chunk_data)
+                    chunk_files.append(chunk_path)
+                    bytes_transferred += length
+
+                    logger.debug(f"chunked transfer: Downloaded chunk {i + 1}/{num_chunks}")
+
+                # Reassemble chunks
+                request.target_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(request.target_path, "wb") as out:
+                    for chunk_path in chunk_files:
+                        with open(chunk_path, "rb") as cf:
+                            out.write(cf.read())
+
+            # Verify final file
+            actual_size = request.target_path.stat().st_size
+            if actual_size != file_size:
+                result.error = f"Reassembled size mismatch: expected {file_size}, got {actual_size}"
+                if self.quarantine_on_failure:
+                    await self._quarantine_file(request.target_path, "chunked_size_mismatch")
+                return result
+
+            # Verify checksum if provided
+            if request.expected_checksum:
+                from app.distributed.sync_utils import _compute_checksum
+                actual_checksum = _compute_checksum(request.target_path)
+                if actual_checksum != request.expected_checksum:
+                    result.error = "Checksum mismatch after chunked transfer"
+                    if self.quarantine_on_failure:
+                        await self._quarantine_file(request.target_path, "chunked_checksum_mismatch")
+                    return result
+                result.checksum = actual_checksum
+                result.verification_passed = True
+            else:
+                result.verification_passed = False
+
+            result.success = True
+            result.bytes_transferred = actual_size
+            result.transport_used = "chunked"
+
+        except subprocess.TimeoutExpired:
+            result.error = "chunked transfer timed out"
+        except Exception as e:
+            result.error = f"chunked transfer error: {e}"
 
         return result
 

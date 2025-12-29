@@ -273,6 +273,8 @@ class DataEventType(Enum):
     CLUSTER_STALL_DETECTED = "cluster_stall_detected"  # Dec 2025: Node(s) stuck with no game progress
     NODE_UNHEALTHY = "node_unhealthy"
     NODE_RECOVERED = "node_recovered"
+    NODE_SUSPECT = "node_suspect"  # Dec 2025: Node entering SUSPECT state (grace period before DEAD)
+    NODE_RETIRED = "node_retired"  # Dec 2025: Node explicitly retired from cluster
     NODE_ACTIVATED = "node_activated"  # Node activated by cluster activator
     NODE_TERMINATED = "node_terminated"  # Node terminated/deprovisioned
 
@@ -305,6 +307,14 @@ class DataEventType(Enum):
     BACKPRESSURE_ACTIVATED = "backpressure_activated"
     BACKPRESSURE_RELEASED = "backpressure_released"
     IDLE_RESOURCE_DETECTED = "idle_resource_detected"  # Phase 21.2: Idle GPU/CPU detected
+
+    # Availability/Provisioning events (December 28, 2025)
+    CAPACITY_LOW = "capacity_low"  # Cluster GPU capacity below threshold
+    CAPACITY_RESTORED = "capacity_restored"  # Capacity back above threshold
+    NODE_PROVISIONED = "node_provisioned"  # New node created via provider API
+    NODE_PROVISION_FAILED = "node_provision_failed"  # Failed to provision node
+    BUDGET_EXCEEDED = "budget_exceeded"  # Hourly/daily budget exceeded
+    BUDGET_ALERT = "budget_alert"  # Approaching budget threshold
 
     # Promotion lifecycle events (December 2025)
     PROMOTION_ROLLED_BACK = "promotion_rolled_back"
@@ -3005,6 +3015,73 @@ async def emit_node_recovered(
     ))
 
 
+async def emit_node_suspect(
+    node_id: str,
+    *,
+    node_ip: str = "",
+    last_seen: float | None = None,
+    seconds_since_heartbeat: float = 0.0,
+    source: str = "",
+) -> None:
+    """Emit NODE_SUSPECT event when a node enters SUSPECT state.
+
+    December 2025: Added for peer state transition tracking.
+    SUSPECT is a grace period between ALIVE and DEAD to reduce false positives.
+
+    Args:
+        node_id: Identifier for the node
+        node_ip: Node IP address
+        last_seen: Timestamp when node was last seen
+        seconds_since_heartbeat: Seconds since last heartbeat
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.NODE_SUSPECT,
+        payload={
+            "node_id": node_id,
+            "node_ip": node_ip,
+            "last_seen": last_seen,
+            "seconds_since_heartbeat": seconds_since_heartbeat,
+        },
+        source=source,
+    ))
+
+
+async def emit_node_retired(
+    node_id: str,
+    *,
+    node_ip: str = "",
+    reason: str = "manual",
+    last_seen: float | None = None,
+    total_uptime_seconds: float = 0.0,
+    source: str = "",
+) -> None:
+    """Emit NODE_RETIRED event when a node is retired from the cluster.
+
+    December 2025: Added for peer state transition tracking.
+    Retired nodes are excluded from job allocation but may be recovered later.
+
+    Args:
+        node_id: Identifier for the node
+        node_ip: Node IP address
+        reason: Why the node was retired (manual, timeout, error, capacity)
+        last_seen: Timestamp when node was last seen
+        total_uptime_seconds: Total uptime before retirement
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.NODE_RETIRED,
+        payload={
+            "node_id": node_id,
+            "node_ip": node_ip,
+            "reason": reason,
+            "last_seen": last_seen,
+            "total_uptime_seconds": total_uptime_seconds,
+        },
+        source=source,
+    ))
+
+
 async def emit_health_check_passed(
     node_id: str,
     *,
@@ -3146,6 +3223,170 @@ async def emit_disk_space_low(
             "usage_percent": usage_percent,
             "free_gb": free_gb,
             "threshold": threshold,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
+# Availability/Provisioning Events (December 28, 2025)
+# =============================================================================
+
+
+async def emit_capacity_low(
+    current_gpus: int,
+    min_gpus: int,
+    provider: str = "",
+    *,
+    source: str = "CapacityPlanner",
+) -> None:
+    """Emit CAPACITY_LOW event when GPU capacity drops below threshold.
+
+    Args:
+        current_gpus: Current number of active GPUs
+        min_gpus: Minimum GPU threshold
+        provider: Provider with low capacity (optional, empty for cluster-wide)
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.CAPACITY_LOW,
+        payload={
+            "current_gpus": current_gpus,
+            "min_gpus": min_gpus,
+            "provider": provider,
+        },
+        source=source,
+    ))
+
+
+async def emit_capacity_restored(
+    current_gpus: int,
+    min_gpus: int,
+    *,
+    source: str = "CapacityPlanner",
+) -> None:
+    """Emit CAPACITY_RESTORED event when capacity is back above threshold.
+
+    Args:
+        current_gpus: Current number of active GPUs
+        min_gpus: Minimum GPU threshold
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.CAPACITY_RESTORED,
+        payload={
+            "current_gpus": current_gpus,
+            "min_gpus": min_gpus,
+        },
+        source=source,
+    ))
+
+
+async def emit_node_provisioned(
+    node_id: str,
+    provider: str,
+    gpu_type: str,
+    ip_address: str = "",
+    *,
+    source: str = "Provisioner",
+) -> None:
+    """Emit NODE_PROVISIONED event when a new node is created.
+
+    Args:
+        node_id: Unique identifier for the new node
+        provider: Cloud provider name (vast, lambda, runpod, etc.)
+        gpu_type: GPU type on the node (e.g., "GH200", "H100")
+        ip_address: Node IP address if available
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.NODE_PROVISIONED,
+        payload={
+            "node_id": node_id,
+            "provider": provider,
+            "gpu_type": gpu_type,
+            "ip_address": ip_address,
+        },
+        source=source,
+    ))
+
+
+async def emit_node_provision_failed(
+    provider: str,
+    gpu_type: str,
+    error: str,
+    *,
+    source: str = "Provisioner",
+) -> None:
+    """Emit NODE_PROVISION_FAILED event when node provisioning fails.
+
+    Args:
+        provider: Cloud provider that failed
+        gpu_type: GPU type requested
+        error: Error message
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.NODE_PROVISION_FAILED,
+        payload={
+            "provider": provider,
+            "gpu_type": gpu_type,
+            "error": error,
+        },
+        source=source,
+    ))
+
+
+async def emit_budget_exceeded(
+    budget_type: str,
+    limit: float,
+    current: float,
+    *,
+    source: str = "CapacityPlanner",
+) -> None:
+    """Emit BUDGET_EXCEEDED event when spending exceeds limit.
+
+    Args:
+        budget_type: Type of budget exceeded ("hourly" or "daily")
+        limit: Budget limit in USD
+        current: Current spending in USD
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.BUDGET_EXCEEDED,
+        payload={
+            "budget_type": budget_type,
+            "limit_usd": limit,
+            "current_usd": current,
+        },
+        source=source,
+    ))
+
+
+async def emit_budget_alert(
+    budget_type: str,
+    limit: float,
+    current: float,
+    threshold_percent: float = 80.0,
+    *,
+    source: str = "CapacityPlanner",
+) -> None:
+    """Emit BUDGET_ALERT event when approaching budget threshold.
+
+    Args:
+        budget_type: Type of budget ("hourly" or "daily")
+        limit: Budget limit in USD
+        current: Current spending in USD
+        threshold_percent: Threshold percentage that triggered alert
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.BUDGET_ALERT,
+        payload={
+            "budget_type": budget_type,
+            "limit_usd": limit,
+            "current_usd": current,
+            "threshold_percent": threshold_percent,
         },
         source=source,
     ))

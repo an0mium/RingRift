@@ -930,6 +930,392 @@ class BandwidthCoordinatedRsync:
 
         return 0
 
+    async def sync_with_fallback(
+        self,
+        source: str,
+        dest: str,
+        host: str,
+        priority: TransferPriority = TransferPriority.NORMAL,
+        extra_options: list[str] | None = None,
+        timeout: float = 3600.0,
+        allocation_timeout: float = 60.0,
+        verify_checksum: bool | None = None,
+        use_base64_fallback: bool = True,
+        use_chunked_fallback: bool = True,
+    ) -> SyncResult:
+        """Execute bandwidth-coordinated rsync with automatic fallback.
+
+        December 2025: This method wraps `sync()` and automatically falls back
+        to base64 or chunked transfer when rsync fails with connection reset
+        errors. This is useful for connections that experience "Connection reset
+        by peer" errors due to firewall/proxy binary corruption.
+
+        Fallback order:
+        1. rsync with bandwidth coordination (fastest)
+        2. base64 transfer (works when binary streams fail)
+        3. chunked transfer (for very unstable connections)
+
+        Args:
+            source: Source path (local or remote)
+            dest: Destination path (local or remote)
+            host: Host identifier for bandwidth tracking
+            priority: Transfer priority
+            extra_options: Additional rsync options
+            timeout: Rsync execution timeout
+            allocation_timeout: Max time to wait for bandwidth allocation
+            verify_checksum: Use checksum verification (slower but safer)
+            use_base64_fallback: Enable base64 fallback on connection reset
+            use_chunked_fallback: Enable chunked fallback as last resort
+
+        Returns:
+            SyncResult with transfer details
+        """
+        # Try rsync first
+        result = await self.sync(
+            source=source,
+            dest=dest,
+            host=host,
+            priority=priority,
+            extra_options=extra_options,
+            timeout=timeout,
+            allocation_timeout=allocation_timeout,
+            verify_checksum=verify_checksum,
+        )
+
+        if result.success:
+            return result
+
+        # Check if this is a connection reset error
+        from app.distributed.resilient_transfer import CONNECTION_RESET_PATTERNS
+
+        error_lower = (result.error or "").lower() + (result.stderr or "").lower()
+        is_connection_reset = any(
+            pattern in error_lower for pattern in CONNECTION_RESET_PATTERNS
+        )
+
+        if not is_connection_reset:
+            # Not a connection reset - return original error
+            logger.debug(
+                f"[BandwidthCoordinatedRsync] sync failed but not connection reset: {result.error}"
+            )
+            return result
+
+        logger.warning(
+            f"[BandwidthCoordinatedRsync] Connection reset detected, attempting fallback: {result.error}"
+        )
+
+        # Try base64 fallback
+        if use_base64_fallback:
+            base64_result = await self._fallback_base64(source, dest, host)
+            if base64_result.success:
+                logger.info(
+                    f"[BandwidthCoordinatedRsync] base64 fallback succeeded for {source} -> {dest}"
+                )
+                return base64_result
+            logger.warning(f"[BandwidthCoordinatedRsync] base64 fallback failed: {base64_result.error}")
+
+        # Try chunked fallback as last resort
+        if use_chunked_fallback:
+            chunked_result = await self._fallback_chunked(source, dest, host)
+            if chunked_result.success:
+                logger.info(
+                    f"[BandwidthCoordinatedRsync] chunked fallback succeeded for {source} -> {dest}"
+                )
+                return chunked_result
+            logger.warning(f"[BandwidthCoordinatedRsync] chunked fallback failed: {chunked_result.error}")
+
+        # All fallbacks failed - return original result with updated error
+        result.error = (
+            f"All transfer methods failed. Original rsync: {result.error}. "
+            f"Fallbacks also failed."
+        )
+        return result
+
+    async def _fallback_base64(self, source: str, dest: str, host: str) -> SyncResult:
+        """Execute base64 transfer fallback.
+
+        December 2025: Uses base64 encoding to avoid binary stream corruption.
+        """
+        import time
+        import subprocess
+        import os
+        import base64
+
+        start_time = time.time()
+
+        try:
+            # Parse source and dest to determine direction (push vs pull)
+            # Format: "user@host:path" for remote, or just "path" for local
+
+            if ":" in source and "@" in source.split(":")[0]:
+                # Pull: remote -> local
+                return await self._base64_pull(source, dest, host, start_time)
+            else:
+                # Push: local -> remote
+                return await self._base64_push(source, dest, host, start_time)
+
+        except Exception as e:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"base64 fallback error: {e}",
+                duration_seconds=time.time() - start_time,
+            )
+
+    async def _base64_push(
+        self, source: str, dest: str, host: str, start_time: float
+    ) -> SyncResult:
+        """Push local file to remote using base64 encoding."""
+        import subprocess
+        import base64
+        import time
+        from pathlib import Path
+
+        source_path = Path(source)
+        if not source_path.exists():
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"Source file not found: {source}",
+                duration_seconds=time.time() - start_time,
+            )
+
+        # Parse dest to get user@host and path
+        if ":" not in dest:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error="Invalid dest format - expected user@host:path",
+                duration_seconds=time.time() - start_time,
+            )
+
+        remote_target, remote_path = dest.rsplit(":", 1)
+
+        # Read and encode file
+        with open(source_path, "rb") as f:
+            file_data = f.read()
+        encoded_data = base64.b64encode(file_data).decode("ascii")
+        file_size = len(file_data)
+
+        # Get host config for SSH options
+        try:
+            from app.config.cluster_config import get_cluster_nodes
+            nodes = get_cluster_nodes()
+            node_config = nodes.get(host)
+            ssh_key = node_config.ssh_key if node_config else None
+            ssh_port = node_config.ssh_port if node_config else 22
+        except Exception:
+            ssh_key = None
+            ssh_port = 22
+
+        # Build SSH command options
+        ssh_opts = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes"]
+        if ssh_key:
+            import os
+            key_path = os.path.expanduser(ssh_key)
+            if os.path.exists(key_path):
+                ssh_opts.extend(["-i", key_path])
+        if ssh_port != 22:
+            ssh_opts.extend(["-p", str(ssh_port)])
+
+        # Ensure remote directory exists and decode file
+        remote_dir = str(Path(remote_path).parent)
+        decode_cmd = f"mkdir -p '{remote_dir}' && base64 -d > '{remote_path}'"
+
+        ssh_cmd = ["ssh", *ssh_opts, remote_target, decode_cmd]
+
+        # Pipe base64 data through SSH
+        result = subprocess.run(
+            ssh_cmd,
+            input=encoded_data,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+
+        duration = time.time() - start_time
+
+        if result.returncode != 0:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"base64 push failed: {result.stderr[:200]}",
+                duration_seconds=duration,
+            )
+
+        return SyncResult(
+            success=True,
+            source=source,
+            dest=dest,
+            host=host,
+            bytes_transferred=file_size,
+            duration_seconds=duration,
+            effective_rate_kbps=file_size / 1024 / duration if duration > 0 else 0,
+        )
+
+    async def _base64_pull(
+        self, source: str, dest: str, host: str, start_time: float
+    ) -> SyncResult:
+        """Pull remote file to local using base64 encoding."""
+        import subprocess
+        import base64
+        import time
+        from pathlib import Path
+
+        # Parse source to get user@host and path
+        remote_target, remote_path = source.rsplit(":", 1)
+        dest_path = Path(dest)
+
+        # Get host config for SSH options
+        try:
+            from app.config.cluster_config import get_cluster_nodes
+            nodes = get_cluster_nodes()
+            node_config = nodes.get(host)
+            ssh_key = node_config.ssh_key if node_config else None
+            ssh_port = node_config.ssh_port if node_config else 22
+        except Exception:
+            ssh_key = None
+            ssh_port = 22
+
+        # Build SSH command options
+        ssh_opts = ["-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes"]
+        if ssh_key:
+            import os
+            key_path = os.path.expanduser(ssh_key)
+            if os.path.exists(key_path):
+                ssh_opts.extend(["-i", key_path])
+        if ssh_port != 22:
+            ssh_opts.extend(["-p", str(ssh_port)])
+
+        # Command to read and base64-encode remote file
+        encode_cmd = f"base64 '{remote_path}'"
+        ssh_cmd = ["ssh", *ssh_opts, remote_target, encode_cmd]
+
+        result = subprocess.run(
+            ssh_cmd,
+            capture_output=True,
+            timeout=600,
+        )
+
+        duration = time.time() - start_time
+
+        if result.returncode != 0:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"base64 pull failed: {result.stderr.decode('utf-8', errors='replace')[:200]}",
+                duration_seconds=duration,
+            )
+
+        # Decode base64 data
+        try:
+            file_data = base64.b64decode(result.stdout)
+        except Exception as e:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"base64 decode failed: {e}",
+                duration_seconds=duration,
+            )
+
+        # Create parent directory and write file
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest_path, "wb") as f:
+            f.write(file_data)
+
+        file_size = len(file_data)
+
+        return SyncResult(
+            success=True,
+            source=source,
+            dest=dest,
+            host=host,
+            bytes_transferred=file_size,
+            duration_seconds=duration,
+            effective_rate_kbps=file_size / 1024 / duration if duration > 0 else 0,
+        )
+
+    async def _fallback_chunked(self, source: str, dest: str, host: str) -> SyncResult:
+        """Execute chunked transfer fallback.
+
+        December 2025: Uses chunked transfer for very unstable connections.
+        This is slower but can handle connections that fail during large transfers.
+        """
+        import time
+        start_time = time.time()
+
+        # Use ResilientTransfer which already has chunked implementation
+        try:
+            from app.distributed.resilient_transfer import (
+                ResilientTransfer,
+                TransferRequest,
+            )
+            from pathlib import Path
+
+            # Parse source and dest to determine direction
+            if ":" in source and "@" in source.split(":")[0]:
+                # Pull: remote -> local
+                remote_target, remote_path = source.rsplit(":", 1)
+                local_path = Path(dest)
+
+                # Extract node_id from remote_target (user@host or user@ip)
+                remote_host = remote_target.split("@")[-1]
+
+                transfer = ResilientTransfer()
+                result = await transfer._transfer_via_chunked(
+                    TransferRequest(
+                        source_node=host,  # Use the host parameter as node_id
+                        source_path=remote_path,
+                        target_path=local_path,
+                    )
+                )
+
+                duration = time.time() - start_time
+
+                return SyncResult(
+                    success=result.success,
+                    source=source,
+                    dest=dest,
+                    host=host,
+                    bytes_transferred=result.bytes_transferred,
+                    duration_seconds=duration,
+                    effective_rate_kbps=result.bytes_transferred / 1024 / duration if duration > 0 else 0,
+                    error=result.error if not result.success else None,
+                )
+            else:
+                # Push: local -> remote - not implemented in ResilientTransfer
+                # Fall back to using base64 with chunking manually
+                return SyncResult(
+                    success=False,
+                    source=source,
+                    dest=dest,
+                    host=host,
+                    error="Chunked push not supported - use base64 fallback",
+                    duration_seconds=time.time() - start_time,
+                )
+
+        except Exception as e:
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"chunked fallback error: {e}",
+                duration_seconds=time.time() - start_time,
+            )
+
 
 # =============================================================================
 # Singleton Access

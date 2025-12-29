@@ -1781,6 +1781,71 @@ async def emit_node_activated(
     )
 
 
+async def emit_node_suspect(
+    node_id: str,
+    last_seen: float | None = None,
+    seconds_since_heartbeat: float = 0.0,
+    **metadata,
+) -> bool:
+    """Emit NODE_SUSPECT event when a node enters SUSPECT state.
+
+    December 2025: Added for peer state transition tracking.
+    SUSPECT is a grace period between ALIVE and DEAD to reduce false positives.
+
+    Args:
+        node_id: Identifier of the suspect node
+        last_seen: Timestamp when node was last seen
+        seconds_since_heartbeat: Seconds since last heartbeat
+        **metadata: Additional metadata
+    """
+    return await _emit_data_event(
+        DataEventType.NODE_SUSPECT,
+        {
+            "node_id": node_id,
+            "host_id": node_id,
+            "last_seen": last_seen,
+            "seconds_since_heartbeat": seconds_since_heartbeat,
+            **metadata,
+        },
+        log_message=f"Emitted node_suspect event for {node_id} ({seconds_since_heartbeat:.0f}s since heartbeat)",
+        log_level="warning",
+    )
+
+
+async def emit_node_retired(
+    node_id: str,
+    reason: str = "manual",
+    last_seen: float | None = None,
+    total_uptime_seconds: float = 0.0,
+    **metadata,
+) -> bool:
+    """Emit NODE_RETIRED event when a node is retired from the cluster.
+
+    December 2025: Added for peer state transition tracking.
+    Retired nodes are excluded from job allocation but may be recovered later.
+
+    Args:
+        node_id: Identifier of the retired node
+        reason: Why the node was retired (manual, timeout, error, capacity)
+        last_seen: Timestamp when node was last seen
+        total_uptime_seconds: Total uptime before retirement
+        **metadata: Additional metadata
+    """
+    return await _emit_data_event(
+        DataEventType.NODE_RETIRED,
+        {
+            "node_id": node_id,
+            "host_id": node_id,
+            "reason": reason,
+            "last_seen": last_seen,
+            "total_uptime_seconds": total_uptime_seconds,
+            **metadata,
+        },
+        log_message=f"Emitted node_retired event for {node_id} (reason: {reason})",
+        log_level="info",
+    )
+
+
 # =============================================================================
 # Error Recovery & Resilience Events (December 2025)
 # =============================================================================
@@ -2488,6 +2553,8 @@ __all__ = [
     # New games events (December 2025)
     "emit_new_games",
     "emit_node_recovered",
+    "emit_node_retired",
+    "emit_node_suspect",
     "emit_node_unhealthy",
     # Cluster health events (December 2025)
     "emit_health_check_passed",

@@ -23,6 +23,9 @@ from typing import TYPE_CHECKING, Any
 
 from app.coordination.sync_mixin_base import SyncMixinBase
 
+# Threshold for using ResilientTransfer vs simple rsync
+LARGE_FILE_THRESHOLD_BYTES = 50_000_000  # 50MB
+
 if TYPE_CHECKING:
     from app.coordination.sync_strategies import SyncStats
     from app.distributed.circuit_breaker import CircuitBreaker
@@ -288,6 +291,75 @@ class SyncPullMixin(SyncMixinBase):
             logger.debug(f"[AutoSyncDaemon] Error listing remote dbs: {e}")
             return []
 
+    async def _resilient_pull(
+        self,
+        source_node: str,
+        remote_path: str,
+        db_name: str,
+        local_dir: Path,
+    ) -> Path | None:
+        """Pull a file using ResilientTransfer for reliability.
+
+        December 2025: Uses BitTorrent/aria2 for large files with piece-level
+        verification. Falls back to rsync/base64/chunked for smaller files or
+        when preferred transports are unavailable.
+
+        Args:
+            source_node: Node ID (matches distributed_hosts.yaml)
+            remote_path: Remote directory path
+            db_name: Database filename
+            local_dir: Local directory to save to
+
+        Returns:
+            Local path to the pulled file, or None if failed.
+        """
+        try:
+            from app.distributed.resilient_transfer import (
+                ResilientTransfer,
+                TransferRequest,
+            )
+        except ImportError:
+            logger.debug("[AutoSyncDaemon] resilient_transfer not available, falling back to rsync")
+            return None
+
+        local_path = local_dir / db_name
+        remote_file = f"{remote_path}/{db_name}"
+
+        try:
+            transfer = ResilientTransfer(
+                prefer_bittorrent=True,
+                verify_all=True,
+                quarantine_on_failure=True,
+            )
+
+            request = TransferRequest(
+                source_node=source_node,
+                source_path=remote_file,
+                target_path=local_path,
+                file_type="db",  # SQLite validation
+                priority="high",
+            )
+
+            result = await transfer.transfer(request)
+
+            if result.success and result.verification_passed:
+                logger.info(
+                    f"[AutoSyncDaemon] Resilient pull succeeded: {db_name} via {result.transport_used} "
+                    f"({result.bytes_transferred / 1024 / 1024:.1f}MB)"
+                )
+                self._stats.databases_verified += 1
+                return local_path
+            else:
+                logger.warning(
+                    f"[AutoSyncDaemon] Resilient pull failed for {db_name}: {result.error}"
+                )
+                self._stats.databases_verification_failed += 1
+                return None
+
+        except Exception as e:
+            logger.warning(f"[AutoSyncDaemon] Resilient pull error for {db_name}: {e}")
+            return None
+
     async def _rsync_pull(
         self,
         ssh_host: str,
@@ -297,10 +369,12 @@ class SyncPullMixin(SyncMixinBase):
         db_name: str,
         local_dir: Path,
         verify_checksum: bool = True,
+        source_node: str | None = None,
     ) -> Path | None:
         """Pull a single database file from a remote node.
 
         December 2025: Added checksum verification after pull.
+        December 2025: Uses ResilientTransfer for large files (>50MB).
 
         Args:
             ssh_host: Remote host IP/hostname
@@ -310,10 +384,50 @@ class SyncPullMixin(SyncMixinBase):
             db_name: Database filename
             local_dir: Local directory to save to
             verify_checksum: If True, verify checksum after pull (default: True)
+            source_node: Node ID for ResilientTransfer (optional)
 
         Returns:
             Local path to the pulled file, or None if failed.
         """
+        # Check if file is large enough to warrant ResilientTransfer
+        if source_node:
+            try:
+                # Try to get remote file size
+                size_cmd = [
+                    "ssh",
+                    "-i", ssh_key,
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "ConnectTimeout=10",
+                    f"{ssh_user}@{ssh_host}",
+                    f"stat -c%s '{remote_path}/{db_name}' 2>/dev/null || echo 0"
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *size_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+                remote_size = int(stdout.decode().strip() or "0")
+
+                if remote_size >= LARGE_FILE_THRESHOLD_BYTES:
+                    logger.info(
+                        f"[AutoSyncDaemon] Large file detected ({remote_size / 1024 / 1024:.1f}MB), "
+                        f"using ResilientTransfer for {db_name}"
+                    )
+                    result = await self._resilient_pull(
+                        source_node=source_node,
+                        remote_path=remote_path,
+                        db_name=db_name,
+                        local_dir=local_dir,
+                    )
+                    if result:
+                        return result
+                    # Fall through to rsync if resilient pull fails
+                    logger.info("[AutoSyncDaemon] Falling back to rsync after resilient pull failure")
+
+            except Exception as e:
+                logger.debug(f"[AutoSyncDaemon] Could not check remote size, using rsync: {e}")
+
         local_path = local_dir / db_name
         remote_full = f"{ssh_user}@{ssh_host}:{remote_path}/{db_name}"
 

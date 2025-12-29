@@ -385,7 +385,7 @@ class NodeAvailabilityDaemon(BaseDaemon[NodeAvailabilityConfig]):
                 is_healthy = False
 
         return HealthCheckResult(
-            is_healthy=is_healthy,
+            healthy=is_healthy,
             message="; ".join(messages) if messages else "OK",
             details={
                 "enabled_providers": list(self._checkers.keys()),

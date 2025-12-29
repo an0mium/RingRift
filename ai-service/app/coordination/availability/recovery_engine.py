@@ -21,10 +21,10 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from app.coordination.base_daemon import BaseDaemon
+from .node_monitor import NodeHealthResult
 
 if TYPE_CHECKING:
     from app.config.cluster_config import ClusterNode
-    from .node_monitor import NodeHealthResult
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +142,33 @@ class RecoveryEngine(BaseDaemon):
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to recovery-related events."""
         return {
+            "NODE_UNHEALTHY": self._on_node_unhealthy,
             "RECOVERY_INITIATED": self._on_recovery_initiated,
             "NODE_RECOVERED": self._on_node_recovered,
         }
+
+    async def _on_node_unhealthy(self, event: dict) -> None:
+        """Handle NODE_UNHEALTHY event from NodeMonitor.
+
+        This is the primary trigger for recovery - when NodeMonitor detects
+        an unhealthy node, queue it for escalating recovery.
+        """
+        payload = event.get("payload", event)
+        node_id = payload.get("node_id")
+        layer = payload.get("layer", "unknown")
+        error = payload.get("error", "")
+
+        if node_id:
+            # Create a minimal health result for the recovery queue
+            health_result = NodeHealthResult(
+                node_id=node_id,
+                healthy=False,
+                layers_checked=[layer] if layer else [],
+                failed_layer=layer,
+                error=error,
+            )
+            await self._recovery_queue.put((node_id, health_result))
+            logger.info(f"RecoveryEngine: Queued recovery for unhealthy node {node_id} (layer: {layer})")
 
     async def _on_recovery_initiated(self, event: dict) -> None:
         """Handle RECOVERY_INITIATED event."""

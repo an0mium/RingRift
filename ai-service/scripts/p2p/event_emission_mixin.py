@@ -282,6 +282,146 @@ class EventEmissionMixin:
             source="p2p_orchestrator",
         )
 
+    async def _emit_node_suspect(
+        self,
+        node_id: str,
+        last_seen: float | None = None,
+        seconds_since_heartbeat: float = 0.0,
+    ) -> bool:
+        """Emit NODE_SUSPECT event when a node enters SUSPECT state.
+
+        December 2025: SUSPECT is a grace period between ALIVE and DEAD.
+        Enables health monitors to track nodes that may be experiencing
+        transient issues before declaring them dead.
+
+        Args:
+            node_id: The suspect node
+            last_seen: Timestamp when node was last seen
+            seconds_since_heartbeat: Seconds since last heartbeat
+        """
+        return await self._emit_event_safe(
+            "emit_node_suspect",
+            "NODE_SUSPECT",
+            node_id,
+            log_level="info",
+            node_id=node_id,
+            last_seen=last_seen,
+            seconds_since_heartbeat=seconds_since_heartbeat,
+            source="p2p_orchestrator",
+        )
+
+    def _emit_node_suspect_sync(
+        self,
+        node_id: str,
+        last_seen: float | None = None,
+        seconds_since_heartbeat: float = 0.0,
+    ) -> bool:
+        """Synchronous version of _emit_node_suspect."""
+        return self._emit_event_sync(
+            "emit_node_suspect",
+            "NODE_SUSPECT",
+            node_id,
+            node_id=node_id,
+            last_seen=last_seen,
+            seconds_since_heartbeat=seconds_since_heartbeat,
+            source="p2p_orchestrator",
+        )
+
+    async def _emit_node_retired(
+        self,
+        node_id: str,
+        reason: str = "timeout",
+        last_seen: float | None = None,
+        total_uptime_seconds: float = 0.0,
+    ) -> bool:
+        """Emit NODE_RETIRED event when a node is retired from the cluster.
+
+        December 2025: Retired nodes are excluded from job allocation but
+        may be recovered later via the PeerRecoveryLoop.
+
+        Args:
+            node_id: The retired node
+            reason: Why the node was retired (timeout, manual, error)
+            last_seen: Timestamp when node was last seen
+            total_uptime_seconds: Total uptime before retirement
+        """
+        return await self._emit_event_safe(
+            "emit_node_retired",
+            "NODE_RETIRED",
+            node_id,
+            log_level="info",
+            node_id=node_id,
+            reason=reason,
+            last_seen=last_seen,
+            total_uptime_seconds=total_uptime_seconds,
+            source="p2p_orchestrator",
+        )
+
+    def _emit_node_retired_sync(
+        self,
+        node_id: str,
+        reason: str = "timeout",
+        last_seen: float | None = None,
+        total_uptime_seconds: float = 0.0,
+    ) -> bool:
+        """Synchronous version of _emit_node_retired."""
+        return self._emit_event_sync(
+            "emit_node_retired",
+            "NODE_RETIRED",
+            node_id,
+            node_id=node_id,
+            reason=reason,
+            last_seen=last_seen,
+            total_uptime_seconds=total_uptime_seconds,
+            source="p2p_orchestrator",
+        )
+
+    async def _emit_node_recovered(
+        self,
+        node_id: str,
+        recovery_type: str = "automatic",
+        offline_duration_seconds: float = 0.0,
+    ) -> bool:
+        """Emit NODE_RECOVERED event when a node recovers to healthy state.
+
+        December 2025: Emitted on transitions:
+        - SUSPECT -> ALIVE (recovered before DEAD)
+        - DEAD -> ALIVE (recovered from dead state)
+        - RETIRED -> ALIVE (recovered after retirement)
+
+        Args:
+            node_id: The recovered node
+            recovery_type: How the node recovered (automatic, manual, heartbeat)
+            offline_duration_seconds: How long the node was offline
+        """
+        return await self._emit_event_safe(
+            "emit_node_recovered",
+            "NODE_RECOVERED",
+            node_id,
+            log_level="info",
+            node_id=node_id,
+            recovery_type=recovery_type,
+            offline_duration_seconds=offline_duration_seconds,
+            source="p2p_orchestrator",
+        )
+
+    def _emit_node_recovered_sync(
+        self,
+        node_id: str,
+        recovery_type: str = "automatic",
+        offline_duration_seconds: float = 0.0,
+    ) -> bool:
+        """Synchronous version of _emit_node_recovered."""
+        return self._emit_event_sync(
+            "emit_node_recovered",
+            "NODE_RECOVERED",
+            node_id,
+            node_id=node_id,
+            recovery_type=recovery_type,
+            offline_duration_seconds=offline_duration_seconds,
+            source="p2p_orchestrator",
+        )
+
     # =========================================================================
     # Leader Events
     # =========================================================================

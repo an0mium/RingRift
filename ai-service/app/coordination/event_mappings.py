@@ -180,9 +180,18 @@ DATA_TO_CROSS_PROCESS_MAP: Final[dict[str, str]] = {
     "cluster_status_changed": "CLUSTER_STATUS_CHANGED",
     "node_unhealthy": "NODE_UNHEALTHY",
     "node_recovered": "NODE_RECOVERED",
+    "node_suspect": "NODE_SUSPECT",  # Dec 2025: Node entering grace period
+    "node_retired": "NODE_RETIRED",  # Dec 2025: Node explicitly retired
     "node_activated": "NODE_ACTIVATED",
     "cluster_capacity_changed": "CLUSTER_CAPACITY_CHANGED",
     "sync_capacity_refreshed": "SYNC_CAPACITY_REFRESHED",
+    # Availability/provisioning events (December 28, 2025)
+    "capacity_low": "CAPACITY_LOW",
+    "capacity_restored": "CAPACITY_RESTORED",
+    "node_provisioned": "NODE_PROVISIONED",
+    "node_provision_failed": "NODE_PROVISION_FAILED",
+    "budget_exceeded": "BUDGET_EXCEEDED",
+    "budget_alert": "BUDGET_ALERT",
     # P2P cluster events
     "p2p_cluster_healthy": "P2P_CLUSTER_HEALTHY",
     "p2p_cluster_unhealthy": "P2P_CLUSTER_UNHEALTHY",
