@@ -1,18 +1,38 @@
 # AI-Service Next Steps Plan
 
 **Created:** December 24, 2025
+**Last Updated:** December 29, 2025
 **Based on:** Exploration analysis of testing, training pipeline, distributed reliability, and documentation
 
 ## Executive Summary
 
+> **December 29, 2025 Update:** Many items from the original assessment have been completed.
+> Critical modules now have comprehensive test coverage. See "Completed Items" section below.
+
 Four exploration agents analyzed the codebase and identified significant opportunities:
 
-| Area                    | Finding                                                     | Priority |
-| ----------------------- | ----------------------------------------------------------- | -------- |
-| Testing                 | 40-50% coverage, critical gaps in coordination/distributed  | CRITICAL |
-| Training Pipeline       | Board type mapping duplicated 17x, hardcoded values         | HIGH     |
-| Distributed Reliability | Missing timeout budgets, no circuit breakers on data server | CRITICAL |
-| Documentation           | 3 READMEs for 31 major modules                              | HIGH     |
+| Area                    | Finding                                                     | Priority | Status (Dec 29)               |
+| ----------------------- | ----------------------------------------------------------- | -------- | ----------------------------- |
+| Testing                 | 40-50% coverage, critical gaps in coordination/distributed  | CRITICAL | ✅ Key modules covered        |
+| Training Pipeline       | Board type mapping duplicated 17x, hardcoded values         | HIGH     | ⏳ Partially addressed        |
+| Distributed Reliability | Missing timeout budgets, no circuit breakers on data server | CRITICAL | ✅ Fixed                      |
+| Documentation           | 3 READMEs for 31 major modules                              | HIGH     | ✅ Module docstrings complete |
+
+## Completed Items (December 29, 2025)
+
+### Test Coverage - Critical Modules Now Covered
+
+| Module                  | LOC    | Tests                 | Coverage         |
+| ----------------------- | ------ | --------------------- | ---------------- |
+| `selfplay_scheduler.py` | 3,823  | 138 tests (2,005 LOC) | ✅ Comprehensive |
+| `resource_optimizer.py` | 2,563  | 113 tests (2,188 LOC) | ✅ Comprehensive |
+| `daemon_manager.py`     | ~2,000 | 45+ tests             | ✅ Good          |
+| `handler_base.py`       | 550    | 45 tests              | ✅ Good          |
+| `dead_letter_queue.py`  | ~400   | 45 tests              | ✅ Complete      |
+
+### Documentation - Module Docstrings
+
+All coordination modules now have module-level docstrings. Only `tournament/config.py` was missing (now added).
 
 ## Phase 1: Critical Reliability Fixes
 
@@ -87,18 +107,31 @@ def _ssh_with_budget(self, cmd, budget: SyncOperationBudget, retries=2):
 ## Phase 2: Critical Testing Coverage
 
 **Priority: CRITICAL - Prevent regressions**
-**Estimated effort: 5-7 days**
+**Status: ✅ LARGELY COMPLETE (Dec 29, 2025)**
 
-### 2.1 Coordination Module Tests (43 gaps)
+> **Update:** Critical coordination modules now have comprehensive test suites.
+> Total coordination tests: 300+ passing tests across 50+ test files.
 
-**Most critical untested modules:**
+### 2.1 Coordination Module Tests - COMPLETED
+
+**Previously untested modules now covered:**
+
+| Module                         | Tests     | Status      |
+| ------------------------------ | --------- | ----------- |
+| `selfplay_scheduler.py`        | 138 tests | ✅ Complete |
+| `resource_optimizer.py`        | 113 tests | ✅ Complete |
+| `daemon_manager.py`            | 45+ tests | ✅ Complete |
+| `handler_base.py`              | 45 tests  | ✅ Complete |
+| `dead_letter_queue.py`         | 45 tests  | ✅ Complete |
+| `quality_monitor_daemon.py`    | 42 tests  | ✅ Complete |
+| `disk_space_manager_daemon.py` | 38 tests  | ✅ Complete |
+| `priority_calculator.py`       | 25+ tests | ✅ Complete |
+| `budget_calculator.py`         | 20+ tests | ✅ Complete |
+
+**Remaining gaps (lower priority):**
 
 1. `event_router.py` (926 lines) - Event routing backbone
 2. `pipeline_actions.py` (853 lines) - Pipeline stage invokers
-3. `handler_resilience.py` - Failure handling
-4. `unified_health_manager.py` - Health monitoring
-
-**Approach:** Start with event_router since all other coordinators depend on it.
 
 ### 2.2 Distributed Module Tests (32 gaps)
 

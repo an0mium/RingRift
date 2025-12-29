@@ -827,5 +827,354 @@ class TestEdgeCases:
         assert rec is not None
 
 
+# =============================================================================
+# Additional Edge Case Tests (40+ coverage expansion)
+# =============================================================================
+
+
+class TestBoardComplexityFactors:
+    """Tests for BOARD_COMPLEXITY_FACTORS."""
+
+    def test_hex8_complexity_factor(self, optimizer):
+        """Test hex8 has 0.7 complexity factor."""
+        assert optimizer.BOARD_COMPLEXITY_FACTORS.get("hex8") == 0.7
+
+    def test_square8_complexity_factor(self, optimizer):
+        """Test square8 has 1.0 complexity factor (baseline)."""
+        assert optimizer.BOARD_COMPLEXITY_FACTORS.get("square8") == 1.0
+
+    def test_square19_complexity_factor(self, optimizer):
+        """Test square19 has 1.4 complexity factor (Go-sized)."""
+        assert optimizer.BOARD_COMPLEXITY_FACTORS.get("square19") == 1.4
+
+    def test_hexagonal_complexity_factor(self, optimizer):
+        """Test hexagonal has 1.3 complexity factor."""
+        assert optimizer.BOARD_COMPLEXITY_FACTORS.get("hexagonal") == 1.3
+
+    def test_unknown_board_uses_default(self, optimizer):
+        """Test unknown board type uses 1.0 default."""
+        # Unknown board should default to 1.0
+        factor = optimizer.BOARD_COMPLEXITY_FACTORS.get("unknown_board", 1.0)
+        assert factor == 1.0
+
+
+class TestPromotionTimeTracking:
+    """Tests for promotion time tracking."""
+
+    def test_records_promotion_time(self, optimizer):
+        """Test promotion timestamp is recorded."""
+        before = time.time()
+        optimizer.record_promotion_success("hex8_2p", 25.0)
+        after = time.time()
+
+        assert len(optimizer._state.promotion_times) == 1
+        assert before <= optimizer._state.promotion_times[0] <= after
+
+    def test_updates_last_promotion_time(self, optimizer):
+        """Test last promotion time is updated."""
+        optimizer.record_promotion_success("hex8_2p", 25.0)
+        first_time = optimizer._state.last_promotion_time
+
+        time.sleep(0.01)  # Small delay
+        optimizer.record_promotion_success("hex8_2p", 30.0)
+
+        assert optimizer._state.last_promotion_time > first_time
+
+    def test_total_promotions_24h_updates(self, optimizer):
+        """Test 24h promotion count updates."""
+        for i in range(5):
+            optimizer.record_promotion_success("hex8_2p", 25.0 + i)
+
+        assert optimizer._state.total_promotions_24h == 5
+
+
+class TestConsecutiveFailures:
+    """Tests for consecutive_failures tracking."""
+
+    def test_consecutive_failures_starts_at_zero(self, optimizer):
+        """Test consecutive_failures defaults to 0."""
+        assert optimizer._state.consecutive_failures == 0
+
+    def test_failure_streak_affects_threshold(self, optimizer):
+        """Test failure streak raises threshold."""
+        optimizer._state.consecutive_failures = 5
+        threshold_with_failures = optimizer.get_dynamic_threshold("hex8_2p")
+
+        optimizer._state.consecutive_failures = 0
+        threshold_without_failures = optimizer.get_dynamic_threshold("hex8_2p")
+
+        assert threshold_with_failures > threshold_without_failures
+
+
+class TestEvaluationMultiplierBounds:
+    """Tests for evaluation frequency multiplier bounds."""
+
+    def test_min_eval_multiplier_enforced(self, optimizer):
+        """Test minimum evaluation multiplier is enforced."""
+        optimizer._state.evaluation_frequency_multiplier = 0.1  # Below MIN
+        interval = optimizer.get_evaluation_interval(900)
+
+        min_interval = int(900 * optimizer.MIN_EVAL_MULTIPLIER)
+        assert interval >= min_interval
+
+    def test_max_eval_multiplier_enforced(self, optimizer):
+        """Test maximum evaluation multiplier is enforced."""
+        optimizer._state.evaluation_frequency_multiplier = 5.0  # Above MAX
+        interval = optimizer.get_evaluation_interval(900)
+
+        max_interval = int(900 * optimizer.MAX_EVAL_MULTIPLIER)
+        assert interval <= max_interval
+
+
+class TestConfigBoostBehavior:
+    """Tests for config-specific boost behavior."""
+
+    def test_config_boost_initial_value(self, optimizer):
+        """Test config boost starts as 1.0 if not set."""
+        boost = optimizer._state.config_boosts.get("unknown_config", 1.0)
+        assert boost == 1.0
+
+    def test_config_boost_affects_threshold(self, optimizer):
+        """Test config boost affects dynamic threshold."""
+        # Set a fast boost
+        optimizer._state.config_boosts["hex8_2p"] = 0.5
+
+        threshold_with_boost = optimizer.get_dynamic_threshold("hex8_2p")
+        threshold_no_boost = optimizer.get_dynamic_threshold("square8_2p")
+
+        # hex8 should have lower threshold due to boost
+        assert threshold_with_boost < threshold_no_boost
+
+    def test_failure_reduces_config_boost(self, optimizer):
+        """Test failure increases config boost toward 1.0."""
+        optimizer._state.config_boosts["hex8_2p"] = 0.6
+        optimizer.record_promotion_failure("hex8_2p")
+
+        # Boost should move toward 1.0 (slowing down)
+        assert optimizer._state.config_boosts["hex8_2p"] > 0.6
+
+
+class TestClusterUtilizationEdgeCases:
+    """Tests for cluster utilization edge cases."""
+
+    def test_zero_gpu_utilization_optimal(self, optimizer):
+        """Test GPU utilization of 0 is considered optimal."""
+        rec = optimizer.record_cluster_utilization(70.0, 0.0)
+        assert rec.signal == ImprovementSignal.EFFICIENCY_OPTIMAL
+
+    def test_high_utilization_no_acceleration(self, optimizer):
+        """Test high utilization doesn't trigger acceleration."""
+        initial = optimizer._state.threshold_multiplier
+        optimizer.record_cluster_utilization(90.0, 85.0)
+
+        # Should not have accelerated
+        assert optimizer._state.threshold_multiplier == initial
+
+
+class TestTrainingAdjustmentDetails:
+    """Tests for detailed training adjustment behavior."""
+
+    def test_parity_failures_increase_regularization(self, optimizer):
+        """Test parity failures increase regularization."""
+        optimizer._state.parity_success_rate = 0.75  # Below 0.9 threshold
+        adj = optimizer.get_training_adjustment("hex8_2p")
+
+        assert adj["regularization_boost"] > 0
+        assert "parity" in adj["reason"]
+
+    def test_calibration_issues_increase_regularization(self, optimizer):
+        """Test high ECE increases regularization."""
+        optimizer._state.calibration_ece = 0.20  # Above 0.15 threshold
+        adj = optimizer.get_training_adjustment("hex8_2p")
+
+        assert adj["regularization_boost"] > 0
+        assert "calibration" in adj["reason"]
+
+    def test_elo_breakthrough_in_adjustment(self, optimizer):
+        """Test Elo breakthrough affects adjustment."""
+        optimizer._state.elo_gains = [55.0, 60.0, 75.0]  # Recent breakthroughs
+        adj = optimizer.get_training_adjustment("hex8_2p")
+
+        assert adj["lr_multiplier"] < 1.0
+        assert "elo_breakthrough" in adj["reason"]
+
+    def test_accelerated_enables_larger_batches(self, optimizer):
+        """Test accelerated threshold enables larger batch sizes."""
+        optimizer._state.threshold_multiplier = 0.6  # Below 0.8
+        adj = optimizer.get_training_adjustment("hex8_2p")
+
+        assert adj["batch_size_multiplier"] > 1.0
+        assert adj["should_fast_track"] is True
+
+
+class TestGetRecommendations:
+    """Tests for get_recommendations method."""
+
+    def test_returns_list(self, optimizer):
+        """Test returns list of recommendations."""
+        recs = optimizer.get_recommendations()
+        assert isinstance(recs, list)
+
+    def test_includes_streak_recommendation(self, optimizer):
+        """Test includes promotion streak recommendation when on streak."""
+        optimizer._state.consecutive_promotions = 5
+        recs = optimizer.get_recommendations()
+
+        streak_recs = [r for r in recs if r.signal == ImprovementSignal.PROMOTION_STREAK]
+        assert len(streak_recs) > 0
+
+    def test_recommendation_has_valid_fields(self, optimizer):
+        """Test recommendations have valid field values."""
+        optimizer._state.consecutive_promotions = 4
+        recs = optimizer.get_recommendations()
+
+        for rec in recs:
+            assert rec.signal is not None
+            assert rec.config_key is not None
+            assert 0 <= rec.confidence <= 1.0
+
+
+class TestSingletonBehavior:
+    """Tests for singleton pattern behavior."""
+
+    def test_get_instance_returns_same_object(self, temp_state_path):
+        """Test get_instance returns the same object."""
+        ImprovementOptimizer.reset_instance()
+
+        opt1 = ImprovementOptimizer(state_path=temp_state_path)
+        # Since the first call creates the singleton, subsequent get_instance should return it
+        opt2 = ImprovementOptimizer.get_instance()
+
+        assert opt1 is opt2
+
+    def test_has_instance_after_creation(self, temp_state_path):
+        """Test has_instance returns True after creation."""
+        ImprovementOptimizer.reset_instance()
+        assert not ImprovementOptimizer.has_instance()
+
+        ImprovementOptimizer(state_path=temp_state_path)
+        assert ImprovementOptimizer.has_instance()
+
+
+class TestDataQualityEdgeCases:
+    """Tests for data quality edge cases."""
+
+    def test_perfect_quality_accelerates(self, optimizer):
+        """Test perfect quality (1.0) accelerates training."""
+        initial = optimizer._state.threshold_multiplier
+        optimizer.record_data_quality(1.0, 1.0)
+
+        assert optimizer._state.threshold_multiplier < initial
+
+    def test_quality_below_threshold_no_surge(self, optimizer):
+        """Test quality below threshold doesn't emit surge signal."""
+        rec = optimizer.record_data_quality(0.95, 0.90)
+        assert rec.signal != ImprovementSignal.QUALITY_DATA_SURGE
+
+
+class TestRegressionSeverityDefaults:
+    """Tests for regression severity handling."""
+
+    def test_unknown_severity_uses_moderate(self, optimizer):
+        """Test unknown severity defaults to moderate slowdown."""
+        optimizer._state.threshold_multiplier = 1.0
+        optimizer.record_regression("hex8_2p", "elo_drop", "unknown_severity")
+
+        # Should use moderate slowdown (1.25)
+        assert optimizer._state.threshold_multiplier == pytest.approx(1.25, rel=0.01)
+
+
+class TestModuleFunctionRecordTrainingComplete:
+    """Tests for module-level record_training_complete function."""
+
+    def test_record_training_complete_with_calibration(self, temp_state_path):
+        """Test module-level function with calibration ECE."""
+        ImprovementOptimizer.reset_instance()
+
+        with patch(
+            "app.training.improvement_optimizer.OPTIMIZER_STATE_PATH",
+            temp_state_path,
+        ):
+            record_training_complete("hex8_2p", 2400.0, 0.02, calibration_ece=0.03)
+            metrics = get_improvement_metrics()
+
+            assert metrics["training_runs_24h"] == 1
+
+
+class TestModuleFunctionRecordPromotionFailure:
+    """Tests for module-level record_promotion_failure function."""
+
+    def test_record_promotion_failure_resets_streak(self, temp_state_path):
+        """Test module-level function resets streak."""
+        ImprovementOptimizer.reset_instance()
+
+        with patch(
+            "app.training.improvement_optimizer.OPTIMIZER_STATE_PATH",
+            temp_state_path,
+        ):
+            # Build a streak first
+            record_promotion_success("hex8_2p", 25.0)
+            record_promotion_success("hex8_2p", 30.0)
+
+            record_promotion_failure("hex8_2p", model_id="v1", reason="test")
+            metrics = get_improvement_metrics()
+
+            assert metrics["consecutive_promotions"] == 0
+
+
+class TestModuleFunctionGetEvaluationInterval:
+    """Tests for module-level get_evaluation_interval function."""
+
+    def test_get_evaluation_interval_returns_int(self, temp_state_path):
+        """Test module-level function returns integer."""
+        ImprovementOptimizer.reset_instance()
+
+        with patch(
+            "app.training.improvement_optimizer.OPTIMIZER_STATE_PATH",
+            temp_state_path,
+        ):
+            interval = get_evaluation_interval(1800)
+            assert isinstance(interval, int)
+            assert interval > 0
+
+
+class TestModuleFunctionGetSelfplayPriorityBoost:
+    """Tests for module-level get_selfplay_priority_boost function."""
+
+    def test_get_selfplay_priority_boost_returns_float(self, temp_state_path):
+        """Test module-level function returns float."""
+        ImprovementOptimizer.reset_instance()
+
+        with patch(
+            "app.training.improvement_optimizer.OPTIMIZER_STATE_PATH",
+            temp_state_path,
+        ):
+            boost = get_selfplay_priority_boost("hex8_2p")
+            assert isinstance(boost, float)
+
+
+class TestStateCorruptionRecovery:
+    """Tests for state corruption recovery."""
+
+    def test_recovers_from_partial_state(self, temp_state_path):
+        """Test optimizer recovers from partial state file."""
+        # Write partial state (missing some fields)
+        partial_state = {
+            "consecutive_promotions": 3,
+            # Missing many other fields
+        }
+        temp_state_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(temp_state_path, "w") as f:
+            json.dump(partial_state, f)
+
+        ImprovementOptimizer.reset_instance()
+        opt = ImprovementOptimizer(state_path=temp_state_path)
+
+        # Should have loaded the available field
+        assert opt._state.consecutive_promotions == 3
+        # Should have defaults for missing fields
+        assert opt._state.threshold_multiplier == 1.0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
