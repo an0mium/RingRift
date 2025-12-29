@@ -1620,10 +1620,12 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
                 if not worker_matches:
                     continue
 
-                worker_ip = getattr(worker, "best_ip", None) or getattr(worker, "ip", None)
+                # Dec 28, 2025: Peer info uses 'host' attribute, not 'ip' or 'best_ip'
+                worker_ip = getattr(worker, "best_ip", None) or getattr(worker, "host", None) or getattr(worker, "ip", None)
                 worker_port = getattr(worker, "port", None) or _get_default_port()
 
                 if not worker_ip:
+                    logger.debug(f"Worker {worker_id} has no IP address, skipping")
                     continue
 
                 # Send each match individually to /tournament/match endpoint
