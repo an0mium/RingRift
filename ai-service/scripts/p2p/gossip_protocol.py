@@ -490,6 +490,12 @@ class GossipProtocolMixin(P2PMixinBase):
                 "collected_at": getattr(local_manifest, "collected_at", 0),
             }
 
+        # December 2025 Phase 3D: Include model locations for distribution tracking
+        if hasattr(self, "_get_local_model_locations"):
+            model_locations = self._get_local_model_locations()
+            if model_locations:
+                local_state["model_locations"] = model_locations
+
         return local_state
 
     async def _send_gossip_to_peer(
@@ -722,6 +728,15 @@ class GossipProtocolMixin(P2PMixinBase):
         if incoming_epoch is not None:
             self._handle_incoming_cluster_epoch(incoming_epoch, response)
 
+        # December 2025 Phase 3D: Process model locations for distribution tracking
+        sender_state = response.get("sender_state", {})
+        if sender_state.get("model_locations"):
+            self._process_model_locations(sender_state["model_locations"])
+        # Also check known_states for model locations
+        for node_id, state in known_states.items():
+            if node_id != self.node_id and state.get("model_locations"):
+                self._process_model_locations(state["model_locations"])
+
     def _process_sender_state(self, sender_state: dict) -> None:
         """Process the sender's state from a gossip response."""
         sender_id = sender_state.get("node_id")
@@ -783,6 +798,79 @@ class GossipProtocolMixin(P2PMixinBase):
         if hasattr(self, "_check_tournament_consensus"):
             with contextlib.suppress(Exception):
                 self._check_tournament_consensus()
+
+    def _process_model_locations(self, model_locations: list[dict]) -> None:
+        """December 2025 Phase 3D: Process model locations from gossip for distribution tracking.
+
+        Syncs model location data from peers into the local cluster_manifest.db,
+        enabling any node to query model availability across the cluster.
+
+        Args:
+            model_locations: List of model location dicts from peer gossip
+        """
+        if not model_locations:
+            return
+
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+            count = manifest.sync_model_locations_from_peers(model_locations)
+
+            if count > 0:
+                self._log_debug(f"Synced {count} model locations from gossip")
+
+        except ImportError:
+            # Cluster manifest not available (e.g., minimal node)
+            pass
+        except Exception as e:
+            # Log but don't fail on sync errors
+            self._log_debug(f"Model location sync failed: {e}")
+
+    def _get_local_model_locations(self) -> list[dict]:
+        """December 2025 Phase 3D: Get local model locations for gossip sharing.
+
+        Queries the local cluster_manifest.db for model locations on this node,
+        returning them in a format suitable for gossip propagation.
+
+        Returns:
+            List of model location dicts with this node's models
+        """
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+
+            # Only share locations for this node to reduce gossip payload
+            with manifest._connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT model_path, node_id, board_type, num_players,
+                           model_version, file_size, registered_at, last_seen
+                    FROM model_locations
+                    WHERE node_id = ?
+                    ORDER BY last_seen DESC
+                    LIMIT 50
+                """, (self.node_id,))
+
+                return [
+                    {
+                        "model_path": row[0],
+                        "node_id": row[1],
+                        "board_type": row[2],
+                        "num_players": row[3],
+                        "model_version": row[4],
+                        "file_size": row[5],
+                        "registered_at": row[6],
+                        "last_seen": row[7],
+                    }
+                    for row in cursor.fetchall()
+                ]
+
+        except ImportError:
+            return []
+        except Exception:
+            return []
 
     def _process_gossip_peer_endpoints(self, peer_endpoints: list[dict]) -> None:
         """Phase 28: Process peer endpoints learned via gossip.

@@ -1262,6 +1262,164 @@ class ClusterManifest:
 
             return locations
 
+    def get_model_availability_score(self, model_path: str) -> float:
+        """Calculate availability score for a model across the cluster.
+
+        December 2025 Phase 3D: Model Location Metadata Sync
+
+        The availability score is the ratio of nodes with the model to
+        total GPU nodes in the cluster. Used to determine if a model is
+        sufficiently distributed for fair evaluation.
+
+        Args:
+            model_path: Path to the model file
+
+        Returns:
+            Score from 0.0 to 1.0 where:
+            - 0.0 = Model not found on any node
+            - 1.0 = Model available on all GPU nodes
+        """
+        locations = self.find_model(model_path)
+        if not locations:
+            return 0.0
+
+        total_gpu_nodes = self.count_gpu_nodes()
+        if total_gpu_nodes == 0:
+            return 0.0
+
+        return min(1.0, len(locations) / total_gpu_nodes)
+
+    def count_gpu_nodes(self) -> int:
+        """Count total GPU-capable nodes known to the manifest.
+
+        December 2025 Phase 3D: Model Location Metadata Sync
+
+        Uses node_capacity table to identify nodes that have reported
+        capacity (GPU nodes report via P2P status). Falls back to
+        counting unique nodes with model_locations entries.
+
+        Returns:
+            Count of GPU-capable nodes (minimum 1 to avoid division by zero)
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            # First try: count nodes with capacity data (GPU nodes report this)
+            cursor.execute("SELECT COUNT(DISTINCT node_id) FROM node_capacity")
+            count = cursor.fetchone()[0]
+
+            if count > 0:
+                return count
+
+            # Fallback: count unique nodes with model locations
+            cursor.execute("SELECT COUNT(DISTINCT node_id) FROM model_locations")
+            count = cursor.fetchone()[0]
+
+            return max(1, count)  # At least 1 to avoid division by zero
+
+    def sync_model_locations_from_peers(
+        self,
+        peer_locations: list[dict],
+        max_age_seconds: float = 3600.0,
+    ) -> int:
+        """Sync model locations from peer node manifests.
+
+        December 2025 Phase 3D: Model Location Metadata Sync
+
+        Called by the P2P orchestrator after collecting manifests from peers.
+        Merges model location data from all peers into the local database,
+        enabling any node to query model availability across the cluster.
+
+        Args:
+            peer_locations: List of dicts with model location data, each with:
+                - model_path: str
+                - node_id: str
+                - board_type: str | None
+                - num_players: int | None
+                - model_version: str | None
+                - file_size: int
+                - registered_at: float
+                - last_seen: float
+            max_age_seconds: Skip entries older than this (default: 1 hour)
+
+        Returns:
+            Number of locations inserted/updated
+        """
+        if not peer_locations:
+            return 0
+
+        now = time.time()
+        min_timestamp = now - max_age_seconds
+        count = 0
+
+        with self._connection() as conn:
+            cursor = conn.cursor()
+
+            for loc in peer_locations:
+                # Skip stale entries
+                last_seen = loc.get("last_seen", 0)
+                if last_seen < min_timestamp:
+                    continue
+
+                cursor.execute("""
+                    INSERT OR REPLACE INTO model_locations
+                    (model_path, node_id, board_type, num_players, model_version,
+                     file_size, registered_at, last_seen)
+                    VALUES (?, ?, ?, ?, ?, ?,
+                        COALESCE((SELECT registered_at FROM model_locations
+                                  WHERE model_path = ? AND node_id = ?), ?),
+                        ?)
+                """, (
+                    loc.get("model_path"),
+                    loc.get("node_id"),
+                    loc.get("board_type"),
+                    loc.get("num_players"),
+                    loc.get("model_version"),
+                    loc.get("file_size", 0),
+                    loc.get("model_path"),
+                    loc.get("node_id"),
+                    loc.get("registered_at", now),
+                    max(last_seen, loc.get("registered_at", now)),
+                ))
+                count += 1
+
+            conn.commit()
+
+        return count
+
+    def get_all_model_locations(self) -> list[dict]:
+        """Get all model locations as dicts for sync/export.
+
+        December 2025 Phase 3D: Model Location Metadata Sync
+
+        Returns model locations in a format suitable for P2P gossip/sync.
+
+        Returns:
+            List of dicts with model location data
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT model_path, node_id, board_type, num_players,
+                       model_version, file_size, registered_at, last_seen
+                FROM model_locations
+                ORDER BY last_seen DESC
+            """)
+
+            return [
+                {
+                    "model_path": row[0],
+                    "node_id": row[1],
+                    "board_type": row[2],
+                    "num_players": row[3],
+                    "model_version": row[4],
+                    "file_size": row[5],
+                    "registered_at": row[6],
+                    "last_seen": row[7],
+                }
+                for row in cursor.fetchall()
+            ]
+
     # =========================================================================
     # NPZ Location Registry
     # =========================================================================
