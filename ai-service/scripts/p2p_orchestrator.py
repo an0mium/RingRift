@@ -24613,7 +24613,12 @@ print(json.dumps({{
                 return web.json_response({"error": "unauthorized"}, status=401)
             return await handler(request)
 
-        app = web.Application(middlewares=[auth_middleware])
+        # Increase max body size for large file uploads (100MB)
+        # Fixes "Request Entity Too Large" for Elo DB and other file uploads
+        app = web.Application(
+            middlewares=[auth_middleware],
+            client_max_body_size=100 * 1024 * 1024,  # 100 MB
+        )
 
         # Register all routes from centralized route registry (December 2025)
         # Replaces 200+ individual route registrations with declarative registry
@@ -24626,6 +24631,15 @@ print(json.dumps({{
         except ImportError as e:
             logger.warning(f"Route registry not available, using inline routes: {e}")
             _routes_registered = False
+
+        # Register file download routes (December 2025)
+        # HTTP-based file sync for nodes with unreliable SSH
+        try:
+            from scripts.p2p.handlers.file_download import register_file_download_routes
+            file_routes = register_file_download_routes(app, self)
+            logger.info(f"Registered {file_routes} file download routes for HTTP-based sync")
+        except ImportError as e:
+            logger.debug(f"File download handler not available: {e}")
 
         # Skip legacy route registrations if registry succeeded
         # These are kept as fallback and will be removed in a future cleanup

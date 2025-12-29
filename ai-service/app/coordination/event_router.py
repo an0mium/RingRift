@@ -542,6 +542,18 @@ class UnifiedEventRouter:
         Returns:
             The RouterEvent that was published
         """
+        # Dec 29 2025: Handle case where DataEvent object is passed instead of event type
+        # This happens when code calls router.publish(DataEvent(...)) instead of
+        # router.publish(event_type, payload). Extract the event type and payload.
+        if hasattr(event_type, 'event_type') and hasattr(event_type, 'payload'):
+            # This is a DataEvent object - extract its components
+            data_event = event_type
+            event_type = data_event.event_type
+            if payload is None:
+                payload = getattr(data_event, 'payload', {})
+            if not source:
+                source = getattr(data_event, 'source', '')
+
         # Normalize event type to string (extract from enum if needed)
         if hasattr(event_type, 'value'):
             event_type_str = event_type.value

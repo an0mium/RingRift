@@ -62,14 +62,25 @@ def sync_models():
 
 
 def get_config_from_model(model_path: str) -> tuple:
-    """Extract board_type and num_players from model filename."""
+    """Extract board_type and num_players from model filename.
+
+    Handles patterns like:
+    - hex8_2p_cluster.pth
+    - square8_3p_trained_cluster.pth
+    - hexagonal_4p_gh200_trained.pth
+    """
+    import re
     name = Path(model_path).stem
-    # Format: hex8_2p_cluster or square8_3p_cluster
-    parts = name.replace("_cluster", "").split("_")
-    if len(parts) >= 2:
-        board_type = parts[0]
-        num_players = int(parts[1].replace("p", ""))
+
+    # Match board_type and num_players using regex
+    # Board types: hex8, square8, square19, hexagonal
+    # Player counts: 2p, 3p, 4p
+    match = re.search(r'(hex8|square8|square19|hexagonal)_(\d+)p', name)
+    if match:
+        board_type = match.group(1)
+        num_players = int(match.group(2))
         return board_type, num_players
+
     return None, None
 
 
