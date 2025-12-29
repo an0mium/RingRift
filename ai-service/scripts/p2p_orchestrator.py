@@ -2225,13 +2225,25 @@ class P2POrchestrator(
             # FollowerDiscoveryLoop - December 27, 2025
             # Simple peer list discovery for followers
             def _get_known_peer_addresses() -> list[str]:
-                """Get list of known peer addresses for discovery."""
+                """Get list of known peer addresses for discovery.
+
+                Returns alive peers from runtime list, falling back to bootstrap
+                seeds when no peers are known yet.
+                """
                 with self.peers_lock:
-                    return [
+                    addresses = [
                         f"{p.host}:{p.port}"
                         for p in self.peers.values()
                         if p.is_alive() and p.host and p.port
                     ]
+
+                # Fall back to bootstrap seeds if no alive peers known
+                # This enables discovery when starting fresh
+                if not addresses and self.known_peers:
+                    addresses = list(self.known_peers)
+                    logger.debug(f"No alive peers, using {len(addresses)} bootstrap seeds for discovery")
+
+                return addresses
 
             async def _query_peer_list(peer_addr: str) -> list[str] | None:
                 """Query a peer for its peer list."""
