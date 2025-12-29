@@ -296,6 +296,10 @@ DATA_TO_CROSS_PROCESS_MAP: Final[dict[str, str]] = {
     "health_check_passed": "HEALTH_CHECK_PASSED",
     # Handler events
     "handler_timeout": "HANDLER_TIMEOUT",
+    # Dead Letter Queue events (December 29, 2025)
+    "dlq_stale_events": "DLQ_STALE_EVENTS",
+    "dlq_events_replayed": "DLQ_EVENTS_REPLAYED",
+    "dlq_events_purged": "DLQ_EVENTS_PURGED",
 }
 
 # Reverse mapping: CrossProcess → DataEventType

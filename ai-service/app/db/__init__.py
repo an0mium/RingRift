@@ -2,6 +2,7 @@
 
 from app.db.game_replay import GameReplayDB, GameWriter
 from app.db.integrity import (
+    DEFAULT_INTEGRITY_CHECK_TIMEOUT,
     check_and_repair_databases,
     check_database_integrity,
     get_database_stats,
@@ -31,6 +32,7 @@ from app.db.unified_recording import (
 )
 
 __all__ = [
+    "DEFAULT_INTEGRITY_CHECK_TIMEOUT",
     "GameRecorder",
     "GameReplayDB",
     "GameWriter",
@@ -44,7 +46,7 @@ __all__ = [
     "cache_nnue_features_batch",
     "cache_nnue_features_for_game",
     "check_and_repair_databases",
-    # Database integrity
+    # Database integrity (with timeout support)
     "check_database_integrity",
     "get_database_stats",
     "get_or_create_db",

@@ -371,6 +371,11 @@ class DataEventType(Enum):
     DISK_SPACE_LOW = "disk_space_low"  # Disk usage above threshold (warning/critical)
     DISK_CLEANUP_TRIGGERED = "disk_cleanup_triggered"  # Proactive cleanup started/completed
 
+    # Dead Letter Queue events (December 29, 2025)
+    DLQ_STALE_EVENTS = "dlq_stale_events"  # Stale events detected in DLQ
+    DLQ_EVENTS_REPLAYED = "dlq_events_replayed"  # DLQ events replayed successfully
+    DLQ_EVENTS_PURGED = "dlq_events_purged"  # DLQ events purged (too old/invalid)
+
 
 @dataclass
 class DataEvent:

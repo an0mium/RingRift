@@ -22,6 +22,7 @@ Usage:
     )
 """
 
+import os
 import sqlite3
 import subprocess
 from datetime import datetime
@@ -29,20 +30,74 @@ from pathlib import Path
 from typing import Any
 
 
+# Default timeout for integrity checks (30 seconds)
+# Can be overridden via environment variable
+DEFAULT_INTEGRITY_CHECK_TIMEOUT = float(
+    os.environ.get("RINGRIFT_INTEGRITY_CHECK_TIMEOUT", "30.0")
+)
+
+
 class DatabaseIntegrityError(Exception):
     """Base exception for database integrity issues."""
     pass
 
 
-def check_database_integrity(db_path: Path) -> tuple[bool, str]:
+def check_database_integrity(
+    db_path: Path,
+    timeout_seconds: float | None = None,
+) -> tuple[bool, str]:
     """Check SQLite database integrity using PRAGMA integrity_check.
 
     Args:
         db_path: Path to the SQLite database file
+        timeout_seconds: Maximum time for integrity check. Defaults to
+            RINGRIFT_INTEGRITY_CHECK_TIMEOUT env var or 30 seconds.
+            Set to 0 or negative for no timeout (not recommended for large DBs).
 
     Returns:
         Tuple of (is_healthy: bool, error_message: str or "ok")
+
+    Note:
+        For large databases, PRAGMA integrity_check can take minutes.
+        This function uses subprocess to enforce the timeout reliably.
+        If the check times out, it falls back to a quick header validation.
     """
+    if timeout_seconds is None:
+        timeout_seconds = DEFAULT_INTEGRITY_CHECK_TIMEOUT
+
+    # If timeout disabled, use direct connection (faster but can hang)
+    if timeout_seconds <= 0:
+        return _check_integrity_direct(db_path)
+
+    # Use subprocess for reliable timeout enforcement
+    try:
+        result = subprocess.run(
+            ["sqlite3", str(db_path), "PRAGMA integrity_check;"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+        if result.returncode == 0:
+            output = result.stdout.strip()
+            if output == "ok":
+                return True, "ok"
+            else:
+                return False, output or "unknown integrity error"
+        else:
+            error_msg = result.stderr.strip() or "sqlite3 command failed"
+            return False, error_msg
+    except subprocess.TimeoutExpired:
+        # Timeout - fall back to quick header check
+        return _check_integrity_quick(db_path)
+    except FileNotFoundError:
+        # sqlite3 CLI not available, fall back to Python with interrupt
+        return _check_integrity_with_interrupt(db_path, timeout_seconds)
+    except Exception as e:
+        return False, f"check failed: {e}"
+
+
+def _check_integrity_direct(db_path: Path) -> tuple[bool, str]:
+    """Direct integrity check without timeout (for small DBs or when timeout disabled)."""
     try:
         conn = sqlite3.connect(str(db_path), timeout=10.0)
         cursor = conn.cursor()
@@ -57,6 +112,106 @@ def check_database_integrity(db_path: Path) -> tuple[bool, str]:
         return False, str(e)
     except Exception as e:
         return False, f"check failed: {e}"
+
+
+def _check_integrity_quick(db_path: Path) -> tuple[bool, str]:
+    """Quick integrity check when full check times out.
+
+    This validates:
+    1. File is readable
+    2. SQLite header is valid (first 16 bytes)
+    3. Can open and query basic schema
+
+    Returns:
+        Tuple of (is_likely_ok: bool, status_message: str)
+    """
+    try:
+        # Check file exists and is readable
+        if not db_path.exists():
+            return False, "file does not exist"
+        if db_path.stat().st_size < 100:  # Minimum SQLite header size
+            return False, "file too small to be valid SQLite database"
+
+        # Check SQLite magic header
+        with open(db_path, "rb") as f:
+            header = f.read(16)
+        if not header.startswith(b"SQLite format 3"):
+            return False, "invalid SQLite header"
+
+        # Try to open and query schema (validates page structure)
+        conn = sqlite3.connect(str(db_path), timeout=5.0)
+        cursor = conn.cursor()
+        cursor.execute("SELECT count(*) FROM sqlite_master")
+        cursor.fetchone()
+        conn.close()
+
+        # Passed quick checks - likely OK but not verified
+        return True, "ok (quick check - full check timed out)"
+
+    except sqlite3.DatabaseError as e:
+        return False, f"quick check failed: {e}"
+    except Exception as e:
+        return False, f"quick check error: {e}"
+
+
+def _check_integrity_with_interrupt(
+    db_path: Path,
+    timeout_seconds: float,
+) -> tuple[bool, str]:
+    """Integrity check with interrupt capability (fallback when sqlite3 CLI unavailable)."""
+    import threading
+
+    conn = None
+    result_container = {"result": None, "error": None}
+
+    def run_check():
+        nonlocal conn
+        try:
+            conn = sqlite3.connect(str(db_path), timeout=10.0)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA integrity_check")
+            result_container["result"] = cursor.fetchone()
+        except Exception as e:
+            result_container["error"] = e
+
+    def interrupt_check():
+        if conn is not None:
+            try:
+                conn.interrupt()
+            except Exception:
+                pass
+
+    check_thread = threading.Thread(target=run_check)
+    check_thread.start()
+    check_thread.join(timeout=timeout_seconds)
+
+    if check_thread.is_alive():
+        # Timeout - interrupt the connection
+        interrupt_check()
+        check_thread.join(timeout=2.0)  # Give it a moment to clean up
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        # Fall back to quick check
+        return _check_integrity_quick(db_path)
+
+    # Thread completed - check result
+    if conn:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    if result_container["error"]:
+        return False, str(result_container["error"])
+
+    result = result_container["result"]
+    if result and result[0] == "ok":
+        return True, "ok"
+    else:
+        return False, result[0] if result else "unknown error"
 
 
 def recover_corrupted_database(

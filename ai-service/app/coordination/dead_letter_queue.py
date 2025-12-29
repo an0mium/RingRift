@@ -650,11 +650,13 @@ class DLQRetryDaemon:
         interval_seconds: float = 60.0,
         max_events_per_cycle: int = 10,
         max_attempts: int = 5,
+        max_stale_hours: float = 168.0,  # 7 days
     ):
         self.dlq = dlq or get_dead_letter_queue()
         self.interval = interval_seconds
         self.max_events = max_events_per_cycle
         self.max_attempts = max_attempts
+        self.max_stale_hours = max_stale_hours
         self._running = False
         self._task: asyncio.Task | None = None
         self._metrics = {
@@ -662,6 +664,7 @@ class DLQRetryDaemon:
             "total_recovered": 0,
             "total_failed": 0,
             "total_abandoned": 0,
+            "total_stale_abandoned": 0,
         }
 
     async def start(self) -> None:
@@ -710,6 +713,11 @@ class DLQRetryDaemon:
             self._metrics["total_abandoned"] += abandoned
             logger.info(f"[DLQRetryDaemon] Abandoned {abandoned} exhausted events")
 
+        # Also abandon very old events (stale cleanup)
+        stale_abandoned = self._abandon_stale_events(max_age_hours=self.max_stale_hours)
+        if stale_abandoned > 0:
+            self._metrics["total_stale_abandoned"] += stale_abandoned
+
         # Then retry pending events
         stats = await self.dlq.retry_failed_events(max_events=self.max_events)
 
@@ -741,6 +749,69 @@ class DLQRetryDaemon:
             abandoned = cursor.rowcount
             conn.commit()
         return abandoned
+
+    def _abandon_stale_events(self, max_age_hours: float = 168.0) -> int:
+        """Abandon events that are too old, regardless of retry count.
+
+        This prevents events from sitting in the DLQ forever when:
+        - No handler is registered for them
+        - The system that should process them is permanently down
+        - They represent obsolete operations
+
+        Args:
+            max_age_hours: Maximum age in hours (default 168 = 7 days)
+
+        Returns:
+            Number of events abandoned
+        """
+        from datetime import timedelta
+
+        cutoff = (datetime.now() - timedelta(hours=max_age_hours)).isoformat()
+
+        with sqlite3.connect(self.dlq.db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE dead_letter
+                SET status = 'abandoned'
+                WHERE status = 'pending' AND created_at < ?
+                """,
+                (cutoff,),
+            )
+            abandoned = cursor.rowcount
+            conn.commit()
+
+        if abandoned > 0:
+            logger.warning(
+                f"[DLQRetryDaemon] Auto-abandoned {abandoned} stale events "
+                f"(older than {max_age_hours:.0f}h)"
+            )
+            # Emit DLQ_EVENTS_PURGED event
+            self._emit_purge_event(abandoned, reason="stale")
+
+        return abandoned
+
+    def _emit_purge_event(self, count: int, reason: str) -> None:
+        """Emit DLQ_EVENTS_PURGED event when events are cleaned up."""
+        try:
+            from app.distributed.data_events import DataEvent, DataEventType
+
+            event = DataEvent(
+                event_type=DataEventType.DLQ_EVENTS_PURGED,
+                payload={
+                    "count": count,
+                    "reason": reason,
+                    "timestamp": datetime.now().isoformat(),
+                },
+                source="DLQRetryDaemon",
+            )
+
+            from app.coordination.event_router import get_event_bus
+
+            bus = get_event_bus()
+            if bus:
+                bus.publish(event)
+        except Exception as e:
+            logger.debug(f"[DLQRetryDaemon] Failed to emit purge event: {e}")
 
     def get_metrics(self) -> dict:
         """Get daemon metrics.
@@ -783,6 +854,7 @@ class DLQRetryDaemon:
                 "total_recovered": metrics.get("total_recovered", 0),
                 "total_failed": metrics.get("total_failed", 0),
                 "total_abandoned": metrics.get("total_abandoned", 0),
+                "total_stale_abandoned": metrics.get("total_stale_abandoned", 0),
                 "pending_events": dlq_stats.get("pending", 0),
             },
         )
@@ -793,6 +865,7 @@ def create_dlq_retry_daemon(
     interval_seconds: float = 60.0,
     max_events_per_cycle: int = 10,
     max_attempts: int = 5,
+    max_stale_hours: float = 168.0,
 ) -> DLQRetryDaemon:
     """Create a DLQ retry daemon instance.
 
@@ -800,6 +873,8 @@ def create_dlq_retry_daemon(
         interval_seconds: Time between retry cycles
         max_events_per_cycle: Max events to retry per cycle
         max_attempts: Max retry attempts before abandoning
+        max_stale_hours: Maximum age (hours) for pending events before
+            auto-abandonment (default 168 = 7 days)
 
     Returns:
         DLQRetryDaemon instance
@@ -808,4 +883,5 @@ def create_dlq_retry_daemon(
         interval_seconds=interval_seconds,
         max_events_per_cycle=max_events_per_cycle,
         max_attempts=max_attempts,
+        max_stale_hours=max_stale_hours,
     )
