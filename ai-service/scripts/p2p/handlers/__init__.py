@@ -94,6 +94,7 @@ from .ssh_tournament import SSHTournamentHandlersMixin
 from .swim import SwimHandlersMixin
 from .tournament import TournamentHandlersMixin
 from .sync import SyncHandlersMixin
+from .tables import TableHandlersMixin
 from .work_queue import WorkQueueHandlersMixin
 
 __all__ = [
@@ -116,6 +117,7 @@ __all__ = [
     "SSHTournamentHandlersMixin",
     "SwimHandlersMixin",
     "SyncHandlersMixin",
+    "TableHandlersMixin",
     "TournamentHandlersMixin",
     "WorkQueueHandlersMixin",
 ]

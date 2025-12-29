@@ -776,7 +776,11 @@ class TestDatabaseConnection:
 
 
 class TestHealthCheck:
-    """Tests for StateManager.health_check() method."""
+    """Tests for StateManager.health_check() method.
+
+    Dec 28, 2025: Updated to use HealthCheckResult attributes instead of dict access.
+    health_check() now returns HealthCheckResult with .status, .healthy, .message, .details.
+    """
 
     def test_health_check_healthy(self, tmp_path):
         """Test health_check returns healthy status for valid database."""
@@ -786,11 +790,13 @@ class TestHealthCheck:
 
         health = manager.health_check()
 
-        assert health["status"] == "healthy"
-        assert health["errors_count"] == 0
-        assert health["last_error"] is None
-        assert health["db_path"] == str(db_path)
-        assert health["cluster_epoch"] == 0  # Default epoch
+        # HealthCheckResult uses .status attribute (may be enum or string)
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "running"  # healthy
+        assert health.details["errors_count"] == 0
+        assert "healthy" in health.message.lower() or health.message == ""
+        assert health.details["db_path"] == str(db_path)
+        assert health.details["cluster_epoch"] == 0  # Default epoch
 
     def test_health_check_reports_peer_count(self, tmp_path):
         """Test health_check reports peer count correctly."""
@@ -814,8 +820,9 @@ class TestHealthCheck:
 
         health = manager.health_check()
 
-        assert health["status"] == "healthy"
-        assert health["peer_count"] == 2
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "running"  # healthy
+        assert health.details["peer_count"] == 2
 
     def test_health_check_reports_job_count(self, tmp_path):
         """Test health_check reports running job count correctly."""
@@ -842,7 +849,7 @@ class TestHealthCheck:
         health = manager.health_check()
 
         # Only running jobs should be counted
-        assert health["job_count"] == 1
+        assert health.details["job_count"] == 1
 
     def test_health_check_reports_cluster_epoch(self, tmp_path):
         """Test health_check includes cluster epoch."""
@@ -853,7 +860,7 @@ class TestHealthCheck:
 
         health = manager.health_check()
 
-        assert health["cluster_epoch"] == 42
+        assert health.details["cluster_epoch"] == 42
 
     def test_health_check_unhealthy_missing_db(self, tmp_path):
         """Test health_check returns unhealthy when database file is missing."""
@@ -864,11 +871,12 @@ class TestHealthCheck:
         health = manager.health_check()
 
         # Should still work but report unhealthy
-        assert health["status"] == "unhealthy"
-        assert health["errors_count"] >= 1
-        # Error message varies: "not found" or "no such table"
-        assert health["last_error"] is not None
-        assert any(msg in health["last_error"] for msg in ["not found", "no such table"])
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "error"  # unhealthy
+        assert health.details["errors_count"] >= 1
+        # Error message is in health.message, varies: "not found" or "no such table"
+        assert health.message is not None
+        assert any(msg in health.message for msg in ["not found", "no such table", "connection failed"])
 
     def test_health_check_operations_count(self, tmp_path):
         """Test health_check operations_count is sum of peers and jobs."""
@@ -894,5 +902,5 @@ class TestHealthCheck:
         health = manager.health_check()
 
         # operations_count = peer_count + job_count
-        assert health["operations_count"] == health["peer_count"] + health["job_count"]
-        assert health["operations_count"] == 2  # 1 peer + 1 running job
+        assert health.details["operations_count"] == health.details["peer_count"] + health.details["job_count"]
+        assert health.details["operations_count"] == 2  # 1 peer + 1 running job

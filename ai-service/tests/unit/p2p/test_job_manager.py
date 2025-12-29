@@ -434,6 +434,7 @@ class TestHealthCheck:
             active_jobs=active_jobs,
             jobs_lock=threading.Lock(),
         )
+        mgr._subscribed = True  # Bypass subscription check to test failure rate
 
         health = mgr.health_check()
 
