@@ -126,6 +126,7 @@ JOB_ROUTES = [
     Route("POST", "/restart_stuck_jobs", "handle_restart_stuck_jobs"),
     Route("POST", "/reduce_selfplay", "handle_reduce_selfplay"),
     Route("POST", "/selfplay/start", "handle_selfplay_start"),
+    Route("POST", "/dispatch_selfplay", "handle_dispatch_selfplay"),  # Dec 29, 2025: Coordinator-facing selfplay request
 ]
 
 # ===========================================================================

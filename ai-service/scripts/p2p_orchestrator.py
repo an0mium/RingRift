@@ -8879,6 +8879,114 @@ class P2POrchestrator(
     # Use self.job_manager.run_gpu_selfplay_job() instead.
     # See scripts/p2p/managers/job_manager.py for implementation.
 
+    async def handle_dispatch_selfplay(self, request: web.Request) -> web.Response:
+        """POST /dispatch_selfplay - Request selfplay jobs for a config.
+
+        Called from coordinator or any node to request selfplay generation.
+        If this node is leader, adds work to the queue directly.
+        If not leader, proxies the request to the current leader.
+
+        Request body:
+        {
+            "board_type": "hex8",
+            "num_players": 4,
+            "num_games": 200,
+            "engine_mode": "gumbel-mcts",  # optional, defaults to gumbel-mcts
+            "priority": 50,  # optional, 1-100, higher = more urgent
+            "force": false  # optional, bypass backpressure
+        }
+
+        Response:
+        {
+            "success": true,
+            "work_ids": ["abc123", ...],
+            "count": 2,
+            "dispatched_to": "leader-node-id"
+        }
+        """
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response(
+                {"success": False, "error": "Invalid JSON body"},
+                status=400,
+            )
+
+        board_type = data.get("board_type", "square8")
+        num_players = data.get("num_players", 2)
+        num_games = data.get("num_games", 200)
+        engine_mode = data.get("engine_mode", "gumbel-mcts")
+        priority = data.get("priority", 50)
+        force = data.get("force", False)
+
+        # If we're the leader, add work directly to queue
+        if self.is_leader:
+            try:
+                from app.coordination.work_queue import get_work_queue, WorkItem, WorkType
+
+                wq = get_work_queue()
+                if wq is None:
+                    return web.json_response(
+                        {"success": False, "error": "Work queue not available"},
+                        status=503,
+                    )
+
+                # Calculate number of work items (split into 100-game chunks for better distribution)
+                games_per_job = 100
+                num_jobs = max(1, num_games // games_per_job)
+                games_remainder = num_games % games_per_job
+
+                work_ids = []
+                for i in range(num_jobs):
+                    games_this_job = games_per_job if i < num_jobs - 1 or games_remainder == 0 else games_remainder
+                    if games_this_job == 0 and i == num_jobs - 1:
+                        games_this_job = games_per_job  # Use full batch for last if no remainder
+
+                    config_key = f"{board_type}_{num_players}p"
+                    item = WorkItem(
+                        work_type=WorkType.SELFPLAY,
+                        priority=priority,
+                        config={
+                            "board_type": board_type,
+                            "num_players": num_players,
+                            "num_games": games_this_job,
+                            "engine_mode": engine_mode,
+                            "config_key": config_key,
+                        },
+                        timeout_seconds=3600.0,
+                    )
+                    work_id = wq.add_work(item, force=force)
+                    work_ids.append(work_id)
+
+                logger.info(
+                    f"[P2P] Dispatched {len(work_ids)} selfplay jobs for {board_type}_{num_players}p "
+                    f"({num_games} total games, engine={engine_mode})"
+                )
+
+                return web.json_response({
+                    "success": True,
+                    "work_ids": work_ids,
+                    "count": len(work_ids),
+                    "total_games": num_games,
+                    "dispatched_to": self.node_id,
+                    "config_key": f"{board_type}_{num_players}p",
+                })
+
+            except RuntimeError as e:
+                if "BACKPRESSURE" in str(e):
+                    logger.warning(f"Selfplay dispatch rejected due to backpressure: {e}")
+                    return web.json_response(
+                        {"success": False, "error": str(e), "retry_after_seconds": 60},
+                        status=429,
+                    )
+                raise
+            except Exception as e:
+                logger.error(f"Failed to dispatch selfplay: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        # Not leader - proxy to leader
+        return await self._proxy_to_leader(request)
+
     async def handle_cleanup_files(self, request: web.Request) -> web.Response:
         """Delete specific files from this node (for post-sync cleanup).
 
@@ -24936,6 +25044,7 @@ print(json.dumps({{
             app.router.add_post('/restart_stuck_jobs', self.handle_restart_stuck_jobs)
             app.router.add_post('/reduce_selfplay', self.handle_reduce_selfplay)
             app.router.add_post('/selfplay/start', self.handle_selfplay_start)  # GPU selfplay dispatch endpoint
+            app.router.add_post('/dispatch_selfplay', self.handle_dispatch_selfplay)  # Coordinator-facing selfplay request endpoint (Dec 29, 2025)
             app.router.add_get('/health', self.handle_health)
             app.router.add_get('/cluster/health', self.handle_cluster_health)
             app.router.add_get('/git/status', self.handle_git_status)
