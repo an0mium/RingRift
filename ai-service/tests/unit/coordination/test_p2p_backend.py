@@ -419,9 +419,11 @@ class TestP2PBackend:
         backend = P2PBackend("http://localhost:8770")
 
         with patch.object(backend, "_get_session", async_get_session):
-            is_healthy = await backend.health_check()
+            result = await backend.health_check()
 
-        assert is_healthy is True
+        # health_check() returns HealthCheckResult, check .healthy attribute
+        assert result.healthy is True
+        assert "P2P backend connected" in result.message
 
     @pytest.mark.asyncio
     async def test_health_check_unhealthy(self, mock_session):
@@ -431,9 +433,11 @@ class TestP2PBackend:
         backend = P2PBackend("http://localhost:8770")
 
         with patch.object(backend, "_get_session", async_get_session):
-            is_healthy = await backend.health_check()
+            result = await backend.health_check()
 
-        assert is_healthy is False
+        # health_check() returns HealthCheckResult, check .healthy attribute
+        assert result.healthy is False
+        assert "503" in result.message
 
     @pytest.mark.asyncio
     async def test_cancel_job(self, mock_session):

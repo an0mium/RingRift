@@ -47,7 +47,7 @@ import threading
 from dataclasses import dataclass, field
 from enum import Enum
 
-from app.core.singleton_mixin import SingletonMixin
+from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 

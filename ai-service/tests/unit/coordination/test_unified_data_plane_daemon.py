@@ -683,10 +683,11 @@ class TestUnifiedDataPlaneDaemonMethods:
         mock_sync_planner.submit_plan = AsyncMock()
 
         # Mock cluster config to return target nodes
+        # The import happens inside trigger_priority_sync from app.config.cluster_config
         mock_node = MagicMock()
         mock_node.is_gpu_node = True
         with patch(
-            "app.coordination.unified_data_plane_daemon.get_cluster_nodes",
+            "app.config.cluster_config.get_cluster_nodes",
             return_value={"nebius-h100": mock_node, "runpod-a100": mock_node},
         ):
             result = await daemon.trigger_priority_sync(
@@ -734,6 +735,237 @@ class TestUnifiedDataPlaneDaemonEventHandling:
         daemon._on_event("UNKNOWN_EVENT_TYPE", {"data": "value"})
 
         assert daemon._stats.events_received > 0
+
+
+class TestUnifiedDataPlaneDaemonEventHandlingAdvanced:
+    """Advanced tests for event handling."""
+
+    def test_on_event_processes_selfplay_complete(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test handling of SELFPLAY_COMPLETE event."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+
+        mock_sync_planner.plan_for_event = MagicMock(return_value=[])
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+
+        daemon._on_event("SELFPLAY_COMPLETE", {"config_key": "hex8_2p", "games": 100})
+
+        assert daemon._stats.events_received == 1
+        assert daemon._stats.events_processed == 1
+        mock_sync_planner.plan_for_event.assert_called_once()
+
+    def test_on_event_processes_training_completed(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test handling of TRAINING_COMPLETED event."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+
+        mock_sync_planner.plan_for_event = MagicMock(return_value=[])
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+
+        daemon._on_event("TRAINING_COMPLETED", {"config_key": "hex8_2p", "model_path": "/path/to/model.pth"})
+
+        assert daemon._stats.events_received == 1
+        mock_sync_planner.plan_for_event.assert_called_with(
+            "TRAINING_COMPLETED", {"config_key": "hex8_2p", "model_path": "/path/to/model.pth"}
+        )
+
+    def test_on_event_increments_failed_on_error(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test that _on_event increments failed counter on error."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+
+        mock_sync_planner.plan_for_event = MagicMock(side_effect=Exception("Plan failed"))
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+
+        daemon._on_event("SELFPLAY_COMPLETE", {"config_key": "hex8_2p"})
+
+        assert daemon._stats.events_received == 1
+        assert daemon._stats.events_failed == 1
+
+    def test_on_event_with_empty_payload(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test handling event with empty payload."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+
+        mock_sync_planner.plan_for_event = MagicMock(return_value=[])
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+
+        daemon._on_event("SYNC_REQUEST", {})
+
+        assert daemon._stats.events_received == 1
+
+
+class TestUnifiedDataPlaneDaemonHealthAdvanced:
+    """Advanced health check tests."""
+
+    def test_health_check_with_unhealthy_catalog(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test health check when catalog is unhealthy."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+        from app.coordination.protocols import CoordinatorStatus
+
+        mock_data_catalog.health_check = MagicMock(
+            return_value=MagicMock(healthy=False)
+        )
+        mock_sync_planner.health_check = MagicMock(
+            return_value=MagicMock(healthy=True)
+        )
+        mock_transport_manager.health_check = MagicMock(
+            return_value=MagicMock(healthy=True)
+        )
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+        daemon._running = True
+        daemon._status = CoordinatorStatus.RUNNING
+
+        result = daemon.health_check()
+
+        # Should be degraded due to unhealthy catalog
+        assert result.healthy is False
+        assert "catalog" in result.message
+
+    def test_health_check_with_unhealthy_planner(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test health check when planner is unhealthy."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+        from app.coordination.protocols import CoordinatorStatus
+
+        mock_data_catalog.health_check = MagicMock(
+            return_value=MagicMock(healthy=True)
+        )
+        mock_sync_planner.health_check = MagicMock(
+            return_value=MagicMock(healthy=False)
+        )
+        mock_transport_manager.health_check = MagicMock(
+            return_value=MagicMock(healthy=True)
+        )
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+        daemon._running = True
+        daemon._status = CoordinatorStatus.RUNNING
+
+        result = daemon.health_check()
+
+        assert result.healthy is False
+        assert "planner" in result.message
+
+
+class TestUnifiedDataPlaneDaemonTriggerSync:
+    """Tests for trigger_priority_sync edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_trigger_priority_sync_no_entries(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test trigger_priority_sync returns False when no entries."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+
+        mock_data_catalog.get_by_config = MagicMock(return_value=[])
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+        daemon._running = True
+
+        result = await daemon.trigger_priority_sync(
+            config_key="nonexistent_config",
+            source_node="vast-12345",
+        )
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_trigger_priority_sync_no_targets(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test trigger_priority_sync returns False when no target nodes."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+
+        mock_entry = MagicMock()
+        mock_entry.locations = ["vast-12345"]
+        mock_data_catalog.get_by_config = MagicMock(return_value=[mock_entry])
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+        daemon._running = True
+
+        with patch(
+            "app.config.cluster_config.get_cluster_nodes",
+            return_value={},
+        ):
+            result = await daemon.trigger_priority_sync(
+                config_key="hex8_2p",
+                source_node="vast-12345",
+            )
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_trigger_priority_sync_with_explicit_targets(
+        self, mock_data_catalog, mock_sync_planner, mock_transport_manager
+    ):
+        """Test trigger_priority_sync with explicit target nodes."""
+        from app.coordination.unified_data_plane_daemon import UnifiedDataPlaneDaemon
+
+        mock_entry = MagicMock()
+        mock_entry.locations = ["vast-12345"]
+        mock_data_catalog.get_by_config = MagicMock(return_value=[mock_entry])
+        mock_sync_planner.submit_plan = AsyncMock()
+
+        daemon = UnifiedDataPlaneDaemon(
+            catalog=mock_data_catalog,
+            planner=mock_sync_planner,
+            transport=mock_transport_manager,
+        )
+        daemon._running = True
+
+        result = await daemon.trigger_priority_sync(
+            config_key="hex8_2p",
+            source_node="vast-12345",
+            target_nodes=["nebius-h100", "runpod-a100"],
+        )
+
+        assert result is True
+        mock_sync_planner.submit_plan.assert_called_once()
 
 
 class TestDaemonRegistryIntegration:

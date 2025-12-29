@@ -359,7 +359,11 @@ class TestValidationMethods:
 
 
 class TestHealthCheck:
-    """Test JobManager.health_check() method."""
+    """Test JobManager.health_check() method.
+
+    Dec 28, 2025: Updated to use HealthCheckResult attributes instead of dict access.
+    health_check() now returns HealthCheckResult with .status, .healthy, .message, .details.
+    """
 
     def test_health_check_healthy_no_jobs(self):
         """Test health_check returns healthy when subscribed and no jobs running."""
@@ -376,11 +380,13 @@ class TestHealthCheck:
 
         health = mgr.health_check()
 
-        assert health["status"] == "healthy"
-        assert health["running_jobs"] == 0
-        assert health["failed_jobs"] == 0
-        assert health["errors_count"] == 0
-        assert health["subscribed"] is True
+        # HealthCheckResult uses .status attribute (may be enum or string)
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "running"  # CoordinatorStatus.RUNNING
+        assert health.details["running_jobs"] == 0
+        assert health.details["failed_jobs"] == 0
+        assert health.details["errors_count"] == 0
+        assert health.details["subscribed"] is True
 
     def test_health_check_with_running_jobs(self):
         """Test health_check reports running jobs correctly."""
@@ -403,10 +409,11 @@ class TestHealthCheck:
 
         health = mgr.health_check()
 
-        assert health["status"] == "healthy"
-        assert health["running_jobs"] == 2
-        assert health["operations_count"] == 2
-        assert "selfplay" in health["job_types"]
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "running"  # healthy
+        assert health.details["running_jobs"] == 2
+        assert health.details["operations_count"] == 2
+        assert "selfplay" in health.details["job_types"]
 
     def test_health_check_degraded_with_failures(self):
         """Test health_check returns degraded with >20% failure rate."""
@@ -430,9 +437,10 @@ class TestHealthCheck:
 
         health = mgr.health_check()
 
-        assert health["status"] == "degraded"
-        assert health["failed_jobs"] == 1
-        assert "failure rate" in health["last_error"].lower()
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "degraded"
+        assert health.details["failed_jobs"] == 1
+        assert "failure rate" in health.message.lower()
 
     def test_health_check_unhealthy_with_high_failures(self):
         """Test health_check returns unhealthy with >50% failure rate."""
@@ -455,9 +463,10 @@ class TestHealthCheck:
 
         health = mgr.health_check()
 
-        assert health["status"] == "unhealthy"
-        assert health["failed_jobs"] == 2
-        assert health["errors_count"] == 2
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "error"  # unhealthy
+        assert health.details["failed_jobs"] == 2
+        assert health.details["errors_count"] == 2
 
     def test_health_check_degraded_not_subscribed(self):
         """Test health_check degrades when not subscribed to events."""
@@ -474,9 +483,10 @@ class TestHealthCheck:
         health = mgr.health_check()
 
         # Should be degraded because not subscribed
-        assert health["status"] == "degraded"
-        assert health["subscribed"] is False
-        assert health["last_error"] == "Not subscribed to events"
+        status_val = health.status.value if hasattr(health.status, "value") else health.status
+        assert status_val == "degraded"
+        assert health.details["subscribed"] is False
+        assert "Not subscribed" in health.message
 
     def test_health_check_counts_timeout_and_error_as_failed(self):
         """Test health_check counts timeout and error statuses as failed."""
@@ -499,8 +509,8 @@ class TestHealthCheck:
         health = mgr.health_check()
 
         # All 3 should be counted as failed
-        assert health["failed_jobs"] == 3
-        assert health["running_jobs"] == 0
+        assert health.details["failed_jobs"] == 3
+        assert health.details["running_jobs"] == 0
 
 
 class TestEventSubscriptions:

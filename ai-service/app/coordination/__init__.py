@@ -34,8 +34,8 @@ Usage:
 """
 
 # Task coordinator exports (canonical coordination system)
-# Bandwidth manager exports
-from app.coordination.bandwidth_manager import (
+# Bandwidth manager exports (canonical: sync_bandwidth.py, Dec 2025)
+from app.coordination.sync_bandwidth import (
     BandwidthAllocation,
     BandwidthManager,
     TransferPriority,

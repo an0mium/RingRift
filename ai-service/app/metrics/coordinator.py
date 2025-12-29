@@ -330,7 +330,7 @@ async def collect_all_coordinator_metrics() -> dict[str, Any]:
 
     # Try to get BandwidthManager stats
     try:
-        from app.coordination.bandwidth_manager import get_bandwidth_manager
+        from app.coordination.sync_bandwidth import get_bandwidth_manager
         bm = get_bandwidth_manager()
         stats = await bm.get_stats()
         metrics["coordinators"]["BandwidthManager"] = stats
@@ -392,7 +392,7 @@ def _collect_sync() -> dict[str, Any]:
         logger.debug(f"Could not collect UnifiedHealthManager metrics (sync): {e}")
 
     try:
-        from app.coordination.bandwidth_manager import get_bandwidth_manager
+        from app.coordination.sync_bandwidth import get_bandwidth_manager
         bm = get_bandwidth_manager()
         stats = bm.get_stats_sync()
         metrics["coordinators"]["BandwidthManager"] = stats

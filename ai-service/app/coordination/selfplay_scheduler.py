@@ -2079,20 +2079,39 @@ class SelfplayScheduler:
             from app.core.async_context import fire_and_forget
             from app.coordination.event_emitters import emit_quality_penalty_applied
 
+            # Collect penalized configs first to avoid creating unawaited coroutines on error
+            penalized_configs: list[tuple[str, float, float]] = []
             for config_key, priority in self._config_priorities.items():
                 if priority.quality_penalty < 0:  # Only emit for penalized configs
-                    async def emit(key=config_key, penalty=-priority.quality_penalty):
+                    penalized_configs.append(
+                        (config_key, -priority.quality_penalty, priority.exploration_boost)
+                    )
+
+            # Emit all penalties in a single batched coroutine
+            async def emit_all_penalties():
+                for key, penalty, weight in penalized_configs:
+                    try:
                         await emit_quality_penalty_applied(
                             config_key=key,
                             penalty=penalty,
                             reason="low_quality_selfplay_data",
-                            current_weight=priority.exploration_boost,
+                            current_weight=weight,
                             source="selfplay_scheduler",
                             quality_score=quality_score,
                             throttle_factor=throttle_factor,
                         )
+                    except Exception as e:
+                        logger.debug(f"[SelfplayScheduler] Failed to emit penalty for {key}: {e}")
 
-                    fire_and_forget(emit())
+            if penalized_configs:
+                coro = emit_all_penalties()
+                try:
+                    fire_and_forget(coro)
+                except Exception as e:
+                    # Close the coroutine to avoid "never awaited" warning
+                    coro.close()
+                    logger.debug(f"[SelfplayScheduler] Failed to schedule penalty emission: {e}")
+                    return
 
             logger.debug(
                 f"[SelfplayScheduler] Emitted QUALITY_PENALTY_APPLIED for {throttled_count} configs"

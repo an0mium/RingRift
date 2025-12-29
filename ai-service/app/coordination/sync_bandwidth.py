@@ -38,6 +38,7 @@ import asyncio
 import logging
 import tempfile
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -1006,7 +1007,85 @@ def get_batch_rsync(manager: BandwidthManager | None = None) -> BatchRsync:
     return BatchRsync(manager)
 
 
+# =============================================================================
+# Convenience Functions (December 2025 - migrated from bandwidth_manager.py)
+# =============================================================================
+
+
+def reset_bandwidth_manager() -> None:
+    """Reset the global manager (for testing)."""
+    global _manager
+    with _manager_lock:
+        if _manager is not None:
+            _manager.close()
+        _manager = None
+
+
+def request_bandwidth(
+    host: str,
+    estimated_mb: int,
+    priority: TransferPriority = TransferPriority.NORMAL,
+) -> BandwidthAllocation:
+    """Request bandwidth allocation for a transfer."""
+    return get_bandwidth_manager().request(host, estimated_mb, priority)
+
+
+def release_bandwidth(
+    allocation_id: str,
+    bytes_transferred: int = 0,
+    duration_seconds: float = 0,
+) -> bool:
+    """Release bandwidth allocation."""
+    return get_bandwidth_manager().release(allocation_id, bytes_transferred, duration_seconds)
+
+
+def get_host_bandwidth_status(host: str) -> dict:
+    """Get bandwidth status for a host."""
+    return get_bandwidth_manager().get_host_status(host)
+
+
+def get_optimal_transfer_time(
+    host: str,
+    size_mb: int,
+) -> tuple:
+    """Get optimal time to transfer."""
+    return get_bandwidth_manager().get_optimal_time(host, size_mb)
+
+
+def get_bandwidth_stats() -> dict:
+    """Get bandwidth management statistics (sync version)."""
+    return get_bandwidth_manager().get_stats_sync()
+
+
+@contextmanager
+def bandwidth_allocation(
+    host: str,
+    estimated_mb: int,
+    priority: TransferPriority = TransferPriority.NORMAL,
+):
+    """Context manager for bandwidth allocation.
+
+    Usage:
+        with bandwidth_allocation("gh200-a", 1000) as alloc:
+            if alloc.granted:
+                rsync_with_bwlimit(alloc.bwlimit_kbps)
+    """
+    import time
+    manager = get_bandwidth_manager()
+    allocation = manager.request(host, estimated_mb, priority)
+    start_time = time.time()
+    bytes_transferred = 0
+
+    try:
+        yield allocation
+    finally:
+        if allocation.granted:
+            duration = time.time() - start_time
+            manager.release(allocation.allocation_id, bytes_transferred, duration)
+
+
 __all__ = [
+    # Classes
     "BandwidthAllocation",
     "BandwidthConfig",
     "BandwidthCoordinatedRsync",
@@ -1015,7 +1094,16 @@ __all__ = [
     "BatchSyncResult",
     "SyncResult",
     "TransferPriority",
+    # Factory functions
     "get_bandwidth_manager",
     "get_batch_rsync",
     "get_coordinated_rsync",
+    # Convenience functions (migrated from bandwidth_manager.py Dec 2025)
+    "bandwidth_allocation",
+    "get_bandwidth_stats",
+    "get_host_bandwidth_status",
+    "get_optimal_transfer_time",
+    "release_bandwidth",
+    "request_bandwidth",
+    "reset_bandwidth_manager",
 ]
