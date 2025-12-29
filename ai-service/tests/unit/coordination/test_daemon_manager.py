@@ -1062,7 +1062,9 @@ class TestImportFailureHandling:
         True when the task is created, but the factory error occurs in the
         background task and updates the state asynchronously.
         """
-        manager = DaemonManager()
+        # Disable coordination wiring to avoid hanging in tests
+        config = DaemonManagerConfig(enable_coordination_wiring=False)
+        manager = DaemonManager(config)
         manager._factories.clear()
         manager._daemons.clear()
 
@@ -1072,7 +1074,7 @@ class TestImportFailureHandling:
         manager.register_factory(DaemonType.MODEL_SYNC, failing_factory, auto_restart=False)
 
         # Start the daemon - returns True because task was created
-        result = await manager.start(DaemonType.MODEL_SYNC)
+        result = await manager.start(DaemonType.MODEL_SYNC, wait_for_deps=False)
         assert result is True  # Task creation succeeds
 
         # Wait for async factory to fail
@@ -1183,7 +1185,9 @@ class TestShutdown:
     @pytest.mark.asyncio
     async def test_shutdown_stops_all_daemons(self):
         """shutdown() should stop all running daemons."""
-        manager = DaemonManager()
+        # Disable coordination wiring to avoid hanging in tests
+        config = DaemonManagerConfig(enable_coordination_wiring=False)
+        manager = DaemonManager(config)
         manager._factories.clear()
         manager._daemons.clear()
 
@@ -1200,8 +1204,8 @@ class TestShutdown:
         manager.register_factory(DaemonType.EVENT_ROUTER, factory)
         manager.register_factory(DaemonType.MODEL_SYNC, factory)
 
-        await manager.start(DaemonType.EVENT_ROUTER)
-        await manager.start(DaemonType.MODEL_SYNC)
+        await manager.start(DaemonType.EVENT_ROUTER, wait_for_deps=False)
+        await manager.start(DaemonType.MODEL_SYNC, wait_for_deps=False)
 
         await manager.shutdown()
 

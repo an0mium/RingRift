@@ -14,6 +14,9 @@
 > - [`docs/planning/NEXT_AREAS_EXECUTION_PLAN.md`](NEXT_AREAS_EXECUTION_PLAN.md) - Overall execution context
 > - [`ai-service/app/db/game_replay.py`](../../ai-service/app/db/game_replay.py) - Database schema
 > - [`ai-service/scripts/generate_canonical_selfplay.py`](../../ai-service/scripts/generate_canonical_selfplay.py) - Self-play generator
+>
+> **Note:** Schema version references in this plan reflect v9 as of Dec 2025. Current schema
+> version is v15; see `ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`.
 
 ## Table of Contents
 
