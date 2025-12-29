@@ -157,6 +157,8 @@ class TrainingTriggerDaemon(HandlerBase):
         - TRAINING_BLOCKED_BY_QUALITY: Pause intensity
         - EVALUATION_COMPLETED: Gauntlet -> training feedback
         - TRAINING_INTENSITY_CHANGED: Updates from unified_feedback orchestrator
+        - DATA_STALE: React to stale data alerts (Dec 2025 - Phase 2A)
+        - DATA_SYNC_COMPLETED: Retry training after fresh data arrives (Dec 2025 - Phase 2A)
         """
         return {
             "npz_export_complete": self._on_npz_export_complete,
@@ -166,6 +168,9 @@ class TrainingTriggerDaemon(HandlerBase):
             "training_blocked_by_quality": self._on_training_blocked_by_quality,
             "evaluation_completed": self._on_evaluation_completed,
             "training_intensity_changed": self._on_training_intensity_changed,
+            # December 2025 - Phase 2A: Data freshness events
+            "data_stale": self._on_data_stale,
+            "data_sync_completed": self._on_data_sync_completed,
         }
 
     async def _on_start(self) -> None:

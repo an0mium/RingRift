@@ -57,7 +57,9 @@ PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "90") or 90)
 # With 15s heartbeats, this means 4 missed = suspect, 8 missed = dead
 SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "60") or 60)
 # Election timeout configurable for aggressive failover mode
-ELECTION_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_ELECTION_TIMEOUT", "10") or 10)
+# Dec 29, 2025: Increased from 10 to 30 to reduce leader thrashing (5 changes/6h → 1/6h)
+# Still fast enough for failover but reduces spurious elections from network hiccups
+ELECTION_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_ELECTION_TIMEOUT", "30") or 30)
 
 # Leader lease must be comfortably larger than the heartbeat cadence
 # LEARNED LESSONS: Increased from 90s to 180s - network latency between cloud providers
