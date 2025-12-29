@@ -90,6 +90,33 @@ class CompositeGauntletConfig:
     ))
     phase2_algorithms: list[str] = field(default_factory=lambda: list(PHASE2_ALGORITHMS))
 
+    @staticmethod
+    def for_num_players(num_players: int) -> "CompositeGauntletConfig":
+        """Create config with game counts scaled for player count variance.
+
+        Higher player counts have more variance, requiring more games for
+        statistical confidence:
+        - 2 players: base games (50 phase1, 20 phase2)
+        - 3 players: 1.5x games (75 phase1, 30 phase2)
+        - 4 players: 2x games (100 phase1, 40 phase2)
+        """
+        if num_players == 4:
+            multiplier = 2.0
+        elif num_players == 3:
+            multiplier = 1.5
+        else:
+            multiplier = 1.0
+
+        return CompositeGauntletConfig(
+            phase1=GauntletPhaseConfig(
+                games_per_matchup=int(50 * multiplier),
+                pass_threshold=0.5,
+            ),
+            phase2=GauntletPhaseConfig(
+                games_per_matchup=int(20 * multiplier),
+            ),
+        )
+
 
 @dataclass
 class PhaseResult:

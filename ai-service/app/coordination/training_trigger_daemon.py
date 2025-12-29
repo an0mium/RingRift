@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from app.config.coordination_defaults import SyncDefaults
+from app.config.coordination_defaults import DataFreshnessDefaults, SyncDefaults
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
@@ -58,18 +58,22 @@ class TrainingTriggerConfig:
     """Configuration for training trigger decisions."""
 
     enabled: bool = True
-    # Data freshness - December 29, 2025: Relaxed to 24h to unblock training bottleneck
-    max_data_age_hours: float = 24.0
+    # Data freshness - uses DataFreshnessDefaults for unified config (December 2025)
+    # Default 4h from RINGRIFT_MAX_DATA_AGE_HOURS env var
+    max_data_age_hours: float = field(
+        default_factory=lambda: DataFreshnessDefaults().MAX_DATA_AGE_HOURS
+    )
     # December 2025: Use training_freshness to trigger sync when data is stale
-    enforce_freshness_with_sync: bool = True  # If True, trigger sync instead of just rejecting
+    enforce_freshness_with_sync: bool = field(
+        default_factory=lambda: DataFreshnessDefaults().ENFORCE_FRESHNESS_WITH_SYNC
+    )
     freshness_sync_timeout_seconds: float = field(
-        default_factory=lambda: SyncDefaults.SYNC_TIMEOUT  # Wait up to 5 min for sync
+        default_factory=lambda: DataFreshnessDefaults().FRESHNESS_SYNC_TIMEOUT
     )
     # December 29, 2025: Strict mode - fail immediately if data is stale (no sync attempt)
     # Useful for high-quality training where only fresh data should be used
     strict_freshness_mode: bool = field(
-        default_factory=lambda: os.environ.get("RINGRIFT_STRICT_DATA_FRESHNESS", "").lower()
-        in ("true", "1", "yes")
+        default_factory=lambda: DataFreshnessDefaults().STRICT_FRESHNESS
     )
     # Minimum samples to trigger training
     # December 29, 2025: Reduced from 10000 to 5000 for faster iteration cycles

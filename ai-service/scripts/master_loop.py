@@ -91,6 +91,7 @@ from app.config.unified_config import get_config
 # Import coordination bootstrap for event wiring (December 2025)
 # This is critical for feedback loops to function properly
 from app.coordination.coordination_bootstrap import bootstrap_coordination
+from app.config.coordination_defaults import DataFreshnessDefaults
 
 logging.basicConfig(
     level=logging.INFO,
@@ -120,7 +121,8 @@ ALLOCATION_CHECK_INTERVAL = 120  # Rebalance allocations every 2 minutes (fallba
 # Dec 28, 2025: Lowered from 1000 to 100 to unblock training pipeline
 # High threshold was causing 10x mismatch with TRAINING_TRIGGER_GAMES=100
 MIN_GAMES_FOR_EXPORT = 100  # Minimum new games before triggering export
-MAX_DATA_STALENESS_HOURS = 4.0  # Trigger sync if data older than this
+# Dec 29, 2025: Use DataFreshnessDefaults for unified freshness config
+MAX_DATA_STALENESS_HOURS = DataFreshnessDefaults().MAX_DATA_AGE_HOURS
 
 # State persistence path (Gap 3 fix: Dec 2025)
 STATE_DB_PATH = Path(__file__).parent.parent / "data" / "coordination" / "master_loop_state.db"

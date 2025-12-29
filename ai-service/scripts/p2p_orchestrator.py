@@ -11327,33 +11327,83 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)})
 
+    def _get_training_timeout(self, job_id: str) -> int:
+        """Get dynamic timeout based on job configuration.
+
+        Returns timeout in seconds based on board type and model complexity:
+        - square19: 6 hours (large board, 361 cells)
+        - hexagonal: 5 hours (469 cells)
+        - square8/hex8: 2 hours (small boards)
+        Default: 3 hours if job not found
+        """
+        with self.training_lock:
+            job = self.training_jobs.get(job_id)
+            if not job:
+                return 10800  # 3 hours default
+
+            board_type = getattr(job, 'board_type', 'unknown')
+            num_players = getattr(job, 'num_players', 2)
+
+            # Base timeout by board complexity
+            if board_type == 'square19':
+                base_timeout = 21600  # 6 hours
+            elif board_type == 'hexagonal':
+                base_timeout = 18000  # 5 hours
+            elif board_type in ('hex8', 'square8'):
+                base_timeout = 7200   # 2 hours
+            else:
+                base_timeout = 10800  # 3 hours default
+
+            # Add 50% for 4-player models (larger value head, more complex)
+            if num_players == 4:
+                base_timeout = int(base_timeout * 1.5)
+            elif num_players == 3:
+                base_timeout = int(base_timeout * 1.25)
+
+            return base_timeout
+
     async def _monitor_training_process(self, job_id: str, proc, output_path: str):
         """Monitor training subprocess and report completion to leader."""
         try:
+            timeout = self._get_training_timeout(job_id)
             _stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
-                timeout=7200  # 2 hour max
+                timeout=timeout
             )
 
             success = proc.returncode == 0
 
-            # Report to leader
+            # Report to leader with retry logic
             if self.leader_id and self.leader_id != self.node_id:
                 leader = self.peers.get(self.leader_id)
                 if leader:
-                    try:
-                        timeout = ClientTimeout(total=30)
-                        async with get_client_session(timeout) as session:
-                            url = self._url_for_peer(leader, "/training/update")
-                            payload = {
-                                "job_id": job_id,
-                                "completed": success,
-                                "output_model_path": output_path if success else "",
-                                "error": stderr.decode()[:500] if not success else "",
-                            }
-                            await session.post(url, json=payload, headers=self._auth_headers())
-                    except Exception as e:  # noqa: BLE001
-                        logger.error(f"Failed to report training completion to leader: {e}")
+                    payload = {
+                        "job_id": job_id,
+                        "completed": success,
+                        "output_model_path": output_path if success else "",
+                        "error": stderr.decode()[:500] if not success else "",
+                    }
+                    # Retry with exponential backoff (3 attempts: 5s, 10s, 20s)
+                    max_retries = 3
+                    base_delay = 5.0
+                    for attempt in range(max_retries):
+                        try:
+                            http_timeout = ClientTimeout(total=30)
+                            async with get_client_session(http_timeout) as session:
+                                url = self._url_for_peer(leader, "/training/update")
+                                resp = await session.post(url, json=payload, headers=self._auth_headers())
+                                if resp.status < 400:
+                                    logger.info(f"Training completion reported to leader (attempt {attempt + 1})")
+                                    break
+                                else:
+                                    logger.warning(f"Leader returned {resp.status}, retrying...")
+                        except Exception as e:  # noqa: BLE001
+                            delay = base_delay * (2 ** attempt)
+                            if attempt < max_retries - 1:
+                                logger.warning(f"Failed to report training completion (attempt {attempt + 1}): {e}, retrying in {delay}s")
+                                await asyncio.sleep(delay)
+                            else:
+                                logger.error(f"Failed to report training completion after {max_retries} attempts: {e}")
             else:
                 # We are the leader, update directly
                 with self.training_lock:

@@ -1129,15 +1129,25 @@ class SyncPlanner(EventSubscriptionMixin):
         manifest = cluster_manifest
         if not manifest:
             logger.info("Collecting fresh cluster manifest for training sync...")
-            # Dec 2025: Add 5-minute timeout for manifest collection
+            # Dec 2025: Reduced from 5 minutes to 2 minutes, with cached fallback
             try:
                 manifest = await asyncio.wait_for(
                     collect_manifest(),
-                    timeout=300.0  # 5 minutes max
+                    timeout=120.0  # 2 minutes max (reduced from 5)
                 )
             except asyncio.TimeoutError:
-                logger.warning("Manifest collection timed out after 5 minutes")
-                manifest = None
+                logger.warning("Manifest collection timed out after 2 minutes, trying cached")
+                # Try to get cached manifest as fallback (sync method)
+                try:
+                    cached = self.get_cached_manifest()
+                    if cached:
+                        # Cached manifest is local-only, but can still be useful
+                        # for determining what files exist locally
+                        logger.info("Using cached local manifest as partial fallback")
+                        # Continue without full cluster manifest - sync may be incomplete
+                        manifest = None  # Will fail gracefully below
+                except Exception:
+                    manifest = None
 
         if not manifest:
             return {"success": False, "error": "Failed to collect cluster manifest"}

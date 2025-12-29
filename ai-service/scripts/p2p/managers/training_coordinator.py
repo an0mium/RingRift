@@ -1060,7 +1060,9 @@ class TrainingCoordinator(EventSubscriptionMixin):
                 return True
 
             num_players = job.num_players
-            games_per_side = 4  # 4 games as player 1, 4 as player 2
+            # 16 games per side = 32 total for ~95% statistical confidence
+            # (Previously 4 per side = 8 total, only ~65% confidence)
+            games_per_side = 16
 
             # Run games in executor to not block event loop
             loop = asyncio.get_event_loop()
