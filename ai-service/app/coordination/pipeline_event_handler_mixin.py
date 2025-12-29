@@ -316,10 +316,11 @@ class PipelineEventHandlerMixin:
                     "config_key": config_key,
                 },
             )
-        except ImportError:
-            pass  # data_events not available
+        except ImportError as e:
+            # Dec 2025: Elevated to WARNING - silent failures break pipeline
+            logger.warning(f"[DataPipelineOrchestrator] data_events not available, event lost: {e}")
         except Exception as e:
-            logger.debug(f"[DataPipelineOrchestrator] Failed to emit new_games_available: {e}")
+            logger.warning(f"[DataPipelineOrchestrator] Failed to emit new_games_available: {e}")
 
     # =========================================================================
     # Consolidation Event Handlers
@@ -386,10 +387,11 @@ class PipelineEventHandlerMixin:
                 logger.info(
                     f"[DataPipelineOrchestrator] Triggered export pipeline after consolidation"
                 )
-            except ImportError:
-                pass  # data_events not available
+            except ImportError as e:
+                # Dec 2025: Elevated to WARNING - silent failures break pipeline
+                logger.warning(f"[DataPipelineOrchestrator] data_events not available: {e}")
             except Exception as e:
-                logger.debug(f"[DataPipelineOrchestrator] Failed to emit new_games_available: {e}")
+                logger.warning(f"[DataPipelineOrchestrator] Failed to emit new_games_available: {e}")
 
     # =========================================================================
     # NPZ Combination Handlers (December 28, 2025)
@@ -446,10 +448,11 @@ class PipelineEventHandlerMixin:
                     f"[DataPipelineOrchestrator] Triggered training for {config_key} "
                     f"with combined data ({total_samples} samples)"
                 )
-            except ImportError:
-                pass  # data_events not available
+            except ImportError as e:
+                # Dec 2025: Elevated to WARNING - silent failures break pipeline
+                logger.warning(f"[DataPipelineOrchestrator] data_events not available for training trigger: {e}")
             except Exception as e:
-                logger.debug(
+                logger.warning(
                     f"[DataPipelineOrchestrator] Failed to trigger training after combination: {e}"
                 )
 
@@ -498,10 +501,11 @@ class PipelineEventHandlerMixin:
             logger.info(
                 f"[DataPipelineOrchestrator] Triggered fallback training for {config_key}"
             )
-        except ImportError:
-            pass  # data_events not available
+        except ImportError as e:
+            # Dec 2025: Elevated to WARNING - silent failures break pipeline
+            logger.warning(f"[DataPipelineOrchestrator] data_events not available for fallback training: {e}")
         except Exception as e:
-            logger.debug(
+            logger.warning(
                 f"[DataPipelineOrchestrator] Failed to trigger fallback training: {e}"
             )
 

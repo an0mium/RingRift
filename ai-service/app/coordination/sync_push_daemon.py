@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import fcntl
 import logging
 import os
 import shutil
@@ -630,17 +631,43 @@ class SyncPushDaemon(BaseDaemon[SyncPushConfig]):
                 continue
 
             # Safe to delete - file has N+ verified copies
+            # Dec 29, 2025: Add file locking to prevent race with active writes (Phase 1.3)
             try:
                 stat = db_path.stat()
-                db_path.unlink()
 
-                # Also remove WAL/SHM files
+                # Try to acquire exclusive lock before deletion
+                # This ensures no other process has the file open for writing
+                try:
+                    with open(db_path, "r") as f:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        # Lock acquired - file is not in use, safe to delete
+                        db_path.unlink()
+                except BlockingIOError:
+                    # File is in use by another process - skip this cycle
+                    logger.debug(
+                        f"[{self._get_daemon_name()}] Skipping {db_path}: file in use"
+                    )
+                    continue
+                except (OSError, PermissionError) as e:
+                    # Can't open for locking - skip
+                    logger.debug(
+                        f"[{self._get_daemon_name()}] Skipping {db_path}: {e}"
+                    )
+                    continue
+
+                # Also remove WAL/SHM files (they're no longer needed)
                 wal_path = db_path.with_suffix(".db-wal")
                 shm_path = db_path.with_suffix(".db-shm")
                 if wal_path.exists():
-                    wal_path.unlink()
+                    try:
+                        wal_path.unlink()
+                    except OSError:
+                        pass  # Best effort
                 if shm_path.exists():
-                    shm_path.unlink()
+                    try:
+                        shm_path.unlink()
+                    except OSError:
+                        pass  # Best effort
 
                 # Clean up receipts
                 self._manifest.delete_sync_receipts(file_path)

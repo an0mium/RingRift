@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+import shutil
+
 from app.config.coordination_defaults import (
     DaemonHealthDefaults,
     JobDefaults,
@@ -321,6 +323,137 @@ class JobManager(EventSubscriptionMixin):
             return True, "ssh_unavailable_skipped"
         except Exception as e:
             return False, f"preflight_error: {e}"
+
+    # =========================================================================
+    # Disk Space Check (December 2025)
+    # =========================================================================
+
+    def _check_disk_space(
+        self,
+        output_dir: str | Path,
+        min_free_gb: float | None = None,
+    ) -> tuple[bool, str]:
+        """Check if there is sufficient disk space before spawning a job.
+
+        Args:
+            output_dir: Directory where job output will be written
+            min_free_gb: Minimum required free space in GB. If None, reads from
+                RINGRIFT_MIN_DISK_FREE_GB env var (default: 10.0 GB)
+
+        Returns:
+            Tuple of (has_space, reason).
+            - (True, "ok") if sufficient disk space
+            - (False, reason) if insufficient disk space
+
+        December 2025: Added as part of autonomous loop fixes to prevent jobs
+        from crashing silently when disk fills up.
+        """
+        # Get minimum free space threshold from env or default
+        if min_free_gb is None:
+            try:
+                min_free_gb = float(os.environ.get("RINGRIFT_MIN_DISK_FREE_GB", "10.0"))
+            except (ValueError, TypeError):
+                min_free_gb = 10.0
+
+        try:
+            output_path = Path(output_dir)
+
+            # Find existing parent directory to check
+            check_path = output_path
+            while not check_path.exists() and check_path.parent != check_path:
+                check_path = check_path.parent
+
+            if not check_path.exists():
+                # Can't determine disk space if no parent exists
+                logger.warning(f"Cannot check disk space: no existing parent for {output_dir}")
+                return True, "path_not_found_skipped"
+
+            # Get disk usage statistics
+            disk_usage = shutil.disk_usage(check_path)
+            free_gb = disk_usage.free / (1024 ** 3)  # Convert bytes to GB
+
+            if free_gb < min_free_gb:
+                return False, f"insufficient_disk_space: {free_gb:.1f}GB free < {min_free_gb:.1f}GB required"
+
+            logger.debug(
+                f"Disk space check passed for {output_dir}: {free_gb:.1f}GB free "
+                f"(min: {min_free_gb:.1f}GB)"
+            )
+            return True, "ok"
+
+        except OSError as e:
+            logger.warning(f"Disk space check failed for {output_dir}: {e}")
+            # Return True on error to avoid blocking jobs due to check failures
+            return True, f"disk_check_error_skipped: {e}"
+
+    async def _check_disk_space_async(
+        self,
+        node_id: str,
+        output_dir: str,
+        min_free_gb: float = 10.0,
+        timeout: float = 10.0,
+    ) -> tuple[bool, str]:
+        """Check disk space on a remote node via SSH.
+
+        Args:
+            node_id: The node ID to check
+            output_dir: Directory where job output will be written
+            min_free_gb: Minimum required free space in GB
+            timeout: Maximum time to wait for SSH command
+
+        Returns:
+            Tuple of (has_space, reason).
+            - (True, "ok") if sufficient disk space
+            - (False, reason) if insufficient disk space
+
+        December 2025: Added for remote job dispatch disk validation.
+        """
+        try:
+            from app.core.ssh import run_ssh_command_async
+
+            # df -BG outputs in gigabytes, get available space for output dir
+            cmd = f"df -BG {output_dir} 2>/dev/null | tail -1 | awk '{{print $4}}' | tr -d 'G'"
+
+            result = await asyncio.wait_for(
+                run_ssh_command_async(node_id, cmd, timeout=timeout),
+                timeout=timeout + 1
+            )
+
+            if not result or not result.success:
+                # Fallback: check root partition if specific dir doesn't exist
+                cmd = "df -BG / | tail -1 | awk '{print $4}' | tr -d 'G'"
+                result = await asyncio.wait_for(
+                    run_ssh_command_async(node_id, cmd, timeout=timeout),
+                    timeout=timeout + 1
+                )
+
+            if not result or not result.success:
+                logger.debug(f"Disk space check failed for {node_id}: SSH command failed")
+                return True, "ssh_check_failed_skipped"
+
+            try:
+                free_gb = float(result.stdout.strip())
+            except (ValueError, TypeError):
+                logger.debug(f"Could not parse disk space for {node_id}: {result.stdout}")
+                return True, "parse_error_skipped"
+
+            if free_gb < min_free_gb:
+                logger.warning(
+                    f"Insufficient disk space on {node_id}: {free_gb:.1f}GB free < {min_free_gb:.1f}GB required"
+                )
+                return False, f"insufficient_disk_space: {free_gb:.1f}GB free < {min_free_gb:.1f}GB required"
+
+            logger.debug(f"Disk space check passed for {node_id}: {free_gb:.1f}GB free")
+            return True, "ok"
+
+        except asyncio.TimeoutError:
+            return True, "disk_check_timeout_skipped"
+        except ImportError:
+            # SSH module not available
+            return True, "ssh_unavailable_skipped"
+        except Exception as e:
+            logger.debug(f"Disk space check error for {node_id}: {e}")
+            return True, f"disk_check_error_skipped: {e}"
 
     async def _check_gpu_health(self, node_id: str, timeout: float = 10.0) -> tuple[bool, str]:
         """Verify GPU is available and not in error state.

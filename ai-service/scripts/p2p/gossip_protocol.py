@@ -1080,6 +1080,70 @@ class GossipProtocolMixin(P2PMixinBase):
         return 0
 
     # =========================================================================
+    # Partition Detection (Phase 2.3 - Dec 29, 2025)
+    # =========================================================================
+
+    def detect_partition_status(self) -> tuple[str, float]:
+        """Detect if we're in a network partition.
+
+        December 2025 (Phase 2.3): Active partition detection for cluster stability.
+
+        Partition detection enables the cluster to:
+        - Pause writes when in minority partition (prevent split-brain divergence)
+        - Alert operators about network issues
+        - Automatically resume when connectivity restores
+
+        Returns:
+            Tuple of (status, health_ratio) where:
+            - status: 'healthy' (>50% peers alive), 'minority' (20-50%), 'isolated' (<20%)
+            - health_ratio: Float between 0.0 and 1.0 representing peer connectivity
+        """
+        with self.peers_lock:
+            total_peers = len(self.peers)
+            if total_peers == 0:
+                # No peers known at all - we're isolated
+                return ("isolated", 0.0)
+
+            alive_peers = sum(1 for p in self.peers.values() if p.is_alive())
+
+        health_ratio = alive_peers / total_peers
+
+        if health_ratio > 0.5:
+            return ("healthy", health_ratio)
+        elif health_ratio > 0.2:
+            return ("minority", health_ratio)
+        else:
+            return ("isolated", health_ratio)
+
+    def get_partition_details(self) -> dict[str, Any]:
+        """Get detailed partition status information.
+
+        December 2025 (Phase 2.3): Extended partition info for monitoring.
+
+        Returns:
+            Dict with partition status, counts, and peer details.
+        """
+        status, ratio = self.detect_partition_status()
+
+        with self.peers_lock:
+            total_peers = len(self.peers)
+            alive_peers = [p.node_id for p in self.peers.values() if p.is_alive()]
+            dead_peers = [p.node_id for p in self.peers.values() if not p.is_alive()]
+            suspected_peers = list(self.get_gossip_suspected_peers())
+
+        return {
+            "status": status,
+            "health_ratio": round(ratio, 3),
+            "total_peers": total_peers,
+            "alive_count": len(alive_peers),
+            "dead_count": len(dead_peers),
+            "suspected_count": len(suspected_peers),
+            "alive_peers": alive_peers[:10],  # Limit for response size
+            "dead_peers": dead_peers[:10],
+            "suspected_peers": suspected_peers[:10],
+        }
+
+    # =========================================================================
     # Gossip Metrics (Phase 4: Merged from GossipMetricsMixin - Dec 28, 2025)
     # =========================================================================
 

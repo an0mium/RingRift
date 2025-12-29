@@ -9806,16 +9806,20 @@ print(wins / total)
 
             # Build the subprocess command to run a single game
             # Agent IDs map to model paths or heuristic configurations
-            # Dec 28, 2025: Fixed imports - use app.ai.heuristic_ai.HeuristicAI
+            # Dec 28, 2025: Fixed imports and game playing logic
             game_script = f"""
 import sys
 sys.path.insert(0, '{self.ringrift_path}/ai-service')
-from app.rules.game_engine import GameEngine
+from app.training.initial_state import create_initial_state
+from app.rules import get_rules_engine
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.random_ai import RandomAI
 from app.ai.config import AIConfig
 import json
-import random
+import os
+
+# Skip shadow contracts for performance
+os.environ['RINGRIFT_SKIP_SHADOW_CONTRACTS'] = 'true'
 
 def load_agent(agent_id: str, player_idx: int, board_type: str, num_players: int):
     '''Load agent by ID - supports random, heuristic, or model paths.'''
@@ -9844,8 +9848,9 @@ def load_agent(agent_id: str, player_idx: int, board_type: str, num_players: int
         # Default heuristic agent
         return HeuristicAI(player_idx, config=config)
 
-# Initialize game
-engine = GameEngine(board_type='{board_type}', num_players={num_players})
+# Initialize game state and engine
+engine = get_rules_engine(skip_shadow_contracts=True)
+state = create_initial_state(board_type='{board_type}', num_players={num_players})
 agents = [
     load_agent('{agent1}', 0, '{board_type}', {num_players}),
     load_agent('{agent2}', 1, '{board_type}', {num_players}),
@@ -9854,20 +9859,25 @@ agents = [
 # Play until completion
 max_moves = 10000
 move_count = 0
-while not engine.is_game_over() and move_count < max_moves:
-    current_player = engine.current_player
+while not state.game_over and move_count < max_moves:
+    current_player = state.current_player_index
     agent = agents[current_player]
-    legal_moves = engine.get_legal_moves()
-    if not legal_moves:
+    move = agent.select_move(state)
+    if move is None:
         break
-    move = agent.select_move(engine.get_state(), legal_moves)
-    engine.apply_move(move)
+    state = engine.apply_move(state, move)
     move_count += 1
 
 # Get result
-outcome = engine.get_outcome()
-winner_idx = outcome.get('winner')
-victory_type = outcome.get('victory_type', 'unknown')
+winner_idx = None
+victory_type = 'unknown'
+if state.game_over:
+    # Find winner from scores
+    scores = state.player_scores
+    if scores:
+        max_score = max(scores)
+        if scores.count(max_score) == 1:
+            winner_idx = scores.index(max_score)
 
 # Map winner index to agent ID
 winner_agent = None

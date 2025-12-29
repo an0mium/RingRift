@@ -63,10 +63,12 @@ class PeerRecoveryConfig:
 
     # Exponential backoff: max interval between probes for a single peer (seconds)
     # After repeated failures, we probe less frequently for that peer
-    max_backoff_interval: float = 3600.0  # 1 hour max
+    # Dec 2025: Reduced from 3600 (1 hour) to 600 (10 min) for faster cluster recovery
+    max_backoff_interval: float = 600.0  # 10 minutes max
 
     # Backoff multiplier for repeated failures
-    backoff_multiplier: float = 2.0
+    # Dec 2025: Reduced from 2.0 to 1.5 for gentler backoff progression
+    backoff_multiplier: float = 1.5
 
     # Number of failures before applying backoff
     backoff_threshold: int = 3

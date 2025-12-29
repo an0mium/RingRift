@@ -151,26 +151,34 @@ class DaemonLifecycleManager:
         self._record_restart = record_restart
 
     def _emit_daemon_lifecycle_event(
-        self, daemon_type: DaemonType, event_type: str
+        self,
+        daemon_type: DaemonType,
+        event_type: str,
+        extra: dict[str, Any] | None = None,
     ) -> None:
-        """Emit DAEMON_STARTED or DAEMON_STOPPED event (Dec 2025).
+        """Emit daemon lifecycle event (Dec 2025).
 
         Uses fire-and-forget pattern since lifecycle events are informational
         and should not block daemon startup/shutdown.
 
         Args:
             daemon_type: The daemon type that changed state
-            event_type: Either "DAEMON_STARTED" or "DAEMON_STOPPED"
+            event_type: Event type (DAEMON_STARTED, DAEMON_STOPPED, DAEMON_PERMANENTLY_FAILED)
+            extra: Optional additional data to include in the event
         """
         try:
             from app.coordination.event_router import emit_sync
 
+            data = {
+                "daemon_type": daemon_type.value,
+                "timestamp": time.time(),
+            }
+            if extra:
+                data.update(extra)
+
             emit_sync(
                 event_type=event_type,
-                data={
-                    "daemon_type": daemon_type.value,
-                    "timestamp": time.time(),
-                },
+                data=data,
             )
             logger.debug(f"Emitted {event_type} for {daemon_type.value}")
         except (ImportError, RuntimeError, TypeError) as e:

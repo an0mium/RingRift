@@ -565,12 +565,25 @@ def _init_coordinator_from_spec(
                 extra_module = __import__(extra_module_path, fromlist=[extra_func_name])
                 extra_func = getattr(extra_module, extra_func_name)
 
-                # Special handling for sync_router
+                # Special handling for sync_router - wiring is MANDATORY
                 if extra_func_name == "get_sync_router":
                     sync_router = extra_func()
-                    if hasattr(sync_router, "wire_to_event_router"):
+                    # Dec 2025: Make SyncRouter wiring mandatory, not optional
+                    # SyncRouter MUST be wired to receive DATA_STALE, SYNC_REQUEST, etc.
+                    try:
                         sync_router.wire_to_event_router()
                         logger.info("[Bootstrap] SyncRouter wired to event router")
+                    except AttributeError:
+                        logger.error(
+                            "[Bootstrap] CRITICAL: SyncRouter.wire_to_event_router() missing! "
+                            "Sync will not respond to events."
+                        )
+                        status.error = "SyncRouter wiring failed - method missing"
+                    except Exception as wire_err:
+                        logger.error(
+                            f"[Bootstrap] CRITICAL: SyncRouter wiring failed: {wire_err}"
+                        )
+                        status.error = f"SyncRouter wiring failed: {wire_err}"
                 else:
                     extra_func()
                     logger.debug(f"[Bootstrap] Extra wiring completed: {extra_func_name}")
