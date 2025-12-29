@@ -222,6 +222,12 @@ class UnifiedDistributionDaemon:
         self._delivery_history: list[DeliveryResult] = []
         self._checksum_cache: dict[str, str] = {}
 
+        # December 29, 2025: Background model prefetch during training
+        # Tracks checkpoints already prefetched to avoid redundant work
+        self._prefetched_checkpoints: set[str] = set()
+        self._prefetch_threshold: float = 0.80  # Start prefetch at 80% progress
+        self._prefetch_enabled: bool = True
+
         # Persistent delivery ledger (Dec 2025 Phase 3)
         self._delivery_ledger: DeliveryLedger | None = None
         self._retry_queue: DeliveryRetryQueue | None = None
@@ -270,6 +276,10 @@ class UnifiedDistributionDaemon:
             "model_distributions": self._model_distributions,
             "npz_distributions": self._npz_distributions,
             "last_sync_time": self._last_sync_time,
+            # December 29, 2025: Background prefetch metrics
+            "prefetch_enabled": self._prefetch_enabled,
+            "prefetch_threshold": self._prefetch_threshold,
+            "prefetched_checkpoints_count": len(self._prefetched_checkpoints),
         }
 
     def health_check(self) -> HealthCheckResult:
@@ -573,6 +583,12 @@ class UnifiedDistributionDaemon:
                 subscribe(DataEventType.MODEL_DISTRIBUTION_FAILED, self._on_model_distribution_failed)
                 logger.info("Subscribed to MODEL_PROMOTED, MODEL_UPDATED events")
 
+                # December 29, 2025: Background model prefetch during training
+                # Subscribe to TRAINING_PROGRESS to start distributing checkpoints
+                # before training completes, reducing post-training latency
+                subscribe(DataEventType.TRAINING_PROGRESS, self._on_training_progress_for_prefetch)
+                logger.info("Subscribed to TRAINING_PROGRESS for background prefetch")
+
                 # NPZ events
                 try:
                     from app.coordination.event_router import StageEvent
@@ -723,6 +739,68 @@ class UnifiedDistributionDaemon:
             "timestamp": time.time(),
         }
         logger.info(f"Received NPZ_EXPORT_COMPLETE: {item.get('path')}")
+        self._enqueue_item(item)
+
+    def _on_training_progress_for_prefetch(self, event: dict[str, Any] | Any) -> None:
+        """Handle TRAINING_PROGRESS to start background model prefetch.
+
+        December 29, 2025: Reduces post-training latency by distributing
+        checkpoints to other nodes while training is still running.
+        When training progress exceeds the threshold (default 80%), we start
+        prefetching the latest checkpoint so it's already distributed when
+        training completes.
+
+        Args:
+            event: Event containing training progress and checkpoint path
+
+        Expected payload:
+            - epochs_completed: int - Current epoch number
+            - total_epochs: int - Total epochs planned
+            - checkpoint_path: str - Path to latest checkpoint (optional)
+            - config_key: str - Training config key (e.g., "hex8_2p")
+            - node_id: str - Node running training
+        """
+        if not self._prefetch_enabled:
+            return
+
+        payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
+
+        epochs_completed = payload.get("epochs_completed", 0)
+        total_epochs = payload.get("total_epochs", 0)
+        checkpoint_path = payload.get("checkpoint_path", payload.get("best_checkpoint_path"))
+        config_key = payload.get("config_key", "")
+
+        # Skip if no checkpoint path or no progress info
+        if not checkpoint_path or total_epochs <= 0:
+            return
+
+        # Calculate progress
+        progress = epochs_completed / total_epochs
+
+        # Only prefetch if progress exceeds threshold
+        if progress < self._prefetch_threshold:
+            return
+
+        # Skip if already prefetched this checkpoint
+        if checkpoint_path in self._prefetched_checkpoints:
+            return
+
+        # Mark as prefetched to avoid redundant work
+        self._prefetched_checkpoints.add(checkpoint_path)
+
+        # Enqueue for distribution with lower priority (prefetch flag)
+        item = {
+            "data_type": DataType.MODEL,
+            "path": checkpoint_path,
+            "config_key": config_key,
+            "is_prefetch": True,  # Flag to indicate prefetch vs final distribution
+            "training_progress": progress,
+            "timestamp": time.time(),
+        }
+        logger.info(
+            f"[Prefetch] Training {config_key} at {progress:.0%}, "
+            f"prefetching checkpoint: {checkpoint_path}"
+        )
         self._enqueue_item(item)
 
     def _enqueue_item(self, item: dict[str, Any]) -> None:

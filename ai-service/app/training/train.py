@@ -87,6 +87,7 @@ from app.ai.neural_net import (
     HexNeuralNet_v5_Heavy,
     RingRiftCNN_v2,
     RingRiftCNN_v3,
+    RingRiftCNN_v3_Flat,  # V3 with flat policy heads (training compatible, Dec 2025)
     get_policy_size_for_board,
     multi_player_value_loss,
 )
@@ -2332,7 +2333,36 @@ def train_model(
             num_players=hex_num_players,
         )
     elif model_version == 'v3':
-        # V3 architecture with spatial policy heads and rank distribution output
+        # V3 with FLAT policy heads (default) - avoids scatter masking issues
+        # Use v3-spatial for original spatial policy heads (deprecated)
+        v3_num_players = MAX_PLAYERS if multi_player else num_players
+        model = RingRiftCNN_v3_Flat(
+            board_size=board_size,
+            in_channels=14,  # 14 spatial feature channels per frame
+            global_features=20,  # Must match _extract_features() which returns 20 globals
+            history_length=config.history_length,
+            policy_size=policy_size,
+            num_players=v3_num_players,
+            num_res_blocks=effective_blocks,
+            num_filters=effective_filters,
+        )
+        if not distributed or is_main_process():
+            logger.info(
+                f"Initializing RingRiftCNN_v3_Flat with board_size={board_size}, "
+                f"policy_size={policy_size}, num_players={v3_num_players}, "
+                f"blocks={effective_blocks}, filters={effective_filters}"
+            )
+    elif model_version == 'v3-spatial':
+        # V3 with spatial policy heads (DEPRECATED - use v3 for flat policy)
+        # Spatial heads can cause loss instability due to -1e4 masking
+        import warnings
+        warnings.warn(
+            "model_version='v3-spatial' uses spatial policy heads which can cause "
+            "training instability. Use 'v3' (flat policy) unless you have a specific "
+            "reason for spatial policy heads.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         v3_num_players = MAX_PLAYERS if multi_player else num_players
         model = RingRiftCNN_v3(
             board_size=board_size,
@@ -2346,7 +2376,7 @@ def train_model(
         )
         if not distributed or is_main_process():
             logger.info(
-                f"Initializing RingRiftCNN_v3 with board_size={board_size}, "
+                f"Initializing RingRiftCNN_v3 (spatial, deprecated) with board_size={board_size}, "
                 f"policy_size={policy_size}, num_players={v3_num_players}, "
                 f"blocks={effective_blocks}, filters={effective_filters}"
             )

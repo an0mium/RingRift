@@ -1321,5 +1321,162 @@ class RingRiftCNN_v4(nn.Module):
         return float(v[0, player_idx].item()), p.cpu().numpy()[0], rank_dist.cpu().numpy()[0]
 
 
+class RingRiftCNN_v3_Flat(nn.Module):
+    """
+    V3 backbone with flat policy heads for training compatibility.
+
+    Why this class exists:
+    V3's spatial policy heads initialize invalid policy positions to -1e4, but when
+    log_softmax is applied to vectors with many -1e4 entries, numerical issues arise:
+    - The softmax denominator is dominated by ~90% masked entries
+    - Valid actions get attenuated log-probabilities
+    - KL divergence loss can become unstable
+
+    This class combines:
+    - V3's SE backbone for global pattern recognition (12 SE residual blocks)
+    - V3's rank distribution head for multi-player value prediction
+    - V2-style flat policy heads (global avg pool → FC → policy_size)
+
+    The flat policy approach avoids scatter operations entirely, producing more
+    stable training dynamics while retaining V3's backbone improvements.
+
+    Architecture Version:
+        v3.1.0-flat - V3 backbone with flat policy heads, rank distribution output.
+    """
+
+    ARCHITECTURE_VERSION = "v3.1.0-flat"
+
+    def __init__(
+        self,
+        board_size: int = 19,
+        in_channels: int = 14,
+        global_features: int = 20,
+        num_res_blocks: int = 12,
+        num_filters: int = 192,
+        history_length: int = 3,
+        policy_size: int | None = None,
+        policy_intermediate: int = 384,
+        value_intermediate: int = 128,
+        num_players: int = 4,
+        se_reduction: int = 16,
+    ) -> None:
+        super().__init__()
+        self.board_size = board_size
+        self.num_filters = num_filters
+        self.num_players = num_players
+        self.global_features = global_features
+
+        # Input channels = base_channels * (history_length + 1)
+        self.total_in_channels = in_channels * (history_length + 1)
+        self.in_channels = self.total_in_channels  # For forward() validation
+
+        # Determine policy size
+        if policy_size is not None:
+            self.policy_size = policy_size
+        elif board_size == 8:
+            self.policy_size = POLICY_SIZE_8x8
+        elif board_size == 19:
+            self.policy_size = POLICY_SIZE_19x19
+        else:
+            self.policy_size = POLICY_SIZE
+
+        # Initial convolution
+        self.conv1 = nn.Conv2d(self.total_in_channels, num_filters, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(num_filters)
+        self.relu = nn.ReLU()
+
+        # SE-enhanced residual blocks (same as V3)
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
+
+        # Multi-player value head (same as V3)
+        self.value_fc1 = nn.Linear(num_filters + global_features, value_intermediate)
+        self.value_fc2 = nn.Linear(value_intermediate, num_players)
+        self.tanh = nn.Tanh()
+        self.dropout = nn.Dropout(0.3)
+
+        # === V3.1 Rank Distribution Head (same as V3) ===
+        rank_dist_intermediate = value_intermediate * 2
+        self.rank_dist_fc1 = nn.Linear(num_filters + global_features, rank_dist_intermediate)
+        self.rank_dist_fc2 = nn.Linear(rank_dist_intermediate, num_players * num_players)
+        self.rank_softmax = nn.Softmax(dim=-1)
+
+        # === FLAT Policy Head (V2-style, avoids scatter masking issues) ===
+        self.policy_fc1 = nn.Linear(num_filters + global_features, policy_intermediate)
+        self.policy_fc2 = nn.Linear(policy_intermediate, self.policy_size)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        globals: torch.Tensor,
+        return_features: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Forward pass with V3 backbone, flat policy heads, and rank distribution output.
+
+        Args:
+            x: Input features [B, in_channels, H, W]
+            globals: Global features [B, global_features]
+            return_features: If True, also return backbone features
+
+        Returns:
+            value: [B, num_players] value predictions in [-1, 1]
+            policy: [B, policy_size] policy logits (directly usable with log_softmax)
+            rank_dist: [B, num_players, num_players] rank probability distributions
+            features (optional): [B, num_filters + global_features] backbone features
+        """
+        # Input validation: fail fast on channel mismatch (Dec 2025)
+        if x.shape[1] != self.in_channels:
+            raise RuntimeError(
+                f"Input channel mismatch in {self.__class__.__name__}.forward():\n"
+                f"  Input has {x.shape[1]} channels\n"
+                f"  Model expects {self.in_channels} channels\n"
+                f"  This indicates encoder/model version mismatch.\n"
+                f"  Check that data was exported with matching encoder version."
+            )
+
+        # SE backbone (same as V3)
+        out = self.relu(self.bn1(self.conv1(x)))
+        for block in self.res_blocks:
+            out = block(out)
+
+        # Global average pooling
+        v_pooled = torch.mean(out, dim=[-2, -1])
+        v_cat = torch.cat([v_pooled, globals], dim=1)
+
+        # Value head (legacy, same as V3)
+        v_hidden = self.relu(self.value_fc1(v_cat))
+        v_hidden = self.dropout(v_hidden)
+        v_out = self.tanh(self.value_fc2(v_hidden))
+
+        # Rank Distribution Head (same as V3)
+        rank_hidden = self.relu(self.rank_dist_fc1(v_cat))
+        rank_hidden = self.dropout(rank_hidden)
+        rank_logits = self.rank_dist_fc2(rank_hidden)
+        rank_logits = rank_logits.view(-1, self.num_players, self.num_players)
+        rank_dist = self.rank_softmax(rank_logits)
+
+        # FLAT Policy head (V2-style - no scatter, no masking)
+        p_hidden = self.relu(self.policy_fc1(v_cat))
+        p_hidden = self.dropout(p_hidden)
+        policy_logits = self.policy_fc2(p_hidden)
+
+        if return_features:
+            return v_out, policy_logits, rank_dist, v_cat
+
+        return v_out, policy_logits, rank_dist
+
+    def forward_single(
+        self, feature: np.ndarray, globals_vec: np.ndarray, player_idx: int = 0
+    ) -> tuple[float, np.ndarray, np.ndarray]:
+        """Convenience method for single-sample inference."""
+        self.eval()
+        with torch.no_grad():
+            x = torch.from_numpy(feature[None, ...]).float().to(next(self.parameters()).device)
+            g = torch.from_numpy(globals_vec[None, ...]).float().to(next(self.parameters()).device)
+            v, p, rank_dist = self.forward(x, g)
+        return float(v[0, player_idx].item()), p.cpu().numpy()[0], rank_dist.cpu().numpy()[0]
+
+
 # NOTE: RingRiftCNN_v5 (v5.0.0) was removed in Dec 2025 - it was dead code superseded by v5_heavy.
 # Use RingRiftCNN_v5_Heavy from v5_heavy.py instead for maximum strength architecture.

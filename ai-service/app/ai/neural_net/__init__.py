@@ -112,6 +112,7 @@ from app.ai.neural_net.square_architectures import (
     RingRiftCNN_v2,
     RingRiftCNN_v2_Lite,
     RingRiftCNN_v3,
+    RingRiftCNN_v3_Flat,  # V3 with flat policy (training compatible, Dec 2025)
     RingRiftCNN_v3_Lite,
     RingRiftCNN_v4,
 )
@@ -248,6 +249,7 @@ __all__ = [
     "RingRiftCNN_v2",
     "RingRiftCNN_v2_Lite",
     "RingRiftCNN_v3",
+    "RingRiftCNN_v3_Flat",
     "RingRiftCNN_v3_Lite",
     "RingRiftCNN_v4",
     "RingRiftCNN_v5_Heavy",
