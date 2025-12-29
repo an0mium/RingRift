@@ -168,6 +168,42 @@ class GameEncodingResult:
     error: str | None = None
 
 
+def _validate_move_data(move: Any, move_idx: int, game_id: str) -> tuple[bool, str | None]:
+    """Validate move data for corruption issues.
+
+    December 2025: Added after hex8_4p data corruption incident where
+    PLACE_RING moves had to=None due to phase tracking bug.
+
+    Args:
+        move: Move object to validate
+        move_idx: Index in move sequence (for error reporting)
+        game_id: Game ID (for error reporting)
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    from app.models import MoveType
+
+    move_type = getattr(move, "type", None)
+
+    # PLACE_RING must have a valid 'to' position
+    if move_type == MoveType.PLACE_RING:
+        to_pos = getattr(move, "to", None)
+        if to_pos is None:
+            return False, f"Game {game_id} move {move_idx}: PLACE_RING has to=None (corrupted)"
+
+    # MOVE_STACK/MOVE_RING should have both from and to positions
+    if move_type in (MoveType.MOVE_STACK, MoveType.MOVE_RING):
+        from_pos = getattr(move, "from_pos", None) or getattr(move, "from", None)
+        to_pos = getattr(move, "to", None)
+        if from_pos is None:
+            return False, f"Game {game_id} move {move_idx}: {move_type.value} has from=None"
+        if to_pos is None:
+            return False, f"Game {game_id} move {move_idx}: {move_type.value} has to=None"
+
+    return True, None
+
+
 def _encode_single_game(
     game_data: dict[str, Any],
     board_type_str: str,
@@ -257,6 +293,13 @@ def _encode_single_game(
         history_frames: list[np.ndarray] = []
         current_state = initial_state
         total_moves = len(moves)
+
+        # December 2025: Validate all moves before encoding to catch corrupted data early.
+        # This prevents training on games with corrupted move data (e.g., PLACE_RING with to=None)
+        for move_idx, move in enumerate(moves):
+            is_valid, error_msg = _validate_move_data(move, move_idx, game_id)
+            if not is_valid:
+                return GameEncodingResult(game_id=game_id, samples=[], error=error_msg)
 
         # December 2025 fix: Encode samples BEFORE apply_move to capture partial games.
         # Previously, when apply_move() failed, samples from that move were lost.

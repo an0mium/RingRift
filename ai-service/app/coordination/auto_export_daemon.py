@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass, field
@@ -542,7 +544,7 @@ class AutoExportDaemon(HandlerBase):
                 # December 29, 2025: Add RINGRIFT_ALLOW_PENDING_GATE to bypass parity
                 # validation on cluster nodes that lack Node.js/npx
                 export_env = {
-                    **dict(__import__("os").environ),
+                    **os.environ,
                     "PYTHONPATH": str(base_dir),
                     "RINGRIFT_ALLOW_PENDING_GATE": "true",
                 }
@@ -650,7 +652,7 @@ class AutoExportDaemon(HandlerBase):
                     event=StageEvent.NPZ_EXPORT_STARTED,
                     success=True,
                     iteration=0,  # Export is not iteration-based
-                    timestamp=__import__("datetime").datetime.now().isoformat(),
+                    timestamp=datetime.datetime.now().isoformat(),
                     board_type=board_type,
                     num_players=num_players,
                     metadata={
@@ -686,7 +688,7 @@ class AutoExportDaemon(HandlerBase):
                     event=StageEvent.NPZ_EXPORT_COMPLETE,
                     success=True,
                     iteration=0,  # Export is not iteration-based
-                    timestamp=__import__("datetime").datetime.now().isoformat(),
+                    timestamp=datetime.datetime.now().isoformat(),
                     board_type=board_type,
                     num_players=num_players,
                     metadata={

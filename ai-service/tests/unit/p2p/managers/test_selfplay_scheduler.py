@@ -45,6 +45,7 @@ class MockNodeInfo:
     gpu_name: str = "RTX 4090"
     gpu_count: int = 1
     memory_gb: int = 128
+    gpu_vram_gb: int = 24  # Dec 2025: GPU VRAM used for board size filtering
     cpu_count: int = 32
     cpu_percent: float = 50.0
     memory_percent: float = 60.0
@@ -52,6 +53,12 @@ class MockNodeInfo:
     gpu_percent: float = 55.0
     gpu_memory_percent: float = 50.0
     selfplay_jobs: int = 4
+    capabilities: list = None  # Dec 2025: Capabilities for job targeting
+
+    def __post_init__(self):
+        """Set default capabilities based on GPU availability."""
+        if self.capabilities is None:
+            self.capabilities = ["selfplay", "training"] if self.has_gpu else ["selfplay"]
 
 
 # =============================================================================
@@ -262,9 +269,13 @@ class TestPickWeightedConfig:
         assert "priority" in config
 
     def test_low_memory_node_gets_square8_only(self) -> None:
-        """Test that low memory nodes only get square8 configs."""
+        """Test that low GPU VRAM nodes only get square8 configs.
+
+        Dec 2025: SelfplayScheduler filters by gpu_vram_gb (not system RAM).
+        Nodes with <48GB GPU VRAM only get square8 configs.
+        """
         scheduler = SelfplayScheduler()
-        node = MockNodeInfo(memory_gb=32)  # Low memory
+        node = MockNodeInfo(gpu_vram_gb=16)  # Low GPU VRAM
 
         # Run multiple times to ensure consistent filtering
         for _ in range(10):
@@ -273,9 +284,9 @@ class TestPickWeightedConfig:
                 assert config["board_type"] == "square8"
 
     def test_high_memory_node_gets_variety(self) -> None:
-        """Test that high memory nodes can get various board types."""
+        """Test that high GPU VRAM nodes can get various board types."""
         scheduler = SelfplayScheduler()
-        node = MockNodeInfo(memory_gb=128)
+        node = MockNodeInfo(gpu_vram_gb=80)  # High GPU VRAM (H100 80GB)
 
         board_types_seen = set()
         for _ in range(100):

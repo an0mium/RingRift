@@ -917,12 +917,20 @@ def check_and_apply_forced_elimination_batch(
     no_real_action = ~state.turn_had_real_action[game_indices]
 
     # Check if current player has any stacks
+    # December 2025: Optimized with batch numpy extraction to reduce .item() calls
     players = state.current_player[game_indices].long()
-    has_stacks = torch.zeros(len(game_indices), dtype=torch.bool, device=state.device)
-    for i, g in enumerate(game_indices.tolist()):
-        player = players[i].item()
-        player_stacks = (state.stack_owner[g] == player).sum()
-        has_stacks[i] = player_stacks > 0
+
+    # Batch pre-extract to numpy for efficient iteration
+    game_indices_np = game_indices.cpu().numpy()
+    players_np = players.cpu().numpy()
+    stack_owner_np = state.stack_owner.cpu().numpy()
+
+    has_stacks_np = np.zeros(len(game_indices), dtype=bool)
+    for i, g in enumerate(game_indices_np):
+        player = players_np[i]
+        player_stacks = (stack_owner_np[g] == player).sum()
+        has_stacks_np[i] = player_stacks > 0
+    has_stacks = torch.from_numpy(has_stacks_np).to(device=state.device)
 
     # Forced elimination triggers when: no real action AND has stacks
     triggers = no_real_action & has_stacks
@@ -936,21 +944,34 @@ def check_and_apply_forced_elimination_batch(
 
     # For each triggered game, find target stack and apply elimination
     # Per RR-CANON-R100: Select stack with smallest positive cap height, then first position
-    target_positions_y = torch.full((len(triggered_games),), -1, dtype=torch.int32, device=state.device)
-    target_positions_x = torch.full((len(triggered_games),), -1, dtype=torch.int32, device=state.device)
-    eliminated_counts = torch.zeros(len(triggered_games), dtype=torch.int32, device=state.device)
+    # December 2025: Optimized with batch numpy extraction to reduce .item() calls
+    n_triggered = len(triggered_games)
+    target_positions_y_np = np.full(n_triggered, -1, dtype=np.int32)
+    target_positions_x_np = np.full(n_triggered, -1, dtype=np.int32)
+    eliminated_counts_np = np.zeros(n_triggered, dtype=np.int32)
 
-    for i, (g, player) in enumerate(zip(triggered_games.tolist(), triggered_players.tolist(), strict=False)):
-        # Find all stacks owned by this player
-        player_mask = state.stack_owner[g] == player
+    # Batch pre-extract to numpy for efficient iteration
+    triggered_games_np = triggered_games.cpu().numpy()
+    triggered_players_np = triggered_players.cpu().numpy()
+    stack_owner_np = state.stack_owner.cpu().numpy()
+    cap_height_np = state.cap_height.cpu().numpy()
+    stack_height_np = state.stack_height.cpu().numpy()
+
+    # Track updates to apply in batch later
+    cap_updates = []  # List of (g, y, x, new_cap)
+    height_updates = []  # List of (g, y, x, new_height)
+    owner_clears = []  # List of (g, y, x) to clear ownership
+    elimination_updates = []  # List of (g, player, rings)
+
+    for i, (g, player) in enumerate(zip(triggered_games_np, triggered_players_np, strict=False)):
+        # Find all stacks owned by this player using numpy
+        player_mask = stack_owner_np[g] == player
         if not player_mask.any():
             continue
 
         # Get positions and cap heights of player's stacks
-        positions = torch.where(player_mask)
-        ys = positions[0]
-        xs = positions[1]
-        cap_heights = state.cap_height[g, ys, xs]
+        ys, xs = np.where(player_mask)
+        cap_heights = cap_height_np[g, ys, xs]
 
         # Select stack with smallest positive cap height (per RR-CANON-R100)
         # If all caps are 0, select first stack
@@ -963,44 +984,53 @@ def check_and_apply_forced_elimination_batch(
             candidate_mask = (cap_heights == min_cap) & positive_caps
         else:
             # All caps are 0, select first stack (fallback per TS behavior)
-            candidate_mask = torch.ones_like(cap_heights, dtype=torch.bool)
+            candidate_mask = np.ones_like(cap_heights, dtype=bool)
 
         # Take the first candidate (deterministic ordering)
-        candidate_indices = torch.where(candidate_mask)[0]
+        candidate_indices = np.where(candidate_mask)[0]
         if len(candidate_indices) == 0:
             continue
 
-        target_idx = candidate_indices[0].item()
-        target_y = ys[target_idx].item()
-        target_x = xs[target_idx].item()
-        target_cap = int(state.cap_height[g, target_y, target_x].item())
+        target_idx = candidate_indices[0]
+        target_y = ys[target_idx]
+        target_x = xs[target_idx]
+        target_cap = int(cap_height_np[g, target_y, target_x])
 
         # Per TS parity: eliminate max(1, cap_height) rings
         rings_to_eliminate = max(1, target_cap)
 
-        target_positions_y[i] = target_y
-        target_positions_x[i] = target_x
-        eliminated_counts[i] = rings_to_eliminate
+        target_positions_y_np[i] = target_y
+        target_positions_x_np[i] = target_x
+        eliminated_counts_np[i] = rings_to_eliminate
 
-        # Apply elimination: reduce cap and stack height
-        current_cap = int(state.cap_height[g, target_y, target_x].item())
-        current_height = int(state.stack_height[g, target_y, target_x].item())
-
+        # Compute new values
+        current_cap = int(cap_height_np[g, target_y, target_x])
+        current_height = int(stack_height_np[g, target_y, target_x])
         new_cap = max(0, current_cap - rings_to_eliminate)
         new_height = max(0, current_height - rings_to_eliminate)
 
-        state.cap_height[g, target_y, target_x] = new_cap
-        state.stack_height[g, target_y, target_x] = new_height
-
-        # If stack is eliminated (height == 0), clear ownership
+        # Queue updates for batch application
+        cap_updates.append((g, target_y, target_x, new_cap))
+        height_updates.append((g, target_y, target_x, new_height))
         if new_height == 0:
-            state.stack_owner[g, target_y, target_x] = 0
+            owner_clears.append((g, target_y, target_x))
+        elimination_updates.append((g, player, rings_to_eliminate))
 
-        # Update elimination counters
-        # Player loses their own rings (eliminated_rings tracks rings LOST by player)
-        state.eliminated_rings[g, player] += rings_to_eliminate
-        # Player causes elimination of their own rings (self-elimination counts for victory)
-        state.rings_caused_eliminated[g, player] += rings_to_eliminate
+    # Apply all updates in batch (minimizes CPU-GPU sync)
+    for g, y, x, val in cap_updates:
+        state.cap_height[g, y, x] = val
+    for g, y, x, val in height_updates:
+        state.stack_height[g, y, x] = val
+    for g, y, x in owner_clears:
+        state.stack_owner[g, y, x] = 0
+    for g, player, rings in elimination_updates:
+        state.eliminated_rings[g, player] += rings
+        state.rings_caused_eliminated[g, player] += rings
+
+    # Convert numpy results to tensors
+    target_positions_y = torch.from_numpy(target_positions_y_np).to(device=state.device)
+    target_positions_x = torch.from_numpy(target_positions_x_np).to(device=state.device)
+    eliminated_counts = torch.from_numpy(eliminated_counts_np).to(device=state.device)
 
     # Record FORCED_ELIMINATION move with target position
     move_idx = state.move_count[triggered_games]

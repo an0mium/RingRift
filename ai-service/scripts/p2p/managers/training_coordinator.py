@@ -101,6 +101,7 @@ class TrainingCoordinator(EventSubscriptionMixin):
         auth_headers: callable | None = None,
         urls_for_peer: callable | None = None,
         save_state_callback: callable | None = None,
+        has_voter_quorum: callable | None = None,
     ):
         """Initialize the TrainingCoordinator.
 
@@ -119,6 +120,7 @@ class TrainingCoordinator(EventSubscriptionMixin):
             auth_headers: Callable that returns auth headers dict
             urls_for_peer: Callable that returns list of URLs for a peer
             save_state_callback: Callable to save orchestrator state
+            has_voter_quorum: Callable that returns True if voter quorum is met
         """
         self.ringrift_path = ringrift_path
         self.get_cluster_data_manifest = get_cluster_data_manifest
@@ -134,6 +136,7 @@ class TrainingCoordinator(EventSubscriptionMixin):
         self.auth_headers = auth_headers or (lambda: {})
         self.urls_for_peer = urls_for_peer or (lambda peer, endpoint: [])
         self.save_state_callback = save_state_callback or (lambda: None)
+        self.has_voter_quorum = has_voter_quorum or (lambda: True)  # Default: assume quorum
 
         # Training trigger deduplication cache
         self._training_trigger_cache: dict[str, float] = {}
@@ -490,13 +493,12 @@ class TrainingCoordinator(EventSubscriptionMixin):
         """
         # Critical operation: Require voter quorum before dispatching training
         # This prevents training dispatch during network partitions or cluster instability
-        if hasattr(self._orchestrator, "_has_voter_quorum"):
-            if not self._orchestrator._has_voter_quorum():
-                logger.warning(
-                    "Cannot dispatch training job: voter quorum not met. "
-                    "Waiting for cluster stability before training."
-                )
-                return None
+        if not self.has_voter_quorum():
+            logger.warning(
+                "Cannot dispatch training job: voter quorum not met. "
+                "Waiting for cluster stability before training."
+            )
+            return None
 
         # Import TrainingJob here to avoid circular imports
         from ..models import TrainingJob

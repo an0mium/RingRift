@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -277,7 +278,7 @@ def handle_enospc_error(
                     "available_bytes": available,
                     "available_mb": round(available_mb, 1),
                     "error": str(error),
-                    "timestamp": __import__("time").time(),
+                    "timestamp": time.time(),
                 },
             )
         except Exception as emit_err:

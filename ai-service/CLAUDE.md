@@ -2420,7 +2420,7 @@ Applied to `work_queue.py` and `cross_process_events.py` (Dec 27-28):
 
 **Documentation Additions**:
 
-- `docs/ENV_REFERENCE.md` - Comprehensive RINGRIFT\_\* environment variable reference
+- `ai-service/docs/ENV_REFERENCE_COMPREHENSIVE.md` - Comprehensive RINGRIFT\_\* environment variable reference
 - `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Daemon troubleshooting guide (already existed, verified complete)
 
 **Verification Status**:

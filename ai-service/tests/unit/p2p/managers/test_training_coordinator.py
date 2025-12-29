@@ -347,6 +347,7 @@ class TestGauntletIntegration:
             board_type="hex8",
             num_players=2,
             status="completed",
+            worker_node="test-worker",  # Dec 2025: Required for model fetch
             output_model_path="/nonexistent/model.pth",  # Doesn't need to exist for test
             data_games_count=2000,
         )

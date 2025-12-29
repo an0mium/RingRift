@@ -697,7 +697,8 @@ class TestNodeAvailabilityDaemonRunCycle:
     ) -> None:
         """Test _run_cycle handles provider errors gracefully."""
         mock_checker = AsyncMock()
-        mock_checker.get_instance_states = AsyncMock(side_effect=Exception("API error"))
+        # Use OSError (network/API errors) which is caught by the daemon
+        mock_checker.get_instance_states = AsyncMock(side_effect=OSError("API connection failed"))
 
         mock_vast.return_value.is_enabled = True
         mock_vast.return_value = mock_checker

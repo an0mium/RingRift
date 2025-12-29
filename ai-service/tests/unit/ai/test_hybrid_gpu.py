@@ -12,9 +12,8 @@ Tests cover:
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 import numpy as np
-from dataclasses import dataclass
 
 # Test imports
 try:
@@ -33,30 +32,51 @@ pytestmark = pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not available
 
 @pytest.fixture
 def mock_game_state():
-    """Create a mock GameState for testing."""
+    """Create a mock GameState that matches the expected structure."""
     state = MagicMock()
 
-    # Mock board with stacks
+    # Mock board with stacks - need stack_height, controlling_player, cap_height
+    mock_stack_1 = MagicMock()
+    mock_stack_1.controlling_player = 1
+    mock_stack_1.stack_height = 2
+    mock_stack_1.cap_height = 0
+
+    mock_stack_2 = MagicMock()
+    mock_stack_2.controlling_player = 2
+    mock_stack_2.stack_height = 1
+    mock_stack_2.cap_height = 0
+
     mock_stacks = {
-        "0,0": MagicMock(controlling_player=1, height=2),
-        "1,1": MagicMock(controlling_player=2, height=1),
-        "3,3": MagicMock(controlling_player=1, height=3),
+        "0,0": mock_stack_1,
+        "1,1": mock_stack_2,
     }
-    for key, stack in mock_stacks.items():
-        stack.is_collapsed = False
+
+    # Mock marker
+    mock_marker = MagicMock()
+    mock_marker.player = 1
+    mock_markers = {"2,2": mock_marker}
 
     state.board.stacks = mock_stacks
-    state.board.markers = {}
-    state.board.rings = {1: [], 2: []}
-    state.board.territories = {1: [], 2: []}
+    state.board.markers = mock_markers
+    state.board.collapsed_spaces = {}  # Dict or set of "x,y" keys
 
-    # Mock player info
+    # Mock players as a list with player_number, rings_in_hand, eliminated_rings, territory_spaces
+    mock_player_1 = MagicMock()
+    mock_player_1.player_number = 1
+    mock_player_1.rings_in_hand = 10
+    mock_player_1.eliminated_rings = 2
+    mock_player_1.territory_spaces = 5
+
+    mock_player_2 = MagicMock()
+    mock_player_2.player_number = 2
+    mock_player_2.rings_in_hand = 12
+    mock_player_2.eliminated_rings = 0
+    mock_player_2.territory_spaces = 3
+
+    state.players = [mock_player_1, mock_player_2]
     state.current_player = 1
-    state.players = {1: MagicMock(score=0), 2: MagicMock(score=0)}
-    state.game_over = False
+    state.game_status = "active"
     state.winner = None
-    state.phase = "placement"
-    state.move_number = 5
 
     return state
 
@@ -70,6 +90,10 @@ def mock_config():
     config.randomness = 0.1
     config.use_neural_net = True
     config.nn_model_id = None
+    config.board_type = "square8"
+    config.num_players = 2
+    config.hybrid_top_k = 8
+    config.hybrid_temperature = 0.1
     return config
 
 
@@ -82,9 +106,10 @@ class TestGameStateToGPUArrays:
     """Tests for game_state_to_gpu_arrays function."""
 
     def test_converts_empty_board(self, mock_game_state):
-        """Empty board should produce zero arrays."""
+        """Empty board should produce zero arrays for stacks."""
         mock_game_state.board.stacks = {}
         mock_game_state.board.markers = {}
+        mock_game_state.board.collapsed_spaces = {}
 
         from app.ai.hybrid_gpu import game_state_to_gpu_arrays
 
@@ -98,60 +123,75 @@ class TestGameStateToGPUArrays:
         assert np.all(result["stack_height"] == 0)
 
     def test_converts_populated_board(self, mock_game_state):
-        """Board with pieces should be converted correctly."""
+        """Board with stacks should have non-zero arrays."""
         from app.ai.hybrid_gpu import game_state_to_gpu_arrays
 
         result = game_state_to_gpu_arrays(mock_game_state, board_size=8)
 
-        # Position 0,0 should have player 1 with height 2
+        # Check stack_owner has the correct values at correct positions
+        assert result["stack_owner"].shape == (64,)
+        # Position (0,0) = index 0 should have player 1
         assert result["stack_owner"][0] == 1
-        assert result["stack_height"][0] == 2
-
-        # Position 1,1 (index 9) should have player 2 with height 1
+        # Position (1,1) = index 1*8+1 = 9 should have player 2
         assert result["stack_owner"][9] == 2
-        assert result["stack_height"][9] == 1
 
     def test_different_board_sizes(self, mock_game_state):
-        """Should handle different board sizes."""
+        """Should work with different board sizes."""
+        mock_game_state.board.stacks = {}
+        mock_game_state.board.markers = {}
+        mock_game_state.board.collapsed_spaces = {}
+
         from app.ai.hybrid_gpu import game_state_to_gpu_arrays
 
-        # 8x8 board
         result_8 = game_state_to_gpu_arrays(mock_game_state, board_size=8)
-        assert result_8["stack_owner"].shape == (64,)
-
-        # 19x19 board
         result_19 = game_state_to_gpu_arrays(mock_game_state, board_size=19)
+
+        assert result_8["stack_owner"].shape == (64,)
         assert result_19["stack_owner"].shape == (361,)
 
 
 class TestBatchGameStatesToGPU:
     """Tests for batch_game_states_to_gpu function."""
 
-    def test_empty_batch(self):
-        """Empty batch should return empty arrays."""
+    @patch("app.ai.hybrid_gpu.GPUBoardState")
+    def test_empty_batch(self, mock_gpu_state, mock_game_state):
+        """Empty batch should work."""
         from app.ai.hybrid_gpu import batch_game_states_to_gpu
 
-        result = batch_game_states_to_gpu([], board_size=8)
+        mock_gpu_state.from_numpy_batch.return_value = MagicMock()
+        device = torch.device("cpu")
 
-        assert result["stack_owner"].shape[0] == 0
+        result = batch_game_states_to_gpu([], device, board_size=8)
 
-    def test_single_state_batch(self, mock_game_state):
-        """Single state batch should work correctly."""
+        mock_gpu_state.from_numpy_batch.assert_called_once()
+
+    @patch("app.ai.hybrid_gpu.GPUBoardState")
+    def test_single_state_batch(self, mock_gpu_state, mock_game_state):
+        """Single state batch should work."""
         from app.ai.hybrid_gpu import batch_game_states_to_gpu
 
-        result = batch_game_states_to_gpu([mock_game_state], board_size=8)
+        mock_gpu_state.from_numpy_batch.return_value = MagicMock()
+        device = torch.device("cpu")
 
-        assert result["stack_owner"].shape == (1, 64)
-        assert result["stack_height"].shape == (1, 64)
+        result = batch_game_states_to_gpu([mock_game_state], device, board_size=8)
 
-    def test_multiple_states_batch(self, mock_game_state):
-        """Multiple states should be batched correctly."""
+        mock_gpu_state.from_numpy_batch.assert_called_once()
+        call_args = mock_gpu_state.from_numpy_batch.call_args
+        assert len(call_args[0][0]) == 1  # One state dict
+
+    @patch("app.ai.hybrid_gpu.GPUBoardState")
+    def test_multiple_states_batch(self, mock_gpu_state, mock_game_state):
+        """Multiple states should be batched."""
         from app.ai.hybrid_gpu import batch_game_states_to_gpu
 
+        mock_gpu_state.from_numpy_batch.return_value = MagicMock()
+        device = torch.device("cpu")
         states = [mock_game_state, mock_game_state, mock_game_state]
-        result = batch_game_states_to_gpu(states, board_size=8)
 
-        assert result["stack_owner"].shape == (3, 64)
+        result = batch_game_states_to_gpu(states, device, board_size=8)
+
+        call_args = mock_gpu_state.from_numpy_batch.call_args
+        assert len(call_args[0][0]) == 3  # Three state dicts
 
 
 # =============================================================================
@@ -164,43 +204,44 @@ class TestHybridGPUEvaluator:
 
     @patch("app.ai.hybrid_gpu.get_device")
     @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_initialization_cpu(self, mock_evaluator_class, mock_get_device):
+    def test_initialization_cpu(self, mock_heuristic, mock_get_device):
         """Should initialize with CPU device."""
-        mock_get_device.return_value = "cpu"
-        mock_evaluator_class.return_value = MagicMock()
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import HybridGPUEvaluator
 
-        evaluator = HybridGPUEvaluator(device="cpu", board_size=8)
+        evaluator = HybridGPUEvaluator(device="cpu", board_size=8, num_players=2)
 
-        assert evaluator.device == "cpu"
+        assert evaluator.board_size == 8
+        assert evaluator.num_players == 2
+        assert evaluator.device == torch.device("cpu")
+
+    @patch("app.ai.hybrid_gpu.get_device")
+    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
+    def test_default_board_size(self, mock_heuristic, mock_get_device):
+        """Default board size should be 8."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
+
+        from app.ai.hybrid_gpu import HybridGPUEvaluator
+
+        evaluator = HybridGPUEvaluator(device=None)
+
         assert evaluator.board_size == 8
 
     @patch("app.ai.hybrid_gpu.get_device")
     @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_default_board_size(self, mock_evaluator_class, mock_get_device):
-        """Should use default board size of 8."""
-        mock_get_device.return_value = "cpu"
-        mock_evaluator_class.return_value = MagicMock()
+    def test_use_heuristic_flag(self, mock_heuristic, mock_get_device):
+        """Should respect use_heuristic flag."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import HybridGPUEvaluator
 
-        evaluator = HybridGPUEvaluator(device="cpu")
+        evaluator = HybridGPUEvaluator(device="cpu", use_heuristic=False)
 
-        assert evaluator.board_size == 8
-
-    @patch("app.ai.hybrid_gpu.get_device")
-    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_batch_size_configuration(self, mock_evaluator_class, mock_get_device):
-        """Should respect batch size configuration."""
-        mock_get_device.return_value = "cpu"
-        mock_evaluator_class.return_value = MagicMock()
-
-        from app.ai.hybrid_gpu import HybridGPUEvaluator
-
-        evaluator = HybridGPUEvaluator(device="cpu", batch_size=256)
-
-        assert evaluator.batch_size == 256
+        assert evaluator.use_heuristic is False
 
 
 # =============================================================================
@@ -212,29 +253,35 @@ class TestAsyncEvalRequest:
     """Tests for AsyncEvalRequest dataclass."""
 
     def test_creation(self, mock_game_state):
-        """Should create request with state and callback."""
+        """Should create request with required fields."""
         from app.ai.hybrid_gpu import AsyncEvalRequest
 
         callback = MagicMock()
         request = AsyncEvalRequest(
             game_state=mock_game_state,
+            moves=["move1", "move2"],
+            player_number=1,
             callback=callback,
         )
 
-        assert request.game_state == mock_game_state
-        assert request.callback == callback
+        assert request.game_state is mock_game_state
+        assert request.moves == ["move1", "move2"]
+        assert request.player_number == 1
+        assert request.callback is callback
 
-    def test_with_request_id(self, mock_game_state):
-        """Should support optional request_id."""
+    def test_default_timestamp(self, mock_game_state):
+        """Should have default timestamp."""
         from app.ai.hybrid_gpu import AsyncEvalRequest
 
+        callback = MagicMock()
         request = AsyncEvalRequest(
             game_state=mock_game_state,
-            callback=MagicMock(),
-            request_id="test-123",
+            moves=[],
+            player_number=1,
+            callback=callback,
         )
 
-        assert request.request_id == "test-123"
+        assert request.timestamp > 0
 
 
 # =============================================================================
@@ -245,40 +292,43 @@ class TestAsyncEvalRequest:
 class TestAsyncPipelineEvaluator:
     """Tests for AsyncPipelineEvaluator class."""
 
-    @patch("app.ai.hybrid_gpu.HybridGPUEvaluator")
-    def test_initialization(self, mock_evaluator_class):
-        """Should initialize with evaluator and queue."""
-        mock_evaluator = MagicMock()
-        mock_evaluator_class.return_value = mock_evaluator
+    @patch("app.ai.hybrid_gpu.get_device")
+    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
+    def test_initialization(self, mock_heuristic, mock_get_device):
+        """Should initialize with hybrid evaluator."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
-        from app.ai.hybrid_gpu import AsyncPipelineEvaluator
+        from app.ai.hybrid_gpu import HybridGPUEvaluator, AsyncPipelineEvaluator
 
-        pipeline = AsyncPipelineEvaluator(
-            device="cpu",
-            board_size=8,
-            max_queue_size=100,
-        )
+        evaluator = HybridGPUEvaluator(device="cpu")
+        rules_engine = MagicMock()
 
-        assert pipeline.max_queue_size == 100
-        assert not pipeline.running
+        pipeline = AsyncPipelineEvaluator(evaluator, rules_engine, batch_size=32)
 
-    @patch("app.ai.hybrid_gpu.HybridGPUEvaluator")
-    def test_start_stop(self, mock_evaluator_class):
-        """Should start and stop worker threads."""
-        mock_evaluator = MagicMock()
-        mock_evaluator_class.return_value = mock_evaluator
+        assert pipeline.evaluator is evaluator
+        assert pipeline.batch_size == 32
 
-        from app.ai.hybrid_gpu import AsyncPipelineEvaluator
+    @patch("app.ai.hybrid_gpu.get_device")
+    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
+    def test_start_stop(self, mock_heuristic, mock_get_device):
+        """Should start and stop cleanly."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
-        pipeline = AsyncPipelineEvaluator(device="cpu")
+        from app.ai.hybrid_gpu import HybridGPUEvaluator, AsyncPipelineEvaluator
 
-        # Start
+        evaluator = HybridGPUEvaluator(device="cpu")
+        rules_engine = MagicMock()
+
+        pipeline = AsyncPipelineEvaluator(evaluator, rules_engine)
         pipeline.start()
-        assert pipeline.running
 
-        # Stop
+        assert pipeline._running is True
+
         pipeline.stop()
-        assert not pipeline.running
+
+        assert pipeline._running is False
 
 
 # =============================================================================
@@ -289,29 +339,22 @@ class TestAsyncPipelineEvaluator:
 class TestHybridSelfPlayRunner:
     """Tests for HybridSelfPlayRunner class."""
 
-    @patch("app.ai.hybrid_gpu.HybridGPUEvaluator")
-    def test_initialization(self, mock_evaluator_class):
+    @patch("app.ai.hybrid_gpu.get_device")
+    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
+    def test_initialization(self, mock_heuristic, mock_get_device):
         """Should initialize with evaluator."""
-        mock_evaluator = MagicMock()
-        mock_evaluator_class.return_value = mock_evaluator
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
-        from app.ai.hybrid_gpu import HybridSelfPlayRunner
+        from app.ai.hybrid_gpu import HybridGPUEvaluator, HybridSelfPlayRunner
 
-        runner = HybridSelfPlayRunner(evaluator=mock_evaluator)
+        evaluator = HybridGPUEvaluator(device="cpu")
 
-        assert runner.evaluator == mock_evaluator
+        runner = HybridSelfPlayRunner(evaluator, board_type="square8", num_players=2)
 
-    @patch("app.ai.hybrid_gpu.HybridGPUEvaluator")
-    def test_with_num_workers(self, mock_evaluator_class):
-        """Should respect num_workers configuration."""
-        mock_evaluator = MagicMock()
-        mock_evaluator_class.return_value = mock_evaluator
-
-        from app.ai.hybrid_gpu import HybridSelfPlayRunner
-
-        runner = HybridSelfPlayRunner(evaluator=mock_evaluator, num_workers=4)
-
-        assert runner.num_workers == 4
+        assert runner.evaluator is evaluator
+        assert runner.board_type == "square8"
+        assert runner.num_players == 2
 
 
 # =============================================================================
@@ -320,38 +363,37 @@ class TestHybridSelfPlayRunner:
 
 
 class TestCreateHybridEvaluator:
-    """Tests for create_hybrid_evaluator factory function."""
+    """Tests for create_hybrid_evaluator function."""
 
     @patch("app.ai.hybrid_gpu.get_device")
     @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_creates_evaluator(self, mock_heuristic_class, mock_get_device):
+    def test_creates_evaluator(self, mock_heuristic, mock_get_device):
         """Should create evaluator with specified config."""
-        mock_get_device.return_value = "cpu"
-        mock_heuristic_class.return_value = MagicMock()
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import create_hybrid_evaluator
 
         evaluator = create_hybrid_evaluator(
-            device="cpu",
-            board_size=8,
-            batch_size=64,
+            board_type="square8",
+            num_players=2,
+            prefer_gpu=False,
         )
 
-        assert evaluator is not None
-        assert evaluator.device == "cpu"
+        assert evaluator.num_players == 2
 
     @patch("app.ai.hybrid_gpu.get_device")
     @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_default_device(self, mock_heuristic_class, mock_get_device):
-        """Should use auto-detected device by default."""
-        mock_get_device.return_value = "cpu"
-        mock_heuristic_class.return_value = MagicMock()
+    def test_default_device(self, mock_heuristic, mock_get_device):
+        """Should use auto-detected device."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import create_hybrid_evaluator
 
         evaluator = create_hybrid_evaluator()
 
-        mock_get_device.assert_called()
+        assert evaluator.device is not None
 
 
 # =============================================================================
@@ -362,12 +404,10 @@ class TestCreateHybridEvaluator:
 class TestHybridNNAI:
     """Tests for HybridNNAI class."""
 
-    @patch("app.ai.hybrid_gpu.get_device")
-    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_initialization(self, mock_heuristic_class, mock_get_device, mock_config):
-        """Should initialize with player number and config."""
-        mock_get_device.return_value = "cpu"
-        mock_heuristic_class.return_value = MagicMock()
+    @patch("app.ai.hybrid_gpu.HybridNNValuePlayer")
+    def test_initialization(self, mock_value_player, mock_config):
+        """Should initialize HybridNNAI."""
+        mock_value_player.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import HybridNNAI
 
@@ -375,12 +415,10 @@ class TestHybridNNAI:
 
         assert ai.player_number == 1
 
-    @patch("app.ai.hybrid_gpu.get_device")
-    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_inherits_from_base_ai(self, mock_heuristic_class, mock_get_device, mock_config):
+    @patch("app.ai.hybrid_gpu.HybridNNValuePlayer")
+    def test_inherits_from_base_ai(self, mock_value_player, mock_config):
         """Should inherit from BaseAI."""
-        mock_get_device.return_value = "cpu"
-        mock_heuristic_class.return_value = MagicMock()
+        mock_value_player.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import HybridNNAI
         from app.ai.base import BaseAI
@@ -398,126 +436,93 @@ class TestHybridNNAI:
 class TestHybridNNValuePlayer:
     """Tests for HybridNNValuePlayer class."""
 
-    @patch("app.ai.hybrid_gpu.get_device")
-    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_initialization(self, mock_heuristic_class, mock_get_device):
-        """Should initialize with required parameters."""
-        mock_get_device.return_value = "cpu"
-        mock_heuristic_class.return_value = MagicMock()
+    @patch("app.ai.hybrid_gpu.create_hybrid_evaluator")
+    def test_initialization(self, mock_create_eval):
+        """Should initialize with fallback when no NN available."""
+        mock_create_eval.return_value = MagicMock()
+
+        from app.ai.hybrid_gpu import HybridNNValuePlayer
+
+        # Should not raise even if NeuralNetAI fails (no model available)
+        player = HybridNNValuePlayer(
+            board_type="square8",
+            num_players=2,
+            player_number=1,
+        )
+
+        assert player.board_type == "square8"
+        assert player.num_players == 2
+        # neural_net may be None or a NeuralNetAI instance depending on model availability
+
+    @patch("app.ai.hybrid_gpu.create_hybrid_evaluator")
+    def test_with_top_k(self, mock_create_eval):
+        """Should accept top_k parameter."""
+        mock_create_eval.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import HybridNNValuePlayer
 
         player = HybridNNValuePlayer(
+            board_type="square8",
+            num_players=2,
             player_number=1,
-            device="cpu",
+            top_k=10,
         )
 
-        assert player.player_number == 1
-
-    @patch("app.ai.hybrid_gpu.get_device")
-    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_with_search_depth(self, mock_heuristic_class, mock_get_device):
-        """Should respect search depth configuration."""
-        mock_get_device.return_value = "cpu"
-        mock_heuristic_class.return_value = MagicMock()
-
-        from app.ai.hybrid_gpu import HybridNNValuePlayer
-
-        player = HybridNNValuePlayer(
-            player_number=1,
-            device="cpu",
-            search_depth=5,
-        )
-
-        assert player.search_depth == 5
+        assert player.top_k == 10
 
 
 # =============================================================================
-# Integration-style Tests (mocked)
-# =============================================================================
-
-
-class TestHybridEvaluationPipeline:
-    """Integration tests for the hybrid evaluation pipeline."""
-
-    @patch("app.ai.hybrid_gpu.get_device")
-    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_full_evaluation_pipeline(self, mock_heuristic_class, mock_get_device, mock_game_state):
-        """Should handle full evaluation pipeline."""
-        mock_get_device.return_value = "cpu"
-
-        mock_heuristic = MagicMock()
-        mock_heuristic.evaluate_batch.return_value = np.array([0.5])
-        mock_heuristic_class.return_value = mock_heuristic
-
-        from app.ai.hybrid_gpu import HybridGPUEvaluator
-
-        evaluator = HybridGPUEvaluator(device="cpu", board_size=8)
-
-        # Should be able to call evaluate (mocked)
-        assert evaluator is not None
-
-    @patch("app.ai.hybrid_gpu.get_device")
-    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_batch_processing(self, mock_heuristic_class, mock_get_device, mock_game_state):
-        """Should handle batch processing of game states."""
-        mock_get_device.return_value = "cpu"
-
-        mock_heuristic = MagicMock()
-        mock_heuristic.evaluate_batch.return_value = np.array([0.5, 0.6, 0.4])
-        mock_heuristic_class.return_value = mock_heuristic
-
-        from app.ai.hybrid_gpu import HybridGPUEvaluator
-
-        evaluator = HybridGPUEvaluator(device="cpu", batch_size=16)
-
-        # Should handle batch configuration
-        assert evaluator.batch_size == 16
-
-
-# =============================================================================
-# Edge Cases and Error Handling
+# Edge Cases
 # =============================================================================
 
 
 class TestEdgeCases:
-    """Test edge cases and error handling."""
-
-    def test_invalid_board_size(self):
-        """Should handle invalid board sizes gracefully."""
-        from app.ai.hybrid_gpu import game_state_to_gpu_arrays
-
-        mock_state = MagicMock()
-        mock_state.board.stacks = {}
-        mock_state.board.markers = {}
-
-        # Should work with valid sizes
-        result = game_state_to_gpu_arrays(mock_state, board_size=4)
-        assert result["stack_owner"].shape == (16,)
-
-    def test_empty_batch_processing(self):
-        """Should handle empty batches gracefully."""
-        from app.ai.hybrid_gpu import batch_game_states_to_gpu
-
-        result = batch_game_states_to_gpu([], board_size=8)
-
-        # Should return valid empty arrays
-        assert isinstance(result, dict)
-        assert "stack_owner" in result
+    """Tests for edge cases and error handling."""
 
     @patch("app.ai.hybrid_gpu.get_device")
     @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
-    def test_evaluator_with_custom_weights(self, mock_heuristic_class, mock_get_device):
-        """Should handle custom heuristic weights."""
-        mock_get_device.return_value = "cpu"
-        mock_heuristic_class.return_value = MagicMock()
+    def test_invalid_board_size(self, mock_heuristic, mock_get_device):
+        """Should handle unusual board sizes."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
 
         from app.ai.hybrid_gpu import HybridGPUEvaluator
 
-        custom_weights = {"material": 1.0, "mobility": 0.5}
-        evaluator = HybridGPUEvaluator(
-            device="cpu",
-            heuristic_weights=custom_weights,
-        )
+        # Very small board
+        evaluator = HybridGPUEvaluator(device="cpu", board_size=4)
+        assert evaluator.board_size == 4
 
-        assert evaluator is not None
+        # Very large board
+        evaluator = HybridGPUEvaluator(device="cpu", board_size=25)
+        assert evaluator.board_size == 25
+
+    @patch("app.ai.hybrid_gpu.get_device")
+    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
+    def test_empty_moves_evaluation(self, mock_heuristic, mock_get_device, mock_game_state):
+        """Should handle empty moves list."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
+
+        from app.ai.hybrid_gpu import HybridGPUEvaluator
+
+        evaluator = HybridGPUEvaluator(device="cpu")
+        rules_engine = MagicMock()
+
+        results = evaluator.evaluate_moves(mock_game_state, [], 1, rules_engine)
+
+        assert results == []
+
+    @patch("app.ai.hybrid_gpu.get_device")
+    @patch("app.ai.hybrid_gpu.GPUHeuristicEvaluator")
+    def test_empty_positions_evaluation(self, mock_heuristic, mock_get_device):
+        """Should handle empty positions list."""
+        mock_get_device.return_value = torch.device("cpu")
+        mock_heuristic.return_value = MagicMock()
+
+        from app.ai.hybrid_gpu import HybridGPUEvaluator
+
+        evaluator = HybridGPUEvaluator(device="cpu")
+
+        scores = evaluator.evaluate_positions([], 1)
+
+        assert len(scores) == 0

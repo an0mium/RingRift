@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -316,7 +317,7 @@ class ModelCullingController:
                     text=True,
                     timeout=120,
                     cwd=str(sync_script.parent.parent),
-                    env={**dict(__import__('os').environ), "PYTHONPATH": str(sync_script.parent.parent)}
+                    env={**os.environ, "PYTHONPATH": str(sync_script.parent.parent)}
                 )
                 if result.returncode == 0:
                     logger.info(f"[Culling] Cluster sync completed: {result.stdout.strip()[-200:]}")

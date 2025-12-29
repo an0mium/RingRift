@@ -30,6 +30,7 @@ December 2025: Created as part of Phase 1 automation improvements.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import os
 import sqlite3
@@ -1561,7 +1562,7 @@ class TrainingTriggerDaemon(HandlerBase):
                 # December 29, 2025: Add RINGRIFT_ALLOW_PENDING_GATE to bypass parity
                 # validation on cluster nodes that lack Node.js/npx
                 training_env = {
-                    **__import__("os").environ,
+                    **os.environ,
                     "PYTHONPATH": str(base_dir),
                     "RINGRIFT_ALLOW_PENDING_GATE": "true",
                 }
@@ -1701,7 +1702,7 @@ class TrainingTriggerDaemon(HandlerBase):
                 StageCompletionResult(
                     event=StageEvent.TRAINING_COMPLETE if success else StageEvent.TRAINING_FAILED,
                     success=success,
-                    timestamp=__import__("datetime").datetime.now().isoformat(),
+                    timestamp=datetime.datetime.now().isoformat(),
                     metadata={
                         "config": config_key,
                         "board_type": state.board_type if state else "",

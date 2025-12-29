@@ -390,6 +390,22 @@ def evaluate_heuristic_candidate(
     rng_seed: int,
     games_per_candidate: int | None = None,
 ) -> tuple[float, dict[str, Any]]:
+    """Evaluate a single heuristic weight candidate for CMA-ES optimization.
+
+    Wrapper that runs selfplay games with a modified heuristic profile
+    and returns the win rate as fitness score.
+
+    Args:
+        tier_spec: Heuristic tier specification for evaluation
+        base_profile_id: Base heuristic profile to modify
+        keys: Weight parameter names to optimize
+        candidate_vector: Weight values for this candidate
+        rng_seed: Random seed for reproducibility
+        games_per_candidate: Number of games per evaluation (default from tier_spec)
+
+    Returns:
+        Tuple of (win_rate, detailed_stats)
+    """
     return _evaluate_heuristic_candidate(
         tier_spec=tier_spec,
         base_profile_id=base_profile_id,

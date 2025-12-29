@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import importlib
 import json
 import logging
 import os
@@ -986,7 +987,7 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
         for module_path, description in critical_modules:
             try:
-                __import__(module_path)
+                importlib.import_module(module_path)
             except ImportError as e:
                 error_msg = f"Critical subsystem unavailable: {description} ({module_path}): {e}"
                 logger.error(f"[DaemonManager] {error_msg}")
@@ -1000,7 +1001,7 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
         for module_path, description in optional_modules:
             try:
-                __import__(module_path)
+                importlib.import_module(module_path)
             except ImportError as e:
                 logger.warning(f"[DaemonManager] Optional subsystem unavailable: {description} ({module_path}): {e}")
 
@@ -2246,7 +2247,7 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                 "total_ready": len(ready_daemons),
                 "critical_ready": critical_ready,
                 "critical_total": len(critical_types),
-                "timestamp": __import__("time").time(),
+                "timestamp": time.time(),
                 "fully_ready": critical_ready == len(critical_types),
             }
 
