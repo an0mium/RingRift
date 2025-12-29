@@ -478,5 +478,5 @@ ssh nebius-backbone-1 "cd ~/ringrift/ai-service && python scripts/selfplay.py ..
 ## See Also
 
 - [PARITY_MISMATCH_DEBUG.md](./PARITY_MISMATCH_DEBUG.md) - Deep debugging guide
-- [TRAINING_DATA_REGISTRY.md](../training/TRAINING_DATA_REGISTRY.md) - Data quality tracking
+- [TRAINING_DATA_REGISTRY.md](../../TRAINING_DATA_REGISTRY.md) - Data quality tracking
 - [DEVELOPER_GUIDE.md](../DEVELOPER_GUIDE.md) - Development setup

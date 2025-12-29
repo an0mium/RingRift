@@ -13,4 +13,5 @@ These documents are preserved for historical reference but are no longer activel
 
 ## Note
 
+Some snapshots preserve raw merge history and may include unresolved conflict markers.
 For current documentation, see the parent directories or the [Documentation Index](../../../DOCUMENTATION_INDEX.md).

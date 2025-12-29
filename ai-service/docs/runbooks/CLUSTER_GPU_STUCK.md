@@ -133,7 +133,7 @@ python scripts/auto_start_idle_selfplay.py --daemon --cleanup-zombies
 
 - [DAEMON_FAILURE_RECOVERY.md](./DAEMON_FAILURE_RECOVERY.md) - Daemon restart procedures
 - [P2P_LEADER_FAILOVER.md](./P2P_LEADER_FAILOVER.md) - Leader election issues
-- [GAME_HEALTH.md](./GAME_HEALTH.md) - Game database health checks
+- [cluster_deployment.md](./cluster_deployment.md) - Game database health checks
 
 ## History
 

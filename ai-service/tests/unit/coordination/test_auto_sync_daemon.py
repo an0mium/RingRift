@@ -666,13 +666,13 @@ class TestEventHandling:
             "data_age_hours": 5.0,
         }
 
-        # Dec 28, 2025: fire_and_forget is now imported in sync_event_mixin.py
-        with patch("app.coordination.sync_event_mixin.fire_and_forget") as mock_fire:
+        # Dec 29, 2025: Now uses trigger_sync() instead of fire_and_forget
+        with patch.object(daemon, 'trigger_sync') as mock_trigger:
             await daemon._on_data_stale(mock_event)
 
         assert daemon._events_processed == 1
         assert "hex8_2p" in daemon._urgent_sync_pending
-        mock_fire.assert_called_once()
+        mock_trigger.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_sync_triggered_with_config(self, daemon):
@@ -683,12 +683,12 @@ class TestEventHandling:
             "config_key": "square8_2p",
         }
 
-        # Dec 28, 2025: fire_and_forget is now imported in sync_event_mixin.py
-        with patch("app.coordination.sync_event_mixin.fire_and_forget") as mock_fire:
+        # Dec 29, 2025: Now uses trigger_sync() instead of fire_and_forget
+        with patch.object(daemon, 'trigger_sync') as mock_trigger:
             await daemon._on_sync_triggered(mock_event)
 
         assert daemon._events_processed == 1
-        mock_fire.assert_called_once()
+        mock_trigger.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_new_games_available_triggers_push(self, daemon):

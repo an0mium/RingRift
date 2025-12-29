@@ -423,7 +423,7 @@ python scripts/p2p_orchestrator.py
 
 ## Related Documentation
 
-- [DAEMON_REGISTRY.md](./DAEMON_REGISTRY.md) - Background daemon reference
+- [DAEMON_REGISTRY.md](../DAEMON_REGISTRY.md) - Background daemon reference
 - [HEALTH_MONITORING.md](./HEALTH_MONITORING.md) - Health check architecture
-- [SYNC_TRANSFER.md](./SYNC_TRANSFER.md) - Data sync protocols
+- [SYNC_ARCHITECTURE.md](./SYNC_ARCHITECTURE.md) - Data sync protocols
 - [EVENT_SYSTEM_REFERENCE.md](../EVENT_SYSTEM_REFERENCE.md) - Event type catalog
