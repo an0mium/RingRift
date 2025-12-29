@@ -1058,3 +1058,262 @@ class StateManager:
                 "db_path": str(self.db_path),
             },
         )
+
+    # =========================================================================
+    # Peer Health Persistence (December 2025, Phase 7)
+    # =========================================================================
+
+    def save_peer_health(self, peer_health: PeerHealthState) -> bool:
+        """Save peer health state to database.
+
+        Part of Phase 7 cluster availability improvements.
+        Preserves peer health history across P2P restarts.
+
+        Args:
+            peer_health: The peer health state to persist
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        try:
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO peer_health_history
+                    (node_id, state, failure_count, gossip_failure_count,
+                     last_seen, last_failure, circuit_state, circuit_opened_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        peer_health.node_id,
+                        peer_health.state,
+                        peer_health.failure_count,
+                        peer_health.gossip_failure_count,
+                        peer_health.last_seen,
+                        peer_health.last_failure,
+                        peer_health.circuit_state,
+                        peer_health.circuit_opened_at,
+                        time.time(),
+                    ),
+                )
+                conn.commit()
+                return True
+        except sqlite3.Error as e:
+            logger.error(f"Failed to save peer health for {peer_health.node_id}: {e}")
+            return False
+
+    def save_peer_health_batch(self, peer_healths: list[PeerHealthState]) -> int:
+        """Save multiple peer health states in a single transaction.
+
+        Args:
+            peer_healths: List of peer health states to persist
+
+        Returns:
+            Number of records saved successfully
+        """
+        if not peer_healths:
+            return 0
+
+        saved = 0
+        try:
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                now = time.time()
+                for ph in peer_healths:
+                    try:
+                        cursor.execute(
+                            """
+                            INSERT OR REPLACE INTO peer_health_history
+                            (node_id, state, failure_count, gossip_failure_count,
+                             last_seen, last_failure, circuit_state, circuit_opened_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                ph.node_id,
+                                ph.state,
+                                ph.failure_count,
+                                ph.gossip_failure_count,
+                                ph.last_seen,
+                                ph.last_failure,
+                                ph.circuit_state,
+                                ph.circuit_opened_at,
+                                now,
+                            ),
+                        )
+                        saved += 1
+                    except sqlite3.Error as e:
+                        logger.warning(f"Failed to save peer health for {ph.node_id}: {e}")
+
+                conn.commit()
+                if saved > 0:
+                    logger.debug(f"[StateManager] Saved {saved} peer health records")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to save peer health batch: {e}")
+
+        return saved
+
+    def load_peer_health(self, node_id: str) -> PeerHealthState | None:
+        """Load peer health state from database.
+
+        Args:
+            node_id: The node ID to load health state for
+
+        Returns:
+            PeerHealthState if found, None otherwise
+        """
+        try:
+            with self._db_connection(read_only=True) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT node_id, state, failure_count, gossip_failure_count,
+                           last_seen, last_failure, circuit_state, circuit_opened_at, updated_at
+                    FROM peer_health_history
+                    WHERE node_id = ?
+                    """,
+                    (node_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return PeerHealthState(
+                        node_id=row[0],
+                        state=row[1],
+                        failure_count=row[2] or 0,
+                        gossip_failure_count=row[3] or 0,
+                        last_seen=row[4] or 0.0,
+                        last_failure=row[5] or 0.0,
+                        circuit_state=row[6] or "closed",
+                        circuit_opened_at=row[7] or 0.0,
+                        updated_at=row[8] or time.time(),
+                    )
+                return None
+        except sqlite3.Error as e:
+            logger.error(f"Failed to load peer health for {node_id}: {e}")
+            return None
+
+    def load_all_peer_health(
+        self, max_age_seconds: float = 3600.0
+    ) -> dict[str, PeerHealthState]:
+        """Load all peer health states from database.
+
+        Args:
+            max_age_seconds: Maximum age of records to load (default: 1 hour).
+                            Records older than this are considered stale.
+
+        Returns:
+            Dict mapping node_id to PeerHealthState
+        """
+        result: dict[str, PeerHealthState] = {}
+        try:
+            cutoff = time.time() - max_age_seconds
+            with self._db_connection(read_only=True) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT node_id, state, failure_count, gossip_failure_count,
+                           last_seen, last_failure, circuit_state, circuit_opened_at, updated_at
+                    FROM peer_health_history
+                    WHERE updated_at > ?
+                    ORDER BY updated_at DESC
+                    """,
+                    (cutoff,),
+                )
+                for row in cursor.fetchall():
+                    result[row[0]] = PeerHealthState(
+                        node_id=row[0],
+                        state=row[1],
+                        failure_count=row[2] or 0,
+                        gossip_failure_count=row[3] or 0,
+                        last_seen=row[4] or 0.0,
+                        last_failure=row[5] or 0.0,
+                        circuit_state=row[6] or "closed",
+                        circuit_opened_at=row[7] or 0.0,
+                        updated_at=row[8] or time.time(),
+                    )
+                logger.info(f"[StateManager] Loaded {len(result)} peer health records")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to load peer health: {e}")
+
+        return result
+
+    def clear_stale_peer_health(self, max_age_seconds: float = 86400.0) -> int:
+        """Clear stale peer health records older than max_age_seconds.
+
+        Args:
+            max_age_seconds: Maximum age before clearing (default: 24 hours)
+
+        Returns:
+            Number of records cleared
+        """
+        cleared = 0
+        try:
+            cutoff = time.time() - max_age_seconds
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM peer_health_history WHERE updated_at < ?",
+                    (cutoff,),
+                )
+                cleared = cursor.rowcount
+                conn.commit()
+                if cleared > 0:
+                    logger.info(
+                        f"[StateManager] Cleared {cleared} stale peer health records "
+                        f"(older than {max_age_seconds/3600:.1f}h)"
+                    )
+        except sqlite3.Error as e:
+            logger.error(f"Failed to clear stale peer health: {e}")
+
+        return cleared
+
+    def get_peer_health_summary(self) -> dict[str, Any]:
+        """Get summary of peer health states.
+
+        Returns:
+            Dict with counts per state, circuit state, and staleness info
+        """
+        try:
+            with self._db_connection(read_only=True) as conn:
+                cursor = conn.cursor()
+
+                # Count by state
+                cursor.execute(
+                    "SELECT state, COUNT(*) FROM peer_health_history GROUP BY state"
+                )
+                state_counts = dict(cursor.fetchall())
+
+                # Count by circuit state
+                cursor.execute(
+                    "SELECT circuit_state, COUNT(*) FROM peer_health_history GROUP BY circuit_state"
+                )
+                circuit_counts = dict(cursor.fetchall())
+
+                # Get total and stale counts
+                cursor.execute("SELECT COUNT(*) FROM peer_health_history")
+                total = cursor.fetchone()[0]
+
+                cutoff_1h = time.time() - 3600
+                cursor.execute(
+                    "SELECT COUNT(*) FROM peer_health_history WHERE updated_at < ?",
+                    (cutoff_1h,),
+                )
+                stale_1h = cursor.fetchone()[0]
+
+                return {
+                    "total_records": total,
+                    "state_counts": state_counts,
+                    "circuit_state_counts": circuit_counts,
+                    "stale_count_1h": stale_1h,
+                    "fresh_count": total - stale_1h,
+                }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get peer health summary: {e}")
+            return {
+                "total_records": 0,
+                "state_counts": {},
+                "circuit_state_counts": {},
+                "stale_count_1h": 0,
+                "fresh_count": 0,
+                "error": str(e),
+            }

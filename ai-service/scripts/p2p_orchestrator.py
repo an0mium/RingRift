@@ -4861,8 +4861,149 @@ class P2POrchestrator(
                     logger.info(f"[P2P] Cleared {stale_jobs_cleared} stale jobs, {stale_peers_cleared} stale peers")
             else:
                 logger.info("[P2P] Startup state validation passed")
+
+            # Dec 28, 2025 (Phase 7): Load persisted peer health state
+            try:
+                peer_health_states = self.state_manager.load_all_peer_health(max_age_seconds=3600.0)
+                if peer_health_states:
+                    self._apply_loaded_peer_health(peer_health_states)
+                    logger.info(f"[P2P] Loaded {len(peer_health_states)} peer health records")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[P2P] Failed to load peer health state: {e}")
+
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to load state: {e}")
+
+    def _apply_loaded_peer_health(self, peer_health_states: dict) -> None:
+        """Apply loaded peer health state to circuit breakers and gossip tracker.
+
+        Dec 28, 2025 (Phase 7): Restores peer health history after restart.
+        """
+        try:
+            # Try to get node circuit breaker for restoring circuit states
+            from app.coordination.node_circuit_breaker import get_node_circuit_breaker
+
+            breaker = get_node_circuit_breaker("health_check")
+            restored_circuits = 0
+
+            for node_id, health_state in peer_health_states.items():
+                if node_id == self.node_id:
+                    continue
+
+                # Restore circuit breaker state if circuit was open
+                if health_state.circuit_state == "open":
+                    breaker.force_open(node_id)
+                    restored_circuits += 1
+                    logger.debug(
+                        f"[P2P] Restored open circuit for {node_id} "
+                        f"(failures: {health_state.failure_count})"
+                    )
+
+                # Update peer's last_seen if we have fresh data
+                if node_id in self.peers and health_state.last_seen > 0:
+                    peer = self.peers[node_id]
+                    if hasattr(peer, "last_heartbeat"):
+                        # Only update if our persisted data is fresher
+                        if health_state.last_seen > (peer.last_heartbeat or 0):
+                            peer.last_heartbeat = health_state.last_seen
+
+            if restored_circuits > 0:
+                logger.info(f"[P2P] Restored {restored_circuits} open circuit breakers from state")
+
+            # Restore gossip health tracker state if available
+            if hasattr(self, "_gossip_health_tracker"):
+                for node_id, health_state in peer_health_states.items():
+                    if health_state.gossip_failure_count >= 5:
+                        # Mark as suspected in gossip tracker
+                        for _ in range(health_state.gossip_failure_count):
+                            self._gossip_health_tracker.record_gossip_failure(node_id)
+
+        except ImportError:
+            logger.debug("[P2P] Node circuit breaker not available for health state restoration")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[P2P] Error applying peer health state: {e}")
+
+    def _collect_peer_health_states(self) -> list:
+        """Collect peer health states from circuit breakers and gossip tracker.
+
+        Dec 28, 2025 (Phase 7): Gathers health state for persistence.
+
+        Returns:
+            List of PeerHealthState objects to persist
+        """
+        from scripts.p2p.managers.state_manager import PeerHealthState
+
+        health_states = []
+
+        # Get circuit breaker states
+        circuit_states = {}
+        try:
+            from app.coordination.node_circuit_breaker import get_node_circuit_breaker
+
+            breaker = get_node_circuit_breaker("health_check")
+            for node_id, status in breaker.get_all_states().items():
+                circuit_states[node_id] = {
+                    "state": status.state.value,
+                    "failure_count": status.failure_count,
+                    "opened_at": status.opened_at or 0.0,
+                    "last_failure": status.last_failure_time or 0.0,
+                }
+        except ImportError:
+            pass
+        except Exception as e:  # noqa: BLE001
+            if self.verbose:
+                logger.debug(f"[P2P] Error collecting circuit states: {e}")
+
+        # Get gossip health tracker states
+        gossip_failures = {}
+        try:
+            if hasattr(self, "_gossip_health_tracker"):
+                tracker = self._gossip_health_tracker
+                for node_id in tracker.get_suspected_peers():
+                    gossip_failures[node_id] = tracker.get_failure_count(node_id)
+        except Exception as e:  # noqa: BLE001
+            if self.verbose:
+                logger.debug(f"[P2P] Error collecting gossip states: {e}")
+
+        # Collect peer states
+        with self.peers_lock:
+            for node_id, peer in self.peers.items():
+                if node_id == self.node_id:
+                    continue
+
+                # Determine peer state
+                is_retired = getattr(peer, "retired", False)
+                is_alive = peer.is_alive() if hasattr(peer, "is_alive") else True
+
+                if is_retired:
+                    peer_state = "retired"
+                elif not is_alive:
+                    peer_state = "dead"
+                else:
+                    peer_state = "alive"
+
+                # Get circuit info
+                circuit_info = circuit_states.get(node_id, {})
+                gossip_fail_count = gossip_failures.get(node_id, 0)
+
+                # Adjust state if circuit is open
+                if circuit_info.get("state") == "open" and peer_state == "alive":
+                    peer_state = "suspect"
+
+                health_states.append(
+                    PeerHealthState(
+                        node_id=node_id,
+                        state=peer_state,
+                        failure_count=circuit_info.get("failure_count", 0),
+                        gossip_failure_count=gossip_fail_count,
+                        last_seen=getattr(peer, "last_heartbeat", 0.0) or 0.0,
+                        last_failure=circuit_info.get("last_failure", 0.0),
+                        circuit_state=circuit_info.get("state", "closed"),
+                        circuit_opened_at=circuit_info.get("opened_at", 0.0),
+                    )
+                )
+
+        return health_states
 
     def _save_state(self):
         """Save current state to database.
@@ -4896,6 +5037,18 @@ class P2POrchestrator(
                 peers_lock=self.peers_lock,
                 jobs_lock=self.jobs_lock,
             )
+
+            # Dec 28, 2025 (Phase 7): Save peer health state
+            try:
+                peer_health_states = self._collect_peer_health_states()
+                if peer_health_states:
+                    saved = self.state_manager.save_peer_health_batch(peer_health_states)
+                    if saved > 0 and self.verbose:
+                        logger.debug(f"[P2P] Saved {saved} peer health records")
+            except Exception as e:  # noqa: BLE001
+                if self.verbose:
+                    logger.debug(f"[P2P] Error saving peer health state: {e}")
+
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to save state: {e}")
 

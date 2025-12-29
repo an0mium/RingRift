@@ -160,12 +160,20 @@ class RecoveryEngine(BaseDaemon):
 
         if node_id:
             # Create a minimal health result for the recovery queue
+            # Convert layer string to HealthCheckLayer enum
+            from .node_monitor import HealthCheckLayer
+
+            try:
+                layer_enum = HealthCheckLayer(layer) if layer else HealthCheckLayer.P2P
+            except ValueError:
+                layer_enum = HealthCheckLayer.P2P
+
             health_result = NodeHealthResult(
                 node_id=node_id,
+                layer=layer_enum,
                 healthy=False,
-                layers_checked=[layer] if layer else [],
-                failed_layer=layer,
-                error=error,
+                latency_ms=0.0,
+                error=error or None,
             )
             await self._recovery_queue.put((node_id, health_result))
             logger.info(f"RecoveryEngine: Queued recovery for unhealthy node {node_id} (layer: {layer})")

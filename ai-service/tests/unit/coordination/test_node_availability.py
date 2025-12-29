@@ -364,7 +364,7 @@ class TestVastChecker:
     def test_disabled_without_api_key(self) -> None:
         """Test checker is disabled without API key."""
         with patch.dict(os.environ, {}, clear=True):
-            with patch.object(Path, "exists", return_value=False):
+            with patch("os.path.exists", return_value=False):
                 from app.coordination.node_availability.providers.vast_checker import (
                     VastChecker,
                 )

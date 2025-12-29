@@ -807,6 +807,9 @@ class MasterLoopController:
         standard = minimal + [
             # Core automation (current default stack)
             # Note: FEEDBACK_LOOP and DATA_PIPELINE moved to minimal for correct ordering
+            # December 2025: NODE_AVAILABILITY syncs cloud provider state with distributed_hosts.yaml
+            # Ensures nodes marked 'ready' are actually running (fixes stale config problem)
+            DaemonType.NODE_AVAILABILITY,
             DaemonType.MODEL_DISTRIBUTION,
             DaemonType.IDLE_RESOURCE,
             DaemonType.UTILIZATION_OPTIMIZER,

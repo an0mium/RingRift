@@ -511,6 +511,40 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         category="recovery",
         health_check_interval=3600.0,  # 1 hour - matches scan interval
     ),
+    # =========================================================================
+    # Cluster Availability Manager (December 28, 2025)
+    # Provides automated cluster availability management:
+    # - NodeMonitor: Multi-layer health checking (P2P, SSH, GPU, Provider API)
+    # - RecoveryEngine: Escalating recovery strategies
+    # - Provisioner: Auto-provision new instances when capacity drops
+    # - CapacityPlanner: Budget-aware capacity management
+    # =========================================================================
+    DaemonType.NODE_AVAILABILITY: DaemonSpec(
+        runner_name="create_node_availability",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="resource",
+    ),
+    DaemonType.AVAILABILITY_NODE_MONITOR: DaemonSpec(
+        runner_name="create_availability_node_monitor",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="health",
+        health_check_interval=30.0,  # 30s - quick failure detection
+    ),
+    DaemonType.AVAILABILITY_RECOVERY_ENGINE: DaemonSpec(
+        runner_name="create_availability_recovery_engine",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AVAILABILITY_NODE_MONITOR),
+        category="recovery",
+    ),
+    DaemonType.AVAILABILITY_CAPACITY_PLANNER: DaemonSpec(
+        runner_name="create_availability_capacity_planner",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="resource",
+    ),
+    DaemonType.AVAILABILITY_PROVISIONER: DaemonSpec(
+        runner_name="create_availability_provisioner",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AVAILABILITY_CAPACITY_PLANNER),
+        category="resource",
+    ),
 }
 
 

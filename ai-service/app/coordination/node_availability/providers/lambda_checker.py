@@ -60,6 +60,22 @@ class LambdaChecker(StateChecker):
         self._api_key = api_key or os.environ.get("LAMBDA_API_KEY")
         self._http_session = None
 
+        # Check for API key file if not in env
+        if not self._api_key:
+            key_files = [
+                os.path.expanduser("~/.lambda_api_key"),
+                os.path.expanduser("~/.config/lambda/api_key"),
+            ]
+            for key_file in key_files:
+                if os.path.exists(key_file):
+                    try:
+                        with open(key_file) as f:
+                            self._api_key = f.read().strip()
+                        if self._api_key:
+                            break
+                    except OSError:
+                        pass
+
         if not self._api_key:
             self.disable("No LAMBDA_API_KEY found")
 
