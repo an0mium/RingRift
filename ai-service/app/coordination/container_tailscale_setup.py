@@ -572,6 +572,23 @@ def health_check() -> dict:
             "details": {"is_container": False},
         }
 
+    # Check if connected (with or without SOCKS5)
+    if status.tailscale_connected and status.tailscale_ip:
+        mode = "kernel" if not status.socks5_available else "userspace"
+        return {
+            "healthy": True,
+            "status": "healthy",
+            "message": f"Container networking ready ({mode} mode, IP: {status.tailscale_ip})",
+            "details": {
+                "is_container": True,
+                "container_type": status.container_type,
+                "tailscale_ip": status.tailscale_ip,
+                "mode": mode,
+                "socks5_available": status.socks5_available,
+                "socks5_port": status.socks5_port if status.socks5_available else None,
+            },
+        }
+
     if status.is_ready:
         return {
             "healthy": True,
