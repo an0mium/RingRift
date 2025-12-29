@@ -13,14 +13,14 @@ The neural network training pipeline is bottlenecked on generating high-quality 
 
 ### What Exists (and works well):
 
-| Component              | File                                | Status                                |
-| ---------------------- | ----------------------------------- | ------------------------------------- |
-| Gumbel MCTS            | `app/ai/gumbel_mcts_ai.py`          | Production - 150 sims default         |
-| GPU Batch NN Eval      | `gumbel_mcts_ai.py:720-816`         | Implemented - batches leaf evals      |
-| Parallel Selfplay      | `app/training/parallel_selfplay.py` | Supports Gumbel engine                |
-| GPU Heuristic Selfplay | `app/ai/gpu_parallel_games.py`      | 10-500 games/sec                      |
-| Training Loop          | `app/training/train_loop.py`        | Iterative self-play → train → promote |
-| Curriculum Training    | `app/training/curriculum.py`        | Multi-generation with promotion       |
+| Component              | File                                           | Status                                |
+| ---------------------- | ---------------------------------------------- | ------------------------------------- |
+| Gumbel MCTS            | `ai-service/app/ai/gumbel_mcts_ai.py`          | Production - 150 sims default         |
+| GPU Batch NN Eval      | `gumbel_mcts_ai.py:720-816`                    | Implemented - batches leaf evals      |
+| Parallel Selfplay      | `ai-service/app/training/parallel_selfplay.py` | Supports Gumbel engine                |
+| GPU Heuristic Selfplay | `ai-service/app/ai/gpu_parallel_games.py`      | 10-500 games/sec                      |
+| Training Loop          | `ai-service/app/training/train_loop.py`        | Iterative self-play → train → promote |
+| Curriculum Training    | `ai-service/app/training/curriculum.py`        | Multi-generation with promotion       |
 
 ### Key Bottleneck:
 
@@ -67,7 +67,7 @@ From `train_loop.py:88-150`:
 **Actions:**
 
 1. **Enable multi-GPU parallel Gumbel selfplay**
-   - Location: `scripts/run_parallel_self_play.py`
+   - Location: `ai-service/scripts/run_parallel_self_play.py`
    - Use `--engine gumbel --num-workers N` where N = CPU cores
    - Each worker gets own CUDA stream for NN inference
 
@@ -120,7 +120,7 @@ From `train_loop.py:88-150`:
    - Rationale: Smaller boards have fewer truly different top moves
 
 3. **Async NN evaluation**
-   - `app/ai/async_nn_eval.py` exists but not integrated
+   - `ai-service/app/ai/async_nn_eval.py` exists but not integrated
    - Queue leaf states across multiple games
    - Single large batch inference
 
@@ -137,7 +137,7 @@ From `train_loop.py:88-150`:
 1. **Verify value target accuracy**
    - Current: Win/loss/draw from game outcome
    - Check: Are multi-player values correct?
-   - File: `app/training/generate_data.py`
+   - File: `ai-service/app/training/generate_data.py`
 
 2. **Add MCTS policy temperature**
    - Current: Visit count fractions
@@ -154,7 +154,7 @@ From `train_loop.py:88-150`:
 1. **[IMMEDIATE]** Run parallel Gumbel selfplay with current infrastructure
 
    ```bash
-   python scripts/run_parallel_self_play.py \
+   python ai-service/scripts/run_parallel_self_play.py \
      --num-games 1000 \
      --num-workers 16 \
      --engine gumbel \
@@ -194,11 +194,11 @@ From `train_loop.py:88-150`:
 
 ## Key Files to Modify
 
-1. `scripts/run_parallel_self_play.py` - Add multi-game batching per worker
-2. `app/training/parallel_selfplay.py` - Reduce simulation budget option
-3. `app/ai/gumbel_mcts_ai.py` - Add tree reuse
-4. `app/training/train_loop.py` - Integrate Gumbel data generation
-5. `scripts/p2p_orchestrator.py` - Add Gumbel selfplay job type
+1. `ai-service/scripts/run_parallel_self_play.py` - Add multi-game batching per worker
+2. `ai-service/app/training/parallel_selfplay.py` - Reduce simulation budget option
+3. `ai-service/app/ai/gumbel_mcts_ai.py` - Add tree reuse
+4. `ai-service/app/training/train_loop.py` - Integrate Gumbel data generation
+5. `ai-service/scripts/p2p_orchestrator.py` - Add Gumbel selfplay job type
 
 ## Risks and Mitigations
 

@@ -16,8 +16,9 @@ class TestParseArgs:
         assert args.data_path is None
         assert args.save_path is None
         assert args.epochs is None
-        assert args.batch_size is None
-        assert args.learning_rate is None
+        # batch_size and learning_rate have sensible defaults now
+        assert args.batch_size == 256  # Default for GPU training
+        assert args.learning_rate == 0.0005  # Default learning rate
         assert args.seed is None
         assert args.checkpoint_dir == "checkpoints"
         assert args.checkpoint_interval == 5
@@ -115,7 +116,9 @@ class TestParseArgs:
 
     def test_sampling_weights(self):
         """Test --sampling-weights argument."""
-        for weight in ["uniform", "recency", "policy_entropy"]:
+        # Valid options: uniform, late_game, phase_emphasis, combined, source,
+        # combined_source, chain_emphasis, combined_chain, quality, opponent_elo, quality_combined
+        for weight in ["uniform", "quality", "quality_combined"]:
             args = parse_args(["--sampling-weights", weight])
             assert args.sampling_weights == weight
 

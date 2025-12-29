@@ -532,7 +532,7 @@ python scripts/master_loop.py --watch
 | `RINGRIFT_ALLOW_PENDING_GATE`    | false   | Allow training without parity |
 | `RINGRIFT_SKIP_SHADOW_CONTRACTS` | false   | Skip contract validation      |
 
-See `docs/ENV_REFERENCE.md` and `docs/ENV_REFERENCE_COMPREHENSIVE.md` for complete reference.
+See `ENV_REFERENCE.md` and `ENV_REFERENCE_COMPREHENSIVE.md` for complete reference.
 
 ---
 

@@ -86,7 +86,9 @@ class EvaluationConfig:
     """Configuration for the evaluation daemon."""
 
     # Games per baseline opponent
-    games_per_baseline: int = 20
+    # Dec 29: Increased from 20 to 50 for more statistically significant eval
+    # (±5% confidence interval instead of ±10%)
+    games_per_baseline: int = 50
 
     # Baselines to evaluate against
     baselines: list[str] = field(default_factory=lambda: ["random", "heuristic"])
@@ -97,8 +99,9 @@ class EvaluationConfig:
     early_stopping_min_games: int = 10
 
     # Concurrency
-    # Dec 29: Increased from 8 to 12 for faster eval throughput
-    max_concurrent_evaluations: int = 12
+    # Dec 29: Increased from 8 to 24 for faster eval throughput
+    # With 50 games per baseline, each eval still completes in ~5 min
+    max_concurrent_evaluations: int = 24
 
     # Timeouts
     # Dec 29: Reduced from 600s to 300s for faster iteration (5 min per eval)

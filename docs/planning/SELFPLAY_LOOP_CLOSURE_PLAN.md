@@ -53,7 +53,7 @@ Despite having good infrastructure and techniques, NNUE models barely outperform
 
 **Implementation**:
 
-1. Create `SelfplayModelSelector` in `app/training/selfplay_model_selector.py`:
+1. Create `SelfplayModelSelector` in `ai-service/app/training/selfplay_model_selector.py`:
 
    ```python
    def get_current_model(board_type: str, num_players: int) -> Path:

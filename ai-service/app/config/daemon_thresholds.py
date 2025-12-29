@@ -246,9 +246,13 @@ class DataThresholds:
     POLICY_ACCURACY_MINIMUM: Final[float] = 0.75
 
     # Data freshness (hours)
-    FRESH_DATA_MAX_AGE: Final[float] = 1.0
-    STALE_DATA_WARNING: Final[float] = 4.0
-    STALE_DATA_CRITICAL: Final[float] = 24.0
+    # Dec 29: Relaxed freshness gates for better training throughput
+    # Fresh data: 2h (was 1h) - triggers priority sync if older
+    # Stale warning: 8h (was 4h) - logs warning but continues
+    # Stale critical: 48h (was 24h) - blocks training
+    FRESH_DATA_MAX_AGE: Final[float] = 2.0
+    STALE_DATA_WARNING: Final[float] = 8.0
+    STALE_DATA_CRITICAL: Final[float] = 48.0
 
     # Curriculum weights stale (seconds)
     CURRICULUM_WEIGHTS_STALE: Final[float] = 7200.0  # 2 hours

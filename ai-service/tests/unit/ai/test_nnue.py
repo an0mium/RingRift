@@ -543,40 +543,33 @@ class TestRingRiftNNUEForward:
 class TestRingRiftNNUEQuantization:
     """Tests for RingRiftNNUE quantization."""
 
-    @pytest.fixture
-    def quantization_available(self):
-        """Check if PyTorch quantization is available."""
-        try:
-            import torch
-
-            # Try a simple quantization to see if backend is available
-            test_model = torch.nn.Linear(10, 10)
-            torch.quantization.quantize_dynamic(test_model, {torch.nn.Linear}, dtype=torch.qint8)
-            return True
-        except RuntimeError:
-            return False
-
-    def test_quantize_dynamic_returns_model(self, quantization_available):
+    def test_quantize_dynamic_returns_model(self):
         """Test quantize_dynamic returns a model."""
-        if not quantization_available:
-            pytest.skip("PyTorch quantization backend not available")
-
         from app.ai.nnue import RingRiftNNUE
 
         model = RingRiftNNUE(board_type=BoardType.SQUARE8)
-        quantized = model.quantize_dynamic()
+
+        try:
+            quantized = model.quantize_dynamic()
+        except RuntimeError as e:
+            if "NoQEngine" in str(e) or "quantized" in str(e).lower():
+                pytest.skip("PyTorch quantization backend not available on this platform")
+            raise
 
         assert quantized is not None
 
-    def test_quantized_model_runs_inference(self, quantization_available):
+    def test_quantized_model_runs_inference(self):
         """Test quantized model can run inference."""
-        if not quantization_available:
-            pytest.skip("PyTorch quantization backend not available")
-
         from app.ai.nnue import RingRiftNNUE, get_feature_dim
 
         model = RingRiftNNUE(board_type=BoardType.SQUARE8)
-        quantized = model.quantize_dynamic()
+
+        try:
+            quantized = model.quantize_dynamic()
+        except RuntimeError as e:
+            if "NoQEngine" in str(e) or "quantized" in str(e).lower():
+                pytest.skip("PyTorch quantization backend not available on this platform")
+            raise
 
         input_dim = get_feature_dim(BoardType.SQUARE8)
         x = torch.randn(1, input_dim)
@@ -655,12 +648,15 @@ class TestExtractFeaturesFromMutable:
         state._rings = None  # No internal arrays
 
         # Mock to_immutable to return a usable game state with all required fields
+        # All numeric fields must be actual numbers, not MagicMock
         mock_player1 = MagicMock()
         mock_player1.number = 1
         mock_player1.rings_on_board = 0
         mock_player1.markers_on_board = 0
         mock_player1.rings_in_hand = 5
         mock_player1.rings_eliminated = 0
+        mock_player1.eliminated_rings = 0
+        mock_player1.territory_spaces = 0
         mock_player1.stacks = []
         mock_player1.territory_count = 0
 
@@ -670,6 +666,8 @@ class TestExtractFeaturesFromMutable:
         mock_player2.markers_on_board = 0
         mock_player2.rings_in_hand = 5
         mock_player2.rings_eliminated = 0
+        mock_player2.eliminated_rings = 0
+        mock_player2.territory_spaces = 0
         mock_player2.stacks = []
         mock_player2.territory_count = 0
 
