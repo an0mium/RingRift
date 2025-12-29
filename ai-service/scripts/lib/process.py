@@ -88,6 +88,11 @@ class SingletonLock:
     Uses fcntl for cross-platform file locking. The lock is automatically
     released when the process exits.
 
+    Features:
+    - Automatic stale lock detection and cleanup
+    - Configurable retry with stale lock recovery
+    - Process liveness verification before reporting conflicts
+
     Usage:
         lock = SingletonLock("my-daemon")
         if not lock.acquire():
@@ -101,6 +106,12 @@ class SingletonLock:
             if not lock.acquired:
                 sys.exit(1)
             run_daemon()
+
+        # With automatic stale lock cleanup:
+        lock = SingletonLock("my-daemon", auto_cleanup_stale=True)
+        if not lock.acquire():
+            # Only fails if another live process holds the lock
+            sys.exit(1)
     """
 
     def __init__(
@@ -108,6 +119,8 @@ class SingletonLock:
         name: str,
         lock_dir: Path | None = None,
         write_pid: bool = True,
+        auto_cleanup_stale: bool = True,
+        stale_timeout_seconds: float = 0,
     ):
         """Initialize singleton lock.
 
@@ -115,10 +128,15 @@ class SingletonLock:
             name: Unique name for this lock (used in filename)
             lock_dir: Directory for lock file (default: /tmp)
             write_pid: Write current PID to lock file
+            auto_cleanup_stale: Automatically clean up locks from dead processes
+            stale_timeout_seconds: Consider lock stale if holder dead for this long
+                                   (0 = immediate cleanup when holder is dead)
         """
         self.name = name
         self.lock_dir = lock_dir or Path("/tmp")
         self.write_pid = write_pid
+        self.auto_cleanup_stale = auto_cleanup_stale
+        self.stale_timeout_seconds = stale_timeout_seconds
         self.lock_path = self.lock_dir / f"ringrift_{name}.lock"
         self._file_handle: Any | None = None
         self._acquired = False
@@ -128,39 +146,106 @@ class SingletonLock:
         """Check if lock was successfully acquired."""
         return self._acquired
 
-    def acquire(self, blocking: bool = False) -> bool:
+    def _is_holder_alive(self, pid: int) -> bool:
+        """Check if the lock holder process is still running.
+
+        Args:
+            pid: Process ID to check
+
+        Returns:
+            True if process is running, False if dead or doesn't exist
+        """
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # Process exists but we can't signal it - assume alive
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def _cleanup_stale_lock(self) -> bool:
+        """Clean up a stale lock file from a dead process.
+
+        Returns:
+            True if cleanup was performed, False otherwise
+        """
+        holder_pid = self.get_holder_pid()
+        if holder_pid is None:
+            # No PID in lock file, safe to proceed
+            return True
+
+        if self._is_holder_alive(holder_pid):
+            # Holder is still alive, not stale
+            return False
+
+        # Holder is dead - log and attempt cleanup
+        logger.info(
+            f"[SingletonLock] Cleaning up stale lock for '{self.name}' "
+            f"(dead PID {holder_pid})"
+        )
+
+        try:
+            # Remove the stale lock file
+            self.lock_path.unlink(missing_ok=True)
+            return True
+        except OSError as e:
+            logger.warning(f"[SingletonLock] Failed to remove stale lock: {e}")
+            return False
+
+    def acquire(self, blocking: bool = False, max_retries: int = 2) -> bool:
         """Acquire the singleton lock.
 
         Args:
             blocking: If True, wait until lock is available
+            max_retries: Number of retries after stale lock cleanup (default: 2)
 
         Returns:
-            True if lock was acquired, False if already held
+            True if lock was acquired, False if already held by live process
         """
-        try:
-            self.lock_dir.mkdir(parents=True, exist_ok=True)
-            self._file_handle = open(self.lock_path, "a+")
+        retries = 0
+        while retries <= max_retries:
+            try:
+                self.lock_dir.mkdir(parents=True, exist_ok=True)
+                self._file_handle = open(self.lock_path, "a+")
 
-            flags = fcntl.LOCK_EX
-            if not blocking:
-                flags |= fcntl.LOCK_NB
+                flags = fcntl.LOCK_EX
+                if not blocking:
+                    flags |= fcntl.LOCK_NB
 
-            fcntl.flock(self._file_handle.fileno(), flags)
+                fcntl.flock(self._file_handle.fileno(), flags)
 
-            if self.write_pid:
-                self._file_handle.seek(0)
-                self._file_handle.truncate()
-                self._file_handle.write(str(os.getpid()))
-                self._file_handle.flush()
+                if self.write_pid:
+                    self._file_handle.seek(0)
+                    self._file_handle.truncate()
+                    self._file_handle.write(str(os.getpid()))
+                    self._file_handle.flush()
 
-            self._acquired = True
-            return True
+                self._acquired = True
+                return True
 
-        except OSError:
-            if self._file_handle:
-                self._file_handle.close()
-                self._file_handle = None
-            return False
+            except OSError:
+                if self._file_handle:
+                    self._file_handle.close()
+                    self._file_handle = None
+
+                # Check if we should attempt stale lock cleanup
+                if self.auto_cleanup_stale and retries < max_retries:
+                    holder_pid = self.get_holder_pid()
+                    if holder_pid and not self._is_holder_alive(holder_pid):
+                        # Holder is dead - this shouldn't normally happen with
+                        # fcntl (kernel releases lock on process death), but can
+                        # occur with NFS or other edge cases
+                        if self._cleanup_stale_lock():
+                            retries += 1
+                            time.sleep(0.1)  # Brief pause before retry
+                            continue
+
+                return False
+
+        return False
 
     def release(self) -> None:
         """Release the singleton lock."""

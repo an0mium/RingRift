@@ -47,6 +47,7 @@ import logging
 import os
 import shlex
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,8 +61,10 @@ __all__ = [
     "SSHConfig",
     "SSHResult",
     "SSHHealth",
+    "SSHMetrics",
     "CircuitState",  # Re-exported from circuit_breaker.py (Dec 2025)
     "get_ssh_client",
+    "get_ssh_metrics",
     "run_ssh_command",
     "run_ssh_command_async",
     "run_ssh_command_sync",
@@ -390,6 +393,292 @@ class SSHHealth:
 
 
 # =============================================================================
+# SSH Metrics (December 2025 - Phase 5 Observability)
+# =============================================================================
+
+@dataclass
+class HostMetrics:
+    """Per-host SSH metrics."""
+    host: str
+    total_successes: int = 0
+    total_failures: int = 0
+    total_timeouts: int = 0
+    last_success_time: float | None = None
+    last_failure_time: float | None = None
+    last_error: str | None = None
+    total_latency_ms: float = 0.0
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate for this host."""
+        total = self.total_successes + self.total_failures
+        if total == 0:
+            return 0.0
+        return self.total_successes / total
+
+    @property
+    def avg_latency_ms(self) -> float:
+        """Calculate average latency for successful operations."""
+        if self.total_successes == 0:
+            return 0.0
+        return self.total_latency_ms / self.total_successes
+
+
+@dataclass
+class TransportMetrics:
+    """Per-transport SSH metrics."""
+    transport: str  # "tailscale", "direct", "cloudflare"
+    total_successes: int = 0
+    total_failures: int = 0
+
+    @property
+    def success_rate(self) -> float:
+        total = self.total_successes + self.total_failures
+        if total == 0:
+            return 0.0
+        return self.total_successes / total
+
+
+class SSHMetrics:
+    """Global SSH failure metrics for observability.
+
+    December 2025: Added as part of cluster node availability fixes.
+    Provides visibility into SSH connection health across the cluster.
+
+    Usage:
+        from app.core.ssh import get_ssh_metrics
+
+        metrics = get_ssh_metrics()
+
+        # Get summary
+        summary = metrics.get_summary()
+        print(f"Total failures: {summary['total_failures']}")
+
+        # Get per-host metrics
+        host_metrics = metrics.get_host_metrics("runpod-h100")
+        print(f"Host success rate: {host_metrics.success_rate:.1%}")
+
+        # Get unhealthy hosts
+        unhealthy = metrics.get_unhealthy_hosts(min_failures=3)
+        for host in unhealthy:
+            print(f"Unhealthy: {host}")
+    """
+
+    _instance: SSHMetrics | None = None
+    _instance_lock = threading.Lock()
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._host_metrics: dict[str, HostMetrics] = {}
+        self._transport_metrics: dict[str, TransportMetrics] = {}
+        self._error_categories: dict[str, int] = {}  # category -> count
+        self._start_time = time.time()
+
+        # Initialize transport metrics
+        for transport in ["tailscale", "direct", "cloudflare", "circuit_breaker"]:
+            self._transport_metrics[transport] = TransportMetrics(transport=transport)
+
+    @classmethod
+    def get_instance(cls) -> SSHMetrics:
+        """Get singleton instance."""
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton (for testing)."""
+        with cls._instance_lock:
+            cls._instance = None
+
+    def _get_or_create_host_metrics(self, host: str) -> HostMetrics:
+        """Get or create metrics for a host."""
+        with self._lock:
+            if host not in self._host_metrics:
+                self._host_metrics[host] = HostMetrics(host=host)
+            return self._host_metrics[host]
+
+    def _categorize_error(self, error: str | None) -> str:
+        """Categorize an error message for aggregation."""
+        if not error:
+            return "unknown"
+
+        error_lower = error.lower()
+
+        if "timeout" in error_lower or "timed out" in error_lower:
+            return "timeout"
+        elif "connection refused" in error_lower:
+            return "connection_refused"
+        elif "permission denied" in error_lower:
+            return "permission_denied"
+        elif "host key" in error_lower:
+            return "host_key_error"
+        elif "no route to host" in error_lower:
+            return "no_route"
+        elif "network unreachable" in error_lower or "network is unreachable" in error_lower:
+            return "network_unreachable"
+        elif "circuit breaker" in error_lower:
+            return "circuit_breaker"
+        elif "connection reset" in error_lower:
+            return "connection_reset"
+        elif "broken pipe" in error_lower:
+            return "broken_pipe"
+        else:
+            return "other"
+
+    def record_success(
+        self,
+        host: str,
+        transport: str | None = None,
+        latency_ms: float = 0.0,
+    ) -> None:
+        """Record a successful SSH operation.
+
+        Args:
+            host: The host that was contacted
+            transport: The transport used (tailscale, direct, cloudflare)
+            latency_ms: Operation latency in milliseconds
+        """
+        with self._lock:
+            # Update host metrics
+            hm = self._get_or_create_host_metrics(host)
+            hm.total_successes += 1
+            hm.last_success_time = time.time()
+            hm.total_latency_ms += latency_ms
+
+            # Update transport metrics
+            if transport and transport in self._transport_metrics:
+                self._transport_metrics[transport].total_successes += 1
+
+    def record_failure(
+        self,
+        host: str,
+        transport: str | None = None,
+        error: str | None = None,
+        timed_out: bool = False,
+    ) -> None:
+        """Record a failed SSH operation.
+
+        Args:
+            host: The host that was contacted
+            transport: The transport used (tailscale, direct, cloudflare)
+            error: Error message or description
+            timed_out: Whether the operation timed out
+        """
+        with self._lock:
+            # Update host metrics
+            hm = self._get_or_create_host_metrics(host)
+            hm.total_failures += 1
+            hm.last_failure_time = time.time()
+            hm.last_error = error
+            if timed_out:
+                hm.total_timeouts += 1
+
+            # Update transport metrics
+            if transport and transport in self._transport_metrics:
+                self._transport_metrics[transport].total_failures += 1
+
+            # Update error category
+            category = self._categorize_error(error)
+            self._error_categories[category] = self._error_categories.get(category, 0) + 1
+
+            # Log at WARNING level for visibility
+            logger.warning(
+                f"[SSHMetrics] Failure recorded: host={host}, transport={transport}, "
+                f"category={category}, error={error}"
+            )
+
+    def get_host_metrics(self, host: str) -> HostMetrics | None:
+        """Get metrics for a specific host."""
+        with self._lock:
+            return self._host_metrics.get(host)
+
+    def get_all_host_metrics(self) -> dict[str, HostMetrics]:
+        """Get metrics for all hosts."""
+        with self._lock:
+            return dict(self._host_metrics)
+
+    def get_transport_metrics(self) -> dict[str, TransportMetrics]:
+        """Get metrics for all transports."""
+        with self._lock:
+            return dict(self._transport_metrics)
+
+    def get_error_categories(self) -> dict[str, int]:
+        """Get error counts by category."""
+        with self._lock:
+            return dict(self._error_categories)
+
+    def get_unhealthy_hosts(
+        self,
+        min_failures: int = 3,
+        max_success_rate: float = 0.5,
+    ) -> list[str]:
+        """Get list of hosts considered unhealthy.
+
+        Args:
+            min_failures: Minimum failures to consider
+            max_success_rate: Maximum success rate to be considered unhealthy
+
+        Returns:
+            List of unhealthy host names
+        """
+        with self._lock:
+            unhealthy = []
+            for host, metrics in self._host_metrics.items():
+                if metrics.total_failures >= min_failures:
+                    if metrics.success_rate <= max_success_rate:
+                        unhealthy.append(host)
+            return unhealthy
+
+    def get_summary(self) -> dict[str, Any]:
+        """Get summary of SSH metrics for monitoring.
+
+        Returns:
+            Dictionary with aggregated metrics suitable for dashboards.
+        """
+        with self._lock:
+            total_successes = sum(m.total_successes for m in self._host_metrics.values())
+            total_failures = sum(m.total_failures for m in self._host_metrics.values())
+            total_timeouts = sum(m.total_timeouts for m in self._host_metrics.values())
+            total_ops = total_successes + total_failures
+
+            return {
+                "uptime_seconds": time.time() - self._start_time,
+                "total_operations": total_ops,
+                "total_successes": total_successes,
+                "total_failures": total_failures,
+                "total_timeouts": total_timeouts,
+                "success_rate": total_successes / total_ops if total_ops > 0 else 0.0,
+                "hosts_tracked": len(self._host_metrics),
+                "unhealthy_hosts": len(self.get_unhealthy_hosts()),
+                "error_categories": dict(self._error_categories),
+                "transport_stats": {
+                    t: {"successes": m.total_successes, "failures": m.total_failures, "success_rate": m.success_rate}
+                    for t, m in self._transport_metrics.items()
+                    if m.total_successes + m.total_failures > 0
+                },
+            }
+
+    def reset(self) -> None:
+        """Reset all metrics (for testing)."""
+        with self._lock:
+            self._host_metrics.clear()
+            self._error_categories.clear()
+            self._start_time = time.time()
+            for transport in self._transport_metrics.values():
+                transport.total_successes = 0
+                transport.total_failures = 0
+
+
+# Module-level singleton accessor
+def get_ssh_metrics() -> SSHMetrics:
+    """Get the singleton SSHMetrics instance."""
+    return SSHMetrics.get_instance()
+
+
+# =============================================================================
 # SSH Client
 # =============================================================================
 
@@ -418,13 +707,46 @@ class SSHClient:
         """Get connection health status."""
         return self._health
 
-    def _record_success(self) -> None:
-        """Record successful command execution."""
-        self._health.record_success()
+    def _record_success(
+        self,
+        transport: str | None = None,
+        latency_ms: float = 0.0,
+    ) -> None:
+        """Record successful command execution.
 
-    def _record_failure(self) -> None:
-        """Record failed command execution."""
+        Args:
+            transport: The transport used (tailscale, direct, cloudflare)
+            latency_ms: Operation latency in milliseconds
+        """
+        self._health.record_success()
+        # Update global metrics for observability
+        get_ssh_metrics().record_success(
+            host=self._config.host,
+            transport=transport,
+            latency_ms=latency_ms,
+        )
+
+    def _record_failure(
+        self,
+        transport: str | None = None,
+        error: str | None = None,
+        timed_out: bool = False,
+    ) -> None:
+        """Record failed command execution.
+
+        Args:
+            transport: The transport used (tailscale, direct, cloudflare)
+            error: Error message or description
+            timed_out: Whether the operation timed out
+        """
         self._health.record_failure()
+        # Update global metrics for observability
+        get_ssh_metrics().record_failure(
+            host=self._config.host,
+            transport=transport,
+            error=error,
+            timed_out=timed_out,
+        )
 
     async def _try_early_recovery_probe(self) -> bool:
         """Try an early recovery probe to test if host is back.
@@ -652,11 +974,11 @@ class SSHClient:
                         transport_used=transport_name,
                     )
 
-                    # Record health status
+                    # Record health status with transport and latency for metrics
                     if result.success:
-                        self._record_success()
+                        self._record_success(transport=transport_name, latency_ms=elapsed_ms)
                     else:
-                        self._record_failure()
+                        self._record_failure(transport=transport_name, error=result.stderr)
 
                     return result
 
@@ -664,12 +986,13 @@ class SSHClient:
                     proc.kill()
                     await proc.wait()
                     elapsed_ms = (time.time() - start_time) * 1000
-                    self._record_failure()
+                    timeout_error = f"Command timed out after {timeout}s"
+                    self._record_failure(transport=transport_name, error=timeout_error, timed_out=True)
                     return SSHResult(
                         success=False,
                         returncode=-1,
                         stdout="",
-                        stderr=f"Command timed out after {timeout}s",
+                        stderr=timeout_error,
                         elapsed_ms=elapsed_ms,
                         command=command,
                         host=self._config.host,
@@ -684,17 +1007,18 @@ class SSHClient:
                 continue
 
         elapsed_ms = (time.time() - start_time) * 1000
-        self._record_failure()
+        all_failed_error = last_error or "All transports failed"
+        self._record_failure(transport=None, error=all_failed_error)
         # December 2025: Elevated from DEBUG to WARNING for visibility
         logger.warning(
-            f"SSH to {self._config.host} failed: {last_error or 'All transports failed'} "
-            f"(tried {len(transport_order)} transports)"
+            f"SSH to {self._config.host} failed: {all_failed_error} "
+            f"(tried {len(transports)} transports)"
         )
         return SSHResult(
             success=False,
             returncode=-1,
             stdout="",
-            stderr=last_error or "All transports failed",
+            stderr=all_failed_error,
             elapsed_ms=elapsed_ms,
             command=command,
             host=self._config.host,
@@ -773,22 +1097,23 @@ class SSHClient:
                     transport_used=transport_name,
                 )
 
-                # Record health status
+                # Record health status with transport and latency for metrics
                 if ssh_result.success:
-                    self._record_success()
+                    self._record_success(transport=transport_name, latency_ms=elapsed_ms)
                 else:
-                    self._record_failure()
+                    self._record_failure(transport=transport_name, error=result.stderr)
 
                 return ssh_result
 
             except subprocess.TimeoutExpired:
                 elapsed_ms = (time.time() - start_time) * 1000
-                self._record_failure()
+                timeout_error = f"Command timed out after {timeout}s"
+                self._record_failure(transport=transport_name, error=timeout_error, timed_out=True)
                 return SSHResult(
                     success=False,
                     returncode=-1,
                     stdout="",
-                    stderr=f"Command timed out after {timeout}s",
+                    stderr=timeout_error,
                     elapsed_ms=elapsed_ms,
                     command=command,
                     host=self._config.host,
