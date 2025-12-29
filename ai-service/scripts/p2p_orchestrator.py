@@ -16141,24 +16141,7 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)})
 
-    async def handle_matchup_table(self, request: web.Request) -> web.Response:
-        """GET /matchups/table - Matchups in table format for Grafana Infinity."""
-        try:
-            matrix = await self._get_matchup_matrix_cached()
-            table_data = []
-            for matchup in matrix.get("matchups", []):
-                table_data.append({
-                    "ModelA": matchup["model_a"],
-                    "ModelB": matchup["model_b"],
-                    "AWins": matchup["a_wins"],
-                    "BWins": matchup["b_wins"],
-                    "Draws": matchup["draws"],
-                    "Total": matchup["total"],
-                    "AWinRate": round(matchup["a_win_rate"] * 100, 1),
-                })
-            return web.json_response(table_data)
-        except Exception as e:  # noqa: BLE001
-            return web.json_response([{"error": str(e)}])
+    # handle_matchup_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
 
     async def handle_model_lineage(self, request: web.Request) -> web.Response:
         """GET /models/lineage - Model ancestry and generation tracking."""
@@ -16168,22 +16151,7 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)})
 
-    async def handle_model_lineage_table(self, request: web.Request) -> web.Response:
-        """GET /models/lineage/table - Model lineage in table format for Grafana Infinity."""
-        try:
-            lineage = await self._get_model_lineage_cached()
-            table_data = []
-            for model in lineage.get("models", []):
-                table_data.append({
-                    "Name": model["name"],
-                    "Config": model["config"],
-                    "Generation": model["generation"],
-                    "SizeMB": model["size_mb"],
-                    "AgeHours": model["age_hours"],
-                })
-            return web.json_response(sorted(table_data, key=lambda x: (-x["Generation"], x["Config"])))
-        except Exception as e:  # noqa: BLE001
-            return web.json_response([{"error": str(e)}])
+    # handle_model_lineage_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
 
     async def handle_data_quality(self, request: web.Request) -> web.Response:
         """GET /data/quality - Data quality metrics and issue detection."""
