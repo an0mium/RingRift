@@ -147,7 +147,7 @@ TRAINING_COMPLETED
 
 ### Negative
 
-- Complex event dependencies require careful wiring (see `coordination_bootstrap.py`)
+- Complex event dependencies require careful wiring (see `event_subscription_registry.py` + `coordination_bootstrap.py`)
 - Debugging requires understanding event flow
 - State is distributed across multiple FeedbackState instances
 

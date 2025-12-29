@@ -289,11 +289,26 @@ dpo = get_data_pipeline_orchestrator()
 # Check event_subscriptions attribute or _subscribed flag
 ```
 
+### Delegated Wiring Registry
+
+`coordination_bootstrap` delegates some wiring via `event_subscription_registry`:
+
+```python
+from app.coordination.event_subscription_registry import (
+    INIT_CALL_REGISTRY,
+    DELEGATION_REGISTRY,
+)
+
+# DelegationSpec supports fixed_kwargs for constant payload flags
+for spec in DELEGATION_REGISTRY:
+    print(spec.event_type, spec.fixed_kwargs)
+```
+
 ## Related Documentation
 
 - `CLAUDE.md` - Daemon management and lifecycle
 - `daemon_registry.py` - Daemon specifications and dependencies
-- `event_subscription_registry.py` - Delegated event wiring (DELEGATION_REGISTRY)
+- `event_subscription_registry.py` - Delegated event wiring (INIT_CALL_REGISTRY, DELEGATION_REGISTRY)
 - `coordination_bootstrap.py` - Coordinator initialization and wiring glue
 - `DEPRECATION_GUIDE.md` - Deprecated event patterns
 

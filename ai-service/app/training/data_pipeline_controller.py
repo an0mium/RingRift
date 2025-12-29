@@ -186,7 +186,7 @@ class PipelineConfig:
 
     # Performance settings
     prefetch_count: int = 2
-    pin_memory: bool = False
+    pin_memory: bool = True  # Enable pinned memory for faster CPU->GPU transfers
     num_workers: int = 0
 
     # Filtering

@@ -919,8 +919,8 @@ timeout = get_job_timeout("training")  # 14400 seconds
 ### Base Handler Classes (December 2025)
 
 Event handlers should inherit from the canonical base in `app/coordination/handler_base.py`.
-Legacy wrappers in `base_event_handler.py` and `base_handler.py` remain for compatibility but
-are deprecated (Q2 2026).
+Legacy wrappers are consolidated here; `base_handler.py` remains as a deprecated shim, and the
+old `base_event_handler.py` module is archived at `ai-service/archive/deprecated_coordination/_deprecated_base_event_handler.py`.
 
 | Class                  | Purpose                                                                    | Use Case                |
 | ---------------------- | -------------------------------------------------------------------------- | ----------------------- |

@@ -481,7 +481,7 @@ stats = facade.get_stats()
 
 ## 4. Coordination Bootstrap API
 
-The `coordination_bootstrap` module handles initialization of all coordinators in dependency order with proper event wiring.
+The `coordination_bootstrap` module initializes coordinators in dependency order and delegates event wiring through `event_subscription_registry` (`INIT_CALL_REGISTRY`, `DELEGATION_REGISTRY`).
 
 ### Import
 
@@ -539,18 +539,19 @@ shutdown_coordination()
 
 ### Initialization Order
 
-Coordinators are initialized in dependency order across 8 layers:
+Initialization order is defined by `COORDINATOR_REGISTRY` plus the special-case `pipeline_orchestrator` (see `coordination_bootstrap.py` for the canonical list). Current layers:
 
-| Layer | Coordinators                                                                 | Purpose                |
-| ----- | ---------------------------------------------------------------------------- | ---------------------- |
-| 1     | `task_coordinator`, `resource_coordinator`, `cache_orchestrator`             | Foundational (no deps) |
-| 2     | `health_manager`, `model_coordinator`                                        | Infrastructure support |
-| 3     | `sync_coordinator`, `training_coordinator`                                   | Sync and training      |
-| 4     | `transfer_verifier`, `ephemeral_guard`, `queue_populator`                    | Data integrity         |
-| 5     | `selfplay_orchestrator`, `selfplay_scheduler`                                | Selfplay               |
-| 6     | `multi_provider`, `job_scheduler`                                            | Multi-provider jobs    |
-| 7     | Various daemons                                                              | Background automation  |
-| 8     | `metrics_orchestrator`, `optimization_coordinator`, `leadership_coordinator` | Top-level              |
+| Layer | Coordinators (summary)                                                                                                                                                                             | Purpose                         |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| 1     | `task_coordinator`, `global_task_coordinator`, `resource_coordinator`, `cache_orchestrator`                                                                                                        | Foundational (no deps)          |
+| 2     | `health_manager`, `error_coordinator` (delegated), `recovery_manager` (skipped), `model_coordinator`                                                                                               | Infrastructure support          |
+| 3     | `sync_coordinator`, `training_coordinator`                                                                                                                                                         | Sync and training               |
+| 4     | `transfer_verifier`, `ephemeral_guard`, `queue_populator`                                                                                                                                          | Data integrity                  |
+| 5     | `selfplay_orchestrator`, `selfplay_scheduler`                                                                                                                                                      | Selfplay                        |
+| 6     | `pipeline_orchestrator` (special-case), `multi_provider`, `job_scheduler`                                                                                                                          | Pipeline + jobs                 |
+| 7     | `auto_export_daemon`, `evaluation_daemon`, `model_distribution_daemon`, `idle_resource_daemon`, `quality_monitor_daemon`, `orphan_detection_daemon`, `training_activity`, `curriculum_integration` | Background automation           |
+| 8     | `metrics_orchestrator`, `optimization_coordinator`                                                                                                                                                 | Metrics + optimization          |
+| 9     | `leadership_coordinator`                                                                                                                                                                           | Top-level coordination (leader) |
 
 ---
 

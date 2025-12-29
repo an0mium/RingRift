@@ -491,42 +491,47 @@ class EloSyncManager(DatabaseSyncManager):
         return inserted
 
     def _insert_matches_locally(self, matches: list[dict]) -> int:
-        """Insert matches into local database."""
+        """Insert matches into local database.
+
+        December 29, 2025: Optimized to use bulk insert with executemany()
+        instead of N+1 individual INSERT statements.
+        """
         if not self.db_path.exists():
             return 0
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # Get existing game_ids
+        # Get existing game_ids in one query
         cursor.execute("SELECT game_id FROM match_history WHERE game_id IS NOT NULL")
         existing = {row[0] for row in cursor.fetchall()}
 
-        inserted = 0
+        # Filter to only new matches (avoid N lookups in loop)
+        new_matches = []
         for match in matches:
             game_id = match.get("game_id")
             if game_id and game_id in existing:
                 continue
-
-            cursor.execute("""
-                INSERT INTO match_history
-                (participant_a, participant_b, board_type, num_players, winner,
-                 game_length, duration_sec, timestamp, tournament_id, game_id, metadata, worker)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            new_matches.append((
                 match["participant_a"], match["participant_b"], match["board_type"],
                 match["num_players"], match.get("winner"), match.get("game_length"),
                 match.get("duration_sec"), match.get("timestamp", time.time()),
                 match.get("tournament_id"), game_id, match.get("metadata"),
                 match.get("worker")
             ))
-            inserted += 1
-            if game_id:
-                existing.add(game_id)
+
+        # Bulk insert using executemany (much faster than N individual INSERTs)
+        if new_matches:
+            cursor.executemany("""
+                INSERT INTO match_history
+                (participant_a, participant_b, board_type, num_players, winner,
+                 game_length, duration_sec, timestamp, tournament_id, game_id, metadata, worker)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, new_matches)
 
         conn.commit()
         conn.close()
-        return inserted
+        return len(new_matches)
 
     async def _push_matches_to_node(self, node: SyncNodeInfo, matches: list[dict]) -> None:
         """Push matches to a specific node."""

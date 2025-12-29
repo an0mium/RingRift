@@ -832,6 +832,7 @@ __all__ = [
     "wire_pipeline_feedback_events",
     "wire_sync_manager_events",
     # Health and status
+    "health_check",
     "verify_integration_health",
     "verify_integration_health_sync",
     "get_wiring_status",

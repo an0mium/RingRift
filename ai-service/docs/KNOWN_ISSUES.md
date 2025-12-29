@@ -104,7 +104,7 @@ result = robust_push("file.npz", "host", 22, "/path/file.npz", TransferConfig())
 **Fixes Applied:**
 
 1. Added DataEventBus -> Router bridge in `event_router.py` (Dec 27)
-2. Added subscriptions in `coordination_bootstrap.py:_wire_missing_event_subscriptions()` (Dec 28):
+2. Added delegated subscriptions in `event_subscription_registry.py` (wired via `coordination_bootstrap._wire_missing_event_subscriptions()`, Dec 28):
    - HOST_OFFLINE → UnifiedHealthManager.handle_node_offline()
    - HOST_ONLINE → UnifiedHealthManager.handle_node_online()
    - LEADER_ELECTED → LeadershipCoordinator.on_leader_change()

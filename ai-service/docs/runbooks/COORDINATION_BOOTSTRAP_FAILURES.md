@@ -4,7 +4,7 @@ This runbook covers troubleshooting failures during coordination system bootstra
 
 ## Overview
 
-The coordination bootstrap (`app/coordination/coordination_bootstrap.py`) initializes all coordinators, event subscriptions, and daemon wiring on startup. Failures here can prevent the training pipeline from starting.
+The coordination bootstrap (`app/coordination/coordination_bootstrap.py`) initializes coordinators and delegates event wiring via `event_subscription_registry`. Failures here can prevent the training pipeline from starting.
 
 ## Quick Diagnostics
 
@@ -98,12 +98,12 @@ ValueError: Coordinator 'X' depends on 'Y' which is not initialized
 **Solution:**
 
 1. Check Y's initialization first - it's the root cause
-2. Verify Y is in `COORDINATOR_REGISTRY` and `COORDINATOR_INIT_ORDER`
+2. Verify Y is in `COORDINATOR_REGISTRY` (or the special-case `pipeline_orchestrator`)
 3. Check Y's own dependencies
 
 ```python
-# Check init order
-grep -A5 "COORDINATOR_INIT_ORDER" app/coordination/coordination_bootstrap.py
+# Inspect registry ordering
+grep -n "COORDINATOR_REGISTRY" app/coordination/coordination_bootstrap.py
 ```
 
 ### 4. Event Subscription Failed
@@ -114,7 +114,7 @@ grep -A5 "COORDINATOR_INIT_ORDER" app/coordination/coordination_bootstrap.py
 Warning: Failed to subscribe X to event Y: ...
 ```
 
-**Cause:** Event type doesn't exist or handler signature wrong.
+**Cause:** Event type doesn't exist, handler signature wrong, or delegated wiring spec is stale.
 
 **Solution:**
 
@@ -131,6 +131,13 @@ print([e.name for e in DataEventType])
 # Correct signature
 async def handler(event: dict) -> None:
     pass
+```
+
+3. If the wiring comes from the delegation registry, verify the spec:
+
+```python
+from app.coordination.event_subscription_registry import DELEGATION_REGISTRY
+print([spec.name for spec in DELEGATION_REGISTRY])
 ```
 
 ### 5. Database Connection Failed
