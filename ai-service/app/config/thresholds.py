@@ -851,8 +851,14 @@ POLICY_LABEL_SMOOTHING = 0.05
 # Minimum quality score for training data (absolute floor)
 MIN_QUALITY_FOR_TRAINING = 0.3
 
+# Minimum quality for bootstrap phase (initial training with limited data)
+# December 29, 2025: Added for autonomous operation - allows training to proceed
+# with marginal quality data during bootstrap (before strong models exist)
+MIN_QUALITY_FOR_BOOTSTRAP = 0.25
+
 # Low quality threshold - triggers warnings and exploration boost
-LOW_QUALITY_THRESHOLD = 0.4
+# December 29, 2025: Reduced from 0.4 to 0.3 for better autonomous operation
+LOW_QUALITY_THRESHOLD = 0.3
 
 # Minimum quality score for priority sync (higher than training minimum)
 MIN_QUALITY_FOR_PRIORITY_SYNC = 0.5
@@ -862,7 +868,8 @@ MIN_QUALITY_FOR_PRIORITY_SYNC = 0.5
 MIN_GAMES_FOR_SYNC = 50
 
 # Medium quality threshold - baseline for "acceptable" quality
-MEDIUM_QUALITY_THRESHOLD = 0.6
+# December 29, 2025: Reduced from 0.6 to 0.5 to unblock training on marginal data
+MEDIUM_QUALITY_THRESHOLD = 0.5
 
 # High quality threshold (affects priority)
 HIGH_QUALITY_THRESHOLD = 0.7

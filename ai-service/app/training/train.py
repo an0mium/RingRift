@@ -325,6 +325,20 @@ except ImportError:
     FreshnessResult = None
     HAS_FRESHNESS_CHECK = False
 
+# Training stale data fallback (December 2025)
+# Part of 48-hour autonomous operation plan - allows training with stale data
+# after configurable sync failures or timeout
+try:
+    from app.coordination.stale_fallback import (
+        get_training_fallback_controller,
+        should_allow_stale_training,
+    )
+    HAS_STALE_FALLBACK = True
+except ImportError:
+    get_training_fallback_controller = None
+    should_allow_stale_training = None
+    HAS_STALE_FALLBACK = False
+
 # Training anomaly detection and enhancements (2025-12)
 try:
     from app.training.training_enhancements import (
@@ -840,6 +854,11 @@ def train_model(
     skip_freshness_check: bool = False,  # Default: check IS enabled
     max_data_age_hours: float = 1.0,     # Default: data must be <1 hour old
     allow_stale_data: bool = False,      # Default: FAIL on stale data (not warn)
+    # Stale fallback for 48-hour autonomous operation (December 2025)
+    # Allows training to proceed with stale data after sync failures or timeout
+    disable_stale_fallback: bool = False,  # If True, no automatic fallback
+    max_sync_failures: int = 5,            # Failures before fallback allowed
+    max_sync_duration: float = 2700.0,     # Seconds (45 min) before fallback
     # Checkpoint averaging (2025-12)
     # Averages last N checkpoints at end of training for +10-20 Elo improvement
     enable_checkpoint_averaging: bool = True,

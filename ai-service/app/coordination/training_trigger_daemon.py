@@ -197,6 +197,12 @@ class TrainingTriggerDaemon(HandlerBase):
             "retries_succeeded": 0,
             "retries_exhausted": 0,
         }
+        # December 29, 2025 (Phase 2): Timeout watchdog stats
+        self._timeout_stats = {
+            "timeouts_detected": 0,
+            "processes_killed": 0,
+            "last_timeout_time": 0.0,
+        }
 
     def _init_state_db(self) -> None:
         """Initialize the SQLite state database (Phase 3 - December 2025).
@@ -1963,6 +1969,8 @@ class TrainingTriggerDaemon(HandlerBase):
 
             # Training has exceeded timeout
             elapsed_hours = elapsed / 3600
+            self._timeout_stats["timeouts_detected"] += 1
+            self._timeout_stats["last_timeout_time"] = now
             logger.warning(
                 f"[TrainingTriggerDaemon] Training timeout for {config_key}: "
                 f"running for {elapsed_hours:.1f}h (limit: {self.config.training_timeout_hours}h)"
@@ -1972,6 +1980,7 @@ class TrainingTriggerDaemon(HandlerBase):
             if state.training_pid is not None:
                 try:
                     os.kill(state.training_pid, 9)  # SIGKILL
+                    self._timeout_stats["processes_killed"] += 1
                     logger.info(
                         f"[TrainingTriggerDaemon] Killed timed-out training process "
                         f"PID {state.training_pid} for {config_key}"
@@ -2099,6 +2108,9 @@ class TrainingTriggerDaemon(HandlerBase):
             # December 29, 2025 (Phase 4): Backpressure status
             "evaluation_backpressure": self._evaluation_backpressure,
             "backpressure_stats": dict(self._backpressure_stats),
+            # December 29, 2025 (Phase 2): Timeout watchdog stats
+            "timeout_stats": dict(self._timeout_stats),
+            "training_timeout_hours": self.config.training_timeout_hours,
             "states": {
                 key: {
                     "training_in_progress": state.training_in_progress,
