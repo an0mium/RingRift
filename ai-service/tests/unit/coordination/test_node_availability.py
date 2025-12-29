@@ -390,12 +390,13 @@ class TestLambdaChecker:
     def test_disabled_without_api_key(self) -> None:
         """Test checker is disabled without API key."""
         with patch.dict(os.environ, {}, clear=True):
-            from app.coordination.node_availability.providers.lambda_checker import (
-                LambdaChecker,
-            )
+            with patch("os.path.exists", return_value=False):
+                from app.coordination.node_availability.providers.lambda_checker import (
+                    LambdaChecker,
+                )
 
-            checker = LambdaChecker()
-            assert not checker.is_enabled
+                checker = LambdaChecker()
+                assert not checker.is_enabled
 
     def test_state_mapping(self) -> None:
         """Test Lambda Labs state mapping."""

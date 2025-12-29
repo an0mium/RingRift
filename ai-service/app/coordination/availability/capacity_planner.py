@@ -255,6 +255,10 @@ class CapacityPlanner(BaseDaemon):
         self._utilization_history: list[UtilizationMetrics] = []
         self._cost_history: list[tuple[datetime, float]] = []
 
+    def _get_default_config(self) -> CapacityPlannerConfig:
+        """Return default configuration."""
+        return CapacityPlannerConfig.from_env()
+
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to cost-related events."""
         return {

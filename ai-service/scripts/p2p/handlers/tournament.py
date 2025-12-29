@@ -154,7 +154,14 @@ class TournamentHandlersMixin(BaseP2PHandler):
             logger.info(f"Started tournament {job_id}: {len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
 
             # Launch coordinator task via JobManager
-            asyncio.create_task(self.job_manager.run_distributed_tournament(job_id))
+            # Dec 28, 2025: Added error callback to log task failures
+            async def _run_tournament_with_logging():
+                try:
+                    await self.job_manager.run_distributed_tournament(job_id)
+                except Exception as e:
+                    logger.exception(f"Tournament coordinator task failed for {job_id}: {e}")
+
+            asyncio.create_task(_run_tournament_with_logging())
 
             return self.json_response({
                 "success": True,

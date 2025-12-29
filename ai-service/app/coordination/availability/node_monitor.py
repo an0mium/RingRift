@@ -100,6 +100,10 @@ class NodeMonitor(BaseDaemon):
         self._last_healthy: dict[str, datetime] = {}
         self._health_history: dict[str, list[NodeHealthResult]] = {}
 
+    def _get_default_config(self) -> NodeMonitorConfig:
+        """Return default configuration."""
+        return NodeMonitorConfig()
+
     def set_nodes(self, nodes: list[ClusterNode]) -> None:
         """Update the list of nodes to monitor."""
         self._nodes = nodes

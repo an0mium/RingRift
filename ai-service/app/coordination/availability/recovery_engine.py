@@ -139,6 +139,10 @@ class RecoveryEngine(BaseDaemon):
         self._recovery_queue: asyncio.Queue[tuple[str, NodeHealthResult]] = asyncio.Queue()
         self._recovery_history: list[RecoveryResult] = []
 
+    def _get_default_config(self) -> RecoveryEngineConfig:
+        """Return default configuration."""
+        return RecoveryEngineConfig()
+
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to recovery-related events."""
         return {
