@@ -66,6 +66,8 @@ Subscribers (handlers)
 
 ## Subscription Wiring
 
+Event wiring is delegated through `app/coordination/event_subscription_registry.py` and executed during `coordination_bootstrap` initialization.
+
 ### Check Subscription Status
 
 ```bash

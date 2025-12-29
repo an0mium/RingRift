@@ -1365,6 +1365,29 @@ async def create_metrics_analysis() -> None:
         raise
 
 
+async def create_per_orchestrator() -> None:
+    """Create and run PER (Prioritized Experience Replay) orchestrator (December 2025).
+
+    Monitors PER buffer events across the training system. Subscribes to
+    PER_BUFFER_REBUILT and PER_PRIORITIES_UPDATED events.
+    """
+    import asyncio
+
+    try:
+        from app.training.per_orchestrator import wire_per_events
+
+        # Wire events and get orchestrator
+        orchestrator = wire_per_events()
+        if orchestrator:
+            logger.info("[PEROrchestrator] Started and subscribed to events")
+            # Keep daemon running
+            while True:
+                await asyncio.sleep(60)
+    except ImportError as e:
+        logger.error(f"PEROrchestrator not available: {e}")
+        raise
+
+
 async def create_data_consolidation() -> None:
     """Create and run data consolidation daemon (December 2025).
 
