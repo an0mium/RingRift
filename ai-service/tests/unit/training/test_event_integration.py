@@ -1254,3 +1254,756 @@ class TestModuleExports:
         assert TrainingTopics is not None
         assert TrainingEvent is not None
         assert publish_training_started is not None
+
+
+# =============================================================================
+# Additional Edge Case Tests
+# =============================================================================
+
+
+class TestEventFieldTypes:
+    """Tests for event field types and validation."""
+
+    def test_training_event_inherits_from_event(self) -> None:
+        """Test that TrainingEvent inherits from base Event."""
+        from app.core.event_bus import Event
+        from app.training.event_integration import TrainingEvent
+
+        assert issubclass(TrainingEvent, Event)
+
+    def test_event_timestamp_is_populated(self) -> None:
+        """Test that event timestamp is auto-populated."""
+        import time
+        from app.training.event_integration import TrainingEvent
+
+        before = time.time()
+        event = TrainingEvent()
+        after = time.time()
+
+        assert before <= event.timestamp <= after
+
+    def test_event_has_default_source(self) -> None:
+        """Test default source field."""
+        from app.training.event_integration import TrainingEvent
+
+        event = TrainingEvent()
+        assert event.source == ""
+
+    def test_event_has_default_metadata(self) -> None:
+        """Test default metadata field."""
+        from app.training.event_integration import TrainingEvent
+
+        event = TrainingEvent()
+        assert event.metadata == {}
+
+    def test_training_event_with_metadata(self) -> None:
+        """Test setting custom metadata."""
+        from app.training.event_integration import TrainingEvent
+
+        event = TrainingEvent(
+            config_key="hex8_2p",
+            metadata={"custom_field": "value", "count": 42},
+        )
+        assert event.metadata["custom_field"] == "value"
+        assert event.metadata["count"] == 42
+
+
+class TestEloChangedEventEdgeCases:
+    """Edge case tests for EloChangedEvent."""
+
+    def test_elo_unchanged(self) -> None:
+        """Test when Elo doesn't change."""
+        from app.training.event_integration import EloChangedEvent
+
+        event = EloChangedEvent(
+            old_elo=1500.0,
+            new_elo=1500.0,
+            elo_delta=0.0,
+            is_improvement=False,
+            is_drop=False,
+        )
+        assert event.elo_delta == 0.0
+        assert event.is_improvement is False
+        assert event.is_drop is False
+
+    def test_small_elo_drop_not_significant(self) -> None:
+        """Test that small Elo drop is not marked as significant."""
+        from app.training.event_integration import EloChangedEvent
+
+        event = EloChangedEvent(
+            old_elo=1500.0,
+            new_elo=1495.0,
+            elo_delta=-5.0,
+            is_improvement=False,
+            is_drop=False,  # Only > -10 is significant drop
+        )
+        assert event.is_drop is False
+
+    def test_negative_elo_values(self) -> None:
+        """Test handling of negative Elo values."""
+        from app.training.event_integration import EloChangedEvent
+
+        event = EloChangedEvent(
+            old_elo=-100.0,
+            new_elo=-50.0,
+            elo_delta=50.0,
+            is_improvement=True,
+        )
+        assert event.old_elo == -100.0
+        assert event.new_elo == -50.0
+        assert event.is_improvement is True
+
+    def test_very_large_elo_values(self) -> None:
+        """Test handling of very large Elo values."""
+        from app.training.event_integration import EloChangedEvent
+
+        event = EloChangedEvent(
+            old_elo=9999.0,
+            new_elo=10000.0,
+            elo_delta=1.0,
+            is_improvement=True,
+        )
+        assert event.old_elo == 9999.0
+        assert event.new_elo == 10000.0
+
+
+class TestPublisherEdgeCases:
+    """Edge case tests for publisher functions."""
+
+    @pytest.mark.asyncio
+    async def test_publish_training_started_minimal_args(self) -> None:
+        """Test publishing with minimal arguments."""
+        from app.training.event_integration import publish_training_started
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            result = await publish_training_started(config_key="hex8_2p")
+
+            assert result == 1
+            event = mock_publish.call_args[0][0]
+            assert event.config_key == "hex8_2p"
+            assert event.job_id == ""
+            assert event.total_epochs == 0
+
+    @pytest.mark.asyncio
+    async def test_publish_training_failed_with_custom_exception(self) -> None:
+        """Test publishing with custom exception types."""
+        from app.training.event_integration import publish_training_failed
+
+        class CustomTrainingError(Exception):
+            pass
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            error = CustomTrainingError("Custom error message")
+            await publish_training_failed(
+                config_key="hex8_2p",
+                error=error,
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.error_type == "CustomTrainingError"
+            assert "Custom error message" in event.error_message
+
+    @pytest.mark.asyncio
+    async def test_publish_evaluation_completed_with_empty_results(self) -> None:
+        """Test publishing with empty baseline results."""
+        from app.training.event_integration import publish_evaluation_completed
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_evaluation_completed(
+                config_key="hex8_2p",
+                eval_step=0,
+                elo=0.0,
+                games_played=0,
+                win_rate=0.0,
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.baseline_results == {}
+            assert event.failed_baselines == []
+
+    @pytest.mark.asyncio
+    async def test_publish_evaluation_completed_with_failed_baselines(self) -> None:
+        """Test publishing with failed baselines."""
+        from app.training.event_integration import publish_evaluation_completed
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_evaluation_completed(
+                config_key="hex8_2p",
+                eval_step=100,
+                elo=1400.0,
+                games_played=50,
+                win_rate=0.45,
+                baseline_results={"random": 0.50, "heuristic": 0.30},
+                passes_gating=False,
+                failed_baselines=["heuristic"],
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.passes_gating is False
+            assert "heuristic" in event.failed_baselines
+
+    @pytest.mark.asyncio
+    async def test_publish_elo_changed_exact_threshold(self) -> None:
+        """Test Elo changed event at exact -10 threshold."""
+        from app.training.event_integration import publish_elo_changed
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_elo_changed(
+                config_key="hex8_2p",
+                old_elo=1500.0,
+                new_elo=1490.0,  # Exactly -10
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.elo_delta == -10.0
+            # is_drop is True when delta < -10, so -10 exactly is False
+            assert event.is_drop is False
+
+    @pytest.mark.asyncio
+    async def test_publish_elo_changed_just_over_threshold(self) -> None:
+        """Test Elo changed event just over -10 threshold."""
+        from app.training.event_integration import publish_elo_changed
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_elo_changed(
+                config_key="hex8_2p",
+                old_elo=1500.0,
+                new_elo=1489.0,  # -11, just over threshold
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.elo_delta == -11.0
+            assert event.is_drop is True
+
+    @pytest.mark.asyncio
+    async def test_publish_checkpoint_saved_with_metrics(self) -> None:
+        """Test publishing checkpoint with metrics dict."""
+        from app.training.event_integration import publish_checkpoint_saved
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_checkpoint_saved(
+                config_key="hex8_2p",
+                checkpoint_path="/models/best.pth",
+                step=5000,
+                is_best=True,
+                elo_at_save=1650.0,
+                metrics={
+                    "loss": 0.05,
+                    "accuracy": 0.95,
+                    "learning_rate": 0.0001,
+                },
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.metrics["loss"] == 0.05
+            assert event.metrics["accuracy"] == 0.95
+
+
+class TestCompositeEventEdgeCases:
+    """Edge case tests for composite ELO events."""
+
+    @pytest.mark.asyncio
+    async def test_publish_composite_elo_negative_delta(self) -> None:
+        """Test composite Elo with negative delta."""
+        from app.training.event_integration import publish_composite_elo_updated
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_composite_elo_updated(
+                nn_id="nn-123",
+                ai_type="gumbel",
+                config_hash="abc",
+                participant_id="nn-123_gumbel",
+                old_elo=1600.0,
+                new_elo=1550.0,
+                games_played=50,
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.elo_delta == -50.0
+            assert event.is_improvement is False
+
+    @pytest.mark.asyncio
+    async def test_publish_composite_gauntlet_with_empty_top_nns(self) -> None:
+        """Test gauntlet with no passing NNs."""
+        from app.training.event_integration import publish_composite_gauntlet_completed
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_composite_gauntlet_completed(
+                board_type="hex8",
+                num_players=2,
+                phase1_nn_count=10,
+                phase1_passed_count=0,
+                phase2_participants=0,
+                total_games_played=100,
+                duration_seconds=600.0,
+                top_nn_ids=None,  # None should become empty list
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.top_nn_ids == []
+
+    @pytest.mark.asyncio
+    async def test_publish_composite_nn_culled_all_algorithms(self) -> None:
+        """Test culled NN with all algorithms tested."""
+        from app.training.event_integration import publish_composite_nn_culled
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_composite_nn_culled(
+                nn_id="nn-weak",
+                reason="redundant",
+                final_elo=1000.0,
+                games_played=1000,
+                cull_level=2,
+                algorithms_tested=["gumbel", "mcts", "policy-only", "nnue-guided"],
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert len(event.algorithms_tested) == 4
+            assert event.cull_level == 2
+
+    @pytest.mark.asyncio
+    async def test_publish_composite_consistency_unhealthy(self) -> None:
+        """Test consistency check with failures."""
+        from app.training.event_integration import publish_composite_consistency_check
+
+        with patch("app.training.event_integration.publish") as mock_publish:
+            mock_publish.return_value = 1
+
+            await publish_composite_consistency_check(
+                overall_healthy=False,
+                checks_passed=2,
+                checks_failed=2,
+                warnings_count=5,
+                errors_count=3,
+                check_results={
+                    "nn_consistency": True,
+                    "algorithm_stability": True,
+                    "transitivity": False,
+                    "baseline_anchoring": False,
+                },
+            )
+
+            event = mock_publish.call_args[0][0]
+            assert event.overall_healthy is False
+            assert event.checks_failed == 2
+            assert event.errors_count == 3
+
+
+class TestUnifiedRoutingEdgeCases:
+    """Edge case tests for unified routing."""
+
+    @pytest.mark.asyncio
+    async def test_route_to_unified_router_none(self) -> None:
+        """Test when unified router returns None."""
+        from app.training.event_integration import _route_to_unified
+
+        with patch("app.training.event_integration.HAS_UNIFIED_ROUTER", True):
+            with patch("app.training.event_integration.get_unified_router") as mock_get:
+                mock_get.return_value = None
+
+                # Should not raise
+                await _route_to_unified("test.event", {"key": "value"})
+
+    @pytest.mark.asyncio
+    async def test_route_to_unified_router_raises(self) -> None:
+        """Test graceful handling when unified router raises."""
+        from app.training.event_integration import _route_to_unified
+
+        with patch("app.training.event_integration.HAS_UNIFIED_ROUTER", True):
+            with patch("app.training.event_integration.get_unified_router") as mock_get:
+                mock_router = AsyncMock()
+                mock_router.publish.side_effect = RuntimeError("Router failed")
+                mock_get.return_value = mock_router
+
+                # Should not raise, just log
+                await _route_to_unified("test.event", {"key": "value"})
+
+    def test_route_to_unified_sync_no_publish_sync_method(self) -> None:
+        """Test sync routing when router has no publish_sync method."""
+        from app.training.event_integration import _route_to_unified_sync
+
+        with patch("app.training.event_integration.HAS_UNIFIED_ROUTER", True):
+            with patch("app.training.event_integration.get_unified_router") as mock_get:
+                mock_router = MagicMock(spec=[])  # No publish_sync method
+                mock_get.return_value = mock_router
+
+                # Should not raise
+                _route_to_unified_sync("test.event", {"key": "value"})
+
+    def test_route_to_unified_sync_raises(self) -> None:
+        """Test sync routing graceful handling on exception."""
+        from app.training.event_integration import _route_to_unified_sync
+
+        with patch("app.training.event_integration.HAS_UNIFIED_ROUTER", True):
+            with patch("app.training.event_integration.get_unified_router") as mock_get:
+                mock_router = MagicMock()
+                mock_router.publish_sync.side_effect = RuntimeError("Sync failed")
+                mock_get.return_value = mock_router
+
+                # Should not raise
+                _route_to_unified_sync("test.event", {"key": "value"})
+
+
+class TestSyncPublishersEdgeCases:
+    """Edge case tests for synchronous publishers."""
+
+    def test_publish_training_started_sync_with_kwargs(self) -> None:
+        """Test sync publishing with extra kwargs."""
+        from app.training.event_integration import publish_training_started_sync
+
+        with patch("app.training.event_integration.get_event_bus") as mock_bus:
+            mock_instance = MagicMock()
+            mock_instance.publish_sync.return_value = 1
+            mock_bus.return_value = mock_instance
+
+            result = publish_training_started_sync(
+                config_key="hex8_2p",
+                job_id="job-123",
+                total_epochs=50,
+                batch_size=512,
+            )
+
+            assert result == 1
+            event = mock_instance.publish_sync.call_args[0][0]
+            assert event.total_epochs == 50
+            assert event.batch_size == 512
+
+    def test_publish_step_completed_sync_with_kwargs(self) -> None:
+        """Test step completed sync with optional kwargs."""
+        from app.training.event_integration import publish_step_completed_sync
+
+        with patch("app.training.event_integration.get_event_bus") as mock_bus:
+            mock_instance = MagicMock()
+            mock_instance.publish_sync.return_value = 1
+            mock_bus.return_value = mock_instance
+
+            result = publish_step_completed_sync(
+                config_key="hex8_2p",
+                step=1000,
+                loss=0.5,
+                learning_rate=0.001,
+                samples_per_second=5000.0,
+                job_id="job-abc",
+            )
+
+            assert result == 1
+            event = mock_instance.publish_sync.call_args[0][0]
+            assert event.learning_rate == 0.001
+            assert event.samples_per_second == 5000.0
+
+    def test_publish_checkpoint_saved_sync_with_kwargs(self) -> None:
+        """Test checkpoint sync with optional kwargs."""
+        from app.training.event_integration import publish_checkpoint_saved_sync
+
+        with patch("app.training.event_integration.get_event_bus") as mock_bus:
+            mock_instance = MagicMock()
+            mock_instance.publish_sync.return_value = 1
+            mock_bus.return_value = mock_instance
+
+            result = publish_checkpoint_saved_sync(
+                config_key="hex8_2p",
+                checkpoint_path="/models/step_1000.pth",
+                step=1000,
+                is_best=True,
+                elo_at_save=1650.0,
+            )
+
+            assert result == 1
+            event = mock_instance.publish_sync.call_args[0][0]
+            assert event.is_best is True
+            assert event.elo_at_save == 1650.0
+
+
+class TestWiringEdgeCases:
+    """Edge case tests for wiring functions."""
+
+    def test_wire_background_evaluator_process_with_events(self) -> None:
+        """Test wired evaluator processes result and publishes events."""
+        from app.training.event_integration import wire_background_evaluator_events
+
+        evaluator = MagicMock()
+        original_process = MagicMock()
+        evaluator._process_result = original_process
+        evaluator._config_key = "hex8_2p"
+        # Set initial elo so delta calculation works
+        evaluator._last_published_elo = 1500.0
+
+        wire_background_evaluator_events(evaluator)
+
+        # Create mock result with concrete values (not MagicMock)
+        result = MagicMock()
+        result.step = 100
+        result.elo_estimate = 1550.0  # Concrete float, not MagicMock
+        result.games_played = 50
+        result.win_rate = 0.85
+        result.baseline_results = {"random": 0.95}
+        result.passes_baseline_gating = True
+        result.failed_baselines = []
+
+        # Call the wired function
+        with patch("app.training.event_integration.get_event_bus") as mock_bus:
+            mock_instance = MagicMock()
+            mock_bus.return_value = mock_instance
+
+            evaluator._process_result(result)
+
+        # Original should have been called
+        original_process.assert_called_once_with(result)
+
+    def test_wire_checkpoint_manager_save_with_events(self) -> None:
+        """Test wired checkpoint manager saves and publishes events."""
+        from app.training.event_integration import wire_checkpoint_manager_events
+
+        manager = MagicMock()
+        original_save = MagicMock()
+
+        # Mock return value with path and step
+        mock_result = MagicMock()
+        mock_result.path = "/models/checkpoint.pth"
+        mock_result.step = 1000
+        mock_result.is_best = True
+        original_save.return_value = mock_result
+        manager.save_checkpoint = original_save
+
+        wire_checkpoint_manager_events(manager, config_key="hex8_2p")
+
+        # Call the wired function
+        with patch("app.training.event_integration.publish_checkpoint_saved_sync") as mock_publish:
+            result = manager.save_checkpoint(step=1000)
+
+        # Original should have been called
+        original_save.assert_called_once_with(step=1000)
+        assert result == mock_result
+
+    def test_wire_checkpoint_manager_save_returns_none(self) -> None:
+        """Test wired checkpoint manager when save returns None."""
+        from app.training.event_integration import wire_checkpoint_manager_events
+
+        manager = MagicMock()
+        original_save = MagicMock()
+        original_save.return_value = None
+        manager.save_checkpoint = original_save
+
+        wire_checkpoint_manager_events(manager, config_key="hex8_2p")
+
+        with patch("app.training.event_integration.publish_checkpoint_saved_sync") as mock_publish:
+            result = manager.save_checkpoint()
+
+        # Should not publish when result is None
+        mock_publish.assert_not_called()
+        assert result is None
+
+
+class TestSubscriptionPatterns:
+    """Tests for subscription pattern matching."""
+
+    def test_subscribe_to_training_all_pattern(self) -> None:
+        """Test subscription to all training events."""
+        from app.training.event_integration import (
+            subscribe_to_training_events,
+            TrainingTopics,
+        )
+
+        with patch("app.training.event_integration.subscribe") as mock_subscribe:
+            decorator = subscribe_to_training_events(TrainingTopics.ALL_TRAINING)
+            mock_subscribe.assert_called_once()
+            # Pattern should be used for wildcard
+            call_args = mock_subscribe.call_args
+            assert "*" not in str(call_args[0][0])  # Should be converted to regex
+
+    def test_subscribe_to_checkpoint_pattern(self) -> None:
+        """Test subscription to checkpoint events pattern."""
+        from app.training.event_integration import (
+            subscribe_to_training_events,
+            TrainingTopics,
+        )
+
+        with patch("app.training.event_integration.subscribe") as mock_subscribe:
+            decorator = subscribe_to_training_events(TrainingTopics.ALL_CHECKPOINT)
+            mock_subscribe.assert_called_once()
+
+    def test_subscribe_to_selfplay_pattern(self) -> None:
+        """Test subscription to selfplay events pattern."""
+        from app.training.event_integration import (
+            subscribe_to_training_events,
+            TrainingTopics,
+        )
+
+        with patch("app.training.event_integration.subscribe") as mock_subscribe:
+            decorator = subscribe_to_training_events(TrainingTopics.ALL_SELFPLAY)
+            mock_subscribe.assert_called_once()
+
+
+class TestEventDataclassFields:
+    """Tests for dataclass field behavior."""
+
+    def test_composite_gauntlet_event_field_defaults(self) -> None:
+        """Test that mutable default fields are independent."""
+        from app.training.event_integration import CompositeGauntletCompletedEvent
+
+        event1 = CompositeGauntletCompletedEvent()
+        event2 = CompositeGauntletCompletedEvent()
+
+        event1.top_nn_ids.append("nn-1")
+
+        # event2 should have empty list (not shared reference)
+        assert event2.top_nn_ids == []
+
+    def test_evaluation_completed_field_defaults(self) -> None:
+        """Test mutable defaults for evaluation completed event."""
+        from app.training.event_integration import EvaluationCompletedEvent
+
+        event1 = EvaluationCompletedEvent()
+        event2 = EvaluationCompletedEvent()
+
+        event1.baseline_results["random"] = 0.9
+        event1.failed_baselines.append("heuristic")
+
+        # event2 should have independent dicts/lists
+        assert event2.baseline_results == {}
+        assert event2.failed_baselines == []
+
+    def test_checkpoint_saved_metrics_default(self) -> None:
+        """Test metrics dict default is independent."""
+        from app.training.event_integration import CheckpointSavedEvent
+
+        event1 = CheckpointSavedEvent()
+        event2 = CheckpointSavedEvent()
+
+        event1.metrics["loss"] = 0.1
+
+        assert event2.metrics == {}
+
+
+class TestTrainingTopicsCompleteness:
+    """Tests to ensure all topic constants are defined."""
+
+    def test_all_lifecycle_topics_defined(self) -> None:
+        """Test all lifecycle topics are defined."""
+        from app.training.event_integration import TrainingTopics
+
+        lifecycle_topics = [
+            "TRAINING_STARTED",
+            "TRAINING_COMPLETED",
+            "TRAINING_FAILED",
+            "EPOCH_COMPLETED",
+            "STEP_COMPLETED",
+        ]
+        for topic in lifecycle_topics:
+            assert hasattr(TrainingTopics, topic), f"Missing topic: {topic}"
+
+    def test_all_eval_topics_defined(self) -> None:
+        """Test all evaluation topics are defined."""
+        from app.training.event_integration import TrainingTopics
+
+        eval_topics = [
+            "EVAL_COMPLETED",
+            "ELO_CHANGED",
+            "BASELINE_GATING_FAILED",
+        ]
+        for topic in eval_topics:
+            assert hasattr(TrainingTopics, topic), f"Missing topic: {topic}"
+
+    def test_all_checkpoint_topics_defined(self) -> None:
+        """Test all checkpoint topics are defined."""
+        from app.training.event_integration import TrainingTopics
+
+        checkpoint_topics = [
+            "CHECKPOINT_SAVED",
+            "CHECKPOINT_LOADED",
+            "CHECKPOINT_ERROR",
+        ]
+        for topic in checkpoint_topics:
+            assert hasattr(TrainingTopics, topic), f"Missing topic: {topic}"
+
+    def test_all_model_topics_defined(self) -> None:
+        """Test all model topics are defined."""
+        from app.training.event_integration import TrainingTopics
+
+        model_topics = [
+            "MODEL_PROMOTED",
+            "MODEL_ROLLED_BACK",
+        ]
+        for topic in model_topics:
+            assert hasattr(TrainingTopics, topic), f"Missing topic: {topic}"
+
+    def test_all_composite_topics_defined(self) -> None:
+        """Test all composite ELO topics are defined."""
+        from app.training.event_integration import TrainingTopics
+
+        composite_topics = [
+            "COMPOSITE_ELO_UPDATED",
+            "COMPOSITE_GAUNTLET_COMPLETED",
+            "COMPOSITE_NN_CULLED",
+            "COMPOSITE_ALGORITHM_RANKING",
+            "COMPOSITE_CONSISTENCY_CHECK",
+        ]
+        for topic in composite_topics:
+            assert hasattr(TrainingTopics, topic), f"Missing topic: {topic}"
+
+
+class TestEventToDict:
+    """Tests for event serialization."""
+
+    def test_training_event_to_dict(self) -> None:
+        """Test TrainingEvent can be serialized."""
+        from app.training.event_integration import TrainingEvent
+
+        event = TrainingEvent(
+            topic="training.test",
+            config_key="hex8_2p",
+            job_id="job-123",
+            source="test",
+        )
+
+        data = event.to_dict()
+        assert data["topic"] == "training.test"
+        assert data["source"] == "test"
+        assert data["type"] == "TrainingEvent"
+
+    def test_training_completed_event_to_dict(self) -> None:
+        """Test TrainingCompletedEvent can be serialized."""
+        from app.training.event_integration import TrainingCompletedEvent
+
+        event = TrainingCompletedEvent(
+            topic="training.completed",
+            config_key="hex8_2p",
+            epochs_completed=50,
+            final_loss=0.05,
+        )
+
+        data = event.to_dict()
+        assert data["type"] == "TrainingCompletedEvent"
+
+    def test_composite_event_to_dict(self) -> None:
+        """Test CompositeEloUpdatedEvent can be serialized."""
+        from app.training.event_integration import CompositeEloUpdatedEvent
+
+        event = CompositeEloUpdatedEvent(
+            topic="training.composite.elo_updated",
+            board_type="hex8",
+            nn_id="nn-123",
+        )
+
+        data = event.to_dict()
+        assert data["type"] == "CompositeEloUpdatedEvent"

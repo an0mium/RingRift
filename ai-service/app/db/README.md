@@ -63,7 +63,7 @@ db = GameReplayDB("data/games/selfplay_hex8_2p.db")
 games = db.query_games(
     board_type="hex8",
     num_players=2,
-    winner=0,  # Player 0 won
+    winner=1,  # playerNumber (1-based)
     limit=100,
 )
 
@@ -84,15 +84,16 @@ print(f"Quality: {metadata.get('quality_score', 'N/A')}")
 
 #### Key Methods
 
-| Method                 | Description                 |
-| ---------------------- | --------------------------- |
-| `query_games()`        | Filter games by criteria    |
-| `get_initial_state()`  | Get starting state          |
-| `get_moves()`          | Get all moves for a game    |
-| `get_state_at_move()`  | Reconstruct state at move N |
-| `get_game_metadata()`  | Get game summary data       |
-| `count_games()`        | Count matching games        |
-| `get_training_batch()` | Get batch for training      |
+| Method                             | Description                            |
+| ---------------------------------- | -------------------------------------- |
+| `query_games()`                    | Filter games by metadata criteria      |
+| `get_game_metadata()`              | Get game summary data                  |
+| `get_initial_state()`              | Get starting state                     |
+| `get_moves()`                      | Get all moves for a game               |
+| `get_state_at_move()`              | Reconstruct state at move N            |
+| `get_choices_at_move()`            | Get recorded player choices at a move  |
+| `get_nnue_features()`              | Load cached NNUE features for a game   |
+| `get_nnue_features_for_training()` | Stream cached features by board config |
 
 ### UnifiedGameRecorder
 
@@ -105,39 +106,46 @@ from app.db import (
     RecordSource,
 )
 
-# Create recorder with config
 config = RecordingConfig(
     board_type="hex8",
     num_players=2,
-    source=RecordSource.GUMBEL_MCTS,
-    enable_parity_check=True,
-    enable_nnue_cache=True,
+    source=RecordSource.SELF_PLAY,
+    parity_mode="strict",
     snapshot_interval=20,
 )
 
-recorder = UnifiedGameRecorder(config)
+with UnifiedGameRecorder(config, initial_state) as recorder:
+    for move, state_after in move_stream:
+        recorder.add_move(move, state_after=state_after)
+    recorder.finalize(final_state, extra_metadata={"model_id": "v2"})
+```
 
-# Record a game
-game_id = recorder.record_game(
-    initial_state=state,
+For completed games already in memory, use the one-shot helper:
+
+```python
+from app.db import record_game_unified, RecordingConfig, RecordSource
+
+game_id = record_game_unified(
+    config=config,
+    initial_state=initial_state,
+    final_state=final_state,
     moves=moves,
-    player_moves=player_moves,  # Per-turn info
-    winner=winner,
-    metadata={"model_version": "v2"},
+    extra_metadata={"model_id": "v2"},
+    with_parity_check=True,
 )
-
-print(f"Recorded game {game_id}")
 ```
 
 #### Record Sources
 
-| Source        | Description          | Quality Weight |
-| ------------- | -------------------- | -------------- |
-| `GUMBEL_MCTS` | Gumbel MCTS selfplay | High           |
-| `NNUE_GUIDED` | NNUE-guided search   | Medium-High    |
-| `HEURISTIC`   | Heuristic-only       | Low            |
-| `HUMAN`       | Human gameplay       | Variable       |
-| `REPLAY`      | Imported replay      | Variable       |
+| Source                    | Description                        |
+| ------------------------- | ---------------------------------- |
+| `RecordSource.SELF_PLAY`  | Self-play data collection          |
+| `RecordSource.SOAK_TEST`  | Long-running soak tests            |
+| `RecordSource.CMAES`      | CMA-ES optimization runs           |
+| `RecordSource.GAUNTLET`   | Evaluation gauntlets               |
+| `RecordSource.TOURNAMENT` | Tournament games                   |
+| `RecordSource.TRAINING`   | Training data generation           |
+| `RecordSource.MANUAL`     | Manual imports / ad-hoc recordings |
 
 ### Parity Validator
 
@@ -220,60 +228,30 @@ if not is_valid:
 
 ## Schema
 
-Current schema version: **11**
+Current schema version: **15** (see `app/db/game_replay.py`).
+
+For column-level definitions, see
+[`../../docs/specs/GAME_REPLAY_DATABASE_SPEC.md`](../../docs/specs/GAME_REPLAY_DATABASE_SPEC.md).
 
 ### Tables
 
-#### `games`
+| Table                  | Purpose                                                             |
+| ---------------------- | ------------------------------------------------------------------- |
+| `games`                | Game metadata (status, winner, source, quality, parity status)      |
+| `game_players`         | Per-player final stats (eliminated rings, territory, rings in hand) |
+| `game_initial_state`   | Serialized initial `GameState`                                      |
+| `game_moves`           | Ordered move list with metadata (0-based `move_number`)             |
+| `game_state_snapshots` | Periodic state snapshots + hashes for validation/training           |
+| `game_history_entries` | Optional before/after states + available moves for parity debugging |
+| `game_choices`         | PlayerChoice payloads captured during decision phases               |
+| `game_nnue_features`   | Cached NNUE features for training                                   |
+| `schema_metadata`      | Schema version key/value                                            |
+| `orphaned_games`       | Quarantine table for invalid/partial records                        |
 
-Main table storing game metadata:
+Notes:
 
-| Column             | Type    | Description          |
-| ------------------ | ------- | -------------------- |
-| `game_id`          | TEXT PK | UUID identifier      |
-| `board_type`       | TEXT    | hex8, square8, etc.  |
-| `num_players`      | INTEGER | 2-4 players          |
-| `winner`           | INTEGER | Winning player index |
-| `total_moves`      | INTEGER | Number of moves      |
-| `quality_score`    | REAL    | Training quality 0-1 |
-| `quality_category` | TEXT    | high/medium/low      |
-| `metadata_json`    | TEXT    | Extended metadata    |
-
-#### `moves`
-
-Individual moves with policy data:
-
-| Column              | Type    | Description         |
-| ------------------- | ------- | ------------------- |
-| `game_id`           | TEXT FK | Game reference      |
-| `move_number`       | INTEGER | 0-indexed move      |
-| `player_id`         | INTEGER | Player making move  |
-| `move_json`         | TEXT    | Move data as JSON   |
-| `move_probs`        | BLOB    | Policy distribution |
-| `search_stats_json` | TEXT    | MCTS statistics     |
-
-#### `snapshots`
-
-State snapshots for efficient replay:
-
-| Column        | Type    | Description               |
-| ------------- | ------- | ------------------------- |
-| `game_id`     | TEXT FK | Game reference            |
-| `move_number` | INTEGER | Move number               |
-| `state_json`  | TEXT    | Compressed state          |
-| `state_hash`  | TEXT    | State hash for validation |
-
-#### `game_nnue_features`
-
-Pre-computed NNUE features for training:
-
-| Column          | Type    | Description         |
-| --------------- | ------- | ------------------- |
-| `game_id`       | TEXT FK | Game reference      |
-| `move_number`   | INTEGER | Move number         |
-| `features`      | BLOB    | Compressed features |
-| `policy_target` | BLOB    | Target policy       |
-| `value_target`  | REAL    | Target value        |
+- `game_moves.move_number` is a 0-based storage index; `Move.moveNumber` stays 1-based.
+- `game_history_entries` is only populated when `store_history_entries=True`.
 
 ### Schema Migrations
 
@@ -281,7 +259,7 @@ The database auto-migrates when opening older versions:
 
 ```python
 db = GameReplayDB("old_database.db")
-# Automatically migrates to SCHEMA_VERSION=11
+# Automatically migrates to SCHEMA_VERSION=15
 ```
 
 ---
@@ -297,17 +275,19 @@ from app.db import record_game_unified, RecordingConfig, RecordSource
 config = RecordingConfig(
     board_type="hex8",
     num_players=2,
-    source=RecordSource.GUMBEL_MCTS,
-    output_dir="data/games/",
-    enable_parity_check=True,
+    source=RecordSource.SELF_PLAY,
+    db_dir="data/games/",
+    parity_mode="strict",
 )
 
 # After game completes
 game_id = record_game_unified(
-    initial_state=game.initial_state,
-    move_history=game.moves,
-    winner=game.winner,
     config=config,
+    initial_state=game.initial_state,
+    final_state=game.final_state,
+    moves=game.moves,
+    extra_metadata={"model_id": "v2"},
+    with_parity_check=True,
 )
 ```
 
@@ -329,10 +309,8 @@ games = db.query_games(
 # Export training batch
 for game in games:
     game_id = game["game_id"]
-    moves = db.get_moves(game_id)
-    for move in moves:
-        features = db.get_nnue_features(game_id, move["move_number"])
-        yield features, move["policy_target"], move["value_target"]
+    for move_num, player_persp, features, value in db.get_nnue_features(game_id):
+        yield features, value, (game_id, move_num, player_persp)
 ```
 
 ### Replaying a Game
@@ -353,30 +331,26 @@ for i, move_data in enumerate(moves):
     move = Move.model_validate_json(move_data["move_json"])
     state = GameEngine.apply_move(state, move)
 
-    # Verify against snapshot
-    stored_hash = db.get_state_hash(game_id, i)
-    computed_hash = compute_state_hash(state)
-    assert stored_hash == computed_hash
+# Or reconstruct directly
+state_at_15 = db.get_state_at_move(game_id, move_number=15)
 ```
 
 ### Batch Import
 
 ```python
-from app.db import GameReplayDB, GameWriter
+from app.db import GameReplayDB
 
 db = GameReplayDB("data/games/imported.db")
 
-# Use writer context for efficient batch inserts
-with db.writer() as writer:
-    for game_data in import_source:
-        writer.write_game(
-            initial_state=game_data.initial_state,
-            moves=game_data.moves,
-            winner=game_data.winner,
-            metadata=game_data.metadata,
-        )
-
-print(f"Imported {writer.games_written} games")
+for game_data in import_source:
+    db.store_game(
+        game_id=game_data.game_id,
+        initial_state=game_data.initial_state,
+        final_state=game_data.final_state,
+        moves=game_data.moves,
+        metadata=game_data.metadata,
+        store_history_entries=False,
+    )
 ```
 
 ---
@@ -387,10 +361,10 @@ Parity validation ensures Python and TypeScript engines produce identical result
 
 ### How It Works
 
-1. Game is recorded with state hashes at each move
-2. Parity validator replays game in TypeScript
-3. Compares state hashes at each checkpoint
-4. Reports first divergence if any
+1. Game is recorded with the move list (and optional snapshots/history entries)
+2. Parity validator replays the game in Python and TypeScript
+3. Compares computed hashes, phase, player, and status at each move
+4. Reports the first divergence if any
 
 ### Running Parity Checks
 
@@ -414,12 +388,15 @@ RINGRIFT_PARITY_VALIDATION=strict python scripts/selfplay.py ...
 @dataclass
 class ParityDivergence:
     game_id: str
-    move_number: int
-    python_hash: str
-    typescript_hash: str
-    python_state: dict
-    typescript_state: dict
-    move_at_divergence: Move
+    db_path: str
+    diverged_at: int
+    mismatch_kinds: list[str]
+    mismatch_context: str
+    total_moves_python: int
+    total_moves_ts: int
+    python_summary: StateSummary | None
+    ts_summary: StateSummary | None
+    move_at_divergence: dict[str, Any] | None
 ```
 
 ### Common Divergence Causes
@@ -487,8 +464,9 @@ features = np.frombuffer(
 | ---------------------------- | ----------------------------- | ------- |
 | `RINGRIFT_PARITY_VALIDATION` | Parity mode (off/warn/strict) | `off`   |
 | `RINGRIFT_SNAPSHOT_INTERVAL` | Moves between snapshots       | `20`    |
-| `RINGRIFT_DB_TIMEOUT`        | SQLite timeout seconds        | `30`    |
-| `RINGRIFT_DB_BUSY_TIMEOUT`   | Busy timeout ms               | `30000` |
+
+SQLite timeout values are configured in `app/config/thresholds.py`
+(`SQLITE_TIMEOUT`, `SQLITE_BUSY_TIMEOUT_MS`).
 
 ### Recording Configuration
 
@@ -497,12 +475,23 @@ features = np.frombuffer(
 class RecordingConfig:
     board_type: str
     num_players: int
-    source: RecordSource
-    output_dir: str = "data/games/"
-    enable_parity_check: bool = False
-    enable_nnue_cache: bool = False
-    snapshot_interval: int = 20
-    quality_threshold: float = 0.5
+    source: str = RecordSource.SELF_PLAY
+    # Optional metadata
+    difficulty: int | None = None
+    engine_mode: str | None = None
+    model_id: str | None = None
+    generation: int | None = None
+    candidate_id: str | None = None
+    tags: list[str] = field(default_factory=list)
+    # Database configuration
+    db_path: str | None = None
+    db_prefix: str = "selfplay"
+    db_dir: str = "data/games"
+    # Recording options
+    store_history_entries: bool = True
+    snapshot_interval: int | None = None
+    parity_mode: str | None = None
+    fsm_validation: bool = False
 ```
 
 ---
@@ -512,12 +501,13 @@ class RecordingConfig:
 ### Database Locked
 
 ```python
-# Increase timeout
-db = GameReplayDB("db.db", timeout=60.0)
+# Use DELETE journal mode on NFS mounts
+db = GameReplayDB("db.db", journal_mode="DELETE")
 
-# Or use exclusive lock
-with exclusive_db_lock("db.db"):
-    # Perform operations
+# Check write locks before syncing
+from pathlib import Path
+from app.db.write_lock import is_database_safe_to_sync
+is_safe = is_database_safe_to_sync(Path("db.db"))
 ```
 
 ### Corrupted Database

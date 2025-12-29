@@ -893,7 +893,9 @@ class TestHealthLoop:
     @pytest.mark.asyncio
     async def test_health_loop_starts(self):
         """Health loop should start when first daemon starts."""
-        manager = DaemonManager()
+        # Disable coordination wiring to avoid hanging in tests
+        config = DaemonManagerConfig(enable_coordination_wiring=False)
+        manager = DaemonManager(config)
         manager._factories.clear()
         manager._daemons.clear()
 
@@ -917,7 +919,9 @@ class TestHealthLoop:
     @pytest.mark.asyncio
     async def test_health_loop_only_starts_once(self):
         """Health loop should not restart if already running."""
-        manager = DaemonManager()
+        # Disable coordination wiring to avoid hanging in tests
+        config = DaemonManagerConfig(enable_coordination_wiring=False)
+        manager = DaemonManager(config)
         manager._factories.clear()
         manager._daemons.clear()
 
@@ -1912,7 +1916,9 @@ class TestCheckHealth:
     @pytest.mark.asyncio
     async def test_check_health_dict_result(self):
         """_check_health() handles dict health_check result."""
-        manager = DaemonManager()
+        # Disable coordination wiring to avoid hanging in tests
+        config = DaemonManagerConfig(enable_coordination_wiring=False)
+        manager = DaemonManager(config)
         manager._factories.clear()
         manager._daemons.clear()
         manager._running = True
@@ -1937,7 +1943,9 @@ class TestCheckHealth:
     @pytest.mark.asyncio
     async def test_check_health_bool_result(self):
         """_check_health() handles boolean health_check result."""
-        manager = DaemonManager()
+        # Disable coordination wiring to avoid hanging in tests
+        config = DaemonManagerConfig(enable_coordination_wiring=False)
+        manager = DaemonManager(config)
         manager._factories.clear()
         manager._daemons.clear()
         manager._running = True

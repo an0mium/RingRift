@@ -669,13 +669,135 @@ class SplitBrainDetectionLoop(BaseLoop):
                 except Exception as e:
                     logger.error(f"[SplitBrain] Callback error: {e}")
 
+            # December 29, 2025: Track partition duration and emit alerts
+            await self._track_partition_duration()
+
+        else:
+            # Cluster is healthy (single leader)
+            await self._handle_partition_healed()
+
+    async def _track_partition_duration(self) -> None:
+        """Track how long partition has lasted and emit alerts.
+
+        December 29, 2025: Part of 48-hour autonomous operation.
+        """
+        now = time.time()
+
+        # Start tracking if not already
+        if self._partition_start_time == 0.0:
+            self._partition_start_time = now
+            logger.warning("[SplitBrain] Partition started, tracking duration")
+
+        # Calculate partition duration
+        duration = now - self._partition_start_time
+        threshold = self.config.partition_alert_threshold_seconds
+
+        # Emit alert if partition exceeds threshold
+        if duration >= threshold and not self._partition_alert_emitted:
+            self._partition_alert_emitted = True
+            logger.critical(
+                f"[SplitBrain] PARTITION ALERT: Duration {duration/60:.1f} minutes "
+                f"exceeds threshold {threshold/60:.1f} minutes"
+            )
+
+            # Emit health alert event
+            try:
+                from app.distributed.data_events import DataEventType, DataEvent
+                from app.coordination.event_router import get_event_bus
+
+                event = DataEvent(
+                    event_type=DataEventType.HEALTH_ALERT,
+                    payload={
+                        "alert_type": "partition_duration_exceeded",
+                        "partition_duration_seconds": duration,
+                        "threshold_seconds": threshold,
+                        "leaders_seen": self._last_leaders_seen,
+                    },
+                    source="SplitBrainDetectionLoop",
+                )
+                bus = get_event_bus()
+                if bus:
+                    bus.publish(event)
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.debug(f"[SplitBrain] Failed to emit alert event: {e}")
+
+    async def _handle_partition_healed(self) -> None:
+        """Handle partition recovery and trigger resync.
+
+        December 29, 2025: Part of 48-hour autonomous operation.
+        """
+        now = time.time()
+
+        # Check if we were previously partitioned
+        if self._partition_start_time > 0.0:
+            partition_duration = now - self._partition_start_time
+
+            logger.info(
+                f"[SplitBrain] Partition HEALED after {partition_duration/60:.1f} minutes"
+            )
+
+            # Wait before triggering resync (let cluster stabilize)
+            await asyncio.sleep(self.config.partition_resync_delay_seconds)
+
+            # Trigger cluster resync
+            await self._trigger_partition_resync()
+
+            # Reset partition tracking
+            self._partition_start_time = 0.0
+            self._partition_alert_emitted = False
+
+        # Update last healthy time
+        self._last_healthy_time = now
+
+    async def _trigger_partition_resync(self) -> None:
+        """Trigger cluster-wide resync after partition heals.
+
+        December 29, 2025: Part of 48-hour autonomous operation.
+        """
+        logger.info("[SplitBrain] Triggering cluster resync after partition healed")
+
+        try:
+            from app.distributed.data_events import DataEventType, DataEvent
+            from app.coordination.event_router import get_event_bus
+
+            event = DataEvent(
+                event_type=DataEventType.SYNC_REQUEST,
+                payload={
+                    "sync_type": "partition_recovery",
+                    "priority": "high",
+                    "source": "split_brain_detection",
+                    "partition_duration_seconds": time.time() - self._last_healthy_time,
+                },
+                source="SplitBrainDetectionLoop",
+            )
+            bus = get_event_bus()
+            if bus:
+                bus.publish(event)
+                logger.info("[SplitBrain] Emitted SYNC_REQUEST for partition recovery")
+        except ImportError:
+            logger.debug("[SplitBrain] Event system not available, skipping resync trigger")
+        except Exception as e:
+            logger.warning(f"[SplitBrain] Failed to trigger partition resync: {e}")
+
     def get_detection_stats(self) -> dict[str, Any]:
         """Get split-brain detection statistics."""
+        # Calculate partition duration if currently partitioned
+        partition_duration = 0.0
+        if self._partition_start_time > 0.0:
+            partition_duration = time.time() - self._partition_start_time
+
         return {
             "detections": self._detections,
             "checks_performed": self._checks_performed,
             "last_detection_time": self._last_detection_time,
             "last_leaders_seen": self._last_leaders_seen,
+            # December 29, 2025: Partition tracking stats
+            "partition_active": self._partition_start_time > 0.0,
+            "partition_duration_seconds": partition_duration,
+            "partition_alert_emitted": self._partition_alert_emitted,
+            "last_healthy_time": self._last_healthy_time,
             **self.stats.to_dict(),
         }
 
