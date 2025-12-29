@@ -10,6 +10,7 @@ These documents are preserved for historical reference:
 - Historical analysis documents
 - Superseded plans and roadmaps
 - Point-in-time assessments
+- Migrated root-level reports and summaries from `ai-service/`
 
 ## Note
 
