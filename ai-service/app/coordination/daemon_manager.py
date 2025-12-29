@@ -46,7 +46,6 @@ import logging
 import os
 import signal
 import time
-import warnings
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
