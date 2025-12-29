@@ -2004,6 +2004,14 @@ class RollbackMonitor:
             # Keep only recent history
             self._prune_history(model_id)
 
+        # Dec 29, 2025 - Phase 5: Use adaptive threshold instead of static value
+        # Board-specific: hex8 (-50), square8 (-40), square19 (-20), hexagonal (-25)
+        # Elo-adjusted: More lenient for weak models (<700), stricter for strong (>1500)
+        config_key = f"{board_type}_{num_players}p"
+        adaptive_threshold = get_adaptive_regression_threshold(
+            config_key, current_elo or 1200.0
+        )
+
         # Check regression criteria
         should_rollback = False
         reason = ""
@@ -2019,17 +2027,17 @@ class RollbackMonitor:
             avg_regression = self._get_average_regression(model_id)
             reason = f"Consecutive Elo regression detected: avg {avg_regression:.1f}"
 
-        # Check for immediate severe regression
-        elif elo_regression is not None and elo_regression < self.criteria.elo_regression_threshold * 2:
+        # Check for immediate severe regression (using adaptive threshold)
+        elif elo_regression is not None and elo_regression < adaptive_threshold * 2:
             # Severe regression triggers immediate rollback
             should_rollback = True
-            reason = f"Severe Elo regression: {elo_regression:.1f}"
+            reason = f"Severe Elo regression: {elo_regression:.1f} (threshold: {adaptive_threshold * 2:.1f})"
 
         # Get regression status for notifications
         status = self.get_regression_status(model_id)
 
-        # Notify if regression detected but not triggering rollback
-        if elo_regression is not None and elo_regression < self.criteria.elo_regression_threshold:
+        # Notify if regression detected but not triggering rollback (using adaptive threshold)
+        if elo_regression is not None and elo_regression < adaptive_threshold:
             self._notify_regression_detected(model_id, status)
 
         # Notify if model is at risk
@@ -2099,6 +2107,10 @@ class RollbackMonitor:
 
         current_elo = current_rating.rating
 
+        # Dec 29, 2025 - Phase 5: Use adaptive threshold
+        config_key = f"{board_type}_{num_players}p"
+        adaptive_threshold = get_adaptive_regression_threshold(config_key, current_elo)
+
         # Get baseline models
         if baseline_model_ids is None:
             baseline_model_ids = self._get_recent_production_models(model_id, num_baselines)
@@ -2122,7 +2134,7 @@ class RollbackMonitor:
                         "baseline_id": baseline_id,
                         "baseline_elo": baseline_rating.rating,
                         "elo_diff": diff,
-                        "is_regression": diff < self.criteria.elo_regression_threshold,
+                        "is_regression": diff < adaptive_threshold,
                     })
             except (OSError, AttributeError, KeyError, TypeError, ValueError):
                 comparisons.append({
@@ -2136,7 +2148,7 @@ class RollbackMonitor:
             avg_diff = sum(valid_diffs) / len(valid_diffs)
             min_diff = min(valid_diffs)
             max_diff = max(valid_diffs)
-            regressions = sum(1 for d in valid_diffs if d < self.criteria.elo_regression_threshold)
+            regressions = sum(1 for d in valid_diffs if d < adaptive_threshold)
         else:
             avg_diff = min_diff = max_diff = 0.0
             regressions = 0
@@ -2201,7 +2213,11 @@ class RollbackMonitor:
         ]
 
     def _has_consecutive_regression(self, model_id: str) -> bool:
-        """Check if model has consecutive regression checks exceeding threshold."""
+        """Check if model has consecutive regression checks exceeding threshold.
+
+        Note: Uses static elo_regression_threshold for historical analysis.
+        Adaptive thresholds are applied in check_for_regression() for immediate checks.
+        """
         history = self._regression_history.get(model_id, [])
         if len(history) < self.criteria.consecutive_checks_required:
             return False
