@@ -130,7 +130,8 @@ class AutoPromotionDaemon:
                     await asyncio.sleep(0.5 * (2 ** attempt))
                     continue
 
-                await router.subscribe(
+                # December 29, 2025: router.subscribe() is synchronous, not async
+                router.subscribe(
                     DataEventType.EVALUATION_COMPLETED,
                     self._on_evaluation_completed,
                 )
