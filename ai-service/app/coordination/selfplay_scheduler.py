@@ -368,7 +368,7 @@ class SelfplayScheduler:
                             f"[SelfplayScheduler] Loaded {len(overrides)} priority overrides from config"
                         )
                     return
-                except Exception as e:
+                except (yaml.YAMLError, OSError, KeyError, AttributeError) as e:
                     logger.warning(f"[SelfplayScheduler] Failed to load config {config_path}: {e}")
 
     # =========================================================================
@@ -652,7 +652,7 @@ class SelfplayScheduler:
                     else:
                         result[config_key] = MAX_STALENESS_HOURS
 
-        except Exception as e:
+        except (OSError, ValueError, IndexError) as e:
             logger.warning(f"[SelfplayScheduler] Error getting freshness (using defaults): {e}")
 
         return result
@@ -675,7 +675,7 @@ class SelfplayScheduler:
                     result[config_key] = target.elo_velocity
         except ImportError:
             pass
-        except Exception as e:
+        except (AttributeError, KeyError) as e:
             logger.warning(f"[SelfplayScheduler] Error getting ELO velocities (using defaults): {e}")
 
         return result
@@ -700,7 +700,7 @@ class SelfplayScheduler:
                     result[config_key] = target.current_best_elo
         except ImportError:
             pass
-        except Exception as e:
+        except (AttributeError, KeyError) as e:
             logger.warning(f"[SelfplayScheduler] Error getting current Elos (using defaults): {e}")
 
         return result
@@ -747,7 +747,7 @@ class SelfplayScheduler:
                     }
         except ImportError:
             pass
-        except Exception as e:
+        except (AttributeError, KeyError) as e:
             logger.warning(f"[SelfplayScheduler] Error getting feedback signals (using defaults): {e}")
 
         return result
