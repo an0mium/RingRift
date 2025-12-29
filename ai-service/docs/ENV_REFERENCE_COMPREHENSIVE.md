@@ -136,17 +136,17 @@ value = env.get("CUSTOM_VAR", "default")
 
 ## SSH
 
-| Variable                       | Type | Default  | In env.py | Description             |
-| ------------------------------ | ---- | -------- | --------- | ----------------------- |
-| `RINGRIFT_SSH_USER`            | str  | `ubuntu` | ✓         | Default SSH user        |
-| `RINGRIFT_SSH_KEY`             | str  | None     | ✓         | SSH key path            |
-| `RINGRIFT_SSH_TIMEOUT`         | int  | `60`     | ✓         | SSH timeout (seconds)   |
-| `RINGRIFT_SSH_DEFAULT_TIMEOUT` | int  | None     |           | Default command timeout |
-| `RINGRIFT_SSH_CONNECT_TIMEOUT` | int  | None     |           | Connection timeout      |
-| `RINGRIFT_SSH_MAX_RETRIES`     | int  | None     |           | Max retry attempts      |
-| `RINGRIFT_SSH_RETRY_DELAY`     | int  | None     |           | Delay between retries   |
-| `RINGRIFT_SOCKS_PROXY`         | str  | None     |           | SOCKS proxy for SSH     |
-| `RINGRIFT_USE_AUTOSSH`         | bool | None     |           | Use autossh for tunnels |
+| Variable                       | Type | Default  | In env.py | Description                                               |
+| ------------------------------ | ---- | -------- | --------- | --------------------------------------------------------- |
+| `RINGRIFT_SSH_USER`            | str  | `ubuntu` | ✓         | Default SSH user (some sync tools default to `root`)      |
+| `RINGRIFT_SSH_KEY`             | str  | None     | ✓         | SSH key path (some tools fallback to `~/.ssh/id_cluster`) |
+| `RINGRIFT_SSH_TIMEOUT`         | int  | `60`     | ✓         | SSH timeout (seconds)                                     |
+| `RINGRIFT_SSH_DEFAULT_TIMEOUT` | int  | None     |           | Default command timeout                                   |
+| `RINGRIFT_SSH_CONNECT_TIMEOUT` | int  | None     |           | Connection timeout                                        |
+| `RINGRIFT_SSH_MAX_RETRIES`     | int  | None     |           | Max retry attempts                                        |
+| `RINGRIFT_SSH_RETRY_DELAY`     | int  | None     |           | Delay between retries                                     |
+| `RINGRIFT_SOCKS_PROXY`         | str  | None     |           | SOCKS proxy for SSH                                       |
+| `RINGRIFT_USE_AUTOSSH`         | bool | None     |           | Use autossh for tunnels                                   |
 
 ---
 

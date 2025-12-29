@@ -77,6 +77,7 @@ class ImprovementState:
 
     # Success tracking
     consecutive_promotions: int = 0
+    consecutive_failures: int = 0
     total_promotions_24h: int = 0
     last_promotion_time: float = 0.0
     promotion_times: list[float] = field(default_factory=list)

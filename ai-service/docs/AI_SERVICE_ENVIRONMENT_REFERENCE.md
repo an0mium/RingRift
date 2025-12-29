@@ -198,15 +198,17 @@ Seconds to wait during P2P startup before killing processes.
 | -------- | -------- | ----------- |
 | Type     | `string` | `ubuntu`    |
 
-Default SSH username for cluster nodes.
+Default SSH username for cluster nodes. Some sync utilities default to `root`
+when this value is unset.
 
 ### `RINGRIFT_SSH_KEY`
 
-| Property | Default  | Description         |
-| -------- | -------- | ------------------- |
-| Type     | `string` | `~/.ssh/id_cluster` |
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `string` | None        |
 
-Path to SSH private key for cluster connections.
+Path to SSH private key for cluster connections. Some tools fall back to
+`~/.ssh/id_cluster` when unset.
 
 ### `RINGRIFT_SSH_TIMEOUT`
 

@@ -721,6 +721,7 @@ Max selfplay processes per node before cleanup kicks in.
 | Required | No       |
 
 Default SSH user for cluster operations.
+Some sync utilities fall back to `root` when unset.
 
 ### `RINGRIFT_SSH_KEY`
 
@@ -731,6 +732,7 @@ Default SSH user for cluster operations.
 | Required | No       |
 
 Default SSH key path for cluster operations.
+Some tools fall back to `~/.ssh/id_cluster` when unset.
 
 ### `RINGRIFT_LAMBDA_IDLE_ENABLED`
 

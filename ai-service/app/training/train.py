@@ -424,6 +424,22 @@ def run_cmaes_heuristic_optimization(
     rng_seed: int = 1,
     games_per_candidate: int | None = None,
 ) -> dict[str, Any]:
+    """Run CMA-ES optimization to tune heuristic evaluation weights.
+
+    Uses evolutionary strategy to find optimal weight configurations
+    by running selfplay tournaments and selecting winning candidates.
+
+    Args:
+        tier_id: Heuristic tier to optimize (e.g., 'basic', 'advanced')
+        base_profile_id: Starting profile for weight initialization
+        generations: Number of CMA-ES generations
+        population_size: Candidates per generation
+        rng_seed: Random seed for reproducibility
+        games_per_candidate: Games per candidate evaluation
+
+    Returns:
+        Dict with optimized weights and optimization history
+    """
     return _run_cmaes_heuristic_optimization(
         tier_id=tier_id,
         base_profile_id=base_profile_id,
@@ -446,6 +462,14 @@ logger = logging.getLogger(__name__)
 # seeding utility so that existing callers importing seed_all from this
 # module continue to work.
 def seed_all_legacy(seed: int = 42) -> None:
+    """Seed all random number generators for reproducibility.
+
+    Backward-compatible alias for seed_all() from training_enhancements.
+    Sets seeds for Python random, NumPy, and PyTorch (CPU/CUDA).
+
+    Args:
+        seed: Random seed value (default: 42)
+    """
     seed_all(seed)
 
 
@@ -3758,6 +3782,7 @@ def train_model(
 
             # Create a simple combined loss for LR finding
             def combined_criterion(outputs, targets):
+                """Combine value and policy losses for LR range test."""
                 if isinstance(outputs, tuple):
                     value_out, policy_out = outputs[:2]
                     if isinstance(targets, tuple):

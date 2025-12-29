@@ -79,6 +79,9 @@ is_coordinator = env.is_coordinator
 | `RINGRIFT_SSH_KEY`     | str  | None     | Default SSH key path          |
 | `RINGRIFT_SSH_TIMEOUT` | int  | `60`     | SSH command timeout (seconds) |
 
+Note: some sync utilities fall back to `root` and `~/.ssh/id_cluster` when these
+variables are unset; set explicit values to keep behavior consistent.
+
 ---
 
 ## Resource Management

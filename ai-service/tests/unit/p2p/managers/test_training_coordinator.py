@@ -431,6 +431,7 @@ class TestGauntletIntegration:
             board_type="hex8",
             num_players=2,
             status="completed",
+            worker_node="test-worker",  # Dec 2025: Required for model fetch
             output_model_path=str(model_path),
             data_games_count=2000,
         )
