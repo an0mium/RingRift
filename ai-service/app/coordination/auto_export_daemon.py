@@ -539,12 +539,19 @@ class AutoExportDaemon(HandlerBase):
 
                 # Run export subprocess
                 start_time = time.time()
+                # December 29, 2025: Add RINGRIFT_ALLOW_PENDING_GATE to bypass parity
+                # validation on cluster nodes that lack Node.js/npx
+                export_env = {
+                    **dict(__import__("os").environ),
+                    "PYTHONPATH": str(base_dir),
+                    "RINGRIFT_ALLOW_PENDING_GATE": "true",
+                }
                 process = await asyncio.create_subprocess_exec(
                     *cmd,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=str(base_dir),
-                    env={**dict(__import__("os").environ), "PYTHONPATH": str(base_dir)},
+                    env=export_env,
                 )
 
                 try:
