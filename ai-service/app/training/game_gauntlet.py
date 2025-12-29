@@ -400,56 +400,62 @@ def create_baseline_ai(
         return HeuristicAI(player, config)
 
     elif baseline == BaselineOpponent.MCTS_LIGHT:
-        # December 2025: Light MCTS (~1500 Elo) - 32 simulations
+        # December 2025: Light MCTS (~1500 Elo) - ~32 simulations via think_time
+        # MCTS uses think_time (ms) to control search depth, not difficulty
         from app.ai.mcts_ai import MCTSAI
         config = AIConfig(
             ai_type=AIType.MCTS,
             board_type=board_type,
-            difficulty=difficulty or 32,  # 32 simulations
+            difficulty=difficulty or 4,
+            think_time=500,  # 500ms ≈ 32 simulations
             rngSeed=ai_rng_seed,
         )
         return MCTSAI(player, config)
 
     elif baseline == BaselineOpponent.MCTS_MEDIUM:
-        # December 2025: Medium MCTS (~1700 Elo) - 128 simulations
+        # December 2025: Medium MCTS (~1700 Elo) - ~128 simulations via think_time
         from app.ai.mcts_ai import MCTSAI
         config = AIConfig(
             ai_type=AIType.MCTS,
             board_type=board_type,
-            difficulty=difficulty or 128,  # 128 simulations
+            difficulty=difficulty or 6,
+            think_time=2000,  # 2s ≈ 128 simulations
             rngSeed=ai_rng_seed,
         )
         return MCTSAI(player, config)
 
     elif baseline == BaselineOpponent.MCTS_STRONG:
-        # December 2025: Strong MCTS (~1900 Elo) - 512 simulations
+        # December 2025: Strong MCTS (~1900 Elo) - ~512 simulations via think_time
         from app.ai.mcts_ai import MCTSAI
         config = AIConfig(
             ai_type=AIType.MCTS,
             board_type=board_type,
-            difficulty=difficulty or 512,  # 512 simulations
+            difficulty=difficulty or 8,
+            think_time=8000,  # 8s ≈ 512 simulations
             rngSeed=ai_rng_seed,
         )
         return MCTSAI(player, config)
 
     elif baseline == BaselineOpponent.MCTS_MASTER:
-        # Dec 28, 2025: Master MCTS (~2000 Elo) - 1024 simulations
+        # Dec 28, 2025: Master MCTS (~2000 Elo) - ~1024 simulations via think_time
         from app.ai.mcts_ai import MCTSAI
         config = AIConfig(
             ai_type=AIType.MCTS,
             board_type=board_type,
-            difficulty=difficulty or 1024,  # 1024 simulations
+            difficulty=difficulty or 9,
+            think_time=16000,  # 16s ≈ 1024 simulations
             rngSeed=ai_rng_seed,
         )
         return MCTSAI(player, config)
 
     elif baseline == BaselineOpponent.MCTS_GRANDMASTER:
-        # Dec 28, 2025: Grandmaster MCTS (~2100 Elo) - 2048 simulations
+        # Dec 28, 2025: Grandmaster MCTS (~2100 Elo) - ~2048 simulations via think_time
         from app.ai.mcts_ai import MCTSAI
         config = AIConfig(
             ai_type=AIType.MCTS,
             board_type=board_type,
-            difficulty=difficulty or 2048,  # 2048 simulations
+            difficulty=difficulty or 10,
+            think_time=32000,  # 32s ≈ 2048 simulations
             rngSeed=ai_rng_seed,
         )
         return MCTSAI(player, config)

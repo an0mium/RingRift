@@ -240,7 +240,7 @@ class WorkQueue:
     """
 
     def __init__(self, policy_manager=None, db_path: Path | None = None, slack_webhook: str | None = None):
-        self.items: dict[str, WorkItem] = {}  # work_id -> WorkItem
+        self._items: dict[str, WorkItem] = {}  # work_id -> WorkItem
         self.lock = threading.RLock()
         self.db_path = db_path or DEFAULT_DB_PATH
 
@@ -280,6 +280,19 @@ class WorkQueue:
 
         # Database initialization is now lazy - deferred to first use
         # This allows importing the module on read-only filesystems
+
+    @property
+    def items(self) -> dict[str, WorkItem]:
+        """Access work items, triggering lazy database loading if needed.
+
+        Dec 28, 2025: This property ensures that items are loaded from the
+        database when a new WorkQueue instance is created pointing to an
+        existing database file. This fixes the persistence bug where a new
+        instance would have empty items until a method like add_work() was called.
+        """
+        if not self._db_initialized:
+            self._ensure_db()
+        return self._items
 
     def _init_db(self) -> None:
         """Initialize SQLite database for work queue persistence.
@@ -476,7 +489,7 @@ class WorkQueue:
                     error=row["error"],
                     depends_on=depends_on,
                 )
-                self.items[item.work_id] = item
+                self._items[item.work_id] = item
 
             # Load stats
             cursor.execute("SELECT key, value FROM work_stats")
@@ -484,7 +497,7 @@ class WorkQueue:
                 if row["key"] in self.stats:
                     self.stats[row["key"]] = row["value"]
 
-            logger.info(f"Loaded {len(self.items)} work items from database")
+            logger.info(f"Loaded {len(self._items)} work items from database")
         except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
             logger.error(f"Database error loading work items: {e}")
         except Exception as e:
