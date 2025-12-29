@@ -232,7 +232,8 @@ Production monitoring tooling for the distributed training cluster. For tracked 
 These status snapshots are historical and superseded by the consolidated
 report in
 `ai-service/docs/infrastructure/reports/2025-12-26_p2p_cluster_status.md`.
-Legacy stubs remain at the repo root for backward compatibility.
+Legacy stubs remain at the repo root for backward compatibility. The
+archive directory is gitignored because it contains cluster IPs.
 
 - `ai-service/docs/archive/status_reports/cluster_status_report.md`
 - `ai-service/docs/archive/status_reports/CLUSTER_STATUS_CRITICAL.txt`

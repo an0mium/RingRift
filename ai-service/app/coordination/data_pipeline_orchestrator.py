@@ -775,7 +775,7 @@ class DataPipelineOrchestrator(
                 try:
                     router.subscribe(event, handler)
                     successful_subscriptions.append(event_name)
-                except Exception as sub_error:
+                except (TypeError, ValueError, AttributeError, RuntimeError) as sub_error:
                     failed_subscriptions.append((event_name, str(sub_error)))
                     logger.error(
                         f"[DataPipelineOrchestrator] Failed to subscribe to {event_name}: {sub_error}"
@@ -803,7 +803,7 @@ class DataPipelineOrchestrator(
             logger.error(f"[DataPipelineOrchestrator] Cannot subscribe to events - stage_events not available: {e}")
             # This is a critical failure - orchestrator cannot function without events
             raise RuntimeError(f"EventRouter not available - pipeline cannot function: {e}")
-        except Exception as e:
+        except (TypeError, ValueError, AttributeError, RuntimeError, KeyError) as e:
             logger.error(
                 f"[DataPipelineOrchestrator] Failed to subscribe to stage events: {e}",
                 exc_info=True,
@@ -1040,7 +1040,7 @@ class DataPipelineOrchestrator(
         except ImportError:
             logger.warning("[DataPipelineOrchestrator] data_events not available")
             return False
-        except Exception as e:
+        except (TypeError, ValueError, AttributeError, RuntimeError, KeyError) as e:
             logger.error(
                 f"[DataPipelineOrchestrator] Failed to subscribe to data events "
                 f"(router={router!r}): {e}",
@@ -1238,7 +1238,7 @@ class DataPipelineOrchestrator(
 
             return True
 
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, AttributeError, ZeroDivisionError, IndexError) as e:
             logger.warning(f"[QualityGate] Error checking quality: {e}")
             return True  # Allow training if quality check fails
 
@@ -1289,7 +1289,7 @@ class DataPipelineOrchestrator(
                 return float(np.mean(quality_signals))
             return 0.6  # Default moderate quality
 
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError, ZeroDivisionError) as e:
             logger.debug(f"[QualityGate] Error estimating quality: {e}")
             return 0.6
 
@@ -1330,7 +1330,7 @@ class DataPipelineOrchestrator(
                 if board_type and num_players:
                     await self._trigger_data_regeneration(board_type, num_players, iteration)
 
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError, ImportError) as e:
             logger.warning(f"[QualityGate] Failed to emit quality block event: {e}")
 
 
@@ -1399,7 +1399,7 @@ class DataPipelineOrchestrator(
                 return False
         except ImportError:
             pass  # UnifiedHealthManager not available, skip this check
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
             logger.debug(f"[DataPipelineOrchestrator] Health manager check failed: {e}")
             # Continue on health check failure - don't block training
 
@@ -1475,7 +1475,7 @@ class DataPipelineOrchestrator(
         except ImportError:
             # ClusterMonitor not available - allow auto-trigger
             return True
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, AttributeError, OSError, IOError, KeyError) as e:
             logger.debug(f"[DataPipelineOrchestrator] Resource check failed: {e}")
             # On error, allow auto-trigger (fail open)
             return True
@@ -1514,7 +1514,7 @@ class DataPipelineOrchestrator(
             except RuntimeError:
                 asyncio.run(bus.publish(event))
 
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError, ImportError) as e:
             logger.debug(f"[DataPipelineOrchestrator] Best-effort event emit failed: {e}")
 
     def _record_circuit_success(self, stage: str) -> None:
@@ -1577,7 +1577,7 @@ class DataPipelineOrchestrator(
                 threshold=0,
                 action_taken=f"pipeline_paused: {reason}",
             )
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError, ImportError) as e:
             logger.debug(f"[DataPipelineOrchestrator] Failed to emit resource constraint: {e}")
 
     async def _resume_pipeline(self) -> None:

@@ -51,6 +51,7 @@ from app.models import (
 )
 from app.rules.default_engine import DefaultRulesEngine
 from app.rules.fsm import TurnFSM, get_fsm_mode
+from app.training.env_mixins import RewardCalculatorMixin, TerminationHandlerMixin
 from app.training.seed_utils import seed_all
 from app.training.tournament import infer_victory_reason
 
@@ -357,7 +358,7 @@ def make_env(config: TrainingEnvConfig | None = None) -> "RingRiftEnv":
     )
 
 
-class RingRiftEnv:
+class RingRiftEnv(RewardCalculatorMixin, TerminationHandlerMixin):
     """Canonical training environment for RingRift AI (gym-like API).
 
     This environment wraps the Python rules engine and exposes a small,
@@ -650,40 +651,6 @@ class RingRiftEnv:
 
         return moves
 
-    def _infer_canonical_victory_reason(
-        self,
-        terminated_by_budget_only: bool,
-        terminated_by_repetition: bool = False,
-    ) -> str:
-        """Map engine-level termination state to a canonical result string.
-
-        This helper keeps the mapping between Python/TS result enums
-        and the canonical categories used by training and evaluation.
-        """
-        # Repetition-based draw takes priority over budget cutoff
-        if terminated_by_repetition:
-            return "draw_by_repetition"
-
-        if (
-            terminated_by_budget_only
-            and self._state is not None
-            and self._state.game_status == GameStatus.ACTIVE
-        ):
-            return "max_moves"
-
-        if self._state is None:
-            return "unknown"
-
-        engine_reason = infer_victory_reason(self._state)
-        mapping = {
-            "elimination": "ring_elimination",
-            "territory": "territory_control",
-            "last_player_standing": "last_player_standing",
-            "structural": "structural_stalemate",
-            "unknown": "unknown",
-        }
-        return mapping.get(engine_reason, engine_reason)
-
     def step(
         self, move: Move
     ) -> tuple[GameState, float, bool, dict[str, Any]]:
@@ -878,33 +845,15 @@ class RingRiftEnv:
             self._move_count += 1
             auto_generated_moves.append(auto_move)
 
-        # Repetition detection (diagnostic feature, disabled by default).
-        # The S-invariant (board shrinks each turn) theoretically prevents position repetition.
-        # If a repetition is detected, it indicates either a zobrist hash collision or a rules bug.
-        terminated_by_repetition = False
-        if self._repetition_threshold > 0:
-            pos_hash = self._state.zobrist_hash  # May be None if not computed
-            if pos_hash is not None and pos_hash != 0:
-                self._position_counts[pos_hash] = self._position_counts.get(pos_hash, 0) + 1
-                if self._position_counts[pos_hash] >= self._repetition_threshold:
-                    terminated_by_repetition = True
-                    # This should never happen due to S-invariant. Investigate if triggered.
-                    logger.error(
-                        "REPETITION_DETECTED: position_hash=%d repeated %d times. "
-                        "board_type=%s, num_players=%d, move_count=%d. "
-                        "Possible causes: zobrist hash collision or S-invariant violation.",
-                        pos_hash,
-                        self._position_counts[pos_hash],
-                        self.board_type.value,
-                        self.num_players,
-                        self._move_count,
-                    )
+        # Evaluate termination conditions using mixin method
+        (
+            terminated_by_rules,
+            terminated_by_budget,
+            terminated_by_repetition,
+            done,
+        ) = self._evaluate_termination_state()
 
-        terminated_by_rules = self._state.game_status != GameStatus.ACTIVE
-        terminated_by_budget = self._move_count >= self.max_moves
-        done = terminated_by_rules or terminated_by_budget or terminated_by_repetition
-
-        reward = 0.0
+        # Build base info dict
         info: dict[str, Any] = {
             "winner": self._state.winner,
             "move_count": self._move_count,
@@ -912,96 +861,22 @@ class RingRiftEnv:
             "terminated_by_repetition": terminated_by_repetition,
         }
 
-        # Log warning/error for games that hit max_moves without a winner.
-        if terminated_by_budget and not terminated_by_rules:
-            theoretical_max = get_theoretical_max_moves(
-                self.board_type,
-                self.num_players,
-            )
-            if self._move_count >= theoretical_max:
-                # Game exceeded the theoretical maximum number of moves.
-                logger.error(
-                    "GAME_NON_TERMINATION_ERROR: exceeded theoretical "
-                    "maximum moves without a conclusion. board_type=%s, "
-                    "num_players=%d, move_count=%d, max_moves=%d, "
-                    "theoretical_max=%d, game_status=%s, winner=%s",
-                    self.board_type.value,
-                    self.num_players,
-                    self._move_count,
-                    self.max_moves,
-                    theoretical_max,
-                    self._state.game_status.value,
-                    self._state.winner,
-                )
-            else:
-                # Hit configured max_moves but not theoretical maximum.
-                logger.warning(
-                    "GAME_MAX_MOVES_CUTOFF: hit max_moves without a winner. "
-                    "board_type=%s, num_players=%d, move_count=%d, "
-                    "max_moves=%d, theoretical_max=%d, game_status=%s, "
-                    "winner=%s",
-                    self.board_type.value,
-                    self.num_players,
-                    self._move_count,
-                    self.max_moves,
-                    theoretical_max,
-                    self._state.game_status.value,
-                    self._state.winner,
-                )
-            info["termination_anomaly"] = True
-            info["theoretical_max_moves"] = theoretical_max
+        # Log anomalies for games hitting max_moves without winner
+        theoretical_max = get_theoretical_max_moves(self.board_type, self.num_players)
+        anomaly_info = self._log_non_termination_anomaly(
+            terminated_by_budget, terminated_by_rules, theoretical_max
+        )
+        info.update(anomaly_info)
 
-        # Terminal rewards.
+        # Calculate reward using mixin method
+        reward = self._calculate_episode_reward(self._state, move, done=done)
+
+        # Populate terminal info using mixin method
         if done:
-            if self.reward_on == "terminal":
-                # Perspective: player who just moved is move.player.
-                perspective = move.player
-                if self._state.winner is None:
-                    reward = 0.0
-                elif self._state.winner == perspective:
-                    reward = 1.0
-                else:
-                    reward = -1.0
-            else:
-                # Reuse calculate_outcome-like shaping.
-                from app.training.generate_data import calculate_outcome
-
-                reward = calculate_outcome(
-                    self._state,
-                    player_number=move.player,
-                    depth=self._move_count,
-                )
-
-            # Canonical victory_reason and per-player stats.
-            victory_reason = self._infer_canonical_victory_reason(
-                terminated_by_budget_only=terminated_by_budget
-                and not terminated_by_rules,
-                terminated_by_repetition=terminated_by_repetition,
+            terminal_info = self._populate_terminal_info(
+                terminated_by_rules, terminated_by_budget, terminated_by_repetition
             )
-            info["victory_reason"] = victory_reason
-            # Raw engine-level category for debugging / compatibility.
-            info["engine_victory_reason"] = infer_victory_reason(self._state)
-
-            # Rings eliminated are keyed by causing player id as strings
-            # in GameState; expose a simpler int-keyed mapping.
-            rings_eliminated: dict[int, int] = {}
-            for pid_str, count in self._state.board.eliminated_rings.items():
-                try:
-                    pid = int(pid_str)
-                except (TypeError, ValueError):
-                    continue
-                rings_eliminated[pid] = count
-            info["rings_eliminated"] = rings_eliminated
-
-            # Territory spaces per player from the Player models.
-            territory_spaces: dict[int, int] = {}
-            for player in self._state.players:
-                territory_spaces[player.player_number] = (
-                    player.territory_spaces
-                )
-            info["territory_spaces"] = territory_spaces
-
-            info["moves_played"] = self._move_count
+            info.update(terminal_info)
         else:
             # For non-terminal steps expose the next state's legal moves so
             # callers do not need to re-query the engine.
