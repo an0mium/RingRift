@@ -100,6 +100,15 @@ python3 scripts/export_replay_dataset.py \
     --output data/training/unified_{config}.npz
 ```
 
+Add `--quality-weighted` to include `sample_weights` and `timestamps` for
+source + freshness weighting during training.
+
+### 4b. NPZ Combination (Optional)
+
+If `NPZCombinationDaemon` is enabled, it combines exported NPZ files into a
+single quality-weighted dataset and emits `NPZ_COMBINATION_COMPLETE`. Combined
+files use the `_combined` suffix (for example `hex8_2p_combined.npz`).
+
 ### 5. Model Training
 
 **Host**: Training GPU Node

@@ -672,14 +672,15 @@ are consumed directly by their respective integration modules. Search
 
 ### Export CLI (`python scripts/export_replay_dataset.py`)
 
-| Argument          | Type  | Description                         |
-| ----------------- | ----- | ----------------------------------- |
-| `--db`            | path  | Database file path                  |
-| `--use-discovery` | flag  | Use GameDiscovery to find databases |
-| `--board-type`    | str   | Filter by board type                |
-| `--num-players`   | int   | Filter by player count              |
-| `--output`        | path  | Output NPZ file                     |
-| `--min-quality`   | float | Minimum quality score filter        |
+| Argument             | Type  | Description                                                                 |
+| -------------------- | ----- | --------------------------------------------------------------------------- |
+| `--db`               | path  | Database file path                                                          |
+| `--use-discovery`    | flag  | Use GameDiscovery to find databases                                         |
+| `--board-type`       | str   | Filter by board type                                                        |
+| `--num-players`      | int   | Filter by player count                                                      |
+| `--output`           | path  | Output NPZ file                                                             |
+| `--min-quality`      | float | Minimum quality score filter                                                |
+| `--quality-weighted` | flag  | Emit `sample_weights` + `timestamps` arrays for quality/freshness weighting |
 
 ---
 

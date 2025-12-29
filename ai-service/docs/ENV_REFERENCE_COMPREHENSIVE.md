@@ -289,14 +289,15 @@ value = env.get("CUSTOM_VAR", "default")
 
 ## Circuit Breaker
 
-| Variable                                 | Type | Default | In env.py | Description                   |
-| ---------------------------------------- | ---- | ------- | --------- | ----------------------------- |
-| `RINGRIFT_CB_FAILURE_THRESHOLD`          | int  | `5`     | ✓         | Failures before open          |
-| `RINGRIFT_CB_RECOVERY_TIMEOUT`           | int  | `60`    | ✓         | Recovery timeout              |
-| `RINGRIFT_CB_HALF_OPEN_MAX_CALLS`        | int  | `3`     | ✓         | Half-open test calls          |
-| `RINGRIFT_TRANSPORT_FAILURE_THRESHOLD`   | int  | None    |           | Transport failure threshold   |
-| `RINGRIFT_TRANSPORT_DISABLE_DURATION`    | int  | None    |           | Transport disable duration    |
-| `RINGRIFT_TERMINATION_FAILURE_THRESHOLD` | int  | None    |           | Termination failure threshold |
+| Variable                                 | Type  | Default | In env.py | Description                   |
+| ---------------------------------------- | ----- | ------- | --------- | ----------------------------- |
+| `RINGRIFT_CB_FAILURE_THRESHOLD`          | int   | `5`     | ✓         | Failures before open          |
+| `RINGRIFT_CB_RECOVERY_TIMEOUT`           | int   | `60`    | ✓         | Recovery timeout              |
+| `RINGRIFT_CB_MAX_BACKOFF`                | float | `180.0` | ✓         | Max backoff between attempts  |
+| `RINGRIFT_CB_HALF_OPEN_MAX_CALLS`        | int   | `1`     | ✓         | Half-open test calls          |
+| `RINGRIFT_TRANSPORT_FAILURE_THRESHOLD`   | int   | None    |           | Transport failure threshold   |
+| `RINGRIFT_TRANSPORT_DISABLE_DURATION`    | int   | None    |           | Transport disable duration    |
+| `RINGRIFT_TERMINATION_FAILURE_THRESHOLD` | int   | None    |           | Termination failure threshold |
 
 ---
 

@@ -438,6 +438,14 @@ Enable gauntlet evaluation on this node.
 
 Enable NPZ export on this node.
 
+### `RINGRIFT_ENCODING_CHUNK_SIZE`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `64`        |
+
+ParallelEncoder chunk size used during NPZ export batching.
+
 ### `RINGRIFT_MAX_TRAINING_SAME_CONFIG`
 
 | Property | Default  | Description |
@@ -514,6 +522,14 @@ Interval between Elo rating sync cycles in seconds.
 
 Interval between registry sync cycles in seconds.
 
+### `RINGRIFT_MIN_SYNC_INTERVAL`
+
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| Type     | `float` | `2.0`       |
+
+Minimum seconds between AutoSyncDaemon sync cycles when not set in config.
+
 ### `RINGRIFT_SYNC_TIMEOUT`
 
 | Property | Default  | Description |
@@ -586,7 +602,7 @@ Circuit breaker recovery timeout in seconds.
 
 | Property | Default | Description |
 | -------- | ------- | ----------- |
-| Type     | `float` | `600.0`     |
+| Type     | `float` | `180.0`     |
 
 Maximum circuit breaker backoff in seconds.
 
@@ -597,6 +613,22 @@ Maximum circuit breaker backoff in seconds.
 | Type     | `number` | `1`         |
 
 Calls allowed in half-open state.
+
+### `RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `5`         |
+
+Failures before opening the per-node health probe circuit.
+
+### `RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT`
+
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| Type     | `float` | `60.0`      |
+
+Seconds before an open per-node circuit transitions to half-open.
 
 ### `RINGRIFT_CIRCUIT_BREAKER_RECOVERY`
 

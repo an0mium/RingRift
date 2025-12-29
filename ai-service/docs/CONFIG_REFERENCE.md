@@ -438,6 +438,14 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 | `RINGRIFT_HEARTBEAT_INTERVAL`     | Heartbeat interval (seconds)      | `30`    |
 | `RINGRIFT_HEARTBEAT_TIMEOUT`      | Heartbeat timeout (seconds)       | `90`    |
 | `RINGRIFT_STALE_CLEANUP_INTERVAL` | Stale cleanup interval (seconds)  | `60`    |
+| `RINGRIFT_MIN_SYNC_INTERVAL`      | Minimum sync interval (seconds)   | `2.0`   |
+
+##### P2P node circuit breaker
+
+| Variable                                      | Description                              | Default |
+| --------------------------------------------- | ---------------------------------------- | ------- |
+| `RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD` | Failures before opening per-node circuit | `5`     |
+| `RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT`  | Seconds before half-open recovery        | `60.0`  |
 
 ##### Training scheduler and limits
 
@@ -452,6 +460,12 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 | `RINGRIFT_MAX_SELFPLAY_CLUSTER`     | Max selfplay tasks cluster-wide         | `500`   |
 | `RINGRIFT_HEALTH_CACHE_TTL`         | Scheduler health cache TTL (seconds)    | `30`    |
 
+##### Training data encoding
+
+| Variable                       | Description                | Default |
+| ------------------------------ | -------------------------- | ------- |
+| `RINGRIFT_ENCODING_CHUNK_SIZE` | ParallelEncoder chunk size | `64`    |
+
 ##### Ephemeral data guard and circuit breaker
 
 | Variable                               | Description                                | Default |
@@ -460,8 +474,12 @@ These flags are read directly by runtime modules and bypass `unified_config`. De
 | `RINGRIFT_EPHEMERAL_HEARTBEAT_TIMEOUT` | Ephemeral heartbeat timeout (seconds)      | `120`   |
 | `RINGRIFT_CB_FAILURE_THRESHOLD`        | Circuit breaker failure threshold          | `5`     |
 | `RINGRIFT_CB_RECOVERY_TIMEOUT`         | Circuit breaker recovery timeout (seconds) | `60.0`  |
-| `RINGRIFT_CB_MAX_BACKOFF`              | Circuit breaker max backoff (seconds)      | `600.0` |
+| `RINGRIFT_CB_MAX_BACKOFF`              | Circuit breaker max backoff (seconds)      | `180.0` |
 | `RINGRIFT_CB_HALF_OPEN_MAX_CALLS`      | Circuit breaker half-open max calls        | `1`     |
+
+Provider-specific circuit breaker defaults are available via
+`get_circuit_breaker_for_provider()` in `app/config/coordination_defaults.py`
+(vast, runpod, lambda, nebius, vultr, hetzner).
 
 ##### Health, utilization, and bandwidth
 

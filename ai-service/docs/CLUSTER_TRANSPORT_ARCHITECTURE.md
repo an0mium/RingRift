@@ -111,9 +111,9 @@ Each node has an independent circuit breaker that tracks failures:
      ┌──────────────────────────────────────────┐
      │              Circuit States               │
      ├──────────────────────────────────────────┤
-     │  CLOSED  ──(3 failures)──>  OPEN         │
+     │  CLOSED  ──(5 failures)──>  OPEN         │
      │     ↑                           │        │
-     │     │                      (5 min wait)  │
+     │     │                      (60s wait)    │
      │     │                           ↓        │
      │     └─(success)──  HALF_OPEN ──(fail)──┘ │
      └──────────────────────────────────────────┘
@@ -121,8 +121,31 @@ Each node has an independent circuit breaker that tracks failures:
 
 **Default thresholds:**
 
-- `failure_threshold`: 3 consecutive failures before opening
-- `recovery_timeout`: 300 seconds (5 minutes) before retry
+- `failure_threshold`: 5 consecutive failures before opening
+- `recovery_timeout`: 60 seconds before retry
+- `max_backoff`: 180 seconds for exponential backoff
+- `half_open_max_calls`: 1 probe call before re-opening
+
+**Per-transport overrides** (from `coordination_defaults.py`):
+
+- `ssh`: failure_threshold=3, recovery_timeout=60s
+- `http`: failure_threshold=5, recovery_timeout=30s
+- `p2p`: failure_threshold=3, recovery_timeout=45s
+- `aria2`: failure_threshold=2, recovery_timeout=120s
+- `rsync`: failure_threshold=2, recovery_timeout=90s
+
+**Provider-specific defaults** (Dec 29, 2025):
+
+| Provider | failure_threshold | recovery_timeout |
+| -------- | ----------------- | ---------------- |
+| vast     | 6                 | 90s              |
+| runpod   | 4                 | 60s              |
+| lambda   | 3                 | 45s              |
+| nebius   | 3                 | 45s              |
+| vultr    | 4                 | 60s              |
+| hetzner  | 3                 | 30s              |
+
+Use `get_circuit_breaker_for_provider(provider)` when applying cloud-specific tuning.
 
 **Checking circuit state:**
 
@@ -139,6 +162,17 @@ health = transport.get_health_summary()
 for node, status in health.items():
     print(f"{node}: {status['state']} ({status['failures']} failures)")
 ```
+
+## Node Availability Guardrails
+
+Transport circuit breakers protect data transfer calls. Node health probes are
+gated separately via:
+
+- `node_availability_cache.py` for aggregated availability signals (P2P, SSH, health checks)
+- `node_circuit_breaker.py` for per-node probe throttling
+
+Configure probe thresholds with `RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD`
+and `RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT`.
 
 ## Base64 Transport (Connection Reset Workaround)
 

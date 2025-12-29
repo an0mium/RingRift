@@ -57,6 +57,13 @@ from app.coordination.wal_sync_utils import (
     get_rsync_include_args_for_db,
 )
 
+# Dec 2025: Circuit breaker for per-host failure isolation
+from app.coordination.node_circuit_breaker import (
+    NodeCircuitBreaker,
+    NodeCircuitConfig,
+    NodeCircuitState,
+)
+
 
 # December 2025: Provider-specific bandwidth hints (KB/s)
 # Consolidated to use cluster_config as the single source of truth.
@@ -763,7 +770,12 @@ from app.coordination.sync_constants import SyncResult
 
 
 class BandwidthCoordinatedRsync:
-    """Rsync wrapper with bandwidth coordination."""
+    """Rsync wrapper with bandwidth coordination and circuit breaker protection.
+
+    December 29, 2025: Added per-host circuit breaker to prevent cascade failures
+    when cluster nodes are slow or unreachable. Circuit opens after 3 consecutive
+    failures (configurable) and recovers after 60 seconds.
+    """
 
     def __init__(
         self,
@@ -772,11 +784,25 @@ class BandwidthCoordinatedRsync:
         default_options: list[str] | None = None,
         # P11-HIGH-3: Enable checksum verification by default
         verify_checksum: bool = True,
+        # Dec 2025: Per-host circuit breaker for failure isolation
+        circuit_breaker: NodeCircuitBreaker | None = None,
+        circuit_breaker_config: NodeCircuitConfig | None = None,
     ):
         self.manager = manager or BandwidthManager.get_instance()
         self.rsync_path = rsync_path
         self.default_options = default_options or ["-avz", "--progress"]
         self.verify_checksum = verify_checksum
+        # Initialize circuit breaker with config or create new one
+        if circuit_breaker is not None:
+            self._circuit_breaker = circuit_breaker
+        else:
+            # Default: 3 failures to open, 60s recovery timeout
+            config = circuit_breaker_config or NodeCircuitConfig(
+                failure_threshold=3,
+                recovery_timeout=60.0,
+                success_threshold=1,  # Single success to close
+            )
+            self._circuit_breaker = NodeCircuitBreaker(config=config)
 
     async def sync(
         self,
@@ -789,7 +815,7 @@ class BandwidthCoordinatedRsync:
         allocation_timeout: float = 60.0,
         verify_checksum: bool | None = None,
     ) -> SyncResult:
-        """Execute bandwidth-coordinated rsync.
+        """Execute bandwidth-coordinated rsync with circuit breaker protection.
 
         Args:
             source: Source path (local or remote)
@@ -804,8 +830,27 @@ class BandwidthCoordinatedRsync:
 
         Returns:
             SyncResult with transfer details
+
+        Note:
+            December 29, 2025: Circuit breaker prevents cascade failures.
+            If circuit is open, returns immediately with circuit_open error.
         """
         start_time = time.time()
+
+        # Dec 2025: Check circuit breaker before attempting sync
+        if not self._circuit_breaker.can_check(host):
+            circuit_state = self._circuit_breaker.get_state(host)
+            logger.warning(
+                f"[BandwidthCoordinatedRsync] Circuit OPEN for {host}, skipping sync"
+            )
+            return SyncResult(
+                success=False,
+                source=source,
+                dest=dest,
+                host=host,
+                error=f"Circuit breaker open for host {host} (state={circuit_state.name})",
+                duration_seconds=time.time() - start_time,
+            )
 
         # Get bandwidth allocation
         allocation = await self.manager.request_allocation(
@@ -815,6 +860,7 @@ class BandwidthCoordinatedRsync:
         )
 
         if allocation is None:
+            # Don't record as failure - this is a bandwidth allocation issue, not host failure
             return SyncResult(
                 success=False,
                 source=source,
@@ -865,6 +911,8 @@ class BandwidthCoordinatedRsync:
             except asyncio.TimeoutError:
                 process.kill()
                 await process.wait()
+                # Dec 2025: Record timeout as failure for circuit breaker
+                self._circuit_breaker.record_failure(host)
                 return SyncResult(
                     success=False,
                     source=source,
@@ -900,13 +948,16 @@ class BandwidthCoordinatedRsync:
                 stderr=stderr.decode("utf-8", errors="replace"),
             )
 
+            # Dec 2025: Record circuit breaker success/failure
             if success:
+                self._circuit_breaker.record_success(host)
                 logger.info(
                     f"[BandwidthCoordinatedRsync] Sync complete: "
                     f"{bytes_transferred / 1024 / 1024:.1f} MB in {duration:.1f}s "
                     f"({effective_rate:.1f} KB/s effective)"
                 )
             else:
+                self._circuit_breaker.record_failure(host)
                 logger.warning(
                     f"[BandwidthCoordinatedRsync] Sync failed: exit_code={exit_code}"
                 )

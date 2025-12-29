@@ -137,11 +137,11 @@ When selfplay completes, the pipeline auto-triggers:
 SELFPLAY_COMPLETE
        │
        ▼
-DATA_SYNC_COMPLETED ──▶ NPZ_EXPORT_COMPLETE ──▶ TRAINING_COMPLETED ──▶ EVALUATION_COMPLETED ──▶ MODEL_PROMOTED
-       │                │              │            │             │
-       ▼                ▼              ▼            ▼             ▼
-   sync games      export to      train         gauntlet      promote if
-   from cluster    NPZ files      model         evaluation    threshold met
+DATA_SYNC_COMPLETED ──▶ NPZ_EXPORT_COMPLETE ──▶ NPZ_COMBINATION_COMPLETE ──▶ TRAINING_COMPLETED ──▶ EVALUATION_COMPLETED ──▶ MODEL_PROMOTED
+       │                │                │             │            │             │
+       ▼                ▼                ▼             ▼            ▼             ▼
+   sync games      export to      combine NPZ       train         gauntlet      promote if
+   from cluster    NPZ files      (optional)        model         evaluation    threshold met
 ```
 
 This is orchestrated by `wire_pipeline_events(auto_trigger=True)` from `data_pipeline_orchestrator.py`.

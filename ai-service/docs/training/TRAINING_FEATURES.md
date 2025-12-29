@@ -1040,6 +1040,29 @@ weights = manager.compute_sample_weights(opponent_elos)
 # Higher Elo opponents → higher weight (up to elo_max_weight)
 ```
 
+### Quality-Weighted Sampling (Source + Freshness)
+
+Combines engine-quality weights with data freshness to prioritize the most
+useful samples during training. Implemented in
+`app/training/source_weighting.py`.
+
+**Defaults**:
+
+- High-quality engines (gumbel_mcts, mcts, nn-guided): 3.0x
+- Medium-quality engines (policy_only, descent): 1.5x
+- Base-quality engines (heuristic, random): 1.0x
+- Freshness half-life: 3 days (min_weight=0.1, max_weight=1.0)
+
+```python
+from app.training.source_weighting import compute_combined_weights
+
+weights = compute_combined_weights(engine_modes, timestamps)
+```
+
+When exporting datasets, `scripts/export_replay_dataset.py --quality-weighted`
+adds `sample_weights` and `timestamps` arrays to NPZ output so training can
+apply weighted sampling directly.
+
 ### Background Evaluation
 
 Continuous evaluation during training with auto-checkpointing:

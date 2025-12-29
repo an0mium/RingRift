@@ -1,7 +1,7 @@
 # Coordination Module Inventory
 
-**Last Updated:** December 27, 2025
-**Total Modules:** 168 Python modules in `app/coordination/`
+**Last Updated:** December 29, 2025
+**Total Modules:** 170 Python modules in `app/coordination/`
 **Status:** Active
 
 Counts are approximate unless noted; use:
@@ -18,7 +18,7 @@ This document catalogs all modules in `app/coordination/` organized by category.
 | Core Infrastructure | ~16   | Event system, types, enums, protocols        |
 | Daemons             | 30+   | Background services (see DAEMON_REGISTRY.md) |
 | Sync                | ~18   | Data synchronization modules                 |
-| Health & Monitoring | ~12   | Health checks, status, metrics               |
+| Health & Monitoring | ~14   | Health checks, status, metrics               |
 | Coordination        | ~15   | Orchestrators, coordinators, bridges         |
 | Queue & Work        | ~10   | Work queue, scheduling, backpressure         |
 | Deprecated          | 10+   | Q2 2026 removal scheduled                    |
@@ -103,6 +103,8 @@ Health checks, status monitoring, metrics.
 | `cluster_status_monitor.py`        | ~600 | Active     | ClusterMonitor with async status methods         |
 | `model_performance_watchdog.py`    | ~400 | Active     | Track rolling win rates, detect regression       |
 | `node_status.py`                   | ~300 | Active     | NodeHealthState, NodeMonitoringStatus            |
+| `node_availability_cache.py`       | ~390 | Active     | Unified node availability cache (P2P/SSH/health) |
+| `node_circuit_breaker.py`          | ~465 | Active     | Per-node health circuit breaker for node probes  |
 | `stall_detection.py`               | ~200 | Active     | Detect stalled operations                        |
 | `metrics_analysis_orchestrator.py` | ~500 | Active     | Continuous metrics monitoring, plateau detection |
 | `backpressure_monitor.py`          | ~200 | Active     | Backpressure level tracking                      |
