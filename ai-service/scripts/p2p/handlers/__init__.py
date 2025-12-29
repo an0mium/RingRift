@@ -94,6 +94,7 @@ from .ssh_tournament import SSHTournamentHandlersMixin
 from .swim import SwimHandlersMixin
 from .tournament import TournamentHandlersMixin
 from .registry import RegistryHandlersMixin
+from .manifest import ManifestHandlersMixin
 from .sync import SyncHandlersMixin
 from .tables import TableHandlersMixin
 from .work_queue import WorkQueueHandlersMixin
@@ -115,6 +116,7 @@ __all__ = [
     "NetworkDiscoveryMixin",
     "RaftHandlersMixin",
     "RegistryHandlersMixin",
+    "ManifestHandlersMixin",
     "RelayHandlersMixin",
     "SSHTournamentHandlersMixin",
     "SwimHandlersMixin",
