@@ -494,8 +494,8 @@ class UnifiedModelLoader:
         else:
             state_dict = checkpoint
 
-        # Detect architecture
-        architecture = detect_architecture(state_dict)
+        # Detect architecture (use metadata for explicit model type)
+        architecture = detect_architecture(state_dict, metadata)
         if architecture == ModelArchitecture.UNKNOWN:
             logger.warning(f"Unknown architecture in {path}, attempting best-effort load")
 

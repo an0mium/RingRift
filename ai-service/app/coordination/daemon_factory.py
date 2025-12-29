@@ -14,6 +14,13 @@ Usage:
     await daemon.start()
 
 December 2025 - Phase 1.2 architecture cleanup.
+
+CIRCULAR DEPENDENCY AUDIT (Dec 2025):
+This module does NOT create any circular dependencies:
+- DaemonType is imported lazily inside _build_registry() (not at top-level)
+- No imports from daemon_manager.py, daemon_runners.py, or daemon_registry.py
+- The DaemonImportSpec class uses string-based import paths, avoiding import-time dependencies
+- Actual daemon module imports happen in _import_and_create() at runtime (lazy)
 """
 
 from __future__ import annotations

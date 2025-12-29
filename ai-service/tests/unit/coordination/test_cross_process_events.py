@@ -136,6 +136,10 @@ class TestCrossProcessEventQueue:
 
     def test_queue_initialization(self, queue, temp_db_path):
         """Test queue creates database with proper schema."""
+        # Trigger lazy database initialization by performing any db operation
+        # The database is created lazily on first access (Dec 27-28, 2025 fix)
+        _ = queue.poll(subscriber_id="init_test", limit=1)
+
         assert temp_db_path.exists()
 
         # Verify tables exist

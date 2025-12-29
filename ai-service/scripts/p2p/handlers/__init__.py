@@ -50,6 +50,9 @@ Handler Categories:
     Data Delivery (December 2025):
         - DeliveryHandlersMixin: Delivery verification and status endpoints
 
+    Data Sync (December 2025):
+        - SyncHandlersMixin: Cluster data sync (push/pull, receipts, file streaming)
+
 See individual handler modules for endpoint documentation.
 """
 
@@ -90,6 +93,7 @@ from .relay import RelayHandlersMixin
 from .ssh_tournament import SSHTournamentHandlersMixin
 from .swim import SwimHandlersMixin
 from .tournament import TournamentHandlersMixin
+from .sync import SyncHandlersMixin
 from .work_queue import WorkQueueHandlersMixin
 
 __all__ = [
@@ -111,6 +115,7 @@ __all__ = [
     "RelayHandlersMixin",
     "SSHTournamentHandlersMixin",
     "SwimHandlersMixin",
+    "SyncHandlersMixin",
     "TournamentHandlersMixin",
     "WorkQueueHandlersMixin",
 ]

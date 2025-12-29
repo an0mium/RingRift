@@ -621,6 +621,11 @@ def validate_registry() -> list[str]:
             )
 
     # Check for missing daemon_runners functions
+    # CIRCULAR DEPENDENCY NOTE (Dec 2025):
+    # This lazy import of daemon_runners is SAFE because:
+    # 1. validate_registry() is only called at runtime (from DaemonManager._register_default_factories)
+    # 2. By that point, both daemon_registry and daemon_runners are fully loaded
+    # 3. daemon_runners only imports DaemonType in TYPE_CHECKING (not at runtime)
     try:
         from app.coordination import daemon_runners
 
@@ -725,6 +730,9 @@ def check_registry_health() -> "HealthCheckResult":
     deprecated_count = len(deprecated_daemons)
 
     # Check for missing runner functions
+    # CIRCULAR DEPENDENCY NOTE (Dec 2025):
+    # This lazy import of daemon_runners is SAFE - same reasoning as in validate_registry().
+    # check_registry_health() is called at runtime for health monitoring, not at import time.
     missing_runners: list[str] = []
     try:
         from app.coordination import daemon_runners

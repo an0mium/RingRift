@@ -423,8 +423,17 @@ async def create_health_server() -> None:
     - GET /ready: Readiness probe
     - GET /metrics: Prometheus-style metrics
     - GET /status: Detailed daemon status
+
+    CIRCULAR DEPENDENCY NOTE (Dec 2025):
+    This function imports get_daemon_manager() from daemon_manager.py.
+    daemon_manager.py imports daemon_runners at top-level.
+    This is SAFE because:
+    1. This import is LAZY (inside function body, not at module load time)
+    2. By the time this function is called, daemon_manager.py is fully loaded
+    3. The circular reference is resolved at runtime, not import time
     """
     try:
+        # Lazy import to avoid circular dependency with daemon_manager.py
         from app.coordination.daemon_manager import get_daemon_manager
 
         dm = get_daemon_manager()

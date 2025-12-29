@@ -74,6 +74,14 @@ from app.coordination.daemon_lifecycle import DaemonLifecycleManager
 
 # Daemon runner functions extracted to dedicated module (Dec 2025)
 # This reduces daemon_manager.py by ~1,700 LOC
+#
+# CIRCULAR DEPENDENCY NOTE (Dec 2025):
+# daemon_manager.py imports daemon_runners at top-level.
+# daemon_runners.py imports get_daemon_manager() LAZILY inside create_health_server().
+# This is SAFE because:
+# 1. daemon_runners.py only uses TYPE_CHECKING for DaemonType (not executed at import)
+# 2. The import of get_daemon_manager is inside a function body (lazy evaluation)
+# 3. By the time create_health_server() is called, daemon_manager.py is fully loaded
 from app.coordination import daemon_runners
 
 logger = logging.getLogger(__name__)
