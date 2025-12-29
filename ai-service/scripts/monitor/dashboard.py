@@ -9,6 +9,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Optional
 
+# Import port configuration
+try:
+    from app.config.ports import P2P_DEFAULT_PORT
+except ImportError:
+    P2P_DEFAULT_PORT = 8770
+
 
 @dataclass
 class NodeStatus:
@@ -40,7 +46,7 @@ class ClusterStatus:
     avg_gpu_util: float = 0.0
 
 
-def get_node_status(host: str, port: int = 8770, timeout: int = 5) -> dict | None:
+def get_node_status(host: str, port: int = P2P_DEFAULT_PORT, timeout: int = 5) -> dict | None:
     """Get status from a single node's P2P orchestrator endpoint."""
     import urllib.error
     import urllib.request

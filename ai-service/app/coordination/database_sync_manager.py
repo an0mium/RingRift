@@ -34,6 +34,7 @@ import logging
 import os
 import shutil
 import socket
+import sqlite3
 import subprocess
 import tempfile
 import time

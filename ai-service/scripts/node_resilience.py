@@ -32,6 +32,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+# Import port configuration
+try:
+    from app.config.ports import P2P_DEFAULT_PORT
+except ImportError:
+    P2P_DEFAULT_PORT = 8770
+
 # Diverse selfplay profiles for high-quality training data
 # Based on benchmark results: MaxN >> Descent in 3P/4P, Gumbel >> all in 2P
 # Dec 28, 2025: CRITICAL FIX - Changed "hex" to "hex8" in all profiles.
@@ -127,7 +133,7 @@ class NodeConfig:
     # Fallback selfplay script for GPU nodes. Prefer hybrid for rule fidelity; can
     # be overridden per-node via --selfplay-script or env.
     selfplay_script: str = "scripts/run_hybrid_selfplay.py"
-    p2p_port: int = 8770
+    p2p_port: int = P2P_DEFAULT_PORT
     peers: str = ""  # comma-separated list for p2p_orchestrator.py --peers
     check_interval: int = 60  # seconds
     reconnect_interval: int = 300  # seconds

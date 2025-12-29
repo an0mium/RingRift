@@ -503,6 +503,10 @@ def load_checkpoint(
 
     Raises:
         VersionMismatchError: If strict_versioning and version mismatch
+        ArchitectureMismatchError: If checkpoint architecture (num_filters,
+            num_res_blocks, etc.) doesn't match model architecture. This is
+            always raised regardless of strict_versioning since architecture
+            mismatches will cause load_state_dict to fail.
     """
     # Use safe loading utility - tries weights_only=True first
     map_loc = str(device) if device else "cpu"
@@ -519,6 +523,34 @@ def load_checkpoint(
                 verify_checksum=True,
                 device=device,
             )
+
+            # December 2025: Validate architecture BEFORE load_state_dict
+            # Critical keys that MUST match to prevent silent architecture mismatch
+            CRITICAL_KEYS = ["num_filters", "num_res_blocks", "num_players", "policy_size"]
+            current_config = get_model_config(model)
+            checkpoint_config = metadata.config if metadata.config else {}
+
+            for key in CRITICAL_KEYS:
+                checkpoint_val = checkpoint_config.get(key)
+                current_val = current_config.get(key)
+                if checkpoint_val is not None and current_val is not None:
+                    if checkpoint_val != current_val:
+                        # Infer memory tier from num_filters for helpful error message
+                        memory_tier = None
+                        if key == "num_filters":
+                            tier_map = {
+                                128: "v4", 192: "v3-high", 96: "v3-low",
+                                160: "v5", 256: "v6", 320: "v6-xl",
+                            }
+                            memory_tier = tier_map.get(checkpoint_val)
+                        raise ArchitectureMismatchError(
+                            checkpoint_path=path,
+                            key=key,
+                            checkpoint_value=checkpoint_val,
+                            model_value=current_val,
+                            memory_tier=memory_tier,
+                        )
+
             model.load_state_dict(state_dict)
             logger.info(
                 f"Loaded versioned checkpoint from {path} "

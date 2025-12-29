@@ -33,6 +33,7 @@ from app.coordination.unified_queue_populator import (
     get_queue_populator,
     load_populator_config_from_yaml,
     reset_queue_populator,
+    wire_queue_populator_events,
 )
 
 # Re-export BoardType from types module
@@ -53,4 +54,5 @@ __all__ = [
     "get_queue_populator",
     "load_populator_config_from_yaml",
     "reset_queue_populator",
+    "wire_queue_populator_events",
 ]

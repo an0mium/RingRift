@@ -291,6 +291,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         '--num-filters', type=int, default=None,
         help='Number of filters per layer (overrides default for model version)'
     )
+    parser.add_argument(
+        '--memory-tier', type=str, default=None,
+        choices=['v4', 'v3-high', 'v3-low', 'v5', 'v5.1', 'v6', 'v6-xl'],
+        help='Memory tier for model architecture. Determines num_filters and num_res_blocks. '
+             'When resuming training, tier is auto-detected from checkpoint if not specified. '
+             'Tiers: v4=128ch/13blocks, v3-high=192ch/12blocks, v3-low=96ch/6blocks, '
+             'v5=160ch/11blocks, v6=256ch/18blocks, v6-xl=320ch/20blocks.'
+    )
 
     # Multi-player support
     parser.add_argument(
@@ -890,6 +898,35 @@ def main() -> None:
 
         logger.info("[TrainCLI] GNN training completed successfully")
         return
+
+    # December 2025: Apply memory tier to architecture parameters
+    # Memory tier provides a convenient way to set num_filters and num_res_blocks
+    memory_tier = getattr(args, 'memory_tier', None)
+    if memory_tier:
+        TIER_DEFAULTS = {
+            "v4": (128, 13),
+            "v3-high": (192, 12),
+            "v3-low": (96, 6),
+            "v5": (160, 11),
+            "v5.1": (160, 11),
+            "v6": (256, 18),
+            "v6-xl": (320, 20),
+        }
+        tier_filters, tier_blocks = TIER_DEFAULTS.get(memory_tier, (128, 13))
+
+        # Only override if not explicitly set via --num-filters/--num-res-blocks
+        if getattr(args, 'num_filters', None) is None:
+            args.num_filters = tier_filters
+            logger.info(f"[TrainCLI] Using memory tier '{memory_tier}': num_filters={tier_filters}")
+        if getattr(args, 'num_res_blocks', None) is None:
+            args.num_res_blocks = tier_blocks
+            logger.info(f"[TrainCLI] Using memory tier '{memory_tier}': num_res_blocks={tier_blocks}")
+    elif getattr(args, 'resume', None):
+        # If resuming without explicit tier, note that auto-detection will happen in train.py
+        logger.info(
+            "[TrainCLI] Resuming training - architecture will be auto-detected from checkpoint. "
+            "Use --memory-tier to override if needed."
+        )
 
     # Run CNN training
     train_model(

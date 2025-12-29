@@ -20,6 +20,12 @@ from typing import Dict, List, Optional
 
 import yaml
 
+# Import port configuration
+try:
+    from app.config.ports import P2P_DEFAULT_PORT
+except ImportError:
+    P2P_DEFAULT_PORT = 8770
+
 
 @dataclass
 class NodeHealth:
@@ -34,7 +40,7 @@ class NodeHealth:
     # Health checks
     reachable: bool = False
     p2p_running: bool = False
-    p2p_port: int = 8770
+    p2p_port: int = P2P_DEFAULT_PORT
     nat_blocked: bool = False
 
     # Storage

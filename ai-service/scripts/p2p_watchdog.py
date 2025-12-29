@@ -36,6 +36,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Import port configuration
+try:
+    from app.config.ports import P2P_DEFAULT_PORT
+except ImportError:
+    P2P_DEFAULT_PORT = 8770
+
 
 def log(msg: str):
     """Print timestamped log message."""
@@ -69,7 +75,7 @@ def _load_peers_from_config() -> list[str]:
         return []
 
 
-def check_p2p_health(port: int = 8770, timeout: int = 30) -> dict | None:
+def check_p2p_health(port: int = P2P_DEFAULT_PORT, timeout: int = 30) -> dict | None:
     """Check if local P2P orchestrator is healthy."""
     try:
         url = f"http://localhost:{port}/health"
@@ -79,7 +85,7 @@ def check_p2p_health(port: int = 8770, timeout: int = 30) -> dict | None:
         return None
 
 
-def check_cluster_peers(port: int = 8770) -> int:
+def check_cluster_peers(port: int = P2P_DEFAULT_PORT) -> int:
     """Get number of online peers in cluster."""
     try:
         url = f"http://localhost:{port}/api/cluster/status"

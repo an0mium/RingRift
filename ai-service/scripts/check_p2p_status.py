@@ -46,7 +46,10 @@ from app.core.ssh import SSHClient, SSHConfig
 logger = logging.getLogger(__name__)
 
 # P2P default port
-P2P_PORT = 8770
+try:
+    from app.config.ports import P2P_DEFAULT_PORT as P2P_PORT
+except ImportError:
+    P2P_PORT = 8770
 # SSH timeout for quick checks
 SSH_TIMEOUT = 15
 # Max concurrent SSH connections

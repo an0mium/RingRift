@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
