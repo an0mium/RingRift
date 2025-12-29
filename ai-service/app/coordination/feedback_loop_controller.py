@@ -1439,7 +1439,8 @@ class FeedbackLoopController:
         2. Track Elo velocity (Dec 28 2025)
         3. Adjust selfplay intensity based on velocity
         4. Compute and emit adaptive training signal (Dec 29 2025 - Phase 6)
-        5. Consider promotion if win rate threshold met
+        5. Report feedback to engine bandit (Dec 29 2025)
+        6. Consider promotion if win rate threshold met
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
@@ -1471,6 +1472,10 @@ class FeedbackLoopController:
             eval_result = {"elo": elo, "win_rate": win_rate, "velocity": velocity}
             adaptive_signal = self._compute_adaptive_signal(config_key, state, eval_result)
             self._emit_adaptive_training_signal(config_key, adaptive_signal)
+
+            # Dec 29 2025: Report feedback to selfplay engine bandit
+            # This helps the bandit learn which engines produce best training data
+            self._report_engine_bandit_feedback(config_key, state, elo)
 
             # Consider promotion if threshold met
             if win_rate >= self.promotion_threshold:
@@ -2440,6 +2445,55 @@ class FeedbackLoopController:
             )
         except ImportError:
             pass
+
+    def _report_engine_bandit_feedback(
+        self,
+        config_key: str,
+        state: FeedbackState,
+        current_elo: float,
+    ) -> None:
+        """Report feedback to the selfplay engine bandit.
+
+        Dec 29 2025: This closes the feedback loop for the multi-armed bandit
+        that selects selfplay engines. After evaluation completes, we report
+        the Elo improvement (or loss) to help the bandit learn which engine
+        produces the best training data for each config.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+            state: FeedbackState with engine tracking data
+            current_elo: Elo from the just-completed evaluation
+        """
+        # Skip if no selfplay data to attribute
+        if state.last_selfplay_games <= 0:
+            return
+
+        # Calculate Elo gain since training started
+        elo_gain = current_elo - state.elo_before_training
+
+        try:
+            from app.coordination.selfplay_engine_bandit import get_selfplay_engine_bandit
+
+            bandit = get_selfplay_engine_bandit()
+            bandit.record_feedback(
+                config_key=config_key,
+                engine=state.last_selfplay_engine,
+                elo_gain=elo_gain,
+                games=state.last_selfplay_games,
+            )
+
+            logger.info(
+                f"[EngineBandit] Recorded feedback for {config_key}/{state.last_selfplay_engine}: "
+                f"elo_gain={elo_gain:+.1f}, games={state.last_selfplay_games}"
+            )
+
+            # Reset games counter after reporting (start fresh for next training cycle)
+            state.last_selfplay_games = 0
+
+        except ImportError:
+            logger.debug("[EngineBandit] Bandit module not available")
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.warning(f"[EngineBandit] Failed to report feedback: {e}")
 
     def _signal_urgent_training(self, config_key: str, failure_count: int) -> None:
         """Signal that urgent training is needed after failures."""
