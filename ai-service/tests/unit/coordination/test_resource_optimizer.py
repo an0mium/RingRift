@@ -57,8 +57,9 @@ class TestResourceType:
         assert ResourceType.MEMORY.value == "memory"
 
     def test_resource_type_count(self):
-        """Should have exactly 3 resource types."""
-        assert len(ResourceType) == 3
+        """Should have all resource types defined."""
+        # ResourceType is consolidated with 7 members: CPU, GPU, MEMORY, DISK, NETWORK, HYBRID, IO
+        assert len(ResourceType) == 7
 
     def test_enum_string_value(self):
         """Should be usable as string."""

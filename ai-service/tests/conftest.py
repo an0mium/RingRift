@@ -6,6 +6,15 @@ All fixtures are session-scoped by default for better performance where appropri
 but game state fixtures are function-scoped to ensure test isolation.
 """
 
+# =============================================================================
+# CUDA DISABLE FOR TESTS
+# =============================================================================
+# Disable CUDA to prevent PyTorch from attempting GPU initialization during tests.
+# This fixes import hangs on machines where CUDA drivers are problematic.
+# Must be done BEFORE any imports that might trigger PyTorch loading.
+import os
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
 import sys
 from collections.abc import Callable
 from datetime import datetime

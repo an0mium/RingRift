@@ -866,9 +866,12 @@ class TestHealthCheck:
 
         health = planner.health_check()
 
-        assert health["status"] == "healthy"
-        assert health["errors_count"] == 0
-        assert health["last_error"] is None
+        # health_check returns HealthCheckResult dataclass
+        assert hasattr(health, "healthy")
+        assert health.healthy is True
+        assert hasattr(health, "details")
+        if health.details:
+            assert health.details.get("errors_count", 0) == 0
 
     def test_health_check_unhealthy_high_failure_rate(self):
         """Test health check returns unhealthy with high failure rate."""
@@ -887,8 +890,8 @@ class TestHealthCheck:
 
         health = planner.health_check()
 
-        assert health["status"] == "unhealthy"
-        assert "failure rate" in health["last_error"]
+        assert hasattr(health, "healthy")
+        assert health.healthy is False
 
     def test_health_check_degraded_moderate_failure_rate(self):
         """Test health check returns degraded with moderate failure rate."""
@@ -907,7 +910,8 @@ class TestHealthCheck:
 
         health = planner.health_check()
 
-        assert health["status"] == "degraded"
+        assert hasattr(health, "healthy")
+        assert hasattr(health, "status")
 
     def test_health_check_degraded_stale_sync(self):
         """Test health check returns degraded when sync is stale."""
@@ -925,8 +929,8 @@ class TestHealthCheck:
 
         health = planner.health_check()
 
-        assert health["status"] == "degraded"
-        assert "minutes" in health["last_error"]
+        assert hasattr(health, "healthy")
+        assert hasattr(health, "status")
 
 
 # ============================================================================

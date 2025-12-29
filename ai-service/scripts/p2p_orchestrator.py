@@ -353,6 +353,11 @@ def _check_event_emitters() -> bool:
         return False
 
 
+# December 28, 2025: Module-level emit functions (27 methods, ~911 LOC) were moved to
+# EventEmissionMixin in scripts/p2p/event_emission_mixin.py.
+# P2POrchestrator now inherits from EventEmissionMixin and uses self._emit_* methods.
+# See scripts/p2p/__init__.py for the mixin export.
+
 
 # Add project root to path for scripts.lib imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

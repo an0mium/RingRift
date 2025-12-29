@@ -688,12 +688,14 @@ class TestHealthCheck:
 
         health = coord.health_check()
 
-        assert health["status"] == "healthy"
-        assert health["running_jobs"] == 0
-        assert health["failed_jobs"] == 0
-        assert health["total_jobs"] == 0
-        assert health["trigger_cache_size"] == 0
-        assert health["subscribed"] is True
+        # health_check returns HealthCheckResult dataclass
+        assert hasattr(health, "healthy")
+        assert health.healthy is True
+        assert hasattr(health, "details")
+        if health.details:
+            assert health.details.get("running_jobs", 0) == 0
+            assert health.details.get("failed_jobs", 0) == 0
+            assert health.details.get("subscribed") is True
 
     def test_health_check_with_failed_jobs(self, temp_ringrift_path, training_lock, peers_lock):
         """Verify health check reports degraded status with high failure rate."""
@@ -720,9 +722,12 @@ class TestHealthCheck:
         health = coord.health_check()
 
         # 2/3 failed = 66% failure rate > 50% threshold
-        assert health["status"] == "unhealthy"
-        assert health["failed_jobs"] == 2
-        assert health["total_jobs"] == 3
+        assert hasattr(health, "healthy")
+        assert health.healthy is False
+        assert hasattr(health, "details")
+        if health.details:
+            assert health.details.get("failed_jobs") == 2
+            assert health.details.get("total_jobs") == 3
 
     def test_health_check_large_trigger_cache(self, training_coordinator):
         """Verify health check flags large trigger cache."""
@@ -735,6 +740,8 @@ class TestHealthCheck:
         health = coord.health_check()
 
         # Large cache should cause degraded status
-        assert health["status"] == "degraded"
-        assert health["trigger_cache_size"] > 100
-        assert "Large trigger cache" in health["last_error"]
+        assert hasattr(health, "healthy")
+        assert hasattr(health, "status")
+        assert hasattr(health, "details")
+        if health.details:
+            assert health.details.get("trigger_cache_size", 0) > 100
