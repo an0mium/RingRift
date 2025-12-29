@@ -268,9 +268,11 @@ class ModelMetadata:
         checksum: SHA256 hash of the serialized state_dict bytes
         parent_checkpoint: Path to parent checkpoint (for lineage tracking)
     """
-    architecture_version: str
-    model_class: str
-    config: dict[str, Any]
+    # Dec 2025: Added defaults to prevent from_dict() failures on legacy checkpoints
+    # "unknown" sentinel can be detected and logged for migration tracking
+    architecture_version: str = "unknown"
+    model_class: str = "unknown"
+    config: dict[str, Any] = field(default_factory=dict)
     board_type: str = ""  # square8, square19, hex8, hexagonal
     board_size: int = 0   # 8, 19, 9, 25
     num_players: int = 0  # 2, 3, 4
@@ -292,10 +294,24 @@ class ModelMetadata:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelMetadata":
-        """Create from dictionary, ignoring unknown fields for forward compatibility."""
+        """Create from dictionary, ignoring unknown fields for forward compatibility.
+
+        Dec 2025: Now handles legacy checkpoints without required fields by using
+        "unknown" sentinels. A warning is logged when legacy checkpoints are detected.
+        """
         # Filter to only known fields to handle future metadata additions gracefully
         known_fields = {f.name for f in fields(cls)}
         filtered_data = {k: v for k, v in data.items() if k in known_fields}
+
+        # Dec 2025: Log warning for legacy checkpoints missing critical fields
+        critical_fields = {"architecture_version", "model_class"}
+        missing_critical = critical_fields - set(filtered_data.keys())
+        if missing_critical:
+            logger.warning(
+                f"[ModelMetadata] Legacy checkpoint missing fields: {missing_critical}. "
+                "Using 'unknown' defaults. Consider re-saving checkpoint with full metadata."
+            )
+
         return cls(**filtered_data)
 
     def is_compatible_with(self, other: "ModelMetadata") -> bool:
@@ -875,6 +891,15 @@ class ModelVersionManager:
 
             # Atomic rename to final path
             temp_path.rename(path_obj)
+
+            # Dec 2025: Generate SHA256 sidecar file for transfer verification
+            # This enables checksum verification on cluster nodes
+            try:
+                from app.utils.torch_utils import write_checksum_file
+                write_checksum_file(path_obj)
+            except (ImportError, OSError) as e:
+                # Best-effort - don't fail save if checksum file fails
+                logger.warning(f"Failed to write checksum sidecar: {e}")
 
         except Exception as e:
             # Clean up temp file on failure

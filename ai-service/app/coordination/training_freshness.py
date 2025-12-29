@@ -468,20 +468,30 @@ class TrainingFreshnessChecker:
                 error="No training data found",
             )
 
-        # Find freshest data
-        freshest = min(all_sources, key=lambda s: s.age_hours)
+        # Helper to get effective age (content-based when available, else file mtime)
+        # This MUST match the same logic used for is_stale in find_local_databases/npz
+        def get_effective_age(s: DataSourceInfo) -> float:
+            if s.content_age_hours is not None:
+                return s.content_age_hours
+            return s.age_hours
+
+        # Find freshest data using effective age (consistent with is_stale check)
+        freshest = min(all_sources, key=get_effective_age)
+        freshest_effective_age = get_effective_age(freshest)
         total_games = sum(s.game_count for s in databases)
 
         # Check if any fresh data exists
         fresh_sources = [s for s in all_sources if not s.is_stale]
         is_fresh = len(fresh_sources) > 0 and total_games >= self.config.min_games_required
 
-        # Build details
+        # Build details with both file mtime and content age for debugging
         details = {
             "databases": [
                 {
                     "path": str(s.path),
-                    "age_hours": round(s.age_hours, 2),
+                    "file_age_hours": round(s.age_hours, 2),
+                    "content_age_hours": round(s.content_age_hours, 2) if s.content_age_hours is not None else None,
+                    "effective_age_hours": round(get_effective_age(s), 2),
                     "game_count": s.game_count,
                     "is_stale": s.is_stale,
                 }
@@ -490,7 +500,9 @@ class TrainingFreshnessChecker:
             "npz_files": [
                 {
                     "path": str(s.path),
-                    "age_hours": round(s.age_hours, 2),
+                    "file_age_hours": round(s.age_hours, 2),
+                    "content_age_hours": round(s.content_age_hours, 2) if s.content_age_hours is not None else None,
+                    "effective_age_hours": round(get_effective_age(s), 2),
                     "sample_count": s.game_count,
                     "is_stale": s.is_stale,
                 }
@@ -499,12 +511,13 @@ class TrainingFreshnessChecker:
             "config_key": f"{board_type}_{num_players}p",
             "threshold_hours": self.config.max_age_hours,
             "min_games_required": self.config.min_games_required,
+            "using_content_age": self.config.validate_content_age,
         }
 
         return FreshnessResult(
             success=True,
             is_fresh=is_fresh,
-            data_age_hours=freshest.age_hours,
+            data_age_hours=freshest_effective_age,  # Use effective age for consistency
             games_available=total_games,
             details=details,
         )

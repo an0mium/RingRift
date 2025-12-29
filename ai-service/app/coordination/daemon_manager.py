@@ -3169,8 +3169,8 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.MODEL_PERFORMANCE_WATCHDOG,  # Monitor model win rates
         DaemonType.NPZ_DISTRIBUTION,  # Distribute training data after export
         DaemonType.ORPHAN_DETECTION,  # Detect unregistered game databases
-        DaemonType.NODE_HEALTH_MONITOR,  # Unified cluster health maintenance
-        DaemonType.SYSTEM_HEALTH_MONITOR,  # Global system health with pipeline pause
+        # NOTE: NODE_HEALTH_MONITOR and SYSTEM_HEALTH_MONITOR removed Dec 2025
+        # HEALTH_SERVER (line 3157) + health_check_orchestrator handle both use cases
         DaemonType.UNIFIED_PROMOTION,  # Phase 18.4: Auto-promote models after evaluation
         DaemonType.JOB_SCHEDULER,  # Phase 3: Centralized job scheduling with PID-based allocation
         DaemonType.IDLE_RESOURCE,  # Phase 20: Monitor idle GPUs and spawn selfplay
@@ -3184,7 +3184,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
         DaemonType.DLQ_RETRY,  # P0.3: Dead letter queue remediation (Dec 2025)
         DaemonType.GAUNTLET_FEEDBACK,  # Dec 2025: Process evaluation results → emit REGRESSION_CRITICAL
         DaemonType.AUTO_SYNC,  # Dec 2025: CRITICAL - Pull game data from remote nodes
-        DaemonType.CLUSTER_DATA_SYNC,  # Dec 2025: Cluster-wide data distribution
+        # NOTE: CLUSTER_DATA_SYNC removed Dec 2025 - AUTO_SYNC handles broadcast sync
         DaemonType.CLUSTER_WATCHDOG,  # Dec 2025: Self-healing cluster utilization
         DaemonType.METRICS_ANALYSIS,  # Phase 21.2: Analyze training metrics for feedback
         DaemonType.ELO_SYNC,  # Dec 2025: Sync Elo ratings across cluster nodes
@@ -3222,7 +3222,7 @@ DAEMON_PROFILES: dict[str, list[DaemonType]] = {
     "ephemeral": [
         DaemonType.EVENT_ROUTER,
         DaemonType.HEALTH_SERVER,  # HTTP health endpoints (/health, /ready, /metrics)
-        DaemonType.EPHEMERAL_SYNC,
+        # NOTE: EPHEMERAL_SYNC removed Dec 2025 - AUTO_SYNC with strategy="ephemeral" handles this
         DaemonType.DATA_PIPELINE,
         DaemonType.IDLE_RESOURCE,  # Phase 4: Detect idle GPUs and auto-spawn selfplay
         DaemonType.QUALITY_MONITOR,  # Phase 21.2: Monitor quality for throttling feedback

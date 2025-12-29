@@ -393,3 +393,114 @@ class ElectionHandlersMixin(BaseP2PHandler):
         except Exception as e:
             logger.error(f"Error forcing leader: {e}")
             return self.error_response(str(e), status=500)
+
+    async def handle_election_request(self, request: web.Request) -> web.Response:
+        """Handle election request from non-voter nodes.
+
+        December 29, 2025: This endpoint allows non-voters to signal to voters
+        that an election is needed. This is useful when non-voters detect that
+        there's no leader but can't start elections themselves.
+
+        If this node is a voter and quorum is available, it will start an election.
+        If this node is not a voter, it will forward the request to known voters.
+
+        Request body:
+            - requester_id: str (optional) - ID of the node requesting election
+            - reason: str (optional) - Reason for requesting election
+
+        Response:
+            - accepted: bool - Whether the election request was accepted
+            - action: str - What action was taken (started_election, forwarded, rejected)
+            - details: str - Additional details
+        """
+        try:
+            data = await self.parse_json_body(request)
+            if data is None:
+                data = {}
+
+            requester_id = str(data.get("requester_id") or "unknown")
+            reason = str(data.get("reason") or "no_leader")
+
+            logger.info(f"Election request from {requester_id}: {reason}")
+
+            voters = list(getattr(self, "voter_node_ids", []) or [])
+
+            # If we're a voter, try to start an election
+            if not voters or self.node_id in voters:
+                # Check if we already have a leader
+                if self.leader_id:
+                    with self.peers_lock:
+                        leader = self.peers.get(self.leader_id)
+                    if leader and leader.is_alive():
+                        return self.json_response({
+                            "accepted": False,
+                            "action": "rejected",
+                            "details": f"Leader {self.leader_id} is already active",
+                            "leader_id": self.leader_id,
+                        })
+
+                # Check quorum
+                if not self._has_voter_quorum():
+                    return self.json_response({
+                        "accepted": False,
+                        "action": "rejected",
+                        "details": "No voter quorum available",
+                        "voters_needed": getattr(self, "voter_quorum_size", 3),
+                    })
+
+                # Start election
+                if not getattr(self, "election_in_progress", False):
+                    asyncio.create_task(self._start_election())
+                    return self.json_response({
+                        "accepted": True,
+                        "action": "started_election",
+                        "details": f"Voter {self.node_id} starting election on behalf of {requester_id}",
+                        "voter_id": self.node_id,
+                    })
+                else:
+                    return self.json_response({
+                        "accepted": True,
+                        "action": "election_in_progress",
+                        "details": "Election already in progress",
+                        "voter_id": self.node_id,
+                    })
+            else:
+                # We're not a voter, forward to known voters
+                # This is best-effort - we don't wait for responses
+                import aiohttp
+
+                forwarded_to = []
+                for voter_id in voters[:3]:  # Limit to 3 to avoid broadcast storm
+                    with self.peers_lock:
+                        voter = self.peers.get(voter_id)
+                    if voter and voter.is_alive():
+                        try:
+                            url = self._url_for_peer(voter, "/election/request")
+                            async with aiohttp.ClientSession() as session:
+                                async with session.post(
+                                    url,
+                                    json={"requester_id": self.node_id, "reason": reason},
+                                    headers=self._auth_headers(),
+                                    timeout=aiohttp.ClientTimeout(total=5.0),
+                                ) as resp:
+                                    if resp.status == 200:
+                                        forwarded_to.append(voter_id)
+                        except Exception:
+                            pass
+
+                if forwarded_to:
+                    return self.json_response({
+                        "accepted": True,
+                        "action": "forwarded",
+                        "details": f"Forwarded election request to {len(forwarded_to)} voters",
+                        "forwarded_to": forwarded_to,
+                    })
+                else:
+                    return self.json_response({
+                        "accepted": False,
+                        "action": "forward_failed",
+                        "details": "No voters reachable to forward election request",
+                    })
+        except Exception as e:
+            logger.error(f"Error handling election request: {e}")
+            return self.error_response(str(e), status=500)

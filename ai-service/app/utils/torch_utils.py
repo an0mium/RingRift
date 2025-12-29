@@ -159,6 +159,80 @@ class ModelCorruptionError(Exception):
     """Raised when model checksum verification fails."""
     pass
 
+
+class InvalidCheckpointFormatError(Exception):
+    """Raised when checkpoint file has invalid magic bytes."""
+
+    def __init__(self, path: str | Path, header_hex: str):
+        self.path = path
+        self.header_hex = header_hex
+        super().__init__(
+            f"Invalid checkpoint format: {path}. "
+            f"Expected ZIP (PK) or pickle header, got: {header_hex[:16]}... "
+            "File may be corrupted, truncated, or not a PyTorch checkpoint."
+        )
+
+
+def validate_checkpoint_magic_bytes(path: str | Path) -> tuple[bool, str]:
+    """Check if file starts with valid ZIP or pickle magic bytes.
+
+    PyTorch checkpoints saved with torch.save() are either:
+    - ZIP archives (PyTorch >= 1.6): starts with b'PK'
+    - Pickle files (legacy): starts with pickle protocol bytes
+
+    Args:
+        path: Path to the checkpoint file
+
+    Returns:
+        Tuple of (is_valid, format_type)
+        - is_valid: True if file has valid checkpoint magic bytes
+        - format_type: 'zip', 'pickle', or 'invalid_header:<hex>'
+
+    Example:
+        >>> valid, fmt = validate_checkpoint_magic_bytes("model.pth")
+        >>> if not valid:
+        ...     print(f"Invalid checkpoint: {fmt}")
+    """
+    path = Path(path)
+
+    # Handle empty or tiny files
+    if not path.exists():
+        return False, "file_not_found"
+
+    file_size = path.stat().st_size
+    if file_size < 4:
+        return False, f"file_too_small:{file_size}"
+
+    with open(path, "rb") as f:
+        header = f.read(4)
+
+    # ZIP archive (PyTorch >= 1.6)
+    if header[:2] == b'PK':
+        return True, "zip"
+
+    # Pickle protocol 2 (most common legacy format)
+    if header[:2] == b'\x80\x02':
+        return True, "pickle_v2"
+
+    # Pickle protocol 3
+    if header[:2] == b'\x80\x03':
+        return True, "pickle_v3"
+
+    # Pickle protocol 4
+    if header[:2] == b'\x80\x04':
+        return True, "pickle_v4"
+
+    # Pickle protocol 5
+    if header[:2] == b'\x80\x05':
+        return True, "pickle_v5"
+
+    # Other pickle protocols (start with \x80)
+    if header[:1] == b'\x80':
+        return True, "pickle"
+
+    # Invalid header
+    return False, f"invalid_header:{header.hex()}"
+
 # Try to import torch - this module should work even without torch
 skip_torch = os.getenv("RINGRIFT_SKIP_TORCH_IMPORT", "").strip().lower()
 skip_optional = os.getenv("RINGRIFT_SKIP_OPTIONAL_IMPORTS", "").strip().lower()
@@ -205,6 +279,7 @@ def safe_load_checkpoint(
     Raises:
         ImportError: If PyTorch is not installed
         FileNotFoundError: If the checkpoint file doesn't exist
+        InvalidCheckpointFormatError: If file has invalid magic bytes (Dec 2025)
         RuntimeError: If loading fails and allow_unsafe=False
         ModelCorruptionError: If verify_checksum=True and checksum mismatch
     """
@@ -214,6 +289,28 @@ def safe_load_checkpoint(
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Checkpoint not found: {path}")
+
+    # Dec 2025: Validate magic bytes before attempting torch.load()
+    # This catches corrupted files early with a clear error message
+    is_valid, format_type = validate_checkpoint_magic_bytes(path)
+    if not is_valid:
+        # Emit event for monitoring (best-effort)
+        try:
+            import asyncio
+            from app.coordination.event_emitters import emit_model_corrupted
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(emit_model_corrupted(
+                    model_id=path.stem,
+                    model_path=str(path),
+                    corruption_type=f"invalid_format:{format_type}",
+                ))
+        except (ImportError, RuntimeError, AttributeError, OSError):
+            pass  # Best-effort event emission
+
+        raise InvalidCheckpointFormatError(str(path), format_type)
+
+    logger.debug(f"[ModelLoad] Checkpoint format: {format_type} for {path.name}")
 
     # Dec 2025: Optional SHA256 checksum verification
     if verify_checksum:

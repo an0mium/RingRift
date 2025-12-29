@@ -84,17 +84,18 @@ class TrainingTriggerConfig:
     # December 29, 2025: Reduced from 10000 to 5000 for faster iteration cycles
     min_samples_threshold: int = 5000
     # Cooldown between training runs for same config
-    # December 29, 2025: Reduced from 4.0 to 1.0 for faster iteration cycles
-    training_cooldown_hours: float = 1.0
+    # December 29, 2025: Reduced from 1.0 to 0.083 (5 min) for faster iteration cycles
+    training_cooldown_hours: float = 0.083
     # Maximum concurrent training jobs
-    max_concurrent_training: int = 2
+    # December 29, 2025: Increased from 2 to 10 for better cluster utilization
+    max_concurrent_training: int = 10
     # GPU utilization threshold for "idle"
     gpu_idle_threshold_percent: float = 20.0
     # Timeout for training subprocess (24 hours)
     training_timeout_seconds: int = 86400
     # Check interval for periodic scans
-    # December 29, 2025: Reduced from 300s to 120s for faster detection
-    scan_interval_seconds: int = 120  # 2 minutes
+    # December 29, 2025: Reduced from 120s to 30s for faster detection
+    scan_interval_seconds: int = 30  # 30 seconds
     # Training epochs
     default_epochs: int = 50
     default_batch_size: int = 512

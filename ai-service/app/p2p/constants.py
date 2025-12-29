@@ -280,18 +280,47 @@ RAFT_AUTO_UNLOCK_TIME = float(os.environ.get("RINGRIFT_RAFT_AUTO_UNLOCK_TIME", "
 # SWIM membership (optional)
 # ============================================
 
-SWIM_ENABLED = os.environ.get("RINGRIFT_SWIM_ENABLED", "").lower() in {"1", "true", "yes", "on"}
+# December 29, 2025: Auto-detect swim-p2p availability for hybrid mode
+# SWIM is auto-enabled when swim-p2p package is available, unless explicitly disabled
+def _detect_swim_available() -> bool:
+    """Check if swim-p2p package is available for SWIM protocol."""
+    try:
+        from swim import Node as SwimNode
+        if hasattr(SwimNode, 'create'):
+            return True
+    except ImportError:
+        pass
+    return False
+
+_SWIM_PACKAGE_AVAILABLE = _detect_swim_available()
+_swim_env = os.environ.get("RINGRIFT_SWIM_ENABLED", "").lower()
+# Auto-enable if package available AND not explicitly disabled
+# Explicit "false"/"off"/"0" disables; empty string with package = enabled
+if _swim_env in {"0", "false", "no", "off"}:
+    SWIM_ENABLED = False
+elif _swim_env in {"1", "true", "yes", "on"}:
+    SWIM_ENABLED = True
+else:
+    # Auto-detect: enable if package available
+    SWIM_ENABLED = _SWIM_PACKAGE_AVAILABLE
+
 SWIM_BIND_PORT = int(os.environ.get("RINGRIFT_SWIM_BIND_PORT", str(SWIM_PORT)) or SWIM_PORT)
-SWIM_FAILURE_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_FAILURE_TIMEOUT", "5.0") or 5.0)
-SWIM_SUSPICION_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_SUSPICION_TIMEOUT", "3.0") or 3.0)
+# December 29, 2025: Tuned for high-latency cross-cloud networks
+# Original values: 5.0s failure, 3.0s suspicion, 3 indirect pings
+# Increased for P99 RTT of 2.6s observed between cloud providers
+SWIM_FAILURE_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_FAILURE_TIMEOUT", "10.0") or 10.0)
+SWIM_SUSPICION_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_SUSPICION_TIMEOUT", "6.0") or 6.0)
 SWIM_PING_INTERVAL = float(os.environ.get("RINGRIFT_SWIM_PING_INTERVAL", "1.0") or 1.0)
-SWIM_INDIRECT_PING_COUNT = int(os.environ.get("RINGRIFT_SWIM_INDIRECT_PING_COUNT", "3") or 3)
+# Increased indirect probes from 3 to 7 per SWIM paper for better success rate
+SWIM_INDIRECT_PING_COUNT = int(os.environ.get("RINGRIFT_SWIM_INDIRECT_PING_COUNT", "7") or 7)
 
 # ============================================
 # Feature Flags
 # ============================================
 
-MEMBERSHIP_MODE = os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "http")
+# December 29, 2025: Changed default from "http" to "hybrid" for faster failure detection
+# Hybrid mode uses SWIM when available with HTTP fallback for compatibility
+MEMBERSHIP_MODE = os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "hybrid")
 CONSENSUS_MODE = os.environ.get("RINGRIFT_CONSENSUS_MODE", "bully")
 
 # ============================================

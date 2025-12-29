@@ -106,15 +106,76 @@ class GNNAI(BaseAI):
         if model_path:
             self.load_model(model_path)
 
+    def _is_gnn_checkpoint(self, ckpt: dict) -> bool:
+        """Detect if checkpoint is a GNN model (vs CNN).
+
+        GNN checkpoints have specific signatures:
+        - Top-level keys: conv_type, num_layers (GNN-specific config)
+        - State dict keys: convs.*, global_*, lin_* (GNN layer names)
+
+        CNN checkpoints have:
+        - State dict keys: conv1.*, res_blocks.*, policy_fc.* (CNN layer names)
+        """
+        # Check for GNN-specific top-level config keys
+        if ckpt.get("conv_type") is not None:
+            return True
+
+        # Check state dict key patterns
+        state_dict = ckpt.get("model_state_dict", ckpt)
+        if not isinstance(state_dict, dict):
+            return False
+
+        keys = set(state_dict.keys())
+
+        # GNN signatures: convs.*, global_mlp.*, lin_policy.*
+        gnn_prefixes = ("convs.", "global_mlp.", "lin_policy.", "lin_value.")
+        has_gnn_keys = any(any(k.startswith(p) for p in gnn_prefixes) for k in keys)
+
+        # CNN signatures: conv1.*, res_blocks.*, policy_fc.*
+        cnn_prefixes = ("conv1.", "res_blocks.", "policy_fc.", "value_fc.")
+        has_cnn_keys = any(any(k.startswith(p) for p in cnn_prefixes) for k in keys)
+
+        # If has GNN keys and no CNN keys, it's a GNN checkpoint
+        if has_gnn_keys and not has_cnn_keys:
+            return True
+
+        # If has CNN keys, it's not a GNN checkpoint
+        if has_cnn_keys:
+            return False
+
+        # Default: check for GNN-specific versioning metadata
+        versioning = ckpt.get("_versioning_metadata", {})
+        model_name = versioning.get("model", "")
+        if "gnn" in model_name.lower():
+            return True
+
+        return False
+
     def load_model(self, model_path: str | Path):
-        """Load trained GNN model."""
+        """Load trained GNN model.
+
+        If the checkpoint is not a GNN model (e.g., CNN), logs a warning
+        and falls back to random move selection.
+        """
         from app.ai.neural_net.gnn_policy import GNNPolicyNet
 
         if not HAS_PYG:
             _warn_pyg_once("PyTorch Geometric not installed; skipping GNN model load")
             return
 
-        ckpt = _load_checkpoint(model_path, self.device)
+        try:
+            ckpt = _load_checkpoint(model_path, self.device)
+        except Exception as e:
+            logger.warning(f"Failed to load checkpoint {model_path}: {e}")
+            return
+
+        # Check if this is actually a GNN checkpoint
+        if not self._is_gnn_checkpoint(ckpt):
+            logger.warning(
+                f"Checkpoint {model_path} is not a GNN model (appears to be CNN). "
+                f"Falling back to random move selection. Use model_type='cnn' for CNN models."
+            )
+            return
 
         # Extract action_space_size with fallback chain:
         # 1. Top-level action_space_size (GNN format)
@@ -126,25 +187,32 @@ class GNNAI(BaseAI):
             config = versioning.get("config", {})
             action_space = config.get("policy_size", self.action_space_size)
 
-        self.model = GNNPolicyNet(
-            node_feature_dim=32,
-            hidden_dim=ckpt.get("hidden_dim", 128),
-            num_layers=ckpt.get("num_layers", 6),
-            conv_type=ckpt.get("conv_type", "sage"),
-            action_space_size=action_space,
-            global_feature_dim=20,
-        )
-        self.model.load_state_dict(ckpt["model_state_dict"])
-        self.model.to(self.device)
-        self.model.eval()
+        try:
+            self.model = GNNPolicyNet(
+                node_feature_dim=32,
+                hidden_dim=ckpt.get("hidden_dim", 128),
+                num_layers=ckpt.get("num_layers", 6),
+                conv_type=ckpt.get("conv_type", "sage"),
+                action_space_size=action_space,
+                global_feature_dim=20,
+            )
+            self.model.load_state_dict(ckpt["model_state_dict"])
+            self.model.to(self.device)
+            self.model.eval()
 
-        self.action_space_size = action_space
-        self.board_type = ckpt.get("board_type", "hex8")
+            self.action_space_size = action_space
+            self.board_type = ckpt.get("board_type", "hex8")
 
-        logger.info(
-            f"Loaded GNN model: val_acc={ckpt.get('val_acc', 0):.4f}, "
-            f"action_space={self.action_space_size}"
-        )
+            logger.info(
+                f"Loaded GNN model: val_acc={ckpt.get('val_acc', 0):.4f}, "
+                f"action_space={self.action_space_size}"
+            )
+        except RuntimeError as e:
+            logger.warning(
+                f"Failed to load GNN model from {model_path}: {e}. "
+                f"State dict may not match GNNPolicyNet architecture. "
+                f"Falling back to random move selection."
+            )
 
     def _state_to_graph(self, state: "GameState") -> "Data":
         """Convert game state to graph format for GNN.

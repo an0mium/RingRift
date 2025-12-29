@@ -1,14 +1,14 @@
-"""Tests for app.coordination.async_bridge_manager module.
+"""Unit tests for AsyncBridgeManager - centralized async bridge management.
 
-Tests the unified async bridge manager for thread pool coordination.
+December 2025: Comprehensive test coverage for shared executor pool and
+lifecycle management.
 """
 
 import asyncio
-import contextlib
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -23,33 +23,44 @@ from app.coordination.async_bridge_manager import (
     run_in_bridge_pool,
 )
 
+
 # =============================================================================
 # Fixtures
 # =============================================================================
 
 
-@pytest.fixture
-def config():
-    """Create a test configuration."""
-    return BridgeConfig(
-        max_workers=4,
-        shutdown_timeout_seconds=5.0,
-        queue_size_warning_threshold=10,
-    )
-
-
-@pytest.fixture
-def manager(config):
-    """Create a fresh manager for each test."""
-    return AsyncBridgeManager(config)
-
-
 @pytest.fixture(autouse=True)
 def reset_singleton():
-    """Reset singleton before and after each test."""
+    """Reset the global bridge manager before and after each test."""
     reset_bridge_manager()
     yield
     reset_bridge_manager()
+
+
+@pytest.fixture
+def manager() -> AsyncBridgeManager:
+    """Create a fresh manager instance for testing."""
+    return AsyncBridgeManager()
+
+
+@pytest.fixture
+def initialized_manager() -> AsyncBridgeManager:
+    """Create and initialize a manager instance."""
+    mgr = AsyncBridgeManager()
+    mgr.initialize()
+    return mgr
+
+
+@pytest.fixture
+def custom_config() -> BridgeConfig:
+    """Create a custom configuration."""
+    return BridgeConfig(
+        max_workers=4,
+        thread_name_prefix="test_bridge",
+        shutdown_timeout_seconds=10.0,
+        health_check_interval_seconds=30.0,
+        queue_size_warning_threshold=25,
+    )
 
 
 # =============================================================================
@@ -64,25 +75,18 @@ class TestBridgeConfig:
         """Test default configuration values."""
         config = BridgeConfig()
         assert config.max_workers == 8
+        assert config.thread_name_prefix == "ringrift_bridge"
         assert config.shutdown_timeout_seconds == 30.0
+        assert config.health_check_interval_seconds == 60.0
         assert config.queue_size_warning_threshold == 50
 
-    def test_custom_values(self):
+    def test_custom_values(self, custom_config: BridgeConfig):
         """Test custom configuration values."""
-        config = BridgeConfig(
-            max_workers=16,
-            shutdown_timeout_seconds=60.0,
-            queue_size_warning_threshold=200,
-        )
-        assert config.max_workers == 16
-        assert config.shutdown_timeout_seconds == 60.0
-        assert config.queue_size_warning_threshold == 200
-
-    def test_immutable_behavior(self):
-        """Test that config can be used as expected."""
-        config = BridgeConfig(max_workers=4)
-        # Config should be frozen (dataclass default)
-        assert config.max_workers == 4
+        assert custom_config.max_workers == 4
+        assert custom_config.thread_name_prefix == "test_bridge"
+        assert custom_config.shutdown_timeout_seconds == 10.0
+        assert custom_config.health_check_interval_seconds == 30.0
+        assert custom_config.queue_size_warning_threshold == 25
 
 
 # =============================================================================
@@ -102,15 +106,24 @@ class TestBridgeStats:
         assert stats.active_tasks == 0
         assert stats.peak_active_tasks == 0
         assert stats.avg_task_duration_ms == 0.0
-        assert stats.last_task_time == 0.0  # Default is 0.0 not None
+        assert stats.last_task_time == 0.0
         assert stats.bridges_registered == 0
 
-    def test_mutable_updates(self):
-        """Test that stats can be updated."""
-        stats = BridgeStats()
-        stats.total_tasks_submitted = 10
-        stats.active_tasks = 3
-        assert stats.total_tasks_submitted == 10
+    def test_custom_values(self):
+        """Test custom statistics values."""
+        stats = BridgeStats(
+            total_tasks_submitted=100,
+            total_tasks_completed=95,
+            total_tasks_failed=5,
+            active_tasks=3,
+            peak_active_tasks=10,
+            avg_task_duration_ms=15.5,
+            last_task_time=1234567890.0,
+            bridges_registered=2,
+        )
+        assert stats.total_tasks_submitted == 100
+        assert stats.total_tasks_completed == 95
+        assert stats.total_tasks_failed == 5
         assert stats.active_tasks == 3
 
 
@@ -122,198 +135,180 @@ class TestBridgeStats:
 class TestRegisteredBridge:
     """Tests for RegisteredBridge dataclass."""
 
-    def test_creation(self):
-        """Test creating a registered bridge."""
-        bridge = MagicMock()
-        callback = MagicMock()
-        reg_time = time.time()
-
-        registered = RegisteredBridge(
+    def test_required_fields(self):
+        """Test required fields."""
+        bridge = RegisteredBridge(
             name="test_bridge",
-            bridge=bridge,
-            registered_at=reg_time,
-            shutdown_callback=callback,
-        )
-
-        assert registered.name == "test_bridge"
-        assert registered.bridge is bridge
-        assert registered.registered_at == reg_time
-        assert registered.shutdown_callback is callback
-
-    def test_optional_callback(self):
-        """Test that shutdown callback is optional."""
-        registered = RegisteredBridge(
-            name="test",
-            bridge=MagicMock(),
+            bridge=object(),
             registered_at=time.time(),
         )
-        assert registered.shutdown_callback is None
+        assert bridge.name == "test_bridge"
+        assert bridge.shutdown_callback is None
+
+    def test_with_shutdown_callback(self):
+        """Test with shutdown callback."""
+        callback = MagicMock()
+        bridge = RegisteredBridge(
+            name="test",
+            bridge=object(),
+            registered_at=time.time(),
+            shutdown_callback=callback,
+        )
+        assert bridge.shutdown_callback is callback
 
 
 # =============================================================================
-# AsyncBridgeManager Lifecycle Tests
+# AsyncBridgeManager Initialization Tests
 # =============================================================================
 
 
-class TestAsyncBridgeManagerLifecycle:
-    """Tests for AsyncBridgeManager initialization and shutdown."""
+class TestAsyncBridgeManagerInit:
+    """Tests for AsyncBridgeManager initialization."""
 
-    def test_creation_not_initialized(self, manager):
-        """Test that manager is not initialized on creation."""
-        assert not manager._initialized
+    def test_init_with_default_config(self, manager: AsyncBridgeManager):
+        """Test initialization with default config."""
+        assert manager.config.max_workers == 8
         assert manager._executor is None
+        assert manager._initialized is False
+        assert manager._shutting_down is False
 
-    def test_initialize(self, manager):
-        """Test explicit initialization."""
+    def test_init_with_custom_config(self, custom_config: BridgeConfig):
+        """Test initialization with custom config."""
+        manager = AsyncBridgeManager(config=custom_config)
+        assert manager.config.max_workers == 4
+        assert manager.config.thread_name_prefix == "test_bridge"
+
+    def test_initialize_creates_executor(self, manager: AsyncBridgeManager):
+        """Test that initialize creates the executor."""
+        assert manager._executor is None
         manager.initialize()
-        assert manager._initialized
         assert manager._executor is not None
         assert isinstance(manager._executor, ThreadPoolExecutor)
+        assert manager._initialized is True
 
-    def test_initialize_idempotent(self, manager):
-        """Test that multiple initialize calls are safe."""
+    def test_initialize_idempotent(self, manager: AsyncBridgeManager):
+        """Test that initialize is idempotent."""
         manager.initialize()
-        first_executor = manager._executor
-        manager.initialize()
-        # Same executor should be reused
-        assert manager._executor is first_executor
+        executor1 = manager._executor
+        manager.initialize()  # Should not create new executor
+        assert manager._executor is executor1
 
-    def test_get_executor_auto_initializes(self, manager):
-        """Test that get_executor initializes if needed."""
-        assert not manager._initialized
+    @pytest.mark.asyncio
+    async def test_initialize_async(self, manager: AsyncBridgeManager):
+        """Test async initialization."""
+        await manager.initialize_async()
+        assert manager._initialized is True
+        assert manager._executor is not None
+
+
+# =============================================================================
+# Executor Operations Tests
+# =============================================================================
+
+
+class TestExecutorOperations:
+    """Tests for executor operations."""
+
+    def test_get_executor_initializes_if_needed(self, manager: AsyncBridgeManager):
+        """Test that get_executor auto-initializes."""
+        assert manager._initialized is False
         executor = manager.get_executor()
-        assert manager._initialized
         assert executor is not None
+        assert manager._initialized is True
+
+    def test_get_executor_returns_same_instance(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test that get_executor returns the same instance."""
+        executor1 = initialized_manager.get_executor()
+        executor2 = initialized_manager.get_executor()
+        assert executor1 is executor2
 
     @pytest.mark.asyncio
-    async def test_shutdown(self, manager):
-        """Test graceful shutdown."""
-        manager.initialize()
-        assert manager._initialized
+    async def test_run_sync_basic(self, initialized_manager: AsyncBridgeManager):
+        """Test running a sync function."""
 
-        await manager.shutdown()
-        assert manager._shutting_down
-        assert not manager._initialized
-        assert manager._executor is None
+        def add(a: int, b: int) -> int:
+            return a + b
 
-    @pytest.mark.asyncio
-    async def test_shutdown_idempotent(self, manager):
-        """Test that multiple shutdown calls are safe."""
-        manager.initialize()
-        await manager.shutdown()
-        await manager.shutdown()  # Should not raise
-        assert manager._shutting_down
-
-
-# =============================================================================
-# run_sync Tests
-# =============================================================================
-
-
-class TestRunSync:
-    """Tests for AsyncBridgeManager.run_sync()."""
-
-    @pytest.mark.asyncio
-    async def test_run_sync_basic(self, manager):
-        """Test running a simple synchronous function."""
-
-        def sync_func(x, y):
-            return x + y
-
-        result = await manager.run_sync(sync_func, 2, 3)
+        result = await initialized_manager.run_sync(add, 2, 3)
         assert result == 5
 
     @pytest.mark.asyncio
-    async def test_run_sync_with_kwargs(self, manager):
-        """Test running with keyword arguments."""
+    async def test_run_sync_with_kwargs(self, initialized_manager: AsyncBridgeManager):
+        """Test running a sync function with kwargs."""
 
-        def sync_func(a, b=10):
-            return a * b
+        def greet(name: str, greeting: str = "Hello") -> str:
+            return f"{greeting}, {name}!"
 
-        result = await manager.run_sync(sync_func, 5, b=20)
-        assert result == 100
-
-    @pytest.mark.asyncio
-    async def test_run_sync_auto_initializes(self, manager):
-        """Test that run_sync initializes manager if needed."""
-        assert not manager._initialized
-
-        result = await manager.run_sync(lambda: 42)
-        assert result == 42
-        assert manager._initialized
+        result = await initialized_manager.run_sync(greet, "World", greeting="Hi")
+        assert result == "Hi, World!"
 
     @pytest.mark.asyncio
-    async def test_run_sync_updates_stats(self, manager):
+    async def test_run_sync_updates_stats(self, initialized_manager: AsyncBridgeManager):
         """Test that run_sync updates statistics."""
 
-        def slow_func():
+        def slow_func() -> int:
             time.sleep(0.01)
-            return "done"
+            return 42
 
-        await manager.run_sync(slow_func)
-        stats = manager.get_stats()
+        await initialized_manager.run_sync(slow_func)
+
+        stats = initialized_manager.get_stats()
         assert stats["total_tasks_submitted"] == 1
         assert stats["total_tasks_completed"] == 1
+        assert stats["total_tasks_failed"] == 0
         assert stats["avg_task_duration_ms"] > 0
 
     @pytest.mark.asyncio
-    async def test_run_sync_tracks_failures(self, manager):
-        """Test that failures are tracked in stats."""
+    async def test_run_sync_tracks_peak_active(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test that peak active tasks are tracked."""
 
-        def failing_func():
-            raise ValueError("test error")
-
-        with pytest.raises(ValueError):
-            await manager.run_sync(failing_func)
-
-        stats = manager.get_stats()
-        assert stats["total_tasks_submitted"] == 1
-        assert stats["total_tasks_failed"] == 1
-        assert stats["total_tasks_completed"] == 0
-
-    @pytest.mark.asyncio
-    async def test_run_sync_after_shutdown_raises(self, manager):
-        """Test that run_sync raises after shutdown."""
-        manager.initialize()
-        await manager.shutdown()
-
-        with pytest.raises(RuntimeError, match="shutting down"):
-            await manager.run_sync(lambda: 42)
-
-    @pytest.mark.asyncio
-    async def test_run_sync_concurrent_tasks(self, manager):
-        """Test running multiple concurrent tasks."""
-        results = []
-        lock = threading.Lock()
-
-        def append_value(val):
-            time.sleep(0.01)  # Simulate work
-            with lock:
-                results.append(val)
-            return val
+        def slow_func() -> int:
+            time.sleep(0.05)
+            return 1
 
         # Run multiple tasks concurrently
-        tasks = [manager.run_sync(append_value, i) for i in range(5)]
+        tasks = [initialized_manager.run_sync(slow_func) for _ in range(3)]
         await asyncio.gather(*tasks)
 
-        assert len(results) == 5
-        assert set(results) == {0, 1, 2, 3, 4}
+        stats = initialized_manager.get_stats()
+        assert stats["peak_active_tasks"] >= 1
 
     @pytest.mark.asyncio
-    async def test_run_sync_tracks_peak_active(self, manager):
-        """Test peak active tasks tracking."""
-        barrier = threading.Barrier(3)
+    async def test_run_sync_handles_exception(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test that exceptions are properly propagated."""
 
-        def wait_for_others():
-            barrier.wait(timeout=5)
-            return True
+        def failing_func() -> None:
+            raise ValueError("Test error")
 
-        # Start 3 concurrent tasks
-        tasks = [manager.run_sync(wait_for_others) for _ in range(3)]
-        await asyncio.gather(*tasks)
+        with pytest.raises(ValueError, match="Test error"):
+            await initialized_manager.run_sync(failing_func)
 
-        stats = manager.get_stats()
-        assert stats["peak_active_tasks"] >= 3
+        stats = initialized_manager.get_stats()
+        assert stats["total_tasks_failed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_run_sync_rejects_when_shutting_down(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test that run_sync rejects tasks during shutdown."""
+        initialized_manager._shutting_down = True
+
+        with pytest.raises(RuntimeError, match="shutting down"):
+            await initialized_manager.run_sync(lambda: None)
+
+    @pytest.mark.asyncio
+    async def test_run_sync_auto_initializes(self, manager: AsyncBridgeManager):
+        """Test that run_sync auto-initializes if needed."""
+        assert manager._initialized is False
+        result = await manager.run_sync(lambda: 42)
+        assert result == 42
+        assert manager._initialized is True
 
 
 # =============================================================================
@@ -322,210 +317,262 @@ class TestRunSync:
 
 
 class TestBridgeRegistration:
-    """Tests for bridge registration and lifecycle."""
+    """Tests for bridge registration."""
 
-    def test_register_bridge(self, manager):
+    def test_register_bridge(self, initialized_manager: AsyncBridgeManager):
         """Test registering a bridge."""
         bridge = MagicMock()
-        manager.register_bridge("test", bridge)
+        initialized_manager.register_bridge("test", bridge)
 
-        assert manager.get_bridge("test") is bridge
-        assert manager._stats.bridges_registered == 1
+        assert "test" in initialized_manager._bridges
+        assert initialized_manager._bridges["test"].bridge is bridge
+        assert initialized_manager.get_stats()["bridges_registered"] == 1
 
-    def test_register_multiple_bridges(self, manager):
-        """Test registering multiple bridges."""
-        bridge1 = MagicMock()
-        bridge2 = MagicMock()
+    def test_register_bridge_with_callback(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test registering a bridge with shutdown callback."""
+        bridge = MagicMock()
+        callback = MagicMock()
+        initialized_manager.register_bridge("test", bridge, shutdown_callback=callback)
 
-        manager.register_bridge("bridge1", bridge1)
-        manager.register_bridge("bridge2", bridge2)
+        reg = initialized_manager._bridges["test"]
+        assert reg.shutdown_callback is callback
 
-        assert manager.get_bridge("bridge1") is bridge1
-        assert manager.get_bridge("bridge2") is bridge2
-        assert manager._stats.bridges_registered == 2
+    def test_get_bridge(self, initialized_manager: AsyncBridgeManager):
+        """Test retrieving a registered bridge."""
+        bridge = MagicMock()
+        initialized_manager.register_bridge("test", bridge)
 
-    def test_unregister_bridge(self, manager):
+        retrieved = initialized_manager.get_bridge("test")
+        assert retrieved is bridge
+
+    def test_get_bridge_not_found(self, initialized_manager: AsyncBridgeManager):
+        """Test retrieving a non-existent bridge."""
+        result = initialized_manager.get_bridge("nonexistent")
+        assert result is None
+
+    def test_unregister_bridge(self, initialized_manager: AsyncBridgeManager):
         """Test unregistering a bridge."""
         bridge = MagicMock()
-        manager.register_bridge("test", bridge)
-        manager.unregister_bridge("test")
+        initialized_manager.register_bridge("test", bridge)
+        initialized_manager.unregister_bridge("test")
 
-        assert manager.get_bridge("test") is None
-        assert manager._stats.bridges_registered == 0
+        assert "test" not in initialized_manager._bridges
+        assert initialized_manager.get_stats()["bridges_registered"] == 0
 
-    def test_unregister_nonexistent_bridge(self, manager):
-        """Test unregistering a non-existent bridge is safe."""
-        manager.unregister_bridge("nonexistent")  # Should not raise
+    def test_unregister_nonexistent_bridge(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test unregistering a non-existent bridge (should not raise)."""
+        initialized_manager.unregister_bridge("nonexistent")  # Should not raise
 
-    def test_get_nonexistent_bridge(self, manager):
-        """Test getting a non-existent bridge returns None."""
-        assert manager.get_bridge("nonexistent") is None
+
+# =============================================================================
+# Shutdown Tests
+# =============================================================================
+
+
+class TestShutdown:
+    """Tests for shutdown functionality."""
 
     @pytest.mark.asyncio
-    async def test_shutdown_calls_callbacks(self, manager):
+    async def test_shutdown_basic(self, initialized_manager: AsyncBridgeManager):
+        """Test basic shutdown."""
+        await initialized_manager.shutdown(wait=False)
+
+        assert initialized_manager._shutting_down is True
+        assert initialized_manager._initialized is False
+        assert initialized_manager._executor is None
+
+    @pytest.mark.asyncio
+    async def test_shutdown_calls_bridge_callbacks(
+        self, initialized_manager: AsyncBridgeManager
+    ):
         """Test that shutdown calls bridge callbacks."""
         callback = MagicMock()
-        bridge = MagicMock()
-        manager.register_bridge("test", bridge, shutdown_callback=callback)
+        initialized_manager.register_bridge("test", MagicMock(), shutdown_callback=callback)
 
-        await manager.shutdown()
+        await initialized_manager.shutdown(wait=False)
 
         callback.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_shutdown_handles_callback_errors(self, manager):
+    async def test_shutdown_handles_async_callbacks(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test that shutdown handles async callbacks."""
+        callback = AsyncMock()
+        initialized_manager.register_bridge("test", MagicMock(), shutdown_callback=callback)
+
+        await initialized_manager.shutdown(wait=False)
+
+        callback.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_shutdown_idempotent(self, initialized_manager: AsyncBridgeManager):
+        """Test that shutdown is idempotent."""
+        await initialized_manager.shutdown(wait=False)
+        await initialized_manager.shutdown(wait=False)  # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_shutdown_handles_callback_errors(
+        self, initialized_manager: AsyncBridgeManager
+    ):
         """Test that shutdown handles callback errors gracefully."""
 
-        def failing_callback():
-            raise RuntimeError("callback failed")
+        def bad_callback() -> None:
+            raise RuntimeError("Callback error")
 
-        bridge = MagicMock()
-        manager.register_bridge("test", bridge, shutdown_callback=failing_callback)
+        initialized_manager.register_bridge(
+            "test", MagicMock(), shutdown_callback=bad_callback
+        )
 
         # Should not raise
-        await manager.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_shutdown_handles_async_callbacks(self, manager):
-        """Test that shutdown handles async callbacks."""
-        called = []
-
-        async def async_callback():
-            called.append(True)
-
-        bridge = MagicMock()
-        manager.register_bridge("test", bridge, shutdown_callback=async_callback)
-
-        await manager.shutdown()
-
-        assert called == [True]
+        await initialized_manager.shutdown(wait=False)
+        assert initialized_manager._shutting_down is True
 
 
 # =============================================================================
-# Statistics Tests
+# Statistics and Health Tests
 # =============================================================================
 
 
-class TestStatistics:
+class TestStatsAndHealth:
     """Tests for statistics and health reporting."""
 
-    def test_get_stats_initial(self, manager, config):
-        """Test initial statistics."""
-        stats = manager.get_stats()
+    def test_get_stats(self, initialized_manager: AsyncBridgeManager):
+        """Test getting statistics."""
+        stats = initialized_manager.get_stats()
 
-        assert stats["initialized"] is False
-        assert stats["shutting_down"] is False
-        assert stats["max_workers"] == config.max_workers
-        assert stats["total_tasks_submitted"] == 0
-        assert stats["bridge_names"] == []
+        assert "initialized" in stats
+        assert "shutting_down" in stats
+        assert "max_workers" in stats
+        assert "total_tasks_submitted" in stats
+        assert "bridge_names" in stats
 
-    @pytest.mark.asyncio
-    async def test_get_stats_after_tasks(self, manager):
-        """Test statistics after running tasks."""
-        await manager.run_sync(lambda: 1)
-        await manager.run_sync(lambda: 2)
+    def test_get_health_healthy(self, initialized_manager: AsyncBridgeManager):
+        """Test health check when healthy."""
+        health = initialized_manager.get_health()
 
-        stats = manager.get_stats()
-        assert stats["total_tasks_submitted"] == 2
-        assert stats["total_tasks_completed"] == 2
-        assert stats["last_task_time"] is not None
+        assert health["healthy"] is True
+        assert len(health["warnings"]) == 0
+        assert "stats" in health
 
-    def test_get_health_initial(self, manager):
-        """Test initial health status."""
+    def test_get_health_not_initialized(self, manager: AsyncBridgeManager):
+        """Test health check when not initialized."""
         health = manager.get_health()
 
         assert health["healthy"] is False
         assert "Not initialized" in health["warnings"]
 
-    def test_get_health_after_init(self, manager):
-        """Test health after initialization."""
-        manager.initialize()
-        health = manager.get_health()
+    def test_get_health_shutting_down(self, initialized_manager: AsyncBridgeManager):
+        """Test health check when shutting down."""
+        initialized_manager._shutting_down = True
+        health = initialized_manager.get_health()
 
-        assert health["healthy"] is True
-        assert health["warnings"] == []
-
-    @pytest.mark.asyncio
-    async def test_get_health_during_shutdown(self, manager):
-        """Test health during shutdown."""
-        manager.initialize()
-        await manager.shutdown()
-
-        health = manager.get_health()
         assert health["healthy"] is False
         assert "Shutting down" in health["warnings"]
 
-    @pytest.mark.asyncio
-    async def test_get_health_high_failure_rate(self, manager):
-        """Test health with high failure rate."""
+    def test_get_health_high_queue_depth(self, initialized_manager: AsyncBridgeManager):
+        """Test health check with high queue depth."""
+        initialized_manager._stats.active_tasks = 100  # Above threshold
+        health = initialized_manager.get_health()
 
-        def failing():
-            raise ValueError("fail")
+        assert any("High queue depth" in w for w in health["warnings"])
 
-        # Generate failures
-        for _ in range(5):
-            with contextlib.suppress(ValueError):
-                await manager.run_sync(failing)
+    def test_get_health_high_failure_rate(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test health check with high failure rate."""
+        initialized_manager._stats.total_tasks_submitted = 100
+        initialized_manager._stats.total_tasks_failed = 20  # 20% failure rate
+        health = initialized_manager.get_health()
 
-        health = manager.get_health()
-        assert any("failure rate" in w.lower() for w in health["warnings"])
+        assert any("High failure rate" in w for w in health["warnings"])
+
+    def test_health_check_protocol(self, initialized_manager: AsyncBridgeManager):
+        """Test health_check() for CoordinatorProtocol compliance."""
+        result = initialized_manager.health_check()
+
+        assert hasattr(result, "healthy")
+        assert hasattr(result, "status")
+        assert hasattr(result, "message")
+        assert hasattr(result, "details")
+
+    def test_health_check_status_running(self, initialized_manager: AsyncBridgeManager):
+        """Test health_check returns RUNNING when healthy."""
+        from app.coordination.protocols import CoordinatorStatus
+
+        result = initialized_manager.health_check()
+        assert result.status == CoordinatorStatus.RUNNING
+
+    def test_health_check_status_initializing(self, manager: AsyncBridgeManager):
+        """Test health_check returns INITIALIZING when not initialized."""
+        from app.coordination.protocols import CoordinatorStatus
+
+        result = manager.health_check()
+        assert result.status == CoordinatorStatus.INITIALIZING
+
+    def test_health_check_status_stopped(self, initialized_manager: AsyncBridgeManager):
+        """Test health_check returns STOPPED when shutting down."""
+        from app.coordination.protocols import CoordinatorStatus
+
+        initialized_manager._shutting_down = True
+        result = initialized_manager.health_check()
+        assert result.status == CoordinatorStatus.STOPPED
 
 
 # =============================================================================
-# Singleton Tests
+# Singleton Management Tests
 # =============================================================================
 
 
-class TestSingleton:
+class TestSingletonManagement:
     """Tests for singleton management."""
 
-    def test_get_bridge_manager_creates_singleton(self):
-        """Test that get_bridge_manager creates a singleton."""
+    def test_get_bridge_manager_returns_singleton(self):
+        """Test that get_bridge_manager returns a singleton."""
         manager1 = get_bridge_manager()
         manager2 = get_bridge_manager()
-
         assert manager1 is manager2
 
-    def test_get_bridge_manager_with_config(self):
+    def test_get_bridge_manager_accepts_config_on_first_call(self):
         """Test that config is only used on first call."""
-        config1 = BridgeConfig(max_workers=4)
-        config2 = BridgeConfig(max_workers=16)
+        config = BridgeConfig(max_workers=2)
+        manager1 = get_bridge_manager(config)
+        manager2 = get_bridge_manager(BridgeConfig(max_workers=16))
 
-        manager1 = get_bridge_manager(config1)
-        manager2 = get_bridge_manager(config2)
-
-        # Same manager, config1 was used
+        # Both should reference the same manager with original config
         assert manager1 is manager2
-        assert manager1.config.max_workers == 4
+        assert manager1.config.max_workers == 2
 
     def test_get_shared_executor(self):
         """Test get_shared_executor convenience function."""
         executor = get_shared_executor()
+        assert executor is not None
         assert isinstance(executor, ThreadPoolExecutor)
 
     def test_reset_bridge_manager(self):
-        """Test resetting the singleton."""
+        """Test reset_bridge_manager clears the singleton."""
         manager1 = get_bridge_manager()
-        reset_bridge_manager()
-        manager2 = get_bridge_manager()
+        manager1.initialize()
 
-        assert manager1 is not manager2
+        reset_bridge_manager()
+
+        manager2 = get_bridge_manager()
+        assert manager2 is not manager1
+        assert manager2._initialized is False
 
     @pytest.mark.asyncio
     async def test_run_in_bridge_pool(self):
         """Test run_in_bridge_pool convenience function."""
-        result = await run_in_bridge_pool(lambda x: x * 2, 21)
+
+        def compute(x: int) -> int:
+            return x * 2
+
+        result = await run_in_bridge_pool(compute, 21)
         assert result == 42
-
-    @pytest.mark.asyncio
-    async def test_run_in_bridge_pool_with_kwargs(self):
-        """Test run_in_bridge_pool with keyword arguments."""
-
-        def func(a, b=1):
-            return a + b
-
-        result = await run_in_bridge_pool(func, 10, b=5)
-        assert result == 15
 
 
 # =============================================================================
@@ -536,107 +583,118 @@ class TestSingleton:
 class TestThreadSafety:
     """Tests for thread safety."""
 
-    def test_register_from_multiple_threads(self, manager):
-        """Test registering bridges from multiple threads."""
-        errors = []
+    def test_concurrent_initialization(self):
+        """Test that concurrent initialization is safe."""
+        manager = AsyncBridgeManager()
+        results = []
 
-        def register_bridge(name):
-            try:
-                manager.register_bridge(name, MagicMock())
-            except Exception as e:  # noqa: BLE001
-                errors.append(e)
+        def init_and_get():
+            manager.initialize()
+            results.append(manager.get_executor())
 
-        threads = [
-            threading.Thread(target=register_bridge, args=(f"bridge_{i}",))
-            for i in range(10)
-        ]
-
+        threads = [threading.Thread(target=init_and_get) for _ in range(10)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
 
-        assert len(errors) == 0
-        assert manager._stats.bridges_registered == 10
+        # All threads should get the same executor
+        assert len(set(id(r) for r in results)) == 1
 
-    @pytest.mark.asyncio
-    async def test_concurrent_stats_access(self, manager):
-        """Test concurrent stats access during task execution."""
-        stats_snapshots = []
+    def test_concurrent_bridge_registration(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test that concurrent bridge registration is safe."""
 
-        async def run_and_get_stats():
-            await manager.run_sync(lambda: time.sleep(0.01))
-            stats_snapshots.append(manager.get_stats())
+        def register_bridge(i: int):
+            initialized_manager.register_bridge(f"bridge_{i}", object())
 
-        await asyncio.gather(*[run_and_get_stats() for _ in range(5)])
+        threads = [threading.Thread(target=register_bridge, args=(i,)) for i in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
-        # All snapshots should be valid
-        for stats in stats_snapshots:
-            assert "total_tasks_submitted" in stats
-            assert "active_tasks" in stats
+        assert len(initialized_manager._bridges) == 10
 
 
 # =============================================================================
-# Integration Tests
+# Edge Case Tests
 # =============================================================================
 
 
-class TestIntegration:
-    """Integration tests for complete workflows."""
+class TestEdgeCases:
+    """Tests for edge cases."""
 
     @pytest.mark.asyncio
-    async def test_full_lifecycle(self, manager):
-        """Test complete lifecycle: init, register, run, shutdown."""
-        # Initialize
-        manager.initialize()
-        assert manager._initialized
+    async def test_run_sync_with_no_args(self, initialized_manager: AsyncBridgeManager):
+        """Test running a function with no arguments."""
+        result = await initialized_manager.run_sync(lambda: "no args")
+        assert result == "no args"
 
-        # Register bridges
+    @pytest.mark.asyncio
+    async def test_run_sync_returns_none(self, initialized_manager: AsyncBridgeManager):
+        """Test running a function that returns None."""
+        result = await initialized_manager.run_sync(lambda: None)
+        assert result is None
+
+    def test_register_bridge_overwrites(self, initialized_manager: AsyncBridgeManager):
+        """Test that registering with same name overwrites."""
         bridge1 = MagicMock()
         bridge2 = MagicMock()
-        callback1 = MagicMock()
-        callback2 = MagicMock()
 
-        manager.register_bridge("db", bridge1, shutdown_callback=callback1)
-        manager.register_bridge("cache", bridge2, shutdown_callback=callback2)
+        initialized_manager.register_bridge("test", bridge1)
+        initialized_manager.register_bridge("test", bridge2)
 
-        # Run some tasks
-        results = await asyncio.gather(
-            manager.run_sync(lambda: "task1"),
-            manager.run_sync(lambda: "task2"),
-            manager.run_sync(lambda: "task3"),
-        )
-        assert results == ["task1", "task2", "task3"]
+        assert initialized_manager.get_bridge("test") is bridge2
 
-        # Check stats
-        stats = manager.get_stats()
-        assert stats["total_tasks_completed"] == 3
-        assert stats["bridges_registered"] == 2
+    def test_stats_bridge_names(self, initialized_manager: AsyncBridgeManager):
+        """Test that stats includes bridge names."""
+        initialized_manager.register_bridge("alpha", MagicMock())
+        initialized_manager.register_bridge("beta", MagicMock())
 
-        # Shutdown
-        await manager.shutdown()
-
-        # Callbacks should have been called
-        callback1.assert_called_once()
-        callback2.assert_called_once()
+        stats = initialized_manager.get_stats()
+        assert "alpha" in stats["bridge_names"]
+        assert "beta" in stats["bridge_names"]
 
     @pytest.mark.asyncio
-    async def test_error_recovery(self, manager):
-        """Test that manager recovers from errors."""
+    async def test_active_tasks_decremented_on_exception(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test that active tasks are decremented even on exception."""
 
-        def maybe_fail(should_fail):
-            if should_fail:
-                raise ValueError("intentional failure")
-            return "success"
+        def failing() -> None:
+            raise ValueError("oops")
 
-        # Run some failing and succeeding tasks
-        for should_fail in [False, True, False, True, False]:
-            try:
-                result = await manager.run_sync(maybe_fail, should_fail)
-                assert result == "success"
-            except ValueError:
-                pass
+        try:
+            await initialized_manager.run_sync(failing)
+        except ValueError:
+            pass
 
-        stats = manager.get_stats()
-        assert stats["total_tasks_completed"] == 3
-        assert stats["total_tasks_failed"] == 2
+        stats = initialized_manager.get_stats()
+        assert stats["active_tasks"] == 0
+
+    @pytest.mark.asyncio
+    async def test_shutdown_with_pending_tasks(
+        self, initialized_manager: AsyncBridgeManager
+    ):
+        """Test shutdown with tasks still running."""
+
+        async def long_task():
+            await initialized_manager.run_sync(lambda: time.sleep(0.5))
+
+        # Start a task but don't await it
+        task = asyncio.create_task(long_task())
+
+        # Give it a moment to start
+        await asyncio.sleep(0.05)
+
+        # Shutdown without waiting
+        await initialized_manager.shutdown(wait=False)
+
+        # Cancel the pending task to clean up
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass

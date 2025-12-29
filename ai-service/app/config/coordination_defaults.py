@@ -255,10 +255,12 @@ class DataFreshnessDefaults:
     """
     # Maximum acceptable age of training data (hours)
     # Data older than this is considered stale and may trigger sync
-    MAX_DATA_AGE_HOURS: float = _env_float("RINGRIFT_MAX_DATA_AGE_HOURS", 4.0)
+    # December 29, 2025: Changed from 4.0 to 24.0 for more relaxed freshness checks
+    MAX_DATA_AGE_HOURS: float = _env_float("RINGRIFT_MAX_DATA_AGE_HOURS", 24.0)
 
     # Warning threshold (hours) - emit DATA_STALE warning above this
-    FRESHNESS_WARNING_HOURS: float = _env_float("RINGRIFT_FRESHNESS_WARNING_HOURS", 2.0)
+    # December 29, 2025: Changed from 2.0 to 8.0 proportionally
+    FRESHNESS_WARNING_HOURS: float = _env_float("RINGRIFT_FRESHNESS_WARNING_HOURS", 8.0)
 
     # Strict mode: fail immediately if data is stale (no sync attempt)
     # Useful for high-quality training where only fresh data should be used
@@ -892,6 +894,179 @@ def get_p2p_port() -> int:
         url = f"http://{host}:{port}/status"
     """
     return P2PDefaults.DEFAULT_PORT
+
+
+# =============================================================================
+# P2P Protocol Defaults - SWIM/Raft (December 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class P2PProtocolDefaults:
+    """Default values for P2P protocol configuration (SWIM/Raft).
+
+    Used by: scripts/p2p_orchestrator.py, scripts/p2p/membership_mixin.py,
+             scripts/p2p/consensus_mixin.py, app/p2p/hybrid_coordinator.py
+
+    SWIM Protocol: Gossip-based membership with 5s failure detection
+    Raft Protocol: Replicated state machine for work queue consensus
+
+    Note: SWIM and Raft are optional upgrades. Production default is HTTP polling
+    for membership and Bully election for consensus. Enable SWIM/Raft only after
+    installing dependencies (swim-p2p>=1.2.0, pysyncobj>=0.3.14).
+    """
+    # ===========================================================================
+    # Protocol Mode Selection
+    # ===========================================================================
+
+    # SWIM protocol enable flag (requires swim-p2p package)
+    SWIM_ENABLED: bool = _env_bool("RINGRIFT_SWIM_ENABLED", False)
+
+    # Raft protocol enable flag (requires pysyncobj package)
+    RAFT_ENABLED: bool = _env_bool("RINGRIFT_RAFT_ENABLED", False)
+
+    # Membership mode: "http" (polling), "swim" (gossip), "hybrid" (both)
+    MEMBERSHIP_MODE: str = os.getenv("RINGRIFT_MEMBERSHIP_MODE", "http")
+
+    # Consensus mode: "bully" (election), "raft" (replicated), "hybrid" (both)
+    CONSENSUS_MODE: str = os.getenv("RINGRIFT_CONSENSUS_MODE", "bully")
+
+    # ===========================================================================
+    # SWIM Protocol Settings
+    # ===========================================================================
+
+    # SWIM suspicion timeout (seconds) - time to suspect before declaring dead
+    SWIM_SUSPICION_TIMEOUT: float = _env_float("RINGRIFT_SWIM_SUSPICION_TIMEOUT", 5.0)
+
+    # SWIM ping interval (seconds) - how often to ping random peers
+    SWIM_PING_INTERVAL: float = _env_float("RINGRIFT_SWIM_PING_INTERVAL", 1.0)
+
+    # SWIM ping timeout (seconds) - direct ping timeout before indirect probing
+    SWIM_PING_TIMEOUT: float = _env_float("RINGRIFT_SWIM_PING_TIMEOUT", 0.5)
+
+    # SWIM indirect ping count - number of peers to use for indirect probing
+    SWIM_INDIRECT_PING_COUNT: int = _env_int("RINGRIFT_SWIM_INDIRECT_PING_COUNT", 3)
+
+    # SWIM gossip fanout - number of peers to gossip to per round
+    SWIM_GOSSIP_FANOUT: int = _env_int("RINGRIFT_SWIM_GOSSIP_FANOUT", 3)
+
+    # SWIM message retransmit limit - max times to retransmit update
+    SWIM_RETRANSMIT_LIMIT: int = _env_int("RINGRIFT_SWIM_RETRANSMIT_LIMIT", 3)
+
+    # ===========================================================================
+    # Raft Protocol Settings
+    # ===========================================================================
+
+    # Raft election timeout base (seconds) - randomized between 1x and 2x
+    RAFT_ELECTION_TIMEOUT: float = _env_float("RINGRIFT_RAFT_ELECTION_TIMEOUT", 1.0)
+
+    # Raft heartbeat interval (seconds) - leader heartbeat frequency
+    RAFT_HEARTBEAT_INTERVAL: float = _env_float("RINGRIFT_RAFT_HEARTBEAT_INTERVAL", 0.3)
+
+    # Raft append entries batch size - max entries per RPC
+    RAFT_BATCH_SIZE: int = _env_int("RINGRIFT_RAFT_BATCH_SIZE", 100)
+
+    # Raft log compaction threshold - entries before snapshot
+    RAFT_COMPACTION_THRESHOLD: int = _env_int("RINGRIFT_RAFT_COMPACTION_THRESHOLD", 10000)
+
+    # Raft snapshot chunk size (bytes) - for large state transfers
+    RAFT_SNAPSHOT_CHUNK_SIZE: int = _env_int("RINGRIFT_RAFT_SNAPSHOT_CHUNK_SIZE", 1048576)
+
+    # ===========================================================================
+    # Adaptive Timeout Settings
+    # ===========================================================================
+
+    # Enable adaptive timeouts based on network latency
+    ADAPTIVE_TIMEOUTS_ENABLED: bool = _env_bool("RINGRIFT_ADAPTIVE_TIMEOUTS", True)
+
+    # Minimum timeout multiplier (prevents timeouts from being too aggressive)
+    TIMEOUT_MIN_MULTIPLIER: float = _env_float("RINGRIFT_TIMEOUT_MIN_MULTIPLIER", 0.5)
+
+    # Maximum timeout multiplier (prevents timeouts from being too lax)
+    TIMEOUT_MAX_MULTIPLIER: float = _env_float("RINGRIFT_TIMEOUT_MAX_MULTIPLIER", 3.0)
+
+    # Latency measurement window (seconds) - rolling window for RTT stats
+    LATENCY_WINDOW_SECONDS: float = _env_float("RINGRIFT_LATENCY_WINDOW", 60.0)
+
+    # Latency percentile for timeout calculation (0-100)
+    LATENCY_PERCENTILE: float = _env_float("RINGRIFT_LATENCY_PERCENTILE", 95.0)
+
+    # ===========================================================================
+    # Hybrid Mode Settings
+    # ===========================================================================
+
+    # Hybrid mode: Use SWIM for fast failure detection, HTTP for stability
+    HYBRID_SWIM_WEIGHT: float = _env_float("RINGRIFT_HYBRID_SWIM_WEIGHT", 0.7)
+    HYBRID_HTTP_WEIGHT: float = _env_float("RINGRIFT_HYBRID_HTTP_WEIGHT", 0.3)
+
+    # Hybrid mode: Raft for work queue, Bully for leader (simpler)
+    HYBRID_RAFT_FALLBACK_ENABLED: bool = _env_bool("RINGRIFT_RAFT_FALLBACK", True)
+
+    # ===========================================================================
+    # Quorum and Split-Brain Settings
+    # ===========================================================================
+
+    # Minimum voter quorum for critical operations
+    MIN_VOTER_QUORUM: int = _env_int("RINGRIFT_MIN_VOTER_QUORUM", 3)
+
+    # Split-brain detection threshold (seconds without consensus)
+    SPLIT_BRAIN_DETECTION_TIMEOUT: float = _env_float(
+        "RINGRIFT_SPLIT_BRAIN_TIMEOUT", 30.0
+    )
+
+    # Split-brain auto-resolution: step down if minority partition
+    SPLIT_BRAIN_AUTO_STEPDOWN: bool = _env_bool("RINGRIFT_SPLIT_BRAIN_STEPDOWN", True)
+
+
+def get_membership_mode() -> str:
+    """Get the configured membership mode.
+
+    Returns:
+        "http", "swim", or "hybrid"
+
+    Example:
+        mode = get_membership_mode()
+        if mode == "swim":
+            start_swim_protocol()
+    """
+    return P2PProtocolDefaults.MEMBERSHIP_MODE
+
+
+def get_consensus_mode() -> str:
+    """Get the configured consensus mode.
+
+    Returns:
+        "bully", "raft", or "hybrid"
+
+    Example:
+        mode = get_consensus_mode()
+        if mode == "raft":
+            start_raft_cluster()
+    """
+    return P2PProtocolDefaults.CONSENSUS_MODE
+
+
+def is_swim_enabled() -> bool:
+    """Check if SWIM protocol is enabled.
+
+    Returns:
+        True if SWIM is enabled and membership mode uses SWIM
+    """
+    return P2PProtocolDefaults.SWIM_ENABLED and P2PProtocolDefaults.MEMBERSHIP_MODE in (
+        "swim",
+        "hybrid",
+    )
+
+
+def is_raft_enabled() -> bool:
+    """Check if Raft protocol is enabled.
+
+    Returns:
+        True if Raft is enabled and consensus mode uses Raft
+    """
+    return P2PProtocolDefaults.RAFT_ENABLED and P2PProtocolDefaults.CONSENSUS_MODE in (
+        "raft",
+        "hybrid",
+    )
 
 
 # =============================================================================

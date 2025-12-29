@@ -3736,24 +3736,36 @@ class NeuralNetAI(BaseAI):
                                     )
                                 num_filters = inferred_filters
                             inferred_in_channels = int(conv1_weight.shape[1])
-                            if inferred_in_channels and inferred_in_channels % 14 == 0:
-                                inferred_frames = inferred_in_channels // 14
-                                inferred_history = inferred_frames - 1
-                                if (
-                                    inferred_history >= 0
-                                    and inferred_history != history_length_override
-                                ):
-                                    # Deduplicate warning per model path
-                                    warn_key = f"history_length:{chosen_path}"
-                                    if warn_key not in _WARNED_CHECKPOINT_METADATA:
-                                        _WARNED_CHECKPOINT_METADATA.add(warn_key)
-                                        logger.warning(
-                                            "Checkpoint metadata history_length=%s disagrees with weights (%s); "
-                                            "using inferred value.",
-                                            history_length_override,
-                                            inferred_history,
-                                        )
-                                    history_length_override = inferred_history
+                            # Store inferred in_channels for hex boards that lack this metadata
+                            if in_channels_override is None and inferred_in_channels:
+                                in_channels_override = inferred_in_channels
+                                logger.info(
+                                    "Inferred in_channels=%d from conv1.weight shape",
+                                    inferred_in_channels,
+                                )
+
+                            # Infer history_length from in_channels
+                            # Base channels: 14 (square), 10 (hex V2), 16 (hex V3)
+                            base_channels_candidates = [14, 10, 16]
+                            for base_ch in base_channels_candidates:
+                                if inferred_in_channels and inferred_in_channels % base_ch == 0:
+                                    inferred_frames = inferred_in_channels // base_ch
+                                    inferred_history = inferred_frames - 1
+                                    if inferred_history >= 0 and inferred_history <= 8:  # Sanity check
+                                        if inferred_history != history_length_override:
+                                            # Deduplicate warning per model path
+                                            warn_key = f"history_length:{chosen_path}"
+                                            if warn_key not in _WARNED_CHECKPOINT_METADATA:
+                                                _WARNED_CHECKPOINT_METADATA.add(warn_key)
+                                                logger.warning(
+                                                    "Checkpoint metadata history_length=%s disagrees with weights (%s); "
+                                                    "using inferred value (base_channels=%d).",
+                                                    history_length_override,
+                                                    inferred_history,
+                                                    base_ch,
+                                                )
+                                            history_length_override = inferred_history
+                                        break  # Found valid base channel count
 
                         # Infer num_players from the value head when metadata is absent.
                         #
@@ -3942,6 +3954,20 @@ class NeuralNetAI(BaseAI):
             "RingRiftCNN_v3_Lite": RingRiftCNN_v3_Lite,
             "RingRiftCNN_v4": RingRiftCNN_v4,
         }
+
+        # FIX (Dec 2025): Some hex checkpoints were saved with incorrect model_class
+        # metadata (e.g., "RingRiftCNN_v2" instead of "HexNeuralNet_v2"). When loading
+        # a hex board type, always use the hex model factory regardless of metadata.
+        # This prevents architecture mismatches like value_fc1 in_features: 21 vs 212.
+        is_hex_board = board_type in (BoardType.HEXAGONAL, BoardType.HEX8)
+        if is_hex_board and model_class_name in square_model_classes:
+            logger.warning(
+                "Hex board %s has square model_class=%s in metadata; "
+                "overriding to use hex-appropriate architecture.",
+                board_type,
+                model_class_name,
+            )
+            model_class_name = None  # Force fall-through to hex path
 
         if model_class_name in square_model_classes:
             cls = square_model_classes[model_class_name]

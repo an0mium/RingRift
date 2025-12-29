@@ -1333,7 +1333,7 @@ class UnifiedEventRouter:
         self._event_history.clear()
         self._seen_events.clear()
         self._seen_events_order.clear()
-        self._seen_hashes.clear()
+        self._seen_content_hashes.clear()
         self._seen_hashes_order.clear()
         # Also clear statistics
         self._events_routed.clear()

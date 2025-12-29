@@ -1408,6 +1408,191 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
         results["leader_elected_handler"] = False
         logger.warning(f"[Bootstrap] Failed to wire leader elected: {e}")
 
+    # 19. Wire NODE_SUSPECT to NodeRecoveryDaemon (December 2025 - Exploration audit)
+    # Emitted when node enters SUSPECT grace period before being marked failed
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_node_suspect(event):
+            """Handle NODE_SUSPECT - notify recovery daemon of suspected node."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id") or payload.get("peer_id")
+            reason = payload.get("reason", "unknown")
+
+            if not node_id:
+                return
+
+            logger.info(f"[Bootstrap] Node suspect: {node_id} ({reason})")
+
+            try:
+                from app.coordination.node_recovery_daemon import get_node_recovery_daemon
+
+                recovery = get_node_recovery_daemon()
+                if hasattr(recovery, "_on_node_suspect"):
+                    await recovery._on_node_suspect(node_id, reason)
+                elif hasattr(recovery, "mark_suspect"):
+                    recovery.mark_suspect(node_id, reason)
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[Bootstrap] Recovery daemon unavailable for suspect handling: {e}")
+
+        bus.subscribe(DataEventType.NODE_SUSPECT, on_node_suspect)
+        results["node_suspect_handler"] = True
+        logger.debug("[Bootstrap] Wired NODE_SUSPECT -> NodeRecoveryDaemon")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["node_suspect_handler"] = False
+        logger.debug(f"[Bootstrap] NODE_SUSPECT not wired (may not exist): {e}")
+
+    # 20. Wire NODE_RETIRED to SelfplayScheduler (December 2025 - Exploration audit)
+    # Emitted when node is permanently retired from cluster
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_node_retired(event):
+            """Handle NODE_RETIRED - remove node from scheduling."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id") or payload.get("peer_id")
+
+            if not node_id:
+                return
+
+            logger.info(f"[Bootstrap] Node retired: {node_id}")
+
+            try:
+                from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+
+                scheduler = get_selfplay_scheduler()
+                if hasattr(scheduler, "_on_node_retired"):
+                    await scheduler._on_node_retired(node_id)
+                elif hasattr(scheduler, "remove_node"):
+                    scheduler.remove_node(node_id)
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[Bootstrap] Scheduler unavailable for retired handling: {e}")
+
+        bus.subscribe(DataEventType.NODE_RETIRED, on_node_retired)
+        results["node_retired_handler"] = True
+        logger.debug("[Bootstrap] Wired NODE_RETIRED -> SelfplayScheduler")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["node_retired_handler"] = False
+        logger.debug(f"[Bootstrap] NODE_RETIRED not wired (may not exist): {e}")
+
+    # 21. Wire HEALTH_CHECK_PASSED/FAILED to HealthCheckOrchestrator (December 2025)
+    # Centralizes health status tracking from distributed health checks
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_health_check_result(event, passed: bool):
+            """Handle health check results - update orchestrator state."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            node_id = payload.get("node_id") or payload.get("hostname")
+            check_type = payload.get("check_type", "unknown")
+
+            if not node_id:
+                return
+
+            try:
+                from app.coordination.health_check_orchestrator import get_health_orchestrator
+
+                orchestrator = get_health_orchestrator()
+                if hasattr(orchestrator, "record_check_result"):
+                    orchestrator.record_check_result(node_id, check_type, passed)
+            except (ImportError, AttributeError):
+                pass  # Orchestrator not available
+
+        async def on_health_check_passed(event):
+            await on_health_check_result(event, passed=True)
+
+        async def on_health_check_failed(event):
+            await on_health_check_result(event, passed=False)
+
+        bus.subscribe(DataEventType.HEALTH_CHECK_PASSED, on_health_check_passed)
+        bus.subscribe(DataEventType.HEALTH_CHECK_FAILED, on_health_check_failed)
+        results["health_check_handlers"] = True
+        logger.debug("[Bootstrap] Wired HEALTH_CHECK_PASSED/FAILED -> HealthCheckOrchestrator")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["health_check_handlers"] = False
+        logger.debug(f"[Bootstrap] Health check handlers not wired: {e}")
+
+    # 22. Wire TASK_ORPHANED to cleanup handlers (December 2025)
+    # Tasks that lost their parent process should be cleaned up
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_task_orphaned(event):
+            """Handle TASK_ORPHANED - trigger cleanup and potential restart."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            task_id = payload.get("task_id")
+            job_type = payload.get("job_type", "unknown")
+            node_id = payload.get("node_id")
+
+            if not task_id:
+                return
+
+            logger.warning(f"[Bootstrap] Task orphaned: {task_id} ({job_type}) on {node_id}")
+
+            # Notify job manager for cleanup
+            try:
+                from scripts.p2p.managers.job_manager import JobManager
+
+                job_mgr = JobManager.get_instance()
+                if hasattr(job_mgr, "_on_task_orphaned"):
+                    await job_mgr._on_task_orphaned(task_id, node_id)
+                elif hasattr(job_mgr, "cleanup_orphan"):
+                    job_mgr.cleanup_orphan(task_id)
+            except (ImportError, AttributeError):
+                pass
+
+        bus.subscribe(DataEventType.TASK_ORPHANED, on_task_orphaned)
+        results["task_orphaned_handler"] = True
+        logger.debug("[Bootstrap] Wired TASK_ORPHANED -> JobManager cleanup")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["task_orphaned_handler"] = False
+        logger.debug(f"[Bootstrap] TASK_ORPHANED not wired: {e}")
+
+    # 23. Wire COORDINATOR_HEARTBEAT to watchdog (December 2025)
+    # Liveness signals from coordinators - used for stall detection
+    try:
+        from app.coordination.event_router import DataEventType, get_event_bus
+
+        bus = get_event_bus()
+
+        async def on_coordinator_heartbeat(event):
+            """Handle COORDINATOR_HEARTBEAT - update liveness tracking."""
+            payload = event.payload if hasattr(event, "payload") else {}
+            coordinator_name = payload.get("coordinator_name") or payload.get("name")
+            hostname = payload.get("hostname")
+
+            if not coordinator_name:
+                return
+
+            try:
+                from app.coordination.cluster_watchdog_daemon import get_cluster_watchdog
+
+                watchdog = get_cluster_watchdog()
+                if hasattr(watchdog, "record_heartbeat"):
+                    watchdog.record_heartbeat(coordinator_name, hostname)
+            except (ImportError, AttributeError):
+                pass  # Watchdog not available
+
+        bus.subscribe(DataEventType.COORDINATOR_HEARTBEAT, on_coordinator_heartbeat)
+        results["coordinator_heartbeat_handler"] = True
+        logger.debug("[Bootstrap] Wired COORDINATOR_HEARTBEAT -> ClusterWatchdog")
+
+    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+        results["coordinator_heartbeat_handler"] = False
+        logger.debug(f"[Bootstrap] COORDINATOR_HEARTBEAT not wired: {e}")
+
     wired = sum(1 for v in results.values() if v)
     total = len(results)
     logger.info(f"[Bootstrap] Wired {wired}/{total} missing event subscriptions")

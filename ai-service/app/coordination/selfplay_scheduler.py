@@ -136,10 +136,12 @@ PRIORITY_OVERRIDE_MULTIPLIERS = {
 # December 2025: Player count allocation multipliers
 # 3p/4p games take ~2x longer but were getting equal allocation, leading to
 # undertraining for multiplayer configs (hex8_4p Elo 594, square19_3p Elo 409)
+# Updated Dec 29, 2025: Increased multipliers to target 50/25/25 allocation
+# (was 80/15/5 with 1.0/1.5/1.5 multipliers)
 PLAYER_COUNT_ALLOCATION_MULTIPLIER = {
-    2: 1.0,  # Baseline - 2p games are fastest
-    3: 1.5,  # 50% more allocation for 3p (games take ~1.5x longer)
-    4: 1.5,  # 50% more allocation for 4p (games take ~2x longer, but diminishing returns)
+    2: 1.0,  # Baseline - 2p games are fastest, already have most data
+    3: 2.0,  # 2x priority for 3p (severe data deficit: hex8_3p=0, square19_3p=237)
+    4: 2.5,  # 2.5x priority for 4p (critical data deficit: hex8_4p=45, square19_4p=0)
 }
 
 # Staleness thresholds (hours)

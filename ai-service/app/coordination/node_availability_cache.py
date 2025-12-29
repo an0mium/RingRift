@@ -144,25 +144,34 @@ class NodeAvailabilityCache:
 
         Subscribes to P2P_NODE_DEAD, HOST_OFFLINE, NODE_RECOVERED events
         for automatic cache updates.
+
+        Thread-safe: Uses lock to prevent duplicate subscriptions in concurrent calls.
         """
+        # Fast path: check without lock first (safe to read bool atomically)
         if self._event_subscribed:
             return
 
-        try:
-            from app.coordination.event_router import get_router
-            from app.distributed.data_events import DataEventType
+        # Double-checked locking with proper synchronization
+        with self._lock:
+            # Re-check after acquiring lock to prevent race condition
+            if self._event_subscribed:
+                return
 
-            router = get_router()
-            router.subscribe(DataEventType.P2P_NODE_DEAD, self._on_node_dead_event)
-            router.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline_event)
-            router.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered_event)
+            try:
+                from app.coordination.event_router import get_router
+                from app.distributed.data_events import DataEventType
 
-            self._event_subscribed = True
-            logger.info("[NodeAvailabilityCache] Subscribed to availability events")
-        except ImportError as e:
-            logger.debug(f"[NodeAvailabilityCache] Event router not available: {e}")
-        except Exception as e:
-            logger.warning(f"[NodeAvailabilityCache] Failed to subscribe to events: {e}")
+                router = get_router()
+                router.subscribe(DataEventType.P2P_NODE_DEAD, self._on_node_dead_event)
+                router.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline_event)
+                router.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered_event)
+
+                self._event_subscribed = True
+                logger.info("[NodeAvailabilityCache] Subscribed to availability events")
+            except ImportError as e:
+                logger.debug(f"[NodeAvailabilityCache] Event router not available: {e}")
+            except Exception as e:
+                logger.warning(f"[NodeAvailabilityCache] Failed to subscribe to events: {e}")
 
     async def _on_node_dead_event(self, event) -> None:
         """Handle P2P_NODE_DEAD event."""

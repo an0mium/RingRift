@@ -484,7 +484,20 @@ class TrainingCoordinator(EventSubscriptionMixin):
 
         TRAINING CHECKPOINTING: If a failed job with checkpoint exists for this
         config, includes resume info in the dispatch.
+
+        December 2025: Added quorum validation before critical training dispatch
+        to prevent operations during cluster instability.
         """
+        # Critical operation: Require voter quorum before dispatching training
+        # This prevents training dispatch during network partitions or cluster instability
+        if hasattr(self._orchestrator, "_has_voter_quorum"):
+            if not self._orchestrator._has_voter_quorum():
+                logger.warning(
+                    "Cannot dispatch training job: voter quorum not met. "
+                    "Waiting for cluster stability before training."
+                )
+                return None
+
         # Import TrainingJob here to avoid circular imports
         from ..models import TrainingJob
 

@@ -502,12 +502,24 @@ def create_neural_ai(
         except ImportError:
             device = "cpu"
 
-        return create_gnn_ai(
-            player_number=player,
-            model_path=model_path,
-            device=device,
-            temperature=temperature,
-        )
+        try:
+            gnn_ai = create_gnn_ai(
+                player_number=player,
+                model_path=model_path,
+                device=device,
+                temperature=temperature,
+            )
+            # Check if model was actually loaded (not None = random fallback)
+            if gnn_ai.model is not None:
+                return gnn_ai
+            # Model is None - checkpoint wasn't GNN format, fall through to CNN
+            logger.warning(
+                f"GNN model load returned None (checkpoint may be CNN format), "
+                f"falling back to UniversalAI for {model_path}"
+            )
+        except Exception as e:
+            logger.warning(f"GNN AI creation failed: {e}, falling back to UniversalAI")
+        # Fall through to CNN path below
 
     # Derive player-specific seed for varied but reproducible behavior
     ai_rng_seed = None

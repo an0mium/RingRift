@@ -19,10 +19,12 @@ See ai-service/docs/CONSOLIDATION_ROADMAP.md for consolidation context.
 # =============================================================================
 
 # Games needed to trigger training (per config)
-TRAINING_TRIGGER_GAMES = 100  # Dec 28: Lowered from 500 to accelerate training loop
+# December 29, 2025: Reduced from 100 to 50 for faster pipeline iteration
+TRAINING_TRIGGER_GAMES = 50
 
 # Minimum interval between training runs (seconds)
-TRAINING_MIN_INTERVAL_SECONDS = 1200  # 20 minutes
+# December 29, 2025: Reduced from 1200 to 300 for faster iteration cycles
+TRAINING_MIN_INTERVAL_SECONDS = 300  # 5 minutes
 
 # Hours before a config is considered "stale" (no recent training)
 TRAINING_STALENESS_HOURS = 6.0
@@ -120,9 +122,10 @@ def get_gauntlet_games_per_opponent(num_players: int = 2) -> int:
 
 # Dec 29, 2025: Minimum games for export by player count
 # Higher player counts have higher variance and need more data
-MIN_GAMES_FOR_EXPORT_2P = 500   # 2-player baseline
-MIN_GAMES_FOR_EXPORT_3P = 600   # 3-player: 20% more
-MIN_GAMES_FOR_EXPORT_4P = 800   # 4-player: 60% more
+# December 29, 2025: Reduced thresholds for faster pipeline iteration
+MIN_GAMES_FOR_EXPORT_2P = 200   # 2-player baseline (was 500)
+MIN_GAMES_FOR_EXPORT_3P = 300   # 3-player (was 600)
+MIN_GAMES_FOR_EXPORT_4P = 400   # 4-player (was 800)
 
 
 def get_min_games_for_export(num_players: int = 2) -> int:

@@ -900,8 +900,11 @@ class RingRiftEnv:
 
     @cached_property
     def max_data_staleness_hours(self) -> float:
-        """Trigger sync if data older than this many hours."""
-        return float(os.environ.get("RINGRIFT_MAX_DATA_STALENESS_HOURS", "4.0"))
+        """Trigger sync if data older than this many hours.
+
+        December 29, 2025: Changed default from 4.0 to 24.0 for more relaxed freshness.
+        """
+        return float(os.environ.get("RINGRIFT_MAX_DATA_STALENESS_HOURS", "24.0"))
 
     @cached_property
     def state_save_interval(self) -> float:

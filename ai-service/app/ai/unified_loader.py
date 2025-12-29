@@ -35,6 +35,49 @@ from app.models import BoardType
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Model Loading Metrics (Dec 2025)
+# =============================================================================
+
+# Thread-safe loading statistics for monitoring
+_loading_stats_lock = threading.Lock()
+_loading_stats: dict[str, int] = {
+    "success": 0,
+    "fallback_fresh": 0,
+    "corruption": 0,
+    "checksum_fail": 0,
+    "magic_byte_fail": 0,
+    "metadata_fail": 0,
+    "file_not_found": 0,
+}
+
+
+def _increment_loading_stat(key: str) -> None:
+    """Increment a loading statistic counter (thread-safe)."""
+    with _loading_stats_lock:
+        if key in _loading_stats:
+            _loading_stats[key] += 1
+
+
+def get_loading_stats() -> dict[str, int]:
+    """Get model loading statistics for monitoring.
+
+    Returns:
+        Dictionary of loading outcomes with counts.
+        Keys: success, fallback_fresh, corruption, checksum_fail,
+              magic_byte_fail, metadata_fail, file_not_found
+    """
+    with _loading_stats_lock:
+        return dict(_loading_stats)
+
+
+def reset_loading_stats() -> None:
+    """Reset all loading statistics to zero."""
+    with _loading_stats_lock:
+        for key in _loading_stats:
+            _loading_stats[key] = 0
+
+
 class ModelArchitecture(Enum):
     """Detected model architecture types."""
 
@@ -462,24 +505,49 @@ class UnifiedModelLoader:
 
         # Load checkpoint
         if not path.exists():
+            _increment_loading_stat("file_not_found")
             if not allow_fresh:
                 raise FileNotFoundError(f"Checkpoint not found: {path}")
             logger.warning(f"Checkpoint not found: {path}, creating fresh model")
             return self._create_fresh_model(board_type, num_players)
 
         try:
-            from app.utils.torch_utils import safe_load_checkpoint
+            from app.utils.torch_utils import (
+                safe_load_checkpoint,
+                InvalidCheckpointFormatError,
+                ModelCorruptionError,
+            )
+
+            # Dec 2025: Enable checksum verification if sidecar exists
+            sidecar_path = Path(str(path) + ".sha256")
+            has_sidecar = sidecar_path.exists()
+            if has_sidecar:
+                logger.debug(f"Checksum sidecar found for {path.name}, enabling verification")
 
             checkpoint = safe_load_checkpoint(
                 str(path),
                 map_location=self.device,
                 warn_on_unsafe=False,
+                verify_checksum=has_sidecar,  # Dec 2025: Opportunistic verification
             )
+
+            # Track successful loads
+            _increment_loading_stat("success")
+
+        except (InvalidCheckpointFormatError, ModelCorruptionError) as e:
+            # Dec 2025: Specific handling for corruption errors
+            logger.error(f"[MODEL_LOAD_FAILED] Checkpoint corruption: {path}: {e}")
+            _increment_loading_stat("corruption")
+            if not allow_fresh:
+                raise
+            return self._create_fresh_model(board_type, num_players)
+
         except Exception as e:
             # torch.load can raise a wide variety of exceptions (e.g. pickle.UnpicklingError)
             # when the file is corrupt or not a real checkpoint. In allow_fresh mode we
             # treat any load failure as non-fatal and fall back to a fresh model.
             logger.warning(f"Failed to load checkpoint {path}: {e}")
+            _increment_loading_stat("fallback_fresh")
             if not allow_fresh:
                 raise
             return self._create_fresh_model(board_type, num_players)

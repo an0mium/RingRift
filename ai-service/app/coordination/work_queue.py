@@ -28,6 +28,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -480,6 +481,40 @@ class WorkQueue:
         conn.execute("PRAGMA busy_timeout=10000")
         return conn
 
+    @contextmanager
+    def _db_connection(self, timeout: float = 10.0):
+        """Context manager for safe database operations.
+
+        Ensures connection is always closed, even if operations fail.
+        Provides automatic rollback on exception and commit on success.
+
+        December 2025: Added to fix connection leak issues.
+
+        Usage:
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM work_items")
+                conn.commit()
+        """
+        conn = None
+        try:
+            conn = self._get_connection(timeout)
+            conn.row_factory = sqlite3.Row
+            yield conn
+        except Exception:
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except sqlite3.Error:
+                    pass  # Ignore rollback errors
+            raise
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except (sqlite3.Error, OSError):
+                    pass  # Suppress cleanup errors
+
     def _load_items(self) -> None:
         """Load work items from database on startup."""
         conn = None
@@ -596,22 +631,22 @@ class WorkQueue:
                     pass  # Suppress cleanup errors to avoid masking original error
 
     def _save_stats(self) -> None:
-        """Save stats to the database."""
+        """Save stats to the database.
+
+        December 2025: Refactored to use context manager for safe cleanup.
+        """
         # Skip write if in readonly mode (December 2025: Lazy init)
         if self._readonly_mode:
             return
-        conn = None
         try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
-
-            for key, value in self.stats.items():
-                cursor.execute(
-                    "INSERT OR REPLACE INTO work_stats (key, value) VALUES (?, ?)",
-                    (key, value)
-                )
-
-            conn.commit()
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                for key, value in self.stats.items():
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO work_stats (key, value) VALUES (?, ?)",
+                        (key, value)
+                    )
+                conn.commit()
         except sqlite3.OperationalError as e:
             # Dec 28, 2025: Check for ENOSPC and emit DISK_FULL event
             if is_enospc_error(e):
@@ -621,13 +656,6 @@ class WorkQueue:
             logger.error(f"Database integrity error saving work stats: {e}")
         except Exception as e:
             logger.error(f"Failed to save work stats: {e}")
-        finally:
-            # Dec 2025: Ensure connection is closed even on error
-            if conn is not None:
-                try:
-                    conn.close()
-                except (sqlite3.Error, OSError):
-                    pass  # Suppress cleanup errors to avoid masking original error
 
     def _delete_item(self, work_id: str) -> None:
         """Delete a work item from the database."""

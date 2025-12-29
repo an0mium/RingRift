@@ -276,6 +276,19 @@ class HostState:
 class FeedbackState:
     """Consolidated feedback state for training decisions (2025-12).
 
+    DEPRECATION NOTE (December 29, 2025):
+    This class will be consolidated with CanonicalFeedbackState in
+    app.coordination.feedback_state in Q1 2026. New code should prefer:
+
+        from app.coordination.feedback_state import CanonicalFeedbackState
+
+    Field mapping for migration:
+        curriculum_weight -> curriculum_weight (same)
+        elo_current -> elo_current (same)
+        data_quality_score -> quality_score
+        win_rate -> win_rate (same)
+        urgency_score -> compute_urgency() method in MonitoringFeedbackState
+
     Groups all feedback signals into a single structure:
     - Curriculum: weights and staleness
     - Quality: parity failures, data health

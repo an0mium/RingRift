@@ -32,6 +32,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from scripts.p2p.p2p_mixin_base import P2PMixinBase
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -54,18 +56,23 @@ def _check_event_emitters() -> bool:
         return False
 
 
-class EventEmissionMixin:
+class EventEmissionMixin(P2PMixinBase):
     """Mixin providing consolidated event emission for P2P orchestrator.
 
     All methods are safe - they catch exceptions and log instead of raising.
     This ensures event emission failures don't crash the orchestrator.
 
-    Required parent class attributes:
+    Inherits from P2PMixinBase (Dec 29, 2025) to share common functionality:
+    - Database helpers, state initialization, peer management
+    - Logging helpers (_log_debug, _log_info, etc.)
+    - Event emission circuit breaker
+
+    Required parent class attributes (inherited from P2PMixinBase):
     - node_id: str - This node's identifier
     - verbose: bool - Verbose logging flag (optional)
     """
 
-    # Class identifier for logging
+    # Class identifier for logging (overrides P2PMixinBase.MIXIN_TYPE)
     MIXIN_TYPE: ClassVar[str] = "event_emission"
 
     # Cache for event emitter availability
