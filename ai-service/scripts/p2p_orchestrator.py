@@ -4969,6 +4969,24 @@ class P2POrchestrator(
             if ls.voter_grant_expires:
                 self.voter_grant_expires = ls.voter_grant_expires
 
+            # Phase 15.1.1: Restore fenced lease token state
+            # These fields may not exist in older state files, so use getattr with defaults
+            persisted_epoch = getattr(ls, "lease_epoch", 0) or 0
+            persisted_fence = getattr(ls, "fence_token", "") or ""
+            persisted_last_seen = getattr(ls, "last_seen_epoch", 0) or 0
+            # Only restore if higher than current (monotonic guarantee)
+            if persisted_epoch > self._lease_epoch:
+                self._lease_epoch = persisted_epoch
+            if persisted_fence and not self._fence_token:
+                self._fence_token = persisted_fence
+            if persisted_last_seen > self._last_seen_epoch:
+                self._last_seen_epoch = persisted_last_seen
+            if persisted_epoch > 0:
+                logger.info(
+                    f"[P2POrchestrator] Restored lease fencing: epoch={self._lease_epoch}, "
+                    f"last_seen={self._last_seen_epoch}"
+                )
+
             # Optional persisted voter configuration (convergence helper). Only
             # apply when voters are not explicitly configured via env/config.
             if (
@@ -5169,6 +5187,10 @@ class P2POrchestrator(
                 voter_grant_expires=float(getattr(self, "voter_grant_expires", 0.0) or 0.0),
                 voter_node_ids=list(getattr(self, "voter_node_ids", []) or []),
                 voter_config_source=str(getattr(self, "voter_config_source", "") or ""),
+                # Phase 15.1.1: Fenced lease token state
+                lease_epoch=int(getattr(self, "_lease_epoch", 0) or 0),
+                fence_token=str(getattr(self, "_fence_token", "") or ""),
+                last_seen_epoch=int(getattr(self, "_last_seen_epoch", 0) or 0),
             )
 
             # Delegate to StateManager

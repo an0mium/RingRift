@@ -57,6 +57,9 @@ class JobManagerStats:
     jobs_reassigned: int = 0
     jobs_orphaned: int = 0
     reassignment_failures: int = 0
+    # Phase 15.1.7: Dispatch retry tracking
+    dispatch_retries: int = 0
+    dispatch_escalations: int = 0
 
 # Event emission helper - imported lazily to avoid circular imports
 # Dec 2025: Added thread-safe initialization to prevent race conditions
@@ -1421,6 +1424,151 @@ class JobManager(EventSubscriptionMixin):
                 state.best_model_path, iteration_dir
             )
 
+    # =========================================================================
+    # Phase 15.1.7: Dispatch Retry with Exponential Backoff
+    # =========================================================================
+
+    async def _dispatch_single_worker_with_retry(
+        self,
+        session: Any,  # aiohttp.ClientSession
+        worker: Any,
+        job_id: str,
+        payload: dict[str, Any],
+        timeout: Any,
+        max_retries: int = 3,
+    ) -> dict[str, Any]:
+        """Dispatch selfplay to a single worker with retry logic.
+
+        Phase 15.1.7 (Dec 2025): Implements exponential backoff retry before
+        returning failure. Previously, a single timeout or connection error
+        would immediately mark the worker as failed.
+
+        Args:
+            session: aiohttp client session
+            worker: Worker node info object
+            job_id: Parent job ID
+            payload: HTTP payload for /run-selfplay
+            timeout: Request timeout
+            max_retries: Maximum retry attempts (default: 3)
+
+        Returns:
+            Dict with success status, games dispatched, or error info
+        """
+        worker_id = getattr(worker, "node_id", str(worker))
+        worker_ip = getattr(worker, "best_ip", None) or getattr(worker, "ip", None)
+        worker_port = getattr(worker, "port", None) or _get_default_port()
+
+        if not worker_ip:
+            return {"success": False, "error": "no_ip", "worker_id": worker_id}
+
+        url = f"http://{worker_ip}:{worker_port}/run-selfplay"
+
+        for attempt in range(max_retries):
+            try:
+                async with session.post(url, json=payload, timeout=timeout) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        return {
+                            "success": result.get("success", True),
+                            "games": payload.get("num_games", 0),
+                            "worker_id": worker_id,
+                            "attempts": attempt + 1,
+                        }
+                    elif resp.status in (502, 503, 504):
+                        # Retryable server errors - gateway/service unavailable
+                        wait_time = min(30, 2 ** attempt)
+                        logger.warning(
+                            f"Worker {worker_id} returned {resp.status}, "
+                            f"retry {attempt + 1}/{max_retries} in {wait_time}s"
+                        )
+                        if attempt < max_retries - 1:
+                            self.stats.dispatch_retries += 1
+                            await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        # Non-retryable HTTP error
+                        return {
+                            "success": False,
+                            "error": f"http_{resp.status}",
+                            "worker_id": worker_id,
+                            "attempts": attempt + 1,
+                        }
+            except asyncio.TimeoutError:
+                wait_time = min(30, 2 ** attempt)
+                logger.warning(
+                    f"Dispatch to {worker_id} timed out, "
+                    f"retry {attempt + 1}/{max_retries} in {wait_time}s"
+                )
+                if attempt < max_retries - 1:
+                    self.stats.dispatch_retries += 1
+                    await asyncio.sleep(wait_time)
+            except (OSError, ConnectionError) as e:
+                wait_time = min(30, 2 ** attempt)
+                logger.warning(
+                    f"Connection error to {worker_id}: {e}, "
+                    f"retry {attempt + 1}/{max_retries} in {wait_time}s"
+                )
+                if attempt < max_retries - 1:
+                    self.stats.dispatch_retries += 1
+                    await asyncio.sleep(wait_time)
+
+        # All retries exhausted
+        return {
+            "success": False,
+            "error": "max_retries_exceeded",
+            "worker_id": worker_id,
+            "attempts": max_retries,
+        }
+
+    async def _escalate_failed_dispatch(
+        self,
+        job_id: str,
+        failed_workers: list[str],
+        board_type: str,
+        num_players: int,
+        total_failed_games: int,
+    ) -> None:
+        """Escalate permanently failed dispatches for recovery.
+
+        Phase 15.1.7 (Dec 2025): When dispatch fails to multiple workers
+        after all retries, emit an event for cluster-level recovery.
+
+        Args:
+            job_id: Job ID
+            failed_workers: List of worker IDs that failed
+            board_type: Board type for the job
+            num_players: Number of players
+            total_failed_games: Total games that couldn't be dispatched
+        """
+        self.stats.dispatch_escalations += 1
+
+        logger.error(
+            f"[{job_id}] Dispatch failed to {len(failed_workers)} workers "
+            f"({total_failed_games} games). Escalating for recovery."
+        )
+
+        # Emit event for recovery orchestration
+        self._emit_task_event(
+            "DISPATCH_PERMANENTLY_FAILED",
+            job_id,
+            "selfplay",
+            error="max_retries_exceeded",
+            board_type=board_type,
+            num_players=num_players,
+            failed_workers=failed_workers,
+            failed_games=total_failed_games,
+        )
+
+        # Also emit as TASK_FAILED for general monitoring
+        self._emit_task_event(
+            "TASK_FAILED",
+            job_id,
+            "selfplay",
+            error=f"dispatch_failed_to_{len(failed_workers)}_workers",
+            board_type=board_type,
+            num_players=num_players,
+        )
+
     async def _dispatch_selfplay_to_workers(
         self,
         job_id: str,
@@ -1527,7 +1675,7 @@ class JobManager(EventSubscriptionMixin):
                     }
                     continue
 
-                url = f"http://{worker_ip}:{worker_port}/run-selfplay"
+                # Phase 15.1.7: Build payload for retry-enabled dispatch
                 payload = {
                     "job_id": f"{job_id}_{worker_id}",
                     "parent_job_id": job_id,
@@ -1539,26 +1687,42 @@ class JobManager(EventSubscriptionMixin):
                     "engine_mode": effective_engine_mode,
                 }
 
-                try:
-                    async with session.post(url, json=payload, timeout=timeout) as resp:
-                        if resp.status == 200:
-                            result = await resp.json()
-                            results[worker_id] = {
-                                "success": result.get("success", True),
-                                "games": games,
-                            }
-                            logger.debug(f"Dispatched {games} games to {worker_id}")
-                        else:
-                            results[worker_id] = {
-                                "success": False,
-                                "error": f"http_{resp.status}",
-                            }
-                except asyncio.TimeoutError:
-                    results[worker_id] = {"success": False, "error": "timeout"}
-                except (OSError, ConnectionError) as e:
-                    # Dec 2025: Narrowed from broad Exception - network/connection errors
-                    results[worker_id] = {"success": False, "error": str(e)}
-                    logger.debug(f"Failed to dispatch to {worker_id}: {e}")
+                # Phase 15.1.7: Use retry-enabled dispatch method
+                result = await self._dispatch_single_worker_with_retry(
+                    session=session,
+                    worker=worker,
+                    job_id=job_id,
+                    payload=payload,
+                    timeout=timeout,
+                    max_retries=3,  # Up to 3 attempts per worker
+                )
+                results[worker_id] = result
+                if result.get("success"):
+                    logger.debug(
+                        f"Dispatched {games} games to {worker_id} "
+                        f"(attempts: {result.get('attempts', 1)})"
+                    )
+
+        # Phase 15.1.7: Check for failed dispatches and escalate if needed
+        failed_workers = [
+            wid for wid, r in results.items()
+            if not r.get("success") and not r.get("skipped")
+        ]
+        if failed_workers:
+            total_failed_games = sum(
+                games_per_worker + (1 if i < remainder else 0)
+                for i, w in enumerate(workers)
+                if getattr(w, "node_id", str(w)) in failed_workers
+            )
+            if len(failed_workers) > len(workers) // 2:
+                # Majority failed - escalate for cluster-level recovery
+                await self._escalate_failed_dispatch(
+                    job_id=job_id,
+                    failed_workers=failed_workers,
+                    board_type=board_type,
+                    num_players=num_players,
+                    total_failed_games=total_failed_games,
+                )
 
         return results
 

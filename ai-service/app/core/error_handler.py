@@ -310,7 +310,8 @@ def retry_async(
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             # Check circuit breaker before attempting
-            if breaker and not breaker.can_execute():
+            # December 2025: CircuitBreaker.can_execute() requires target parameter
+            if breaker and not breaker.can_execute(circuit_breaker_key):
                 raise RetryableError(
                     f"Circuit breaker '{circuit_breaker_key}' is open, refusing execution"
                 )
@@ -322,15 +323,17 @@ def retry_async(
                 try:
                     result = await func(*args, **kwargs)
                     # Record success with circuit breaker
+                    # December 2025: CircuitBreaker.record_success() requires target parameter
                     if breaker:
-                        breaker.record_success()
+                        breaker.record_success(circuit_breaker_key)
                     return result
                 except exceptions as e:
                     last_exception = e
 
                     # Record failure with circuit breaker
+                    # December 2025: CircuitBreaker.record_failure() requires target parameter
                     if breaker:
-                        breaker.record_failure()
+                        breaker.record_failure(circuit_breaker_key, e)
 
                     # Don't retry FatalError
                     if isinstance(e, FatalError):
