@@ -326,7 +326,9 @@ class TestCircuitBreaker:
 
     def test_failures_under_threshold_dont_open(self, transport):
         """Failures under threshold don't open circuit."""
-        # Default threshold is 3
+        # Default threshold is 5 (Dec 2025 update for P2P stability)
+        transport.record_failure("host-1")
+        transport.record_failure("host-1")
         transport.record_failure("host-1")
         transport.record_failure("host-1")
         assert transport.get_circuit_state("host-1") == TransportState.CLOSED
@@ -334,23 +336,22 @@ class TestCircuitBreaker:
 
     def test_failures_at_threshold_open_circuit(self, transport):
         """Failures at threshold open the circuit."""
-        # Default threshold is 3
-        transport.record_failure("host-1")
-        transport.record_failure("host-1")
-        transport.record_failure("host-1")
+        # Default threshold is 5 (Dec 2025 update for P2P stability)
+        for _ in range(5):
+            transport.record_failure("host-1")
         assert transport.get_circuit_state("host-1") == TransportState.OPEN
 
     def test_open_circuit_blocks_attempts(self, transport):
         """Open circuit should block attempts."""
-        # Open the circuit
-        for _ in range(3):
+        # Open the circuit (5 failures required, Dec 2025 update)
+        for _ in range(5):
             transport.record_failure("host-1")
         assert transport.can_attempt("host-1") is False
 
     def test_circuit_transitions_to_half_open(self, transport):
         """Circuit should transition to half-open after recovery timeout."""
-        # Open the circuit
-        for _ in range(3):
+        # Open the circuit (5 failures required, Dec 2025 update)
+        for _ in range(5):
             transport.record_failure("host-1")
 
         # Mock time to simulate recovery timeout passing
@@ -360,8 +361,8 @@ class TestCircuitBreaker:
             status = transport._target_status["host-1"]
             status.last_failure_time = 1000.0
 
-            # After recovery timeout (default 300s)
-            mock_time.return_value = 1400.0  # 400 seconds later
+            # After recovery timeout (default 60s, Dec 2025 update)
+            mock_time.return_value = 1100.0  # 100 seconds later
             assert transport.can_attempt("host-1") is True
             assert transport.get_circuit_state("host-1") == TransportState.HALF_OPEN
 
@@ -396,7 +397,8 @@ class TestCircuitBreaker:
 
     def test_reset_circuit(self, transport):
         """Reset should clear circuit state."""
-        for _ in range(3):
+        # Open circuit (5 failures required, Dec 2025 update)
+        for _ in range(5):
             transport.record_failure("host-1")
         assert transport.get_circuit_state("host-1") == TransportState.OPEN
 
@@ -405,7 +407,8 @@ class TestCircuitBreaker:
 
     def test_reset_all_circuits(self, transport):
         """Reset all should clear all circuits."""
-        for _ in range(3):
+        # Open both circuits (5 failures each, Dec 2025 update)
+        for _ in range(5):
             transport.record_failure("host-1")
             transport.record_failure("host-2")
 
@@ -535,8 +538,8 @@ class TestTimeout:
     @pytest.mark.asyncio
     async def test_execute_with_retry_respects_circuit_breaker(self, transport):
         """Retry stops if circuit is open."""
-        # Open the circuit first
-        for _ in range(3):
+        # Open the circuit first (5 failures required, Dec 2025 update)
+        for _ in range(5):
             transport.record_failure("host-1")
 
         async def op():
@@ -631,7 +634,8 @@ class TestHealthCheck:
     def test_health_check_degraded(self, transport):
         """Health check with some circuits open."""
         transport.record_success("host-1")
-        for _ in range(3):
+        # Open circuit (5 failures required, Dec 2025 update)
+        for _ in range(5):
             transport.record_failure("host-2")
 
         health = transport.health_check()
@@ -643,7 +647,8 @@ class TestHealthCheck:
 
     def test_health_check_unhealthy(self, transport):
         """Health check with all circuits open."""
-        for _ in range(3):
+        # Open both circuits (5 failures each, Dec 2025 update)
+        for _ in range(5):
             transport.record_failure("host-1")
             transport.record_failure("host-2")
 
@@ -696,11 +701,12 @@ class TestCustomConfig:
 
     def test_custom_recovery_timeout(self):
         """Custom recovery timeout is respected."""
-        config = CircuitBreakerConfig(recovery_timeout=60.0)
+        # Use non-default recovery timeout to verify custom config works
+        config = CircuitBreakerConfig(recovery_timeout=120.0)
         transport = ConcreteTransport(circuit_breaker_config=config)
 
-        # Open circuit
-        for _ in range(3):
+        # Open circuit (5 failures required with default threshold)
+        for _ in range(5):
             transport.record_failure("host-1")
 
         with patch("time.time") as mock_time:
@@ -708,10 +714,10 @@ class TestCustomConfig:
             status = transport._target_status["host-1"]
             status.last_failure_time = 1000.0
 
-            # 30 seconds later - still blocked
-            mock_time.return_value = 1030.0
+            # 60 seconds later - still blocked (recovery is 120s)
+            mock_time.return_value = 1060.0
             assert transport.can_attempt("host-1") is False
 
-            # 70 seconds later - should allow
-            mock_time.return_value = 1070.0
+            # 130 seconds later - should allow (> 120s recovery)
+            mock_time.return_value = 1130.0
             assert transport.can_attempt("host-1") is True

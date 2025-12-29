@@ -1191,6 +1191,7 @@ class P2POrchestrator(
     ABTestHandlersMixin,    # Phase 8: A/B test handlers extraction (Dec 28, 2025)
     ImprovementHandlersMixin,  # Phase 8: Improvement loop handlers extraction (Dec 28, 2025)
     CanonicalGateHandlersMixin,  # Phase 8: Canonical gate handlers extraction (Dec 28, 2025)
+    JobsApiHandlersMixin,        # Phase 8: Jobs API handlers extraction (Dec 28, 2025)
     NetworkUtilsMixin,
     PeerManagerMixin,
     LeaderElectionMixin,
@@ -15886,41 +15887,12 @@ print(json.dumps(result))
     # - handle_api_canonical_generate, handle_api_canonical_job_cancel
     # =========================================================================
 
-    async def handle_api_jobs_list(self, request: web.Request) -> web.Response:
-        """List all jobs with optional filtering."""
-        try:
-            if not self._is_leader() and request.query.get("local") != "1":
-                proxied = await self._proxy_to_leader(request)
-                if proxied.status not in (502, 503):
-                    return proxied
-
-            job_type = request.query.get("type")
-            status = request.query.get("status")
-            limit = int(request.query.get("limit", 100))
-
-            # Collect all jobs (local + training + ssh tournament runs)
-            all_jobs = []
-
-            with self.jobs_lock:
-                local_jobs_snapshot = list(self.local_jobs.values())
-            for job in local_jobs_snapshot:
-                jt = job.job_type.value if hasattr(job.job_type, "value") else str(job.job_type)
-                if job_type and jt != job_type:
-                    continue
-                if status and job.status != status:
-                    continue
-                all_jobs.append(
-                    {
-                        "job_id": job.job_id,
-                        "job_type": jt,
-                        "status": job.status,
-                        "assigned_to": job.node_id,
-                        "created_at": job.started_at,
-                        "board_type": job.board_type,
-                        "num_players": job.num_players,
-                        "category": "local",
-                    }
-                )
+    # =========================================================================
+    # NOTE: Jobs API handlers moved to scripts/p2p/handlers/jobs_api.py (Dec 28, 2025 - Phase 8)
+    # Inherited from JobsApiHandlersMixin:
+    # - handle_api_jobs_list, handle_api_jobs_submit, handle_api_job_get, handle_api_job_cancel
+    # - _get_job_type_enum (helper for lazy JobType import)
+    # =========================================================================
 
             with self.training_lock:
                 for job_id, job in self.training_jobs.items():
