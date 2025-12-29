@@ -72,7 +72,8 @@ class TrainingTriggerConfig:
         in ("true", "1", "yes")
     )
     # Minimum samples to trigger training
-    min_samples_threshold: int = 10000
+    # December 29, 2025: Reduced from 10000 to 5000 for faster iteration cycles
+    min_samples_threshold: int = 5000
     # Cooldown between training runs for same config
     # December 29, 2025: Reduced from 4.0 to 1.0 for faster iteration cycles
     training_cooldown_hours: float = 1.0
@@ -691,6 +692,22 @@ class TrainingTriggerDaemon(HandlerBase):
         if active_count >= self.config.max_concurrent_training:
             return False, f"max concurrent training reached ({active_count})"
 
+        # December 29, 2025: Auto-boost intensity for very fresh data
+        # Fresh data (< 30 min old) suggests active selfplay → accelerate training
+        if data_age_hours < 0.5:  # Less than 30 minutes old
+            if state.training_intensity == "normal":
+                state.training_intensity = "accelerated"
+                logger.info(
+                    f"[TrainingTriggerDaemon] {config_key}: boosted to 'accelerated' "
+                    f"(data is {data_age_hours * 60:.0f}min fresh)"
+                )
+            elif state.training_intensity == "accelerated":
+                state.training_intensity = "hot_path"
+                logger.info(
+                    f"[TrainingTriggerDaemon] {config_key}: boosted to 'hot_path' "
+                    f"(data is {data_age_hours * 60:.0f}min fresh)"
+                )
+
         return True, "all conditions met"
 
     async def _check_gpu_availability(self) -> bool:
@@ -817,6 +834,12 @@ class TrainingTriggerDaemon(HandlerBase):
                     "--model-version", self.config.model_version,
                     "--epochs", str(epochs),
                     "--batch-size", str(batch_size),
+                    # December 2025: Allow stale data to unblock training when
+                    # selfplay rate is slower than freshness threshold.
+                    # The freshness check was blocking ALL training because game
+                    # databases have content ages of 7-100+ hours while threshold is 1h.
+                    "--allow-stale-data",
+                    "--max-data-age-hours", "168",  # 1 week threshold
                 ]
 
                 # Compute adjusted learning rate (base 1e-3 * multiplier)

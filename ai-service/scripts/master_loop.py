@@ -602,6 +602,145 @@ class MasterLoopController:
         logger.info(f"[MasterLoop] P2P connectivity verified: {reachable}/{total} voters reachable")
         return True, errors
 
+    async def _validate_critical_subsystems(self) -> tuple[bool, list[str]]:
+        """Pre-flight validation of critical subsystems for autonomous operation.
+
+        December 29, 2025: Added to ensure all prerequisites are met before
+        starting the autonomous training loop. This prevents silent failures
+        when critical infrastructure is missing or misconfigured.
+
+        Validates:
+        1. Event router - Core communication infrastructure
+        2. Work queue - Job distribution system
+        3. Critical directories - data/games, data/training, models
+        4. Cluster config - distributed_hosts.yaml
+        5. State persistence - Coordination database access
+
+        Returns:
+            Tuple of (all_passed, list_of_error_messages)
+        """
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        # 1. Validate event router
+        try:
+            from app.coordination.event_router import get_event_bus, DataEventType
+            bus = get_event_bus()
+            # Verify we can subscribe (basic functionality test)
+            if bus is None:
+                errors.append("Event router: get_event_bus() returned None")
+            else:
+                logger.debug("[MasterLoop] Event router validated")
+        except ImportError as e:
+            errors.append(f"Event router: Import failed - {e}")
+        except Exception as e:
+            errors.append(f"Event router: Initialization failed - {e}")
+
+        # 2. Validate work queue (for job distribution)
+        try:
+            from app.coordination.work_queue import get_work_queue
+            queue = get_work_queue()
+            if queue is None:
+                errors.append("Work queue: get_work_queue() returned None")
+            else:
+                # Quick health check
+                stats = queue.get_queue_stats()
+                logger.debug(f"[MasterLoop] Work queue validated: {stats.get('total_items', 0)} items")
+        except ImportError as e:
+            errors.append(f"Work queue: Import failed - {e}")
+        except Exception as e:
+            # Work queue issues are critical - jobs can't be distributed
+            errors.append(f"Work queue: Health check failed - {e}")
+
+        # 3. Validate critical directories
+        from pathlib import Path
+        ai_service_root = Path(__file__).parent.parent
+
+        critical_dirs = [
+            ("data/games", ai_service_root / "data" / "games"),
+            ("data/training", ai_service_root / "data" / "training"),
+            ("models", ai_service_root / "models"),
+            ("data/coordination", ai_service_root / "data" / "coordination"),
+        ]
+
+        for name, path in critical_dirs:
+            if not path.exists():
+                try:
+                    path.mkdir(parents=True, exist_ok=True)
+                    logger.info(f"[MasterLoop] Created missing directory: {name}")
+                except OSError as e:
+                    errors.append(f"Directory {name}: Cannot create - {e}")
+            elif not path.is_dir():
+                errors.append(f"Directory {name}: Path exists but is not a directory")
+
+        # 4. Validate cluster config exists
+        config_path = ai_service_root / "config" / "distributed_hosts.yaml"
+        if not config_path.exists():
+            warnings.append("Cluster config: distributed_hosts.yaml not found (single-node mode)")
+        else:
+            try:
+                from app.config.distributed_hosts import load_hosts_config
+                config = load_hosts_config()
+                hosts = config.get("hosts", [])
+                logger.debug(f"[MasterLoop] Cluster config validated: {len(hosts)} hosts configured")
+            except Exception as e:
+                warnings.append(f"Cluster config: Parse error - {e}")
+
+        # 5. Validate state database access
+        try:
+            conn = sqlite3.connect(self._db_path)
+            # Quick read test
+            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            conn.close()
+            logger.debug(f"[MasterLoop] State database validated: {len(tables)} tables")
+        except sqlite3.Error as e:
+            errors.append(f"State database: Access failed - {e}")
+
+        # 6. Validate daemon manager can be initialized
+        try:
+            from app.coordination.daemon_manager import get_daemon_manager
+            dm = get_daemon_manager()
+            if dm is None:
+                errors.append("Daemon manager: get_daemon_manager() returned None")
+            else:
+                logger.debug("[MasterLoop] Daemon manager validated")
+        except ImportError as e:
+            errors.append(f"Daemon manager: Import failed - {e}")
+        except Exception as e:
+            errors.append(f"Daemon manager: Initialization failed - {e}")
+
+        # 7. Validate at least one canonical model exists (optional but recommended)
+        models_dir = ai_service_root / "models"
+        if models_dir.exists():
+            canonical_models = list(models_dir.glob("canonical_*.pth"))
+            if not canonical_models:
+                warnings.append("No canonical models found (selfplay will use heuristics only)")
+            else:
+                logger.debug(f"[MasterLoop] Found {len(canonical_models)} canonical models")
+
+        # Log results
+        if errors:
+            for error in errors:
+                logger.error(f"[MasterLoop] CRITICAL: {error}")
+        if warnings:
+            for warning in warnings:
+                logger.warning(f"[MasterLoop] WARNING: {warning}")
+
+        all_passed = len(errors) == 0
+        if all_passed:
+            logger.info(
+                f"[MasterLoop] Startup validation passed "
+                f"({len(warnings)} warnings)"
+            )
+        else:
+            logger.error(
+                f"[MasterLoop] Startup validation FAILED: "
+                f"{len(errors)} critical errors, {len(warnings)} warnings"
+            )
+
+        return all_passed, errors
+
     # =========================================================================
     # Lifecycle
     # =========================================================================
@@ -670,6 +809,32 @@ class MasterLoopController:
                     logger.debug(f"Event emission failed (best-effort): {e}")
         except Exception as e:
             logger.warning(f"[MasterLoop] P2P connectivity check failed: {e}")
+
+        # December 29, 2025: Validate critical subsystems before proceeding
+        # This catches configuration/infrastructure issues early
+        try:
+            validation_ok, validation_errors = await self._validate_critical_subsystems()
+            if not validation_ok:
+                logger.error(
+                    f"[MasterLoop] Critical subsystem validation failed. "
+                    f"Errors: {validation_errors}. Proceeding with degraded functionality."
+                )
+                # Emit validation failure event for monitoring
+                try:
+                    from app.coordination.event_router import publish_sync, DataEventType
+                    publish_sync(
+                        DataEventType.HEALTH_ALERT,
+                        {
+                            "alert": "startup_validation_failed",
+                            "errors": validation_errors,
+                            "timestamp": time.time(),
+                        },
+                        source="master_loop",
+                    )
+                except (ImportError, AttributeError):
+                    pass  # Event system may be part of what failed
+        except Exception as e:
+            logger.warning(f"[MasterLoop] Subsystem validation check failed: {e}")
 
         # Start daemons
         if not self.skip_daemons:

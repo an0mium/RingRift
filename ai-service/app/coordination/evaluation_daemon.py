@@ -100,7 +100,8 @@ class EvaluationConfig:
     max_concurrent_evaluations: int = 4  # Dec 28: Increased from 1 to reduce bottleneck
 
     # Timeouts
-    evaluation_timeout_seconds: float = 600.0  # 10 minutes
+    # December 29, 2025: Increased from 600s to 1800s (30 min) for comprehensive gauntlet
+    evaluation_timeout_seconds: float = 1800.0  # 30 minutes
 
     # Deduplication settings (December 2025)
     dedup_cooldown_seconds: float = 300.0  # 5 minute cooldown per model
