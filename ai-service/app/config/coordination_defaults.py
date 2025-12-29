@@ -356,6 +356,83 @@ class CircuitBreakerDefaults:
     RSYNC_FAILURE_THRESHOLD: int = 2
     RSYNC_RECOVERY_TIMEOUT: float = 90.0
 
+    # Per-provider configs (December 29, 2025)
+    # Vast.ai nodes have higher network latency and more timeouts
+    VAST_FAILURE_THRESHOLD: int = 6
+    VAST_RECOVERY_TIMEOUT: float = 90.0
+
+    # RunPod nodes are generally stable but can have cold-start latency
+    RUNPOD_FAILURE_THRESHOLD: int = 4
+    RUNPOD_RECOVERY_TIMEOUT: float = 60.0
+
+    # Lambda nodes are most reliable (dedicated VMs)
+    LAMBDA_FAILURE_THRESHOLD: int = 3
+    LAMBDA_RECOVERY_TIMEOUT: float = 45.0
+
+    # Nebius nodes have good reliability
+    NEBIUS_FAILURE_THRESHOLD: int = 3
+    NEBIUS_RECOVERY_TIMEOUT: float = 45.0
+
+    # Vultr nodes are stable but limited bandwidth
+    VULTR_FAILURE_THRESHOLD: int = 4
+    VULTR_RECOVERY_TIMEOUT: float = 60.0
+
+    # Hetzner CPU-only nodes - most reliable
+    HETZNER_FAILURE_THRESHOLD: int = 3
+    HETZNER_RECOVERY_TIMEOUT: float = 30.0
+
+
+def get_circuit_breaker_for_provider(provider: str) -> dict[str, float | int]:
+    """Get circuit breaker config for a cloud provider.
+
+    Args:
+        provider: Provider name (vast, runpod, lambda, nebius, vultr, hetzner)
+
+    Returns:
+        Dict with failure_threshold and recovery_timeout
+
+    December 29, 2025: Added for provider-specific tuning to reduce false
+    circuit opens on lossy networks (Vast.ai) while maintaining fast detection
+    on reliable networks (Lambda, Nebius).
+    """
+    provider = provider.lower()
+    defaults = CircuitBreakerDefaults
+
+    configs = {
+        "vast": {
+            "failure_threshold": defaults.VAST_FAILURE_THRESHOLD,
+            "recovery_timeout": defaults.VAST_RECOVERY_TIMEOUT,
+        },
+        "runpod": {
+            "failure_threshold": defaults.RUNPOD_FAILURE_THRESHOLD,
+            "recovery_timeout": defaults.RUNPOD_RECOVERY_TIMEOUT,
+        },
+        "lambda": {
+            "failure_threshold": defaults.LAMBDA_FAILURE_THRESHOLD,
+            "recovery_timeout": defaults.LAMBDA_RECOVERY_TIMEOUT,
+        },
+        "nebius": {
+            "failure_threshold": defaults.NEBIUS_FAILURE_THRESHOLD,
+            "recovery_timeout": defaults.NEBIUS_RECOVERY_TIMEOUT,
+        },
+        "vultr": {
+            "failure_threshold": defaults.VULTR_FAILURE_THRESHOLD,
+            "recovery_timeout": defaults.VULTR_RECOVERY_TIMEOUT,
+        },
+        "hetzner": {
+            "failure_threshold": defaults.HETZNER_FAILURE_THRESHOLD,
+            "recovery_timeout": defaults.HETZNER_RECOVERY_TIMEOUT,
+        },
+    }
+
+    return configs.get(
+        provider,
+        {
+            "failure_threshold": defaults.FAILURE_THRESHOLD,
+            "recovery_timeout": defaults.RECOVERY_TIMEOUT,
+        },
+    )
+
 
 # =============================================================================
 # Health Check Defaults (December 2025)
@@ -2391,6 +2468,7 @@ __all__ = [
     "get_all_defaults",
     "get_backpressure_multiplier",
     "get_circuit_breaker_configs",
+    "get_circuit_breaker_for_provider",
     "get_job_timeout",
     "get_p2p_port",
     "get_peer_timeout",  # December 28, 2025

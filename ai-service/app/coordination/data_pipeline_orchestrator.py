@@ -1959,7 +1959,73 @@ class DataPipelineOrchestrator(
         except (AttributeError, KeyError, TypeError) as e:
             self._record_error(f"_on_sync_checksum_failed: {e}")
 
+    def _on_data_stale(self, event) -> None:
+        """Handle DATA_STALE event - trigger urgent sync before training.
 
+        December 29, 2025: Phase 4D - Data freshness gating.
+        When training data is stale (>24h old for most configs), trigger
+        priority sync to get fresh data before allowing training.
+
+        This prevents training on stale curriculum data which can lead to
+        Elo regression or slower improvement velocity.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", payload.get("config", ""))
+            data_age_hours = payload.get("data_age_hours", 0)
+            threshold_hours = payload.get("threshold_hours", 24)
+            source = payload.get("source", "unknown")
+
+            if not config_key:
+                return
+
+            logger.warning(
+                f"[DataPipelineOrchestrator] Data stale: "
+                f"config={config_key}, age={data_age_hours:.1f}h > threshold={threshold_hours}h, "
+                f"source={source}"
+            )
+
+            # Record staleness for tracking
+            if not hasattr(self, "_stale_configs"):
+                self._stale_configs: dict = {}
+            self._stale_configs[config_key] = {
+                "detected_at": time.time(),
+                "age_hours": data_age_hours,
+            }
+
+            # Trigger priority sync for this config
+            self._emit_priority_sync_request(config_key, reason="stale_data")
+
+            self._record_event_processed()
+
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_data_stale: {e}")
+
+    def _emit_priority_sync_request(self, config_key: str, reason: str) -> None:
+        """Emit SYNC_REQUEST event for priority sync.
+
+        December 29, 2025: Used to trigger urgent sync when data is stale
+        or after regression detection.
+        """
+        try:
+            from app.coordination.event_router import publish_sync
+
+            publish_sync(
+                "SYNC_REQUEST",
+                {
+                    "config_key": config_key,
+                    "priority": "urgent",
+                    "reason": reason,
+                    "source": "DataPipelineOrchestrator",
+                    "requested_at": time.time(),
+                },
+            )
+            logger.info(
+                f"[DataPipelineOrchestrator] Priority sync requested: "
+                f"config={config_key}, reason={reason}"
+            )
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"Could not emit SYNC_REQUEST: {e}")
 
 
 
