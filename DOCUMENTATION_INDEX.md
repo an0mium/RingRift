@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-27
+> **Last Updated:** 2025-12-29
 > **Organization:** Core docs in root, organized subdirectories in `/docs/` and `/ai-service/docs/`
 
 This index catalogs all project documentation organized by topic and location. For a lightweight landing page, see `docs/INDEX.md`.
@@ -49,6 +49,8 @@ This index catalogs all project documentation organized by topic and location. F
 
 - [RULES_ENGINE_ARCHITECTURE.md](docs/architecture/RULES_ENGINE_ARCHITECTURE.md) - Rules engine design
 - [AI_ARCHITECTURE.md](docs/architecture/AI_ARCHITECTURE.md) - AI service architecture
+- [API_REFERENCE.md](docs/architecture/API_REFERENCE.md) - REST API reference
+- [WEBSOCKET_API.md](docs/architecture/WEBSOCKET_API.md) - WebSocket event contract
 
 ---
 
@@ -89,6 +91,7 @@ Engine and system architecture documentation.
 | [STATE_MACHINES.md](docs/architecture/STATE_MACHINES.md)                                                   | Session/AI/choice state machines         |
 | [TOPOLOGY_MODES.md](docs/architecture/TOPOLOGY_MODES.md)                                                   | Board topology design                    |
 | [SYNC_ARCHITECTURE.md](docs/architecture/SYNC_ARCHITECTURE.md)                                             | Data/model sync architecture             |
+| [WEBSOCKET_API.md](docs/architecture/WEBSOCKET_API.md)                                                     | WebSocket event contract reference       |
 | [ORCHESTRATOR_ROLLOUT_PLAN.md](docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md)                             | Orchestrator migration plan              |
 | [FSM_MIGRATION_STATUS_2025_12.md](docs/architecture/FSM_MIGRATION_STATUS_2025_12.md)                       | Migration status snapshot                |
 | [SHARED_ENGINE_CONSOLIDATION_PLAN.md](docs/architecture/SHARED_ENGINE_CONSOLIDATION_PLAN.md)               | Engine consolidation design              |
@@ -206,6 +209,18 @@ Production monitoring tooling for the distributed training cluster. For tracked 
 - SNS topic: `ringrift-alerts` with email subscription
 - Slack webhook integration for real-time alerts
 - Cron jobs on `aws-staging` (5-min health, 2-min throughput, 10-min training)
+
+### Archived Cluster Snapshots (Root)
+
+These root-level status snapshots are historical and superseded by the
+consolidated report in
+`ai-service/docs/infrastructure/reports/2025-12-26_p2p_cluster_status.md`.
+
+- `cluster_status_report.md`
+- `CLUSTER_STATUS_CRITICAL.txt`
+- `P2P_STATUS_TABLE.md`
+- `P2P_INVESTIGATION_SUMMARY.md`
+- `P2P_STATUS_SUMMARY.txt`
 
 ### /docs/security/
 
@@ -339,12 +354,14 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 
 ### Core AI Service
 
-| Document                                                                                                         | Purpose                                               |
-| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| [ai-service/README.md](ai-service/README.md)                                                                     | AI service overview, API endpoints, difficulty ladder |
-| [ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md](ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md) | Cluster monitor quick reference                         |
-| [ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md) | Neural network architecture (RingRiftCNN)             |
-| [ai-service/docs/architecture/MPS_ARCHITECTURE.md](ai-service/docs/architecture/MPS_ARCHITECTURE.md)             | Apple Silicon MPS-compatible architecture             |
+| Document                                                                                                             | Purpose                                       |
+| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| [ai-service/README.md](ai-service/README.md)                                                                         | AI service overview, API entrypoints, scripts |
+| [ai-service/docs/README.md](ai-service/docs/README.md)                                                               | AI service documentation hub                  |
+| [ai-service/docs/API_REFERENCE.md](ai-service/docs/API_REFERENCE.md)                                                 | FastAPI + replay/admin API reference          |
+| [ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md](ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md) | Cluster monitor quick reference               |
+| [ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md)     | Neural network architecture (RingRiftCNN)     |
+| [ai-service/docs/architecture/MPS_ARCHITECTURE.md](ai-service/docs/architecture/MPS_ARCHITECTURE.md)                 | Apple Silicon MPS-compatible architecture     |
 
 ### Training Pipeline (Active - Dec 2025)
 

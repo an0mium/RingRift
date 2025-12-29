@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-23
+> **Last Updated:** 2025-12-29
 > **Total Docs:** ~180 active + ~65 archived
 
 This index provides navigation and status tracking for all project documentation.
@@ -50,6 +50,7 @@ This index provides navigation and status tracking for all project documentation
 | `docs/architecture/STATE_MACHINES.md`                   | FSM design               | Active |
 | `docs/architecture/CANONICAL_ENGINE_API.md`             | Engine API reference     | Active |
 | `docs/architecture/PHASE_ORCHESTRATION_ARCHITECTURE.md` | Phase/turn orchestration | Active |
+| `docs/architecture/WEBSOCKET_API.md`                    | WebSocket contract       | Active |
 
 ---
 
@@ -173,8 +174,8 @@ Superseded or historical documents are in `docs/archive/`:
 | Directory                   | Contents                               |
 | --------------------------- | -------------------------------------- |
 | `docs/archive/assessments/` | Historical pass assessments (PASS1-22) |
-| `docs/archive/planning/`    | Old planning documents                 |
-| `docs/archive/rules/`       | Superseded rules docs                  |
+| `docs/archive/plans/`       | Old planning documents                 |
+| `docs/archive/historical/`  | Historical snapshots and assessments   |
 
 ---
 
@@ -196,5 +197,5 @@ Superseded or historical documents are in `docs/archive/`:
 
 ### Related
 
-- See `DOCUMENTATION_INDEX.md` at repo root for the legacy catalog
+- See `DOCUMENTATION_INDEX.md` at repo root for the full catalog
 - See `docs/rules/SSOT_BANNER_GUIDE.md` for adding SSoT banners

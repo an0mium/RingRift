@@ -73,7 +73,7 @@ Win by achieving **any one** of:
 ```bash
 # Clone and install
 git clone https://github.com/an0mium/RingRift.git
-cd ringrift
+cd RingRift
 npm install
 
 # Configure environment
@@ -82,10 +82,10 @@ cp .env.example .env
 # Start services (choose one):
 
 # Option 1: Docker (recommended)
-docker-compose up -d
+docker compose up -d
 
 # Option 2: Manual
-docker-compose up -d postgres redis  # Just databases
+docker compose up -d postgres redis  # Just databases
 npm run db:migrate
 npm run db:generate
 npm run dev  # Starts both frontend and backend
@@ -180,6 +180,8 @@ Test counts and coverage are tracked in CI; see `tests/README.md` and `ai-servic
 
 ### REST Endpoints
 
+Full reference: `/api/docs` (OpenAPI) and `docs/architecture/API_REFERENCE.md`.
+
 ```
 POST /api/auth/register     # Create account
 POST /api/auth/login        # Authenticate
@@ -190,26 +192,35 @@ POST /api/games/:id/join    # Join game
 GET  /api/users/leaderboard # Rankings
 ```
 
-### WebSocket Events
+### WebSocket API
 
-| Client → Server          | Server → Client          |
-| ------------------------ | ------------------------ |
-| `join_game`              | `game_state`             |
-| `player_move`            | `game_over`              |
-| `player_choice_response` | `player_choice_required` |
-| `chat_message`           | `error`                  |
+The authoritative event/payload contract lives in `docs/architecture/WEBSOCKET_API.md`
+and `src/shared/types/websocket.ts`. The list below is a non-exhaustive subset.
+
+| Client → Server                         | Server → Client                                              |
+| --------------------------------------- | ------------------------------------------------------------ |
+| `join_game`, `leave_game`               | `game_state`, `game_over`, `game_error`                      |
+| `player_move`, `player_move_by_id`      | `player_choice_required`, `player_choice_canceled`           |
+| `player_choice_response`                | `player_joined`, `player_left`, `player_reconnected`         |
+| `chat_message`                          | `chat_message`, `chat_message_persisted`, `chat_history`     |
+| `rematch_request`, `rematch_respond`    | `rematch_requested`, `rematch_response`                      |
+| `lobby:subscribe`, `lobby:unsubscribe`  | `lobby:*` broadcasts, `matchmaking:*` events                 |
+| `matchmaking:join`, `matchmaking:leave` | `decision_phase_timeout_warning`, `decision_phase_timed_out` |
+| `diagnostic:ping` (load testing)        | `diagnostic:pong`, `error`                                   |
 
 ---
 
 ## Documentation
 
-| Document                                                     | Purpose                     |
-| ------------------------------------------------------------ | --------------------------- |
-| [QUICKSTART.md](QUICKSTART.md)                               | Detailed setup guide        |
-| [docs/rules/COMPLETE_RULES.md](docs/rules/COMPLETE_RULES.md) | Full rulebook with examples |
-| [RULES_CANONICAL_SPEC.md](RULES_CANONICAL_SPEC.md)           | Formal rules specification  |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                           | Contribution guidelines     |
-| [ai-service/README.md](ai-service/README.md)                 | AI service documentation    |
+| Document                                                                 | Purpose                      |
+| ------------------------------------------------------------------------ | ---------------------------- |
+| [QUICKSTART.md](QUICKSTART.md)                                           | Detailed setup guide         |
+| [docs/rules/COMPLETE_RULES.md](docs/rules/COMPLETE_RULES.md)             | Full rulebook with examples  |
+| [RULES_CANONICAL_SPEC.md](RULES_CANONICAL_SPEC.md)                       | Formal rules specification   |
+| [docs/architecture/API_REFERENCE.md](docs/architecture/API_REFERENCE.md) | REST API reference           |
+| [docs/architecture/WEBSOCKET_API.md](docs/architecture/WEBSOCKET_API.md) | WebSocket contract reference |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                                       | Contribution guidelines      |
+| [ai-service/README.md](ai-service/README.md)                             | AI service documentation     |
 
 ---
 
@@ -217,7 +228,7 @@ GET  /api/users/leaderboard # Rankings
 
 ```bash
 npm run build
-docker-compose -f docker-compose.production.yml up -d
+docker compose -f docker-compose.production.yml up -d
 ```
 
 The Docker stack includes: app, nginx, postgres, redis, ai-service, prometheus, grafana.

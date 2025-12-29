@@ -1,6 +1,6 @@
 # RingRift Quick Start Guide
 
-**Last Updated:** 2025-12-06  
+**Last Updated:** 2025-12-29  
 **Doc Status:** Active (developer quick start aligned with current scripts and docker-compose)
 
 This guide gets the TypeScript backend + React client and the Python AI service running locally. For rules semantics, use `RULES_CANONICAL_SPEC.md` and the shared engine under `src/shared/engine/**`.

@@ -625,6 +625,9 @@ Clients calling `DELETE /api/users/me` should therefore expect:
 
 ## 🔌 WebSocket API
 
+Authoritative contract: `docs/architecture/WEBSOCKET_API.md`,
+`src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
+
 Real-time game communication uses Socket.IO over WebSockets. Authentication is required via JWT token passed in the handshake.
 
 WebSocket is the canonical move transport for interactive clients; any HTTP move endpoint that submits moves is an internal/test harness over the same shared domain API, as documented in [`PLAYER_MOVE_TRANSPORT_DECISION.md`](PLAYER_MOVE_TRANSPORT_DECISION.md).

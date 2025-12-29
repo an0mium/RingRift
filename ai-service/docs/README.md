@@ -9,6 +9,7 @@ Technical documentation for the RingRift AI training service.
 | [Quick Start](QUICK_START.md)                                  | Get up and running quickly    |
 | [Developer Guide](DEVELOPER_GUIDE.md)                          | Coding patterns and standards |
 | [Config Reference](CONFIG_REFERENCE.md)                        | All configuration options     |
+| [API Reference](API_REFERENCE.md)                              | FastAPI endpoints             |
 | [Architecture Overview](architecture/ARCHITECTURE_OVERVIEW.md) | System architecture           |
 | [Training Pipeline](training/TRAINING_PIPELINE.md)             | Training pipeline overview    |
 
@@ -103,5 +104,5 @@ Historical documentation and status reports.
 ## See Also
 
 - [Main docs/](../../docs) - Product documentation
-- `ai-service/TRAINING_DATA_REGISTRY.md` (local-only, gitignored) - Training data inventory
+- `ai-service/TRAINING_DATA_REGISTRY.md` - Training data inventory and provenance
 - [RULES_CANONICAL_SPEC](../../RULES_CANONICAL_SPEC.md) - Canonical rules

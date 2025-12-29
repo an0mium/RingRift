@@ -291,6 +291,11 @@ class SelfplayScheduler(EventSubscriptionMixin):
         # Maps config_key -> FeedbackState with games_since_last_training
         self._feedback_states: dict[str, Any] = {}
 
+        # Dec 2025 Phase 4D: Track plateaued configs for priority reduction
+        # Maps config_key -> expiration timestamp (epoch seconds)
+        # Configs in plateau state get 50% priority reduction to avoid wasting resources
+        self._plateaued_configs: dict[str, float] = {}
+
     def get_elo_based_priority_boost(self, board_type: str, num_players: int) -> int:
         """Get priority boost based on ELO performance for this config.
 
@@ -498,6 +503,8 @@ class SelfplayScheduler(EventSubscriptionMixin):
             "NPZ_EXPORT_COMPLETE": self._on_npz_export_complete,
             "TRAINING_STARTED": self._on_training_started,
             "EVALUATION_COMPLETED": self._on_evaluation_completed,
+            # December 2025 - Phase 4D: Plateau detection for resource balancing
+            "PLATEAU_DETECTED": self._on_plateau_detected,
         }
 
     async def _on_selfplay_rate_changed(self, event) -> None:
@@ -723,6 +730,15 @@ class SelfplayScheduler(EventSubscriptionMixin):
         # Remove from training pipeline (evaluation is final step)
         self._configs_in_training_pipeline.discard(config_key)
 
+        # Dec 2025 Phase 4D: Clear plateau penalty on successful evaluation
+        # If win rate is acceptable, the config is making progress
+        if win_rate >= 0.50 and config_key in self._plateaued_configs:
+            del self._plateaued_configs[config_key]
+            self._log_info(
+                f"Plateau cleared for {config_key} (win_rate={win_rate:.1%}), "
+                f"restoring normal priority"
+            )
+
         # Restore normal selfplay rate after training cycle completes
         old_rate = self._rate_multipliers.get(config_key, 1.0)
         if old_rate < 0.8:
@@ -761,6 +777,70 @@ class SelfplayScheduler(EventSubscriptionMixin):
                 f"(win_rate={win_rate:.1%}, elo={elo:.0f}): "
                 f"{current_weight:.2f} -> {new_weight:.2f} ({reason})"
             )
+
+    async def _on_plateau_detected(self, event) -> None:
+        """Handle PLATEAU_DETECTED events - reduce priority for plateaued configs.
+
+        Dec 2025 Phase 4D: When a config is detected as plateaued (no Elo improvement
+        despite training), reduce its selfplay allocation to avoid wasting resources.
+        The config will still receive some games for exploration, but healthy configs
+        get priority.
+
+        Plateau penalty expires after a duration (default 30 minutes) to allow
+        recovery after hyperparameter adjustments or curriculum changes.
+
+        Args:
+            event: Event with payload containing config_key, reason, duration_seconds
+        """
+        payload = self._extract_event_payload(event)
+        config_key = payload.get("config_key", "") or payload.get("config", "")
+        duration_seconds = payload.get("duration_seconds", 1800)  # 30 min default
+        reason = payload.get("reason", "elo_stagnation")
+
+        if not config_key:
+            return
+
+        # Calculate expiration timestamp
+        expiry_time = time.time() + duration_seconds
+        old_expiry = self._plateaued_configs.get(config_key)
+
+        # Update or add plateau tracking
+        self._plateaued_configs[config_key] = expiry_time
+
+        if old_expiry is None:
+            self._log_info(
+                f"Plateau detected for {config_key} ({reason}), "
+                f"reducing selfplay priority for {duration_seconds}s"
+            )
+        else:
+            self._log_debug(
+                f"Plateau extended for {config_key}, new expiry in {duration_seconds}s"
+            )
+
+    def _is_config_plateaued(self, config_key: str) -> bool:
+        """Check if a config is currently in plateau state.
+
+        Dec 2025 Phase 4D: Returns True if the config has an active plateau penalty.
+        Automatically cleans up expired entries.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+
+        Returns:
+            True if config is plateaued and penalty is active, False otherwise.
+        """
+        expiry_time = self._plateaued_configs.get(config_key)
+        if expiry_time is None:
+            return False
+
+        current_time = time.time()
+        if current_time >= expiry_time:
+            # Plateau expired - clean up and return False
+            del self._plateaued_configs[config_key]
+            self._log_debug(f"Plateau expired for {config_key}, restoring priority")
+            return False
+
+        return True
 
     def _emit_selfplay_target_updated(
         self,
@@ -1127,7 +1207,10 @@ class SelfplayScheduler(EventSubscriptionMixin):
             starvation_boost = int((starvation_multiplier - 1.0) * 5)
             starvation_boost = max(-3, min(5, starvation_boost))  # Clamp to -3..+5
 
-            cfg["effective_priority"] = (
+            # Dec 2025 Phase 4D: Apply plateau penalty
+            # Configs in plateau state (no Elo improvement) get 50% priority reduction
+            # to redirect resources to configs making progress
+            base_priority = (
                 cfg.get("priority", 1)
                 + elo_boost
                 + curriculum_boost
@@ -1135,6 +1218,12 @@ class SelfplayScheduler(EventSubscriptionMixin):
                 + rate_boost
                 + starvation_boost
             )
+
+            if self._is_config_plateaued(config_key):
+                # Apply 50% penalty for plateaued configs
+                cfg["effective_priority"] = max(1, int(base_priority * 0.5))
+            else:
+                cfg["effective_priority"] = base_priority
 
         # Build weighted list by effective priority
         weighted = []

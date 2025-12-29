@@ -1,5 +1,10 @@
 # RingRift Cluster P2P Status Report
 
+> **SUPERSEDED**: This report has been consolidated into
+> `ai-service/docs/infrastructure/reports/2025-12-26_p2p_cluster_status.md`
+>
+> This file is kept for historical reference only.
+
 **Generated:** 2025-12-26
 **Total Nodes in Config:** 31
 

@@ -1,12 +1,33 @@
-# AI Service Scripts
+# RingRift AI Service
 
-This directory contains scripts for the RingRift AI training and improvement infrastructure.
+The RingRift AI service is a FastAPI application that serves AI move selection,
+choice handling, and position evaluation, plus a large collection of scripts
+for self-play, training, and cluster orchestration.
 
-## Canonical Entry Points
+## Quick Start (FastAPI service)
+
+```bash
+cd ai-service
+./setup.sh
+./run.sh
+```
+
+- API docs: `http://localhost:8001/docs`
+- Health: `http://localhost:8001/health`
+- Readiness: `http://localhost:8001/ready`
+- Metrics: `http://localhost:8001/metrics`
+
+## API Reference
+
+- Canonical API reference: `ai-service/docs/API_REFERENCE.md`
+- Core endpoints: `/ai/move`, `/ai/evaluate`, `/ai/choice/*`, `/api/replay/*`
+
+## Canonical Automation Entry Points
 
 ### Primary Orchestrator
 
-**`master_loop.py`** - The canonical automation entry point. This is the main control plane for selfplay → sync → training → evaluation → promotion.
+**`scripts/master_loop.py`** - canonical automation entry point for
+self-play -> sync -> training -> evaluation -> promotion.
 
 ```bash
 # Start the master loop (foreground)
@@ -22,32 +43,27 @@ python scripts/master_loop.py --status
 RINGRIFT_UNIFIED_LOOP_LEGACY=1 python scripts/unified_ai_loop.py --start
 ```
 
-Features:
+### Canonical Data + Parity
 
-- Selfplay allocation across the cluster
-- Training triggers with data quality gates
-- Evaluation + promotion orchestration
-- Unified data sync + model distribution hooks
-- Feedback loop integration via the event router
-- Profile-based daemon startup (minimal/standard/full)
+- `scripts/generate_canonical_selfplay.py` - canonical self-play generator + gates
+- `scripts/run_canonical_selfplay_parity_gate.py` - parity gate
+- `scripts/check_ts_python_replay_parity.py` - TS<->Python replay parity
 
-## Key Categories
+## Script Inventory
 
-For the full script inventory, see `scripts/INDEX.md`.
+For the full inventory, see `scripts/INDEX.md` and `scripts/README.md`.
 
 ### Cluster Management
 
 - `cluster_health_check.py` - Cluster health snapshot
 - `cluster_watchdog.py` - Host process watchdog
 - `cluster_worker.py` - Worker node implementation
-- `cluster_master_deploy.py` - Deploy orchestration helpers
 
 ### Training
 
 - `run_training_loop.py` - Automated training loop
 - `run_self_play_soak.py` - Self-play data generation
-- `generate_canonical_selfplay.py` - Canonical self-play generator + gates
-- `run_canonical_selfplay_parity_gate.py` - Canonical parity gate
+- `export_replay_dataset.py` - Export replay data to NPZ datasets
 
 ### Evaluation
 
@@ -55,66 +71,23 @@ For the full script inventory, see `scripts/INDEX.md`.
 - `run_gauntlet.py` - Evaluation gauntlet
 - `run_tournament.py` - Tournament runner
 
-### Data Management
+## Data & Rules SSoT
 
-- `unified_data_sync.py` - **Unified data sync service** (replaces deprecated scripts below)
-  - Run as daemon: `python scripts/unified_data_sync.py`
-  - With watchdog: `python scripts/unified_data_sync.py --watchdog`
-  - One-shot sync: `python scripts/unified_data_sync.py --once`
-- `export_replay_dataset.py` - Export replay data to NPZ datasets
-- `aggregate_jsonl_to_db.py` - JSONL to SQLite conversion
-
-### Model Management
-
-- `sync_models.py` - Model synchronization across cluster
-- `prune_models.py` - Old model cleanup
-- `model_promotion_manager.py` - Automated model promotion
-
-### Analysis
-
-- `analyze_game_statistics.py` - Game statistics analysis
-- `check_ts_python_replay_parity.py` - TS/Python parity validation
-- `track_elo_improvement.py` - Elo trend tracking
-
-## Module Dependencies
-
-### Canonical Service Interfaces
-
-| Module                                | Purpose                | Usage                                        |
-| ------------------------------------- | ---------------------- | -------------------------------------------- |
-| `app.training.elo_service`            | Elo rating operations  | `get_elo_service()` singleton                |
-| `app.training.curriculum`             | Curriculum training    | `CurriculumTrainer`, `CurriculumConfig`      |
-| `app.training.value_calibration`      | Value head calibration | `ValueCalibrator`, `CalibrationTracker`      |
-| `app.training.temperature_scheduling` | Exploration control    | `TemperatureScheduler`, `create_scheduler()` |
-
-### Supporting Modules
-
-| Module                                | Purpose                     |
-| ------------------------------------- | --------------------------- |
-| `app.tournament.elo`                  | Elo calculation utilities   |
-| `app.training.elo_reconciliation`     | Distributed Elo consistency |
-| `app.distributed.cluster_coordinator` | Cluster coordination        |
-| `app.integration.pipeline_feedback`   | Training feedback loops     |
-
-## Archived Scripts
-
-See `scripts/ARCHIVE_INDEX.md` and `scripts/DEPRECATED.md` for the curated list of archived and superseded scripts.
+- Canonical rules: `RULES_CANONICAL_SPEC.md` (root)
+- Canonical data registry: `ai-service/TRAINING_DATA_REGISTRY.md`
+- Python engine mirrors TS rules under `ai-service/app/game_engine/`
 
 ## Environment Variables
 
-| Variable                         | Description                                 |
-| -------------------------------- | ------------------------------------------- |
-| `RINGRIFT_DISABLE_LOCAL_TASKS`   | Skip local training/eval (coordinator mode) |
-| `RINGRIFT_TRACE_DEBUG`           | Enable detailed tracing                     |
-| `RINGRIFT_SKIP_SHADOW_CONTRACTS` | Skip shadow contract validation             |
-| `RINGRIFT_CONFIG_PATH`           | Override config path                        |
-| `RINGRIFT_UNIFIED_LOOP_LEGACY`   | Enable legacy `unified_ai_loop.py`          |
+Key flags (non-exhaustive):
 
-## Configuration
+- `RINGRIFT_TRACE_DEBUG` - Enable detailed tracing
+- `RINGRIFT_SKIP_SHADOW_CONTRACTS` - Skip shadow contract validation
+- `RINGRIFT_CONFIG_PATH` - Override config path
+- `RINGRIFT_UNIFIED_LOOP_LEGACY` - Enable legacy unified loop
+- `RINGRIFT_TRAINED_HEURISTIC_PROFILES` - Override heuristic profiles JSON
 
-`master_loop.py` reads configuration from `config/unified_loop.yaml`. Key settings:
+Full references:
 
-- Data sync intervals
-- Training thresholds
-- Evaluation frequencies
-- Cluster coordination options
+- `ai-service/docs/ENV_REFERENCE.md`
+- `ai-service/docs/ENV_REFERENCE_COMPREHENSIVE.md`

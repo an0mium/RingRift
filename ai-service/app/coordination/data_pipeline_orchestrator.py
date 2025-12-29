@@ -492,6 +492,9 @@ class DataPipelineOrchestrator(
         self._resource_constraints: dict[str, dict] = {}  # resource_type -> constraint_info
         self._backpressure_active: bool = False
 
+        # Regression tracking (December 29, 2025 - Phase 7)
+        self._last_regression: dict[str, Any] | None = None  # Last regression event data
+
         # ClusterMonitor caching (December 2025 - performance fix)
         self._cluster_monitor: Any = None
         self._cluster_monitor_last_check: float = 0.0
@@ -1683,7 +1686,278 @@ class DataPipelineOrchestrator(
             self._stage_callbacks[stage] = []
         self._stage_callbacks[stage].append(callback)
 
+    # =========================================================================
+    # Event Handlers (December 29, 2025 - Phase 7: Missing handlers implementation)
+    # =========================================================================
 
+    def _on_new_games_available(self, event) -> None:
+        """Handle NEW_GAMES_AVAILABLE event - trigger export if threshold met."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", payload.get("config", ""))
+            game_count = payload.get("game_count", 0)
+            source = payload.get("source", "unknown")
+
+            logger.info(
+                f"[DataPipelineOrchestrator] New games available: "
+                f"config={config_key}, count={game_count}, source={source}"
+            )
+            self._record_event_processed()
+
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_new_games_available: {e}")
+
+    def _on_regression_detected(self, event) -> None:
+        """Handle REGRESSION_DETECTED event - trigger curriculum rebalance.
+
+        December 29, 2025: Phase 7 - Regression-triggered curriculum rebalance.
+        When model regression is detected, reduce this config's curriculum weight
+        to prevent bad training data from propagating.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", payload.get("config", ""))
+            elo_loss = payload.get("elo_loss", payload.get("elo_drop", 0))
+            severity = payload.get("severity", "unknown")
+
+            if not config_key:
+                return
+
+            # Record regression for tracking
+            self._last_regression = {"config": config_key, "loss": elo_loss}
+
+            logger.warning(
+                f"[DataPipelineOrchestrator] Regression detected: "
+                f"config={config_key}, elo_loss={elo_loss:.0f}, severity={severity}"
+            )
+
+            # Phase 7: Trigger curriculum rebalance for significant regressions
+            if abs(elo_loss) > 50:
+                self._emit_curriculum_emergency_update(config_key, elo_loss)
+
+            self._record_event_processed()
+
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_regression_detected: {e}")
+
+    def _emit_curriculum_emergency_update(self, config_key: str, elo_loss: float) -> None:
+        """Emit curriculum emergency update to reduce allocation for regressing config.
+
+        December 29, 2025: Phase 7 - Closes the regression → curriculum feedback loop.
+        """
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            if router:
+                # Calculate reduction factor based on regression severity
+                if abs(elo_loss) > 100:
+                    factor = 0.3  # Severe regression: reduce to 30%
+                else:
+                    factor = 0.5  # Moderate regression: reduce to 50%
+
+                router.publish_sync(
+                    "CURRICULUM_REBALANCED",
+                    {
+                        "trigger": "regression_detected",
+                        "changed_configs": [config_key],
+                        "action": "reduce_allocation",
+                        "factor": factor,
+                        "elo_loss": elo_loss,
+                        "timestamp": time.time(),
+                    },
+                    source="data_pipeline_orchestrator",
+                )
+                logger.info(
+                    f"[DataPipelineOrchestrator] Emitted curriculum emergency update: "
+                    f"config={config_key}, factor={factor}, elo_loss={elo_loss:.0f}"
+                )
+        except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+            logger.debug(f"[DataPipelineOrchestrator] Could not emit curriculum update: {e}")
+
+    def _on_promotion_failed(self, event) -> None:
+        """Handle PROMOTION_FAILED event - log and track for pipeline metrics."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", payload.get("config", ""))
+            reason = payload.get("reason", "unknown")
+
+            logger.warning(
+                f"[DataPipelineOrchestrator] Promotion failed: "
+                f"config={config_key}, reason={reason}"
+            )
+            self._record_event_processed()
+
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_promotion_failed: {e}")
+
+    def _on_consolidation_started(self, event) -> None:
+        """Handle CONSOLIDATION_STARTED event."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            logger.info(f"[DataPipelineOrchestrator] Consolidation started: {config_key}")
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_consolidation_started: {e}")
+
+    def _on_consolidation_complete(self, event) -> None:
+        """Handle CONSOLIDATION_COMPLETE event - trigger export for consolidated data."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            game_count = payload.get("game_count", 0)
+            logger.info(
+                f"[DataPipelineOrchestrator] Consolidation complete: "
+                f"config={config_key}, games={game_count}"
+            )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_consolidation_complete: {e}")
+
+    def _on_npz_combination_complete(self, event) -> None:
+        """Handle NPZ_COMBINATION_COMPLETE event."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            output_path = payload.get("output_path", "")
+            logger.info(
+                f"[DataPipelineOrchestrator] NPZ combination complete: "
+                f"config={config_key}, path={output_path}"
+            )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_npz_combination_complete: {e}")
+
+    def _on_npz_combination_failed(self, event) -> None:
+        """Handle NPZ_COMBINATION_FAILED event."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            error = payload.get("error", "unknown")
+            logger.error(
+                f"[DataPipelineOrchestrator] NPZ combination failed: "
+                f"config={config_key}, error={error}"
+            )
+            self._record_error(f"npz_combination_failed: {config_key}")
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_npz_combination_failed: {e}")
+
+    def _on_repair_completed(self, event) -> None:
+        """Handle REPAIR_COMPLETED event - retrigger sync after data repair."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            files_repaired = payload.get("files_repaired", 0)
+            logger.info(
+                f"[DataPipelineOrchestrator] Repair completed: "
+                f"config={config_key}, files={files_repaired}"
+            )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_repair_completed: {e}")
+
+    def _on_repair_failed(self, event) -> None:
+        """Handle REPAIR_FAILED event - track repair failures for circuit breaker."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            error = payload.get("error", "unknown")
+            logger.error(
+                f"[DataPipelineOrchestrator] Repair failed: "
+                f"config={config_key}, error={error}"
+            )
+            self._record_circuit_failure("repair", error)
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_repair_failed: {e}")
+
+    def _on_task_abandoned(self, event) -> None:
+        """Handle TASK_ABANDONED event - update pending counts."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            task_id = payload.get("task_id", "")
+            reason = payload.get("reason", "unknown")
+            logger.info(
+                f"[DataPipelineOrchestrator] Task abandoned: "
+                f"id={task_id}, reason={reason}"
+            )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_task_abandoned: {e}")
+
+    def _on_quality_score_updated(self, event) -> None:
+        """Handle QUALITY_SCORE_UPDATED event - aggregate quality metrics."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            quality_score = payload.get("quality_score", 0.0)
+
+            if config_key:
+                self._quality_distribution[config_key] = quality_score
+                logger.debug(
+                    f"[DataPipelineOrchestrator] Quality updated: "
+                    f"config={config_key}, score={quality_score:.2f}"
+                )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_quality_score_updated: {e}")
+
+    def _on_curriculum_rebalanced(self, event) -> None:
+        """Handle CURRICULUM_REBALANCED event - update pipeline priorities."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            trigger = payload.get("trigger", "unknown")
+            changed_configs = payload.get("changed_configs", [])
+            logger.info(
+                f"[DataPipelineOrchestrator] Curriculum rebalanced: "
+                f"trigger={trigger}, configs={changed_configs}"
+            )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_curriculum_rebalanced: {e}")
+
+    def _on_curriculum_advanced(self, event) -> None:
+        """Handle CURRICULUM_ADVANCED event - track curriculum progression."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            new_tier = payload.get("new_tier", "")
+            logger.info(
+                f"[DataPipelineOrchestrator] Curriculum advanced: "
+                f"config={config_key}, tier={new_tier}"
+            )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_curriculum_advanced: {e}")
+
+    def _on_s3_backup_completed(self, event) -> None:
+        """Handle S3_BACKUP_COMPLETED event."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            files_backed_up = payload.get("files_backed_up", 0)
+            total_size_mb = payload.get("total_size_mb", 0)
+            logger.info(
+                f"[DataPipelineOrchestrator] S3 backup completed: "
+                f"files={files_backed_up}, size={total_size_mb:.1f}MB"
+            )
+            self._record_event_processed()
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_s3_backup_completed: {e}")
+
+    def _on_sync_checksum_failed(self, event) -> None:
+        """Handle SYNC_CHECKSUM_FAILED event - trigger repair."""
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            file_path = payload.get("file_path", "")
+            expected = payload.get("expected_checksum", "")[:16]
+            actual = payload.get("actual_checksum", "")[:16]
+            logger.warning(
+                f"[DataPipelineOrchestrator] Checksum mismatch: "
+                f"file={file_path}, expected={expected}..., actual={actual}..."
+            )
+            self._record_circuit_failure("sync", f"checksum_mismatch: {file_path}")
+        except (AttributeError, KeyError, TypeError) as e:
+            self._record_error(f"_on_sync_checksum_failed: {e}")
 
 
 

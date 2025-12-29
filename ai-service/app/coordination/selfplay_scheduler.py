@@ -1115,6 +1115,75 @@ class SelfplayScheduler:
         else:
             return GUMBEL_BUDGET_STANDARD  # 800 - standard tier
 
+    def _compute_target_games(self, config: str, current_elo: float) -> int:
+        """Compute dynamic target games needed based on Elo gap and board difficulty.
+
+        December 29, 2025: Phase 8 - Dynamic target games calculation.
+        Replaces static TARGET_GAMES_FOR_2000_ELO with adaptive targets based on:
+        - Elo gap to target (1900)
+        - Board difficulty (larger boards need more games)
+        - Player count (multiplayer needs more games per sample)
+
+        Args:
+            config: Config key (e.g., "hex8_2p", "square19_4p")
+            current_elo: Current Elo rating for the config
+
+        Returns:
+            Target games needed to reach 1900 Elo
+        """
+        target_elo = 1900
+        elo_gap = max(0, target_elo - current_elo)
+
+        # No more games needed if already at target
+        if elo_gap <= 0:
+            return 0
+
+        # Base: ~500 games per Elo point needed (empirical from training data)
+        base_target = elo_gap * 500
+
+        # Parse config for board type and player count
+        try:
+            parts = config.split("_")
+            board = parts[0] if parts else "hex8"
+            players = int(parts[1][0]) if len(parts) > 1 else 2
+        except (IndexError, ValueError):
+            board = "hex8"
+            players = 2
+
+        # Board difficulty multipliers (larger boards need more games)
+        board_mult = {
+            "hex8": 1.0,       # Smallest - baseline
+            "square8": 1.2,   # 64 cells, more complex than hex8
+            "square19": 2.0,  # Go-sized (361 cells) - much harder
+            "hexagonal": 2.5, # Largest (469 cells) - hardest
+        }
+        base_target *= board_mult.get(board, 1.0)
+
+        # Player count multipliers (multiplayer needs more diverse games)
+        player_mult = {
+            2: 1.0,   # 2p baseline
+            3: 1.5,   # 3p more complex game tree
+            4: 2.5,   # 4p exponentially more complex
+        }
+        base_target *= player_mult.get(players, 1.0)
+
+        # Cap to reasonable maximum (no need for more than 500K games)
+        return min(int(base_target), 500000)
+
+    def get_target_games_for_config(self, config: str) -> int:
+        """Get dynamic target games for a config (public accessor).
+
+        December 29, 2025: Phase 8 - Replaces static TARGET_GAMES_FOR_2000_ELO.
+        """
+        # Get current Elo from cached data
+        current_elo = 1500.0  # Default if not available
+        for cfg_key, priority in self._config_priorities.items():
+            if cfg_key == config:
+                current_elo = getattr(priority, 'current_elo', 1500.0)
+                break
+
+        return self._compute_target_games(config, current_elo)
+
     async def _get_feedback_signals(self) -> dict[str, dict[str, Any]]:
         """Get feedback loop signals per config.
 

@@ -95,7 +95,12 @@ class PipelineTriggerMixin:
             self._record_circuit_failure("data_sync", str(e))
 
     async def _auto_trigger_export(self, iteration: int) -> None:
-        """Auto-trigger NPZ export with prerequisite validation."""
+        """Auto-trigger NPZ export with prerequisite validation.
+
+        Dec 29, 2025: Added SelfplayScheduler integration to check if enough
+        games are available before triggering export. This prevents training
+        on insufficient data and enables feedback to generate more games.
+        """
         if not self._can_auto_trigger():
             return
 
@@ -103,6 +108,55 @@ class PipelineTriggerMixin:
         if not board_type or not num_players:
             logger.warning("[DataPipelineOrchestrator] Cannot auto-trigger export: missing board config")
             return
+
+        config_key = f"{board_type}_{num_players}p"
+
+        # Dec 29, 2025: Wire to SelfplayScheduler to set target and check games needed
+        try:
+            from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+
+            scheduler = get_selfplay_scheduler()
+
+            # Calculate target samples based on board size
+            # Large boards need more data for effective training
+            target_samples = 50000  # Default minimum
+            if board_type in ("square19", "hexagonal"):
+                target_samples = 100000  # Large boards need more data
+
+            scheduler.set_target_training_samples(config_key, target_samples)
+
+            # Check if we have enough games
+            games_needed = scheduler.get_games_needed(config_key)
+            if games_needed > 0:
+                logger.info(
+                    f"[DataPipelineOrchestrator] {config_key} needs {games_needed} more games, "
+                    f"skipping export (target={target_samples} samples)"
+                )
+                # Emit event to request more selfplay
+                try:
+                    from app.distributed.data_events import emit_selfplay_target_updated
+                    import asyncio
+
+                    # emit_selfplay_target_updated is async - need to schedule it
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(
+                            emit_selfplay_target_updated(
+                                config_key=config_key,
+                                games_needed=games_needed,
+                                source="DataPipelineOrchestrator",
+                            )
+                        )
+                    except RuntimeError:
+                        # No running event loop
+                        pass
+                except (ImportError, AttributeError):
+                    pass  # Event emitter not available
+                return  # Don't trigger export yet
+        except ImportError:
+            logger.debug("[DataPipelineOrchestrator] SelfplayScheduler not available")
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.debug(f"[DataPipelineOrchestrator] Failed to check games needed: {e}")
 
         try:
             # Use PipelineTrigger for prerequisite validation (December 2025)
