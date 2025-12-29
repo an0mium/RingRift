@@ -10,7 +10,10 @@ Usage:
     url = f"http://localhost:{P2P_DEFAULT_PORT}/status"
 """
 
+from __future__ import annotations
+
 import os
+from typing import Optional
 
 # =============================================================================
 # P2P Cluster Communication
@@ -77,7 +80,7 @@ KEEPALIVE_DASHBOARD_PORT = 8771  # Shares with gossip (different endpoints)
 # =============================================================================
 
 
-def get_p2p_status_url(host: str = "localhost", port: int | None = None) -> str:
+def get_p2p_status_url(host: str = "localhost", port: Optional[int] = None) -> str:
     """Build P2P status URL for a given host.
 
     Args:
@@ -91,7 +94,7 @@ def get_p2p_status_url(host: str = "localhost", port: int | None = None) -> str:
     return f"http://{host}:{port}/status"
 
 
-def get_p2p_base_url(host: str = "127.0.0.1", port: int | None = None) -> str:
+def get_p2p_base_url(host: str = "127.0.0.1", port: Optional[int] = None) -> str:
     """Build P2P base URL for a given host.
 
     Args:

@@ -171,9 +171,9 @@ class TestHostStatus:
         status_gh200 = manager.get_host_status("gh200-node-1")
         assert status_gh200["limit_mbps"] == 2500  # gh200 limit
 
-        # Unknown host gets default
+        # Unknown host gets default (50000 KB/s = 400 Mbps)
         status_unknown = manager.get_host_status("some-random-host")
-        assert status_unknown["limit_mbps"] == 100  # default limit
+        assert status_unknown["limit_mbps"] == 400  # default limit (50 MB/s = 400 Mbps)
 
 
 class TestAllocationDataclass:
