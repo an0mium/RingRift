@@ -78,19 +78,18 @@ All 66 daemon types now have factory implementations in `daemon_runners.py`.
 
 ### Coordination Module Consolidation (Dec 26, 2025)
 
-| Area                                             | Files | Status                                                      |
-| ------------------------------------------------ | ----- | ----------------------------------------------------------- |
-| Sync types (SyncState, SyncPriority, SyncResult) | 1     | ✅ Consolidated in `sync_constants.py`                      |
-| BackpressureLevel/TaskType                       | 1     | ✅ Canonical in `types.py`                                  |
-| Health monitoring                                | 2     | ⚠️ `system_health_monitor.py` deprecated, daemon still used |
-| SSH helpers                                      | 1     | ✅ Consolidated to `core/ssh.py`                            |
-| Base orchestrator classes                        | 2     | Pending unification                                         |
+| Area                                             | Files | Status                                                              |
+| ------------------------------------------------ | ----- | ------------------------------------------------------------------- |
+| Sync types (SyncState, SyncPriority, SyncResult) | 1     | ✅ Consolidated in `sync_constants.py`                              |
+| BackpressureLevel/TaskType                       | 1     | ✅ Canonical in `types.py`                                          |
+| Health monitoring                                | 1     | ✅ `unified_health_manager.py` is canonical (legacy module removed) |
+| SSH helpers                                      | 1     | ✅ Consolidated to `core/ssh.py`                                    |
+| Base orchestrator classes                        | 2     | Pending unification                                                 |
 
 **Health Module Status:**
 
-- `unified_health_manager.py` (2,107 lines) - Canonical utility functions
-- `system_health_monitor.py` (791 lines) - Deprecated but daemon class still used in `daemon_manager.py`
-- Migration: Utility functions migrated, daemon class pending
+- `unified_health_manager.py` (2,107 lines) - Canonical system health utilities
+- Legacy `system_health_monitor.py` removed; `health_facade.py` retains compatibility aliases
 
 ### Large Files Needing Decomposition
 
@@ -108,7 +107,6 @@ All 66 daemon types now have factory implementations in `daemon_runners.py`.
 
 ```python
 # Port 8770 appears in:
-app/coordination/cluster_data_sync.py:82
 app/coordination/health_check_orchestrator.py:184
 app/coordination/p2p_auto_deployer.py:64
 app/coordination/unified_node_health_daemon.py:90

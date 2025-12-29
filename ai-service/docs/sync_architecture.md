@@ -354,28 +354,23 @@ from app.coordination.sync_facade import sync
 await sync("games", targets=targets)
 ```
 
-### From ClusterDataSyncDaemon
+### Broadcast Strategy (replaces ClusterDataSyncDaemon)
 
 ```python
-# Before (deprecated)
-from app.coordination.cluster_data_sync import ClusterDataSyncDaemon
-daemon = ClusterDataSyncDaemon()
-
-# After
 from app.coordination.auto_sync_daemon import AutoSyncDaemon, SyncStrategy
 daemon = AutoSyncDaemon(strategy=SyncStrategy.BROADCAST)
 ```
 
-### From EphemeralSyncDaemon
+Note: `cluster_data_sync.py` was removed in Dec 2025; the broadcast strategy lives in `auto_sync_daemon.py`.
+
+### Ephemeral Strategy (replaces EphemeralSyncDaemon)
 
 ```python
-# Before (deprecated)
-from app.coordination.ephemeral_sync import EphemeralSyncDaemon
-
-# After
 from app.coordination.auto_sync_daemon import AutoSyncDaemon, SyncStrategy
 daemon = AutoSyncDaemon(strategy=SyncStrategy.EPHEMERAL)
 ```
+
+Note: `ephemeral_sync.py` was removed in Dec 2025; the ephemeral strategy lives in `auto_sync_daemon.py`.
 
 ---
 
@@ -389,13 +384,13 @@ daemon = AutoSyncDaemon(strategy=SyncStrategy.EPHEMERAL)
 | `sync_bandwidth.py`        | ~700   | Bandwidth management   |
 | `database_sync_manager.py` | ~670   | Base class for DB sync |
 
-### Deprecated (Archive Q2 2026)
+### Deprecated/Removed
 
-| File                   | Replacement               |
-| ---------------------- | ------------------------- |
-| `sync_scheduler.py`    | AutoSyncDaemon            |
-| `cluster_data_sync.py` | AutoSyncDaemon(BROADCAST) |
-| `ephemeral_sync.py`    | AutoSyncDaemon(EPHEMERAL) |
+| File                             | Replacement / Status                                      |
+| -------------------------------- | --------------------------------------------------------- |
+| `sync_coordinator.py`            | AutoSyncDaemon (scheduling) + distributed SyncCoordinator |
+| `cluster_data_sync.py` (removed) | AutoSyncDaemon(BROADCAST)                                 |
+| `ephemeral_sync.py` (removed)    | AutoSyncDaemon(EPHEMERAL)                                 |
 
 ---
 

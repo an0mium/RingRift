@@ -329,9 +329,17 @@ class RunPodChecker(StateChecker):
 
         Returns:
             List of node names that appear terminated (not in API response).
+            Returns empty list on API failure (conservative - don't mark as terminated
+            when we can't verify actual state).
         """
         # Get current pods
         instances = await self.get_instance_states()
+
+        # Conservative behavior: if API failed, don't mark anything as terminated
+        if self._last_error is not None:
+            logger.warning(f"API error during termination check: {self._last_error}")
+            return []
+
         active_names = {inst.hostname for inst in instances if inst.hostname}
         active_ips = {inst.public_ip for inst in instances if inst.public_ip}
 

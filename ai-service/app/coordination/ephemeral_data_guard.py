@@ -411,7 +411,8 @@ class EphemeralDataGuard:
                 })
                 try:
                     fire_and_forget(coro)
-                except Exception:
+                except RuntimeError:
+                    # Event loop not running or closed
                     coro.close()
             except ImportError:
                 pass

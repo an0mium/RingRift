@@ -90,7 +90,8 @@ class JsonlFileInfo:
             try:
                 with open(self.path) as f:
                     self.game_count = sum(1 for _ in f)
-            except Exception:
+            except (OSError, UnicodeDecodeError):
+                # File read errors (permission, not found, encoding)
                 pass
 
 

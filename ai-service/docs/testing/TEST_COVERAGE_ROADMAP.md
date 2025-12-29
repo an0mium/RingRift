@@ -77,29 +77,27 @@ Important supporting modules but less critical to core operations.
 
 Simple type definitions, deprecated modules, or internal utilities.
 
-| Module                              | LOC | Notes                                   |
-| ----------------------------------- | --- | --------------------------------------- |
-| `enums.py`                          | 95  | Simple enumerations - low value         |
-| `types.py`                          | 240 | Type definitions - TypeScript-like      |
-| `node_status.py`                    | 223 | Status dataclasses - already typed      |
-| `system_health_monitor.py`          | 83  | Deprecated - use unified_health_manager |
-| `contracts.py`                      | 384 | Contract definitions - low complexity   |
-| `core_base.py`                      | 142 | Base class only                         |
-| `core_utils.py`                     | 203 | Simple utilities                        |
-| `curriculum_weights.py`             | 107 | Weight calculations                     |
-| `daemon_factory_implementations.py` | 259 | Factory methods                         |
-| `daemon_metrics.py`                 | 247 | Metrics collection                      |
-| `daemon_registry.py`                | 456 | Registry pattern                        |
-| `alert_types.py`                    | 381 | Alert definitions                       |
-| `event_mappings.py`                 | 420 | Event type mappings                     |
-| `sync_base.py`                      | 346 | Sync base class                         |
-| `sync_constants.py`                 | 272 | Constants only                          |
-| `tracing.py`                        | 522 | Tracing infrastructure                  |
-| `task_decorators.py`                | 539 | Async decorators                        |
-| `master_loop_guard.py`              | 111 | Guard logic                             |
-| `coordinator_dependencies.py`       | 344 | Dependency tracking                     |
-| `core_events.py`                    | 378 | Event definitions                       |
-| `utils.py`                          | 682 | General utilities                       |
+| Module                              | LOC | Notes                                 |
+| ----------------------------------- | --- | ------------------------------------- |
+| `enums.py`                          | 95  | Simple enumerations - low value       |
+| `types.py`                          | 240 | Type definitions - TypeScript-like    |
+| `node_status.py`                    | 223 | Status dataclasses - already typed    |
+| `contracts.py`                      | 384 | Contract definitions - low complexity |
+| `core_utils.py`                     | 203 | Simple utilities                      |
+| `curriculum_weights.py`             | 107 | Weight calculations                   |
+| `daemon_factory_implementations.py` | 259 | Factory methods                       |
+| `daemon_metrics.py`                 | 247 | Metrics collection                    |
+| `daemon_registry.py`                | 456 | Registry pattern                      |
+| `alert_types.py`                    | 381 | Alert definitions                     |
+| `event_mappings.py`                 | 420 | Event type mappings                   |
+| `sync_base.py`                      | 346 | Sync base class                       |
+| `sync_constants.py`                 | 272 | Constants only                        |
+| `tracing.py`                        | 522 | Tracing infrastructure                |
+| `task_decorators.py`                | 539 | Async decorators                      |
+| `master_loop_guard.py`              | 111 | Guard logic                           |
+| `coordinator_dependencies.py`       | 344 | Dependency tracking                   |
+| `core_events.py`                    | 378 | Event definitions                     |
+| `utils.py`                          | 682 | General utilities                     |
 
 **Estimated Tests:** ~150 tests (many can be skipped)
 **Estimated Effort:** 2-3 days (if needed)
@@ -110,12 +108,13 @@ Simple type definitions, deprecated modules, or internal utilities.
 
 These modules don't need tests or are deferred:
 
-| Module                     | LOC | Reason                                     |
-| -------------------------- | --- | ------------------------------------------ |
-| `slurm_backend.py`         | 789 | SLURM not used - future integration        |
-| `p2p_auto_deployer.py`     | 720 | Complex E2E testing required               |
-| `async_training_bridge.py` | 387 | Integration-level testing only             |
-| `node_health_monitor.py`   | 386 | Deprecated - use health_check_orchestrator |
+| Module                     | LOC | Reason                              |
+| -------------------------- | --- | ----------------------------------- |
+| `slurm_backend.py`         | 789 | SLURM not used - future integration |
+| `p2p_auto_deployer.py`     | 720 | Complex E2E testing required        |
+| `async_training_bridge.py` | 387 | Integration-level testing only      |
+
+Note: legacy node/system health monitor modules were removed in Dec 2025; no additional tests required.
 
 ---
 

@@ -166,7 +166,8 @@ def get_optimal_batch_size(
                 device = torch.cuda.current_device()
                 total_mem = torch.cuda.get_device_properties(device).total_memory
                 gpu_memory_gb = total_mem / (1024 ** 3)
-            except Exception:
+            except RuntimeError:
+                # CUDA initialization errors (driver issues, OOM)
                 gpu_memory_gb = 8.0  # Safe default
         else:
             gpu_memory_gb = 8.0  # CPU fallback

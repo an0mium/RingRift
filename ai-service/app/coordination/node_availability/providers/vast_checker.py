@@ -237,9 +237,17 @@ class VastChecker(StateChecker):
 
         Returns:
             List of node names that appear terminated (not in API response).
+            Returns empty list on API failure (conservative - don't mark as terminated
+            when we can't verify actual state).
         """
         # Get current instances
         instances = await self.get_instance_states()
+
+        # Conservative behavior: if API failed, don't mark anything as terminated
+        if self._last_error is not None:
+            logger.warning(f"API error during termination check: {self._last_error}")
+            return []
+
         active_ids = {inst.instance_id for inst in instances}
 
         # Find vast nodes in config that aren't in API response

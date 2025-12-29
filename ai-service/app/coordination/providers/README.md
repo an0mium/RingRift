@@ -130,5 +130,5 @@ hosts:
 ## See Also
 
 - `../daemon_manager.py` - Starts provider-specific daemons
-- `../ephemeral_sync.py` - Aggressive sync for Vast.ai
+- `../auto_sync_daemon.py` - Aggressive sync for Vast.ai (strategy=ephemeral)
 - `../../distributed/cluster_manifest.py` - Node discovery

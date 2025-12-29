@@ -731,7 +731,8 @@ class UnifiedDataPlaneDaemon(CoordinatorProtocol):
                             logger.debug(
                                 f"[UnifiedDataPlane] Manifest sent to {peer_id}"
                             )
-                except Exception:
+                except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+                    # Network errors are expected for some peers
                     pass
 
         except ImportError:
@@ -870,7 +871,9 @@ class UnifiedDataPlaneDaemon(CoordinatorProtocol):
                     if name != source_node
                     and (node.is_gpu_node if hasattr(node, "is_gpu_node") else False)
                 ][:5]
-            except Exception:
+            except (KeyError, AttributeError, ValueError, OSError) as e:
+                # Config loading or node access failures
+                logger.debug(f"[UnifiedDataPlane] Node lookup failed: {e}")
                 target_nodes = []
 
         if not target_nodes:

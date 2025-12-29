@@ -144,7 +144,7 @@ class TransferVerifier(SingletonMixin):
                 if hasattr(instance._local, "conn") and instance._local.conn is not None:
                     try:
                         instance._local.conn.close()
-                    except Exception:
+                    except sqlite3.Error:
                         pass  # Ignore errors during cleanup
                     instance._local.conn = None
         # Call parent reset
