@@ -28,7 +28,7 @@ from app.models import BoardType, GameState, Move
 if TYPE_CHECKING:
     import numpy as np
 
-from app.rules.history_contract import validate_canonical_move
+from app.rules.history_contract import derive_phase_from_move_type, validate_canonical_move
 from app.utils.disk_utils import ensure_disk_space, is_enospc_error, handle_enospc_error
 
 logger = logging.getLogger(__name__)
@@ -1471,19 +1471,32 @@ class GameReplayDB:
                 # Phase derivation: record the actual phase-at-move-time.
                 # This lets canonical history checks detect phase/move mismatches.
                 # Priority: use move.phase if provided (from JSONL import), else derive from state.
+                # IMPORTANT: When replaying games with trace_mode, the game engine coerces
+                # phases inside apply_move() via _coerce_phase_for_trace_mode(). We need to
+                # derive the canonical phase from move type to match what the coercion produces.
                 phase_hint: str | None = None
                 if hasattr(move, "phase") and move.phase is not None:
                     # Phase explicitly provided on the move (e.g., from canonical JSONL export)
                     phase_hint = move.phase if isinstance(move.phase, str) else str(move.phase)
                 else:
-                    # Fall back to deriving from current state
-                    current_phase = getattr(prev_state, "current_phase", None)
-                    if current_phase is not None:
-                        phase_hint = (
-                            current_phase.value
-                            if hasattr(current_phase, "value")
-                            else str(current_phase)
-                        )
+                    # Derive phase from move type first (canonical mapping)
+                    # This handles cases where the state phase doesn't match the move type
+                    # (e.g., territory_processing state but no_placement_action move)
+                    move_type_str = move.type.value if hasattr(move.type, "value") else str(move.type)
+                    derived_phase = derive_phase_from_move_type(move_type_str)
+
+                    if derived_phase:
+                        # Use canonical phase for this move type
+                        phase_hint = derived_phase
+                    else:
+                        # Fall back to deriving from current state for unknown move types
+                        current_phase = getattr(prev_state, "current_phase", None)
+                        if current_phase is not None:
+                            phase_hint = (
+                                current_phase.value
+                                if hasattr(current_phase, "value")
+                                else str(current_phase)
+                            )
 
                 self._store_move_conn(
                     conn,
