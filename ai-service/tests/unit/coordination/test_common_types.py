@@ -1,6 +1,8 @@
 """Tests for common_types module.
 
 December 2025 - Tests for canonical coordination type definitions.
+This module tests the re-exports from common_types.py which provides
+a unified import point for types from their canonical locations.
 """
 
 import pytest
@@ -14,7 +16,7 @@ from app.coordination.common_types import (
     TransportState,
     # Dataclasses
     SyncResult,
-    TransportConfig,
+    TransportResult,
     # Exception
     TransportError,
     # Backward compat aliases
@@ -155,36 +157,61 @@ class TestTransportState:
 
 
 # =============================================================================
-# TransportConfig Tests
+# TransportResult Tests
 # =============================================================================
 
 
-class TestTransportConfig:
-    """Tests for TransportConfig dataclass."""
+class TestTransportResult:
+    """Tests for TransportResult dataclass."""
 
     def test_default_values(self):
-        """Test default configuration values."""
-        config = TransportConfig()
-        assert config.timeout_seconds == 30.0
-        assert config.max_retries == 3
-        assert config.retry_delay_seconds == 1.0
-        assert config.circuit_breaker_threshold == 5
-        assert config.circuit_breaker_timeout_seconds == 60.0
+        """Test default values for successful result."""
+        result = TransportResult(success=True)
+        assert result.success is True
+        assert result.transport_used == ""
+        assert result.error is None
+        assert result.latency_ms == 0.0
+        assert result.bytes_transferred == 0
+        assert result.data is None
+        assert result.metadata == {}
 
-    def test_custom_values(self):
-        """Test custom configuration values."""
-        config = TransportConfig(
-            timeout_seconds=60.0,
-            max_retries=5,
-            retry_delay_seconds=2.0,
-            circuit_breaker_threshold=10,
-            circuit_breaker_timeout_seconds=120.0,
+    def test_full_result(self):
+        """Test result with all fields populated."""
+        result = TransportResult(
+            success=True,
+            transport_used="ssh",
+            error=None,
+            latency_ms=150.5,
+            bytes_transferred=1024,
+            data={"status": "ok"},
+            metadata={"host": "node-1"},
         )
-        assert config.timeout_seconds == 60.0
-        assert config.max_retries == 5
-        assert config.retry_delay_seconds == 2.0
-        assert config.circuit_breaker_threshold == 10
-        assert config.circuit_breaker_timeout_seconds == 120.0
+        assert result.success is True
+        assert result.transport_used == "ssh"
+        assert result.latency_ms == 150.5
+        assert result.bytes_transferred == 1024
+        assert result.data == {"status": "ok"}
+        assert result.metadata == {"host": "node-1"}
+
+    def test_failed_result_gets_default_error(self):
+        """Test that failed results get a default error message."""
+        result = TransportResult(success=False)
+        assert result.success is False
+        assert result.error == "Unknown error"
+
+    def test_to_dict(self):
+        """Test dictionary serialization."""
+        result = TransportResult(
+            success=True,
+            transport_used="http",
+            latency_ms=100.0,
+            bytes_transferred=500,
+        )
+        d = result.to_dict()
+        assert d["success"] is True
+        assert d["transport_used"] == "http"
+        assert d["latency_ms"] == 100.0
+        assert d["bytes_transferred"] == 500
 
 
 # =============================================================================
@@ -199,27 +226,28 @@ class TestTransportError:
         """Test basic error creation."""
         error = TransportError("Connection failed")
         assert error.message == "Connection failed"
-        assert error.transport_type == "unknown"
-        assert error.is_retryable is True
-        assert error.details == {}
+        assert error.transport == ""
+        assert error.target == ""
+        assert error.cause is None
 
     def test_full_error(self):
         """Test error with all fields."""
+        cause = ValueError("underlying issue")
         error = TransportError(
             message="Timeout",
-            transport_type="ssh",
-            is_retryable=False,
-            details={"host": "node-1", "port": 22},
+            transport="ssh",
+            target="node-1",
+            cause=cause,
         )
         assert error.message == "Timeout"
-        assert error.transport_type == "ssh"
-        assert error.is_retryable is False
-        assert error.details == {"host": "node-1", "port": 22}
+        assert error.transport == "ssh"
+        assert error.target == "node-1"
+        assert error.cause is cause
 
     def test_str_representation(self):
         """Test string representation."""
-        error = TransportError("Failed", transport_type="http")
-        assert str(error) == "TransportError(http): Failed"
+        error = TransportError("Failed", transport="http", target="host:8080")
+        assert str(error) == "Failed | transport=http | target=host:8080"
 
     def test_is_exception(self):
         """Test that TransportError is an Exception."""
@@ -229,9 +257,9 @@ class TestTransportError:
     def test_can_be_raised(self):
         """Test error can be raised and caught."""
         with pytest.raises(TransportError) as exc_info:
-            raise TransportError("Test error", transport_type="test")
+            raise TransportError("Test error", transport="test")
         assert exc_info.value.message == "Test error"
-        assert exc_info.value.transport_type == "test"
+        assert exc_info.value.transport == "test"
 
 
 # =============================================================================
