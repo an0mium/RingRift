@@ -266,8 +266,9 @@ class JobReaperDaemon:
                     (time.time(),)
                 )
                 conn.commit()
-        except Exception as e:
-            logger.warning(f"Failed to initialize blacklist DB: {e}")
+        except (sqlite3.Error, OSError) as e:
+            # Dec 2025: Narrowed to database and filesystem errors
+            logger.warning(f"Failed to initialize blacklist DB: {type(e).__name__}: {e}")
 
     def _load_blacklist_from_db(self) -> None:
         """Load non-expired blacklist entries from SQLite."""
@@ -290,8 +291,9 @@ class JobReaperDaemon:
 
                 if rows:
                     logger.info(f"Loaded {len(rows)} blacklisted nodes from persistence")
-        except Exception as e:
-            logger.warning(f"Failed to load blacklist from DB: {e}")
+        except (sqlite3.Error, OSError, KeyError) as e:
+            # Dec 2025: Narrowed to database, filesystem, and row access errors
+            logger.warning(f"Failed to load blacklist from DB: {type(e).__name__}: {e}")
 
     def _persist_blacklist_entry(self, bl: BlacklistedNode) -> None:
         """Persist a single blacklist entry to SQLite."""

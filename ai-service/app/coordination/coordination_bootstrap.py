@@ -1374,8 +1374,8 @@ def _restore_event_subscriptions() -> dict[str, Any]:
                 results["stale_alerts_emitted"] = asyncio.run(
                     store.emit_stale_dlq_alerts()
                 )
-            except Exception:
-                pass
+            except (RuntimeError, OSError):
+                pass  # Event loop or I/O issue
 
         if results["subscriptions_restored"] > 0:
             logger.info(

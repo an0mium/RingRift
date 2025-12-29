@@ -515,8 +515,8 @@ class TrainingTriggerDaemon(HandlerBase):
                 metrics = qm.get_quality_metrics(config_key)
                 if metrics and 'variance' in metrics:
                     variance = min(0.25, metrics['variance'])  # Cap at 0.25
-        except Exception:
-            pass  # Use default variance
+        except (ImportError, AttributeError, KeyError, TypeError, ValueError):
+            pass  # Use default variance if quality monitor unavailable
 
         # Calculate CI width: 2 * z * sqrt(variance / n)
         import math

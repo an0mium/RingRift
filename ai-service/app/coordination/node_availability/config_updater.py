@@ -188,7 +188,7 @@ class ConfigUpdater:
             os.rename(temp_path, self.config_path)
             logger.debug(f"Config written atomically to {self.config_path}")
 
-        except Exception:
+        except (OSError, yaml.YAMLError, TypeError, ValueError):
             # Clean up temp file on failure
             try:
                 os.unlink(temp_path)

@@ -269,15 +269,15 @@ class LoadForecaster:
             try:
                 nodes = get_cluster_nodes()
                 total_hosts = len([n for n in nodes.values() if n.status == "ready"])
-            except Exception:
-                pass
+            except (ValueError, KeyError, TypeError, AttributeError, OSError):
+                pass  # Config loading or attribute access issues
 
         if get_gpu_nodes:
             try:
                 gpu_nodes = get_gpu_nodes()
                 gpu_hosts = len(gpu_nodes)
-            except Exception:
-                pass
+            except (ValueError, KeyError, TypeError, AttributeError, OSError):
+                pass  # Config loading or attribute access issues
 
         # Fallback to reasonable defaults
         if total_hosts == 0:

@@ -502,7 +502,7 @@ class WorkQueue:
             conn = self._get_connection(timeout)
             conn.row_factory = sqlite3.Row
             yield conn
-        except Exception:
+        except (sqlite3.Error, OSError, RuntimeError):
             if conn is not None:
                 try:
                     conn.rollback()
@@ -678,8 +678,9 @@ class WorkQueue:
             logger.error(f"Database error deleting work item {work_id}: {e}")
         except sqlite3.IntegrityError as e:
             logger.error(f"Database integrity error deleting work item {work_id}: {e}")
-        except Exception as e:
-            logger.error(f"Failed to delete work item {work_id}: {e}")
+        except (TypeError, ValueError, KeyError, AttributeError) as e:
+            # Dec 2025: Narrowed from bare Exception - these indicate programming errors
+            logger.error(f"Data error deleting work item {work_id}: {type(e).__name__}: {e}")
 
     def add_work(self, item: WorkItem, force: bool = False) -> str:
         """Add work to the queue. Returns work_id.
@@ -1361,8 +1362,8 @@ class WorkQueue:
             })
             try:
                 fire_and_forget(coro)
-            except Exception:
-                coro.close()
+            except (RuntimeError, TypeError, AttributeError):
+                coro.close()  # Event loop not available
         except ImportError:
             pass  # Event system not available
 
@@ -1387,8 +1388,8 @@ class WorkQueue:
             })
             try:
                 fire_and_forget(coro)
-            except Exception:
-                coro.close()
+            except (RuntimeError, TypeError, AttributeError):
+                coro.close()  # Event loop not available
         except ImportError:
             pass  # Event system not available
 

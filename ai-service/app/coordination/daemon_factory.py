@@ -665,9 +665,9 @@ class DaemonFactory:
                             healthy_instances += 1
                         else:
                             unhealthy_instances.append(key)
-                    except Exception:
-                        # health_check failed
-                        unhealthy_instances.append(key)
+                    except (RuntimeError, TypeError, AttributeError, ValueError) as e:
+                        # health_check failed with specific error
+                        unhealthy_instances.append(f"{key}: {type(e).__name__}")
                 else:
                     # No health_check method, assume healthy if running
                     if hasattr(instance, "_running") and instance._running:
@@ -680,8 +680,9 @@ class DaemonFactory:
                     else:
                         # Can't determine health, assume OK
                         healthy_instances += 1
-            except Exception as e:
-                unhealthy_instances.append(f"{key}: {e}")
+            except (RuntimeError, TypeError, AttributeError, ValueError, OSError) as e:
+                # Dec 2025: Narrowed from bare Exception to specific types
+                unhealthy_instances.append(f"{key}: {type(e).__name__}: {e}")
 
         # Determine overall health
         is_healthy = len(import_errors) == 0 and len(invalid_specs) == 0

@@ -915,8 +915,8 @@ class SelfplayScheduler:
                     # Ensure numeric value (handles MagicMock in tests)
                     if isinstance(cached_depth, (int, float)):
                         training_queue_depth = int(cached_depth)
-            except Exception:
-                pass
+            except (AttributeError, TypeError, ValueError):
+                pass  # Handle missing attributes or type conversion issues
         weights.training_queue_depth = training_queue_depth
 
         # 3. Configs at Elo target fraction

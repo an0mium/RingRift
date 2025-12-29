@@ -284,10 +284,10 @@ class EventBridge:
                 for event_type in self._subscriptions:
                     try:
                         bus.unsubscribe(event_type, self._handle_event)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except (ValueError, KeyError, AttributeError):
+                        pass  # Subscription already removed
+        except (ImportError, AttributeError):
+            pass  # Event bus not available
 
         self._subscriptions.clear()
 

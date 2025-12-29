@@ -18,7 +18,7 @@ This guide documents all deprecated modules in `app/coordination/` and their rep
 | `system_health_monitor.py` (scoring)          | `unified_health_manager.py`                         | Partial deprecation |
 | `tracing.py`                                  | `core_utils.py`                                     | Emits warning       |
 | `distributed_lock.py`                         | `core_utils.py`                                     | Emits warning       |
-| `coordinator_dependencies.py`                 | `core_base.py`                                      | Pending warning     |
+| `coordinator_dependencies.py`                 | `core_base.py`                                      | Emits warning       |
 | `event_mappings.py`                           | `core_events.py`                                    | Emits warning       |
 | `event_normalization.py`                      | `core_events.py`                                    | Emits warning       |
 

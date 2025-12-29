@@ -1,5 +1,9 @@
 """Coordinator Dependency Management (December 2025).
 
+DEPRECATED: This module is deprecated. Use app.coordination.core_base instead.
+See DEPRECATION_GUIDE.md for migration instructions.
+Will be removed in Q2 2026.
+
 Provides:
 - Dependency graph for coordinators
 - Circular dependency detection
@@ -24,6 +28,15 @@ Usage:
 """
 
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "coordinator_dependencies is deprecated; use core_base instead. "
+    "See DEPRECATION_GUIDE.md for migration. Will be removed in Q2 2026.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import logging
 from collections import defaultdict

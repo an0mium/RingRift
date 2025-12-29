@@ -1941,10 +1941,10 @@ def train_model(
     # Compute hex_radius from board_type: HEX8 has radius 4, HEXAGONAL has radius 12
     hex_radius = 4 if config.board_type == BoardType.HEX8 else 12
     # HexNeuralNet_v3, v4, v5 use 64 input channels (16 base × 4 frames)
-    # v3-spatial uses original spatial policy heads, v3 uses flat policy heads (default)
+    # v3 uses spatial policy heads (default), v3-flat uses flat policy heads (fallback)
     use_hex_v5 = bool(use_hex_model and model_version in ('v5', 'v5-gnn', 'v5-heavy'))
     use_hex_v4 = bool(use_hex_model and model_version == 'v4')
-    use_hex_v3 = bool(use_hex_model and model_version in ('v3', 'v3-spatial'))
+    use_hex_v3 = bool(use_hex_model and model_version in ('v3', 'v3-flat'))
 
     # December 2025: Detect heuristic feature count from NPZ for v5_heavy/v6 models
     # This enables automatic switching between fast (21) and full (49) modes
@@ -2122,10 +2122,10 @@ def train_model(
             elif use_hex_v4:
                 hex_model_name = "HexNeuralNet_v4"
             elif use_hex_v3:
-                if model_version == 'v3-spatial':
-                    hex_model_name = "HexNeuralNet_v3 (spatial policy)"
-                else:
+                if model_version == 'v3-flat':
                     hex_model_name = "HexNeuralNet_v3_Flat"
+                else:
+                    hex_model_name = "HexNeuralNet_v3 (spatial policy)"
             else:
                 hex_model_name = "HexNeuralNet_v2"
             logger.info(
@@ -2288,16 +2288,14 @@ def train_model(
             num_players=hex_num_players,
         )
     elif use_hex_v3:
-        # HexNeuralNet_v3_Flat for hexagonal boards (flat policy heads, Dec 2025)
-        # V3_Flat uses flat policy heads like V2 to avoid the spatial masking issue
-        # where -1e9 masked values caused 11M+ loss explosion with log_softmax.
-        # Use --model-version v3-spatial for original spatial policy heads.
-        if model_version == 'v3-spatial':
-            # V3 with spatial policy heads - position-aware learning with weight sharing
-            # Now stable with masked_log_softmax (Dec 2025 fix)
-            model = HexNeuralNet_v3(
+        # HexNeuralNet_v3 for hexagonal boards (spatial policy heads, Dec 2025)
+        # Spatial policy heads are now the default - stable with masked_log_softmax fix.
+        # Use --model-version v3-flat for flat policy heads (debugging/comparison).
+        if model_version == 'v3-flat':
+            # V3_Flat: V3 backbone with flat policy heads (fallback)
+            model = HexNeuralNet_v3_Flat(
                 in_channels=hex_in_channels,
-                global_features=20,
+                global_features=20,  # V3 encoder provides 20 global features
                 num_res_blocks=effective_blocks,
                 num_filters=effective_filters,
                 board_size=board_size,
@@ -2306,10 +2304,12 @@ def train_model(
                 num_players=hex_num_players,
             )
         else:
-            # V3_Flat: V3 backbone with flat policy heads (training compatible)
-            model = HexNeuralNet_v3_Flat(
+            # V3 with spatial policy heads (default) - position-aware learning
+            # Benefits: 91× fewer params, position-aware gradients, weight sharing
+            # Stable with masked_log_softmax (Dec 2025 fix)
+            model = HexNeuralNet_v3(
                 in_channels=hex_in_channels,
-                global_features=20,  # V3 encoder provides 20 global features
+                global_features=20,
                 num_res_blocks=effective_blocks,
                 num_filters=effective_filters,
                 board_size=board_size,
@@ -2331,8 +2331,30 @@ def train_model(
             num_players=hex_num_players,
         )
     elif model_version == 'v3':
-        # V3 with FLAT policy heads (default) - avoids scatter masking issues
-        # Use v3-spatial for original spatial policy heads (deprecated)
+        # V3 with spatial policy heads (default) - position-aware learning
+        # Benefits: 91× fewer params, position-aware gradients, weight sharing
+        # Stable with masked_log_softmax (Dec 2025 fix)
+        # Use --model-version v3-flat for flat policy heads (debugging/comparison)
+        v3_num_players = MAX_PLAYERS if multi_player else num_players
+        model = RingRiftCNN_v3(
+            board_size=board_size,
+            in_channels=14,  # 14 spatial feature channels per frame
+            global_features=20,  # Must match _extract_features() which returns 20 globals
+            history_length=config.history_length,
+            policy_size=policy_size,
+            num_players=v3_num_players,
+            num_res_blocks=effective_blocks,
+            num_filters=effective_filters,
+        )
+        if not distributed or is_main_process():
+            logger.info(
+                f"Initializing RingRiftCNN_v3 (spatial) with board_size={board_size}, "
+                f"policy_size={policy_size}, num_players={v3_num_players}, "
+                f"blocks={effective_blocks}, filters={effective_filters}"
+            )
+    elif model_version == 'v3-flat':
+        # V3 with flat policy heads (fallback)
+        # Use for debugging, comparison, or if spatial training has issues
         v3_num_players = MAX_PLAYERS if multi_player else num_players
         model = RingRiftCNN_v3_Flat(
             board_size=board_size,
@@ -2347,27 +2369,6 @@ def train_model(
         if not distributed or is_main_process():
             logger.info(
                 f"Initializing RingRiftCNN_v3_Flat with board_size={board_size}, "
-                f"policy_size={policy_size}, num_players={v3_num_players}, "
-                f"blocks={effective_blocks}, filters={effective_filters}"
-            )
-    elif model_version == 'v3-spatial':
-        # V3 with spatial policy heads
-        # Spatial heads offer position-aware learning and weight sharing advantages
-        # Now stable with masked_log_softmax (Dec 2025 fix)
-        v3_num_players = MAX_PLAYERS if multi_player else num_players
-        model = RingRiftCNN_v3(
-            board_size=board_size,
-            in_channels=14,  # 14 spatial feature channels per frame
-            global_features=20,  # Must match _extract_features() which returns 20 globals
-            history_length=config.history_length,
-            policy_size=policy_size,
-            num_players=v3_num_players,
-            num_res_blocks=effective_blocks,
-            num_filters=effective_filters,
-        )
-        if not distributed or is_main_process():
-            logger.info(
-                f"Initializing RingRiftCNN_v3 (spatial, deprecated) with board_size={board_size}, "
                 f"policy_size={policy_size}, num_players={v3_num_players}, "
                 f"blocks={effective_blocks}, filters={effective_filters}"
             )

@@ -261,6 +261,16 @@ class UnifiedDistributionDaemon:
         return self._running
 
     def get_metrics(self) -> dict[str, Any]:
+        """Get current daemon metrics for monitoring and debugging.
+
+        Returns:
+            Dictionary containing:
+            - name, status, uptime metrics
+            - events_processed, errors_count, last_error
+            - Distribution stats (successful, failed, checksum failures)
+            - Model and NPZ distribution counts
+            - Prefetch configuration and status
+        """
         return {
             "name": self.name,
             "status": self._coordinator_status.value,
@@ -283,6 +293,14 @@ class UnifiedDistributionDaemon:
         }
 
     def health_check(self) -> HealthCheckResult:
+        """Check daemon health status for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult indicating:
+            - UNHEALTHY if daemon is in error state
+            - DEGRADED if high failure rate, pending buildup, or checksum failures
+            - HEALTHY with distribution metrics otherwise
+        """
         if self._coordinator_status == CoordinatorStatus.ERROR:
             return HealthCheckResult.unhealthy(f"Daemon in error state: {self._last_error}")
 
