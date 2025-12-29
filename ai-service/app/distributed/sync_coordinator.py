@@ -129,6 +129,18 @@ try:
 except ImportError:
     HAS_SYNC_METRICS = False
 
+# December 2025: Per-node circuit breaker for sync operations
+try:
+    from app.coordination.node_circuit_breaker import (
+        get_node_circuit_breaker,
+        NodeCircuitBreaker,
+    )
+    HAS_CIRCUIT_BREAKER = True
+except ImportError:
+    HAS_CIRCUIT_BREAKER = False
+    get_node_circuit_breaker = None  # type: ignore
+    NodeCircuitBreaker = None  # type: ignore
+
     def record_sync_coordinator_op(*args, **kwargs) -> None:
         """Stub: metrics module not available."""
         return None
@@ -442,10 +454,21 @@ class SyncCoordinator:
         # Dec 2025: Use get_running_loop() instead of deprecated get_event_loop()
         loop = asyncio.get_running_loop()
 
+        # December 2025: Get circuit breaker for sync operations
+        circuit_breaker: NodeCircuitBreaker | None = None
+        if HAS_CIRCUIT_BREAKER and get_node_circuit_breaker:
+            circuit_breaker = get_node_circuit_breaker("sync")
+
         for host in hosts[:3]:
             if host.name.lower() == hostname:
                 continue
             if self._provider.should_skip_rsync_to(host.name):
+                continue
+
+            # December 2025: Check circuit breaker before attempting sync
+            if circuit_breaker and not circuit_breaker.can_check(host.name):
+                logger.debug(f"Skipping sync to {host.name}: circuit breaker open")
+                errors.append(f"skipped {host.name}: circuit open")
                 continue
 
             remote_dir = f"{host.work_directory.rstrip('/')}/{remote_subdir.lstrip('/')}"
@@ -464,15 +487,26 @@ class SyncCoordinator:
                 )
                 if not result.success:
                     errors.append(f"rsync failed for {host.name}: {result.error}")
+                    if circuit_breaker:
+                        circuit_breaker.record_failure(host.name)
                     continue
                 if result.quarantined:
                     logger.warning(
                         f"Corrupted files quarantined from {host.name}: {result.quarantine_path}"
                     )
                     errors.append(f"rsync verification failed for {host.name}, files quarantined")
+                    if circuit_breaker:
+                        circuit_breaker.record_failure(host.name)
                     continue
+
+                # Success - record it
+                if circuit_breaker:
+                    circuit_breaker.record_success(host.name)
+
             except (OSError, asyncio.TimeoutError, RuntimeError) as e:
                 errors.append(f"rsync error for {host.name}: {e}")
+                if circuit_breaker:
+                    circuit_breaker.record_failure(host.name, e)
                 continue
 
             post_snapshot = self._snapshot_files(local_dir, include_patterns)
@@ -512,12 +546,24 @@ class SyncCoordinator:
         bytes_transferred = 0
         errors: list[str] = []
 
+        # December 2025: Get circuit breaker for P2P sync operations
+        circuit_breaker: NodeCircuitBreaker | None = None
+        if HAS_CIRCUIT_BREAKER and get_node_circuit_breaker:
+            circuit_breaker = get_node_circuit_breaker("p2p_sync")
+
         for host in hosts[:3]:
             if host.name.lower() == hostname:
                 continue
             peer_host = host.tailscale_ip or host.ssh_host
             if not peer_host:
                 continue
+
+            # December 2025: Check circuit breaker before attempting P2P sync
+            if circuit_breaker and not circuit_breaker.can_check(host.name):
+                logger.debug(f"Skipping P2P sync from {host.name}: circuit breaker open")
+                errors.append(f"skipped {host.name}: circuit open")
+                continue
+
             peer_host = peer_host.split("@", 1)[1] if "@" in peer_host else peer_host
             try:
                 result = await p2p.sync_from_peer(
@@ -529,10 +575,16 @@ class SyncCoordinator:
                 if result.success:
                     files_synced += result.files_synced
                     bytes_transferred += result.bytes_transferred
+                    if circuit_breaker:
+                        circuit_breaker.record_success(host.name)
                 else:
                     errors.extend(result.errors)
+                    if circuit_breaker:
+                        circuit_breaker.record_failure(host.name)
             except (OSError, asyncio.TimeoutError, RuntimeError, ConnectionError) as e:
                 errors.append(f"p2p error for {host.name}: {e}")
+                if circuit_breaker:
+                    circuit_breaker.record_failure(host.name, e)
 
         return files_synced, bytes_transferred, errors
 

@@ -3393,6 +3393,88 @@ async def emit_budget_alert(
 
 
 # =============================================================================
+# Selfplay Coordination Events (December 2025)
+# =============================================================================
+# P0 fix for autonomous training loop - enables SelfplayScheduler feedback
+
+
+async def emit_selfplay_rate_changed(
+    config_key: str,
+    old_rate: float,
+    new_rate: float,
+    reason: str,
+    source: str = "selfplay_scheduler",
+) -> None:
+    """Emit a SELFPLAY_RATE_CHANGED event when rate multiplier changes >20%.
+
+    Used to notify IdleResourceDaemon and other consumers of significant
+    changes to selfplay rate.
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.SELFPLAY_RATE_CHANGED,
+        payload={
+            "config_key": config_key,
+            "old_rate": old_rate,
+            "new_rate": new_rate,
+            "reason": reason,
+        },
+        source=source,
+    ))
+
+
+async def emit_selfplay_allocation_updated(
+    config_key: str,
+    allocation_weights: dict[str, float],
+    reason: str,
+    exploration_boost: float = 1.0,
+    source: str = "selfplay_scheduler",
+) -> None:
+    """Emit a SELFPLAY_ALLOCATION_UPDATED event when allocation weights change.
+
+    Used to notify IdleResourceDaemon and SelfplayScheduler of changes to
+    curriculum weights, exploration boosts, or priority adjustments.
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.SELFPLAY_ALLOCATION_UPDATED,
+        payload={
+            "config_key": config_key,
+            "allocation_weights": allocation_weights,
+            "exploration_boost": exploration_boost,
+            "reason": reason,
+        },
+        source=source,
+    ))
+
+
+async def emit_node_capacity_updated(
+    node_id: str,
+    gpu_memory_gb: float,
+    gpu_utilization: float,
+    cpu_utilization: float,
+    available_slots: int,
+    reason: str = "capacity_update",
+    source: str = "health_check_orchestrator",
+) -> None:
+    """Emit a NODE_CAPACITY_UPDATED event when node capacity changes.
+
+    Used by SelfplayScheduler and ResourceMonitoringCoordinator to track
+    available capacity for job scheduling.
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.NODE_CAPACITY_UPDATED,
+        payload={
+            "node_id": node_id,
+            "gpu_memory_gb": gpu_memory_gb,
+            "gpu_utilization": gpu_utilization,
+            "cpu_utilization": cpu_utilization,
+            "available_slots": available_slots,
+            "reason": reason,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
 # Deprecation Support (December 2025)
 # =============================================================================
 # This module is deprecated in favor of app.coordination.event_router.

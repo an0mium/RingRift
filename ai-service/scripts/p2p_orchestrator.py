@@ -9806,17 +9806,25 @@ print(wins / total)
 
             # Build the subprocess command to run a single game
             # Agent IDs map to model paths or heuristic configurations
+            # Dec 28, 2025: Fixed imports - use app.ai.heuristic_ai.HeuristicAI
             game_script = f"""
 import sys
 sys.path.insert(0, '{self.ringrift_path}/ai-service')
-from app.game_engine import GameEngine
-from app.agents.heuristic_agent import HeuristicAgent
+from app.rules.game_engine import GameEngine
+from app.ai.heuristic_ai import HeuristicAI
+from app.ai.random_ai import RandomAI
+from app.ai.config import AIConfig
 import json
 import random
 
-def load_agent(agent_id: str, player_idx: int):
-    '''Load agent by ID - supports heuristic weights or model paths.'''
-    if agent_id.startswith('heuristic:'):
+def load_agent(agent_id: str, player_idx: int, board_type: str, num_players: int):
+    '''Load agent by ID - supports random, heuristic, or model paths.'''
+    config = AIConfig(board_type=board_type, num_players=num_players)
+    if agent_id == 'random':
+        return RandomAI(player_idx, config=config)
+    elif agent_id == 'heuristic':
+        return HeuristicAI(player_idx, config=config)
+    elif agent_id.startswith('heuristic:'):
         # Parse weights from agent ID: "heuristic:w1,w2,w3,..."
         weight_str = agent_id.split(':')[1]
         weights = [float(w) for w in weight_str.split(',')]
@@ -9826,20 +9834,21 @@ def load_agent(agent_id: str, player_idx: int):
             "line_potential_weight", "defensive_weight",
         ]
         weight_dict = dict(zip(weight_names, weights))
-        return HeuristicAgent(player_idx, weight_dict)
-    elif agent_id.startswith('model:'):
-        # Neural network model - would load from path
-        # For now, fall back to heuristic
-        return HeuristicAgent(player_idx)
+        config.heuristic_weights = weight_dict
+        return HeuristicAI(player_idx, config=config)
+    elif agent_id.startswith('model:') or agent_id.startswith('canonical_'):
+        # Neural network model - for now, fall back to heuristic
+        # TODO: Load actual neural network models
+        return HeuristicAI(player_idx, config=config)
     else:
         # Default heuristic agent
-        return HeuristicAgent(player_idx)
+        return HeuristicAI(player_idx, config=config)
 
 # Initialize game
 engine = GameEngine(board_type='{board_type}', num_players={num_players})
 agents = [
-    load_agent('{agent1}', 0),
-    load_agent('{agent2}', 1),
+    load_agent('{agent1}', 0, '{board_type}', {num_players}),
+    load_agent('{agent2}', 1, '{board_type}', {num_players}),
 ]
 
 # Play until completion

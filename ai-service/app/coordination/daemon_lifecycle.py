@@ -470,11 +470,18 @@ class DaemonLifecycleManager:
                     try:
                         await asyncio.wait_for(info.task, timeout=self.config.force_kill_timeout)
                     except asyncio.TimeoutError:
-                        # Phase 3: Task is truly stuck - log but don't block
+                        # Phase 3: Task is truly stuck - log and emit alert
+                        total_timeout = self.config.shutdown_timeout + self.config.force_kill_timeout
                         logger.error(
                             f"Daemon {daemon_type.value} failed to stop after "
-                            f"{self.config.shutdown_timeout + self.config.force_kill_timeout}s total. "
+                            f"{total_timeout}s total. "
                             f"Task may be leaked. Consider investigating the daemon's shutdown handler."
+                        )
+                        # Dec 2025: Emit DAEMON_PERMANENTLY_FAILED event for hung daemon
+                        self._emit_daemon_lifecycle_event(
+                            daemon_type,
+                            "DAEMON_PERMANENTLY_FAILED",
+                            extra={"reason": "hung_on_shutdown", "timeout_seconds": total_timeout}
                         )
                         # Clear the task reference to prevent memory leaks
                         # The task is likely stuck in a blocking operation

@@ -1713,6 +1713,15 @@ async def main() -> None:
 
     logger.info(f"[MasterLoop] Acquired singleton lock (PID {os.getpid()})")
 
+    # Write PID file for backward compatibility with master_loop_guard (Dec 2025)
+    try:
+        PID_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(PID_FILE_PATH, "w") as f:
+            f.write(str(os.getpid()))
+        logger.debug(f"[MasterLoop] PID file written to {PID_FILE_PATH}")
+    except OSError as e:
+        logger.debug(f"[MasterLoop] Failed to write PID file: {e}")
+
     # Parse configs
     configs = None
     if args.configs:

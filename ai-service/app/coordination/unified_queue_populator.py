@@ -1200,6 +1200,14 @@ class UnifiedQueuePopulatorDaemon:
                 # Replace timed out work immediately
                 self._populator.populate()
 
+            def _on_backpressure_released(event: Any) -> None:
+                """Handle BACKPRESSURE_RELEASED - resume queue population."""
+                payload = _extract_payload(event)
+                source = payload.get("source", "unknown")
+                logger.info(f"[QueuePopulator] Backpressure released from {source}, repopulating queue")
+                # Resume population immediately when backpressure lifted
+                self._populator.populate()
+
             def _on_task_abandoned(event: Any) -> None:
                 """Handle TASK_ABANDONED - decrement pending count for abandoned tasks.
 
@@ -1243,8 +1251,12 @@ class UnifiedQueuePopulatorDaemon:
             if hasattr(DataEventType, 'TASK_ABANDONED'):
                 router.subscribe(DataEventType.TASK_ABANDONED.value, _on_task_abandoned)
 
+            # Wire BACKPRESSURE_RELEASED to resume population when cluster pressure drops
+            if hasattr(DataEventType, 'BACKPRESSURE_RELEASED'):
+                router.subscribe(DataEventType.BACKPRESSURE_RELEASED.value, _on_backpressure_released)
+
             _events_wired = True
-            logger.info("[QueuePopulatorDaemon] Subscribed to data events (incl. WORK_FAILED/TIMEOUT/TASK_ABANDONED)")
+            logger.info("[QueuePopulatorDaemon] Subscribed to data events (incl. WORK_FAILED/TIMEOUT/TASK_ABANDONED/BACKPRESSURE_RELEASED)")
 
         except ImportError:
             logger.debug("[QueuePopulatorDaemon] Event router not available")

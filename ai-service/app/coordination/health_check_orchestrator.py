@@ -494,6 +494,15 @@ class HealthCheckOrchestrator:
                 details.gpu_percent = util.get("gpu_percent", 0.0)
                 details.gpu_memory_percent = util.get("gpu_memory_percent", 0.0)
                 details.disk_percent = util.get("disk_percent", 0.0)
+
+                # P0.2 Dec 2025: Emit NODE_CAPACITY_UPDATED for resource scheduling
+                self._emit_node_capacity_updated(
+                    node_id=node_id,
+                    gpu_memory_gb=util.get("gpu_memory_gb", 0.0),
+                    gpu_utilization=details.gpu_percent,
+                    cpu_utilization=details.cpu_percent,
+                    available_slots=util.get("available_slots", 1),
+                )
             except Exception as e:
                 logger.debug(f"[HealthCheckOrchestrator] Utilization check failed for {node_id}: {e}")
 
@@ -507,6 +516,43 @@ class HealthCheckOrchestrator:
             details.last_failure_time = time.time()  # December 2025: Track for decay
 
         return details
+
+    def _emit_node_capacity_updated(
+        self,
+        node_id: str,
+        gpu_memory_gb: float,
+        gpu_utilization: float,
+        cpu_utilization: float,
+        available_slots: int,
+    ) -> None:
+        """Emit NODE_CAPACITY_UPDATED event for resource scheduling.
+
+        P0.2 (December 2025): Enables SelfplayScheduler and ResourceMonitoringCoordinator
+        to track available capacity for job scheduling.
+
+        Args:
+            node_id: Node identifier
+            gpu_memory_gb: Available GPU memory in GB
+            gpu_utilization: GPU utilization percentage
+            cpu_utilization: CPU utilization percentage
+            available_slots: Number of available task slots
+        """
+        try:
+            from app.coordination.event_router import publish_sync
+
+            publish_sync("NODE_CAPACITY_UPDATED", {
+                "node_id": node_id,
+                "gpu_memory_gb": gpu_memory_gb,
+                "gpu_utilization": gpu_utilization,
+                "cpu_utilization": cpu_utilization,
+                "available_slots": available_slots,
+                "reason": "health_check",
+                "source": "health_check_orchestrator",
+            })
+        except ImportError:
+            pass  # Event router not available
+        except Exception as e:
+            logger.debug(f"[HealthCheckOrchestrator] Failed to emit capacity update: {e}")
 
     def _get_manager_for_provider(self, provider: Provider):
         """Get the appropriate manager for a provider."""

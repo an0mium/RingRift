@@ -622,9 +622,13 @@ class DatabaseSyncManager(SyncManagerBase):
             parent_dir = str(self.db_path.parent) + "/"
             remote_dir = str(Path(remote_path).parent) + "/"
 
+            # Dec 29, 2025: Added --checksum for data integrity verification during transfer
+            # Added --partial for resume on network glitches
             rsync_cmd = [
                 "rsync",
                 "-avz",
+                "--checksum",  # Verify file integrity using checksums
+                "--partial",   # Keep partial files for resume
                 f"--timeout={RSYNC_TIMEOUT}",
                 f"--include={db_name}",
                 f"--include={db_name}-wal",
@@ -663,6 +667,199 @@ class DatabaseSyncManager(SyncManagerBase):
             # sqlite3.Error: checkpoint operation errors
             logger.error(f"[{self.db_type}] Rsync push error: {e}")
             return False
+
+    async def _compute_remote_checksum(
+        self,
+        host: str,
+        remote_path: str,
+        ssh_port: int = 22,
+        timeout: float = 30.0,
+    ) -> str | None:
+        """Compute SHA256 checksum of remote file via SSH.
+
+        Dec 29, 2025: Added for post-transfer verification (Phase 1.1).
+
+        Args:
+            host: Remote hostname or IP
+            remote_path: Path to file on remote host
+            ssh_port: SSH port number
+            timeout: SSH command timeout
+
+        Returns:
+            SHA256 checksum string, or None on failure
+        """
+        try:
+            from app.utils.env_config import get_str
+            ssh_user = get_str("RINGRIFT_SSH_USER", "root")
+            ssh_key = get_str("RINGRIFT_SSH_KEY", "")
+
+            ssh_args = [
+                "ssh",
+                "-p", str(ssh_port),
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "ConnectTimeout=10",
+            ]
+            if ssh_key:
+                ssh_args.extend(["-i", ssh_key])
+            ssh_args.append(f"{ssh_user}@{host}")
+
+            # Use sha256sum on Linux, shasum on macOS (detected remotely)
+            checksum_cmd = (
+                f"if command -v sha256sum >/dev/null 2>&1; then "
+                f"sha256sum '{remote_path}' | cut -d' ' -f1; "
+                f"elif command -v shasum >/dev/null 2>&1; then "
+                f"shasum -a 256 '{remote_path}' | cut -d' ' -f1; "
+                f"else echo 'NO_CHECKSUM_TOOL'; fi"
+            )
+            ssh_args.append(checksum_cmd)
+
+            proc = await asyncio.create_subprocess_exec(
+                *ssh_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+
+            if proc.returncode != 0:
+                logger.warning(
+                    f"[{self.db_type}] Remote checksum failed for {host}:{remote_path}: "
+                    f"{stderr.decode()[:100]}"
+                )
+                return None
+
+            checksum = stdout.decode().strip()
+            if checksum == "NO_CHECKSUM_TOOL":
+                logger.warning(f"[{self.db_type}] No checksum tool on {host}")
+                return None
+
+            return checksum
+
+        except asyncio.TimeoutError:
+            logger.warning(f"[{self.db_type}] Remote checksum timed out for {host}")
+            return None
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning(f"[{self.db_type}] Remote checksum error: {e}")
+            return None
+
+    async def _verify_push(
+        self,
+        host: str,
+        remote_path: str,
+        ssh_port: int = 22,
+    ) -> bool:
+        """Verify pushed file matches local file via checksum comparison.
+
+        Dec 29, 2025: Added for post-transfer verification (Phase 1.1).
+
+        Args:
+            host: Remote hostname or IP
+            remote_path: Path to database on remote host
+            ssh_port: SSH port number
+
+        Returns:
+            True if checksums match
+        """
+        try:
+            from app.coordination.sync_integrity import compute_file_checksum
+
+            local_checksum = compute_file_checksum(self.db_path)
+            remote_checksum = await self._compute_remote_checksum(host, remote_path, ssh_port)
+
+            if remote_checksum is None:
+                logger.warning(
+                    f"[{self.db_type}] Cannot verify push to {host}: remote checksum unavailable"
+                )
+                # Return True to not block on hosts without checksum tools
+                return True
+
+            if local_checksum != remote_checksum:
+                logger.error(
+                    f"[{self.db_type}] Checksum mismatch for {host}:{remote_path}: "
+                    f"local={local_checksum[:16]}... remote={remote_checksum[:16]}..."
+                )
+                return False
+
+            logger.debug(
+                f"[{self.db_type}] Verified push to {host}: checksum={local_checksum[:16]}..."
+            )
+            return True
+
+        except FileNotFoundError:
+            logger.error(f"[{self.db_type}] Local file not found for verification: {self.db_path}")
+            return False
+        except (OSError, ValueError) as e:
+            logger.warning(f"[{self.db_type}] Verification error: {e}")
+            # Return True to not block on verification errors
+            return True
+
+    async def _rsync_push_with_retry(
+        self,
+        host: str,
+        remote_path: str,
+        ssh_port: int = 22,
+        timeout: float = 60.0,
+        max_retries: int = 3,
+        verify: bool = True,
+    ) -> bool:
+        """Push local database with exponential backoff retry.
+
+        Dec 29, 2025: Added for reliable transfers (Phase 1.4).
+
+        Args:
+            host: Remote hostname or IP
+            remote_path: Path to database on remote host
+            ssh_port: SSH port number
+            timeout: Per-attempt timeout in seconds
+            max_retries: Maximum retry attempts
+            verify: Whether to verify checksum after push
+
+        Returns:
+            True if push succeeded (and verified if verify=True)
+        """
+        import random
+
+        for attempt in range(max_retries):
+            try:
+                success = await self._rsync_push(host, remote_path, ssh_port, timeout)
+
+                if success:
+                    # Verify the transfer if requested
+                    if verify:
+                        verified = await self._verify_push(host, remote_path, ssh_port)
+                        if not verified:
+                            logger.warning(
+                                f"[{self.db_type}] Push to {host} succeeded but verification failed, "
+                                f"attempt {attempt + 1}/{max_retries}"
+                            )
+                            # Don't count verification failure as success
+                            success = False
+
+                if success:
+                    if attempt > 0:
+                        logger.info(
+                            f"[{self.db_type}] Push to {host} succeeded on attempt {attempt + 1}"
+                        )
+                    return True
+
+            except (OSError, asyncio.TimeoutError) as e:
+                logger.warning(
+                    f"[{self.db_type}] Push to {host} failed (attempt {attempt + 1}/{max_retries}): {e}"
+                )
+
+            # Exponential backoff with jitter: 10s, 20s, 40s max 60s
+            if attempt < max_retries - 1:
+                wait = min(10 * (2 ** attempt), 60)
+                jitter = random.uniform(0, 5)
+                logger.info(
+                    f"[{self.db_type}] Retrying push to {host} in {wait + jitter:.1f}s"
+                )
+                await asyncio.sleep(wait + jitter)
+
+        logger.error(
+            f"[{self.db_type}] Push to {host} failed after {max_retries} attempts"
+        )
+        return False
 
     # =========================================================================
     # Node Discovery

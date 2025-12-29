@@ -565,6 +565,9 @@ class WorkQueueMaintenanceConfig:
     maintenance_interval_seconds: float = 300.0  # 5 minutes
     cleanup_age_seconds: float = 86400.0  # 24 hours
     initial_delay_seconds: float = 60.0
+    # Orphan cleanup thresholds (Dec 2025)
+    max_pending_age_hours: float = 24.0  # Remove stale pending items
+    max_claimed_age_hours: float = 2.0  # Reset claimed items without heartbeat
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -574,6 +577,10 @@ class WorkQueueMaintenanceConfig:
             raise ValueError("cleanup_age_seconds must be > 0")
         if self.initial_delay_seconds < 0:
             raise ValueError("initial_delay_seconds must be >= 0")
+        if self.max_pending_age_hours <= 0:
+            raise ValueError("max_pending_age_hours must be > 0")
+        if self.max_claimed_age_hours <= 0:
+            raise ValueError("max_claimed_age_hours must be > 0")
 
 
 class WorkQueueMaintenanceLoop(BaseLoop):
@@ -610,6 +617,7 @@ class WorkQueueMaintenanceLoop(BaseLoop):
         # Statistics
         self._timeouts_processed = 0
         self._items_cleaned = 0
+        self._stale_items_handled = 0
 
     async def _on_start(self) -> None:
         """Initial delay before starting maintenance."""
@@ -633,17 +641,34 @@ class WorkQueueMaintenanceLoop(BaseLoop):
             self._timeouts_processed += len(timed_out)
             logger.info(f"[WorkQueueMaintenance] {len(timed_out)} items timed out")
 
-        # Cleanup old items
+        # Cleanup old completed/failed items
         removed = wq.cleanup_old_items(max_age_seconds=self.config.cleanup_age_seconds)
         if removed:
             self._items_cleaned += removed
             logger.info(f"[WorkQueueMaintenance] Cleaned up {removed} old items")
+
+        # Cleanup stale/orphaned items (Dec 2025)
+        # - Stale PENDING items (never claimed, config may be invalid)
+        # - Orphaned CLAIMED items (claimer crashed without timeout)
+        if hasattr(wq, 'cleanup_stale_items'):
+            stale_stats = wq.cleanup_stale_items(
+                max_pending_age_hours=self.config.max_pending_age_hours,
+                max_claimed_age_hours=self.config.max_claimed_age_hours,
+            )
+            handled = stale_stats.get("pending_removed", 0) + stale_stats.get("claimed_reset", 0)
+            if handled:
+                self._stale_items_handled += handled
+                logger.info(
+                    f"[WorkQueueMaintenance] Stale items: {stale_stats.get('pending_removed', 0)} removed, "
+                    f"{stale_stats.get('claimed_reset', 0)} reset to pending"
+                )
 
     def get_maintenance_stats(self) -> dict[str, Any]:
         """Get maintenance statistics."""
         return {
             "timeouts_processed": self._timeouts_processed,
             "items_cleaned": self._items_cleaned,
+            "stale_items_handled": self._stale_items_handled,
             **self.stats.to_dict(),
         }
 

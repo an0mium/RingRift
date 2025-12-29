@@ -398,7 +398,8 @@ class TestAdapterHealthCheck:
         adapter = DistillationDaemonAdapter()
         adapter._running = True
         adapter._healthy = True
-        adapter._daemon_instance = MagicMock()
+        # Use spec=[] to ensure mock doesn't have health_check, so adapter uses its own logic
+        adapter._daemon_instance = MagicMock(spec=[])
 
         result = adapter.health_check()
 
@@ -411,12 +412,13 @@ class TestAdapterHealthCheck:
         adapter._running = True
         adapter._healthy = False
         adapter._unhealthy_count = 5
-        adapter._daemon_instance = MagicMock()
+        # Use spec=[] to ensure mock doesn't have health_check, so adapter uses its own logic
+        adapter._daemon_instance = MagicMock(spec=[])
 
         result = adapter.health_check()
 
         assert result.healthy is False
-        assert "error" in result.status.value.lower()
+        assert "degraded" in result.status.value.lower()  # Status is DEGRADED, not ERROR
 
 
 class TestAdapterLifecycle:

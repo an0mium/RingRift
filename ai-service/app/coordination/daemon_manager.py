@@ -88,7 +88,17 @@ logger = logging.getLogger(__name__)
 
 # Restart count persistence (Dec 2025)
 # Persists restart counts to disk so they survive daemon manager restarts
-RESTART_STATE_FILE = Path("/tmp/ringrift_daemon_restarts.json")
+# Dec 29, 2025: Moved from /tmp to COORDINATION_DIR to survive reboots
+try:
+    from app.utils.paths import COORDINATION_DIR
+    _restart_state_dir = COORDINATION_DIR
+except ImportError:
+    # Fallback if paths module not available
+    _restart_state_dir = Path(__file__).parent.parent.parent / "data" / "coordination"
+
+# Ensure the directory exists
+_restart_state_dir.mkdir(parents=True, exist_ok=True)
+RESTART_STATE_FILE = _restart_state_dir / "daemon_restarts.json"
 RESTART_COUNTS_EXPIRY_SECONDS = 86400  # 24 hours - counts older than this are reset
 MAX_RESTARTS_PER_HOUR = 10  # If exceeded, daemon is permanently failed
 

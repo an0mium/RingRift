@@ -560,6 +560,10 @@ class SelfplayScheduler(EventSubscriptionMixin):
                 f"Elo velocity {trend} for {config_key}: "
                 f"velocity={velocity:.1f}, rate {old_rate:.2f} -> {new_rate:.2f}"
             )
+            # P0.2 Dec 2025: Emit rate change event for significant changes
+            self._emit_selfplay_rate_changed(
+                config_key, old_rate, new_rate, f"elo_velocity_{trend}"
+            )
 
     def _emit_selfplay_target_updated(
         self,
@@ -620,6 +624,100 @@ class SelfplayScheduler(EventSubscriptionMixin):
             return False
         except (RuntimeError, AttributeError) as e:
             logger.debug(f"[SelfplayScheduler] Failed to emit target update: {e}")
+            return False
+
+    def _emit_selfplay_rate_changed(
+        self,
+        config_key: str,
+        old_rate: float,
+        new_rate: float,
+        reason: str,
+    ) -> bool:
+        """Emit SELFPLAY_RATE_CHANGED event when rate multiplier changes >20%.
+
+        P0.2 (December 2025): Enables IdleResourceDaemon and other consumers
+        to react to significant rate changes.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+            old_rate: Previous rate multiplier
+            new_rate: New rate multiplier
+            reason: Descriptive reason for the change
+
+        Returns:
+            True if event was emitted successfully, False otherwise.
+        """
+        # Only emit for significant changes (>20%)
+        if old_rate > 0 and abs(new_rate - old_rate) / old_rate < 0.2:
+            return False
+
+        try:
+            from app.coordination.event_router import publish_sync
+
+            payload = {
+                "config_key": config_key,
+                "old_rate": old_rate,
+                "new_rate": new_rate,
+                "reason": reason,
+                "source": "p2p_selfplay_scheduler",
+            }
+            publish_sync("SELFPLAY_RATE_CHANGED", payload)
+            if self.verbose:
+                logger.info(
+                    f"[SelfplayScheduler] Emitted SELFPLAY_RATE_CHANGED: "
+                    f"{config_key} {old_rate:.2f} -> {new_rate:.2f} ({reason})"
+                )
+            return True
+        except ImportError:
+            logger.debug("[SelfplayScheduler] Event router not available for rate changes")
+            return False
+        except (RuntimeError, AttributeError) as e:
+            logger.debug(f"[SelfplayScheduler] Failed to emit rate change: {e}")
+            return False
+
+    def _emit_selfplay_allocation_updated(
+        self,
+        config_key: str,
+        allocation_weights: dict[str, float],
+        exploration_boost: float,
+        reason: str,
+    ) -> bool:
+        """Emit SELFPLAY_ALLOCATION_UPDATED event when allocation weights change.
+
+        P0.2 (December 2025): Enables IdleResourceDaemon and SelfplayScheduler
+        to react to curriculum weight changes and exploration boosts.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+            allocation_weights: Current allocation weights by config
+            exploration_boost: Current exploration boost factor
+            reason: Descriptive reason for the change
+
+        Returns:
+            True if event was emitted successfully, False otherwise.
+        """
+        try:
+            from app.coordination.event_router import publish_sync
+
+            payload = {
+                "config_key": config_key,
+                "allocation_weights": allocation_weights,
+                "exploration_boost": exploration_boost,
+                "reason": reason,
+                "source": "p2p_selfplay_scheduler",
+            }
+            publish_sync("SELFPLAY_ALLOCATION_UPDATED", payload)
+            if self.verbose:
+                logger.info(
+                    f"[SelfplayScheduler] Emitted SELFPLAY_ALLOCATION_UPDATED: "
+                    f"{config_key} boost={exploration_boost:.2f} ({reason})"
+                )
+            return True
+        except ImportError:
+            logger.debug("[SelfplayScheduler] Event router not available for allocation updates")
+            return False
+        except (RuntimeError, AttributeError) as e:
+            logger.debug(f"[SelfplayScheduler] Failed to emit allocation update: {e}")
             return False
 
     def pick_weighted_config(self, node: NodeInfo) -> dict[str, Any] | None:
@@ -1324,6 +1422,17 @@ class SelfplayScheduler(EventSubscriptionMixin):
             logger.info(
                 f"[SelfplayScheduler] Set exploration boost for {config_key}: "
                 f"{boost_factor:.2f}x for {duration_seconds}s"
+            )
+
+            # P0.2 Dec 2025: Emit allocation updated event
+            # Get current curriculum weights to include in the event
+            curriculum_weights = {}
+            try:
+                curriculum_weights = self.load_curriculum_weights()
+            except Exception:
+                pass  # Use empty weights if loading fails
+            self._emit_selfplay_allocation_updated(
+                config_key, curriculum_weights, boost_factor, "exploration_boost"
             )
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error setting exploration boost: {e}")

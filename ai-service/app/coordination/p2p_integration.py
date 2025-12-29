@@ -304,19 +304,35 @@ async def get_p2p_gpu_nodes() -> list[P2PNodeStatus]:
 
 
 async def submit_p2p_job(job_spec: dict[str, Any]) -> P2PJobResult:
-    """Submit a job to the P2P cluster.
+    """Submit a job to the P2P cluster work queue.
 
     This is a replacement for the non-existent app.distributed.p2p_orchestrator
     get_p2p_orchestrator().submit_job() pattern.
 
+    IMPORTANT: The job_spec format must match what /work/add expects:
+
     Args:
         job_spec: Job specification dict with:
-            - type: Job type (selfplay, training, etc.)
-            - board_type: Board type
-            - num_players: Number of players
-            - num_games: Number of games (for selfplay)
-            - target_node: Optional target node ID
-            - engine_mode: Engine mode (e.g., "gumbel-mcts")
+            - work_type: str - Job type ("selfplay", "training", "tournament", "gpu_cmaes")
+            - priority: int - Priority 0-100, higher = more urgent (default: 50)
+            - config: dict - Job-specific parameters:
+                - board_type: Board type (e.g., "hex8", "square8")
+                - num_players: Number of players (2, 3, or 4)
+                - num_games: Number of games (for selfplay)
+                - engine_mode: Engine mode (e.g., "gumbel-mcts", "heuristic-only")
+                - target_node: Optional target node ID
+
+    Example:
+        job_spec = {
+            "work_type": "selfplay",
+            "priority": 60,
+            "config": {
+                "board_type": "hex8",
+                "num_players": 2,
+                "num_games": 500,
+                "engine_mode": "gumbel-mcts",
+            }
+        }
 
     Returns:
         P2PJobResult with success status and job ID

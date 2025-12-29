@@ -438,6 +438,37 @@ class IdleResourceDaemon:
             return False
         return time.time() < history.backoff_until
 
+    def _is_selfplay_capable(self, node_id: str) -> bool:
+        """Check if a node has selfplay enabled in cluster configuration.
+
+        December 2025: Added as part of autonomous selfplay dispatch fix.
+        Prevents dispatching selfplay to training-only nodes (e.g., GH200s).
+
+        Args:
+            node_id: The node identifier to check.
+
+        Returns:
+            True if the node can run selfplay, False otherwise.
+            Returns True for unknown nodes (optimistic default).
+        """
+        try:
+            from app.config.cluster_config import get_cluster_nodes
+
+            nodes = get_cluster_nodes()
+            node_config = nodes.get(node_id)
+            if node_config is None:
+                # Unknown node - assume capable (optimistic for P2P-discovered nodes)
+                return True
+
+            # Check explicit selfplay_enabled flag
+            return node_config.selfplay_enabled
+        except ImportError:
+            logger.debug("cluster_config not available, assuming selfplay capable")
+            return True
+        except (ValueError, RuntimeError, AttributeError, TypeError) as e:
+            logger.debug(f"Error checking selfplay capability for {node_id}: {e}")
+            return True  # Optimistic default on error
+
     def _get_node_backoff_remaining(self, node_id: str) -> float:
         """Get remaining backoff seconds for a node."""
         history = self._node_spawn_history.get(node_id)
@@ -1794,6 +1825,16 @@ class IdleResourceDaemon:
             return False
 
         # =======================================================================
+        # Selfplay Capability Check (December 2025 - Direct Dispatch Fix)
+        # =======================================================================
+        # Skip nodes that have selfplay disabled (e.g., GH200s used for training only)
+        if not self._is_selfplay_capable(node.node_id):
+            logger.debug(
+                f"[IdleResourceDaemon] Skipping {node.node_id}: selfplay_enabled=False"
+            )
+            return False
+
+        # =======================================================================
         # Stall Detection Check (Phase 21.5 - December 2025)
         # =======================================================================
         # Skip nodes that are penalized due to previous job stalls
@@ -2202,12 +2243,17 @@ class IdleResourceDaemon:
             if p2p is None:
                 return False
 
-            # Submit job via P2P
-            # NOTE: Must use "engine_mode" (not "engine") to match P2P orchestrator API
-            # Dec 28, 2025: Select engine based on board type for feasible throughput
+            # Submit job via P2P work queue
+            # Dec 29, 2025: Fixed payload format - must use work_type + config wrapper
+            # The /work/add handler expects:
+            #   work_type: str (e.g., "selfplay")
+            #   priority: int (0-100, higher = more urgent)
+            #   config: dict with actual job parameters
+            # Previously, config params were at top level and got lost!
+
+            # Select engine based on board type for feasible throughput
             # Large boards (square19, hexagonal) use lighter engines
             if board_type in ("square19", "hexagonal"):
-                # Use mix of engines for large boards
                 import random
                 if num_players >= 3:
                     engine_mode = random.choice(["heuristic-only", "brs", "maxn"])
@@ -2216,13 +2262,37 @@ class IdleResourceDaemon:
             else:
                 engine_mode = "gumbel-mcts"  # GPU-accelerated Gumbel MCTS for small boards
 
+            # Get priority from SelfplayScheduler if available
+            priority = 50  # Default priority
+            try:
+                from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+
+                scheduler = get_selfplay_scheduler()
+                if scheduler:
+                    config_key = f"{board_type}_{num_players}p"
+                    # Use sync version to get cached priority data
+                    priorities = scheduler.get_priority_configs_sync(
+                        filter_configs=[config_key]
+                    )
+                    if priorities:
+                        # priorities is a list of (config_key, priority_score)
+                        _, priority_score = priorities[0]
+                        # Normalize to 0-100 range (scores are typically 0-1)
+                        priority = int(min(100, max(0, priority_score * 100)))
+            except (ImportError, RuntimeError, AttributeError):
+                pass  # Use default priority
+
+            # Correct work queue payload format
             job_spec = {
-                "type": "selfplay",
-                "board_type": board_type,
-                "num_players": num_players,
-                "num_games": games,
-                "engine_mode": engine_mode,
-                "target_node": node.node_id,
+                "work_type": "selfplay",
+                "priority": priority,
+                "config": {
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "num_games": games,
+                    "engine_mode": engine_mode,
+                    "target_node": node.node_id,
+                },
             }
 
             result = await p2p.submit_job(job_spec)
