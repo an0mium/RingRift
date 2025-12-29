@@ -117,6 +117,35 @@ def get_gauntlet_games_per_opponent(num_players: int = 2) -> int:
         return GAUNTLET_GAMES_PER_OPPONENT_3P
     return GAUNTLET_GAMES_PER_OPPONENT
 
+
+# Dec 29, 2025: Minimum games for export by player count
+# Higher player counts have higher variance and need more data
+MIN_GAMES_FOR_EXPORT_2P = 500   # 2-player baseline
+MIN_GAMES_FOR_EXPORT_3P = 600   # 3-player: 20% more
+MIN_GAMES_FOR_EXPORT_4P = 800   # 4-player: 60% more
+
+
+def get_min_games_for_export(num_players: int = 2) -> int:
+    """Get minimum games needed for export based on player count.
+
+    Higher player counts have higher variance (multiple winners possible,
+    more complex game states), requiring more training data.
+
+    Dec 29, 2025: Added as part of Phase 2 training loop improvements.
+
+    Args:
+        num_players: Number of players (2, 3, or 4)
+
+    Returns:
+        Minimum number of games before triggering export
+    """
+    if num_players >= 4:
+        return MIN_GAMES_FOR_EXPORT_4P
+    if num_players == 3:
+        return MIN_GAMES_FOR_EXPORT_3P
+    return MIN_GAMES_FOR_EXPORT_2P
+
+
 # Cooldown between promotion attempts (seconds)
 PROMOTION_COOLDOWN_SECONDS = 900  # 15 minutes
 

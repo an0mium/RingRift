@@ -107,6 +107,13 @@ class EvaluationConfig:
     dedup_cooldown_seconds: float = 300.0  # 5 minute cooldown per model
     dedup_max_tracked_models: int = 1000  # Max models to track for dedup
 
+    # December 29, 2025 (Phase 4): Backpressure settings
+    # When evaluation queue depth exceeds backpressure_threshold, emit EVALUATION_BACKPRESSURE
+    # to signal training should pause. Resume when queue drains below backpressure_release.
+    max_queue_depth: int = 50  # Maximum pending evaluations
+    backpressure_threshold: int = 40  # Emit backpressure at this depth
+    backpressure_release_threshold: int = 20  # Release backpressure at this depth
+
 
 class EvaluationDaemon(BaseEventHandler):
     """Daemon that auto-evaluates models after training completes.
@@ -142,6 +149,13 @@ class EvaluationDaemon(BaseEventHandler):
         }
         # Task reference for proper cleanup (December 2025)
         self._worker_task: asyncio.Task | None = None
+        # December 29, 2025 (Phase 4): Backpressure tracking
+        self._backpressure_active = False
+        self._backpressure_stats = {
+            "backpressure_activations": 0,
+            "backpressure_releases": 0,
+            "queue_full_rejections": 0,
+        }
 
     def _get_subscriptions(self) -> Dict[Any, Callable]:
         """Return event subscriptions for BaseEventHandler.
@@ -335,6 +349,19 @@ class EvaluationDaemon(BaseEventHandler):
                 )
                 return
 
+            # December 29, 2025 (Phase 4): Backpressure check
+            queue_depth = self._evaluation_queue.qsize()
+            if queue_depth >= self.config.max_queue_depth:
+                self._backpressure_stats["queue_full_rejections"] += 1
+                logger.warning(
+                    f"[EvaluationDaemon] Queue full ({queue_depth}), rejecting: {model_path}"
+                )
+                return
+
+            # Check and emit backpressure if needed
+            if queue_depth >= self.config.backpressure_threshold and not self._backpressure_active:
+                self._emit_backpressure(queue_depth, activate=True)
+
             # Queue the evaluation
             await self._evaluation_queue.put({
                 "model_path": model_path,
@@ -346,7 +373,7 @@ class EvaluationDaemon(BaseEventHandler):
             self._eval_stats.evaluations_triggered += 1
             logger.info(
                 f"[EvaluationDaemon] Queued evaluation for {model_path} "
-                f"({board_type}_{num_players}p)"
+                f"({board_type}_{num_players}p), queue_depth={queue_depth + 1}"
             )
 
         except (ValueError, KeyError, TypeError) as e:
@@ -383,6 +410,10 @@ class EvaluationDaemon(BaseEventHandler):
                     await self._run_evaluation(request)
                 finally:
                     self._active_evaluations.discard(model_path)
+                    # December 29, 2025 (Phase 4): Check for backpressure release
+                    queue_depth = self._evaluation_queue.qsize()
+                    if self._backpressure_active and queue_depth <= self.config.backpressure_release_threshold:
+                        self._emit_backpressure(queue_depth, activate=False)
 
             except asyncio.TimeoutError:
                 continue  # Normal - check running status
@@ -551,6 +582,55 @@ class EvaluationDaemon(BaseEventHandler):
             logger.debug("[EvaluationDaemon] Event emitters not available")
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Failed to emit failure event: {e}")
+
+    def _emit_backpressure(self, queue_depth: int, activate: bool) -> None:
+        """Emit backpressure event to signal training should pause/resume.
+
+        December 29, 2025 (Phase 4): Backpressure signaling to prevent GPU waste.
+        When evaluation queue fills up, training should pause to let evaluations
+        catch up. When queue drains, training can resume.
+
+        Args:
+            queue_depth: Current evaluation queue depth.
+            activate: True to activate backpressure, False to release.
+        """
+        try:
+            from app.coordination.event_router import get_event_bus
+
+            bus = get_event_bus()
+            if activate:
+                self._backpressure_active = True
+                self._backpressure_stats["backpressure_activations"] += 1
+                event_type = "EVALUATION_BACKPRESSURE"
+                logger.warning(
+                    f"[EvaluationDaemon] Backpressure ACTIVATED: queue_depth={queue_depth}, "
+                    f"threshold={self.config.backpressure_threshold}"
+                )
+            else:
+                self._backpressure_active = False
+                self._backpressure_stats["backpressure_releases"] += 1
+                event_type = "EVALUATION_BACKPRESSURE_RELEASED"
+                logger.info(
+                    f"[EvaluationDaemon] Backpressure RELEASED: queue_depth={queue_depth}, "
+                    f"release_threshold={self.config.backpressure_release_threshold}"
+                )
+
+            # Emit event for TrainingTriggerDaemon and other subscribers
+            bus.publish_sync(
+                event_type,
+                {
+                    "queue_depth": queue_depth,
+                    "backpressure_active": self._backpressure_active,
+                    "threshold": self.config.backpressure_threshold,
+                    "release_threshold": self.config.backpressure_release_threshold,
+                    "source": "EvaluationDaemon",
+                    "timestamp": time.time(),
+                },
+            )
+        except ImportError:
+            logger.debug("[EvaluationDaemon] Event bus not available for backpressure")
+        except (ValueError, TypeError, RuntimeError) as e:
+            logger.debug(f"[EvaluationDaemon] Failed to emit backpressure event: {e}")
 
     def _update_average_time(self, elapsed: float) -> None:
         """Update running average of evaluation time."""

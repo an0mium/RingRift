@@ -155,6 +155,81 @@ except (ImportError, ModuleNotFoundError):
 MAX_DISK_USAGE_PERCENT = float(os.environ.get("RINGRIFT_MAX_DISK_PERCENT", "70"))
 
 
+# ============================================
+# Retry Queue for Sync Failures (Dec 2025)
+# ============================================
+
+# Retry configuration
+SYNC_MAX_RETRIES = int(os.environ.get("RINGRIFT_SYNC_MAX_RETRIES", "3"))
+SYNC_BASE_DELAY_SECONDS = float(os.environ.get("RINGRIFT_SYNC_BASE_DELAY", "10.0"))
+
+# Retry queue: list of (source_model, host_name, attempt_count, next_retry_time)
+_RETRY_QUEUE: list[tuple[str, str, int, float]] = []
+
+
+def _add_to_retry_queue(model_name: str, host_name: str, attempt: int) -> None:
+    """Add a failed sync to the retry queue with exponential backoff.
+
+    Dec 2025: Added to handle transient network failures gracefully.
+    """
+    if attempt >= SYNC_MAX_RETRIES:
+        logger.warning(f"Max retries ({SYNC_MAX_RETRIES}) exceeded for {model_name} -> {host_name}")
+        return
+
+    # Exponential backoff: 10s, 20s, 40s
+    delay = SYNC_BASE_DELAY_SECONDS * (2 ** attempt)
+    next_retry = time.time() + delay
+    _RETRY_QUEUE.append((model_name, host_name, attempt + 1, next_retry))
+    logger.info(f"Queued retry {attempt + 1}/{SYNC_MAX_RETRIES} for {model_name} -> {host_name} in {delay}s")
+
+
+def _process_retry_queue(host_loader, dry_run: bool = False) -> int:
+    """Process pending retries from the retry queue.
+
+    Returns number of successful retries.
+    """
+    if not _RETRY_QUEUE:
+        return 0
+
+    now = time.time()
+    successful = 0
+    remaining = []
+
+    for model_name, host_name, attempt, next_retry in _RETRY_QUEUE:
+        if now < next_retry:
+            # Not ready for retry yet
+            remaining.append((model_name, host_name, attempt, next_retry))
+            continue
+
+        # Find host config
+        hosts = host_loader(include_nonready=True)
+        host = next((h for h in hosts if h.name == host_name), None)
+        if not host:
+            logger.warning(f"Host {host_name} not found for retry")
+            continue
+
+        logger.info(f"Retry {attempt}/{SYNC_MAX_RETRIES}: {model_name} -> {host_name}")
+        success, msg = sync_model_to_host(host, model_name, dry_run=dry_run, skip_retry_queue=True)
+
+        if success:
+            successful += 1
+            logger.info(f"Retry succeeded: {model_name} -> {host_name}")
+        else:
+            # Re-queue for another retry if not at max
+            _add_to_retry_queue(model_name, host_name, attempt)
+
+    # Update queue with remaining items
+    _RETRY_QUEUE.clear()
+    _RETRY_QUEUE.extend(remaining)
+
+    return successful
+
+
+def get_retry_queue_size() -> int:
+    """Get number of items pending retry."""
+    return len(_RETRY_QUEUE)
+
+
 def check_disk_usage(path: Path | None = None) -> tuple[bool, float]:
     """Check if disk has capacity for syncing.
 
@@ -575,8 +650,13 @@ def sync_model_to_host(
     model_name: str,
     model_type: str = "nn",
     dry_run: bool = False,
+    skip_retry_queue: bool = False,
 ) -> tuple[bool, str]:
-    """Sync a single model to a remote host."""
+    """Sync a single model to a remote host.
+
+    Dec 2025: Added retry queue - failed syncs are automatically queued for retry
+    with exponential backoff (10s, 20s, 40s). Use skip_retry_queue=True to disable.
+    """
     if HAS_STORAGE_PROVIDER and not should_sync_to_node(host.name):
         record_nfs_skip("models")
         return True, f"Skipped sync to {host.name} (shared NFS storage)"
@@ -668,10 +748,19 @@ def sync_model_to_host(
                 except Exception as verify_err:
                     logger.debug(f"Verification skipped: {verify_err}")
                 return True, f"Synced {model_name} to {host.name}"
+            # Sync failed - add to retry queue if enabled
+            if not skip_retry_queue:
+                _add_to_retry_queue(model_name, host.name, 0)
             return False, result.stderr[:200]
         except subprocess.TimeoutExpired:
+            # Timeout - add to retry queue if enabled
+            if not skip_retry_queue:
+                _add_to_retry_queue(model_name, host.name, 0)
             return False, f"rsync timeout after {dynamic_timeout}s"
         except Exception as e:
+            # Other error - add to retry queue if enabled
+            if not skip_retry_queue:
+                _add_to_retry_queue(model_name, host.name, 0)
             return False, str(e)[:200]
     finally:
         # Release bandwidth and sync_lock

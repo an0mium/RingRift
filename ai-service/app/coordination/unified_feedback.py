@@ -445,6 +445,7 @@ class UnifiedFeedbackOrchestrator:
 
             # Update Elo and compute velocity
             old_elo = state.last_evaluation_elo
+            old_velocity = state.elo_velocity
             state.last_evaluation_elo = elo
             state.last_evaluation_win_rate = win_rate
             state.elo_history.append((time.time(), elo))
@@ -456,6 +457,12 @@ class UnifiedFeedbackOrchestrator:
                 f"[UnifiedFeedbackOrchestrator] Evaluation complete: {config_key}, "
                 f"elo={elo:.0f} (Δ{elo-old_elo:+.0f}), velocity={state.elo_velocity:.1f}/hr"
             )
+
+            # Dec 29, 2025: Emit ELO_VELOCITY_CHANGED event if velocity changed significantly
+            # This enables SelfplayScheduler to adjust allocation based on Elo momentum
+            velocity_delta = abs(state.elo_velocity - old_velocity)
+            if velocity_delta > 5.0:  # Significant change (>5 Elo/hour)
+                self._emit_elo_velocity_changed(config_key, state.elo_velocity, old_velocity)
 
             # Recompute signals
             self._recompute_signals(state)
@@ -997,6 +1004,55 @@ class UnifiedFeedbackOrchestrator:
 
         except Exception as e:
             logger.debug(f"[UnifiedFeedbackOrchestrator] Error emitting individual signals: {e}")
+
+    def _emit_elo_velocity_changed(
+        self, config_key: str, velocity: float, previous_velocity: float
+    ) -> None:
+        """Emit ELO_VELOCITY_CHANGED event for SelfplayScheduler integration.
+
+        Dec 29, 2025: Added as part of Phase 2 training loop improvements.
+        This event enables intelligent selfplay allocation based on Elo momentum.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            velocity: New Elo velocity (points/hour)
+            previous_velocity: Previous Elo velocity
+        """
+        try:
+            from app.coordination.event_router import emit_elo_velocity_changed
+
+            # Determine trend
+            if velocity > previous_velocity + 5:
+                trend = "accelerating"
+            elif velocity < previous_velocity - 5:
+                trend = "decelerating"
+            else:
+                trend = "stable"
+
+            # Emit event asynchronously
+            async def _emit():
+                await emit_elo_velocity_changed(
+                    config_key=config_key,
+                    velocity=velocity,
+                    previous_velocity=previous_velocity,
+                    trend=trend,
+                )
+
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_emit())
+            except RuntimeError:
+                pass  # No running loop, skip emission
+
+            logger.info(
+                f"[UnifiedFeedbackOrchestrator] Elo velocity changed: {config_key}, "
+                f"{previous_velocity:.1f} → {velocity:.1f} Elo/hr ({trend})"
+            )
+
+        except ImportError:
+            logger.debug("[UnifiedFeedbackOrchestrator] emit_elo_velocity_changed not available")
+        except Exception as e:
+            logger.debug(f"[UnifiedFeedbackOrchestrator] Error emitting elo velocity event: {e}")
 
     # =========================================================================
     # Public API

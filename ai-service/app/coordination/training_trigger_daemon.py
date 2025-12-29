@@ -830,6 +830,66 @@ class TrainingTriggerDaemon(HandlerBase):
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling DATA_SYNC_COMPLETED: {e}")
 
+    async def _on_evaluation_backpressure(self, event: Any) -> None:
+        """Handle EVALUATION_BACKPRESSURE event - pause training to let evaluations catch up.
+
+        December 29, 2025 (Phase 4): When EvaluationDaemon queue fills up,
+        this handler pauses training triggers to prevent GPU waste from
+        duplicate evaluations. Training resumes when queue drains.
+
+        Args:
+            event: Event with payload containing queue_depth, threshold, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            queue_depth = payload.get("queue_depth", 0)
+            threshold = payload.get("threshold", 40)
+
+            if not self._evaluation_backpressure:
+                self._evaluation_backpressure = True
+                self._backpressure_stats["pauses_due_to_backpressure"] += 1
+                self._backpressure_stats["last_backpressure_time"] = time.time()
+
+                logger.warning(
+                    f"[TrainingTriggerDaemon] Training PAUSED due to evaluation backpressure: "
+                    f"queue_depth={queue_depth}, threshold={threshold}"
+                )
+
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling EVALUATION_BACKPRESSURE: {e}")
+
+    async def _on_evaluation_backpressure_released(self, event: Any) -> None:
+        """Handle EVALUATION_BACKPRESSURE_RELEASED event - resume training.
+
+        December 29, 2025 (Phase 4): When EvaluationDaemon queue drains below
+        the release threshold, this handler resumes training triggers.
+
+        Args:
+            event: Event with payload containing queue_depth, release_threshold, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            queue_depth = payload.get("queue_depth", 0)
+            release_threshold = payload.get("release_threshold", 20)
+
+            if self._evaluation_backpressure:
+                self._evaluation_backpressure = False
+                self._backpressure_stats["resumes_after_backpressure"] += 1
+
+                # Calculate pause duration for logging
+                pause_duration = 0.0
+                if self._backpressure_stats["last_backpressure_time"] > 0:
+                    pause_duration = time.time() - self._backpressure_stats["last_backpressure_time"]
+
+                logger.info(
+                    f"[TrainingTriggerDaemon] Training RESUMED: evaluation backpressure released "
+                    f"(queue_depth={queue_depth}, release_threshold={release_threshold}, "
+                    f"pause_duration={pause_duration:.1f}s)"
+                )
+
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling EVALUATION_BACKPRESSURE_RELEASED: {e}")
+
     async def _trigger_priority_sync(
         self, config_key: str, board_type: str, num_players: int
     ) -> bool:
@@ -1018,6 +1078,11 @@ class TrainingTriggerDaemon(HandlerBase):
 
         if state.training_intensity == "paused":
             return False, "training intensity paused"
+
+        # December 29, 2025 (Phase 4): Check evaluation backpressure
+        # When evaluation queue is full, pause training to let evaluations catch up
+        if self._evaluation_backpressure:
+            return False, "evaluation backpressure active (queue full)"
 
         # Phase 4: Check circuit breaker before triggering training
         if HAS_CIRCUIT_BREAKER and get_training_breaker:
@@ -1468,6 +1533,9 @@ class TrainingTriggerDaemon(HandlerBase):
             "active_training": sum(
                 1 for s in self._training_states.values() if s.training_in_progress
             ),
+            # December 29, 2025 (Phase 4): Backpressure status
+            "evaluation_backpressure": self._evaluation_backpressure,
+            "backpressure_stats": dict(self._backpressure_stats),
             "states": {
                 key: {
                     "training_in_progress": state.training_in_progress,
@@ -1502,7 +1570,11 @@ class TrainingTriggerDaemon(HandlerBase):
         # Determine health status
         healthy = self._running
 
-        message = "Running" if healthy else "Daemon stopped"
+        # December 29, 2025 (Phase 4): Include backpressure status in message
+        if self._evaluation_backpressure:
+            message = "Running (evaluation backpressure active)"
+        else:
+            message = "Running" if healthy else "Daemon stopped"
 
         return HealthCheckResult(
             healthy=healthy,
@@ -1515,6 +1587,10 @@ class TrainingTriggerDaemon(HandlerBase):
                 "failed_configs": failed_configs,
                 "max_concurrent_training": self.config.max_concurrent_training,
                 "max_data_age_hours": self.config.max_data_age_hours,
+                # December 29, 2025 (Phase 4): Backpressure status
+                "evaluation_backpressure": self._evaluation_backpressure,
+                "backpressure_pauses": self._backpressure_stats["pauses_due_to_backpressure"],
+                "backpressure_resumes": self._backpressure_stats["resumes_after_backpressure"],
             },
         )
 

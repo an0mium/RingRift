@@ -223,7 +223,7 @@ class SelfplayConfig:
 
     # Resource settings
     num_workers: int = 1
-    batch_size: int = 256
+    batch_size: int = 256  # Default 256, use get_optimal_batch_size() for auto-tuning
     use_gpu: bool = True
     gpu_device: int = 0
     device: str | None = None  # CUDA device string (e.g., "cuda:0")
@@ -569,8 +569,14 @@ def create_argument_parser(
     resource_group.add_argument(
         "--batch-size",
         type=int,
-        default=256,
-        help="Batch size for GPU processing (default: 256)",
+        default=None,
+        help="Batch size for GPU processing (default: auto-calculated based on board/GPU)",
+    )
+    resource_group.add_argument(
+        "--auto-batch-size",
+        action="store_true",
+        default=True,
+        help="Auto-calculate optimal batch size based on board type and GPU memory (default: True)",
     )
     resource_group.add_argument(
         "--checkpoint-interval",
@@ -786,6 +792,33 @@ def create_argument_parser(
     return parser
 
 
+def _get_batch_size(parsed, board_type: str) -> int:
+    """Get batch size - use explicit value or auto-calculate.
+
+    Dec 2025: Added dynamic batch sizing based on board complexity and GPU memory.
+
+    Args:
+        parsed: Parsed argparse namespace
+        board_type: Board type string (e.g., "hex8", "square19")
+
+    Returns:
+        Batch size to use for selfplay
+    """
+    # If explicit batch_size provided, use it
+    if parsed.batch_size is not None:
+        return parsed.batch_size
+
+    # Auto-calculate based on board type and GPU
+    try:
+        from app.ai.gpu_parallel_games import get_optimal_batch_size
+        num_players = getattr(parsed, "num_players", 2)
+        batch = get_optimal_batch_size(board_type=board_type, num_players=num_players)
+        return batch
+    except ImportError:
+        # Fallback if import fails
+        return 256
+
+
 def parse_selfplay_args(
     args: list[str] | None = None,
     description: str = "Run selfplay game generation",
@@ -828,7 +861,7 @@ def parse_selfplay_args(
         cache_nnue_features=getattr(parsed, "cache_nnue_features", True),
         # Resource settings
         num_workers=parsed.num_workers,
-        batch_size=parsed.batch_size,
+        batch_size=_get_batch_size(parsed, board_type),
         checkpoint_interval=parsed.checkpoint_interval,
         use_gpu=not getattr(parsed, "no_gpu", False),
         gpu_device=getattr(parsed, "gpu_device", 0),

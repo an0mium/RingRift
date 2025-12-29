@@ -80,6 +80,11 @@ from app.config.thresholds import (
     SELFPLAY_GAMES_PER_NODE,
     is_ephemeral_node,
     get_gpu_weight,
+    # Dec 29, 2025: Gumbel budget tiers for adaptive search
+    GUMBEL_BUDGET_STANDARD,
+    GUMBEL_BUDGET_QUALITY,
+    GUMBEL_BUDGET_ULTIMATE,
+    GUMBEL_BUDGET_MASTER,
 )
 from app.coordination.protocols import HealthCheckResult
 

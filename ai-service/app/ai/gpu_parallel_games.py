@@ -105,6 +105,98 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Dynamic Batch Sizing (Dec 2025)
+# =============================================================================
+
+
+# Board cell counts for batch size calculation
+BOARD_CELLS: dict[str, int] = {
+    "hex8": 61,
+    "square8": 64,
+    "square19": 361,
+    "hexagonal": 469,
+}
+
+
+def get_optimal_batch_size(
+    board_type: str | None = None,
+    num_players: int = 2,
+    gpu_memory_gb: float | None = None,
+    board_size: int | None = None,
+) -> int:
+    """Calculate optimal batch size based on board complexity and GPU memory.
+
+    Uses heuristic formula that balances memory usage against parallelism.
+    Smaller boards allow larger batches, larger boards require smaller batches
+    to avoid OOM errors.
+
+    Dec 2025: Added to dynamically tune batch sizes instead of hardcoded 64.
+
+    Args:
+        board_type: Board type string ("hex8", "square8", "square19", "hexagonal").
+                   Takes precedence over board_size if provided.
+        num_players: Number of players per game (2, 3, or 4)
+        gpu_memory_gb: Available GPU memory in GB. Auto-detected if None.
+        board_size: Board dimension (fallback if board_type not provided).
+
+    Returns:
+        Optimal batch size, clamped to [32, 512] range.
+
+    Examples:
+        >>> get_optimal_batch_size("hex8", 2)  # Small board
+        256
+        >>> get_optimal_batch_size("hexagonal", 4)  # Large board + 4p
+        64
+        >>> get_optimal_batch_size("square19", 2)  # Large board
+        128
+    """
+    # Determine cell count from board type or size
+    if board_type:
+        cells = BOARD_CELLS.get(board_type, 64)
+    elif board_size:
+        cells = board_size * board_size
+    else:
+        cells = 64  # Default to square8
+
+    # Auto-detect GPU memory if not provided
+    if gpu_memory_gb is None:
+        if torch.cuda.is_available():
+            try:
+                # Get available memory in GB
+                device = torch.cuda.current_device()
+                total_mem = torch.cuda.get_device_properties(device).total_memory
+                gpu_memory_gb = total_mem / (1024 ** 3)
+            except Exception:
+                gpu_memory_gb = 8.0  # Safe default
+        else:
+            gpu_memory_gb = 8.0  # CPU fallback
+
+    # Base formula: memory_gb * scale_factor / (cells * player_overhead)
+    # Higher cell count = more memory per game = smaller batch
+    # More players = more state to track = smaller batch
+    player_factor = 1.0 + (num_players - 2) * 0.3  # 3p=1.3, 4p=1.6
+
+    # Scale factor tuned empirically:
+    # - 8GB GPU with hex8 (61 cells, 2p) -> batch ~300
+    # - 8GB GPU with hexagonal (469 cells, 4p) -> batch ~64
+    scale_factor = 15000
+
+    base_batch = int(gpu_memory_gb * scale_factor / (cells * player_factor))
+
+    # Clamp to reasonable range
+    # Min 32: Below this overhead dominates
+    # Max 512: Above this diminishing returns
+    result = max(32, min(512, base_batch))
+
+    logger.debug(
+        f"[BatchSizing] board={board_type or board_size}, cells={cells}, "
+        f"players={num_players}, gpu_mem={gpu_memory_gb:.1f}GB -> batch={result}"
+    )
+
+    return result
+
+
+# =============================================================================
 # Parallel Game Runner
 # =============================================================================
 

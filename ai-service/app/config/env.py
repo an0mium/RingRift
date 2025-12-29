@@ -890,8 +890,13 @@ class RingRiftEnv:
 
     @cached_property
     def min_games_for_export(self) -> int:
-        """Minimum new games before triggering export."""
-        return int(os.environ.get("RINGRIFT_MIN_GAMES_FOR_EXPORT", "100"))
+        """Minimum new games before triggering export.
+
+        Dec 29, 2025: Increased default from 100 to 500 for better statistical
+        significance in training data. Use get_min_games_for_export() for
+        player-count aware thresholds.
+        """
+        return int(os.environ.get("RINGRIFT_MIN_GAMES_FOR_EXPORT", "500"))
 
     @cached_property
     def max_data_staleness_hours(self) -> float:

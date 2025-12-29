@@ -391,7 +391,25 @@ class AutoPromotionDaemon:
                 board_type, num_players
             )
             if not parity_passed:
-                return False, f"parity_failed: {parity_reason}"
+                # Dec 2025: If database check fails due to pending/incomplete,
+                # try live parity validation on coordinator (has Node.js)
+                if "pending" in parity_reason.lower() or "incomplete" in parity_reason.lower():
+                    logger.info(
+                        f"[AutoPromotion] Database parity check incomplete for {config_key}, "
+                        f"attempting live validation"
+                    )
+                    live_passed, live_reason = await self._run_live_parity_validation(
+                        config_key, sample_games=100
+                    )
+                    if not live_passed:
+                        return False, f"live_parity_failed: {live_reason}"
+                    # Live validation passed, continue
+                    logger.info(
+                        f"[AutoPromotion] Live parity validation passed for {config_key}: "
+                        f"{live_reason}"
+                    )
+                else:
+                    return False, f"parity_failed: {parity_reason}"
 
         # Check training data quality
         quality_passed, quality_reason = await self._check_data_quality(
@@ -470,6 +488,120 @@ class AutoPromotionDaemon:
             logger.warning(f"[AutoPromotion] Parity check error: {e}")
             # Don't block on parity check errors
             return True, f"parity_check_error: {e}"
+
+    async def _run_live_parity_validation(
+        self, config_key: str, sample_games: int = 100
+    ) -> tuple[bool, str]:
+        """Run live TS/Python parity validation on coordinator.
+
+        December 2025: The coordinator (mac-studio) has Node.js installed, allowing
+        us to run actual parity validation instead of relying on database status.
+        Cluster nodes lack npx so parity gates often show "pending_gate".
+
+        This method runs the parity check script to validate a sample of games,
+        ensuring the Python rules engine matches TypeScript before promotion.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            sample_games: Number of games to validate (default: 100)
+
+        Returns:
+            Tuple of (passed, reason) where reason explains the result
+        """
+        import asyncio
+        import subprocess
+        from pathlib import Path
+
+        # Only run on coordinator (has Node.js)
+        try:
+            from app.config.env import env
+            if not env.is_coordinator:
+                logger.debug(
+                    f"[AutoPromotion] Skipping live parity validation for {config_key} "
+                    "(not coordinator)"
+                )
+                return True, "skipped_not_coordinator"
+        except ImportError:
+            # If env module unavailable, check by hostname
+            import socket
+            hostname = socket.gethostname().lower()
+            if "mac-studio" not in hostname and "local-mac" not in hostname:
+                return True, "skipped_not_coordinator"
+
+        # Parse board_type and num_players from config_key
+        parts = config_key.rsplit("_", 1)
+        if len(parts) != 2:
+            logger.warning(f"[AutoPromotion] Cannot parse config_key: {config_key}")
+            return True, "config_key_unparseable"
+
+        board_type = parts[0]
+        try:
+            num_players = int(parts[1].rstrip("p"))
+        except ValueError:
+            return True, "num_players_unparseable"
+
+        # Find canonical database for this config
+        db_path = Path(f"data/games/canonical_{board_type}_{num_players}p.db")
+        if not db_path.exists():
+            logger.debug(
+                f"[AutoPromotion] No canonical DB for {config_key}, skipping live parity"
+            )
+            return True, "no_canonical_db"
+
+        # Build parity check command
+        script_path = Path("scripts/check_ts_python_replay_parity.py")
+        if not script_path.exists():
+            logger.warning("[AutoPromotion] Parity check script not found")
+            return True, "script_not_found"
+
+        cmd = [
+            "python",
+            str(script_path),
+            "--db", str(db_path),
+            "--limit", str(sample_games),
+        ]
+
+        logger.info(
+            f"[AutoPromotion] Running live parity validation for {config_key} "
+            f"({sample_games} games from {db_path})"
+        )
+
+        try:
+            # Run parity check with timeout
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                timeout=300,  # 5 minute timeout
+                cwd=str(Path.cwd()),
+            )
+
+            if result.returncode == 0:
+                logger.info(
+                    f"[AutoPromotion] Live parity validation PASSED for {config_key}"
+                )
+                return True, "parity_passed"
+            else:
+                # Extract error from stderr
+                error_msg = result.stderr.decode("utf-8", errors="replace")[:500]
+                stdout_msg = result.stdout.decode("utf-8", errors="replace")[:200]
+                logger.warning(
+                    f"[AutoPromotion] Live parity validation FAILED for {config_key}: "
+                    f"exit={result.returncode}, stderr={error_msg}"
+                )
+                return False, f"parity_failed: {error_msg or stdout_msg}"
+
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                f"[AutoPromotion] Parity validation timed out for {config_key}"
+            )
+            return False, "parity_timeout"
+        except FileNotFoundError as e:
+            logger.warning(f"[AutoPromotion] Parity script not executable: {e}")
+            return True, f"parity_script_error: {e}"
+        except OSError as e:
+            logger.warning(f"[AutoPromotion] Parity validation OS error: {e}")
+            return True, f"parity_os_error: {e}"
 
     async def _check_data_quality(
         self,
