@@ -161,12 +161,13 @@ PRIORITY_OVERRIDE_MULTIPLIERS = {
 # December 2025: Player count allocation multipliers
 # 3p/4p games take ~2x longer but were getting equal allocation, leading to
 # undertraining for multiplayer configs (hex8_4p Elo 594, square19_3p Elo 409)
-# Updated Dec 29, 2025: Increased multipliers to target 50/25/25 allocation
-# (was 80/15/5 with 1.0/1.5/1.5 multipliers)
+# Updated Dec 29, 2025 Phase 3: Increased multipliers for aggressive data deficit fix
+# Target allocation: ~40% 2p / ~30% 3p / ~30% 4p (was 50/25/25)
+# Expected impact: +100-150 Elo for 3p/4p configs
 PLAYER_COUNT_ALLOCATION_MULTIPLIER = {
     2: 1.0,  # Baseline - 2p games are fastest, already have most data
-    3: 2.0,  # 2x priority for 3p (severe data deficit: hex8_3p=0, square19_3p=237)
-    4: 2.5,  # 2.5x priority for 4p (critical data deficit: hex8_4p=45, square19_4p=0)
+    3: 3.0,  # 3x priority for 3p (severe data deficit: hex8_3p=500, square19_3p=237)
+    4: 4.0,  # 4x priority for 4p (critical data deficit: hex8_4p=45, square19_4p=0)
 }
 
 # Staleness thresholds (hours)
@@ -250,6 +251,7 @@ class ConfigPriority:
     is_large_board: bool = False  # Dec 2025: True for square19, hexagonal
     priority_override: int = 3  # Dec 2025: From config (0=CRITICAL, 1=HIGH, 2=MEDIUM, 3=LOW)
     search_budget: int = 400  # Dec 28 2025: Gumbel MCTS budget from velocity feedback
+    current_elo: float = 1500.0  # Dec 29 2025: Current Elo rating for dynamic weight calculation
 
     # Computed priority
     priority_score: float = 0.0
@@ -319,6 +321,7 @@ class NodeCapability:
     gpu_memory_gb: float = 0.0
     is_ephemeral: bool = False
     current_load: float = 0.0  # 0-1, current utilization
+    current_jobs: int = 0  # Dec 29 2025: Current selfplay job count
     data_lag_seconds: float = 0.0  # Sync lag from coordinator
 
     @property
@@ -582,10 +585,11 @@ class SelfplayScheduler:
             # Mark large boards for higher data deficit weight
             priority.is_large_board = config_key.startswith("square19") or config_key.startswith("hexagonal")
 
-            # Update search budget based on Elo tier (Dec 29, 2025)
+            # Update current Elo and search budget based on Elo tier (Dec 29, 2025)
             # Higher Elo models benefit from deeper Gumbel MCTS search
             if config_key in elo_current_data:
                 current_elo = elo_current_data[config_key]
+                priority.current_elo = current_elo  # Store for dynamic weight calculation
                 new_budget = self._get_adaptive_budget_for_elo(current_elo)
                 old_budget = priority.search_budget
                 if new_budget != old_budget:
@@ -1372,6 +1376,8 @@ class SelfplayScheduler:
                 cap.is_ephemeral = is_ephemeral_node(node_id)
                 cap.current_load = node_status.gpu_utilization_percent / 100.0
                 cap.data_lag_seconds = node_status.sync_lag_seconds
+                # Dec 29 2025: Track job count for dynamic weight calculation
+                cap.current_jobs = getattr(node_status, 'selfplay_jobs', 0) or 0
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error updating node capabilities: {e}")

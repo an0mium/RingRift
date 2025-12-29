@@ -255,12 +255,13 @@ class DataFreshnessDefaults:
     """
     # Maximum acceptable age of training data (hours)
     # Data older than this is considered stale and may trigger sync
-    # December 29, 2025: Changed from 4.0 to 24.0 for more relaxed freshness checks
-    MAX_DATA_AGE_HOURS: float = _env_float("RINGRIFT_MAX_DATA_AGE_HOURS", 24.0)
+    # December 29, 2025: Tightened from 24.0 to 4.0 for faster feedback loop
+    # Phase 3: Fresher data = better convergence, +30-50 Elo expected
+    MAX_DATA_AGE_HOURS: float = _env_float("RINGRIFT_MAX_DATA_AGE_HOURS", 4.0)
 
     # Warning threshold (hours) - emit DATA_STALE warning above this
-    # December 29, 2025: Changed from 2.0 to 8.0 proportionally
-    FRESHNESS_WARNING_HOURS: float = _env_float("RINGRIFT_FRESHNESS_WARNING_HOURS", 8.0)
+    # December 29, 2025: Tightened from 8.0 to 1.0 for earlier warnings
+    FRESHNESS_WARNING_HOURS: float = _env_float("RINGRIFT_FRESHNESS_WARNING_HOURS", 1.0)
 
     # Strict mode: fail immediately if data is stale (no sync attempt)
     # Useful for high-quality training where only fresh data should be used

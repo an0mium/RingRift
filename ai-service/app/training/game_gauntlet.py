@@ -36,6 +36,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Import model cache for cleanup after gauntlet runs (Dec 29, 2025)
+try:
+    from app.ai.model_cache import clear_model_cache
+    HAS_MODEL_CACHE = True
+except ImportError:
+    HAS_MODEL_CACHE = False
+    clear_model_cache = None  # type: ignore
+
 # Lazy imports to avoid circular dependencies and heavy imports at module load
 # Note: TYPE_CHECKING imports removed - using Any for lazy-loaded modules
 _torch_loaded = False
@@ -1240,6 +1248,11 @@ def run_baseline_gauntlet(
                 logger.debug(f"[gauntlet] Stored results for {effective_model_id} in gauntlet_results.db")
         except (OSError, RuntimeError, ValueError) as e:
             logger.warning(f"[gauntlet] Failed to store results in DB: {e}")
+
+    # Clear model cache after gauntlet to release GPU/MPS memory (Dec 29, 2025)
+    if HAS_MODEL_CACHE and clear_model_cache is not None:
+        clear_model_cache()
+        logger.debug("[gauntlet] Cleared model cache after gauntlet evaluation")
 
     return result
 

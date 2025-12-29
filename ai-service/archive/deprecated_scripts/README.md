@@ -23,6 +23,28 @@ SSH-based node checking is now part of the unified monitor with HTTP fallback.
 
 Use: `python -m app.monitoring.unified_cluster_monitor`
 
+## Archived Dec 29, 2025
+
+### \_deprecated_unified_ai_loop.py (8,509 LOC)
+
+**Reason**: Superseded by `master_loop.py`. The unified AI loop was a legacy wrapper
+that tried to coordinate training but is now obsolete.
+
+Use: `python scripts/master_loop.py`
+
+### \_deprecated_hex8_training_pipeline.py (775 LOC)
+
+**Reason**: Single-config demo script. Use `master_loop.py --configs hex8_2p` for
+targeted training on specific board configurations.
+
+### \_deprecated_migrate_legacy_elo.py (332 LOC)
+
+**Reason**: One-time migration utility for legacy Elo databases. Migration completed.
+
+### \_deprecated_migrate_legacy_models.py (289 LOC)
+
+**Reason**: One-time migration utility for legacy model files. Migration completed.
+
 ## Archived Dec 24, 2024
 
 ### export_replay_dataset_parallel.py
