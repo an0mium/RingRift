@@ -1543,7 +1543,8 @@ class StaleFallbackDefaults:
 
     # Absolute maximum data age allowed even in fallback mode (hours)
     # Training will NEVER proceed if data is older than this
-    ABSOLUTE_MAX_DATA_AGE: float = _env_float("RINGRIFT_ABSOLUTE_MAX_DATA_AGE", 24.0)
+    # December 29, 2025: Increased from 24h to 48h for extended autonomous runs
+    ABSOLUTE_MAX_DATA_AGE: float = _env_float("RINGRIFT_ABSOLUTE_MAX_DATA_AGE", 48.0)
 
     # Whether stale fallback is enabled (can disable for strict mode)
     ENABLE_STALE_FALLBACK: bool = _env_bool("RINGRIFT_ENABLE_STALE_FALLBACK", True)
@@ -2009,7 +2010,8 @@ class SelfplayPriorityWeightDefaults:
     # Staleness thresholds (hours)
     FRESH_DATA_THRESHOLD: float = _env_float("RINGRIFT_FRESH_DATA_THRESHOLD", 1.0)
     STALE_DATA_THRESHOLD: float = _env_float("RINGRIFT_STALE_DATA_THRESHOLD", 4.0)
-    MAX_STALENESS_HOURS: float = _env_float("RINGRIFT_MAX_STALENESS_HOURS", 24.0)
+    # December 29, 2025: Increased from 24h to 48h for extended autonomous operation
+    MAX_STALENESS_HOURS: float = _env_float("RINGRIFT_MAX_STALENESS_HOURS", 48.0)
 
     # VOI (Value of Information) target
     VOI_ELO_TARGET: float = _env_float("RINGRIFT_VOI_ELO_TARGET", 2000.0)

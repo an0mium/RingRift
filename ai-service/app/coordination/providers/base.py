@@ -2,15 +2,20 @@
 
 This module defines the abstract interface that all cloud providers must implement,
 plus common data types for instances, GPUs, and status.
+
+December 2025: Added circuit breaker support for resilient API calls.
 """
 
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderType(Enum):

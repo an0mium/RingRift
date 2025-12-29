@@ -775,8 +775,9 @@ SelfplayConfig = SelfplayDefaults
 class TournamentConfig:
     """Tournament settings (shared across all tournament scripts)."""
     # Default game counts
-    default_games_per_matchup: int = 20
-    shadow_games: int = 15
+    # December 29, 2025: Increased from 20 to 50 for better statistical significance
+    default_games_per_matchup: int = 50
+    shadow_games: int = 25  # Increased from 15
     full_tournament_games: int = 50
 
     # Time limits
@@ -1385,8 +1386,8 @@ class UnifiedConfig:
         if "tournament" in data:
             tourn_data = data["tournament"]
             config.tournament = TournamentConfig(
-                default_games_per_matchup=tourn_data.get("default_games_per_matchup", 20),
-                shadow_games=tourn_data.get("shadow_games", 15),
+                default_games_per_matchup=tourn_data.get("default_games_per_matchup", 50),
+                shadow_games=tourn_data.get("shadow_games", 25),
                 full_tournament_games=tourn_data.get("full_tournament_games", 50),
                 game_timeout_seconds=tourn_data.get("game_timeout_seconds", 300),
                 tournament_timeout_seconds=tourn_data.get("tournament_timeout_seconds", 7200),
@@ -1772,10 +1773,10 @@ def get_tournament_games_per_matchup() -> int:
 
     CANONICAL SOURCE: Use this instead of hardcoding values like 20 or 50.
     Scripts (improvement_cycle_manager, shadow_tournament_service) should use this.
-    Default: 20
+    Default: 50 (increased from 20 on Dec 29, 2025 for better statistical significance)
     """
     cfg = get_config()
-    return getattr(cfg, 'tournament_games_per_matchup', 20)
+    return getattr(cfg, 'tournament_games_per_matchup', 50)
 
 
 def get_regression_elo_threshold() -> float:

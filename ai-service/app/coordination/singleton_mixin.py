@@ -744,19 +744,53 @@ def with_singleton_health_check(cls: type[T]) -> type[T]:
         # Now you can use:
         daemon = MyDaemon.get_healthy_instance()
     """
-    # Add the health check methods from ResilientSingletonMixin
-    cls.get_healthy_instance = ResilientSingletonMixin.get_healthy_instance.__func__
-    cls._check_instance_health = ResilientSingletonMixin._check_instance_health.__func__
-    cls._recreate_instance = ResilientSingletonMixin._recreate_instance.__func__
-    cls._cleanup_instance = ResilientSingletonMixin._cleanup_instance.__func__
-    cls.recreate_instance = ResilientSingletonMixin.recreate_instance.__func__
-    cls.get_recreation_stats = ResilientSingletonMixin.get_recreation_stats.__func__
-
-    # Add class-level tracking
+    # Add class-level tracking first (needed by methods)
     cls._recreation_attempts = {}
     cls._last_recreation = {}
     cls._recreation_cooldown = 30.0
     cls._max_recreations = 5
+
+    # Create bound classmethods that work with the decorated class
+    @classmethod
+    def get_healthy_instance(
+        inner_cls,
+        *args: Any,
+        check_health: bool = True,
+        recreate_if_unhealthy: bool = True,
+        **kwargs: Any,
+    ) -> T:
+        return ResilientSingletonMixin.get_healthy_instance.__func__(
+            inner_cls, *args, check_health=check_health,
+            recreate_if_unhealthy=recreate_if_unhealthy, **kwargs
+        )
+
+    @classmethod
+    def _check_instance_health(inner_cls, instance: T) -> bool:
+        return ResilientSingletonMixin._check_instance_health.__func__(inner_cls, instance)
+
+    @classmethod
+    def _recreate_instance(inner_cls, *args: Any, **kwargs: Any) -> T:
+        return ResilientSingletonMixin._recreate_instance.__func__(inner_cls, *args, **kwargs)
+
+    @classmethod
+    def _cleanup_instance(inner_cls, instance: T) -> None:
+        return ResilientSingletonMixin._cleanup_instance.__func__(inner_cls, instance)
+
+    @classmethod
+    def recreate_instance(inner_cls, *args: Any, **kwargs: Any) -> T:
+        return ResilientSingletonMixin.recreate_instance.__func__(inner_cls, *args, **kwargs)
+
+    @classmethod
+    def get_recreation_stats(inner_cls) -> dict[str, Any]:
+        return ResilientSingletonMixin.get_recreation_stats.__func__(inner_cls)
+
+    # Bind methods to class
+    cls.get_healthy_instance = get_healthy_instance
+    cls._check_instance_health = _check_instance_health
+    cls._recreate_instance = _recreate_instance
+    cls._cleanup_instance = _cleanup_instance
+    cls.recreate_instance = recreate_instance
+    cls.get_recreation_stats = get_recreation_stats
 
     return cls
 

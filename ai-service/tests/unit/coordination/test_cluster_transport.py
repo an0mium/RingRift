@@ -1425,3 +1425,1003 @@ class TestTransportResultDataField:
         d = result.to_dict()
         assert "data" in d
         assert d["data"] == {"key": "value"}
+
+
+# =============================================================================
+# Test HTTP Transfer via P2P Endpoints
+# =============================================================================
+
+
+class TestHTTPTransfer:
+    """Tests for HTTP-based file transfer via P2P endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_push_not_supported(self):
+        """_transfer_via_http should reject push direction."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        result = await transport._transfer_via_http(
+            local_path=Path("/tmp/test.txt"),
+            remote_path="ai-service/models/test.pth",
+            node=node,
+            direction="push",
+        )
+
+        assert result.success is False
+        assert "not implemented" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_models_path(self):
+        """_transfer_via_http should handle models/ paths."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host", p2p_port=8770)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = Path(tmpdir) / "model.pth"
+
+            # Mock aiohttp response
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.content = MagicMock()
+            mock_response.content.iter_chunked = MagicMock(
+                return_value=AsyncIterator([b"model data content"])
+            )
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                result = await transport._transfer_via_http(
+                    local_path=local_path,
+                    remote_path="ai-service/models/canonical_hex8_2p.pth",
+                    node=node,
+                    direction="pull",
+                )
+
+                assert result.success is True
+                assert result.transport_used == "http"
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_data_path(self):
+        """_transfer_via_http should handle data/ paths."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host", p2p_port=8770)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = Path(tmpdir) / "training.npz"
+
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.content = MagicMock()
+            mock_response.content.iter_chunked = MagicMock(
+                return_value=AsyncIterator([b"npz data content"])
+            )
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                result = await transport._transfer_via_http(
+                    local_path=local_path,
+                    remote_path="ai-service/data/training/hex8_2p.npz",
+                    node=node,
+                    direction="pull",
+                )
+
+                assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_unsupported_path(self):
+        """_transfer_via_http should reject paths not in models/ or data/."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        result = await transport._transfer_via_http(
+            local_path=Path("/tmp/test.txt"),
+            remote_path="ai-service/scripts/test.py",
+            node=node,
+            direction="pull",
+        )
+
+        assert result.success is False
+        assert "only supports models/ or data/" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_404_error(self):
+        """_transfer_via_http should handle 404 response."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = Path(tmpdir) / "model.pth"
+
+            mock_response = MagicMock()
+            mock_response.status = 404
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                result = await transport._transfer_via_http(
+                    local_path=local_path,
+                    remote_path="ai-service/models/nonexistent.pth",
+                    node=node,
+                    direction="pull",
+                )
+
+                assert result.success is False
+                assert "not found" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_server_error(self):
+        """_transfer_via_http should handle server error responses."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = Path(tmpdir) / "model.pth"
+
+            mock_response = MagicMock()
+            mock_response.status = 500
+            mock_response.text = AsyncMock(return_value="Internal Server Error")
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                result = await transport._transfer_via_http(
+                    local_path=local_path,
+                    remote_path="ai-service/models/test.pth",
+                    node=node,
+                    direction="pull",
+                )
+
+                assert result.success is False
+                assert "500" in result.error
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_timeout(self):
+        """_transfer_via_http should handle timeout errors."""
+        transport = ClusterTransport(operation_timeout=1)
+        node = NodeConfig(hostname="test-host")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = Path(tmpdir) / "model.pth"
+
+            mock_session = MagicMock()
+            mock_session.__aenter__ = AsyncMock(side_effect=asyncio.TimeoutError())
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                result = await transport._transfer_via_http(
+                    local_path=local_path,
+                    remote_path="ai-service/models/test.pth",
+                    node=node,
+                    direction="pull",
+                )
+
+                assert result.success is False
+                assert "timeout" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_http_transfer_uses_tailscale_ip(self):
+        """_transfer_via_http should prefer Tailscale IP when available."""
+        transport = ClusterTransport()
+        node = NodeConfig(
+            hostname="test-host",
+            tailscale_ip="100.64.0.1",
+            p2p_port=8770,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = Path(tmpdir) / "model.pth"
+
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.content = MagicMock()
+            mock_response.content.iter_chunked = MagicMock(
+                return_value=AsyncIterator([b"content"])
+            )
+            mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_response.__aexit__ = AsyncMock(return_value=None)
+
+            mock_session = MagicMock()
+            mock_session.get = MagicMock(return_value=mock_response)
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("aiohttp.ClientSession", return_value=mock_session):
+                await transport._transfer_via_http(
+                    local_path=local_path,
+                    remote_path="ai-service/models/test.pth",
+                    node=node,
+                    direction="pull",
+                )
+
+                # Verify Tailscale IP was used in URL
+                call_args = mock_session.get.call_args
+                url = call_args[0][0]
+                assert "100.64.0.1" in url
+
+
+# Helper class for async iteration
+class AsyncIterator:
+    """Helper to create async iterator from list for testing."""
+
+    def __init__(self, items):
+        self.items = items
+        self.index = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.index < len(self.items):
+            item = self.items[self.index]
+            self.index += 1
+            return item
+        raise StopAsyncIteration
+
+
+# =============================================================================
+# Test TimeoutConfig Alias
+# =============================================================================
+
+
+class TestTimeoutConfigAlias:
+    """Tests verifying TimeoutConfig is properly aliased from TransportConfig."""
+
+    def test_timeout_config_is_transport_config(self):
+        """TimeoutConfig should be an alias for TransportConfig."""
+        from app.coordination.cluster_transport import TimeoutConfig
+
+        # Both should create equivalent configs
+        tc = TransportConfig()
+        toc = TimeoutConfig()
+
+        assert tc.connect_timeout == toc.connect_timeout
+        assert tc.operation_timeout == toc.operation_timeout
+        assert tc.http_timeout == toc.http_timeout
+
+    def test_timeout_config_factory_methods(self):
+        """TimeoutConfig should have the same factory methods."""
+        from app.coordination.cluster_transport import TimeoutConfig
+
+        large = TimeoutConfig.for_large_transfers()
+        quick = TimeoutConfig.for_quick_requests()
+
+        assert large.connect_timeout >= quick.connect_timeout
+        assert large.operation_timeout >= quick.operation_timeout
+
+
+# =============================================================================
+# Test Circuit Breaker Edge Cases
+# =============================================================================
+
+
+class TestCircuitBreakerEdgeCases:
+    """Additional edge case tests for circuit breaker behavior."""
+
+    def test_success_after_partial_failures(self):
+        """Circuit should stay closed after partial failures followed by success."""
+        transport = ClusterTransport()
+
+        # Some failures (but not enough to open)
+        transport.record_failure("test-host")
+        transport.record_failure("test-host")
+
+        assert transport.can_attempt("test-host") is True
+
+        # Success should reset
+        transport.record_success("test-host")
+
+        # More failures needed to open now
+        transport.record_failure("test-host")
+        transport.record_failure("test-host")
+
+        assert transport.can_attempt("test-host") is True
+
+    def test_different_hosts_independent(self):
+        """Circuit state for different hosts should be independent."""
+        transport = ClusterTransport()
+
+        # Open circuit for host1
+        for _ in range(10):
+            transport.record_failure("host1")
+
+        # host2 should still be available
+        assert transport.can_attempt("host1") is False
+        assert transport.can_attempt("host2") is True
+
+    def test_health_summary_format(self):
+        """get_health_summary should return properly formatted data."""
+        transport = ClusterTransport()
+
+        transport.record_success("healthy-host")
+        for _ in range(10):
+            transport.record_failure("failing-host")
+
+        summary = transport.get_health_summary()
+
+        # Check structure
+        for target, info in summary.items():
+            assert "state" in info
+            assert "failures" in info
+            assert "can_attempt" in info
+            assert "consecutive_opens" in info
+
+    def test_circuit_state_values(self):
+        """Circuit states should have correct string values."""
+        transport = ClusterTransport()
+
+        transport.record_success("closed-host")
+        summary = transport.get_health_summary()
+
+        if "closed-host" in summary:
+            assert summary["closed-host"]["state"] == "closed"
+
+
+# =============================================================================
+# Test NodeConfig Extended Properties
+# =============================================================================
+
+
+class TestNodeConfigExtended:
+    """Extended tests for NodeConfig dataclass."""
+
+    def test_p2p_port_default(self):
+        """NodeConfig should have default P2P port."""
+        config = NodeConfig(hostname="test-host")
+        assert config.p2p_port == 8770
+
+    def test_custom_p2p_port(self):
+        """NodeConfig should accept custom P2P port."""
+        config = NodeConfig(hostname="test-host", p2p_port=9999)
+        assert config.p2p_port == 9999
+
+    def test_base_path_default(self):
+        """NodeConfig should have default base_path."""
+        config = NodeConfig(hostname="test-host")
+        assert config.base_path == "ai-service"
+
+    def test_http_scheme_https(self):
+        """NodeConfig should support HTTPS scheme."""
+        config = NodeConfig(
+            hostname="secure-host",
+            http_scheme="https",
+            http_port=443,
+        )
+        assert config.http_base_url == "https://secure-host:443"
+
+    def test_all_properties_with_tailscale(self):
+        """NodeConfig should correctly use Tailscale IP for all URL properties."""
+        config = NodeConfig(
+            hostname="test-host",
+            tailscale_ip="100.64.0.1",
+            ssh_port=2222,
+            http_port=8080,
+            http_scheme="http",
+            base_path="custom-path",
+            p2p_port=9000,
+        )
+
+        assert config.ssh_target == "100.64.0.1"
+        assert config.http_base_url == "http://100.64.0.1:8080"
+        assert config.p2p_port == 9000
+
+
+# =============================================================================
+# Test Network Error Handling
+# =============================================================================
+
+
+class TestNetworkErrorHandling:
+    """Tests for various network error scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_http_request_connection_error(self):
+        """http_request should handle connection errors."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="unreachable-host")
+
+        with patch("aiohttp.ClientSession") as mock_session_cls:
+            import aiohttp
+
+            mock_session = MagicMock()
+            mock_session.__aenter__ = AsyncMock(
+                side_effect=aiohttp.ClientConnectorError(
+                    MagicMock(), OSError("Connection refused")
+                )
+            )
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session_cls.return_value = mock_session
+
+            result = await transport.http_request(node, "/api/status")
+
+            assert result.success is False
+            # Error should be recorded
+            assert result.latency_ms >= 0
+
+    @pytest.mark.asyncio
+    async def test_rsync_file_not_found(self):
+        """_rsync_transfer should handle missing rsync command."""
+        transport = ClusterTransport()
+
+        with patch("asyncio.create_subprocess_exec") as mock_proc:
+            mock_proc.side_effect = FileNotFoundError("rsync not found")
+
+            result = await transport._rsync_transfer(
+                local_path=Path("/tmp/test.txt"),
+                remote_spec="host:/remote/test.txt",
+                direction="push",
+            )
+
+            assert result.success is False
+            assert "rsync" in result.error.lower() or "not found" in result.error.lower()
+
+    @pytest.mark.asyncio
+    async def test_check_reachable_ssh_command_not_found(self):
+        """check_node_reachable should handle missing ssh command."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        with patch.object(transport, "http_request") as mock_http, \
+             patch("asyncio.create_subprocess_exec") as mock_proc:
+            mock_http.return_value = TransportResult(success=False, error="fail")
+            mock_proc.side_effect = FileNotFoundError("ssh not found")
+
+            result = await transport.check_node_reachable(node)
+            assert result is False
+
+
+# =============================================================================
+# Test Transfer Method Selection
+# =============================================================================
+
+
+class TestTransferMethodSelection:
+    """Tests for transport method selection and failover."""
+
+    @pytest.mark.asyncio
+    async def test_transfer_tries_all_methods_in_order(self):
+        """transfer_file should try all transport methods in order."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host", tailscale_ip="100.64.0.1")
+
+        call_order = []
+
+        async def mock_tailscale(*args, **kwargs):
+            call_order.append("tailscale")
+            return TransportResult(success=False, error="fail")
+
+        async def mock_ssh(*args, **kwargs):
+            call_order.append("ssh")
+            return TransportResult(success=False, error="fail")
+
+        async def mock_base64(*args, **kwargs):
+            call_order.append("base64")
+            return TransportResult(success=False, error="fail")
+
+        async def mock_http(*args, **kwargs):
+            call_order.append("http")
+            return TransportResult(success=True)
+
+        with patch.object(transport, "_transfer_via_tailscale", mock_tailscale), \
+             patch.object(transport, "_transfer_via_ssh", mock_ssh), \
+             patch.object(transport, "_transfer_via_base64", mock_base64), \
+             patch.object(transport, "_transfer_via_http", mock_http):
+
+            result = await transport.transfer_file(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="data/test.txt",
+                node=node,
+            )
+
+            assert result.success is True
+            assert call_order == ["tailscale", "ssh", "base64", "http"]
+
+    @pytest.mark.asyncio
+    async def test_transfer_stops_at_first_success(self):
+        """transfer_file should stop at first successful transport."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        call_order = []
+
+        async def mock_tailscale(*args, **kwargs):
+            call_order.append("tailscale")
+            return TransportResult(success=False, error="no tailscale")
+
+        async def mock_ssh(*args, **kwargs):
+            call_order.append("ssh")
+            return TransportResult(success=True)
+
+        async def mock_base64(*args, **kwargs):
+            call_order.append("base64")
+            return TransportResult(success=True)
+
+        with patch.object(transport, "_transfer_via_tailscale", mock_tailscale), \
+             patch.object(transport, "_transfer_via_ssh", mock_ssh), \
+             patch.object(transport, "_transfer_via_base64", mock_base64):
+
+            result = await transport.transfer_file(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="data/test.txt",
+                node=node,
+            )
+
+            assert result.success is True
+            # Should have stopped after SSH success
+            assert call_order == ["tailscale", "ssh"]
+            assert "base64" not in call_order
+
+    @pytest.mark.asyncio
+    async def test_transfer_records_latency(self):
+        """transfer_file should record total latency."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        with patch.object(transport, "_transfer_via_tailscale") as mock_ts:
+            mock_ts.return_value = TransportResult(success=True)
+
+            result = await transport.transfer_file(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="data/test.txt",
+                node=node,
+            )
+
+            assert result.success is True
+            assert result.latency_ms >= 0
+
+    @pytest.mark.asyncio
+    async def test_transfer_handles_exception_in_transport(self):
+        """transfer_file should handle exceptions from transport methods."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        async def mock_tailscale_raise(*args, **kwargs):
+            raise RuntimeError("Unexpected error")
+
+        async def mock_ssh(*args, **kwargs):
+            return TransportResult(success=True)
+
+        with patch.object(transport, "_transfer_via_tailscale", mock_tailscale_raise), \
+             patch.object(transport, "_transfer_via_ssh", mock_ssh):
+
+            result = await transport.transfer_file(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="data/test.txt",
+                node=node,
+            )
+
+            # Should fall back to SSH after exception
+            assert result.success is True
+
+
+# =============================================================================
+# Test Large File Warnings
+# =============================================================================
+
+
+class TestLargeFileHandling:
+    """Tests for large file transfer handling."""
+
+    @pytest.mark.asyncio
+    async def test_base64_push_warns_for_large_files(self):
+        """_base64_push should log warning for files over 100MB."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        # Create large temporary file
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            # Write 101MB of data
+            f.write(b"x" * (101 * 1024 * 1024))
+            temp_path = Path(f.name)
+
+        try:
+            with patch("asyncio.create_subprocess_exec") as mock_proc, \
+                 patch("app.coordination.cluster_transport.logger") as mock_logger:
+                process = AsyncMock()
+                process.returncode = 0
+                process.communicate = AsyncMock(return_value=(b"", b""))
+                mock_proc.return_value = process
+
+                await transport._base64_push(
+                    local_path=temp_path,
+                    remote_path="/data/large.bin",
+                    node=node,
+                )
+
+                # Should have logged a warning
+                mock_logger.warning.assert_called()
+                warning_call = str(mock_logger.warning.call_args)
+                assert "Large file" in warning_call or "101" in warning_call
+        finally:
+            temp_path.unlink()
+
+
+# =============================================================================
+# Test Bandwidth Limiting
+# =============================================================================
+
+
+class TestBandwidthLimiting:
+    """Tests for bandwidth-limited transfers."""
+
+    @pytest.mark.asyncio
+    async def test_rsync_includes_bwlimit_when_configured(self):
+        """_rsync_transfer should include --bwlimit when bandwidth config available."""
+        transport = ClusterTransport()
+
+        # Mock bandwidth config
+        with patch("app.coordination.cluster_transport.HAS_BANDWIDTH_CONFIG", True), \
+             patch("app.coordination.cluster_transport.get_node_bandwidth_kbs") as mock_bw:
+            mock_bw.return_value = 5000  # 5 MB/s
+
+            with patch("asyncio.create_subprocess_exec") as mock_proc:
+                process = AsyncMock()
+                process.returncode = 0
+                process.communicate = AsyncMock(return_value=(b"", b""))
+                mock_proc.return_value = process
+
+                with patch.object(Path, "exists", return_value=True), \
+                     patch.object(Path, "stat") as mock_stat:
+                    mock_stat.return_value.st_size = 1024
+
+                    await transport._rsync_transfer(
+                        local_path=Path("/local/file.txt"),
+                        remote_spec="user@host:/remote/file.txt",
+                        direction="push",
+                    )
+
+                    # Check rsync command includes bwlimit
+                    call_args = mock_proc.call_args[0]
+                    assert "--bwlimit=5000" in call_args
+
+
+# =============================================================================
+# Test Concurrency and Thread Safety
+# =============================================================================
+
+
+class TestConcurrency:
+    """Tests for concurrent access patterns."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_transfers_to_same_host(self):
+        """Multiple concurrent transfers to same host should not interfere."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        results = []
+
+        async def mock_transfer(*args, **kwargs):
+            await asyncio.sleep(0.01)  # Simulate some work
+            return TransportResult(success=True)
+
+        with patch.object(transport, "_transfer_via_tailscale", mock_transfer):
+            # Launch concurrent transfers
+            tasks = [
+                transport.transfer_file(
+                    local_path=Path(f"/tmp/test{i}.txt"),
+                    remote_path=f"data/test{i}.txt",
+                    node=node,
+                )
+                for i in range(5)
+            ]
+
+            results = await asyncio.gather(*tasks)
+
+        assert all(r.success for r in results)
+        assert len(results) == 5
+
+    def test_circuit_breaker_thread_safe_operations(self):
+        """Circuit breaker operations should be thread-safe."""
+        transport = ClusterTransport()
+        import threading
+
+        errors = []
+
+        def record_operations():
+            try:
+                for _ in range(100):
+                    transport.record_success("host1")
+                    transport.record_failure("host2")
+                    transport.can_attempt("host1")
+                    transport.can_attempt("host2")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=record_operations) for _ in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
+
+
+# =============================================================================
+# Test Module Exports
+# =============================================================================
+
+
+class TestModuleExports:
+    """Tests verifying all expected exports are available."""
+
+    def test_main_class_exported(self):
+        """ClusterTransport should be exported."""
+        from app.coordination.cluster_transport import ClusterTransport
+
+        assert ClusterTransport is not None
+
+    def test_data_classes_exported(self):
+        """All data classes should be exported."""
+        from app.coordination.cluster_transport import (
+            NodeConfig,
+            TimeoutConfig,
+            TransportConfig,
+            TransportResult,
+        )
+
+        assert NodeConfig is not None
+        assert TimeoutConfig is not None
+        assert TransportConfig is not None
+        assert TransportResult is not None
+
+    def test_error_classes_exported(self):
+        """All error classes should be exported."""
+        from app.coordination.cluster_transport import (
+            PermanentTransportError,
+            RetryableTransportError,
+            TransportError,
+        )
+
+        assert TransportError is not None
+        assert RetryableTransportError is not None
+        assert PermanentTransportError is not None
+
+    def test_singleton_function_exported(self):
+        """get_cluster_transport should be exported."""
+        from app.coordination.cluster_transport import get_cluster_transport
+
+        assert get_cluster_transport is not None
+        assert callable(get_cluster_transport)
+
+
+# =============================================================================
+# Test Base64 Transfer Edge Cases
+# =============================================================================
+
+
+class TestBase64TransferEdgeCases:
+    """Additional edge case tests for base64 transfer."""
+
+    @pytest.mark.asyncio
+    async def test_base64_push_creates_remote_directory(self):
+        """_base64_push should create remote directory if needed."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(b"test content")
+            temp_path = Path(f.name)
+
+        try:
+            with patch("asyncio.create_subprocess_exec") as mock_proc:
+                process = AsyncMock()
+                process.returncode = 0
+                process.communicate = AsyncMock(return_value=(b"", b""))
+                mock_proc.return_value = process
+
+                await transport._base64_push(
+                    local_path=temp_path,
+                    remote_path="/data/subdir/nested/file.txt",
+                    node=node,
+                )
+
+                # Check that mkdir -p is in the command
+                call_args = mock_proc.call_args[0]
+                cmd_string = " ".join(call_args)
+                assert "mkdir -p" in cmd_string
+        finally:
+            temp_path.unlink()
+
+    @pytest.mark.asyncio
+    async def test_base64_pull_creates_local_directory(self):
+        """_base64_pull should create local parent directory if needed."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        test_content = b"remote content"
+        encoded = base64.b64encode(test_content)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create path with non-existent parent
+            local_path = Path(tmpdir) / "new_dir" / "subdir" / "file.txt"
+
+            with patch("asyncio.create_subprocess_exec") as mock_proc:
+                process = AsyncMock()
+                process.returncode = 0
+                process.communicate = AsyncMock(return_value=(encoded, b""))
+                mock_proc.return_value = process
+
+                result = await transport._base64_pull(
+                    local_path=local_path,
+                    remote_path="/data/file.txt",
+                    node=node,
+                )
+
+                assert result.success is True
+                assert local_path.exists()
+                assert local_path.parent.exists()
+
+    @pytest.mark.asyncio
+    async def test_base64_via_transfer_direction_push(self):
+        """_transfer_via_base64 should call push for push direction."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        with patch.object(transport, "_base64_push") as mock_push:
+            mock_push.return_value = TransportResult(success=True)
+
+            await transport._transfer_via_base64(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="/data/test.txt",
+                node=node,
+                direction="push",
+            )
+
+            mock_push.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_base64_via_transfer_direction_pull(self):
+        """_transfer_via_base64 should call pull for pull direction."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host")
+
+        with patch.object(transport, "_base64_pull") as mock_pull:
+            mock_pull.return_value = TransportResult(success=True)
+
+            await transport._transfer_via_base64(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="/data/test.txt",
+                node=node,
+                direction="pull",
+            )
+
+            mock_pull.assert_called_once()
+
+
+# =============================================================================
+# Test TransportResult Post Init
+# =============================================================================
+
+
+class TestTransportResultPostInit:
+    """Tests for TransportResult __post_init__ behavior."""
+
+    def test_failure_without_error_gets_default_message(self):
+        """Failed result without error should get default message."""
+        result = TransportResult(success=False)
+        assert result.error is not None
+        assert result.error == "Unknown error"
+
+    def test_success_without_error_stays_none(self):
+        """Successful result should keep error as None."""
+        result = TransportResult(success=True)
+        assert result.error is None
+
+    def test_failure_with_error_keeps_message(self):
+        """Failed result with error should keep the message."""
+        result = TransportResult(success=False, error="Custom error")
+        assert result.error == "Custom error"
+
+
+# =============================================================================
+# Test HTTP Request Content Type Handling
+# =============================================================================
+
+
+class TestHTTPContentTypeHandling:
+    """Tests for HTTP response content type handling."""
+
+    @pytest.mark.asyncio
+    async def test_http_request_handles_content_type_error(self):
+        """http_request should handle ContentTypeError from aiohttp."""
+        transport = ClusterTransport()
+        node = NodeConfig(hostname="test-host", http_port=8080)
+
+        import aiohttp
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(
+            side_effect=aiohttp.ContentTypeError(
+                MagicMock(), MagicMock()
+            )
+        )
+        mock_response.text = AsyncMock(return_value="Non-JSON response")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.request = MagicMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            result = await transport.http_request(node, "/api/status")
+
+            assert result.success is True
+            assert result.data == "Non-JSON response"
+
+
+# =============================================================================
+# Test Full Path Construction
+# =============================================================================
+
+
+class TestPathConstruction:
+    """Tests for remote path construction in transfer_file."""
+
+    @pytest.mark.asyncio
+    async def test_transfer_constructs_full_remote_path(self):
+        """transfer_file should prepend base_path to remote_path."""
+        transport = ClusterTransport()
+        node = NodeConfig(
+            hostname="test-host",
+            base_path="ai-service",
+        )
+
+        with patch.object(transport, "_transfer_via_tailscale") as mock_ts:
+            mock_ts.return_value = TransportResult(success=True)
+
+            await transport.transfer_file(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="data/test.txt",
+                node=node,
+            )
+
+            call_args = mock_ts.call_args[0]
+            remote_path = call_args[1]
+            assert remote_path == "ai-service/data/test.txt"
+
+    @pytest.mark.asyncio
+    async def test_transfer_with_custom_base_path(self):
+        """transfer_file should respect custom base_path."""
+        transport = ClusterTransport()
+        node = NodeConfig(
+            hostname="test-host",
+            base_path="custom-service",
+        )
+
+        with patch.object(transport, "_transfer_via_tailscale") as mock_ts:
+            mock_ts.return_value = TransportResult(success=True)
+
+            await transport.transfer_file(
+                local_path=Path("/tmp/test.txt"),
+                remote_path="models/model.pth",
+                node=node,
+            )
+
+            call_args = mock_ts.call_args[0]
+            remote_path = call_args[1]
+            assert remote_path == "custom-service/models/model.pth"

@@ -253,7 +253,11 @@ class TailscaleHealthDaemon(HandlerBase):
             self._state.status = TailscaleStatus.UNKNOWN
             self._state.error_message = f"Invalid JSON: {e}"
             logger.warning(f"Failed to parse Tailscale status: {e}")
-        except Exception as e:
+        except (KeyError, TypeError, OSError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # - KeyError: accessing missing dict keys from _run_command result
+            # - TypeError: if result is unexpected type
+            # - OSError: system/process errors from command execution
             self._state.status = TailscaleStatus.UNKNOWN
             self._state.error_message = str(e)
             logger.error(f"Error checking Tailscale status: {e}")
@@ -289,7 +293,12 @@ class TailscaleHealthDaemon(HandlerBase):
         try:
             result = await self._run_command(["pgrep", "-x", "tailscaled"])
             return result["returncode"] == 0
-        except Exception:
+        except (OSError, asyncio.TimeoutError, KeyError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # - OSError: subprocess/process errors
+            # - TimeoutError: command timeout (though _run_command handles this)
+            # - KeyError: defensive if result dict changes
+            logger.debug(f"Error checking tailscaled: {e}")
             return False
 
     # =========================================================================
@@ -383,7 +392,11 @@ class TailscaleHealthDaemon(HandlerBase):
         except asyncio.TimeoutError:
             logger.warning("tailscale up timed out")
             return False
-        except Exception as e:
+        except (KeyError, TypeError, OSError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # - KeyError: accessing result dict keys
+            # - TypeError: unexpected result types
+            # - OSError: process/system errors
             logger.error(f"tailscale up error: {e}")
             return False
 
@@ -410,7 +423,11 @@ class TailscaleHealthDaemon(HandlerBase):
             )
             return True
 
-        except Exception as e:
+        except (KeyError, OSError, asyncio.TimeoutError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # - KeyError: accessing result dict keys
+            # - OSError: process/permission errors
+            # - TimeoutError: command timeout
             logger.error(f"Failed to restart tailscaled: {e}")
             return False
 
@@ -440,7 +457,12 @@ class TailscaleHealthDaemon(HandlerBase):
             logger.info("Started tailscaled in userspace mode")
             return True
 
-        except Exception as e:
+        except (KeyError, OSError, PermissionError, asyncio.TimeoutError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # - KeyError: accessing result dict keys
+            # - OSError: process/file errors
+            # - PermissionError: directory creation failures
+            # - TimeoutError: command timeout
             logger.error(f"Failed to start tailscaled in userspace mode: {e}")
             return False
 
@@ -477,9 +499,16 @@ class TailscaleHealthDaemon(HandlerBase):
 
         except ImportError:
             logger.debug("aiohttp not available, skipping P2P report")
-        except Exception as e:
-            # Non-critical, just log debug
-            logger.debug(f"Failed to report to P2P: {e}")
+        except asyncio.TimeoutError:
+            # Dec 29, 2025: Narrowed from bare Exception
+            logger.debug("P2P report timed out")
+        except OSError as e:
+            # Socket/network level errors
+            logger.debug(f"Failed to report to P2P (network): {e}")
+        except aiohttp.ClientError as e:
+            # Dec 29, 2025: Added explicit aiohttp error handling
+            # aiohttp.ClientError is not a subclass of OSError
+            logger.debug(f"Failed to report to P2P (client): {e}")
 
     # =========================================================================
     # Utility Methods
@@ -526,7 +555,11 @@ class TailscaleHealthDaemon(HandlerBase):
                 "stdout": "",
                 "stderr": "Command timed out",
             }
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError, ValueError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # - OSError: process/system errors, file not found
+            # - SubprocessError: Popen failures
+            # - ValueError: invalid arguments
             return {
                 "returncode": -1,
                 "stdout": "",

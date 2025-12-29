@@ -411,14 +411,18 @@ class MaintenanceDaemon:
                             else:
                                 shutil.move(str(old_backup), str(new_backup))
 
-                    # Compress current log to .1.gz
+                    # Compress current log to .1.gz (non-blocking for large log files)
+                    # Dec 29, 2025: Use asyncio.to_thread to avoid event loop stalls
                     backup_path = log_file.with_suffix(".log.1.gz")
-                    with open(log_file, "rb") as f_in, gzip.open(backup_path, "wb") as f_out:
-                        shutil.copyfileobj(f_in, f_out)
 
-                    # Truncate original log
-                    with open(log_file, "w") as f:
-                        f.write(f"# Log rotated at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    def _compress_and_truncate():
+                        with open(log_file, "rb") as f_in, gzip.open(backup_path, "wb") as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+                        # Truncate original log
+                        with open(log_file, "w") as f:
+                            f.write(f"# Log rotated at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+                    await asyncio.to_thread(_compress_and_truncate)
 
                     rotated += 1
                     bytes_saved += file_size

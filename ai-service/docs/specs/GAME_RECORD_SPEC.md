@@ -106,6 +106,11 @@ soak_test
 manual_import
 ```
 
+Note: `RecordSource` here applies to GameRecord JSON/JSONL exports. The
+`games.source` field in GameReplayDB uses its own canonical values (see
+`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`) and may be normalized or
+mapped when exporting GameRecords.
+
 ## 4. MoveRecord
 
 MoveRecord is a compact move entry used in `moves[]`.

@@ -306,6 +306,7 @@ record_game_unified(config, initial_state, final_state, moves)
 | `RecordSource.GAUNTLET`   | Gauntlet evaluation               |
 | `RecordSource.TOURNAMENT` | Tournament games                  |
 | `RecordSource.TRAINING`   | Training data generation          |
+| `RecordSource.MANUAL`     | Manual imports / ad-hoc runs      |
 
 ### Migrating Existing Scripts
 
@@ -315,7 +316,7 @@ To migrate a script from direct database recording to unified recording:
 
 ```python
 from app.db.game_replay import GameReplayDB
-from app.db.recording import record_completed_game
+from app.db import record_completed_game
 
 db = GameReplayDB("data/games/selfplay_sq8_2p.db")  # Inconsistent naming
 record_completed_game(db, initial, final, moves, metadata={"board_type": "sq8"})

@@ -348,15 +348,15 @@ Combined with the training seeding rules above, this means:
 Training and analysis harnesses now record self-play games by default to **GameReplayDB** SQLite databases and provide a standard path for exporting mid-game evaluation pools:
 
 - **Environment and helpers**
-  - `ai-service/app/db/recording.py` defines:
+  - `ai-service/app/db/unified_recording.py` defines:
     - `RINGRIFT_RECORD_SELFPLAY_GAMES` – global on/off switch for recording (`true` by default; `"false"`, `"0"`, `"no"` disable).
     - `RINGRIFT_SELFPLAY_DB_PATH` – default DB path when scripts do not supply an explicit location.
     - `should_record_games(...)` and `get_or_create_db(...)` – convenience helpers used by CLI scripts.
 - **CMA‑ES optimisation (`run_cmaes_optimization.py`)**
   - Uses `should_record_games(cli_no_record=not config.record_games)` with `record_games=True` by default and a `--no-record` flag to opt out.
-  - When enabled, creates `{run_dir}/games.db` for each run and records every evaluated game via `record_completed_game(...)` with rich metadata (`source="cmaes"`, board, num_players, run_id, generation, candidate index, and any extra tags from `recording_context`).
+  - When enabled, creates `{run_dir}/games.db` for each run and records every evaluated game via `record_completed_game_with_parity_check(...)` (or `record_completed_game(...)` when parity is disabled) with rich metadata (`source="cmaes"`, board, num_players, run_id, generation, candidate index, and any extra tags from `recording_context`).
 - **Self-play soaks and other generators**
-  - Self-play harnesses such as `run_self_play_soak.py` and evaluation helpers reuse the same `GameReplayDB` + `record_completed_game(...)` surface, honouring `RINGRIFT_RECORD_SELFPLAY_GAMES` and/or their own `--no-record` switches.
+  - Self-play harnesses such as `run_self_play_soak.py` and evaluation helpers reuse the same `GameReplayDB` + `record_completed_game_with_parity_check(...)` surface, honouring `RINGRIFT_RECORD_SELFPLAY_GAMES` and/or their own `--no-record` switches.
 - **Evaluation state pools**
   - `ai-service/scripts/export_state_pool.py` reads one or more `games.db` files, samples states at configurable move numbers (for example `--sample-moves 20,40,60`), and writes JSONL pools under `data/eval_pools/**`.
   - These JSONL files are consumed by `app.training.eval_pools.load_state_pool(...)` and used by `run_cmaes_optimization.py` (and related scripts) when running in `--eval-mode multi-start`.

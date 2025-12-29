@@ -444,10 +444,16 @@ class DatabaseSyncManager(SyncManagerBase):
                                 continue
                             return False
 
-                        # Download to temp file
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
-                            tmp.write(await resp.read())
-                            tmp_path = Path(tmp.name)
+                        # Download to temp file (use asyncio.to_thread to avoid blocking)
+                        # Dec 29, 2025: Large DB files could stall event loop with sync I/O
+                        response_data = await resp.read()
+
+                        def _write_temp_file():
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+                                tmp.write(response_data)
+                                return Path(tmp.name)
+
+                        tmp_path = await asyncio.to_thread(_write_temp_file)
 
                         # Merge or replace
                         if self.enable_merge:

@@ -629,7 +629,7 @@ All major board configurations have been optimized via CMA-ES:
   - Merges multiple per-run `games.db` files into a consolidated `GameReplayDB`, preserving metadata and optionally renaming conflicting `game_id`s.
   - Intended for long-running experiments and for preparing unified corpora before exporting evaluation pools or running replay parity/health checks.
 - [x] Environment variables: `RINGRIFT_RECORD_SELFPLAY_GAMES`, `RINGRIFT_SELFPLAY_DB_PATH`
-  - Implemented in `ai-service/app/db/recording.py` and honoured by `run_self_play_soak.py`, `run_cmaes_optimization.py`, and other self-play / training scripts via `should_record_games(...)` and `get_or_create_db(...)`.
+  - Implemented in `ai-service/app/db/unified_recording.py` and honoured by `run_self_play_soak.py`, `run_cmaes_optimization.py`, and other self-play / training scripts via `should_record_games(...)` and `get_or_create_db(...)`.
 
 ### 10.4 Replay System ✅ SUBSTANTIALLY COMPLETE (Dec 4, 2025)
 

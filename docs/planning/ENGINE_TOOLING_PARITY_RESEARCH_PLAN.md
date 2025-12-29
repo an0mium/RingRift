@@ -369,7 +369,7 @@ from Python scripts.
        - `available_moves_count` – integer count of valid moves
          (lightweight summary when full enumeration isn’t captured).
 
-### B.2 Recording helpers (`ai-service/app/db/recording.py`)
+### B.2 Recording helpers (`ai-service/app/db/unified_recording.py`)
 
 **GameRecorder (context manager)**
 

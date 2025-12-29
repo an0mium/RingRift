@@ -2,19 +2,51 @@
 
 This module tests the adaptive resource manager that monitors and manages
 disk, memory, and GPU resources across the cluster.
+
+Coverage includes:
+1. ResourceStatus dataclass operations
+2. CleanupResult dataclass operations
+3. AdaptiveResourceManager initialization
+4. Disk usage monitoring
+5. Memory usage monitoring
+6. GPU memory management
+7. NFS path monitoring
+8. File cleanup operations
+9. Selfplay data aggregation
+10. Check and cleanup flow
+11. Run loop lifecycle
+12. Statistics tracking
+13. Health check compliance
+14. Singleton pattern
+15. Module constants
+16. Error handling and recovery
+17. Priority-based scheduling (resource priority)
+18. Worker pool scaling considerations
+
+December 2025: Expanded test coverage to 50+ tests.
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import tempfile
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, call, patch, mock_open
 
 import pytest
 
 from app.coordination.adaptive_resource_manager import (
+    AGGREGATION_INTERVAL,
+    CHECK_INTERVAL,
     CLEANUP_BATCH_SIZE,
+    CLEANUP_COOLDOWN,
+    DEFAULT_DATA_PATH,
+    DEFAULT_NFS_PATH,
+    DISK_CLEANUP_THRESHOLD,
     DISK_CRITICAL_THRESHOLD,
     DISK_WARNING_THRESHOLD,
     MEMORY_CRITICAL_THRESHOLD,

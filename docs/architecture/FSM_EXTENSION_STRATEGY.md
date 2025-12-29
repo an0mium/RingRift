@@ -207,7 +207,7 @@ This document tracks the FSM extension roadmap, now largely complete.
 | Add `fsm_valid` field to move metadata     | ✅ Done | `ai-service/app/db/game_replay.py`              |
 | Add `fsm_error_code` field                 | ✅ Done | `ai-service/app/db/game_replay.py`              |
 | Schema v7 migration                        | ✅ Done | `ai-service/app/db/game_replay.py`              |
-| `validate_move_fsm()` helper               | ✅ Done | `ai-service/app/db/recording.py`                |
+| `validate_move_fsm()` helper               | ✅ Done | `ai-service/app/db/unified_recording.py`        |
 | Block dataset generation on FSM validation | ✅ Done | `ai-service/app/training/env.py`                |
 | Add `fsmValidated` to GameRecordMetadata   | ✅ Done | `ai-service/app/models/game_record.py`          |
 | Update `build_training_game_record()`      | ✅ Done | `ai-service/app/training/game_record_export.py` |
