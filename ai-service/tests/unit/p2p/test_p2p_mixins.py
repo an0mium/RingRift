@@ -222,7 +222,7 @@ class TestLeaderElectionMixinConsistency:
     def test_check_leader_consistency_as_follower(self) -> None:
         """Test consistency check passes when follower with no leader_id=self."""
         mixin = self._create_mixin()
-        mixin.role = MockNodeRole.FOLLOWER
+        mixin.role = NodeRoleEnum.FOLLOWER
         mixin.leader_id = "other_node"
         is_consistent, reason = mixin._check_leader_consistency()
         assert is_consistent is True
@@ -240,7 +240,7 @@ class TestLeaderElectionMixinConsistency:
     def test_check_leader_consistency_inconsistent_leader_id(self) -> None:
         """Test inconsistency when leader_id=self but role!=leader."""
         mixin = self._create_mixin()
-        mixin.role = MockNodeRole.FOLLOWER
+        mixin.role = NodeRoleEnum.FOLLOWER
         mixin.leader_id = "self"
         is_consistent, reason = mixin._check_leader_consistency()
         assert is_consistent is False

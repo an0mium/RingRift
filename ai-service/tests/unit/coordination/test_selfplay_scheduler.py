@@ -42,7 +42,6 @@ from app.coordination.selfplay_scheduler import (
     ConfigPriority,
     NodeCapability,
     SelfplayScheduler,
-    get_priority_configs_sync,
     get_selfplay_scheduler,
     reset_selfplay_scheduler,
 )

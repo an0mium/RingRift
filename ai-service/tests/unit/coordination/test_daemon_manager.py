@@ -1231,3 +1231,926 @@ class TestValidateCriticalSubsystems:
         # Should not raise even if subsystems fail to import
         errors = manager._validate_critical_subsystems()
         assert errors is not None
+
+
+# =============================================================================
+# Health Check Method Tests
+# =============================================================================
+
+
+class TestHealthCheckMethod:
+    """Tests for the health_check() method on DaemonManager itself."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    def test_health_check_not_running(self):
+        """health_check() returns unhealthy when not running."""
+        manager = DaemonManager()
+        manager._running = False
+
+        result = manager.health_check()
+
+        assert result.healthy is False
+        assert "not running" in result.message.lower() or result.message == ""
+
+    def test_health_check_running_no_daemons(self):
+        """health_check() returns healthy when running with no daemons."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        result = manager.health_check()
+
+        assert result.healthy is True
+
+    def test_health_check_running_with_healthy_daemons(self):
+        """health_check() returns healthy with running daemons."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        manager._daemons[DaemonType.EVENT_ROUTER].state = DaemonState.RUNNING
+
+        result = manager.health_check()
+
+        assert result.healthy is True
+        assert result.details["daemons_running"] == 1
+
+    def test_health_check_degraded_with_failures(self):
+        """health_check() returns degraded with many failures."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        # Register 5 daemons, 2 failed (40% > 20% threshold)
+        for i, dtype in enumerate([
+            DaemonType.EVENT_ROUTER,
+            DaemonType.DATA_PIPELINE,
+            DaemonType.AUTO_SYNC,
+            DaemonType.FEEDBACK_LOOP,
+            DaemonType.QUEUE_POPULATOR,
+        ]):
+            manager.register_factory(dtype, lambda: None)
+            if i < 2:
+                manager._daemons[dtype].state = DaemonState.FAILED
+            else:
+                manager._daemons[dtype].state = DaemonState.RUNNING
+
+        result = manager.health_check()
+
+        assert result.healthy is False
+        assert result.details["daemons_failed"] == 2
+
+    def test_health_check_returns_details(self):
+        """health_check() includes expected details."""
+        manager = DaemonManager()
+        manager._running = True
+
+        result = manager.health_check()
+
+        assert "running" in result.details
+        assert "daemons_total" in result.details
+        assert "daemons_running" in result.details
+        assert "daemons_failed" in result.details
+        assert "uptime_seconds" in result.details
+
+
+# =============================================================================
+# Liveness and Readiness Probe Tests
+# =============================================================================
+
+
+class TestProbes:
+    """Tests for liveness and readiness probes."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    def test_liveness_probe_basic(self):
+        """liveness_probe() returns alive status."""
+        manager = DaemonManager()
+
+        probe = manager.liveness_probe()
+
+        assert probe["alive"] is True
+        assert "timestamp" in probe
+        assert "uptime_seconds" in probe
+
+    def test_liveness_probe_uptime_increases(self):
+        """liveness_probe() uptime should increase over time."""
+        manager = DaemonManager()
+
+        probe1 = manager.liveness_probe()
+        time.sleep(0.1)
+        probe2 = manager.liveness_probe()
+
+        assert probe2["uptime_seconds"] >= probe1["uptime_seconds"]
+
+    def test_readiness_probe_not_started(self):
+        """readiness_probe() returns not ready when not started."""
+        manager = DaemonManager()
+        manager._running = False
+
+        probe = manager.readiness_probe()
+
+        assert probe["ready"] is False
+        assert "not started" in probe.get("reason", "").lower()
+
+    def test_readiness_probe_no_daemons(self):
+        """readiness_probe() returns not ready with no running daemons."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        probe = manager.readiness_probe()
+
+        assert probe["ready"] is False
+        assert "no daemon" in probe.get("reason", "").lower()
+
+    def test_readiness_probe_with_running_daemons(self):
+        """readiness_probe() returns ready with running daemons."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        manager._daemons[DaemonType.EVENT_ROUTER].state = DaemonState.RUNNING
+
+        probe = manager.readiness_probe()
+
+        assert probe["ready"] is True
+        assert probe["running_count"] == 1
+
+    def test_readiness_probe_required_daemons_missing(self):
+        """readiness_probe() returns not ready when required daemons missing."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        manager._daemons[DaemonType.EVENT_ROUTER].state = DaemonState.RUNNING
+
+        probe = manager.readiness_probe(
+            required_daemons=[DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE]
+        )
+
+        assert probe["ready"] is False
+        assert "DATA_PIPELINE" in str(probe.get("reason", ""))
+
+    def test_readiness_probe_required_daemons_present(self):
+        """readiness_probe() returns ready when required daemons running."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        for dtype in [DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE]:
+            manager.register_factory(dtype, lambda: None)
+            manager._daemons[dtype].state = DaemonState.RUNNING
+
+        probe = manager.readiness_probe(
+            required_daemons=[DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE]
+        )
+
+        assert probe["ready"] is True
+
+    def test_health_summary_includes_all_info(self):
+        """health_summary() includes comprehensive info."""
+        manager = DaemonManager()
+        manager._running = True
+
+        summary = manager.health_summary()
+
+        assert "status" in summary
+        assert "score" in summary
+        assert "running" in summary
+        assert "failed" in summary
+        assert "total" in summary
+        assert "liveness" in summary
+        assert "readiness" in summary
+        assert "timestamp" in summary
+
+    def test_health_summary_score_calculation(self):
+        """health_summary() calculates score correctly."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        # 2 running, 1 failed = 66% health score
+        for i, dtype in enumerate([DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE, DaemonType.AUTO_SYNC]):
+            manager.register_factory(dtype, lambda: None)
+            if i < 2:
+                manager._daemons[dtype].state = DaemonState.RUNNING
+            else:
+                manager._daemons[dtype].state = DaemonState.FAILED
+
+        summary = manager.health_summary()
+
+        expected_score = 2 / 3  # 66%
+        assert abs(summary["score"] - expected_score) < 0.01
+
+    def test_health_summary_status_healthy(self):
+        """health_summary() shows healthy status at 90%+."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        # 10 running, 0 failed = 100%
+        for i in range(10):
+            dtype = list(DaemonType)[i]
+            manager.register_factory(dtype, lambda: None)
+            manager._daemons[dtype].state = DaemonState.RUNNING
+
+        summary = manager.health_summary()
+
+        assert summary["status"] == "healthy"
+
+
+# =============================================================================
+# Lifecycle Summary Tests
+# =============================================================================
+
+
+class TestLifecycleSummary:
+    """Tests for lifecycle tracking methods."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    def test_get_lifecycle_summary_empty(self):
+        """get_lifecycle_summary() works with no daemons."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        summary = manager.get_lifecycle_summary()
+
+        assert "manager_uptime_seconds" in summary
+        assert summary["total_restarts"] == 0
+        assert summary["average_uptime_seconds"] == 0.0
+
+    def test_get_lifecycle_summary_with_daemons(self):
+        """get_lifecycle_summary() includes daemon statistics."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        info.state = DaemonState.RUNNING
+        info.start_time = time.time() - 100  # Started 100s ago
+        info.restart_count = 2
+
+        summary = manager.get_lifecycle_summary()
+
+        assert summary["total_restarts"] == 2
+        assert summary["max_uptime_seconds"] >= 100
+        assert summary["most_restarts_daemon"] == "event_router"
+        assert summary["most_restarts_count"] == 2
+
+    def test_get_failed_daemons_empty(self):
+        """get_failed_daemons() returns empty list when none failed."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        manager._daemons[DaemonType.EVENT_ROUTER].state = DaemonState.RUNNING
+
+        failed = manager.get_failed_daemons()
+
+        assert len(failed) == 0
+
+    def test_get_failed_daemons_with_failures(self):
+        """get_failed_daemons() returns failed daemon info."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        info.state = DaemonState.FAILED
+        info.last_error = "Test failure"
+
+        failed = manager.get_failed_daemons()
+
+        assert len(failed) == 1
+        assert failed[0][0] == DaemonType.EVENT_ROUTER
+        assert failed[0][1] == "Test failure"
+
+    def test_get_daemon_uptime_not_running(self):
+        """get_daemon_uptime() returns 0 for non-running daemon."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+
+        uptime = manager.get_daemon_uptime(DaemonType.EVENT_ROUTER)
+
+        assert uptime == 0.0
+
+    def test_get_daemon_uptime_running(self):
+        """get_daemon_uptime() returns uptime for running daemon."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        info.state = DaemonState.RUNNING
+        info.start_time = time.time() - 50  # Started 50s ago
+
+        uptime = manager.get_daemon_uptime(DaemonType.EVENT_ROUTER)
+
+        assert uptime >= 50
+
+    def test_get_daemon_uptime_unknown_daemon(self):
+        """get_daemon_uptime() returns 0 for unknown daemon."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        uptime = manager.get_daemon_uptime(DaemonType.EVENT_ROUTER)
+
+        assert uptime == 0.0
+
+
+# =============================================================================
+# Restart Count Persistence Tests
+# =============================================================================
+
+
+class TestRestartCountPersistence:
+    """Tests for restart count persistence."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    def test_record_restart_first_time(self):
+        """record_restart() allows first restart."""
+        manager = DaemonManager()
+
+        with patch.object(manager, "_save_restart_counts"):
+            result = manager.record_restart(DaemonType.EVENT_ROUTER)
+
+        assert result is True
+        assert DaemonType.EVENT_ROUTER.value in manager._restart_timestamps
+
+    def test_record_restart_tracks_timestamps(self):
+        """record_restart() tracks restart timestamps."""
+        manager = DaemonManager()
+
+        with patch.object(manager, "_save_restart_counts"):
+            manager.record_restart(DaemonType.EVENT_ROUTER)
+            manager.record_restart(DaemonType.EVENT_ROUTER)
+
+        timestamps = manager._restart_timestamps[DaemonType.EVENT_ROUTER.value]
+        assert len(timestamps) == 2
+
+    def test_record_restart_exceeds_hourly_limit(self):
+        """record_restart() blocks when hourly limit exceeded."""
+        manager = DaemonManager()
+
+        # Pre-populate with many recent restarts
+        daemon_name = DaemonType.EVENT_ROUTER.value
+        current_time = time.time()
+        manager._restart_timestamps[daemon_name] = [
+            current_time - i * 60 for i in range(15)  # 15 restarts in last hour
+        ]
+
+        with patch.object(manager, "_save_restart_counts"):
+            result = manager.record_restart(DaemonType.EVENT_ROUTER)
+
+        assert result is False
+        assert daemon_name in manager._permanently_failed
+
+    def test_record_restart_cleans_old_timestamps(self):
+        """record_restart() removes timestamps older than 1 hour."""
+        manager = DaemonManager()
+
+        daemon_name = DaemonType.EVENT_ROUTER.value
+        old_timestamp = time.time() - 7200  # 2 hours ago
+        manager._restart_timestamps[daemon_name] = [old_timestamp]
+
+        with patch.object(manager, "_save_restart_counts"):
+            manager.record_restart(DaemonType.EVENT_ROUTER)
+
+        # Old timestamp should be removed
+        timestamps = manager._restart_timestamps[daemon_name]
+        assert old_timestamp not in timestamps
+
+    def test_is_permanently_failed_false(self):
+        """is_permanently_failed() returns False for healthy daemon."""
+        manager = DaemonManager()
+
+        assert manager.is_permanently_failed(DaemonType.EVENT_ROUTER) is False
+
+    def test_is_permanently_failed_true(self):
+        """is_permanently_failed() returns True for failed daemon."""
+        manager = DaemonManager()
+        manager._permanently_failed.add(DaemonType.EVENT_ROUTER.value)
+
+        assert manager.is_permanently_failed(DaemonType.EVENT_ROUTER) is True
+
+    def test_clear_permanently_failed(self):
+        """clear_permanently_failed() resets failure status."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        manager._permanently_failed.add(DaemonType.EVENT_ROUTER.value)
+        manager._restart_timestamps[DaemonType.EVENT_ROUTER.value] = [time.time()]
+        manager._daemons[DaemonType.EVENT_ROUTER].restart_count = 5
+
+        with patch.object(manager, "_save_restart_counts"):
+            manager.clear_permanently_failed(DaemonType.EVENT_ROUTER)
+
+        assert DaemonType.EVENT_ROUTER.value not in manager._permanently_failed
+        assert DaemonType.EVENT_ROUTER.value not in manager._restart_timestamps
+        assert manager._daemons[DaemonType.EVENT_ROUTER].restart_count == 0
+
+    def test_get_recent_restarts_none(self):
+        """get_recent_restarts() returns empty list when none recent."""
+        manager = DaemonManager()
+        manager._restart_timestamps.clear()
+
+        recent = manager.get_recent_restarts()
+
+        assert len(recent) == 0
+
+    def test_get_recent_restarts_within_window(self):
+        """get_recent_restarts() returns daemons restarted within window."""
+        manager = DaemonManager()
+
+        manager._restart_timestamps[DaemonType.EVENT_ROUTER.value] = [time.time() - 60]
+        manager._restart_timestamps[DaemonType.DATA_PIPELINE.value] = [time.time() - 600]
+
+        recent = manager.get_recent_restarts(within_seconds=300)
+
+        assert DaemonType.EVENT_ROUTER in recent
+        assert DaemonType.DATA_PIPELINE not in recent
+
+    def test_get_recent_restarts_custom_window(self):
+        """get_recent_restarts() respects custom time window."""
+        manager = DaemonManager()
+
+        manager._restart_timestamps[DaemonType.EVENT_ROUTER.value] = [time.time() - 60]
+
+        # 30 second window should exclude restart from 60s ago
+        recent = manager.get_recent_restarts(within_seconds=30)
+
+        assert DaemonType.EVENT_ROUTER not in recent
+
+
+# =============================================================================
+# Mark Daemon Ready Tests
+# =============================================================================
+
+
+class TestMarkDaemonReady:
+    """Tests for explicit daemon readiness signaling."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    def test_mark_daemon_ready_sets_event(self):
+        """mark_daemon_ready() sets the ready event."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        info.ready_event = asyncio.Event()
+
+        result = manager.mark_daemon_ready(DaemonType.EVENT_ROUTER)
+
+        assert result is True
+        assert info.ready_event.is_set()
+
+    def test_mark_daemon_ready_not_found(self):
+        """mark_daemon_ready() returns False for unregistered daemon."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        result = manager.mark_daemon_ready(DaemonType.EVENT_ROUTER)
+
+        assert result is False
+
+    def test_mark_daemon_ready_no_event(self):
+        """mark_daemon_ready() returns False when no ready_event."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        manager._daemons[DaemonType.EVENT_ROUTER].ready_event = None
+
+        result = manager.mark_daemon_ready(DaemonType.EVENT_ROUTER)
+
+        assert result is False
+
+    def test_mark_daemon_ready_already_set(self):
+        """mark_daemon_ready() returns True when already set."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        info.ready_event = asyncio.Event()
+        info.ready_event.set()
+
+        result = manager.mark_daemon_ready(DaemonType.EVENT_ROUTER)
+
+        assert result is True
+
+
+# =============================================================================
+# Render Metrics Tests
+# =============================================================================
+
+
+class TestRenderMetrics:
+    """Tests for Prometheus-style metrics rendering."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    def test_render_metrics_basic(self):
+        """render_metrics() produces valid output."""
+        manager = DaemonManager()
+        manager._running = True
+
+        metrics = manager.render_metrics()
+
+        assert isinstance(metrics, str)
+        assert "daemon_count" in metrics
+        assert "daemon_health_score" in metrics
+
+    def test_render_metrics_includes_counts(self):
+        """render_metrics() includes daemon state counts."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+        manager._daemons[DaemonType.EVENT_ROUTER].state = DaemonState.RUNNING
+
+        metrics = manager.render_metrics()
+
+        assert 'daemon_count{state="running"} 1' in metrics
+
+    def test_render_metrics_includes_uptime(self):
+        """render_metrics() includes uptime."""
+        manager = DaemonManager()
+        manager._running = True
+
+        metrics = manager.render_metrics()
+
+        assert "daemon_uptime_seconds" in metrics
+
+
+# =============================================================================
+# Get Daemon Info Tests
+# =============================================================================
+
+
+class TestGetDaemonInfo:
+    """Tests for get_daemon_info() method."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    def test_get_daemon_info_exists(self):
+        """get_daemon_info() returns info for registered daemon."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, lambda: None)
+
+        info = manager.get_daemon_info(DaemonType.EVENT_ROUTER)
+
+        assert info is not None
+        assert info.daemon_type == DaemonType.EVENT_ROUTER
+
+    def test_get_daemon_info_not_exists(self):
+        """get_daemon_info() returns None for unregistered daemon."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+
+        info = manager.get_daemon_info(DaemonType.EVENT_ROUTER)
+
+        assert info is None
+
+
+# =============================================================================
+# Check Health Tests
+# =============================================================================
+
+
+class TestCheckHealth:
+    """Tests for _check_health() health monitoring method."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    @pytest.mark.asyncio
+    async def test_check_health_dict_result(self):
+        """_check_health() handles dict health_check result."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        class DaemonWithHealth:
+            def health_check(self):
+                return {"healthy": True, "message": "OK"}
+
+        async def factory():
+            while True:
+                await asyncio.sleep(0.1)
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, factory)
+        await manager.start(DaemonType.EVENT_ROUTER, wait_for_deps=False)
+        manager._daemons[DaemonType.EVENT_ROUTER].instance = DaemonWithHealth()
+
+        await manager._check_health()
+
+        assert manager.is_running(DaemonType.EVENT_ROUTER)
+        await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_check_health_bool_result(self):
+        """_check_health() handles boolean health_check result."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        class DaemonWithBoolHealth:
+            def health_check(self):
+                return True
+
+        async def factory():
+            while True:
+                await asyncio.sleep(0.1)
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, factory)
+        await manager.start(DaemonType.EVENT_ROUTER, wait_for_deps=False)
+        manager._daemons[DaemonType.EVENT_ROUTER].instance = DaemonWithBoolHealth()
+
+        await manager._check_health()
+
+        assert manager.is_running(DaemonType.EVENT_ROUTER)
+        await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_check_health_object_result(self):
+        """_check_health() handles object with .healthy attribute."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        class HealthResult:
+            def __init__(self):
+                self.healthy = True
+                self.message = "OK"
+
+        class DaemonWithObjectHealth:
+            def health_check(self):
+                return HealthResult()
+
+        async def factory():
+            while True:
+                await asyncio.sleep(0.1)
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, factory)
+        await manager.start(DaemonType.EVENT_ROUTER, wait_for_deps=False)
+        manager._daemons[DaemonType.EVENT_ROUTER].instance = DaemonWithObjectHealth()
+
+        await manager._check_health()
+
+        assert manager.is_running(DaemonType.EVENT_ROUTER)
+        await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_check_health_async_result(self):
+        """_check_health() handles async health_check method."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+
+        class DaemonWithAsyncHealth:
+            async def health_check(self):
+                await asyncio.sleep(0.01)
+                return {"healthy": True}
+
+        async def factory():
+            while True:
+                await asyncio.sleep(0.1)
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, factory)
+        await manager.start(DaemonType.EVENT_ROUTER, wait_for_deps=False)
+        manager._daemons[DaemonType.EVENT_ROUTER].instance = DaemonWithAsyncHealth()
+
+        await manager._check_health()
+
+        assert manager.is_running(DaemonType.EVENT_ROUTER)
+        await manager.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_check_health_unhealthy_triggers_restart(self):
+        """_check_health() triggers restart on unhealthy result."""
+        manager = DaemonManager()
+        manager._factories.clear()
+        manager._daemons.clear()
+        manager._running = True
+        manager.config.auto_restart_failed = True
+
+        class UnhealthyDaemon:
+            def health_check(self):
+                return {"healthy": False, "message": "Unhealthy"}
+
+        async def factory():
+            while True:
+                await asyncio.sleep(0.1)
+
+        manager.register_factory(DaemonType.EVENT_ROUTER, factory)
+        await manager.start(DaemonType.EVENT_ROUTER, wait_for_deps=False)
+        manager._daemons[DaemonType.EVENT_ROUTER].instance = UnhealthyDaemon()
+
+        await manager._check_health()
+
+        # Should have recorded error or triggered restart
+        info = manager._daemons[DaemonType.EVENT_ROUTER]
+        assert info.last_error is not None or info.restart_count > 0
+
+        await manager.shutdown()
+
+
+# =============================================================================
+# Event Handler Tests
+# =============================================================================
+
+
+class TestEventHandlers:
+    """Tests for daemon manager event handlers."""
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        DaemonManager.reset_instance()
+        reset_daemon_manager()
+
+    @pytest.mark.asyncio
+    async def test_on_regression_critical_logs(self):
+        """_on_regression_critical() logs the event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "config_key": "hex8_2p",
+            "model_id": "test-model",
+            "elo_drop": 50,
+            "current_elo": 1500,
+            "previous_elo": 1550,
+        }
+
+        # Should not raise
+        await manager._on_regression_critical(event)
+
+    @pytest.mark.asyncio
+    async def test_on_selfplay_target_updated(self):
+        """_on_selfplay_target_updated() handles event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "config_key": "hex8_2p",
+            "priority": "high",
+            "reason": "test",
+        }
+
+        # Should not raise
+        await manager._on_selfplay_target_updated(event)
+
+    @pytest.mark.asyncio
+    async def test_on_exploration_boost(self):
+        """_on_exploration_boost() handles event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "config_key": "hex8_2p",
+            "boost_factor": 1.5,
+            "reason": "test",
+            "duration_seconds": 3600,
+        }
+
+        # Should not raise
+        await manager._on_exploration_boost(event)
+
+    @pytest.mark.asyncio
+    async def test_on_host_offline(self):
+        """_on_host_offline() handles event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "host_id": "test-host",
+            "reason": "connection lost",
+        }
+
+        # Should not raise
+        await manager._on_host_offline(event)
+
+    @pytest.mark.asyncio
+    async def test_on_host_online(self):
+        """_on_host_online() handles event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "host_id": "test-host",
+        }
+
+        # Should not raise
+        await manager._on_host_online(event)
+
+    @pytest.mark.asyncio
+    async def test_on_backpressure_activated(self):
+        """_on_backpressure_activated() handles event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "reason": "queue full",
+            "threshold": 1000,
+            "current_value": 1500,
+        }
+
+        # Should not raise
+        await manager._on_backpressure_activated(event)
+
+    @pytest.mark.asyncio
+    async def test_on_backpressure_released(self):
+        """_on_backpressure_released() handles event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "duration_seconds": 300.0,
+        }
+
+        # Should not raise
+        await manager._on_backpressure_released(event)
+
+    @pytest.mark.asyncio
+    async def test_on_disk_space_low(self):
+        """_on_disk_space_low() handles event."""
+        manager = DaemonManager()
+
+        event = MagicMock()
+        event.payload = {
+            "host": "localhost",
+            "usage_percent": 90.0,
+            "free_gb": 10.0,
+            "threshold": 70,
+        }
+
+        # Should not raise
+        await manager._on_disk_space_low(event)
