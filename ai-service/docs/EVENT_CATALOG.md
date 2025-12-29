@@ -35,12 +35,12 @@ These events form the main training pipeline:
 
 ## Data Freshness Events
 
-| Event            | Emitter           | Subscribers                 | Purpose                          |
-| ---------------- | ----------------- | --------------------------- | -------------------------------- |
-| `DATA_STALE`     | TrainingFreshness | SyncRouter, TrainingTrigger | Training data is stale           |
-| `DATA_FRESH`     | TrainingFreshness | TrainingTrigger             | Training data is fresh           |
-| `SYNC_TRIGGERED` | SyncRouter        | AutoSyncDaemon              | Sync triggered due to stale data |
-| `SYNC_REQUEST`   | SyncRouter        | AutoSyncDaemon              | Explicit sync request            |
+| Event            | Emitter                              | Subscribers                                                                      | Purpose                          |
+| ---------------- | ------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------- |
+| `DATA_STALE`     | TrainingFreshness                    | AutoSyncDaemon, TrainingTriggerDaemon, DataPipelineOrchestrator, UnifiedFeedback | Training data is stale           |
+| `DATA_FRESH`     | TrainingFreshness                    | TrainingTriggerDaemon, UnifiedFeedback                                           | Training data is fresh           |
+| `SYNC_TRIGGERED` | SyncRouter                           | AutoSyncDaemon                                                                   | Sync triggered due to stale data |
+| `SYNC_REQUEST`   | SyncRouter, DataPipelineOrchestrator | AutoSyncDaemon, SyncPlanner                                                      | Explicit sync request            |
 
 ## Data Consolidation Events
 
@@ -48,6 +48,16 @@ These events form the main training pipeline:
 | ------------------------ | ----------------------- | ------------------------ | ---------------------------- |
 | `CONSOLIDATION_STARTED`  | DataConsolidationDaemon | DaemonManager            | Track consolidation state    |
 | `CONSOLIDATION_COMPLETE` | DataConsolidationDaemon | DataPipelineOrchestrator | Games merged to canonical DB |
+
+---
+
+## NPZ Combination Events
+
+| Event                      | Emitter              | Subscribers              | Purpose                                 |
+| -------------------------- | -------------------- | ------------------------ | --------------------------------------- |
+| `NPZ_COMBINATION_STARTED`  | NPZCombinationDaemon | None                     | NPZ combination in progress             |
+| `NPZ_COMBINATION_COMPLETE` | NPZCombinationDaemon | DataPipelineOrchestrator | Combined NPZ ready for training         |
+| `NPZ_COMBINATION_FAILED`   | NPZCombinationDaemon | DataPipelineOrchestrator | Combination failed; fall back to export |
 
 ---
 
@@ -63,7 +73,7 @@ These events form the main training pipeline:
 
 | Event                         | Emitter                  | Subscribers                                   | Purpose                               |
 | ----------------------------- | ------------------------ | --------------------------------------------- | ------------------------------------- |
-| `TRAINING_THRESHOLD_REACHED`  | DataPipelineOrchestrator | TrainingTrigger                               | Sufficient data for training          |
+| `TRAINING_THRESHOLD_REACHED`  | DataPipelineOrchestrator | TrainingTriggerDaemon                         | Sufficient data for training          |
 | `TRAINING_STARTED`            | TrainingCoordinator      | SyncRouter, IdleShutdown, DataPipeline        | Pause idle detection, prioritize sync |
 | `TRAINING_PROGRESS`           | TrainingCoordinator      | MetricsAnalysisOrchestrator                   | Track training progress               |
 | `TRAINING_COMPLETED`          | TrainingCoordinator      | FeedbackLoop, DataPipeline, ModelDistribution | Trigger evaluation pipeline           |
@@ -127,14 +137,14 @@ These events form the main training pipeline:
 
 ## Optimization Events
 
-| Event                     | Emitter                | Subscribers                                | Purpose                        |
-| ------------------------- | ---------------------- | ------------------------------------------ | ------------------------------ |
-| `CMAES_TRIGGERED`         | ImprovementOptimizer   | TrainingCoordinator                        | CMA-ES optimization triggered  |
-| `CMAES_COMPLETED`         | ImprovementOptimizer   | FeedbackLoop                               | CMA-ES optimization completed  |
-| `PLATEAU_DETECTED`        | FeedbackLoopController | ImprovementOptimizer                       | Training plateau detected      |
-| `HYPERPARAMETER_UPDATED`  | ImprovementOptimizer   | EvaluationFeedbackHandler                  | Hyperparams changed            |
-| `ELO_VELOCITY_CHANGED`    | QueuePopulator         | SelfplayScheduler, UnifiedFeedback         | Adjust selfplay rate           |
-| `ADAPTIVE_PARAMS_CHANGED` | ImprovementOptimizer   | EvaluationFeedbackHandler, TrainingTrigger | Apply real-time LR adjustments |
+| Event                     | Emitter                | Subscribers                                      | Purpose                        |
+| ------------------------- | ---------------------- | ------------------------------------------------ | ------------------------------ |
+| `CMAES_TRIGGERED`         | ImprovementOptimizer   | TrainingCoordinator                              | CMA-ES optimization triggered  |
+| `CMAES_COMPLETED`         | ImprovementOptimizer   | FeedbackLoop                                     | CMA-ES optimization completed  |
+| `PLATEAU_DETECTED`        | FeedbackLoopController | ImprovementOptimizer                             | Training plateau detected      |
+| `HYPERPARAMETER_UPDATED`  | ImprovementOptimizer   | EvaluationFeedbackHandler                        | Hyperparams changed            |
+| `ELO_VELOCITY_CHANGED`    | QueuePopulator         | SelfplayScheduler, UnifiedFeedback               | Adjust selfplay rate           |
+| `ADAPTIVE_PARAMS_CHANGED` | ImprovementOptimizer   | EvaluationFeedbackHandler, TrainingTriggerDaemon | Apply real-time LR adjustments |
 
 ## PBT Events (Population-Based Training)
 
@@ -189,10 +199,10 @@ These events form the main training pipeline:
 | `QUALITY_CHECK_FAILED`         | QualityMonitorDaemon     | DataPipelineOrchestrator | Quality check failed         |
 | `QUALITY_SCORE_UPDATED`        | QualityMonitorDaemon     | DataPipelineOrchestrator | Quality recalculated         |
 | `QUALITY_DISTRIBUTION_CHANGED` | QualityMonitorDaemon     | CurriculumIntegration    | Significant quality shift    |
-| `HIGH_QUALITY_DATA_AVAILABLE`  | QualityMonitorDaemon     | TrainingTrigger          | Ready for training           |
+| `HIGH_QUALITY_DATA_AVAILABLE`  | QualityMonitorDaemon     | TrainingTriggerDaemon    | Ready for training           |
 | `QUALITY_DEGRADED`             | QualityMonitorDaemon     | FeedbackLoop             | Quality below threshold      |
 | `LOW_QUALITY_DATA_WARNING`     | QualityMonitorDaemon     | AlertManager             | Below warning threshold      |
-| `TRAINING_BLOCKED_BY_QUALITY`  | QualityMonitorDaemon     | TrainingTrigger          | Quality too low to train     |
+| `TRAINING_BLOCKED_BY_QUALITY`  | QualityMonitorDaemon     | TrainingTriggerDaemon    | Quality too low to train     |
 | `QUALITY_FEEDBACK_ADJUSTED`    | QualityMonitorDaemon     | SelfplayScheduler        | Quality feedback updated     |
 | `QUALITY_PENALTY_APPLIED`      | QualityMonitorDaemon     | SelfplayScheduler        | Reduce selfplay rate         |
 | `SCHEDULER_REGISTERED`         | TemperatureScheduler     | SelfplayScheduler        | Scheduler registered         |
