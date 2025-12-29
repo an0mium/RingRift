@@ -329,6 +329,12 @@ print(f"Abandoned: {stats['abandoned']}")
 print(f"By type: {stats['by_event_type']}")
 ```
 
+Or use the dashboard:
+
+```bash
+python scripts/dlq_dashboard.py --pending --failed --limit 20
+```
+
 ### Resolution
 
 1. **Check DLQ daemon is running:**

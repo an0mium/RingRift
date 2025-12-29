@@ -13,6 +13,9 @@ The event system enables loose coupling between components of the AI training pi
 - Cluster health monitoring → Recovery
 - Selfplay scheduling → Curriculum advancement
 
+Emitters and subscribers listed below are primary owners; some events are used
+by multiple components. For a complete list, cross-check `EVENT_CATALOG.md`.
+
 ### Key Components
 
 | Component            | Location          | Purpose                     |
@@ -206,7 +209,7 @@ To bridge a new event type:
 
 | Event                         | Value                         | Emitters             | Subscribers                                   | Purpose                |
 | ----------------------------- | ----------------------------- | -------------------- | --------------------------------------------- | ---------------------- |
-| `TRAINING_THRESHOLD_REACHED`  | `training_threshold`          | QueuePopulator       | TrainingTrigger                               | Schedule training      |
+| `TRAINING_THRESHOLD_REACHED`  | `training_threshold`          | QueuePopulator       | TrainingTriggerDaemon                         | Schedule training      |
 | `TRAINING_STARTED`            | `training_started`            | TrainingCoordinator  | SyncRouter, IdleShutdown                      | Pause idle detection   |
 | `TRAINING_PROGRESS`           | `training_progress`           | TrainLoop            | ProgressMonitor                               | Track training         |
 | `TRAINING_COMPLETED`          | `training_completed`          | TrainingCoordinator  | FeedbackLoop, DataPipeline, ModelDistribution | Trigger evaluation     |
@@ -260,14 +263,14 @@ To bridge a new event type:
 
 ### Optimization Events
 
-| Event                     | Value                     | Emitters               | Subscribers                                | Purpose                        |
-| ------------------------- | ------------------------- | ---------------------- | ------------------------------------------ | ------------------------------ |
-| `CMAES_TRIGGERED`         | `cmaes_triggered`         | ImprovementOptimizer   | TrainingCoordinator                        | CMA-ES optimization triggered  |
-| `CMAES_COMPLETED`         | `cmaes_completed`         | ImprovementOptimizer   | FeedbackLoop                               | CMA-ES optimization completed  |
-| `NAS_TRIGGERED`           | `nas_triggered`           | NASOrchestrator        | TrainingCoordinator                        | NAS search triggered           |
-| `PLATEAU_DETECTED`        | `plateau_detected`        | FeedbackLoopController | ImprovementOptimizer                       | Training plateau detected      |
-| `HYPERPARAMETER_UPDATED`  | `hyperparameter_updated`  | ImprovementOptimizer   | EvaluationFeedbackHandler                  | Hyperparams changed            |
-| `ADAPTIVE_PARAMS_CHANGED` | `adaptive_params_changed` | ImprovementOptimizer   | EvaluationFeedbackHandler, TrainingTrigger | Apply real-time LR adjustments |
+| Event                     | Value                     | Emitters               | Subscribers                                      | Purpose                        |
+| ------------------------- | ------------------------- | ---------------------- | ------------------------------------------------ | ------------------------------ |
+| `CMAES_TRIGGERED`         | `cmaes_triggered`         | ImprovementOptimizer   | TrainingCoordinator                              | CMA-ES optimization triggered  |
+| `CMAES_COMPLETED`         | `cmaes_completed`         | ImprovementOptimizer   | FeedbackLoop                                     | CMA-ES optimization completed  |
+| `NAS_TRIGGERED`           | `nas_triggered`           | NASOrchestrator        | TrainingCoordinator                              | NAS search triggered           |
+| `PLATEAU_DETECTED`        | `plateau_detected`        | FeedbackLoopController | ImprovementOptimizer                             | Training plateau detected      |
+| `HYPERPARAMETER_UPDATED`  | `hyperparameter_updated`  | ImprovementOptimizer   | EvaluationFeedbackHandler                        | Hyperparams changed            |
+| `ADAPTIVE_PARAMS_CHANGED` | `adaptive_params_changed` | ImprovementOptimizer   | EvaluationFeedbackHandler, TrainingTriggerDaemon | Apply real-time LR adjustments |
 
 ### PBT Events
 
@@ -310,22 +313,31 @@ To bridge a new event type:
 
 ### Quality Events
 
-| Event                          | Value                          | Emitters               | Subscribers           | Purpose                   |
-| ------------------------------ | ------------------------------ | ---------------------- | --------------------- | ------------------------- |
-| `DATA_QUALITY_ALERT`           | `data_quality_alert`           | DataQualityChecker     | QualityMonitor        | Log warning               |
-| `QUALITY_CHECK_REQUESTED`      | `quality_check_requested`      | TrainingTrigger        | QualityMonitorDaemon  | Run quality check         |
-| `QUALITY_CHECK_FAILED`         | `quality_check_failed`         | QualityMonitorDaemon   | TrainingTrigger       | Block training            |
-| `QUALITY_SCORE_UPDATED`        | `quality_score_updated`        | DataQualityChecker     | UnifiedQualityScorer  | Update weights            |
-| `QUALITY_DISTRIBUTION_CHANGED` | `quality_distribution_changed` | QualityMonitorDaemon   | CurriculumIntegration | Significant quality shift |
-| `HIGH_QUALITY_DATA_AVAILABLE`  | `high_quality_data_available`  | QualityMonitorDaemon   | TrainingTrigger       | Enable training           |
-| `QUALITY_DEGRADED`             | `quality_degraded`             | QualityMonitorDaemon   | SelfplayScheduler     | Boost quality focus       |
-| `LOW_QUALITY_DATA_WARNING`     | `low_quality_data_warning`     | QualityMonitorDaemon   | AlertManager          | Below threshold           |
-| `TRAINING_BLOCKED_BY_QUALITY`  | `training_blocked_by_quality`  | TrainingTrigger        | DaemonManager         | Pause training            |
-| `QUALITY_FEEDBACK_ADJUSTED`    | `quality_feedback_adjusted`    | QualityMonitorDaemon   | SelfplayScheduler     | Quality feedback updated  |
-| `QUALITY_PENALTY_APPLIED`      | `quality_penalty_applied`      | QualityMonitorDaemon   | SelfplayScheduler     | Reduce selfplay rate      |
-| `SCHEDULER_REGISTERED`         | `scheduler_registered`         | TemperatureScheduler   | SelfplayScheduler     | Scheduler registered      |
-| `EXPLORATION_BOOST`            | `exploration_boost`            | FeedbackLoopController | SelfplayScheduler     | Boost exploration temp    |
-| `EXPLORATION_ADJUSTED`         | `exploration_adjusted`         | FeedbackLoopController | SelfplayScheduler     | Exploration changed       |
+| Event                          | Value                          | Emitters               | Subscribers           | Purpose                               |
+| ------------------------------ | ------------------------------ | ---------------------- | --------------------- | ------------------------------------- |
+| `DATA_QUALITY_ALERT`           | `data_quality_alert`           | DataQualityChecker     | QualityMonitor        | Log warning                           |
+| `QUALITY_CHECK_REQUESTED`      | `quality_check_requested`      | TrainingTriggerDaemon  | QualityMonitorDaemon  | Run quality check                     |
+| `QUALITY_CHECK_FAILED`         | `quality_check_failed`         | QualityMonitorDaemon   | TrainingTriggerDaemon | Block training                        |
+| `QUALITY_SCORE_UPDATED`        | `quality_score_updated`        | DataQualityChecker     | UnifiedQualityScorer  | Update weights                        |
+| `QUALITY_DISTRIBUTION_CHANGED` | `quality_distribution_changed` | QualityMonitorDaemon   | CurriculumIntegration | Significant quality shift             |
+| `HIGH_QUALITY_DATA_AVAILABLE`  | `high_quality_data_available`  | QualityMonitorDaemon   | TrainingTriggerDaemon | Enable training                       |
+| `QUALITY_DEGRADED`             | `quality_degraded`             | QualityMonitorDaemon   | SelfplayScheduler     | Boost quality focus                   |
+| `LOW_QUALITY_DATA_WARNING`     | `low_quality_data_warning`     | QualityMonitorDaemon   | AlertManager          | Below threshold                       |
+| `TRAINING_BLOCKED_BY_QUALITY`  | `training_blocked_by_quality`  | TrainingTriggerDaemon  | DaemonManager         | Pause training                        |
+| `QUALITY_FEEDBACK_ADJUSTED`    | `quality_feedback_adjusted`    | QualityMonitorDaemon   | SelfplayScheduler     | Quality feedback updated              |
+| `QUALITY_PENALTY_APPLIED`      | `quality_penalty_applied`      | QualityMonitorDaemon   | SelfplayScheduler     | Reduce selfplay rate                  |
+| `SCHEDULER_REGISTERED`         | `scheduler_registered`         | TemperatureScheduler   | SelfplayScheduler     | Scheduler registered                  |
+| `EXPLORATION_BOOST`            | `exploration_boost`            | FeedbackLoopController | SelfplayScheduler     | Boost exploration temp                |
+| `EXPLORATION_ADJUSTED`         | `exploration_adjusted`         | FeedbackLoopController | SelfplayScheduler     | Quality-driven exploration adjustment |
+
+`EXPLORATION_ADJUSTED` payload includes:
+
+- `config_key`
+- `quality_score` (0-1)
+- `trend` (improving, declining, stable)
+- `position_difficulty` (normal, medium-hard, hard)
+- `mcts_budget_multiplier`
+- `exploration_temp_boost`
 
 ### Training Loss Monitoring Events
 

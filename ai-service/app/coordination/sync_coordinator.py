@@ -122,19 +122,19 @@ except ImportError:
     QueueType = None
     BackpressureLevel = None
 
-    def check_backpressure(*args, **kwargs):
+    def check_backpressure(*args, **kwargs) -> bool:
         return False
 
-    def should_throttle_production(*args, **kwargs):
+    def should_throttle_production(*args, **kwargs) -> bool:
         return False
 
-    def should_stop_production(*args, **kwargs):
+    def should_stop_production(*args, **kwargs) -> bool:
         return False
 
-    def get_throttle_factor(*args, **kwargs):
+    def get_throttle_factor(*args, **kwargs) -> float:
         return 1.0
 
-    def report_queue_depth(*args, **kwargs):
+    def report_queue_depth(*args, **kwargs) -> None:
         pass
 
 # Default paths

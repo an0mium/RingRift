@@ -144,6 +144,24 @@ dlq.retry_event(event_id)
 dlq.cleanup(older_than_hours=24)
 ```
 
+### DLQ Dashboard (CLI)
+
+For operational visibility and retries, use the dashboard script:
+
+```bash
+# Summary stats + health
+python scripts/dlq_dashboard.py
+
+# List pending events
+python scripts/dlq_dashboard.py --pending --limit 20
+
+# Retry pending events
+python scripts/dlq_dashboard.py --retry --max-events 10
+
+# Watch mode (refresh every 30s)
+python scripts/dlq_dashboard.py --watch --interval 30
+```
+
 ## Event Deduplication
 
 Events are deduplicated using SHA256 content hash:

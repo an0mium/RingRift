@@ -475,6 +475,38 @@ class OptimizationOrchestrator:
             "event_counts": self._event_counts,
         }
 
+    def health_check(self) -> dict:
+        """Return health check status for DaemonManager integration.
+
+        Returns:
+            Dict with healthy status, message, and details
+        """
+        try:
+            active_count = len(self._active_runs)
+            completed_count = len(self._completed_runs)
+            total_events = sum(self._event_counts.values())
+
+            # Healthy if subscribed (or has processed events)
+            is_healthy = self._subscribed or total_events > 0
+
+            return {
+                "healthy": is_healthy,
+                "message": f"Subscribed: {self._subscribed}, {active_count} active, {completed_count} completed",
+                "details": {
+                    "subscribed": self._subscribed,
+                    "active_runs": active_count,
+                    "completed_runs": completed_count,
+                    "total_events_processed": total_events,
+                    "event_counts": self._event_counts.copy(),
+                },
+            }
+        except Exception as e:
+            return {
+                "healthy": False,
+                "message": f"Health check failed: {e}",
+                "details": {"error": str(e)},
+            }
+
 
 # Singleton instance
 _optimization_orchestrator: OptimizationOrchestrator | None = None

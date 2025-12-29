@@ -192,23 +192,23 @@ These events form the main training pipeline:
 
 ## Data Quality Events
 
-| Event                          | Emitter                  | Subscribers              | Purpose                      |
-| ------------------------------ | ------------------------ | ------------------------ | ---------------------------- |
-| `DATA_QUALITY_ALERT`           | QualityMonitorDaemon     | AlertManager             | Quality issue detected       |
-| `QUALITY_CHECK_REQUESTED`      | DataPipelineOrchestrator | QualityMonitorDaemon     | Request on-demand check      |
-| `QUALITY_CHECK_FAILED`         | QualityMonitorDaemon     | DataPipelineOrchestrator | Quality check failed         |
-| `QUALITY_SCORE_UPDATED`        | QualityMonitorDaemon     | DataPipelineOrchestrator | Quality recalculated         |
-| `QUALITY_DISTRIBUTION_CHANGED` | QualityMonitorDaemon     | CurriculumIntegration    | Significant quality shift    |
-| `HIGH_QUALITY_DATA_AVAILABLE`  | QualityMonitorDaemon     | TrainingTriggerDaemon    | Ready for training           |
-| `QUALITY_DEGRADED`             | QualityMonitorDaemon     | FeedbackLoop             | Quality below threshold      |
-| `LOW_QUALITY_DATA_WARNING`     | QualityMonitorDaemon     | AlertManager             | Below warning threshold      |
-| `TRAINING_BLOCKED_BY_QUALITY`  | QualityMonitorDaemon     | TrainingTriggerDaemon    | Quality too low to train     |
-| `QUALITY_FEEDBACK_ADJUSTED`    | QualityMonitorDaemon     | SelfplayScheduler        | Quality feedback updated     |
-| `QUALITY_PENALTY_APPLIED`      | QualityMonitorDaemon     | SelfplayScheduler        | Reduce selfplay rate         |
-| `SCHEDULER_REGISTERED`         | TemperatureScheduler     | SelfplayScheduler        | Scheduler registered         |
-| `EXPLORATION_BOOST`            | FeedbackLoopController   | SelfplayScheduler        | Boost exploration temp       |
-| `EXPLORATION_ADJUSTED`         | FeedbackLoopController   | SelfplayScheduler        | Exploration strategy changed |
-| `OPPONENT_MASTERED`            | CurriculumIntegration    | FeedbackLoop             | Advance curriculum           |
+| Event                          | Emitter                  | Subscribers              | Purpose                               |
+| ------------------------------ | ------------------------ | ------------------------ | ------------------------------------- |
+| `DATA_QUALITY_ALERT`           | QualityMonitorDaemon     | AlertManager             | Quality issue detected                |
+| `QUALITY_CHECK_REQUESTED`      | DataPipelineOrchestrator | QualityMonitorDaemon     | Request on-demand check               |
+| `QUALITY_CHECK_FAILED`         | QualityMonitorDaemon     | DataPipelineOrchestrator | Quality check failed                  |
+| `QUALITY_SCORE_UPDATED`        | QualityMonitorDaemon     | DataPipelineOrchestrator | Quality recalculated                  |
+| `QUALITY_DISTRIBUTION_CHANGED` | QualityMonitorDaemon     | CurriculumIntegration    | Significant quality shift             |
+| `HIGH_QUALITY_DATA_AVAILABLE`  | QualityMonitorDaemon     | TrainingTriggerDaemon    | Ready for training                    |
+| `QUALITY_DEGRADED`             | QualityMonitorDaemon     | FeedbackLoop             | Quality below threshold               |
+| `LOW_QUALITY_DATA_WARNING`     | QualityMonitorDaemon     | AlertManager             | Below warning threshold               |
+| `TRAINING_BLOCKED_BY_QUALITY`  | QualityMonitorDaemon     | TrainingTriggerDaemon    | Quality too low to train              |
+| `QUALITY_FEEDBACK_ADJUSTED`    | QualityMonitorDaemon     | SelfplayScheduler        | Quality feedback updated              |
+| `QUALITY_PENALTY_APPLIED`      | QualityMonitorDaemon     | SelfplayScheduler        | Reduce selfplay rate                  |
+| `SCHEDULER_REGISTERED`         | TemperatureScheduler     | SelfplayScheduler        | Scheduler registered                  |
+| `EXPLORATION_BOOST`            | FeedbackLoopController   | SelfplayScheduler        | Boost exploration temp                |
+| `EXPLORATION_ADJUSTED`         | FeedbackLoopController   | SelfplayScheduler        | Quality-driven exploration adjustment |
+| `OPPONENT_MASTERED`            | CurriculumIntegration    | FeedbackLoop             | Advance curriculum                    |
 
 ## Training Loss Monitoring Events
 

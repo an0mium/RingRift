@@ -167,6 +167,10 @@ class FeedbackState:
     last_selfplay_games: int = 0  # Games from last selfplay batch
     elo_before_training: float = 1500.0  # Elo before the most recent training
 
+    # Dec 29 2025: Curriculum tier tracking for velocity-based advancement
+    curriculum_tier: int = 0  # Current curriculum tier (0=beginner, 1=intermediate, 2=advanced, 3=expert)
+    curriculum_last_advanced: float = 0.0  # Timestamp of last curriculum advancement
+
     # Work queue metrics (December 2025)
     work_completed_count: int = 0  # Total work items completed
     last_work_completion_time: float = 0.0
@@ -1072,8 +1076,134 @@ class FeedbackLoopController:
                     f"for {config_key}, consider hyperparameter search"
                 )
 
+            # Dec 29, 2025: Velocity-based curriculum advancement
+            # When we have 2+ plateaus and velocity is low, advance curriculum tier
+            # to provide harder training data and break out of the plateau
+            if state.plateau_count >= 2:
+                self._advance_curriculum_on_velocity_plateau(config_key, state)
+
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.warning(f"[FeedbackLoopController] Error handling plateau: {e}")
+
+    def _advance_curriculum_on_velocity_plateau(
+        self, config_key: str, state: FeedbackState
+    ) -> None:
+        """Advance curriculum tier when velocity indicates persistent plateau.
+
+        Dec 29, 2025: Implements velocity-based curriculum advancement to break
+        out of training plateaus. When Elo velocity is low and we've had
+        repeated plateaus, we advance to a harder curriculum tier.
+
+        Curriculum tiers:
+        - 0: Beginner (basic positions, weaker opponents)
+        - 1: Intermediate (moderate complexity)
+        - 2: Advanced (complex positions, stronger opponents)
+        - 3: Expert (most challenging positions)
+
+        Benefits:
+        - Harder training data forces model to learn new strategies
+        - Breaks out of local optima caused by repetitive training data
+        - Provides progressive difficulty as model improves
+        """
+        try:
+            # Check velocity - only advance if we're truly plateauing
+            velocity = state.elo_velocity
+            is_low_velocity = velocity < ELO_PLATEAU_PER_HOUR and len(state.elo_history or []) >= 3
+
+            if not is_low_velocity:
+                logger.debug(
+                    f"[FeedbackLoopController] Velocity {velocity:.1f} Elo/hr not low enough "
+                    f"for curriculum advancement ({config_key})"
+                )
+                return
+
+            # Check cooldown - don't advance too frequently (min 2 hours between advances)
+            cooldown_seconds = 7200  # 2 hours
+            time_since_advance = time.time() - state.curriculum_last_advanced
+            if time_since_advance < cooldown_seconds:
+                logger.debug(
+                    f"[FeedbackLoopController] Curriculum advancement on cooldown "
+                    f"({time_since_advance:.0f}s < {cooldown_seconds}s) for {config_key}"
+                )
+                return
+
+            # Check max tier - don't exceed expert level
+            max_tier = 3
+            if state.curriculum_tier >= max_tier:
+                logger.debug(
+                    f"[FeedbackLoopController] Already at max curriculum tier "
+                    f"({state.curriculum_tier}) for {config_key}"
+                )
+                return
+
+            # Advance the curriculum tier
+            old_tier = state.curriculum_tier
+            new_tier = old_tier + 1
+            state.curriculum_tier = new_tier
+            state.curriculum_last_advanced = time.time()
+
+            # Reset plateau count after advancement
+            state.plateau_count = 0
+
+            tier_names = ["Beginner", "Intermediate", "Advanced", "Expert"]
+            logger.info(
+                f"[FeedbackLoopController] Curriculum advancement for {config_key}: "
+                f"{tier_names[old_tier]} -> {tier_names[new_tier]} "
+                f"(velocity={velocity:.1f} Elo/hr, plateaus={state.plateau_count})"
+            )
+
+            # Emit CURRICULUM_ADVANCED event for downstream consumers
+            try:
+                from app.coordination.event_router import DataEventType, get_event_bus
+
+                bus = get_event_bus()
+                if bus:
+                    from app.coordination.event_router import DataEvent
+
+                    event = DataEvent(
+                        event_type=DataEventType.CURRICULUM_ADVANCED,
+                        payload={
+                            "config_key": config_key,
+                            "old_tier": old_tier,
+                            "new_tier": new_tier,
+                            "trigger": "velocity_plateau",
+                            "velocity": velocity,
+                            "plateau_count": state.plateau_count,
+                            "source": "FeedbackLoopController",
+                        },
+                        source="FeedbackLoopController",
+                    )
+                    _safe_create_task(
+                        bus.publish(event),
+                        context=f"emit_curriculum_advanced:{config_key}",
+                    )
+                    logger.debug(
+                        f"[FeedbackLoopController] Emitted CURRICULUM_ADVANCED for {config_key}"
+                    )
+            except (AttributeError, TypeError, ImportError, RuntimeError) as emit_err:
+                logger.debug(
+                    f"[FeedbackLoopController] Failed to emit CURRICULUM_ADVANCED: {emit_err}"
+                )
+
+            # Also notify CurriculumFeedback to adjust weights
+            try:
+                from app.training.curriculum_feedback import get_curriculum_feedback
+
+                feedback = get_curriculum_feedback()
+                if feedback and hasattr(feedback, "set_difficulty_tier"):
+                    feedback.set_difficulty_tier(config_key, new_tier)
+                    logger.debug(
+                        f"[FeedbackLoopController] Updated CurriculumFeedback tier for {config_key}"
+                    )
+            except ImportError:
+                logger.debug("[FeedbackLoopController] curriculum_feedback not available")
+            except (AttributeError, TypeError) as cf_err:
+                logger.debug(f"[FeedbackLoopController] CurriculumFeedback error: {cf_err}")
+
+        except (AttributeError, TypeError, KeyError, RuntimeError) as e:
+            logger.warning(
+                f"[FeedbackLoopController] Error advancing curriculum for {config_key}: {e}"
+            )
 
     def _on_quality_degraded_for_training(self, event: Any) -> None:
         """Handle QUALITY_DEGRADED events to adjust training thresholds (P1.1).

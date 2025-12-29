@@ -814,6 +814,20 @@ class SelfplayScheduler:
                         f"{old_budget}→{new_budget} (Elo={current_elo:.0f})"
                     )
 
+            # Dec 29, 2025: Update Elo uncertainty for VOI calculation
+            # Uncertainty decreases with more games (statistical sampling theory)
+            # Base uncertainty of 300 Elo, reduces with sqrt(game_count)
+            import math
+            BASE_UNCERTAINTY = 300.0
+            MIN_UNCERTAINTY = 30.0  # Floor to prevent near-zero uncertainty
+            if priority.game_count > 0:
+                priority.elo_uncertainty = max(
+                    MIN_UNCERTAINTY,
+                    BASE_UNCERTAINTY / math.sqrt(priority.game_count)
+                )
+            else:
+                priority.elo_uncertainty = BASE_UNCERTAINTY
+
             # Compute priority score
             priority.priority_score = self._compute_priority_score(priority)
 
@@ -1032,8 +1046,13 @@ class SelfplayScheduler:
         # Large boards (square19, hexagonal) especially need more data
         data_deficit = priority.data_deficit_factor * w.data_deficit
 
+        # Dec 29, 2025: VOI (Value of Information) factor
+        # Prioritizes configs where more games yield the highest expected Elo gain
+        # High uncertainty + high Elo gap + high info gain per game = high VOI
+        voi = priority.voi_score * w.voi
+
         # Combine factors
-        score = staleness + velocity + training + exploration + curriculum + improvement + quality + data_deficit
+        score = staleness + velocity + training + exploration + curriculum + improvement + quality + data_deficit + voi
 
         # Apply exploration boost as multiplier
         score *= priority.exploration_boost
