@@ -8459,6 +8459,7 @@ class P2POrchestrator(
             num_players = data.get("num_players", 2)
             num_games = data.get("num_games", 500)
             engine_mode = data.get("engine_mode", "gumbel-mcts")  # GPU-accelerated MCTS
+            engine_extra_args = data.get("engine_extra_args")  # December 2025: for budget override
             data.get("auto_scaled", False)
 
             job_id = f"selfplay-{self.node_id}-{int(time.time())}"
@@ -8471,6 +8472,7 @@ class P2POrchestrator(
                 num_players=num_players,
                 num_games=num_games,
                 engine_mode=engine_mode,
+                engine_extra_args=engine_extra_args,
             ))
 
             logger.info(f"Started GPU selfplay job {job_id}: {board_type}/{num_players}p, {num_games} games")
@@ -14969,6 +14971,7 @@ print(json.dumps(result))
                 num_players = config.get("num_players", 2)
                 num_games = config.get("num_games", 500)
                 engine_mode = config.get("engine_mode", "mixed")
+                engine_extra_args = config.get("engine_extra_args")  # December 2025: for budget override
 
                 # Delegate to JobManager (Phase 2B refactoring, Dec 2025)
                 asyncio.create_task(self.job_manager.run_gpu_selfplay_job(
@@ -14977,6 +14980,7 @@ print(json.dumps(result))
                     num_players=num_players,
                     num_games=num_games,
                     engine_mode=engine_mode,
+                    engine_extra_args=engine_extra_args,
                 ))
 
                 # Track diversity metrics for monitoring (Phase 2B, Dec 2025)
@@ -15228,6 +15232,56 @@ print(json.dumps(result))
                     "profile": "territorial",
                     "weight": 0.05,
                     "description": "Policy 4P square - territory control",
+                },
+                # Dec 28, 2025: Added large board profiles (square19, hexagonal)
+                # Uses lighter engines (heuristic, brs, maxn) for feasible throughput
+                {
+                    "engine_mode": "heuristic-only",
+                    "board_type": "square19",
+                    "num_players": 2,
+                    "profile": "balanced",
+                    "weight": 0.03,
+                    "description": "Heuristic 2P square19 - fast large board",
+                },
+                {
+                    "engine_mode": "heuristic-only",
+                    "board_type": "hexagonal",
+                    "num_players": 2,
+                    "profile": "balanced",
+                    "weight": 0.03,
+                    "description": "Heuristic 2P hexagonal - fast large board",
+                },
+                {
+                    "engine_mode": "brs",
+                    "board_type": "square19",
+                    "num_players": 3,
+                    "profile": "balanced",
+                    "weight": 0.02,
+                    "description": "BRS 3P square19 - multiplayer large board",
+                },
+                {
+                    "engine_mode": "brs",
+                    "board_type": "hexagonal",
+                    "num_players": 3,
+                    "profile": "balanced",
+                    "weight": 0.02,
+                    "description": "BRS 3P hexagonal - multiplayer large board",
+                },
+                {
+                    "engine_mode": "maxn",
+                    "board_type": "square19",
+                    "num_players": 4,
+                    "profile": "balanced",
+                    "weight": 0.02,
+                    "description": "MaxN 4P square19 - high quality 4-player",
+                },
+                {
+                    "engine_mode": "maxn",
+                    "board_type": "hexagonal",
+                    "num_players": 4,
+                    "profile": "balanced",
+                    "weight": 0.02,
+                    "description": "MaxN 4P hexagonal - high quality 4-player",
                 },
             ]
 

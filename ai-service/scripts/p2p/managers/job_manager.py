@@ -688,6 +688,7 @@ class JobManager(EventSubscriptionMixin):
         num_players: int,
         num_games: int,
         engine_mode: str,
+        engine_extra_args: dict[str, Any] | None = None,
     ) -> None:
         """Run selfplay job with appropriate script based on engine mode.
 
@@ -700,6 +701,7 @@ class JobManager(EventSubscriptionMixin):
             num_players: Number of players (2-4)
             num_games: Number of games to play
             engine_mode: Engine mode (heuristic-only, gumbel-mcts, etc.)
+            engine_extra_args: Extra engine arguments (e.g., {"budget": 64} for gumbel-mcts)
         """
         board_norm = board_type.replace("hexagonal", "hex")
         output_dir = Path(self.ringrift_path) / "ai-service" / "data" / "selfplay" / "p2p_gpu" / f"{board_norm}_{num_players}p" / job_id
@@ -738,6 +740,12 @@ class JobManager(EventSubscriptionMixin):
                 logger.warning(f"Gumbel selfplay script not found: {script_path}")
                 return
 
+            # December 2025: Get budget from engine_extra_args if provided (for large board mix)
+            simulation_budget = 150  # Default standard budget
+            if engine_extra_args and "budget" in engine_extra_args:
+                simulation_budget = engine_extra_args["budget"]
+                logger.debug(f"Using custom budget {simulation_budget} from engine_extra_args for job {job_id}")
+
             cmd = [
                 sys.executable,
                 script_path,
@@ -746,7 +754,7 @@ class JobManager(EventSubscriptionMixin):
                 "--num-games", str(num_games),
                 "--db", str(output_dir / "games.db"),  # uses --db not --record-db
                 "--seed", str(int(time.time() * 1000) % 2**31),
-                "--simulation-budget", "150",  # Standard Gumbel budget
+                "--simulation-budget", str(simulation_budget),
             ]
         else:
             # Use run_gpu_selfplay.py for GPU-optimized modes

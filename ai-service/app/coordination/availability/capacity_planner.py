@@ -18,7 +18,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app.coordination.base_daemon import BaseDaemon
+from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 
 if TYPE_CHECKING:
     from app.coordination.providers.base import Instance
@@ -132,10 +132,10 @@ class ScaleRecommendation:
         }
 
 
-@dataclass
-class CapacityPlannerConfig:
+@dataclass(kw_only=True)
+class CapacityPlannerConfig(DaemonConfig):
     """Configuration for CapacityPlanner."""
-    cycle_interval_seconds: float = 60.0  # 1 minute
+    check_interval_seconds: int = 60  # 1 minute (overrides DaemonConfig default)
 
     # Utilization thresholds
     scale_up_utilization_threshold: float = 0.85  # Scale up at 85% utilization
@@ -167,7 +167,7 @@ class CapacityPlannerConfig:
     def from_env(cls) -> "CapacityPlannerConfig":
         """Load configuration from environment variables."""
         return cls(
-            cycle_interval_seconds=float(
+            check_interval_seconds=int(
                 os.environ.get("RINGRIFT_CAPACITY_CYCLE_INTERVAL", "60")
             ),
             scale_up_utilization_threshold=float(
@@ -239,11 +239,7 @@ class CapacityPlanner(BaseDaemon):
     """
 
     def __init__(self, config: CapacityPlannerConfig | None = None):
-        self.config = config or CapacityPlannerConfig.from_env()
-        super().__init__(
-            name="capacity_planner",
-            cycle_interval=self.config.cycle_interval_seconds,
-        )
+        super().__init__(config)
 
         self.budget = CapacityBudget(
             hourly_limit_usd=self.config.hourly_budget_usd,
@@ -257,7 +253,11 @@ class CapacityPlanner(BaseDaemon):
 
     def _get_default_config(self) -> CapacityPlannerConfig:
         """Return default configuration."""
-        return CapacityPlannerConfig.from_env()
+        return CapacityPlannerConfig()
+
+    def _get_daemon_name(self) -> str:
+        """Return daemon name for logging."""
+        return "CapacityPlanner"
 
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to cost-related events."""

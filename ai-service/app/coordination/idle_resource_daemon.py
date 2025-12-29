@@ -2204,12 +2204,24 @@ class IdleResourceDaemon:
 
             # Submit job via P2P
             # NOTE: Must use "engine_mode" (not "engine") to match P2P orchestrator API
+            # Dec 28, 2025: Select engine based on board type for feasible throughput
+            # Large boards (square19, hexagonal) use lighter engines
+            if board_type in ("square19", "hexagonal"):
+                # Use mix of engines for large boards
+                import random
+                if num_players >= 3:
+                    engine_mode = random.choice(["heuristic-only", "brs", "maxn"])
+                else:
+                    engine_mode = random.choice(["heuristic-only", "policy-only"])
+            else:
+                engine_mode = "gumbel-mcts"  # GPU-accelerated Gumbel MCTS for small boards
+
             job_spec = {
                 "type": "selfplay",
                 "board_type": board_type,
                 "num_players": num_players,
                 "num_games": games,
-                "engine_mode": "gumbel-mcts",  # GPU-accelerated Gumbel MCTS
+                "engine_mode": engine_mode,
                 "target_node": node.node_id,
             }
 

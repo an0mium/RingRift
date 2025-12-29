@@ -94,6 +94,30 @@ class RunPodChecker(StateChecker):
         self._api_key = api_key or os.environ.get("RUNPOD_API_KEY")
         self._http_session = None
 
+        # Check for API key in config files if not in env
+        if not self._api_key:
+            config_files = [
+                os.path.expanduser("~/.runpod/config.toml"),
+                os.path.expanduser("~/.config/runpod/config.toml"),
+            ]
+            for config_file in config_files:
+                if os.path.exists(config_file):
+                    try:
+                        with open(config_file) as f:
+                            for line in f:
+                                if line.strip().startswith("apikey"):
+                                    # Parse: apikey = "..."
+                                    parts = line.split("=", 1)
+                                    if len(parts) == 2:
+                                        key = parts[1].strip().strip('"').strip("'")
+                                        if key:
+                                            self._api_key = key
+                                            break
+                        if self._api_key:
+                            break
+                    except OSError:
+                        pass
+
         if not self._api_key:
             self.disable("No RUNPOD_API_KEY found")
 

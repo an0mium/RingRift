@@ -20,7 +20,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
-from app.coordination.base_daemon import BaseDaemon
+from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 from .node_monitor import NodeHealthResult
 
 if TYPE_CHECKING:
@@ -93,9 +93,10 @@ class RecoveryState:
     cooldown_until: datetime | None = None
 
 
-@dataclass
-class RecoveryEngineConfig:
+@dataclass(kw_only=True)
+class RecoveryEngineConfig(DaemonConfig):
     """Configuration for RecoveryEngine."""
+    check_interval_seconds: int = 60  # Overrides DaemonConfig default
     max_attempts_per_action: int = 3
     backoff_base_seconds: float = 30.0
     backoff_multiplier: float = 2.0
@@ -133,8 +134,7 @@ class RecoveryEngine(BaseDaemon):
     ]
 
     def __init__(self, config: RecoveryEngineConfig | None = None):
-        super().__init__(name="recovery_engine", cycle_interval=60.0)
-        self.config = config or RecoveryEngineConfig()
+        super().__init__(config)
         self._recovery_states: dict[str, RecoveryState] = {}
         self._recovery_queue: asyncio.Queue[tuple[str, NodeHealthResult]] = asyncio.Queue()
         self._recovery_history: list[RecoveryResult] = []
@@ -142,6 +142,10 @@ class RecoveryEngine(BaseDaemon):
     def _get_default_config(self) -> RecoveryEngineConfig:
         """Return default configuration."""
         return RecoveryEngineConfig()
+
+    def _get_daemon_name(self) -> str:
+        """Return daemon name for logging."""
+        return "RecoveryEngine"
 
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to recovery-related events."""

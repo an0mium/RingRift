@@ -20,7 +20,7 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from app.coordination.base_daemon import BaseDaemon
+from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 
 if TYPE_CHECKING:
     from app.config.cluster_config import ClusterNode
@@ -61,10 +61,10 @@ class NodeHealthResult:
         }
 
 
-@dataclass
-class NodeMonitorConfig:
+@dataclass(kw_only=True)
+class NodeMonitorConfig(DaemonConfig):
     """Configuration for NodeMonitor."""
-    check_interval_seconds: float = 30.0
+    check_interval_seconds: int = 30  # Overrides DaemonConfig default
     p2p_timeout_seconds: float = 15.0
     ssh_timeout_seconds: float = 30.0
     gpu_check_enabled: bool = True
@@ -90,11 +90,7 @@ class NodeMonitor(BaseDaemon):
         config: NodeMonitorConfig | None = None,
         nodes: list[ClusterNode] | None = None,
     ):
-        super().__init__(
-            name="node_monitor",
-            cycle_interval=config.check_interval_seconds if config else 30.0,
-        )
-        self.config = config or NodeMonitorConfig()
+        super().__init__(config)
         self._nodes: list[ClusterNode] = nodes or []
         self._failure_counts: dict[str, int] = {}
         self._last_healthy: dict[str, datetime] = {}
@@ -103,6 +99,10 @@ class NodeMonitor(BaseDaemon):
     def _get_default_config(self) -> NodeMonitorConfig:
         """Return default configuration."""
         return NodeMonitorConfig()
+
+    def _get_daemon_name(self) -> str:
+        """Return daemon name for logging."""
+        return "NodeMonitor"
 
     def set_nodes(self, nodes: list[ClusterNode]) -> None:
         """Update the list of nodes to monitor."""
