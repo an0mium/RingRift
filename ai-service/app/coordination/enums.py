@@ -13,6 +13,11 @@ Usage:
         CatalogDataType,
         DistributionDataType,
         SystemRecoveryAction,
+        # Re-exports from other modules
+        DaemonType,
+        DaemonState,
+        NodeHealthState,
+        DataEventType,
     )
 
 Migration Notes:
@@ -25,6 +30,46 @@ Migration Notes:
 from __future__ import annotations
 
 from enum import Enum, auto
+
+# Re-export commonly used enums from their canonical locations
+# This makes enums.py a one-stop-shop for enum imports
+from app.coordination.daemon_types import DaemonState, DaemonType
+from app.coordination.node_status import NodeHealthState
+from app.distributed.data_events import DataEventType
+
+# Import alert/error types
+try:
+    from app.coordination.alert_types import AlertSeverity as ErrorSeverity
+except ImportError:
+    ErrorSeverity = None  # type: ignore
+
+# Import recovery-related enums
+try:
+    from app.coordination.unified_health_manager import (
+        JobRecoveryAction,
+        RecoveryResult,
+        RecoveryStatus,
+    )
+except ImportError:
+    JobRecoveryAction = None  # type: ignore
+    RecoveryResult = None  # type: ignore
+    RecoveryStatus = None  # type: ignore
+
+try:
+    from app.coordination.node_recovery_daemon import NodeRecoveryAction
+except ImportError:
+    NodeRecoveryAction = None  # type: ignore
+
+# Import role enums
+try:
+    from app.coordination.leadership_coordinator import LeadershipRole
+except ImportError:
+    LeadershipRole = None  # type: ignore
+
+try:
+    from app.coordination.multi_provider_orchestrator import ClusterNodeRole
+except ImportError:
+    ClusterNodeRole = None  # type: ignore
 
 
 class ScaleAction(str, Enum):
@@ -132,11 +177,23 @@ RecoveryAction = SystemRecoveryAction  # Use SystemRecoveryAction instead
 
 
 __all__ = [
-    # Canonical enum names
+    # Canonical enum names (defined in this module)
     "ScaleAction",
     "CatalogDataType",
     "DistributionDataType",
     "SystemRecoveryAction",
+    # Re-exports from other modules
+    "DaemonType",
+    "DaemonState",
+    "NodeHealthState",
+    "DataEventType",
+    "ErrorSeverity",
+    "JobRecoveryAction",
+    "NodeRecoveryAction",
+    "RecoveryResult",
+    "RecoveryStatus",
+    "LeadershipRole",
+    "ClusterNodeRole",
     # Deprecated aliases (for backward compatibility)
     "DataType",
     "RecoveryAction",
