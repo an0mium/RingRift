@@ -530,6 +530,13 @@ class EvaluationDaemon(BaseEventHandler):
                 f"[EvaluationDaemon] Skipping evaluation: {model_path} "
                 f"not available on sufficient nodes ({node_count} nodes)"
             )
+            # December 29, 2025: Queue for retry - distribution may complete later
+            retry_attempt = request.get("_retry_attempt", 0)
+            if self._queue_for_retry(
+                model_path, board_type, num_players,
+                f"distribution_incomplete:{node_count}", retry_attempt
+            ):
+                return  # Will retry after distribution completes
             self._eval_stats.evaluations_failed += 1
             await self._emit_evaluation_failed(
                 model_path, board_type, num_players,
@@ -552,6 +559,14 @@ class EvaluationDaemon(BaseEventHandler):
             self._eval_stats.evaluations_completed += 1
             self._eval_stats.last_evaluation_time = elapsed
             self._update_average_time(elapsed)
+
+            # December 29, 2025: Track successful retries
+            retry_attempt = request.get("_retry_attempt", 0)
+            if retry_attempt > 0:
+                self._retry_stats["retries_succeeded"] += 1
+                logger.info(
+                    f"[EvaluationDaemon] Retry #{retry_attempt} succeeded for {model_path}"
+                )
 
             # Count games played
             total_games = sum(
@@ -580,8 +595,28 @@ class EvaluationDaemon(BaseEventHandler):
         except asyncio.TimeoutError:
             self._eval_stats.evaluations_failed += 1
             logger.error(f"[EvaluationDaemon] Evaluation timed out: {model_path}")
+            # December 29, 2025: Queue for retry on timeout (transient failure)
+            retry_attempt = request.get("_retry_attempt", 0)
+            if self._queue_for_retry(
+                model_path, board_type, num_players, "timeout", retry_attempt
+            ):
+                return  # Will retry, don't emit permanent failure
             # Emit EVALUATION_FAILED event (Dec 2025 - critical gap fix)
             await self._emit_evaluation_failed(model_path, board_type, num_players, "timeout")
+        except (MemoryError, RuntimeError) as e:
+            # December 29, 2025: GPU OOM and RuntimeError (CUDA) are retryable
+            self._eval_stats.evaluations_failed += 1
+            error_str = str(e).lower()
+            is_gpu_error = "cuda" in error_str or "out of memory" in error_str
+            logger.error(f"[EvaluationDaemon] Evaluation failed ({type(e).__name__}): {model_path}: {e}")
+            if is_gpu_error:
+                retry_attempt = request.get("_retry_attempt", 0)
+                if self._queue_for_retry(
+                    model_path, board_type, num_players, f"GPU error: {e}", retry_attempt
+                ):
+                    return  # Will retry
+            # Emit permanent failure
+            await self._emit_evaluation_failed(model_path, board_type, num_players, str(e))
         except Exception as e:  # noqa: BLE001
             self._eval_stats.evaluations_failed += 1
             logger.error(f"[EvaluationDaemon] Evaluation failed: {model_path}: {e}")
@@ -872,6 +907,11 @@ class EvaluationDaemon(BaseEventHandler):
             "dedup_content_hash_skips": self._dedup_stats["content_hash_skips"],
             "dedup_concurrent_skips": self._dedup_stats["concurrent_skips"],
             "tracked_recently_evaluated": len(self._recently_evaluated),
+            # December 29, 2025: Retry stats
+            "retry_queue_size": len(self._retry_queue),
+            "retries_queued": self._retry_stats["retries_queued"],
+            "retries_succeeded": self._retry_stats["retries_succeeded"],
+            "retries_exhausted": self._retry_stats["retries_exhausted"],
         }
 
     def health_check(self) -> "HealthCheckResult":

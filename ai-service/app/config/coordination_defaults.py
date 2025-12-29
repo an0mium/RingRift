@@ -1426,6 +1426,59 @@ class DaemonHealthDefaults:
 
 
 # =============================================================================
+# Degraded Mode Defaults (December 2025 - 48-Hour Autonomous Operation)
+# =============================================================================
+
+@dataclass(frozen=True)
+class DegradedModeDefaults:
+    """Default values for daemon graceful degradation.
+
+    December 2025: Part of 48-hour autonomous operation plan.
+    Instead of blocking daemons for 24 hours when restart limits are exceeded,
+    we use tiered restart policies with degraded mode.
+
+    Restart Tiers:
+    - NORMAL (1-5 restarts): Standard exponential backoff (5s → 80s)
+    - ELEVATED (6-10 restarts): Extended backoff (160s → 320s)
+    - DEGRADED (>10 restarts): Keep retrying with longer intervals
+      - Critical daemons: 30 min retry interval
+      - Non-critical daemons: 4 hour retry interval
+
+    Used by: app/coordination/daemon_manager.py
+    """
+    # Retry interval for critical daemons in degraded mode (seconds)
+    # Critical daemons: EVENT_ROUTER, DATA_PIPELINE, AUTO_SYNC, FEEDBACK_LOOP,
+    #                   P2P_BACKEND, QUEUE_POPULATOR, DAEMON_WATCHDOG
+    CRITICAL_RETRY_INTERVAL: float = _env_float(
+        "RINGRIFT_DEGRADED_CRITICAL_RETRY_INTERVAL", 1800.0  # 30 minutes
+    )
+
+    # Retry interval for non-critical daemons in degraded mode (seconds)
+    NONCRITICAL_RETRY_INTERVAL: float = _env_float(
+        "RINGRIFT_DEGRADED_NONCRITICAL_RETRY_INTERVAL", 14400.0  # 4 hours
+    )
+
+    # Restart thresholds for tier transitions
+    NORMAL_MAX_RESTARTS: int = _env_int("RINGRIFT_DEGRADED_NORMAL_MAX", 5)
+    ELEVATED_MAX_RESTARTS: int = _env_int("RINGRIFT_DEGRADED_ELEVATED_MAX", 10)
+
+    # Backoff delays for each tier (seconds)
+    # Normal tier: exponential from 5s to 80s
+    NORMAL_BACKOFF_BASE: float = _env_float("RINGRIFT_DEGRADED_NORMAL_BACKOFF_BASE", 5.0)
+    NORMAL_BACKOFF_MAX: float = _env_float("RINGRIFT_DEGRADED_NORMAL_BACKOFF_MAX", 80.0)
+
+    # Elevated tier: extended backoff from 160s to 320s
+    ELEVATED_BACKOFF_BASE: float = _env_float("RINGRIFT_DEGRADED_ELEVATED_BACKOFF_BASE", 160.0)
+    ELEVATED_BACKOFF_MAX: float = _env_float("RINGRIFT_DEGRADED_ELEVATED_BACKOFF_MAX", 320.0)
+
+    # Whether degraded mode is enabled (can disable for strict mode)
+    ENABLED: bool = _env_bool("RINGRIFT_DEGRADED_MODE_ENABLED", True)
+
+    # Hours before degraded daemon resets to normal (auto-recovery)
+    RESET_AFTER_HOURS: float = _env_float("RINGRIFT_DEGRADED_RESET_HOURS", 2.0)
+
+
+# =============================================================================
 # SQLite Database Defaults (December 2025)
 # =============================================================================
 
@@ -2459,6 +2512,15 @@ def get_all_defaults() -> dict:
             "startup_timeout": DaemonHealthDefaults.STARTUP_TIMEOUT,
             "shutdown_timeout": DaemonHealthDefaults.SHUTDOWN_TIMEOUT,
         },
+        # December 2025: Degraded mode (48-hour autonomous operation)
+        "degraded_mode": {
+            "critical_retry_interval": DegradedModeDefaults.CRITICAL_RETRY_INTERVAL,
+            "noncritical_retry_interval": DegradedModeDefaults.NONCRITICAL_RETRY_INTERVAL,
+            "normal_max_restarts": DegradedModeDefaults.NORMAL_MAX_RESTARTS,
+            "elevated_max_restarts": DegradedModeDefaults.ELEVATED_MAX_RESTARTS,
+            "enabled": DegradedModeDefaults.ENABLED,
+            "reset_after_hours": DegradedModeDefaults.RESET_AFTER_HOURS,
+        },
         # December 27, 2025: Idle threshold defaults
         "idle_threshold": {
             "gpu_idle_threshold": IdleThresholdDefaults.GPU_IDLE_THRESHOLD,
@@ -2549,6 +2611,7 @@ __all__ = [
     "CurriculumDefaults",  # December 28, 2025
     "DaemonHealthDefaults",
     "DaemonLoopDefaults",
+    "DegradedModeDefaults",  # December 2025 - 48-hour autonomous operation
     "DurationDefaults",
     "EphemeralDefaults",
     "EphemeralGuardDefaults",
