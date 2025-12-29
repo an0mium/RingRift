@@ -193,7 +193,8 @@ class SwimMembershipManager:
 
                 logger.info(f"SWIM seeds from cluster_config: {seeds}")
 
-            except Exception as e:
+            except (ImportError, yaml.YAMLError, OSError, KeyError, AttributeError) as e:
+                # Import/config loading errors - fall back to direct YAML loading
                 logger.warning(f"Could not load SWIM seeds from cluster_config: {e}")
 
         # Fallback: Load from YAML directly if cluster_config unavailable
@@ -224,7 +225,8 @@ class SwimMembershipManager:
                                     break
 
                     logger.info(f"SWIM seeds from YAML fallback: {seeds}")
-                except Exception as e:
+                except (yaml.YAMLError, OSError, KeyError, TypeError) as e:
+                    # YAML parsing or file access errors
                     logger.warning(f"Could not load SWIM seeds from YAML: {e}")
 
         config = SwimConfig(bind_port=bind_port, seeds=seeds)
@@ -373,7 +375,9 @@ class SwimMembershipManager:
             # Consider healthy if we have at least one other member
             member_count = self.get_member_count()
             return member_count > 0
-        except Exception:
+        except (RuntimeError, OSError, AttributeError) as e:
+            # Dec 2025: Narrowed from broad Exception - SWIM protocol errors
+            logger.debug(f"SWIM health check failed: {e}")
             return False
 
     def get_health_status(self) -> dict:
