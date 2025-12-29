@@ -143,7 +143,8 @@ class TestAutoSyncConfig:
         assert config.gossip_interval_seconds == 30
         assert config.exclude_hosts == []
         assert config.skip_nfs_sync is True
-        assert config.max_concurrent_syncs == 4
+        # Dec 2025: increased for faster parallel sync (was 4)
+        assert config.max_concurrent_syncs == 6
         assert config.min_games_to_sync == 10
         assert config.bandwidth_limit_mbps == 20
         assert config.max_disk_usage_percent == 70.0

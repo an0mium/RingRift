@@ -121,7 +121,8 @@ class TestAutoSyncConfig:
         assert config.enabled is True
         assert config.interval_seconds == 60
         assert config.gossip_interval_seconds == 30
-        assert config.max_concurrent_syncs == 4
+        # Dec 2025: increased for faster parallel sync (was 4)
+        assert config.max_concurrent_syncs == 6
         assert config.min_games_to_sync == 10
 
     def test_config_strategy_default(self):

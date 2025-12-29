@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -95,7 +96,8 @@ class AutoSyncConfig:
     gossip_interval_seconds: int = 30  # December 2025: Reduced from 60s for faster replication
     exclude_hosts: list[str] = field(default_factory=list)
     skip_nfs_sync: bool = True
-    max_concurrent_syncs: int = 4
+    # Dec 2025: Increased for faster parallel sync (was 4)
+    max_concurrent_syncs: int = int(os.getenv("RINGRIFT_AUTO_SYNC_MAX_CONCURRENT", "6"))
     min_games_to_sync: int = 10
     bandwidth_limit_mbps: int = 20
     # Disk usage thresholds (from sync_routing)

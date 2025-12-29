@@ -93,7 +93,8 @@ class TestExternalDriveSyncConfig:
         assert config.s3_consolidated_prefix == "consolidated"
         assert config.bandwidth_limit_kbps == 50000
         assert config.rsync_timeout == 600
-        assert config.max_concurrent_syncs == 3
+        # Dec 2025: increased for faster parallel sync (was 3)
+        assert config.max_concurrent_syncs == 5
         assert config.max_retries == 3
         assert config.retry_delay == 30.0
         assert config.sync_games is True

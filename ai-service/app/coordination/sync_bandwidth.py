@@ -174,8 +174,9 @@ class BandwidthConfig:
     total_limit_kbps: int = int(os.getenv("RINGRIFT_SYNC_TOTAL_KBPS", "300000"))  # 300 MB/s total (was 100)
 
     # Concurrency
-    max_concurrent_per_host: int = 3  # Default per-host limit
-    max_concurrent_total: int = 8
+    # Dec 2025: Increased for faster parallel sync (was 3/8)
+    max_concurrent_per_host: int = int(os.getenv("RINGRIFT_SYNC_MAX_PER_HOST", "5"))
+    max_concurrent_total: int = int(os.getenv("RINGRIFT_SYNC_MAX_TOTAL", "12"))
 
     # Allocation settings
     allocation_timeout_seconds: float = 3600.0  # 1 hour max allocation

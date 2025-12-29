@@ -54,6 +54,7 @@ class DelegationSpec:
     payload_keys: tuple[str, ...] = ()  # Keys to extract from payload
     log_level: str = "info"  # Log level for event receipt
     description: str = ""
+    fixed_kwargs: dict[str, Any] = field(default_factory=dict)  # Fixed kwargs to pass
 
 
 # Registry of init-function style subscriptions
@@ -179,6 +180,60 @@ DELEGATION_REGISTRY: tuple[DelegationSpec, ...] = (
         payload_keys=("target_node", "stall_duration_seconds"),
         description="Wire SYNC_STALLED -> SyncRouter transport escalation",
     ),
+    # December 29, 2025: Extracted from coordination_bootstrap.py
+    DelegationSpec(
+        name="daemon_started_handler",
+        event_type="DAEMON_STARTED",
+        orchestrator_import="app.coordination.daemon_manager",
+        orchestrator_getter="get_daemon_manager",
+        primary_method="_track_daemon_started",
+        payload_keys=("daemon_name", "hostname"),
+        log_level="info",
+        description="Wire DAEMON_STARTED -> DaemonManager lifecycle tracking",
+    ),
+    DelegationSpec(
+        name="daemon_stopped_handler",
+        event_type="DAEMON_STOPPED",
+        orchestrator_import="app.coordination.daemon_manager",
+        orchestrator_getter="get_daemon_manager",
+        primary_method="_track_daemon_stopped",
+        payload_keys=("daemon_name", "hostname", "reason"),
+        log_level="info",
+        description="Wire DAEMON_STOPPED -> DaemonManager lifecycle tracking",
+    ),
+    DelegationSpec(
+        name="health_check_passed_handler",
+        event_type="HEALTH_CHECK_PASSED",
+        orchestrator_import="app.coordination.health_check_orchestrator",
+        orchestrator_getter="get_health_orchestrator",
+        primary_method="record_check_result",
+        payload_keys=("node_id", "hostname", "check_type"),
+        log_level="debug",
+        description="Wire HEALTH_CHECK_PASSED -> HealthCheckOrchestrator",
+        fixed_kwargs={"passed": True},
+    ),
+    DelegationSpec(
+        name="health_check_failed_handler",
+        event_type="HEALTH_CHECK_FAILED",
+        orchestrator_import="app.coordination.health_check_orchestrator",
+        orchestrator_getter="get_health_orchestrator",
+        primary_method="record_check_result",
+        payload_keys=("node_id", "hostname", "check_type"),
+        log_level="debug",
+        description="Wire HEALTH_CHECK_FAILED -> HealthCheckOrchestrator",
+        fixed_kwargs={"passed": False},
+    ),
+    DelegationSpec(
+        name="promotion_rejected_handler",
+        event_type="PROMOTION_REJECTED",
+        orchestrator_import="app.training.curriculum_feedback",
+        orchestrator_getter="get_curriculum_feedback",
+        primary_method="increase_weight",
+        payload_keys=("config", "model_id"),
+        log_level="info",
+        description="Wire PROMOTION_REJECTED -> CurriculumFeedback weight increase",
+        fixed_kwargs={"boost_factor": 1.1},
+    ),
 )
 
 
@@ -296,6 +351,9 @@ def _create_delegation_handler(spec: DelegationSpec) -> Callable:
                 getter = getattr(module, spec.orchestrator_getter)
                 orchestrator = getter()
 
+            # Build kwargs from fixed_kwargs and payload
+            kwargs = dict(spec.fixed_kwargs) if spec.fixed_kwargs else {}
+
             # Try primary method
             if hasattr(orchestrator, spec.primary_method):
                 method = getattr(orchestrator, spec.primary_method)
@@ -306,26 +364,38 @@ def _create_delegation_handler(spec: DelegationSpec) -> Callable:
                         # Pass args based on method signature
                         if "reason" in spec.payload_keys:
                             reason = payload.get("reason", "unknown")
-                            await method(identifier, reason)
+                            await method(identifier, reason, **kwargs)
                         elif "previous_leader" in spec.payload_keys:
                             previous = payload.get("previous_leader")
-                            await method(identifier, previous)
+                            await method(identifier, previous, **kwargs)
+                        elif "check_type" in spec.payload_keys:
+                            # Health check methods: record_check_result(node_id, check_type, passed)
+                            check_type = payload.get("check_type", "unknown")
+                            await method(identifier, check_type, **kwargs)
+                        elif "boost_factor" in kwargs:
+                            # Curriculum methods: increase_weight(config, boost_factor)
+                            await method(identifier, **kwargs)
                         else:
-                            await method(identifier)
+                            await method(identifier, **kwargs) if kwargs else await method(identifier)
                     else:
                         if "reason" in spec.payload_keys:
                             reason = payload.get("reason", "unknown")
-                            method(identifier, reason)
+                            method(identifier, reason, **kwargs)
+                        elif "check_type" in spec.payload_keys:
+                            check_type = payload.get("check_type", "unknown")
+                            method(identifier, check_type, **kwargs)
+                        elif "boost_factor" in kwargs:
+                            method(identifier, **kwargs)
                         else:
-                            method(identifier)
+                            method(identifier, **kwargs) if kwargs else method(identifier)
             elif spec.fallback_method and hasattr(orchestrator, spec.fallback_method):
                 method = getattr(orchestrator, spec.fallback_method)
                 if hasattr(method, "__call__"):
                     import asyncio
                     if asyncio.iscoroutinefunction(method):
-                        await method(identifier)
+                        await method(identifier, **kwargs) if kwargs else await method(identifier)
                     else:
-                        method(identifier)
+                        method(identifier, **kwargs) if kwargs else method(identifier)
 
         except (ImportError, AttributeError) as e:
             logger.debug(f"[Bootstrap] Orchestrator unavailable for {spec.name}: {e}")

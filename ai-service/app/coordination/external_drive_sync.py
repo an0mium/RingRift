@@ -72,7 +72,8 @@ class ExternalDriveSyncConfig:
 
     # Rsync options
     rsync_timeout: int = 600  # 10 min timeout per node
-    max_concurrent_syncs: int = 3  # Parallel node syncs
+    # Dec 2025: Increased for faster parallel sync (was 3)
+    max_concurrent_syncs: int = int(os.getenv("RINGRIFT_DRIVE_SYNC_MAX_CONCURRENT", "5"))
 
     # Retry settings
     max_retries: int = 3

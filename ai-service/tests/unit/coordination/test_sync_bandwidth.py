@@ -188,8 +188,9 @@ class TestBandwidthConfig:
         assert config.default_bwlimit_kbps == 25000  # Dec 2025: increased 2.5x
         assert config.max_bwlimit_kbps == 150000  # Dec 2025: increased 3x
         assert config.min_bwlimit_kbps == 1000
-        assert config.max_concurrent_per_host == 3  # Dec 2025: increased for faster parallel sync
-        assert config.max_concurrent_total == 8
+        # Dec 2025: increased for faster parallel sync (was 3/8)
+        assert config.max_concurrent_per_host == 5
+        assert config.max_concurrent_total == 12
 
     def test_priority_multipliers(self):
         """Test priority multipliers."""

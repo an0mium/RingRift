@@ -1009,44 +1009,9 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     # - plateau_to_curriculum (PLATEAU_DETECTED -> CurriculumFeedback)
     # - early_stop_to_curriculum (TRAINING_EARLY_STOPPED -> CurriculumFeedback)
 
-    # 8. Wire DAEMON_STARTED/DAEMON_STOPPED to DaemonManager for lifecycle tracking
-    # December 2025: These events were orphaned - emitted but never tracked
-    try:
-        from app.coordination.daemon_manager import get_daemon_manager
-        from app.coordination.event_router import DataEventType, get_event_bus
-
-        daemon_mgr = get_daemon_manager()
-        bus = get_event_bus()
-
-        async def on_daemon_started(event):
-            """Track daemon startup in metrics."""
-            payload = event.payload if hasattr(event, "payload") else {}
-            daemon_name = payload.get("daemon_name", "unknown")
-            hostname = payload.get("hostname", "unknown")
-            logger.info(f"[Bootstrap] Daemon started: {daemon_name} on {hostname}")
-            # Update daemon manager internal tracking if available
-            if hasattr(daemon_mgr, "_track_daemon_started"):
-                daemon_mgr._track_daemon_started(daemon_name, hostname)
-
-        async def on_daemon_stopped(event):
-            """Track daemon shutdown in metrics."""
-            payload = event.payload if hasattr(event, "payload") else {}
-            daemon_name = payload.get("daemon_name", "unknown")
-            hostname = payload.get("hostname", "unknown")
-            reason = payload.get("reason", "normal")
-            logger.info(f"[Bootstrap] Daemon stopped: {daemon_name} on {hostname} ({reason})")
-            # Update daemon manager internal tracking if available
-            if hasattr(daemon_mgr, "_track_daemon_stopped"):
-                daemon_mgr._track_daemon_stopped(daemon_name, hostname, reason)
-
-        bus.subscribe(DataEventType.DAEMON_STARTED, on_daemon_started)
-        bus.subscribe(DataEventType.DAEMON_STOPPED, on_daemon_stopped)
-        results["daemon_lifecycle_tracking"] = True
-        logger.debug("[Bootstrap] Wired DAEMON_STARTED/DAEMON_STOPPED -> DaemonManager")
-
-    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
-        results["daemon_lifecycle_tracking"] = False
-        logger.warning(f"[Bootstrap] Failed to wire daemon lifecycle: {e}")
+    # Item 8 moved to DELEGATION_REGISTRY in event_subscription_registry.py (December 29, 2025)
+    # - daemon_started_handler (DAEMON_STARTED -> DaemonManager._track_daemon_started)
+    # - daemon_stopped_handler (DAEMON_STOPPED -> DaemonManager._track_daemon_stopped)
 
     # 9. Wire MODEL_DISTRIBUTION_FAILED to alert/tracking system
     # December 2025: Critical for handling distribution failures
@@ -1120,53 +1085,8 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
         results["evaluation_started_tracking"] = False
         logger.warning(f"[Bootstrap] Failed to wire evaluation started: {e}")
 
-    # 11. Wire PROMOTION_REJECTED to curriculum weight increase
-    # December 2025: Similar to PROMOTION_FAILED but for models that didn't meet thresholds
-    try:
-        from app.coordination.event_router import DataEventType, get_event_bus
-        from app.training.curriculum_feedback import get_curriculum_feedback
-
-        bus = get_event_bus()
-
-        async def on_promotion_rejected(event):
-            """Handle promotion rejection - increase curriculum weight for the config.
-
-            When a model is rejected (didn't meet promotion thresholds), we increase
-            the curriculum weight for that config to generate more training data.
-            """
-            payload = event.payload if hasattr(event, "payload") else {}
-            config = payload.get("config", "")
-            model_id = payload.get("model_id", "unknown")
-            reason = payload.get("reason", "unknown")
-            elo_improvement = payload.get("elo_improvement", 0)
-
-            logger.info(
-                f"[Bootstrap] Promotion rejected: {model_id} for {config} "
-                f"(reason: {reason}, Elo improvement: {elo_improvement})"
-            )
-
-            # Increase curriculum weight if we have a valid config
-            if config:
-                try:
-                    curriculum = get_curriculum_feedback()
-                    if curriculum and hasattr(curriculum, "increase_weight"):
-                        # Smaller boost than PROMOTION_FAILED since rejection is expected
-                        boost_factor = 1.1  # 10% boost
-                        curriculum.increase_weight(config, boost_factor)
-                        logger.info(
-                            f"[Bootstrap] Boosted curriculum weight for {config} "
-                            f"by {boost_factor}x after promotion rejection"
-                        )
-                except (AttributeError, TypeError, RuntimeError) as curr_err:
-                    logger.debug(f"[Bootstrap] Could not boost curriculum: {curr_err}")
-
-        bus.subscribe(DataEventType.PROMOTION_REJECTED, on_promotion_rejected)
-        results["promotion_rejected_handler"] = True
-        logger.debug("[Bootstrap] Wired PROMOTION_REJECTED -> curriculum weight increase")
-
-    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
-        results["promotion_rejected_handler"] = False
-        logger.warning(f"[Bootstrap] Failed to wire promotion rejected: {e}")
+    # Item 11 moved to DELEGATION_REGISTRY in event_subscription_registry.py (December 29, 2025)
+    # - promotion_rejected_handler (PROMOTION_REJECTED -> CurriculumFeedback.increase_weight)
 
     # 14. Wire DATA_SYNC_FAILED to backpressure activation (December 2025)
     try:
@@ -1213,45 +1133,9 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
     # - node_suspect_handler (NODE_SUSPECT -> NodeRecoveryDaemon)
     # - node_retired_handler (NODE_RETIRED -> SelfplayScheduler)
 
-    # 21. Wire HEALTH_CHECK_PASSED/FAILED to HealthCheckOrchestrator (December 2025)
-    # Centralizes health status tracking from distributed health checks
-    try:
-        from app.coordination.event_router import DataEventType, get_event_bus
-
-        bus = get_event_bus()
-
-        async def on_health_check_result(event, passed: bool):
-            """Handle health check results - update orchestrator state."""
-            payload = event.payload if hasattr(event, "payload") else {}
-            node_id = payload.get("node_id") or payload.get("hostname")
-            check_type = payload.get("check_type", "unknown")
-
-            if not node_id:
-                return
-
-            try:
-                from app.coordination.health_check_orchestrator import get_health_orchestrator
-
-                orchestrator = get_health_orchestrator()
-                if hasattr(orchestrator, "record_check_result"):
-                    orchestrator.record_check_result(node_id, check_type, passed)
-            except (ImportError, AttributeError):
-                pass  # Orchestrator not available
-
-        async def on_health_check_passed(event):
-            await on_health_check_result(event, passed=True)
-
-        async def on_health_check_failed(event):
-            await on_health_check_result(event, passed=False)
-
-        bus.subscribe(DataEventType.HEALTH_CHECK_PASSED, on_health_check_passed)
-        bus.subscribe(DataEventType.HEALTH_CHECK_FAILED, on_health_check_failed)
-        results["health_check_handlers"] = True
-        logger.debug("[Bootstrap] Wired HEALTH_CHECK_PASSED/FAILED -> HealthCheckOrchestrator")
-
-    except (AttributeError, TypeError, KeyError, RuntimeError) as e:
-        results["health_check_handlers"] = False
-        logger.debug(f"[Bootstrap] Health check handlers not wired: {e}")
+    # Item 21 moved to DELEGATION_REGISTRY in event_subscription_registry.py (December 29, 2025)
+    # - health_check_passed_handler (HEALTH_CHECK_PASSED -> HealthCheckOrchestrator.record_check_result)
+    # - health_check_failed_handler (HEALTH_CHECK_FAILED -> HealthCheckOrchestrator.record_check_result)
 
     # Items 22, 23 moved to DELEGATION_REGISTRY in event_subscription_registry.py
     # - task_orphaned_handler (TASK_ORPHANED -> JobManager)
