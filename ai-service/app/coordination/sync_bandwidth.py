@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import tempfile
 import time
 from contextlib import contextmanager
@@ -155,13 +156,15 @@ class BandwidthConfig:
     """Configuration for bandwidth management."""
 
     # Default limits (KB/s)
-    default_bwlimit_kbps: int = 10000  # 10 MB/s default
-    max_bwlimit_kbps: int = 50000  # 50 MB/s max
+    # Dec 2025: Increased limits for 2-3x faster sync (actual network capacity ~500 MB/s)
+    default_bwlimit_kbps: int = int(os.getenv("RINGRIFT_SYNC_DEFAULT_BW_KBPS", "25000"))  # 25 MB/s default (was 10)
+    max_bwlimit_kbps: int = int(os.getenv("RINGRIFT_SYNC_MAX_BW_KBPS", "150000"))  # 150 MB/s max (was 50)
     min_bwlimit_kbps: int = 1000  # 1 MB/s minimum
 
     # Per-host limits
-    per_host_limit_kbps: int = 12500  # 100 Mbps = 12.5 MB/s per host (default)
-    total_limit_kbps: int = 100000  # 100 MB/s total across all hosts
+    # Dec 2025: Increased for faster parallel sync
+    per_host_limit_kbps: int = int(os.getenv("RINGRIFT_SYNC_PER_HOST_KBPS", "50000"))  # 50 MB/s per host (was 12.5)
+    total_limit_kbps: int = int(os.getenv("RINGRIFT_SYNC_TOTAL_KBPS", "300000"))  # 300 MB/s total (was 100)
 
     # Concurrency
     max_concurrent_per_host: int = 3  # Default per-host limit

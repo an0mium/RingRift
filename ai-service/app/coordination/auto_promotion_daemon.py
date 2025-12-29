@@ -22,6 +22,7 @@ Integration with DaemonManager:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -105,13 +106,60 @@ class AutoPromotionDaemon:
             return
 
         self._running = True
+        self._subscription_task: asyncio.Task | None = None
         await self._subscribe_to_events()
+
+        # Dec 29, 2025: Start background subscription retry if initial failed
+        # This handles the case where router becomes available after daemon starts
+        if not self._subscribed:
+            self._subscription_task = asyncio.create_task(
+                self._periodic_subscription_retry()
+            )
+
         logger.info("[AutoPromotion] Daemon started")
 
     async def stop(self) -> None:
         """Stop the daemon."""
         self._running = False
+
+        # Cancel background subscription task if running
+        if hasattr(self, "_subscription_task") and self._subscription_task:
+            self._subscription_task.cancel()
+            try:
+                await self._subscription_task
+            except asyncio.CancelledError:
+                pass
+            self._subscription_task = None
+
         logger.info("[AutoPromotion] Daemon stopped")
+
+    async def _periodic_subscription_retry(self) -> None:
+        """Periodically retry event subscription until successful.
+
+        Dec 29, 2025: Added to handle case where router becomes available
+        after daemon starts. Retries every 60 seconds until subscribed.
+        """
+        retry_interval = 60.0  # seconds
+        max_attempts = 10  # Give up after 10 minutes
+
+        for attempt in range(max_attempts):
+            if not self._running:
+                return
+
+            await asyncio.sleep(retry_interval)
+
+            if self._subscribed:
+                logger.debug("[AutoPromotion] Already subscribed, stopping retry loop")
+                return
+
+            logger.debug(f"[AutoPromotion] Subscription retry attempt {attempt + 1}/{max_attempts}")
+            await self._subscribe_to_events()
+
+            if self._subscribed:
+                logger.info("[AutoPromotion] Subscription succeeded on retry")
+                return
+
+        logger.warning("[AutoPromotion] Gave up on subscription after max retries")
 
     async def _subscribe_to_events(self) -> None:
         """Subscribe to EVALUATION_COMPLETED events with retry logic.
@@ -125,8 +173,6 @@ class AutoPromotionDaemon:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                import asyncio
-
                 from app.coordination.event_router import DataEventType, get_router
 
                 router = get_router()

@@ -1037,9 +1037,9 @@ class MasterLoopController:
         ]
 
         # S3 backup daemons - only if AWS credentials are configured (December 2025)
-        # These require AWS_ACCESS_KEY_ID to be set for S3 operations
+        # Check both env vars AND credentials file (~/.aws/credentials)
         s3_daemons = []
-        if os.getenv("AWS_ACCESS_KEY_ID"):
+        if self._has_aws_credentials():
             s3_daemons = [
                 DaemonType.S3_BACKUP,      # Auto-backup after MODEL_PROMOTED
                 DaemonType.S3_NODE_SYNC,   # Bi-directional sync with S3
@@ -1550,23 +1550,28 @@ class MasterLoopController:
             return False, f"Low quality: {state.last_quality_score:.2f}"
 
         # Dec 29, 2025: Check data freshness before training
-        # Ensures we don't train on stale data
-        try:
-            from app.coordination.training_freshness import check_freshness_sync
+        # Can be bypassed via RINGRIFT_ALLOW_STALE_TRAINING=true for faster iteration
+        allow_stale = os.getenv("RINGRIFT_ALLOW_STALE_TRAINING", "").lower() in ("1", "true", "yes")
+        if not allow_stale:
+            try:
+                from app.coordination.training_freshness import check_freshness_sync
 
-            parts = config_key.rsplit("_", 1)
-            board_type = parts[0]
-            num_players = int(parts[1].replace("p", ""))
+                parts = config_key.rsplit("_", 1)
+                board_type = parts[0]
+                num_players = int(parts[1].replace("p", ""))
 
-            freshness = check_freshness_sync(board_type, num_players, max_age_hours=2.0)
-            if not freshness.is_fresh:
-                # Trigger priority sync for stale data
-                await self._trigger_priority_sync(config_key, freshness.data_age_hours)
-                return False, f"Data stale ({freshness.data_age_hours:.1f}h old), sync triggered"
-        except ImportError:
-            logger.debug("[MasterLoop] TrainingFreshness not available, skipping freshness check")
-        except Exception as e:
-            logger.warning(f"[MasterLoop] Freshness check failed for {config_key}: {e}")
+                max_age = float(os.getenv("RINGRIFT_MAX_DATA_AGE_HOURS", "2.0"))
+                freshness = check_freshness_sync(board_type, num_players, max_age_hours=max_age)
+                if not freshness.is_fresh:
+                    # Trigger priority sync for stale data
+                    await self._trigger_priority_sync(config_key, freshness.data_age_hours)
+                    return False, f"Data stale ({freshness.data_age_hours:.1f}h old), sync triggered"
+            except ImportError:
+                logger.debug("[MasterLoop] TrainingFreshness not available, skipping freshness check")
+            except Exception as e:
+                logger.warning(f"[MasterLoop] Freshness check failed for {config_key}: {e}")
+        else:
+            logger.debug("[MasterLoop] Stale data training allowed via RINGRIFT_ALLOW_STALE_TRAINING")
 
         # Check if circuit breaker is tripped
         try:
