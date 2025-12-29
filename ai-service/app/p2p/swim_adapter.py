@@ -71,6 +71,21 @@ except ImportError as e:
 
 
 @dataclass
+class SwimBootstrapConfig:
+    """Configuration for SWIM bootstrap retry behavior.
+
+    December 29, 2025: Added for resilient SWIM initialization.
+    Implements exponential backoff for joining the SWIM cluster.
+    """
+
+    max_attempts: int = 5  # Maximum bootstrap attempts
+    initial_delay_seconds: float = 1.0  # Initial delay before first retry
+    max_delay_seconds: float = 30.0  # Maximum delay cap
+    backoff_multiplier: float = 2.0  # Delay multiplier per attempt
+    seed_rotation: bool = True  # Try different seeds on retry
+
+
+@dataclass
 class SwimConfig:
     """Configuration for SWIM membership protocol."""
 
@@ -88,6 +103,9 @@ class SwimConfig:
 
     # Seeds (initial peers to bootstrap from)
     seeds: list[tuple[str, int]] = field(default_factory=list)
+
+    # Bootstrap retry configuration (December 29, 2025)
+    bootstrap: SwimBootstrapConfig = field(default_factory=SwimBootstrapConfig)
 
 
 class SwimMembershipManager:
@@ -213,7 +231,10 @@ class SwimMembershipManager:
         return cls(node_id=node_id, bind_port=bind_port, config=config)
 
     async def start(self) -> bool:
-        """Start SWIM membership protocol.
+        """Start SWIM membership protocol with retry logic.
+
+        December 29, 2025: Enhanced with exponential backoff retry for bootstrap.
+        Uses SwimBootstrapConfig for retry parameters.
 
         Returns:
             True if started successfully, False otherwise
@@ -226,44 +247,91 @@ class SwimMembershipManager:
             logger.warning("SWIM membership already started")
             return True
 
-        try:
-            # swim-p2p 1.2.x uses factory pattern with UDPTransport
-            transport = UDPTransport()
-            bind_addr = (self.config.bind_host, self.config.bind_port)
+        bootstrap_config = self.config.bootstrap
+        last_error: Exception | None = None
 
-            # Configuration for SWIM protocol tuning
-            config = {
-                "failure_timeout": self.config.failure_timeout,
-                "suspicion_timeout": self.config.suspicion_timeout,
-                "ping_interval": self.config.ping_interval,
-                "ping_request_group_size": self.config.ping_request_group_size,
-                "max_transmissions": self.config.max_transmissions,
-            }
+        for attempt in range(bootstrap_config.max_attempts):
+            try:
+                # swim-p2p 1.2.x uses factory pattern with UDPTransport
+                transport = UDPTransport()
+                bind_addr = (self.config.bind_host, self.config.bind_port)
 
-            # Create node using factory method
-            # Dec 28, 2025: Fixed missing await - SwimNode.create() is async
-            self._swim = await SwimNode.create(
-                bind_addr=bind_addr,
-                transport=transport,
-                seed_addrs=self.config.seeds if self.config.seeds else None,
-                config=config,
-                validate_ports=False,  # We handle port validation ourselves
-            )
+                # Configuration for SWIM protocol tuning
+                config = {
+                    "failure_timeout": self.config.failure_timeout,
+                    "suspicion_timeout": self.config.suspicion_timeout,
+                    "ping_interval": self.config.ping_interval,
+                    "ping_request_group_size": self.config.ping_request_group_size,
+                    "max_transmissions": self.config.max_transmissions,
+                }
 
-            # Start the SWIM node
-            await self._swim.start()
-            logger.info(f"SWIM bootstrapped from {len(self.config.seeds)} seeds" if self.config.seeds else "SWIM started (no seeds)")
+                # December 29, 2025: Seed rotation for retry resilience
+                # Rotate seeds on retry to try different bootstrap nodes
+                seeds_to_use = self.config.seeds
+                if bootstrap_config.seed_rotation and attempt > 0 and self.config.seeds:
+                    # Rotate seeds by attempt number to try different bootstrap order
+                    rotation = attempt % len(self.config.seeds)
+                    seeds_to_use = self.config.seeds[rotation:] + self.config.seeds[:rotation]
+                    logger.debug(f"SWIM bootstrap attempt {attempt + 1}: rotated seeds")
 
-            self._started = True
-            logger.info(
-                f"SWIM membership started on {self.config.bind_host}:{self.config.bind_port} "
-                f"(failure_timeout={self.config.failure_timeout}s)"
-            )
-            return True
+                # Create node using factory method
+                # Dec 28, 2025: Fixed missing await - SwimNode.create() is async
+                self._swim = await SwimNode.create(
+                    bind_addr=bind_addr,
+                    transport=transport,
+                    seed_addrs=seeds_to_use if seeds_to_use else None,
+                    config=config,
+                    validate_ports=False,  # We handle port validation ourselves
+                )
 
-        except Exception as e:
-            logger.error(f"Failed to start SWIM membership: {e}", exc_info=True)
-            return False
+                # Start the SWIM node
+                await self._swim.start()
+                logger.info(
+                    f"SWIM bootstrapped from {len(self.config.seeds)} seeds"
+                    if self.config.seeds else "SWIM started (no seeds)"
+                )
+
+                self._started = True
+                if attempt > 0:
+                    logger.info(f"SWIM membership started on attempt {attempt + 1}")
+                logger.info(
+                    f"SWIM membership started on {self.config.bind_host}:{self.config.bind_port} "
+                    f"(failure_timeout={self.config.failure_timeout}s)"
+                )
+                return True
+
+            except (OSError, ConnectionError, TimeoutError) as e:
+                # Network-related errors are retryable
+                last_error = e
+                logger.warning(
+                    f"SWIM bootstrap attempt {attempt + 1}/{bootstrap_config.max_attempts} "
+                    f"failed (network): {e}"
+                )
+            except Exception as e:
+                # Non-network errors may not be retryable
+                last_error = e
+                logger.warning(
+                    f"SWIM bootstrap attempt {attempt + 1}/{bootstrap_config.max_attempts} "
+                    f"failed: {e}"
+                )
+
+            # Don't sleep after final failed attempt
+            if attempt < bootstrap_config.max_attempts - 1:
+                # Calculate delay with exponential backoff
+                import asyncio
+                delay = min(
+                    bootstrap_config.initial_delay_seconds * (bootstrap_config.backoff_multiplier ** attempt),
+                    bootstrap_config.max_delay_seconds,
+                )
+                logger.info(f"SWIM retrying in {delay:.1f}s...")
+                await asyncio.sleep(delay)
+
+        # All attempts failed
+        logger.error(
+            f"SWIM membership failed to start after {bootstrap_config.max_attempts} attempts: {last_error}",
+            exc_info=last_error is not None,
+        )
+        return False
 
     async def stop(self):
         """Stop SWIM membership protocol."""
@@ -276,6 +344,101 @@ class SwimMembershipManager:
                 self._started = False
                 self._swim = None
                 logger.info("SWIM membership stopped")
+
+    async def restart(self) -> bool:
+        """Restart SWIM membership protocol.
+
+        December 29, 2025: Added for connection recovery.
+        Stops the current instance and starts a fresh one with retry logic.
+
+        Returns:
+            True if restarted successfully, False otherwise
+        """
+        logger.info("SWIM membership restarting...")
+        await self.stop()
+        return await self.start()
+
+    def is_healthy(self) -> bool:
+        """Check if SWIM membership is healthy.
+
+        December 29, 2025: Added for health monitoring.
+
+        Returns:
+            True if SWIM is running and has active members, False otherwise
+        """
+        if not self._swim or not self._started:
+            return False
+
+        try:
+            # Consider healthy if we have at least one other member
+            member_count = self.get_member_count()
+            return member_count > 0
+        except Exception:
+            return False
+
+    def get_health_status(self) -> dict:
+        """Get detailed SWIM health status.
+
+        December 29, 2025: Added for observability and debugging.
+
+        Returns:
+            Dict with health metrics and diagnostics
+        """
+        if not SWIM_AVAILABLE:
+            return {
+                "healthy": False,
+                "started": False,
+                "reason": "swim-p2p package not installed",
+                "swim_available": False,
+            }
+
+        if not self._swim or not self._started:
+            return {
+                "healthy": False,
+                "started": False,
+                "reason": "SWIM not started",
+                "swim_available": True,
+            }
+
+        try:
+            summary = self.get_membership_summary()
+            alive_count = summary.get("alive", 0)
+            member_count = summary.get("members", 0)
+
+            # Health criteria:
+            # - Must have at least one other member (unless no seeds configured)
+            # - Alive ratio should be > 50% of known members
+            has_members = member_count > 0 or not self.config.seeds
+            good_alive_ratio = member_count == 0 or (alive_count / max(1, member_count)) >= 0.5
+
+            healthy = has_members and good_alive_ratio
+
+            return {
+                "healthy": healthy,
+                "started": True,
+                "swim_available": True,
+                "node_id": self.node_id,
+                "bind_port": self.config.bind_port,
+                "members": member_count,
+                "alive": alive_count,
+                "suspected": summary.get("suspected", 0),
+                "failed": summary.get("failed", 0),
+                "seeds_configured": len(self.config.seeds),
+                "failure_timeout": self.config.failure_timeout,
+                "reason": None if healthy else (
+                    "no members discovered" if not has_members
+                    else "low alive ratio" if not good_alive_ratio
+                    else "unknown"
+                ),
+            }
+        except Exception as e:
+            return {
+                "healthy": False,
+                "started": True,
+                "swim_available": True,
+                "reason": f"health check error: {e}",
+                "error": str(e),
+            }
 
     def _handle_member_alive(self, member: SwimMember):
         """Handle member becoming alive."""
