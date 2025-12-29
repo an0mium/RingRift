@@ -689,8 +689,8 @@ class TestEventHandlers:
 class TestDynamicThreshold:
     """Tests for dynamic sample threshold calculation."""
 
-    def test_fallback_to_static_threshold(self):
-        """Test fallback when improvement_optimizer not available."""
+    def test_fallback_on_exception(self):
+        """Test fallback when get_dynamic_threshold raises Exception."""
         with tempfile.TemporaryDirectory() as tmpdir:
             config = TrainingTriggerConfig(
                 state_db_path=f"{tmpdir}/state.db",
@@ -698,12 +698,51 @@ class TestDynamicThreshold:
             )
             daemon = TrainingTriggerDaemon(config=config)
 
-            # The method has a try/except that catches ImportError
-            # So it should fallback to static threshold
-            threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
-            
+            # Patch get_dynamic_threshold to raise RuntimeError
+            with patch(
+                "app.training.improvement_optimizer.get_dynamic_threshold",
+                side_effect=RuntimeError("Optimizer error"),
+            ):
+                threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
+
             # Should return the configured threshold (fallback)
             assert threshold == 5000
+
+    def test_dynamic_threshold_from_optimizer(self):
+        """Test that dynamic threshold is returned when optimizer available."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(
+                state_db_path=f"{tmpdir}/state.db",
+                min_samples_threshold=5000,
+            )
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Without mocking, the optimizer should be available
+            # and return some dynamic threshold (likely different from 5000)
+            threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
+
+            # Should be a positive integer
+            assert isinstance(threshold, int)
+            assert threshold > 0
+
+    def test_dynamic_threshold_with_mock_value(self):
+        """Test that dynamic threshold uses optimizer's value."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(
+                state_db_path=f"{tmpdir}/state.db",
+                min_samples_threshold=5000,
+            )
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Patch to return specific value
+            with patch(
+                "app.training.improvement_optimizer.get_dynamic_threshold",
+                return_value=2500,
+            ):
+                threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
+
+            # Should return the mocked value
+            assert threshold == 2500
 
 
 # Run with: pytest tests/unit/coordination/test_training_trigger_daemon.py -v
