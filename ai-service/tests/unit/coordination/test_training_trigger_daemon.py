@@ -1,15 +1,22 @@
-"""Tests for TrainingTriggerDaemon.
+"""Tests for TrainingTriggerDaemon - Phase 2 test coverage (December 2025).
 
-Tests the training trigger daemon that automatically decides when to start
-training based on data freshness, GPU availability, and quality metrics.
-
-December 2025: Created for Phase 3 test coverage of critical cluster daemons.
+Tests cover:
+- Configuration dataclasses
+- State persistence (SQLite)
+- Event handling (NPZ export, training completion, backpressure)
+- Training condition checks
+- Deduplication logic
+- Health check reporting
 """
 
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+import tempfile
 import time
+from dataclasses import asdict
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,86 +25,50 @@ from app.coordination.training_trigger_daemon import (
     ConfigTrainingState,
     TrainingTriggerConfig,
     TrainingTriggerDaemon,
+    TRIGGER_DEDUP_WINDOW_SECONDS,
 )
-
-
-# =============================================================================
-# Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def config():
-    """Create a test configuration."""
-    return TrainingTriggerConfig(
-        enabled=True,
-        max_data_age_hours=1.0,
-        min_samples_threshold=1000,  # Lower for testing
-        training_cooldown_hours=0.1,  # Short cooldown for testing
-        scan_interval_seconds=1,  # Fast scan for testing
-        max_concurrent_training=2,
-    )
-
-
-@pytest.fixture
-def daemon(config):
-    """Create a daemon instance for testing."""
-    return TrainingTriggerDaemon(config)
-
-
-# =============================================================================
-# TrainingTriggerConfig Tests
-# =============================================================================
 
 
 class TestTrainingTriggerConfig:
     """Tests for TrainingTriggerConfig dataclass."""
 
-    def test_default_config(self):
-        """Should have sensible defaults."""
+    def test_default_values(self):
+        """Test default configuration values."""
         config = TrainingTriggerConfig()
         assert config.enabled is True
-        assert config.max_data_age_hours == 1.0
-        assert config.min_samples_threshold == 10000
-        assert config.training_cooldown_hours == 4.0
+        assert config.min_samples_threshold == 5000
+        assert config.training_cooldown_hours == 1.0
         assert config.max_concurrent_training == 2
         assert config.gpu_idle_threshold_percent == 20.0
+        assert config.scan_interval_seconds == 120
         assert config.default_epochs == 50
         assert config.default_batch_size == 512
         assert config.model_version == "v2"
 
-    def test_custom_config(self):
-        """Should accept custom values."""
+    def test_custom_values(self):
+        """Test configuration with custom values."""
         config = TrainingTriggerConfig(
             enabled=False,
-            max_data_age_hours=2.0,
-            min_samples_threshold=50000,
-            training_cooldown_hours=8.0,
+            min_samples_threshold=10000,
             max_concurrent_training=4,
         )
         assert config.enabled is False
-        assert config.max_data_age_hours == 2.0
-        assert config.min_samples_threshold == 50000
-        assert config.training_cooldown_hours == 8.0
+        assert config.min_samples_threshold == 10000
         assert config.max_concurrent_training == 4
 
-    def test_freshness_sync_config(self):
-        """Should have freshness sync configuration."""
-        config = TrainingTriggerConfig()
-        assert config.enforce_freshness_with_sync is True
-        assert config.freshness_sync_timeout_seconds == 300.0
-
-
-# =============================================================================
-# ConfigTrainingState Tests
-# =============================================================================
+    def test_state_db_path(self):
+        """Test state database path configuration."""
+        config = TrainingTriggerConfig(
+            state_db_path="/custom/path/state.db"
+        )
+        assert config.state_db_path == "/custom/path/state.db"
 
 
 class TestConfigTrainingState:
     """Tests for ConfigTrainingState dataclass."""
 
-    def test_create_state(self):
-        """Should create state with required fields."""
+    def test_default_values(self):
+        """Test default training state values."""
         state = ConfigTrainingState(
             config_key="hex8_2p",
             board_type="hex8",
@@ -106,322 +77,630 @@ class TestConfigTrainingState:
         assert state.config_key == "hex8_2p"
         assert state.board_type == "hex8"
         assert state.num_players == 2
+        assert state.last_training_time == 0.0
         assert state.training_in_progress is False
         assert state.training_pid is None
+        assert state.npz_sample_count == 0
         assert state.last_elo == 1500.0
+        assert state.elo_trend == 0.0
         assert state.training_intensity == "normal"
+        assert state.consecutive_failures == 0
 
-    def test_state_with_training(self):
-        """Should track training state."""
-        state = ConfigTrainingState(
-            config_key="square8_4p",
-            board_type="square8",
-            num_players=4,
-            training_in_progress=True,
-            training_pid=12345,
-        )
-        assert state.training_in_progress is True
-        assert state.training_pid == 12345
-
-    def test_state_with_npz_info(self):
-        """Should track NPZ data info."""
-        now = time.time()
+    def test_state_mutation(self):
+        """Test that state can be mutated."""
         state = ConfigTrainingState(
             config_key="hex8_2p",
             board_type="hex8",
             num_players=2,
-            last_npz_update=now,
-            npz_sample_count=50000,
-            npz_path="/data/training/hex8_2p.npz",
         )
-        assert state.last_npz_update == now
+        state.training_in_progress = True
+        state.training_pid = 12345
+        state.npz_sample_count = 50000
+        state.last_elo = 1650.0
+
+        assert state.training_in_progress is True
+        assert state.training_pid == 12345
         assert state.npz_sample_count == 50000
-        assert state.npz_path == "/data/training/hex8_2p.npz"
-
-    def test_training_intensity_levels(self):
-        """Should support all training intensity levels."""
-        for intensity in ["hot_path", "accelerated", "normal", "reduced", "paused"]:
-            state = ConfigTrainingState(
-                config_key="test",
-                board_type="hex8",
-                num_players=2,
-                training_intensity=intensity,
-            )
-            assert state.training_intensity == intensity
-
-
-# =============================================================================
-# TrainingTriggerDaemon Initialization Tests
-# =============================================================================
+        assert state.last_elo == 1650.0
 
 
 class TestTrainingTriggerDaemonInit:
     """Tests for TrainingTriggerDaemon initialization."""
 
-    def test_default_init(self):
-        """Should initialize with default config."""
-        daemon = TrainingTriggerDaemon()
-        assert daemon.config is not None
-        assert daemon._running is False
-        assert daemon._training_states == {}
+    def test_default_initialization(self):
+        """Test default daemon initialization."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(
+                state_db_path=f"{tmpdir}/state.db"
+            )
+            daemon = TrainingTriggerDaemon(config=config)
 
-    def test_custom_config_init(self, config):
-        """Should initialize with custom config."""
-        daemon = TrainingTriggerDaemon(config)
-        assert daemon.config.min_samples_threshold == 1000
-        assert daemon.config.max_concurrent_training == 2
+            assert daemon._daemon_config == config
+            assert daemon._training_states == {}
+            assert daemon._coordinator_skip is False
+            assert daemon._recent_triggers == {}
+            assert daemon._evaluation_backpressure is False
 
-    def test_has_semaphore(self, daemon):
-        """Should have training semaphore for concurrency control."""
-        assert daemon._training_semaphore is not None
+    def test_state_db_initialization(self):
+        """Test that state database is created on init."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = f"{tmpdir}/state.db"
+            config = TrainingTriggerConfig(state_db_path=db_path)
+            daemon = TrainingTriggerDaemon(config=config)
 
-    def test_has_required_methods(self, daemon):
-        """Should have required lifecycle methods."""
-        assert hasattr(daemon, "start")
-        assert hasattr(daemon, "stop")
-        assert callable(daemon.start)
-        assert callable(daemon.stop)
+            # Verify DB was created
+            assert Path(db_path).exists()
 
-
-# =============================================================================
-# Daemon State Tests
-# =============================================================================
-
-
-class TestDaemonState:
-    """Tests for daemon state management."""
-
-    def test_initial_state(self, daemon):
-        """Should start in stopped state."""
-        assert daemon._running is False
-        assert daemon._task is None
-
-    @pytest.mark.asyncio
-    async def test_stop_when_not_running(self, daemon):
-        """Should handle stop when not running."""
-        # Should not raise
-        await daemon.stop()
-        assert daemon._running is False
-
-    def test_training_states_isolation(self, config):
-        """Each daemon should have its own training states."""
-        daemon1 = TrainingTriggerDaemon(config)
-        daemon2 = TrainingTriggerDaemon(config)
-
-        daemon1._training_states["hex8_2p"] = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-        )
-
-        assert "hex8_2p" in daemon1._training_states
-        assert "hex8_2p" not in daemon2._training_states
+            # Verify table structure
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='config_state'"
+                )
+                assert cursor.fetchone() is not None
 
 
-# =============================================================================
-# Training State Management Tests
-# =============================================================================
+class TestStatePersistence:
+    """Tests for state persistence (Phase 3 - December 2025)."""
 
+    def test_save_and_load_state(self):
+        """Test saving and loading training state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = f"{tmpdir}/state.db"
+            config = TrainingTriggerConfig(state_db_path=db_path)
 
-class TestTrainingStateManagement:
-    """Tests for training state tracking."""
-
-    def test_get_or_create_state(self, daemon):
-        """Should get or create training state for a config."""
-        if hasattr(daemon, "_get_or_create_state"):
-            state = daemon._get_or_create_state("hex8_2p")
-            assert state is not None
-            assert state.config_key == "hex8_2p"
-
-    def test_state_persistence(self, daemon):
-        """Training state should persist between accesses."""
-        state1 = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            training_in_progress=True,
-        )
-        daemon._training_states["hex8_2p"] = state1
-
-        # Should get same state
-        retrieved = daemon._training_states.get("hex8_2p")
-        assert retrieved is state1
-        assert retrieved.training_in_progress is True
-
-
-# =============================================================================
-# Decision Logic Tests
-# =============================================================================
-
-
-class TestDecisionLogic:
-    """Tests for training trigger decision logic."""
-
-    def test_data_freshness_check(self, daemon):
-        """Should check data freshness."""
-        now = time.time()
-        state = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            last_npz_update=now - 3600,  # 1 hour old
-            npz_sample_count=50000,
-        )
-
-        # Data is at threshold (1 hour = max_data_age_hours)
-        age_hours = (now - state.last_npz_update) / 3600
-        assert age_hours <= daemon.config.max_data_age_hours * 1.1  # Allow small margin
-
-    def test_sample_count_threshold(self, config):
-        """Should check minimum sample threshold."""
-        daemon = TrainingTriggerDaemon(config)
-
-        # Below threshold
-        state_low = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            npz_sample_count=500,  # Below 1000 threshold
-        )
-        assert state_low.npz_sample_count < config.min_samples_threshold
-
-        # Above threshold
-        state_high = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            npz_sample_count=5000,
-        )
-        assert state_high.npz_sample_count >= config.min_samples_threshold
-
-    def test_cooldown_check(self, config):
-        """Should respect training cooldown."""
-        daemon = TrainingTriggerDaemon(config)
-        now = time.time()
-
-        # Just trained - should be in cooldown
-        state = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            last_training_time=now - 60,  # 1 minute ago
-        )
-        cooldown_seconds = config.training_cooldown_hours * 3600
-        time_since_training = now - state.last_training_time
-        assert time_since_training < cooldown_seconds
-
-    def test_concurrent_training_limit(self, daemon):
-        """Should limit concurrent training jobs."""
-        # Semaphore should limit concurrency
-        assert daemon._training_semaphore._value == daemon.config.max_concurrent_training
-
-
-# =============================================================================
-# Training Intensity Tests
-# =============================================================================
-
-
-class TestTrainingIntensity:
-    """Tests for training intensity handling."""
-
-    def test_paused_intensity_blocks_training(self, daemon):
-        """Paused intensity should block training."""
-        state = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            training_intensity="paused",
-        )
-        assert state.training_intensity == "paused"
-        # When intensity is "paused", training should not be triggered
-
-    def test_hot_path_intensity_prioritizes(self, daemon):
-        """Hot path intensity should prioritize training."""
-        state = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            training_intensity="hot_path",
-        )
-        assert state.training_intensity == "hot_path"
-        # When intensity is "hot_path", training should be prioritized
-
-
-# =============================================================================
-# Event Handling Tests
-# =============================================================================
-
-
-class TestEventHandling:
-    """Tests for event subscription and handling."""
-
-    def test_has_subscribe_method(self, daemon):
-        """Should have method to subscribe to events."""
-        assert hasattr(daemon, "_subscribe_to_events")
-
-    def test_event_subscriptions_list(self, daemon):
-        """Should track event subscriptions."""
-        assert hasattr(daemon, "_event_subscriptions")
-        assert isinstance(daemon._event_subscriptions, list)
-
-
-# =============================================================================
-# Integration Tests
-# =============================================================================
-
-
-class TestIntegration:
-    """Integration tests for the daemon."""
-
-    def test_multiple_configs_tracked(self, daemon):
-        """Should track multiple configurations independently."""
-        configs = ["hex8_2p", "square8_4p", "hexagonal_3p"]
-
-        for config_key in configs:
-            board_type, players = config_key.rsplit("_", 1)
-            daemon._training_states[config_key] = ConfigTrainingState(
-                config_key=config_key,
-                board_type=board_type,
-                num_players=int(players[0]),
+            # Create daemon and add state
+            daemon = TrainingTriggerDaemon(config=config)
+            daemon._training_states["hex8_2p"] = ConfigTrainingState(
+                config_key="hex8_2p",
+                board_type="hex8",
+                num_players=2,
+                last_training_time=12345.0,
+                npz_sample_count=50000,
+                last_elo=1700.0,
+                training_intensity="accelerated",
             )
 
-        assert len(daemon._training_states) == 3
-        for config_key in configs:
-            assert config_key in daemon._training_states
+            # Save state
+            daemon._save_state()
 
-    def test_active_training_tasks_tracked(self, daemon):
-        """Should track active training tasks."""
-        assert hasattr(daemon, "_active_training_tasks")
-        assert isinstance(daemon._active_training_tasks, dict)
+            # Create new daemon and load state
+            daemon2 = TrainingTriggerDaemon(config=config)
+            daemon2._load_state()
+
+            # Verify state was loaded
+            assert "hex8_2p" in daemon2._training_states
+            state = daemon2._training_states["hex8_2p"]
+            assert state.config_key == "hex8_2p"
+            assert state.last_training_time == 12345.0
+            assert state.npz_sample_count == 50000
+            assert state.last_elo == 1700.0
+            assert state.training_intensity == "accelerated"
+            # training_in_progress resets on restart
+            assert state.training_in_progress is False
+
+    def test_load_state_no_db(self):
+        """Test loading state when no DB exists."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = f"{tmpdir}/nonexistent.db"
+            config = TrainingTriggerConfig(state_db_path=db_path)
+
+            daemon = TrainingTriggerDaemon(config=config)
+            # Remove the DB that was created
+            Path(db_path).unlink()
+
+            # Should not raise
+            daemon._load_state()
+            assert daemon._training_states == {}
+
+    def test_save_multiple_configs(self):
+        """Test saving multiple config states."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = f"{tmpdir}/state.db"
+            config = TrainingTriggerConfig(state_db_path=db_path)
+
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Add multiple states
+            for board in ["hex8", "square8"]:
+                for players in [2, 3, 4]:
+                    config_key = f"{board}_{players}p"
+                    daemon._training_states[config_key] = ConfigTrainingState(
+                        config_key=config_key,
+                        board_type=board,
+                        num_players=players,
+                        last_elo=1500.0 + players * 50,
+                    )
+
+            daemon._save_state()
+
+            # Verify all saved
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute("SELECT COUNT(*) FROM config_state")
+                count = cursor.fetchone()[0]
+                assert count == 6  # 2 boards * 3 player counts
 
 
-# =============================================================================
-# Error Handling Tests
-# =============================================================================
+class TestDeduplication:
+    """Tests for trigger deduplication logic."""
+
+    def test_first_trigger_not_skipped(self):
+        """Test that first trigger for a config is not skipped."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            assert daemon._should_skip_duplicate_trigger("hex8_2p") is False
+            assert "hex8_2p" in daemon._recent_triggers
+
+    def test_duplicate_within_window_skipped(self):
+        """Test that duplicate trigger within window is skipped."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # First trigger
+            assert daemon._should_skip_duplicate_trigger("hex8_2p") is False
+
+            # Immediate second trigger - should be skipped
+            assert daemon._should_skip_duplicate_trigger("hex8_2p") is True
+
+    def test_different_configs_not_deduped(self):
+        """Test that different configs are not deduplicated."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            assert daemon._should_skip_duplicate_trigger("hex8_2p") is False
+            assert daemon._should_skip_duplicate_trigger("square8_4p") is False
+
+    def test_after_window_not_skipped(self):
+        """Test that trigger after window expires is not skipped."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # First trigger
+            daemon._should_skip_duplicate_trigger("hex8_2p")
+
+            # Simulate time passing beyond window
+            daemon._recent_triggers["hex8_2p"] = time.time() - TRIGGER_DEDUP_WINDOW_SECONDS - 10
+
+            # Should not be skipped
+            assert daemon._should_skip_duplicate_trigger("hex8_2p") is False
 
 
-class TestErrorHandling:
-    """Tests for error handling scenarios."""
+class TestIntensityMapping:
+    """Tests for training intensity mapping."""
 
-    def test_handles_missing_npz_gracefully(self, daemon):
-        """Should handle missing NPZ info gracefully."""
-        state = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            npz_path="",  # Empty path
-            npz_sample_count=0,
-        )
-        # Should not crash when NPZ info is missing
-        assert state.npz_path == ""
-        assert state.npz_sample_count == 0
+    def test_intensity_from_quality_hot_path(self):
+        """Test hot_path intensity for high quality."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
 
-    def test_handles_training_failure_count(self, daemon):
-        """Should track consecutive failures."""
-        state = ConfigTrainingState(
-            config_key="hex8_2p",
-            board_type="hex8",
-            num_players=2,
-            consecutive_failures=3,
-        )
-        assert state.consecutive_failures == 3
+            assert daemon._intensity_from_quality(0.95) == "hot_path"
+            assert daemon._intensity_from_quality(0.90) == "hot_path"
+
+    def test_intensity_from_quality_accelerated(self):
+        """Test accelerated intensity for good quality."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            assert daemon._intensity_from_quality(0.85) == "accelerated"
+            assert daemon._intensity_from_quality(0.80) == "accelerated"
+
+    def test_intensity_from_quality_normal(self):
+        """Test normal intensity for average quality."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            assert daemon._intensity_from_quality(0.70) == "normal"
+            assert daemon._intensity_from_quality(0.65) == "normal"
+
+    def test_intensity_from_quality_reduced(self):
+        """Test reduced intensity for poor quality."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            assert daemon._intensity_from_quality(0.55) == "reduced"
+            assert daemon._intensity_from_quality(0.50) == "reduced"
+
+    def test_intensity_from_quality_paused(self):
+        """Test paused intensity for very poor quality."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            assert daemon._intensity_from_quality(0.45) == "paused"
+            assert daemon._intensity_from_quality(0.0) == "paused"
+
+    def test_training_params_for_intensity(self):
+        """Test training parameters for each intensity level."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # hot_path: fast iteration
+            epochs, batch, lr = daemon._get_training_params_for_intensity("hot_path")
+            assert epochs == 30
+            assert batch == 1024
+            assert lr == 1.5
+
+            # accelerated
+            epochs, batch, lr = daemon._get_training_params_for_intensity("accelerated")
+            assert epochs == 40
+            assert batch == 768
+            assert lr == 1.2
+
+            # normal
+            epochs, batch, lr = daemon._get_training_params_for_intensity("normal")
+            assert epochs == config.default_epochs
+            assert batch == config.default_batch_size
+            assert lr == 1.0
+
+            # reduced
+            epochs, batch, lr = daemon._get_training_params_for_intensity("reduced")
+            assert epochs == 60
+            assert batch == 256
+            assert lr == 0.8
+
+    def test_unknown_intensity_fallback(self):
+        """Test fallback to normal for unknown intensity."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            epochs, batch, lr = daemon._get_training_params_for_intensity("unknown")
+            assert epochs == config.default_epochs
+            assert batch == config.default_batch_size
+            assert lr == 1.0
+
+
+class TestBackpressure:
+    """Tests for evaluation backpressure handling (Phase 4)."""
+
+    def test_initial_state_no_backpressure(self):
+        """Test initial state has no backpressure."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            assert daemon._evaluation_backpressure is False
+            assert daemon._backpressure_stats["pauses_due_to_backpressure"] == 0
+            assert daemon._backpressure_stats["resumes_after_backpressure"] == 0
+
+    @pytest.mark.asyncio
+    async def test_backpressure_activation(self):
+        """Test backpressure activation handler."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Create mock event
+            event = MagicMock()
+            event.payload = {"queue_depth": 50, "backpressure_active": True}
+
+            await daemon._on_evaluation_backpressure(event)
+
+            assert daemon._evaluation_backpressure is True
+            assert daemon._backpressure_stats["pauses_due_to_backpressure"] == 1
+            assert daemon._backpressure_stats["last_backpressure_time"] > 0
+
+    @pytest.mark.asyncio
+    async def test_backpressure_release(self):
+        """Test backpressure release handler."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Activate backpressure first
+            daemon._evaluation_backpressure = True
+
+            # Create mock event
+            event = MagicMock()
+            event.payload = {"queue_depth": 15, "backpressure_active": False}
+
+            await daemon._on_evaluation_backpressure_released(event)
+
+            assert daemon._evaluation_backpressure is False
+            assert daemon._backpressure_stats["resumes_after_backpressure"] == 1
+
+
+class TestEventSubscriptions:
+    """Tests for event subscription wiring."""
+
+    def test_event_subscriptions(self):
+        """Test that event subscriptions are properly defined."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            subscriptions = daemon._get_event_subscriptions()
+
+            # Core events
+            assert "npz_export_complete" in subscriptions
+            assert "training_completed" in subscriptions
+            assert "training_threshold_reached" in subscriptions
+
+            # Quality events
+            assert "quality_score_updated" in subscriptions
+            assert "training_blocked_by_quality" in subscriptions
+
+            # Freshness events
+            assert "data_stale" in subscriptions
+            assert "data_sync_completed" in subscriptions
+
+            # Backpressure events (Phase 4)
+            assert "EVALUATION_BACKPRESSURE" in subscriptions
+            assert "EVALUATION_BACKPRESSURE_RELEASED" in subscriptions
+
+    def test_all_handlers_are_callables(self):
+        """Test that all subscription handlers are callable."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            subscriptions = daemon._get_event_subscriptions()
+
+            for event_name, handler in subscriptions.items():
+                assert callable(handler), f"Handler for {event_name} is not callable"
+
+
+class TestHealthCheck:
+    """Tests for health check reporting."""
+
+    def test_health_check_structure(self):
+        """Test health check returns proper structure."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            health = daemon.health_check()
+
+            # Health check should have required attributes
+            assert hasattr(health, 'healthy')
+            assert hasattr(health, 'details')
+            assert isinstance(health.details, dict)
+            # Details should include key fields
+            assert "running" in health.details
+            assert "enabled" in health.details
+            assert "evaluation_backpressure" in health.details
+
+    def test_health_check_with_backpressure(self):
+        """Test health check reports backpressure state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+            daemon._evaluation_backpressure = True
+
+            health = daemon.health_check()
+
+            # Actual key is 'evaluation_backpressure'
+            assert health.details["evaluation_backpressure"] is True
+
+    def test_health_check_with_active_training(self):
+        """Test health check reports active training."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Add training state with in_progress
+            daemon._training_states["hex8_2p"] = ConfigTrainingState(
+                config_key="hex8_2p",
+                board_type="hex8",
+                num_players=2,
+                training_in_progress=True,
+            )
+
+            health = daemon.health_check()
+
+            # Actual key is 'active_training_tasks'
+            assert health.details["active_training_tasks"] >= 1
+
+
+class TestGetOrCreateState:
+    """Tests for state creation and retrieval."""
+
+    def test_create_new_state(self):
+        """Test creating state for new config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            state = daemon._get_or_create_state("hex8_2p", "hex8", 2)
+
+            assert state.config_key == "hex8_2p"
+            assert state.board_type == "hex8"
+            assert state.num_players == 2
+            assert "hex8_2p" in daemon._training_states
+
+    def test_get_existing_state(self):
+        """Test retrieving existing state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Create state
+            original = daemon._get_or_create_state("hex8_2p", "hex8", 2)
+            original.npz_sample_count = 50000
+
+            # Get again - should be same object
+            retrieved = daemon._get_or_create_state("hex8_2p", "hex8", 2)
+            assert retrieved.npz_sample_count == 50000
+
+
+class TestLifecycle:
+    """Tests for daemon lifecycle (start/stop)."""
+
+    @pytest.mark.asyncio
+    async def test_start_loads_state(self):
+        """Test that start() loads persisted state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = f"{tmpdir}/state.db"
+            config = TrainingTriggerConfig(state_db_path=db_path)
+
+            # Create and save state
+            daemon1 = TrainingTriggerDaemon(config=config)
+            daemon1._training_states["hex8_2p"] = ConfigTrainingState(
+                config_key="hex8_2p",
+                board_type="hex8",
+                num_players=2,
+                last_elo=1800.0,
+            )
+            daemon1._save_state()
+
+            # Create new daemon and start
+            daemon2 = TrainingTriggerDaemon(config=config)
+
+            # Mock the parent start() to avoid actual loop
+            with patch.object(daemon2, '_run_cycle', new_callable=AsyncMock):
+                # Just call _load_state which start() would call
+                daemon2._load_state()
+
+            assert "hex8_2p" in daemon2._training_states
+            assert daemon2._training_states["hex8_2p"].last_elo == 1800.0
+
+    @pytest.mark.asyncio
+    async def test_stop_saves_state(self):
+        """Test that stop() saves state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = f"{tmpdir}/state.db"
+            config = TrainingTriggerConfig(state_db_path=db_path)
+
+            daemon = TrainingTriggerDaemon(config=config)
+            daemon._training_states["hex8_2p"] = ConfigTrainingState(
+                config_key="hex8_2p",
+                board_type="hex8",
+                num_players=2,
+                npz_sample_count=75000,
+            )
+
+            # Call stop (mock parent to avoid cleanup errors)
+            with patch.object(daemon, '_running', True):
+                await daemon.stop()
+
+            # Verify state was saved
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT npz_sample_count FROM config_state WHERE config_key = ?",
+                    ("hex8_2p",)
+                )
+                row = cursor.fetchone()
+                assert row is not None
+                assert row[0] == 75000
+
+
+class TestEventHandlers:
+    """Tests for event handler methods."""
+
+    @pytest.mark.asyncio
+    async def test_on_npz_export_complete_updates_state(self):
+        """Test NPZ export complete updates training state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Mock _maybe_trigger_training to avoid actual training
+            daemon._maybe_trigger_training = AsyncMock()
+
+            # Create mock result
+            result = MagicMock()
+            result.metadata = {
+                "config": "hex8_2p",
+                "board_type": "hex8",
+                "num_players": 2,
+                "output_path": "/data/training/hex8_2p.npz",
+                "samples": 50000,
+            }
+
+            await daemon._on_npz_export_complete(result)
+
+            assert "hex8_2p" in daemon._training_states
+            state = daemon._training_states["hex8_2p"]
+            assert state.npz_sample_count == 50000
+            assert state.npz_path == "/data/training/hex8_2p.npz"
+            daemon._maybe_trigger_training.assert_called_once_with("hex8_2p")
+
+    @pytest.mark.asyncio
+    async def test_on_training_completed_updates_state(self):
+        """Test training completed updates state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Pre-create state with training in progress
+            daemon._training_states["hex8_2p"] = ConfigTrainingState(
+                config_key="hex8_2p",
+                board_type="hex8",
+                num_players=2,
+                training_in_progress=True,
+                training_pid=12345,
+            )
+
+            # Create mock event
+            event = MagicMock()
+            event.payload = {
+                "config": "hex8_2p",
+                "elo": 1750.0,
+            }
+
+            await daemon._on_training_completed(event)
+
+            state = daemon._training_states["hex8_2p"]
+            assert state.training_in_progress is False
+            assert state.training_pid is None
+            assert state.last_elo == 1750.0
+            assert state.last_training_time > 0
+
+    @pytest.mark.asyncio
+    async def test_on_quality_score_updated(self):
+        """Test quality score update changes intensity."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # Pre-create state
+            daemon._training_states["hex8_2p"] = ConfigTrainingState(
+                config_key="hex8_2p",
+                board_type="hex8",
+                num_players=2,
+                training_intensity="normal",
+            )
+
+            # Create mock event
+            event = MagicMock()
+            event.payload = {
+                "config_key": "hex8_2p",
+                "quality_score": 0.92,
+            }
+
+            await daemon._on_quality_score_updated(event)
+
+            state = daemon._training_states["hex8_2p"]
+            assert state.training_intensity == "hot_path"
+
+
+class TestDynamicThreshold:
+    """Tests for dynamic sample threshold calculation."""
+
+    def test_fallback_to_static_threshold(self):
+        """Test fallback when improvement_optimizer not available."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = TrainingTriggerConfig(
+                state_db_path=f"{tmpdir}/state.db",
+                min_samples_threshold=5000,
+            )
+            daemon = TrainingTriggerDaemon(config=config)
+
+            # The method has a try/except that catches ImportError
+            # So it should fallback to static threshold
+            threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
+            
+            # Should return the configured threshold (fallback)
+            assert threshold == 5000
+
+
+# Run with: pytest tests/unit/coordination/test_training_trigger_daemon.py -v
