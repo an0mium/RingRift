@@ -72,15 +72,27 @@ from .job_loops import (
     WorkQueueMaintenanceConfig,
     WorkQueueMaintenanceLoop,
 )
+from .maintenance_loops import (
+    GitUpdateConfig,
+    GitUpdateLoop,
+)
 from .network_loops import (
+    AwsIpUpdateLoop,
+    HeartbeatConfig,
+    HeartbeatLoop,
     IpDiscoveryConfig,
     IpDiscoveryLoop,
     NATManagementConfig,
     NATManagementLoop,
+    ProviderIpUpdateConfig,
+    TailscaleIpUpdateLoop,
     TailscalePeerDiscoveryConfig,
     TailscalePeerDiscoveryLoop,
     TailscaleRecoveryConfig,
     TailscaleRecoveryLoop,
+    VastIpUpdateLoop,
+    VoterHeartbeatConfig,
+    VoterHeartbeatLoop,
 )
 from .discovery_loop import (
     DEFAULT_DISCOVERY_PORT,
@@ -131,15 +143,26 @@ __all__ = [
     "DataManagementLoop",
     "ModelSyncConfig",
     "ModelSyncLoop",
+    # Maintenance
+    "GitUpdateConfig",
+    "GitUpdateLoop",
     # Network
+    "AwsIpUpdateLoop",
+    "HeartbeatConfig",
+    "HeartbeatLoop",
     "IpDiscoveryConfig",
     "IpDiscoveryLoop",
     "NATManagementConfig",
     "NATManagementLoop",
+    "ProviderIpUpdateConfig",
+    "TailscaleIpUpdateLoop",
     "TailscalePeerDiscoveryConfig",
     "TailscalePeerDiscoveryLoop",
     "TailscaleRecoveryConfig",
     "TailscaleRecoveryLoop",
+    "VastIpUpdateLoop",
+    "VoterHeartbeatConfig",
+    "VoterHeartbeatLoop",
     # Discovery
     "DEFAULT_DISCOVERY_PORT",
     "FollowerDiscoveryConfig",

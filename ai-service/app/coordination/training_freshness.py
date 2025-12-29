@@ -7,6 +7,13 @@ training nodes have up-to-date data before starting training:
 - Triggers sync from cluster if data is stale (> configurable threshold)
 - Waits for sync completion before allowing training to start
 - Integrates with ClusterManifest for remote data discovery
+- Integrates with DataCatalog for cluster-wide NPZ discovery (Dec 2025)
+
+December 2025 Enhancement:
+    DataCatalog integration enables cluster-wide NPZ discovery. When checking
+    for fresh NPZ files, the checker now queries DataCatalog first, which
+    provides visibility into NPZ files across all cluster nodes. Falls back
+    to local file scanning if DataCatalog is unavailable.
 
 Usage:
     from app.coordination.training_freshness import (
@@ -306,6 +313,9 @@ class TrainingFreshnessChecker:
     ) -> list[DataSourceInfo]:
         """Find local NPZ training files.
 
+        December 2025: Now integrates with DataCatalog for cluster-wide NPZ discovery.
+        Falls back to local file scanning if DataCatalog is unavailable.
+
         Args:
             board_type: Filter by board type
             num_players: Filter by player count
@@ -316,6 +326,44 @@ class TrainingFreshnessChecker:
         sources = []
         now = time.time()
 
+        # Dec 2025: Try DataCatalog first for cluster-wide NPZ discovery
+        catalog = self._get_data_catalog()
+        if catalog:
+            try:
+                npz_sources = catalog.discover_npz_files(
+                    board_type=board_type,
+                    num_players=num_players,
+                    max_age_hours=None,  # Get all, we'll filter by staleness
+                )
+                for npz in npz_sources:
+                    # Convert NPZDataSource to DataSourceInfo
+                    # NPZDataSource.age_hours uses created_at for content age
+                    content_age = npz.age_hours if npz.created_at > 0 else None
+                    file_age = (now - npz.path.stat().st_mtime) / 3600 if npz.path.exists() else float("inf")
+
+                    effective_age = content_age if content_age is not None else file_age
+
+                    sources.append(DataSourceInfo(
+                        path=npz.path,
+                        age_hours=file_age,
+                        size_bytes=npz.total_size_bytes,
+                        game_count=npz.sample_count,
+                        is_stale=effective_age > self.config.max_age_hours,
+                        board_type=npz.board_type,
+                        num_players=npz.num_players,
+                        content_age_hours=content_age,
+                    ))
+
+                if sources:
+                    logger.debug(
+                        f"DataCatalog found {len(sources)} NPZ files for "
+                        f"{board_type}_{num_players}p"
+                    )
+                    return sources
+            except (OSError, AttributeError) as e:
+                logger.debug(f"DataCatalog NPZ discovery failed: {e}, falling back to local scan")
+
+        # Fallback: Local file scanning
         if not self.training_dir.exists():
             return sources
 
@@ -505,6 +553,8 @@ class TrainingFreshnessChecker:
         is_fresh = len(fresh_sources) > 0 and total_games >= self.config.min_games_required
 
         # Build details with both file mtime and content age for debugging
+        # Dec 2025: Include DataCatalog status in details
+        catalog = self._get_data_catalog()
         details = {
             "databases": [
                 {
@@ -532,6 +582,7 @@ class TrainingFreshnessChecker:
             "threshold_hours": self.config.max_age_hours,
             "min_games_required": self.config.min_games_required,
             "using_content_age": self.config.validate_content_age,
+            "data_catalog_used": catalog is not None,  # Dec 2025: DataCatalog integration
         }
 
         return FreshnessResult(
@@ -775,6 +826,19 @@ class TrainingFreshnessChecker:
 
     def get_status(self) -> dict[str, Any]:
         """Get checker status."""
+        # Dec 2025: Include DataCatalog integration status
+        catalog = self._get_data_catalog()
+        catalog_status = {
+            "available": catalog is not None,
+            "npz_count": 0,
+        }
+        if catalog:
+            try:
+                npz_files = catalog.discover_npz_files()
+                catalog_status["npz_count"] = len(npz_files)
+            except (OSError, AttributeError):
+                pass
+
         return {
             "node_id": self.node_id,
             "config": {
@@ -787,6 +851,7 @@ class TrainingFreshnessChecker:
             "data_dir": str(self.data_dir),
             "games_dir_exists": self.games_dir.exists(),
             "training_dir_exists": self.training_dir.exists(),
+            "data_catalog": catalog_status,  # Dec 2025: DataCatalog integration
         }
 
 

@@ -846,6 +846,472 @@ class TailscaleIpUpdateLoop(BaseLoop):
         }
 
 
+# ============================================
+# Heartbeat Loops
+# ============================================
+
+
+@dataclass
+class HeartbeatConfig:
+    """Configuration for heartbeat loop.
+
+    December 2025: Extracted from p2p_orchestrator._heartbeat_loop
+    """
+
+    interval_seconds: float = 15.0  # HEARTBEAT_INTERVAL
+    relay_heartbeat_interval: float = 30.0  # RELAY_HEARTBEAT_INTERVAL
+    leader_lease_duration: float = 60.0  # LEADER_LEASE_DURATION
+    bootstrap_on_low_peers: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.interval_seconds <= 0:
+            raise ValueError("interval_seconds must be > 0")
+        if self.relay_heartbeat_interval <= 0:
+            raise ValueError("relay_heartbeat_interval must be > 0")
+        if self.leader_lease_duration <= 0:
+            raise ValueError("leader_lease_duration must be > 0")
+
+
+class HeartbeatLoop(BaseLoop):
+    """Background loop that sends heartbeats to all known peers.
+
+    Responsible for:
+    - Sending heartbeats to configured known peers
+    - Discovering and following leaders via heartbeat responses
+    - Multi-path retry (public IP, reported IP, Tailscale fallback)
+    - Handling relay heartbeats for HTTPS endpoints
+    - Bootstrapping from known peers when isolated
+
+    December 2025: Extracted from p2p_orchestrator._heartbeat_loop
+    This loop is the core P2P network maintenance mechanism.
+    """
+
+    def __init__(
+        self,
+        get_known_peers: Callable[[], list[str]],
+        get_relay_peers: Callable[[], set[str]],
+        get_peers_snapshot: Callable[[], list[Any]],
+        send_heartbeat_to_peer: Callable[[str, int, str], Coroutine[Any, Any, Any | None]],
+        send_relay_heartbeat: Callable[[str], Coroutine[Any, Any, dict[str, Any]]],
+        update_peer: Callable[[Any], Coroutine[Any, Any, None]],
+        parse_peer_address: Callable[[str], tuple[str, str, int]],
+        get_node_id: Callable[[], str],
+        get_role: Callable[[], Any],
+        get_leader_id: Callable[[], str | None],
+        set_leader: Callable[[str], Coroutine[Any, Any, None]],
+        is_leader_eligible: Callable[[Any, set[str]], bool],
+        is_leader_lease_valid: Callable[[], bool],
+        endpoint_conflict_keys: Callable[[list[Any]], set[str]],
+        bootstrap_from_known_peers: Callable[[], Coroutine[Any, Any, None]],
+        emit_host_online: Callable[[str, list[str]], Coroutine[Any, Any, None]],
+        get_tailscale_ip_for_peer: Callable[[str], str | None],
+        get_self_info: Callable[[], Any],
+        config: HeartbeatConfig | None = None,
+    ):
+        """Initialize heartbeat loop.
+
+        Args:
+            get_known_peers: Returns list of peer addresses from config
+            get_relay_peers: Returns set of relay peer addresses
+            get_peers_snapshot: Returns list of current peer NodeInfo objects
+            send_heartbeat_to_peer: Async callback to send heartbeat (host, port, scheme) -> NodeInfo
+            send_relay_heartbeat: Async callback for relay heartbeats (url) -> result dict
+            update_peer: Async callback to update peer info
+            parse_peer_address: Parses peer address string to (scheme, host, port)
+            get_node_id: Returns this node's ID
+            get_role: Returns this node's role (LEADER/FOLLOWER)
+            get_leader_id: Returns current leader's node ID
+            set_leader: Async callback to set new leader
+            is_leader_eligible: Checks if peer is eligible to be leader
+            is_leader_lease_valid: Checks if current leader lease is valid
+            endpoint_conflict_keys: Returns conflicting endpoint keys
+            bootstrap_from_known_peers: Async callback to bootstrap from known peers
+            emit_host_online: Async callback to emit HOST_ONLINE event
+            get_tailscale_ip_for_peer: Returns Tailscale IP for peer if available
+            get_self_info: Returns this node's NodeInfo
+            config: Heartbeat configuration
+        """
+        self.config = config or HeartbeatConfig()
+        super().__init__(
+            name="heartbeat",
+            interval=self.config.interval_seconds,
+        )
+
+        # Store callbacks
+        self._get_known_peers = get_known_peers
+        self._get_relay_peers = get_relay_peers
+        self._get_peers_snapshot = get_peers_snapshot
+        self._send_heartbeat_to_peer = send_heartbeat_to_peer
+        self._send_relay_heartbeat = send_relay_heartbeat
+        self._update_peer = update_peer
+        self._parse_peer_address = parse_peer_address
+        self._get_node_id = get_node_id
+        self._get_role = get_role
+        self._get_leader_id = get_leader_id
+        self._set_leader = set_leader
+        self._is_leader_eligible = is_leader_eligible
+        self._is_leader_lease_valid = is_leader_lease_valid
+        self._endpoint_conflict_keys = endpoint_conflict_keys
+        self._bootstrap_from_known_peers = bootstrap_from_known_peers
+        self._emit_host_online = emit_host_online
+        self._get_tailscale_ip_for_peer = get_tailscale_ip_for_peer
+        self._get_self_info = get_self_info
+
+        # Statistics
+        self._heartbeats_sent = 0
+        self._heartbeats_succeeded = 0
+        self._heartbeats_failed = 0
+        self._peers_discovered = 0
+        self._leaders_discovered = 0
+        self._last_relay_heartbeat = 0.0
+
+    async def _on_start(self) -> None:
+        """Log startup."""
+        logger.info(
+            f"[Heartbeat] Starting heartbeat loop (interval={self.config.interval_seconds}s)"
+        )
+
+    async def _run_once(self) -> None:
+        """Send heartbeats to all known and discovered peers."""
+        node_id = self._get_node_id()
+        relay_peers = self._get_relay_peers()
+
+        # Send to known peers from config
+        for peer_addr in self._get_known_peers():
+            try:
+                scheme, host, port = self._parse_peer_address(peer_addr)
+            except (AttributeError, ValueError):
+                continue
+
+            # Use relay heartbeat for HTTPS endpoints or configured relay peers
+            use_relay = scheme == "https" or peer_addr in relay_peers
+            if use_relay:
+                relay_url = f"{scheme}://{host}" if port in (80, 443) else f"{scheme}://{host}:{port}"
+                result = await self._send_relay_heartbeat(relay_url)
+                if result.get("success"):
+                    continue
+
+            self._heartbeats_sent += 1
+            info = await self._send_heartbeat_to_peer(host, port, scheme)
+
+            if info:
+                if info.node_id == node_id:
+                    continue
+
+                self._heartbeats_succeeded += 1
+
+                # Check if this is first contact (new peer)
+                peers_snapshot = self._get_peers_snapshot()
+                peer_ids = {p.node_id for p in peers_snapshot}
+                is_first_contact = info.node_id not in peer_ids
+
+                info.last_heartbeat = time.time()
+                await self._update_peer(info)
+
+                # Emit HOST_ONLINE for newly discovered peers
+                if is_first_contact:
+                    self._peers_discovered += 1
+                    capabilities = []
+                    if getattr(info, "has_gpu", False):
+                        gpu_type = getattr(info, "gpu_type", "") or "gpu"
+                        capabilities.append(gpu_type)
+                    else:
+                        capabilities.append("cpu")
+                    await self._emit_host_online(info.node_id, capabilities)
+                    logger.info(f"[Heartbeat] First-contact peer: {info.node_id}")
+
+                # Handle leader discovery
+                await self._handle_leader_discovery(info)
+            else:
+                self._heartbeats_failed += 1
+
+        # Send to discovered peers
+        await self._send_to_discovered_peers()
+
+        # Bootstrap from known peers if isolated
+        if self.config.bootstrap_on_low_peers:
+            await self._bootstrap_from_known_peers()
+
+    async def _send_to_discovered_peers(self) -> None:
+        """Send heartbeats to discovered peers with multi-path retry."""
+        node_id = self._get_node_id()
+        peers_snapshot = self._get_peers_snapshot()
+        self_info = self._get_self_info()
+
+        conflict_keys = self._endpoint_conflict_keys([self_info, *peers_snapshot])
+
+        # Filter to non-NAT-blocked peers without endpoint conflicts
+        peer_list = [
+            p for p in peers_snapshot
+            if (
+                not getattr(p, "nat_blocked", False)
+                and self._endpoint_key(p) not in conflict_keys
+            )
+        ]
+
+        for peer in peer_list:
+            if peer.node_id == node_id:
+                continue
+
+            if not peer.should_retry():
+                continue
+
+            peer_scheme = getattr(peer, "scheme", "http") or "http"
+            self._heartbeats_sent += 1
+
+            # Try primary endpoint
+            info = await self._send_heartbeat_to_peer(peer.host, peer.port, peer_scheme)
+
+            # Multi-path retry: fall back to reported endpoint
+            if not info:
+                rh = str(getattr(peer, "reported_host", "") or "").strip()
+                rp = int(getattr(peer, "reported_port", 0) or 0)
+                if rh and rp and (rh != peer.host or rp != peer.port):
+                    info = await self._send_heartbeat_to_peer(rh, rp, peer_scheme)
+
+            # Self-healing: Tailscale IP fallback
+            if not info:
+                ts_ip = self._get_tailscale_ip_for_peer(peer.node_id)
+                if ts_ip and ts_ip != peer.host:
+                    info = await self._send_heartbeat_to_peer(ts_ip, peer.port, peer_scheme)
+                    if info:
+                        logger.info(f"[Heartbeat] Reached {peer.node_id} via Tailscale ({ts_ip})")
+
+            if info:
+                self._heartbeats_succeeded += 1
+                info.consecutive_failures = 0
+                info.last_failure_time = 0.0
+                info.last_heartbeat = time.time()
+                await self._update_peer(info)
+
+                # Handle leader discovery
+                await self._handle_leader_discovery(info)
+            else:
+                self._heartbeats_failed += 1
+                # Increment failure count on peer
+                peer.consecutive_failures = int(getattr(peer, "consecutive_failures", 0) or 0) + 1
+                peer.last_failure_time = time.time()
+
+    async def _handle_leader_discovery(self, info: Any) -> None:
+        """Handle potential leader discovery from heartbeat response."""
+        # Skip if this is ourself or we're already the leader
+        node_role = self._get_role()
+        if info.role != "LEADER" or node_role == "LEADER":
+            return
+
+        current_leader = self._get_leader_id()
+        peers_snapshot = self._get_peers_snapshot()
+        self_info = self._get_self_info()
+        conflict_keys = self._endpoint_conflict_keys([self_info, *peers_snapshot])
+
+        # Check if peer is eligible to be leader
+        if not self._is_leader_eligible(info, conflict_keys):
+            return
+
+        # Don't override existing valid leader with lower-priority node
+        if (
+            current_leader
+            and current_leader != info.node_id
+            and self._is_leader_lease_valid()
+            and info.node_id <= current_leader
+        ):
+            return
+
+        if current_leader != info.node_id:
+            self._leaders_discovered += 1
+            logger.info(f"[Heartbeat] Discovered leader: {info.node_id}")
+
+        await self._set_leader(info.node_id)
+
+    def _endpoint_key(self, peer: Any) -> str:
+        """Create endpoint key for conflict detection."""
+        return f"{peer.host}:{peer.port}"
+
+    def get_heartbeat_stats(self) -> dict[str, Any]:
+        """Get heartbeat statistics."""
+        return {
+            "heartbeats_sent": self._heartbeats_sent,
+            "heartbeats_succeeded": self._heartbeats_succeeded,
+            "heartbeats_failed": self._heartbeats_failed,
+            "success_rate": (
+                self._heartbeats_succeeded / self._heartbeats_sent * 100
+                if self._heartbeats_sent > 0
+                else 0.0
+            ),
+            "peers_discovered": self._peers_discovered,
+            "leaders_discovered": self._leaders_discovered,
+            **self.stats.to_dict(),
+        }
+
+
+@dataclass
+class VoterHeartbeatConfig:
+    """Configuration for voter heartbeat loop.
+
+    December 2025: Extracted from p2p_orchestrator._voter_heartbeat_loop
+    """
+
+    interval_seconds: float = 10.0  # VOTER_HEARTBEAT_INTERVAL (faster than regular)
+    heartbeat_timeout_seconds: float = 5.0  # VOTER_HEARTBEAT_TIMEOUT
+    mesh_refresh_interval_seconds: float = 60.0  # VOTER_MESH_REFRESH_INTERVAL
+    nat_recovery_aggressive: bool = True  # VOTER_NAT_RECOVERY_AGGRESSIVE
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.interval_seconds <= 0:
+            raise ValueError("interval_seconds must be > 0")
+        if self.heartbeat_timeout_seconds <= 0:
+            raise ValueError("heartbeat_timeout_seconds must be > 0")
+        if self.mesh_refresh_interval_seconds <= 0:
+            raise ValueError("mesh_refresh_interval_seconds must be > 0")
+
+
+class VoterHeartbeatLoop(BaseLoop):
+    """Dedicated high-frequency heartbeat loop for voter nodes.
+
+    Provides:
+    - Faster heartbeat interval (10s vs 15s) for voter nodes
+    - Aggressive NAT-blocked status clearing on successful heartbeats
+    - Full mesh connectivity between all voters
+    - Voter list propagation for consistent quorum
+
+    Only runs if this node is a voter (checked via callback).
+
+    December 2025: Extracted from p2p_orchestrator._voter_heartbeat_loop
+    """
+
+    def __init__(
+        self,
+        get_voter_node_ids: Callable[[], list[str]],
+        get_node_id: Callable[[], str],
+        get_peer: Callable[[str], Any | None],
+        send_voter_heartbeat: Callable[[Any], Coroutine[Any, Any, bool]],
+        try_alternative_endpoints: Callable[[Any], Coroutine[Any, Any, bool]],
+        discover_voter_peer: Callable[[str], Coroutine[Any, Any, None]],
+        refresh_voter_mesh: Callable[[], Coroutine[Any, Any, None]],
+        clear_nat_blocked: Callable[[str], Coroutine[Any, Any, None]],
+        increment_failures: Callable[[str], None],
+        config: VoterHeartbeatConfig | None = None,
+    ):
+        """Initialize voter heartbeat loop.
+
+        Args:
+            get_voter_node_ids: Returns list of voter node IDs
+            get_node_id: Returns this node's ID
+            get_peer: Returns peer info for given node ID
+            send_voter_heartbeat: Async callback to send voter heartbeat
+            try_alternative_endpoints: Async callback to try alternative endpoints
+            discover_voter_peer: Async callback to discover voter peer
+            refresh_voter_mesh: Async callback to refresh voter mesh
+            clear_nat_blocked: Async callback to clear NAT-blocked status
+            increment_failures: Callback to increment failure count for peer
+            config: Voter heartbeat configuration
+        """
+        self.config = config or VoterHeartbeatConfig()
+        super().__init__(
+            name="voter_heartbeat",
+            interval=self.config.interval_seconds,
+        )
+
+        self._get_voter_node_ids = get_voter_node_ids
+        self._get_node_id = get_node_id
+        self._get_peer = get_peer
+        self._send_voter_heartbeat = send_voter_heartbeat
+        self._try_alternative_endpoints = try_alternative_endpoints
+        self._discover_voter_peer = discover_voter_peer
+        self._refresh_voter_mesh = refresh_voter_mesh
+        self._clear_nat_blocked = clear_nat_blocked
+        self._increment_failures = increment_failures
+
+        # State
+        self._last_mesh_refresh = 0.0
+        self._is_voter = False
+
+        # Statistics
+        self._heartbeats_sent = 0
+        self._heartbeats_succeeded = 0
+        self._nat_recoveries = 0
+        self._mesh_refreshes = 0
+
+    async def _on_start(self) -> None:
+        """Check if this node is a voter."""
+        node_id = self._get_node_id()
+        voter_ids = self._get_voter_node_ids()
+        self._is_voter = node_id in voter_ids
+
+        if not self._is_voter:
+            logger.info("[VoterHeartbeat] This node is not a voter, loop will skip")
+        else:
+            logger.info(
+                f"[VoterHeartbeat] Starting voter heartbeat loop "
+                f"(interval={self.config.interval_seconds}s)"
+            )
+
+    async def _run_once(self) -> None:
+        """Send heartbeats to all other voter nodes."""
+        if not self._is_voter:
+            return
+
+        node_id = self._get_node_id()
+        voter_ids = self._get_voter_node_ids()
+        other_voters = [v for v in voter_ids if v != node_id]
+        now = time.time()
+
+        for voter_id in other_voters:
+            voter_peer = self._get_peer(voter_id)
+
+            if not voter_peer:
+                # Try to discover voter from known peers
+                await self._discover_voter_peer(voter_id)
+                continue
+
+            self._heartbeats_sent += 1
+            success = await self._send_voter_heartbeat(voter_peer)
+
+            if success:
+                self._heartbeats_succeeded += 1
+
+                # Aggressive NAT recovery: clear NAT-blocked immediately on success
+                if (
+                    self.config.nat_recovery_aggressive
+                    and getattr(voter_peer, "nat_blocked", False)
+                ):
+                    await self._clear_nat_blocked(voter_id)
+                    self._nat_recoveries += 1
+                    logger.info(
+                        f"[VoterHeartbeat] Voter {voter_id} NAT-blocked status cleared"
+                    )
+            else:
+                # Try alternative endpoints
+                success = await self._try_alternative_endpoints(voter_peer)
+
+                if not success:
+                    self._increment_failures(voter_id)
+
+        # Periodic voter mesh refresh
+        if now - self._last_mesh_refresh > self.config.mesh_refresh_interval_seconds:
+            self._last_mesh_refresh = now
+            self._mesh_refreshes += 1
+            await self._refresh_voter_mesh()
+
+    def get_voter_stats(self) -> dict[str, Any]:
+        """Get voter heartbeat statistics."""
+        return {
+            "is_voter": self._is_voter,
+            "heartbeats_sent": self._heartbeats_sent,
+            "heartbeats_succeeded": self._heartbeats_succeeded,
+            "success_rate": (
+                self._heartbeats_succeeded / self._heartbeats_sent * 100
+                if self._heartbeats_sent > 0
+                else 0.0
+            ),
+            "nat_recoveries": self._nat_recoveries,
+            "mesh_refreshes": self._mesh_refreshes,
+            **self.stats.to_dict(),
+        }
+
+
 __all__ = [
     # IP Discovery
     "IpDiscoveryConfig",
@@ -864,4 +1330,9 @@ __all__ = [
     "VastIpUpdateLoop",
     "AwsIpUpdateLoop",
     "TailscaleIpUpdateLoop",
+    # Heartbeat Loops (December 2025)
+    "HeartbeatConfig",
+    "HeartbeatLoop",
+    "VoterHeartbeatConfig",
+    "VoterHeartbeatLoop",
 ]

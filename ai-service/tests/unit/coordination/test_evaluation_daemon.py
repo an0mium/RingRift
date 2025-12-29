@@ -37,12 +37,12 @@ class TestEvaluationConfig:
         assert config.early_stopping_enabled is True
         assert config.early_stopping_confidence == 0.95
         assert config.early_stopping_min_games == 10
-        assert config.max_concurrent_evaluations == 4
+        assert config.max_concurrent_evaluations == 8  # Updated Dec 2025
         assert config.evaluation_timeout_seconds == 1800.0
         assert config.dedup_cooldown_seconds == 300.0
         assert config.max_queue_depth == 50
-        assert config.backpressure_threshold == 40
-        assert config.backpressure_release_threshold == 20
+        assert config.backpressure_threshold == 25  # Updated Dec 2025 (was 40)
+        assert config.backpressure_release_threshold == 15  # Updated Dec 2025 (was 20)
 
     def test_custom_values(self):
         """Test configuration with custom values."""

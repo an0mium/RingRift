@@ -97,6 +97,10 @@ class Provisioner(BaseDaemon):
         self._provision_history: list[ProvisionResult] = []
         self._pending_provisions: int = 0
 
+    def _get_default_config(self) -> ProvisionerConfig:
+        """Return default configuration."""
+        return ProvisionerConfig()
+
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to capacity-related events."""
         return {
