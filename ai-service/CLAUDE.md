@@ -709,15 +709,15 @@ The following components are deprecated and will be removed in future releases:
 
 ### Daemons (Removal: Q2 2026)
 
-| Deprecated                    | Replacement                                         | Notes                     |
-| ----------------------------- | --------------------------------------------------- | ------------------------- |
-| `DaemonType.SYNC_COORDINATOR` | `DaemonType.AUTO_SYNC`                              | Use AutoSyncDaemon        |
-| `DaemonType.HEALTH_CHECK`     | `DaemonType.NODE_HEALTH_MONITOR`                    | Unified health monitoring |
-| `vast_idle_daemon.py`         | `unified_idle_shutdown_daemon.py`                   | Provider-agnostic         |
-| `lambda_idle_daemon.py`       | `unified_idle_shutdown_daemon.py`                   | Provider-agnostic         |
-| `auto_evaluation_daemon.py`   | `evaluation_daemon.py` + `auto_promotion_daemon.py` | Monolithic → composable   |
-| `queue_populator_daemon.py`   | `unified_queue_populator.py`                        | Archived Dec 2025         |
-| `node_health_monitor.py`      | `health_check_orchestrator.py`                      | Safe to archive           |
+| Deprecated                         | Replacement                                          | Notes                     |
+| ---------------------------------- | ---------------------------------------------------- | ------------------------- |
+| `DaemonType.SYNC_COORDINATOR`      | `DaemonType.AUTO_SYNC`                               | Use AutoSyncDaemon        |
+| `DaemonType.HEALTH_CHECK`          | `DaemonType.NODE_HEALTH_MONITOR`                     | Unified health monitoring |
+| `vast_idle_daemon.py`              | `unified_idle_shutdown_daemon.py`                    | Provider-agnostic         |
+| `lambda_idle_daemon.py`            | `unified_idle_shutdown_daemon.py`                    | Provider-agnostic         |
+| `auto_evaluation_daemon.py`        | `evaluation_daemon.py` + `auto_promotion_daemon.py`  | Monolithic → composable   |
+| `queue_populator_daemon.py`        | `unified_queue_populator.py`                         | Archived Dec 2025         |
+| `node_health_monitor.py` (removed) | `health_check_orchestrator.py` (health_facade alias) | Archived Dec 2025         |
 
 ### Training Modules (Deprecated Dec 2025)
 
@@ -741,26 +741,26 @@ Three main options - use the recommended one:
 
 Major consolidation effort completed December 2025:
 
-| Original Modules                                                                         | Consolidated To                            | LOC Saved       | Status   |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------ | --------------- | -------- |
-| `model_distribution_daemon.py` + `npz_distribution_daemon.py`                            | `unified_distribution_daemon.py`           | ~1,100          | Complete |
-| `lambda_idle_daemon.py` + `vast_idle_daemon.py`                                          | `unified_idle_shutdown_daemon.py`          | ~318            | Complete |
-| `replication_monitor.py` + `replication_repair_daemon.py`                                | `unified_replication_daemon.py`            | ~600            | Complete |
-| `system_health_monitor.py` (scoring)                                                     | `unified_health_manager.py`                | ~200            | Complete |
-| 3× GumbelAction/GumbelNode copies                                                        | `gumbel_common.py`                         | ~150            | Complete |
-| `distributed/cluster_monitor.py`                                                         | `coordination/cluster_status_monitor.py`   | ~40 (shim)      | Complete |
-| `EloSyncManager` + `RegistrySyncManager`                                                 | `DatabaseSyncManager` base class           | ~567            | Complete |
-| 28 `_init_*()` functions in `coordination_bootstrap.py`                                  | `COORDINATOR_REGISTRY` + generic handler   | ~17             | Complete |
-| 5× NodeStatus definitions                                                                | `node_status.py`                           | ~200            | Complete |
-| 5× FeedbackState definitions                                                             | `feedback_state.py`                        | ~100            | Complete |
-| DaemonManager factory methods (72 of 73)                                                 | `daemon_runners.py`                        | ~1,580          | Complete |
-| `GossipMetricsMixin` (226 LOC)                                                           | Merged into `GossipProtocolMixin`          | ~226            | Complete |
-| `tracing.py` + `distributed_lock.py` + `optional_imports.py` + `yaml_utils.py`           | `core_utils.py`                            | ~0 (re-exports) | Complete |
-| `coordinator_base.py` + `coordinator_dependencies.py`                                    | `core_base.py`                             | ~0 (re-exports) | Complete |
-| `event_router.py` + `event_mappings.py` + `event_emitters.py` + `event_normalization.py` | `core_events.py`                           | ~0 (re-exports) | Complete |
-| CloudProvider `get_instance()` + `get_instance_status()` duplicates                      | Base class defaults in `providers/base.py` | ~36             | Complete |
-| VastProvider `_parse_gpu_type()` duplication                                             | `GPUType.from_string()` in base            | ~17             | Complete |
-| `sync_push_daemon._compute_sha256()` duplicate                                           | `sync_integrity.compute_file_checksum()`   | ~17             | Complete |
+| Original Modules                                                                         | Consolidated To                                       | LOC Saved         | Status   |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------- | -------- |
+| `model_distribution_daemon.py` + `npz_distribution_daemon.py`                            | `unified_distribution_daemon.py`                      | ~1,100            | Complete |
+| `lambda_idle_daemon.py` + `vast_idle_daemon.py`                                          | `unified_idle_shutdown_daemon.py`                     | ~318              | Complete |
+| `replication_monitor.py` + `replication_repair_daemon.py`                                | `unified_replication_daemon.py`                       | ~600              | Complete |
+| `system_health_monitor.py` (scoring, removed)                                            | `unified_health_manager.py`                           | ~200              | Complete |
+| 3× GumbelAction/GumbelNode copies                                                        | `gumbel_common.py`                                    | ~150              | Complete |
+| `distributed/cluster_monitor.py`                                                         | `coordination/cluster_status_monitor.py`              | ~40 (shim)        | Complete |
+| `EloSyncManager` + `RegistrySyncManager`                                                 | `DatabaseSyncManager` base class                      | ~567              | Complete |
+| 28 `_init_*()` functions in `coordination_bootstrap.py`                                  | `COORDINATOR_REGISTRY` + generic handler              | ~17               | Complete |
+| 5× NodeStatus definitions                                                                | `node_status.py`                                      | ~200              | Complete |
+| 5× FeedbackState definitions                                                             | `feedback_state.py`                                   | ~100              | Complete |
+| DaemonManager factory methods (72 of 73)                                                 | `daemon_runners.py`                                   | ~1,580            | Complete |
+| `GossipMetricsMixin` (226 LOC)                                                           | Merged into `GossipProtocolMixin`                     | ~226              | Complete |
+| `tracing.py` + `distributed_lock.py` + `optional_imports.py` + `yaml_utils.py`           | `core_utils.py`                                       | ~0 (re-exports)   | Complete |
+| `coordinator_base.py` + `coordinator_dependencies.py`                                    | `coordinator_base.py` + `coordinator_dependencies.py` | ~0 (no re-export) | Deferred |
+| `event_router.py` + `event_mappings.py` + `event_emitters.py` + `event_normalization.py` | `core_events.py`                                      | ~0 (re-exports)   | Complete |
+| CloudProvider `get_instance()` + `get_instance_status()` duplicates                      | Base class defaults in `providers/base.py`            | ~36               | Complete |
+| VastProvider `_parse_gpu_type()` duplication                                             | `GPUType.from_string()` in base                       | ~17               | Complete |
+| `sync_push_daemon._compute_sha256()` duplicate                                           | `sync_integrity.compute_file_checksum()`              | ~17               | Complete |
 
 **New Canonical Modules (December 2025 Wave 2):**
 
