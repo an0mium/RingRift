@@ -382,16 +382,14 @@ class SelfplayRunner(ABC):
             # Determine board type enum
             board_type = BoardType(self.config.board_type)
 
-            # Create config for NeuralNetAI with the explicit checkpoint path
-            # Use nn_model_id to hint at the model, but the path is resolved internally
+            # Create config for NeuralNetAI
+            # Pass model path directly via nn_model_id - if it ends in .pth,
+            # NeuralNetAI treats it as an explicit checkpoint path
             config = AIConfig(
                 difficulty=8,  # Not used for selfplay, but required
                 use_neural_net=True,
-                nn_model_id=f"canonical_{self.config.board_type}_{self.config.num_players}p",
-                # Pass explicit checkpoint path via the config attribute
+                nn_model_id=model_path,  # Direct path to checkpoint
             )
-            # Set the explicit checkpoint path (NeuralNetAI checks this first)
-            config.explicit_checkpoint_path = model_path
 
             # Create NeuralNetAI with player 1 (will be used for all players in batch eval)
             neural_net = NeuralNetAI(

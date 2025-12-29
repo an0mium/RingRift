@@ -139,14 +139,15 @@ class GPUMCTSSelfplayRunner:
         from .encoding import get_encoder_for_board_type
 
         # Get config values with defaults (supports both GPUMCTSSelfplayConfig and SelfplayConfig)
-        self._num_sampled_actions = getattr(self.config, "num_sampled_actions", 16)
-        self._simulation_budget = getattr(self.config, "simulation_budget", 800)
-        self._max_nodes = getattr(self.config, "max_nodes", 10000)
-        self._sample_every = getattr(self.config, "sample_every", 1)
-        self._history_length = getattr(self.config, "history_length", 3)
-        self._max_moves_per_game = getattr(self.config, "max_moves_per_game", 300)
-        self._encoder_version = getattr(self.config, "encoder_version", 2)
-        self._feature_version = getattr(self.config, "feature_version", 2)
+        # Use "or" to handle both missing attrs AND None values
+        self._num_sampled_actions = getattr(self.config, "num_sampled_actions", None) or 16
+        self._simulation_budget = getattr(self.config, "simulation_budget", None) or 800
+        self._max_nodes = getattr(self.config, "max_nodes", None) or 10000
+        self._sample_every = getattr(self.config, "sample_every", None) or 1
+        self._history_length = getattr(self.config, "history_length", None) or 3
+        self._max_moves_per_game = getattr(self.config, "max_moves_per_game", None) or 300
+        self._encoder_version = getattr(self.config, "encoder_version", None) or 2
+        self._feature_version = getattr(self.config, "feature_version", None) or 2
         # Check both model_path (GPUMCTSSelfplayConfig) and weights_file (SelfplayConfig)
         self._model_path = getattr(self.config, "model_path", None) or getattr(self.config, "weights_file", None)
 
@@ -208,14 +209,14 @@ class GPUMCTSSelfplayRunner:
             from ..models import AIConfig
             from ..ai.neural_net import NeuralNetAI
 
-            # Create config for NeuralNetAI with the explicit checkpoint path
+            # Create config for NeuralNetAI
+            # Pass model path directly via nn_model_id - if it ends in .pth,
+            # NeuralNetAI treats it as an explicit checkpoint path
             ai_config = AIConfig(
                 difficulty=8,  # Not used for selfplay, but required
                 use_neural_net=True,
-                nn_model_id=f"canonical_{self.config.board_type}_{self.config.num_players}p",
+                nn_model_id=self._model_path,  # Direct path to checkpoint
             )
-            # Set the explicit checkpoint path
-            ai_config.explicit_checkpoint_path = self._model_path
 
             # Create NeuralNetAI with player 1 (will be used for all players in batch eval)
             self._neural_net = NeuralNetAI(
