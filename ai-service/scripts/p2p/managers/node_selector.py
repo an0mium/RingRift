@@ -103,11 +103,15 @@ class NodeSelector:
         """
         all_nodes = self._get_all_nodes(include_self=True)
 
-        # Filter to only GPU nodes that are alive and healthy
+        # Filter to only GPU nodes that are alive, healthy, and have training capability
+        # Dec 29, 2025: Skip coordinator nodes (empty capabilities)
         gpu_nodes = [
             node
             for node in all_nodes
-            if node.has_gpu and node.is_alive() and node.gpu_power_score() > 0
+            if node.has_gpu
+            and node.is_alive()
+            and node.gpu_power_score() > 0
+            and "training" in getattr(node, "capabilities", [])  # Must have training capability
         ]
 
         # Sort by GPU power score (descending)
@@ -158,7 +162,8 @@ class NodeSelector:
         """
         all_nodes = self._get_all_nodes(include_self=True)
 
-        # Filter to GPU nodes that are healthy and not retired
+        # Filter to GPU nodes that are healthy, not retired, and have training capability
+        # Dec 29, 2025: Skip coordinator nodes (empty capabilities)
         gpu_nodes = [
             n
             for n in all_nodes
@@ -167,6 +172,7 @@ class NodeSelector:
             and n.is_healthy()
             and not getattr(n, "retired", False)
             and n.gpu_power_score() > 0
+            and "training" in getattr(n, "capabilities", [])  # Must have training capability
         ]
 
         if not gpu_nodes:

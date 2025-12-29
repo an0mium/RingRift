@@ -153,6 +153,8 @@ class SyncEventMixin(SyncMixinBase):
 
         When training data is detected as stale, we trigger an immediate
         sync operation to fetch fresh data from the cluster.
+
+        December 29, 2025: Now uses trigger_sync() for event-driven wake-up.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
@@ -171,8 +173,12 @@ class SyncEventMixin(SyncMixinBase):
             self._urgent_sync_pending[config_key] = time.time()
             self._events_processed += 1
 
-            # Trigger immediate sync (don't wait for next interval)
-            fire_and_forget(self._trigger_urgent_sync(config_key))
+            # December 29, 2025: Wake the sync loop immediately via event
+            if hasattr(self, 'trigger_sync'):
+                self.trigger_sync()
+            else:
+                # Fallback for backward compatibility
+                fire_and_forget(self._trigger_urgent_sync(config_key))
 
         except (RuntimeError, OSError, ConnectionError) as e:
             self._errors_count += 1
@@ -180,7 +186,10 @@ class SyncEventMixin(SyncMixinBase):
             logger.error(f"[AutoSyncDaemon] Error handling DATA_STALE: {e}")
 
     async def _on_sync_triggered(self, event) -> None:
-        """Handle external SYNC_TRIGGERED event (Phase 9)."""
+        """Handle external SYNC_TRIGGERED event (Phase 9).
+
+        December 29, 2025: Now uses trigger_sync() for event-driven wake-up.
+        """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
             reason = payload.get("reason", "unknown")
@@ -193,11 +202,15 @@ class SyncEventMixin(SyncMixinBase):
 
             self._events_processed += 1
 
-            # Trigger immediate sync
-            if config_key:
-                fire_and_forget(self._trigger_urgent_sync(config_key))
+            # December 29, 2025: Wake the sync loop immediately via event
+            if hasattr(self, 'trigger_sync'):
+                self.trigger_sync()
             else:
-                fire_and_forget(self._sync_all())
+                # Fallback for backward compatibility
+                if config_key:
+                    fire_and_forget(self._trigger_urgent_sync(config_key))
+                else:
+                    fire_and_forget(self._sync_all())
 
         except (RuntimeError, OSError, ConnectionError) as e:
             self._errors_count += 1

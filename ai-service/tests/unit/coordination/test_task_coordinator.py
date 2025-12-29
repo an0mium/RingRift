@@ -60,8 +60,9 @@ class TestResourceType:
         assert ResourceType.IO.value == "io"
 
     def test_resource_type_count(self):
-        """Should have exactly 4 resource types."""
-        assert len(ResourceType) == 4
+        """Should have exactly 7 resource types (Dec 2025 consolidation)."""
+        # December 2025: ResourceType consolidated to include CPU, GPU, MEMORY, DISK, NETWORK, HYBRID, IO
+        assert len(ResourceType) == 7
 
 
 class TestAtomicWriteJson:
@@ -1134,15 +1135,17 @@ class TestTaskCoordinator:
         assert "limit" in reason.lower()
 
     def test_resource_check(self, coordinator):
-        """Should check resource thresholds."""
-        # Update with high disk usage
+        """Should auto-pause on critical resource thresholds (Dec 2025)."""
+        # Update with high disk usage - triggers auto-pause at 70% threshold
         coordinator.update_node_resources(
             "node-1",
             cpu_percent=50,
             memory_percent=60,
-            disk_percent=85,  # Above 70% threshold
+            disk_percent=85,  # Above 70% halt_on_disk_percent threshold
         )
 
+        # December 2025: Coordinator now auto-pauses when disk >= halt threshold
+        # This check happens BEFORE resource checks in can_spawn_task()
         allowed, reason = coordinator.can_spawn_task(
             TaskType.SELFPLAY,
             "node-1",
@@ -1150,7 +1153,7 @@ class TestTaskCoordinator:
             check_health=False,
         )
         assert allowed is False
-        assert "disk" in reason.lower()
+        assert "paused" in reason.lower()  # Auto-pause takes precedence
 
     def test_callback_on_limit_reached(self, coordinator):
         """Should fire callback when limit reached."""

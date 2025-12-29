@@ -122,6 +122,7 @@ EXPLORATION_BOOST_WEIGHT = 0.10  # Feedback loop exploration signal
 CURRICULUM_WEIGHT = 0.10  # Curriculum-based priority (Phase 2C.3)
 IMPROVEMENT_BOOST_WEIGHT = 0.15  # Phase 5: ImprovementOptimizer boost
 DATA_DEFICIT_WEIGHT = 0.25  # Dec 2025: Boost configs with low game counts
+QUALITY_WEIGHT = 0.15  # Dec 29, 2025: Data quality importance from QualityMonitorDaemon
 
 # =============================================================================
 # Dynamic Weight Bounds (Dec 29, 2025)
@@ -136,6 +137,7 @@ DYNAMIC_WEIGHT_BOUNDS = {
     "curriculum": (0.05, 0.25),      # Range: 5-25% (boost for higher Elo models)
     "improvement": (0.10, 0.25),     # Range: 10-25%
     "data_deficit": (0.15, 0.40),    # Range: 15-40%
+    "quality": (0.05, 0.25),         # Range: 5-25% (boost high-quality data generators)
 }
 
 # Thresholds for dynamic weight adjustment triggers
@@ -223,6 +225,7 @@ class DynamicWeights:
     curriculum: float = CURRICULUM_WEIGHT
     improvement: float = IMPROVEMENT_BOOST_WEIGHT
     data_deficit: float = DATA_DEFICIT_WEIGHT
+    quality: float = QUALITY_WEIGHT  # Dec 29, 2025: Data quality weight
 
     # Cluster state that drove these weights (for debugging/logging)
     idle_gpu_fraction: float = 0.0
@@ -240,6 +243,7 @@ class DynamicWeights:
             "curriculum": self.curriculum,
             "improvement": self.improvement,
             "data_deficit": self.data_deficit,
+            "quality": self.quality,
             "idle_gpu_fraction": self.idle_gpu_fraction,
             "training_queue_depth": self.training_queue_depth,
             "configs_at_target_fraction": self.configs_at_target_fraction,

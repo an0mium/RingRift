@@ -1207,6 +1207,11 @@ class SelfplayScheduler(EventSubscriptionMixin):
 
         Target: 60-80% CPU/GPU utilization for optimal training throughput.
         """
+        # Dec 29, 2025: Skip coordinator nodes (no selfplay capability)
+        node_caps = getattr(node, "capabilities", None) or []
+        if not node_caps or "selfplay" not in node_caps:
+            return 0
+
         # Check safeguards first - halt all selfplay during emergency
         if self.is_emergency_active is not None:
             try:

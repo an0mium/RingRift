@@ -236,6 +236,11 @@ class AutoSyncDaemon(
         self._sync_paused = False
         self._backpressure_reason: str = ""
 
+        # December 29, 2025: Event-driven sync - wake loop immediately on events
+        self._sync_wake_event = asyncio.Event()
+        self._last_sync_time: float = 0.0  # For throttling
+        self._min_sync_interval: float = self.config.min_sync_interval_seconds if hasattr(self.config, 'min_sync_interval_seconds') else 5.0
+
         # Quality extraction for training data prioritization (December 2025)
         self._quality_config: Any = None
         self._elo_lookup: Any = None
@@ -859,18 +864,54 @@ class AutoSyncDaemon(
             logger.debug(f"Could not emit DATA_SYNC_COMPLETED: {e}")
 
     async def _sync_loop(self) -> None:
-        """Main sync loop."""
+        """Main sync loop - event-driven with throttling.
+
+        December 29, 2025: Converted from polling to event-driven.
+        - Waits on _sync_wake_event or max interval timeout (whichever comes first)
+        - Respects minimum sync interval to prevent excessive syncing
+        - Events trigger immediate wake-up, but throttle ensures minimum gap
+        """
         while self._running:
             # December 28, 2025: Check backpressure before running sync cycle
             if self._sync_paused:
                 logger.debug(
                     f"[AutoSyncDaemon] Sync paused due to backpressure: {self._backpressure_reason}"
                 )
-                await asyncio.sleep(self.config.interval_seconds)
+                # Wait for backpressure release or max interval
+                try:
+                    await asyncio.wait_for(
+                        self._sync_wake_event.wait(),
+                        timeout=self.config.interval_seconds
+                    )
+                    self._sync_wake_event.clear()
+                except asyncio.TimeoutError:
+                    pass
                 continue
+
+            # December 29, 2025: Wait for event or timeout (event-driven sync)
+            try:
+                await asyncio.wait_for(
+                    self._sync_wake_event.wait(),
+                    timeout=self.config.interval_seconds
+                )
+                self._sync_wake_event.clear()
+                logger.debug("[AutoSyncDaemon] Woke from event trigger")
+            except asyncio.TimeoutError:
+                # No event, but max interval reached - run periodic sync
+                logger.debug("[AutoSyncDaemon] Woke from interval timeout")
+
+            # December 29, 2025: Throttle to prevent too-frequent syncs
+            time_since_last = time.time() - self._last_sync_time
+            if time_since_last < self._min_sync_interval:
+                remaining = self._min_sync_interval - time_since_last
+                logger.debug(
+                    f"[AutoSyncDaemon] Throttling: waiting {remaining:.1f}s before sync"
+                )
+                await asyncio.sleep(remaining)
 
             try:
                 games_synced = await self._sync_cycle()
+                self._last_sync_time = time.time()  # Update for throttling
                 # Use actual field names, not readonly property aliases
                 self._stats.operations_attempted += 1
                 self._stats.syncs_completed += 1
@@ -887,13 +928,15 @@ class AutoSyncDaemon(
                 self._stats.syncs_failed += 1
                 self._stats.last_error = str(e)
                 logger.error(f"Sync cycle error: {e}")
-                # Emit DATA_SYNC_FAILED event
-                fire_and_forget(
-                    self._emit_sync_failed(str(e)),
-                    on_error=lambda exc: logger.debug(f"Failed to emit sync failed: {exc}"),
-                )
 
-            await asyncio.sleep(self.config.interval_seconds)
+    def trigger_sync(self) -> None:
+        """Trigger an immediate sync cycle via event wake-up.
+
+        December 29, 2025: Public method for event handlers to wake the sync loop.
+        This is preferred over calling _sync_cycle() directly as it respects throttling.
+        """
+        self._sync_wake_event.set()
+        logger.debug("[AutoSyncDaemon] Sync triggered via event")
 
     async def _sync_all(self) -> None:
         """Execute full sync cycle (Protocol method required by SyncEventMixin).
