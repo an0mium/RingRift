@@ -49,10 +49,10 @@ class ProvisionResult:
         }
 
 
-@dataclass
-class ProvisionerConfig:
+@dataclass(kw_only=True)
+class ProvisionerConfig(DaemonConfig):
     """Configuration for Provisioner."""
-    cycle_interval_seconds: float = 300.0  # 5 minutes
+    check_interval_seconds: int = 300  # 5 minutes
     min_gpu_capacity: int = 4  # Minimum active GPU nodes
     target_gpu_capacity: int = 10  # Target GPU nodes
     max_provision_per_cycle: int = 2  # Max instances to create per cycle
@@ -76,7 +76,7 @@ class ClusterCapacity:
     providers: dict[str, int] = field(default_factory=dict)
 
 
-class Provisioner(BaseDaemon):
+class Provisioner(BaseDaemon[ProvisionerConfig]):
     """Auto-provisioning daemon for maintaining cluster capacity.
 
     Monitors cluster GPU capacity and automatically provisions new
@@ -89,11 +89,7 @@ class Provisioner(BaseDaemon):
     """
 
     def __init__(self, config: ProvisionerConfig | None = None):
-        super().__init__(
-            name="provisioner",
-            cycle_interval=config.cycle_interval_seconds if config else 300.0,
-        )
-        self.config = config or ProvisionerConfig()
+        super().__init__(config)
         self._provision_history: list[ProvisionResult] = []
         self._pending_provisions: int = 0
 

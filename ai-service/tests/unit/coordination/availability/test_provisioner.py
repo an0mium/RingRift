@@ -91,7 +91,7 @@ class TestProvisionerConfig:
     def test_default_values(self):
         """Test default configuration values."""
         config = ProvisionerConfig()
-        assert config.cycle_interval_seconds == 300.0
+        assert config.check_interval_seconds == 300
         assert config.min_gpu_capacity == 4
         assert config.target_gpu_capacity == 10
         assert config.max_provision_per_cycle == 2
@@ -285,7 +285,7 @@ class TestProvisioner:
         provisioner = Provisioner()
 
         with patch(
-            "app.coordination.availability.provisioner.get_provider",
+            "app.coordination.providers.registry.get_provider",
             return_value=None,
         ):
             result = await provisioner._provision_from_provider("fake_provider", 1)

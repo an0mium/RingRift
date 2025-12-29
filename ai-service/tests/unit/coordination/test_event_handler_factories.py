@@ -211,6 +211,7 @@ class TestCreateDebouncingHandler:
     """Tests for create_debouncing_handler factory."""
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(5)
     async def test_debounces_rapid_events(self):
         """Test that rapid events are debounced."""
         calls = []
@@ -218,21 +219,22 @@ class TestCreateDebouncingHandler:
         async def inner(event):
             calls.append(event)
 
-        handler = create_debouncing_handler(inner, debounce_seconds=0.1)
+        handler = create_debouncing_handler(inner, debounce_seconds=0.05)
 
-        # Send multiple events rapidly
-        await handler({"n": 1})
-        await handler({"n": 2})
-        await handler({"n": 3})
+        # Send multiple events rapidly (not awaiting the background tasks)
+        asyncio.create_task(handler({"n": 1}))
+        asyncio.create_task(handler({"n": 2}))
+        asyncio.create_task(handler({"n": 3}))
 
         # Wait for debounce
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.1)
 
         # Only last event should be processed
         assert len(calls) == 1
         assert calls[0]["n"] == 3
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(5)
     async def test_per_key_debouncing(self):
         """Test per-key debouncing."""
         calls = []
@@ -242,17 +244,17 @@ class TestCreateDebouncingHandler:
 
         handler = create_debouncing_handler(
             inner,
-            debounce_seconds=0.1,
+            debounce_seconds=0.05,
             key_func=lambda e: e.get("config_key"),
         )
 
         # Send events for different keys
-        await handler({"config_key": "hex8", "n": 1})
-        await handler({"config_key": "square8", "n": 2})
-        await handler({"config_key": "hex8", "n": 3})
+        asyncio.create_task(handler({"config_key": "hex8", "n": 1}))
+        asyncio.create_task(handler({"config_key": "square8", "n": 2}))
+        asyncio.create_task(handler({"config_key": "hex8", "n": 3}))
 
         # Wait for debounce
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.1)
 
         # Each key should have its last event processed
         assert len(calls) == 2
@@ -262,6 +264,7 @@ class TestCreateAggregatingHandler:
     """Tests for create_aggregating_handler factory."""
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(5)
     async def test_aggregates_to_max_count(self):
         """Test that events are aggregated to max count."""
         batches = []
@@ -280,13 +283,14 @@ class TestCreateAggregatingHandler:
             await handler({"n": i})
 
         # Wait briefly for processing
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.02)
 
         # Should have triggered batch
         assert len(batches) == 1
         assert len(batches[0]) == 3
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(5)
     async def test_aggregates_on_timeout(self):
         """Test that events are processed after timeout."""
         batches = []
@@ -297,7 +301,7 @@ class TestCreateAggregatingHandler:
         handler = create_aggregating_handler(
             batch_handler,
             max_count=100,  # High count
-            max_wait_seconds=0.1,  # Short timeout
+            max_wait_seconds=0.05,  # Short timeout
         )
 
         # Send fewer than max events
@@ -305,7 +309,7 @@ class TestCreateAggregatingHandler:
         await handler({"n": 2})
 
         # Wait for timeout
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.1)
 
         # Should have triggered batch
         assert len(batches) == 1

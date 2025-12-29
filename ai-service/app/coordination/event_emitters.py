@@ -2581,6 +2581,37 @@ async def emit_repair_failed(
     )
 
 
+async def emit_generic_event(
+    event_type: DataEventType,
+    payload: dict,
+    source: str = "",
+    log_message: str = "",
+    log_level: str = "debug",
+) -> bool:
+    """Emit a generic event with custom payload.
+
+    December 2025: Added for flexible event emission from daemons that
+    need to emit events not covered by typed emitters.
+
+    Args:
+        event_type: The DataEventType to emit
+        payload: Event payload dictionary
+        source: Event source identifier
+        log_message: Optional log message
+        log_level: Logging level ("debug", "info", "warning")
+
+    Returns:
+        True if emitted successfully
+    """
+    return await _emit_data_event(
+        event_type,
+        payload,
+        source=source or "generic",
+        log_message=log_message or f"Emitted {event_type.name}",
+        log_level=log_level,
+    )
+
+
 __all__ = [
     # Retry-enabled emission (December 2025)
     "CRITICAL_EVENT_TYPES",
@@ -2615,6 +2646,8 @@ __all__ = [
     "emit_node_retired",
     "emit_node_suspect",
     "emit_node_unhealthy",
+    # Generic event emission (December 2025)
+    "emit_generic_event",
     # Cluster health events (December 2025)
     "emit_health_check_passed",
     "emit_health_check_failed",
