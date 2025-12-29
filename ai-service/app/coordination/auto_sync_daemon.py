@@ -88,6 +88,7 @@ from app.coordination.sync_strategies import (
     SyncStrategy,
     AutoSyncConfig,
     SyncStats,
+    SyncProgress,
     MIN_MOVES_PER_GAME,
     DEFAULT_MIN_MOVES,
 )
@@ -188,6 +189,7 @@ class AutoSyncDaemon(
         self.node_id = socket.gethostname()
         self._running = False
         self._stats = SyncStats()
+        self._progress = SyncProgress()  # December 2025: Real-time sync progress tracking
         self._sync_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
         self._gossip_daemon = None
@@ -1525,6 +1527,99 @@ class AutoSyncDaemon(
             "databases_verification_failed": self._stats.databases_verification_failed,
             "last_verification_time": self._stats.last_verification_time,
         }
+
+    def get_sync_progress(self) -> SyncProgress:
+        """Get real-time sync progress information.
+
+        December 2025: Added for monitoring and UI integration.
+        Returns a snapshot of current sync operation progress.
+
+        Returns:
+            SyncProgress with current operation state.
+        """
+        return self._progress
+
+    def _update_progress(
+        self,
+        phase: str = "",
+        current_file: str = "",
+        current_node: str = "",
+        files_completed: int | None = None,
+        files_total: int | None = None,
+        bytes_transferred: int | None = None,
+        bytes_total: int | None = None,
+        error_message: str = "",
+        is_active: bool | None = None,
+    ) -> None:
+        """Update sync progress tracking (internal helper).
+
+        December 2025: Centralized progress update for consistent tracking.
+
+        Args:
+            phase: Current sync phase description
+            current_file: File currently being synced
+            current_node: Node currently being synced to/from
+            files_completed: Number of files completed (incremental update if None)
+            files_total: Total files expected
+            bytes_transferred: Bytes transferred so far (incremental update if None)
+            bytes_total: Total bytes expected
+            error_message: Error message if any
+            is_active: Override active state (defaults to True during update)
+        """
+        self._progress.last_update_at = time.time()
+
+        if is_active is not None:
+            self._progress.is_active = is_active
+        elif not self._progress.is_active:
+            # Starting new sync cycle
+            self._progress.is_active = True
+            self._progress.started_at = time.time()
+            self._progress.files_completed = 0
+            self._progress.bytes_transferred = 0
+
+        if phase:
+            self._progress.current_phase = phase
+        if current_file:
+            self._progress.current_file = current_file
+        if current_node:
+            self._progress.current_node = current_node
+        if files_completed is not None:
+            self._progress.files_completed = files_completed
+        if files_total is not None:
+            self._progress.files_total = files_total
+        if bytes_transferred is not None:
+            self._progress.bytes_transferred = bytes_transferred
+        if bytes_total is not None:
+            self._progress.bytes_total = bytes_total
+        if error_message:
+            self._progress.error_message = error_message
+
+        # Estimate completion time based on current progress
+        if self._progress.bytes_total > 0 and self._progress.transfer_rate_bytes_per_sec > 0:
+            remaining_bytes = self._progress.bytes_total - self._progress.bytes_transferred
+            remaining_seconds = remaining_bytes / self._progress.transfer_rate_bytes_per_sec
+            self._progress.estimated_completion_at = time.time() + remaining_seconds
+        elif self._progress.files_total > 0 and self._progress.elapsed_seconds > 0:
+            files_remaining = self._progress.files_total - self._progress.files_completed
+            files_per_sec = self._progress.files_completed / max(self._progress.elapsed_seconds, 1)
+            if files_per_sec > 0:
+                remaining_seconds = files_remaining / files_per_sec
+                self._progress.estimated_completion_at = time.time() + remaining_seconds
+
+    def _complete_progress(self, success: bool = True, error: str = "") -> None:
+        """Mark sync progress as complete.
+
+        December 2025: Called when sync cycle finishes.
+
+        Args:
+            success: Whether sync completed successfully
+            error: Error message if failed
+        """
+        self._progress.is_active = False
+        self._progress.current_phase = "completed" if success else "failed"
+        self._progress.last_update_at = time.time()
+        if error:
+            self._progress.error_message = error
 
     def health_check(self) -> HealthCheckResult:
         """Check daemon health.

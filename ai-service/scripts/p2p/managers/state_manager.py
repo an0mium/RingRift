@@ -22,6 +22,55 @@ from typing import TYPE_CHECKING, Any
 
 from app.config.coordination_defaults import SQLiteDefaults
 
+# Dec 28, 2025: Phase 7 - Peer health state persistence
+@dataclass
+class PeerHealthState:
+    """Persisted peer health state for recovery across restarts.
+
+    December 2025: Part of Phase 7 cluster availability improvements.
+    Prevents 'amnesia' after P2P restart by preserving peer health history.
+    """
+
+    node_id: str
+    state: str  # "alive", "suspect", "dead", "retired"
+    failure_count: int = 0
+    gossip_failure_count: int = 0
+    last_seen: float = 0.0
+    last_failure: float = 0.0
+    circuit_state: str = "closed"  # "closed", "open", "half_open"
+    circuit_opened_at: float = 0.0
+    updated_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "node_id": self.node_id,
+            "state": self.state,
+            "failure_count": self.failure_count,
+            "gossip_failure_count": self.gossip_failure_count,
+            "last_seen": self.last_seen,
+            "last_failure": self.last_failure,
+            "circuit_state": self.circuit_state,
+            "circuit_opened_at": self.circuit_opened_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "PeerHealthState":
+        """Create from dictionary."""
+        return cls(
+            node_id=data.get("node_id", ""),
+            state=data.get("state", "alive"),
+            failure_count=data.get("failure_count", 0),
+            gossip_failure_count=data.get("gossip_failure_count", 0),
+            last_seen=data.get("last_seen", 0.0),
+            last_failure=data.get("last_failure", 0.0),
+            circuit_state=data.get("circuit_state", "closed"),
+            circuit_opened_at=data.get("circuit_opened_at", 0.0),
+            updated_at=data.get("updated_at", time.time()),
+        )
+
+
 # Event emission helper (optional dependency)
 _event_bus = None
 
@@ -360,6 +409,26 @@ class StateManager:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 )
+            """)
+
+            # Dec 28, 2025 (Phase 7): Peer health history table for state persistence
+            # Preserves peer health across P2P restarts to prevent amnesia
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS peer_health_history (
+                    node_id TEXT PRIMARY KEY,
+                    state TEXT NOT NULL DEFAULT 'alive',
+                    failure_count INTEGER DEFAULT 0,
+                    gossip_failure_count INTEGER DEFAULT 0,
+                    last_seen REAL DEFAULT 0,
+                    last_failure REAL DEFAULT 0,
+                    circuit_state TEXT DEFAULT 'closed',
+                    circuit_opened_at REAL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_peer_health_state
+                ON peer_health_history(state, updated_at)
             """)
 
             conn.commit()

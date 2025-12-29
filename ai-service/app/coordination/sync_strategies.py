@@ -230,6 +230,103 @@ class AutoSyncConfig:
 
 
 @dataclass
+class SyncProgress:
+    """Real-time progress tracking for sync operations (December 2025).
+
+    Used to track the current state of an ongoing sync operation,
+    enabling UI/monitoring to show progress and estimate completion time.
+
+    Attributes:
+        is_active: Whether a sync operation is currently in progress
+        current_phase: Description of current phase (e.g., "collecting", "pushing")
+        current_file: Name of file currently being synced
+        current_node: Node currently being synced to/from
+        files_completed: Number of files completed in this sync cycle
+        files_total: Total files expected in this sync cycle
+        bytes_transferred: Bytes transferred so far in this sync cycle
+        bytes_total: Total bytes expected (0 if unknown)
+        started_at: Unix timestamp when sync started
+        last_update_at: Unix timestamp of last progress update
+        estimated_completion_at: Estimated completion timestamp (0 if unknown)
+        error_message: Current error message (empty if no error)
+    """
+
+    is_active: bool = False
+    current_phase: str = ""
+    current_file: str = ""
+    current_node: str = ""
+    files_completed: int = 0
+    files_total: int = 0
+    bytes_transferred: int = 0
+    bytes_total: int = 0
+    started_at: float = 0.0
+    last_update_at: float = 0.0
+    estimated_completion_at: float = 0.0
+    error_message: str = ""
+
+    @property
+    def percent_complete(self) -> float:
+        """Calculate percentage completion based on available metrics."""
+        if self.files_total > 0:
+            return (self.files_completed / self.files_total) * 100.0
+        if self.bytes_total > 0:
+            return (self.bytes_transferred / self.bytes_total) * 100.0
+        return 0.0
+
+    @property
+    def elapsed_seconds(self) -> float:
+        """Seconds elapsed since sync started."""
+        if self.started_at <= 0:
+            return 0.0
+        import time
+        return time.time() - self.started_at
+
+    @property
+    def transfer_rate_bytes_per_sec(self) -> float:
+        """Current transfer rate in bytes per second."""
+        elapsed = self.elapsed_seconds
+        if elapsed <= 0:
+            return 0.0
+        return self.bytes_transferred / elapsed
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert progress to dictionary for JSON serialization."""
+        return {
+            "is_active": self.is_active,
+            "current_phase": self.current_phase,
+            "current_file": self.current_file,
+            "current_node": self.current_node,
+            "files_completed": self.files_completed,
+            "files_total": self.files_total,
+            "bytes_transferred": self.bytes_transferred,
+            "bytes_total": self.bytes_total,
+            "started_at": self.started_at,
+            "last_update_at": self.last_update_at,
+            "estimated_completion_at": self.estimated_completion_at,
+            "error_message": self.error_message,
+            # Computed properties
+            "percent_complete": self.percent_complete,
+            "elapsed_seconds": self.elapsed_seconds,
+            "transfer_rate_bytes_per_sec": self.transfer_rate_bytes_per_sec,
+        }
+
+    def reset(self) -> None:
+        """Reset all progress tracking for a new sync cycle."""
+        self.is_active = False
+        self.current_phase = ""
+        self.current_file = ""
+        self.current_node = ""
+        self.files_completed = 0
+        self.files_total = 0
+        self.bytes_transferred = 0
+        self.bytes_total = 0
+        self.started_at = 0.0
+        self.last_update_at = 0.0
+        self.estimated_completion_at = 0.0
+        self.error_message = ""
+
+
+@dataclass
 class SyncStats(SyncDaemonStats):
     """Statistics for sync operations.
 
@@ -305,8 +402,9 @@ __all__ = [
     "SyncStrategy",
     # Configuration
     "AutoSyncConfig",
-    # Stats
+    # Stats and progress
     "SyncStats",
+    "SyncProgress",
     # Constants
     "MIN_MOVES_PER_GAME",
     "DEFAULT_MIN_MOVES",

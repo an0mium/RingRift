@@ -40,6 +40,145 @@ if TYPE_CHECKING:
     from .models import NodeInfo, NodeRole
 
 
+# Dec 28, 2025: Phase 6 - Gossip health tracking threshold
+GOSSIP_FAILURE_SUSPECT_THRESHOLD = 5
+
+
+class GossipHealthTracker:
+    """Tracks gossip protocol health per peer.
+
+    December 2025: Part of Phase 6 cluster availability improvements.
+    Tracks gossip failures per peer and emits NODE_SUSPECT when a peer
+    has too many consecutive gossip failures.
+
+    Features:
+    - Per-peer failure counting
+    - Automatic reset on success
+    - Threshold-based suspect detection
+    - Last success timestamp tracking for staleness
+    """
+
+    def __init__(self, failure_threshold: int = GOSSIP_FAILURE_SUSPECT_THRESHOLD):
+        """Initialize gossip health tracker.
+
+        Args:
+            failure_threshold: Number of consecutive failures before emitting suspect
+        """
+        self._failure_counts: dict[str, int] = {}
+        self._last_success: dict[str, float] = {}
+        self._failure_threshold = failure_threshold
+        self._suspect_emitted: set[str] = set()  # Track which peers have been marked suspect
+
+    def record_gossip_failure(self, peer_id: str) -> tuple[bool, int]:
+        """Record a gossip failure for a peer.
+
+        Args:
+            peer_id: The peer that failed to respond to gossip
+
+        Returns:
+            Tuple of (should_emit_suspect, failure_count)
+            - should_emit_suspect: True if this failure crosses the threshold
+            - failure_count: Current consecutive failure count
+        """
+        self._failure_counts[peer_id] = self._failure_counts.get(peer_id, 0) + 1
+        count = self._failure_counts[peer_id]
+
+        # Check if we should emit suspect (only once per failure streak)
+        should_emit = (
+            count >= self._failure_threshold
+            and peer_id not in self._suspect_emitted
+        )
+
+        if should_emit:
+            self._suspect_emitted.add(peer_id)
+
+        return should_emit, count
+
+    def record_gossip_success(self, peer_id: str) -> bool:
+        """Record a successful gossip exchange with a peer.
+
+        Args:
+            peer_id: The peer that responded successfully
+
+        Returns:
+            True if peer was previously suspected (recovered), False otherwise
+        """
+        was_suspected = peer_id in self._suspect_emitted
+
+        # Reset failure count and remove from suspect set
+        self._failure_counts[peer_id] = 0
+        self._last_success[peer_id] = time.time()
+        self._suspect_emitted.discard(peer_id)
+
+        return was_suspected
+
+    def get_failure_count(self, peer_id: str) -> int:
+        """Get the current consecutive failure count for a peer."""
+        return self._failure_counts.get(peer_id, 0)
+
+    def get_last_success(self, peer_id: str) -> float | None:
+        """Get the timestamp of the last successful gossip with a peer."""
+        return self._last_success.get(peer_id)
+
+    def is_suspected(self, peer_id: str) -> bool:
+        """Check if a peer is currently marked as suspect due to gossip failures."""
+        return peer_id in self._suspect_emitted
+
+    def get_suspected_peers(self) -> set[str]:
+        """Get the set of peers currently marked as suspect."""
+        return self._suspect_emitted.copy()
+
+    def get_stats(self) -> dict[str, int | float | list[str]]:
+        """Get tracker statistics for monitoring."""
+        now = time.time()
+        stale_peers = [
+            peer_id for peer_id, last_seen in self._last_success.items()
+            if now - last_seen > 300  # 5 minutes
+        ]
+        return {
+            "total_tracked_peers": len(self._failure_counts),
+            "suspected_peers": len(self._suspect_emitted),
+            "suspected_peer_ids": list(self._suspect_emitted),
+            "stale_peers": len(stale_peers),
+            "failure_threshold": self._failure_threshold,
+        }
+
+    def cleanup_stale_peers(self, max_age_seconds: float = 3600.0) -> int:
+        """Remove stale peer tracking data.
+
+        Args:
+            max_age_seconds: Remove peers not seen in this many seconds
+
+        Returns:
+            Number of peers cleaned up
+        """
+        now = time.time()
+        cutoff = now - max_age_seconds
+
+        # Find stale peers
+        stale_peers = [
+            peer_id for peer_id, last_seen in self._last_success.items()
+            if last_seen < cutoff
+        ]
+
+        # Also include peers with high failure counts but no success
+        for peer_id in list(self._failure_counts.keys()):
+            if peer_id not in self._last_success:
+                # Peer has never succeeded, check if it's been tracked too long
+                # We use a simple heuristic: high failure count = stale
+                if self._failure_counts[peer_id] > self._failure_threshold * 10:
+                    if peer_id not in stale_peers:
+                        stale_peers.append(peer_id)
+
+        # Clean up
+        for peer_id in stale_peers:
+            self._failure_counts.pop(peer_id, None)
+            self._last_success.pop(peer_id, None)
+            self._suspect_emitted.discard(peer_id)
+
+        return len(stale_peers)
+
+
 class GossipProtocolMixin(P2PMixinBase):
     """Mixin providing core gossip protocol functionality.
 
@@ -113,6 +252,7 @@ class GossipProtocolMixin(P2PMixinBase):
         Uses P2PMixinBase._ensure_multiple_state_attrs() for cleaner initialization.
 
         Phase 4 consolidation: Now includes GossipMetricsMixin state (previously separate).
+        Phase 6 (Dec 28, 2025): Added GossipHealthTracker for peer health integration.
         """
         # Phase 4 consolidation: Use base class helper instead of manual hasattr checks
         self._ensure_multiple_state_attrs({
@@ -139,6 +279,10 @@ class GossipProtocolMixin(P2PMixinBase):
                 "messages_compressed": 0,
             },
         })
+
+        # Dec 28, 2025: Phase 6 - Gossip health tracker for peer status integration
+        if not hasattr(self, "_gossip_health_tracker"):
+            self._gossip_health_tracker = GossipHealthTracker()
 
     def _cleanup_gossip_state(self) -> None:
         """Dec 28, 2025: Clean up stale gossip state to prevent memory growth.
@@ -207,13 +351,21 @@ class GossipProtocolMixin(P2PMixinBase):
             self._gossip_learned_endpoints = dict(sorted_endpoints[:self.GOSSIP_MAX_ENDPOINTS])
             cleaned_endpoints += len(sorted_endpoints) - self.GOSSIP_MAX_ENDPOINTS
 
+        # 6. Dec 28, 2025 (Phase 6): Clean up stale gossip health tracking data
+        cleaned_health = 0
+        if hasattr(self, "_gossip_health_tracker"):
+            cleaned_health = self._gossip_health_tracker.cleanup_stale_peers(
+                max_age_seconds=self.GOSSIP_STATE_TTL
+            )
+
         # Log if significant cleanup occurred
-        total_cleaned = cleaned_states + cleaned_manifests + cleaned_endpoints
+        total_cleaned = cleaned_states + cleaned_manifests + cleaned_endpoints + cleaned_health
         if total_cleaned > 10:
             # Phase 4: Use base class logging helper
             self._log_info(
                 f"Cleanup: removed {cleaned_states} stale states, "
-                f"{cleaned_manifests} manifests, {cleaned_endpoints} endpoints"
+                f"{cleaned_manifests} manifests, {cleaned_endpoints} endpoints, "
+                f"{cleaned_health} health tracking entries"
             )
 
     async def _gossip_state_to_peers(self) -> None:
@@ -344,7 +496,13 @@ class GossipProtocolMixin(P2PMixinBase):
         timeout: Any,
         get_client_session: Any,
     ) -> None:
-        """Send gossip message to a single peer."""
+        """Send gossip message to a single peer.
+
+        Dec 28, 2025 (Phase 6): Integrated with GossipHealthTracker for peer
+        health status. Records success/failure and emits NODE_SUSPECT when
+        a peer has too many consecutive gossip failures.
+        """
+        success = False
         try:
             # Build gossip payload
             gossip_payload = {
@@ -371,18 +529,73 @@ class GossipProtocolMixin(P2PMixinBase):
             # Try each URL for the peer
             if get_client_session:
                 async with get_client_session(timeout) as session:
-                    await self._try_gossip_urls(
+                    success = await self._try_gossip_urls(
                         session, peer, compressed_bytes, start_time
                     )
             else:
                 # Fallback without session helper
                 async with aiohttp.ClientSession(timeout=timeout) as session:
-                    await self._try_gossip_urls(
+                    success = await self._try_gossip_urls(
                         session, peer, compressed_bytes, start_time
                     )
 
         except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, AttributeError):
-            pass
+            success = False
+
+        # Dec 28, 2025 (Phase 6): Track gossip health and emit events
+        await self._update_gossip_health(peer.node_id, success)
+
+    async def _update_gossip_health(self, peer_id: str, success: bool) -> None:
+        """Update gossip health tracker and emit events as needed.
+
+        Dec 28, 2025 (Phase 6): Central point for gossip health tracking.
+        Emits NODE_SUSPECT when failures cross threshold, NODE_RECOVERED
+        when a previously suspect peer recovers.
+
+        Args:
+            peer_id: The peer ID
+            success: Whether the gossip exchange succeeded
+        """
+        # Ensure tracker is initialized
+        if not hasattr(self, "_gossip_health_tracker"):
+            self._gossip_health_tracker = GossipHealthTracker()
+
+        tracker = self._gossip_health_tracker
+
+        if success:
+            # Record success - check if peer was previously suspected
+            was_suspected = tracker.record_gossip_success(peer_id)
+            if was_suspected:
+                # Peer recovered from suspect state
+                self._log_info(f"Peer {peer_id} recovered from gossip failures")
+                # Emit NODE_RECOVERED event if we have the method
+                if hasattr(self, "_emit_node_recovered"):
+                    try:
+                        await self._emit_node_recovered(
+                            node_id=peer_id,
+                            recovery_type="gossip_success",
+                            offline_duration_seconds=0.0,
+                        )
+                    except (AttributeError, RuntimeError, TypeError):
+                        pass
+        else:
+            # Record failure - check if we should emit suspect
+            should_emit, failure_count = tracker.record_gossip_failure(peer_id)
+            if should_emit:
+                # Log and emit NODE_SUSPECT
+                self._log_warning(
+                    f"Peer {peer_id} has {failure_count} consecutive gossip failures, "
+                    f"marking as suspect"
+                )
+                if hasattr(self, "_emit_node_suspect"):
+                    try:
+                        await self._emit_node_suspect(
+                            node_id=peer_id,
+                            last_seen=tracker.get_last_success(peer_id),
+                            seconds_since_heartbeat=0.0,
+                        )
+                    except (AttributeError, RuntimeError, TypeError):
+                        pass
 
     async def _try_gossip_urls(
         self,
@@ -390,8 +603,15 @@ class GossipProtocolMixin(P2PMixinBase):
         peer: Any,
         compressed_bytes: bytes,
         start_time: float,
-    ) -> None:
-        """Try gossip to peer via multiple URLs."""
+    ) -> bool:
+        """Try gossip to peer via multiple URLs.
+
+        Dec 28, 2025 (Phase 6): Now returns bool indicating success/failure
+        for integration with GossipHealthTracker.
+
+        Returns:
+            True if gossip succeeded on any URL, False if all URLs failed.
+        """
         for url in self._urls_for_peer(peer, "/gossip"):
             try:
                 headers = self._auth_headers()
@@ -408,10 +628,12 @@ class GossipProtocolMixin(P2PMixinBase):
                         latency_ms = (time.time() - start_time) * 1000
                         self._record_gossip_metrics("sent", peer.node_id)
                         self._record_gossip_metrics("latency", peer.node_id, latency_ms)
-                        break
+                        return True  # Success!
 
             except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, AttributeError):
                 continue
+
+        return False  # All URLs failed
 
     async def _read_gossip_response(self, resp: Any) -> dict:
         """Read and decompress gossip response."""
@@ -812,6 +1034,52 @@ class GossipProtocolMixin(P2PMixinBase):
         return dict(self._gossip_learned_endpoints)
 
     # =========================================================================
+    # Gossip Health Tracking (Phase 6 - Dec 28, 2025)
+    # =========================================================================
+
+    def get_gossip_health_tracker(self) -> GossipHealthTracker:
+        """Get the gossip health tracker instance.
+
+        Public API for accessing the gossip health tracker.
+        Returns the tracker, creating one if it doesn't exist.
+
+        December 2025 (Phase 6): Added for cluster availability improvements.
+        """
+        if not hasattr(self, "_gossip_health_tracker"):
+            self._gossip_health_tracker = GossipHealthTracker()
+        return self._gossip_health_tracker
+
+    def get_gossip_suspected_peers(self) -> set[str]:
+        """Get the set of peers currently suspected due to gossip failures.
+
+        Public API for querying which peers have failed consecutive gossip
+        attempts and have been marked as suspect.
+
+        December 2025 (Phase 6): Added for cluster availability improvements.
+
+        Returns:
+            Set of peer node IDs that are currently suspected
+        """
+        if hasattr(self, "_gossip_health_tracker"):
+            return self._gossip_health_tracker.get_suspected_peers()
+        return set()
+
+    def get_gossip_failure_count(self, peer_id: str) -> int:
+        """Get the consecutive gossip failure count for a specific peer.
+
+        December 2025 (Phase 6): Added for cluster availability improvements.
+
+        Args:
+            peer_id: The peer to check
+
+        Returns:
+            Number of consecutive gossip failures for this peer
+        """
+        if hasattr(self, "_gossip_health_tracker"):
+            return self._gossip_health_tracker.get_failure_count(peer_id)
+        return 0
+
+    # =========================================================================
     # Gossip Metrics (Phase 4: Merged from GossipMetricsMixin - Dec 28, 2025)
     # =========================================================================
 
@@ -959,6 +1227,8 @@ class GossipProtocolMixin(P2PMixinBase):
         Returns health indicators for monitoring:
         - is_healthy: True if gossip is functioning well
         - warnings: List of any warning conditions
+
+        Dec 28, 2025 (Phase 6): Now includes peer health tracking stats.
         """
         summary = self._get_gossip_metrics_summary()
         warnings = []
@@ -980,10 +1250,24 @@ class GossipProtocolMixin(P2PMixinBase):
         if updates > 0 and stale / updates > 0.5:
             warnings.append(f"High stale rate: {stale}/{updates}")
 
+        # Dec 28, 2025 (Phase 6): Check for suspected peers via gossip failures
+        health_tracker_stats: dict[str, Any] = {}
+        if hasattr(self, "_gossip_health_tracker"):
+            tracker = self._gossip_health_tracker
+            health_tracker_stats = tracker.get_stats()
+            suspected_count = health_tracker_stats.get("suspected_peers", 0)
+            if suspected_count > 0:
+                suspected_ids = health_tracker_stats.get("suspected_peer_ids", [])
+                if suspected_count <= 3:
+                    warnings.append(f"Gossip failures: {', '.join(suspected_ids)}")
+                else:
+                    warnings.append(f"Gossip failures: {suspected_count} peers unresponsive")
+
         return {
             "is_healthy": len(warnings) == 0,
             "warnings": warnings,
             "metrics": summary,
+            "peer_health": health_tracker_stats,  # Phase 6
         }
 
     def health_check(self) -> dict[str, Any]:

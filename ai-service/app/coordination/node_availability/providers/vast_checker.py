@@ -62,14 +62,21 @@ class VastChecker(StateChecker):
         self._api_key = api_key or os.environ.get("VAST_API_KEY")
 
         # Check for API key file if not in env
+        # Try multiple common locations
         if not self._api_key:
-            key_file = os.path.expanduser("~/.vastai_api_key")
-            if os.path.exists(key_file):
-                try:
-                    with open(key_file) as f:
-                        self._api_key = f.read().strip()
-                except OSError:
-                    pass
+            key_files = [
+                os.path.expanduser("~/.config/vastai/vast_api_key"),  # Default CLI location
+                os.path.expanduser("~/.vastai_api_key"),  # Legacy location
+            ]
+            for key_file in key_files:
+                if os.path.exists(key_file):
+                    try:
+                        with open(key_file) as f:
+                            self._api_key = f.read().strip()
+                        if self._api_key:
+                            break
+                    except OSError:
+                        pass
 
         if not self._api_key:
             self.disable("No VAST_API_KEY found")

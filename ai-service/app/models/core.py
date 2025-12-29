@@ -730,11 +730,12 @@ class AIConfig(BaseModel):
     gumbel_simulation_budget: int | None = Field(
         default=100,
         ge=10,
-        le=1000,
+        le=5000,
         description=(
             "Total simulation budget for Gumbel MCTS Sequential Halving. "
             "Budget is divided across phases to progressively narrow down "
-            "the best action. Default is 100 (tuned for optimal speed/quality)."
+            "the best action. Default is 100. For quality selfplay on large "
+            "boards (square19, hexagonal), use 2400. Max 5000."
         ),
     )
     use_gpu_tree: bool = Field(

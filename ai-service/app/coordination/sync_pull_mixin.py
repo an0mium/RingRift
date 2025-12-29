@@ -192,10 +192,11 @@ class SyncPullMixin(SyncMixinBase):
         games_pulled = 0
         for remote_db in remote_dbs:
             try:
-                # Pull database
+                # Pull database (December 2025: pass source_node for ResilientTransfer)
                 local_path = await self._rsync_pull(
                     ssh_host, ssh_user, ssh_key,
-                    remote_games_path, remote_db, pull_dir
+                    remote_games_path, remote_db, pull_dir,
+                    source_node=source_node,
                 )
 
                 if not local_path or not local_path.exists():

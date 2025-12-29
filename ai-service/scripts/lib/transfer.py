@@ -20,6 +20,11 @@ Usage:
         scp_pull,
         rsync_push,
         rsync_pull,
+        base64_push,
+        base64_pull,
+        robust_push,
+        chunked_push,
+        chunked_push_progressive,
         compute_checksum,
         verify_transfer,
     )
@@ -30,6 +35,16 @@ Usage:
 
     # Pull with rsync (resume support)
     result = rsync_pull("host:/path/file.db", "local/", config)
+
+    # Base64 transfer (for flaky connections with binary stream issues)
+    result = base64_push("file.npz", "host", 22, "/path/file.npz", config)
+
+    # Chunked transfer with progressive verification (for large files)
+    result = chunked_push_progressive(
+        "large_model.pth", "host", 22, "/path/model.pth",
+        config, chunk_size_mb=10,
+        resume_state_path="/tmp/transfer_state.json",
+    )
 """
 
 from __future__ import annotations
@@ -1406,25 +1421,83 @@ def chunked_push(
                 destination=f"{host}:{remote_path}",
             )
 
-        # Transfer each chunk with retries
+        # Transfer each chunk with retries and per-chunk verification
+        # December 2025: Added per-chunk verification to catch corruption early
         bytes_transferred = 0
+        max_chunk_retries = 3
+
         for i, chunk_path in enumerate(chunk_files):
-            logger.info(f"Transferring chunk {i + 1}/{num_chunks}")
-            chunk_result = scp_push(chunk_path, host, port, f"{remote_temp_dir}/", config)
-            if not chunk_result.success:
+            expected_checksum = manifest["chunks"][i]["checksum"]
+            chunk_verified = False
+
+            for retry in range(max_chunk_retries):
+                if retry > 0:
+                    logger.info(f"Retrying chunk {i + 1}/{num_chunks} (attempt {retry + 1}/{max_chunk_retries})")
+
+                logger.info(f"Transferring chunk {i + 1}/{num_chunks}")
+                chunk_result = scp_push(chunk_path, host, port, f"{remote_temp_dir}/", config)
+
+                if not chunk_result.success:
+                    logger.warning(f"Chunk {i} transfer failed: {chunk_result.error}")
+                    time.sleep(2 ** retry)  # Exponential backoff
+                    continue
+
+                # December 2025: Per-chunk verification - verify checksum immediately after transfer
+                verify_cmd = [
+                    "ssh"
+                ] + ssh_opts + [
+                    "-p", str(port),
+                    f"{config.ssh_user}@{host}",
+                    f"md5sum {remote_temp_dir}/{chunk_path.name} | cut -d' ' -f1"
+                ]
+                try:
+                    verify_result = subprocess.run(
+                        verify_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    remote_checksum = verify_result.stdout.strip()
+
+                    if remote_checksum == expected_checksum:
+                        chunk_verified = True
+                        bytes_transferred += chunk_result.bytes_transferred
+                        logger.debug(f"Chunk {i} verified successfully")
+                        break
+                    else:
+                        logger.warning(
+                            f"Chunk {i} checksum mismatch: expected {expected_checksum[:8]}..., "
+                            f"got {remote_checksum[:8]}... - retrying"
+                        )
+                        # Delete corrupted chunk on remote before retry
+                        delete_cmd = ["ssh"] + ssh_opts + [
+                            "-p", str(port),
+                            f"{config.ssh_user}@{host}",
+                            f"rm -f {remote_temp_dir}/{chunk_path.name}"
+                        ]
+                        subprocess.run(delete_cmd, capture_output=True, timeout=30)
+                        time.sleep(2 ** retry)  # Exponential backoff
+
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"Chunk {i} verification timed out - retrying")
+                    time.sleep(2 ** retry)
+                except Exception as e:
+                    logger.warning(f"Chunk {i} verification error: {e} - retrying")
+                    time.sleep(2 ** retry)
+
+            if not chunk_verified:
                 # Clean up remote temp dir
                 cleanup_cmd = ["ssh"] + ssh_opts + ["-p", str(port), f"{config.ssh_user}@{host}", f"rm -rf {remote_temp_dir}"]
                 subprocess.run(cleanup_cmd, capture_output=True, timeout=30)
 
                 return TransferResult(
                     success=False,
-                    error=f"Failed to transfer chunk {i}: {chunk_result.error}",
+                    error=f"Failed to transfer and verify chunk {i} after {max_chunk_retries} attempts",
                     method="chunked_push",
                     source=str(local_path),
                     destination=f"{host}:{remote_path}",
                     bytes_transferred=bytes_transferred,
                 )
-            bytes_transferred += chunk_result.bytes_transferred
 
         # Reassemble on remote
         final_remote_path = remote_path if not remote_path.endswith("/") else f"{remote_path}{local_path.name}"
@@ -1502,3 +1575,391 @@ else:
         source=str(local_path),
         destination=f"{host}:{remote_path}",
     )
+
+
+def chunked_push_progressive(
+    local_path: str | Path,
+    host: str,
+    port: int,
+    remote_path: str,
+    config: TransferConfig,
+    chunk_size_mb: int = 5,
+    resume_state_path: str | Path | None = None,
+) -> TransferResult:
+    """Push a large file with progressive chunk verification and resume support.
+
+    Enhanced version of chunked_push that verifies each chunk immediately after
+    transfer, allowing resume from the last successfully verified chunk if the
+    transfer is interrupted.
+
+    Keywords for searchability:
+    - progressive verification / incremental verification
+    - resumable chunked transfer / resume interrupted transfer
+    - chunk-by-chunk verification
+    - fault-tolerant file transfer
+    - large file sync with checkpoints
+
+    See also:
+    - chunked_push() - simpler version without progressive verification
+    - robust_push() - automatic method fallback
+
+    Args:
+        local_path: Local file path
+        host: Remote hostname
+        port: SSH port
+        remote_path: Destination path on remote
+        config: Transfer configuration
+        chunk_size_mb: Size of each chunk in MB (default 5MB)
+        resume_state_path: Optional path to store resume state (for crash recovery)
+
+    Returns:
+        TransferResult with operation details
+
+    Example:
+        # Resume-capable transfer with state persistence:
+        result = chunked_push_progressive(
+            "models/large_model.pth",
+            "cluster-node",
+            22,
+            "/data/models/large_model.pth",
+            TransferConfig(ssh_key="~/.ssh/id_rsa"),
+            chunk_size_mb=10,
+            resume_state_path="/tmp/transfer_state.json",
+        )
+    """
+    import json
+    import tempfile
+
+    local_path = Path(local_path)
+    if not local_path.exists():
+        return TransferResult(
+            success=False,
+            error=f"Local file not found: {local_path}",
+            method="chunked_push_progressive",
+            source=str(local_path),
+            destination=f"{host}:{remote_path}",
+        )
+
+    file_size = local_path.stat().st_size
+    chunk_size = chunk_size_mb * 1024 * 1024
+    start_time = time.time()
+
+    # For small files, just use regular SCP
+    if file_size <= chunk_size:
+        result = scp_push(local_path, host, port, remote_path, config)
+        result.method = "chunked_push_progressive (single)"
+        return result
+
+    # Calculate number of chunks
+    num_chunks = (file_size + chunk_size - 1) // chunk_size
+    logger.info(
+        f"Progressive chunked transfer: {local_path.name} "
+        f"({file_size / 1024 / 1024:.1f}MB) → {num_chunks} chunks"
+    )
+
+    # Load resume state if available
+    verified_chunks: set[int] = set()
+    remote_temp_dir: str | None = None
+
+    if resume_state_path:
+        resume_state_path = Path(resume_state_path)
+        if resume_state_path.exists():
+            try:
+                with open(resume_state_path) as f:
+                    state = json.load(f)
+                # Validate state matches current file
+                if (
+                    state.get("file_checksum") == compute_checksum(local_path)
+                    and state.get("file_size") == file_size
+                    and state.get("host") == host
+                ):
+                    verified_chunks = set(state.get("verified_chunks", []))
+                    remote_temp_dir = state.get("remote_temp_dir")
+                    logger.info(
+                        f"Resuming transfer: {len(verified_chunks)}/{num_chunks} "
+                        "chunks already verified"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to load resume state: {e}")
+
+    ssh_opts = config.get_ssh_options()
+
+    # Create remote temp directory if not resuming
+    if not remote_temp_dir:
+        remote_basename = (
+            Path(remote_path.rstrip("/")).name
+            if not remote_path.endswith("/")
+            else local_path.name
+        )
+        remote_temp_dir = f"/tmp/chunked_{remote_basename}_{int(time.time())}"
+
+        ssh_cmd = (
+            ["ssh"]
+            + ssh_opts
+            + ["-p", str(port), f"{config.ssh_user}@{host}", f"mkdir -p {remote_temp_dir}"]
+        )
+        try:
+            subprocess.run(ssh_cmd, capture_output=True, timeout=30, check=True)
+        except Exception as e:
+            return TransferResult(
+                success=False,
+                error=f"Failed to create remote temp dir: {e}",
+                method="chunked_push_progressive",
+                source=str(local_path),
+                destination=f"{host}:{remote_path}",
+            )
+
+    def save_resume_state() -> None:
+        """Save current progress for crash recovery."""
+        if not resume_state_path:
+            return
+        try:
+            state = {
+                "file_checksum": compute_checksum(local_path),
+                "file_size": file_size,
+                "host": host,
+                "remote_temp_dir": remote_temp_dir,
+                "verified_chunks": list(verified_chunks),
+                "timestamp": time.time(),
+            }
+            with open(resume_state_path, "w") as f:
+                json.dump(state, f)
+        except Exception as e:
+            logger.warning(f"Failed to save resume state: {e}")
+
+    def verify_remote_chunk(chunk_name: str, expected_checksum: str) -> bool:
+        """Verify chunk checksum on remote host."""
+        verify_cmd = (
+            ["ssh"]
+            + ssh_opts
+            + [
+                "-p",
+                str(port),
+                f"{config.ssh_user}@{host}",
+                f"md5sum '{remote_temp_dir}/{chunk_name}' 2>/dev/null | cut -d' ' -f1",
+            ]
+        )
+        try:
+            result = subprocess.run(
+                verify_cmd, capture_output=True, text=True, timeout=30
+            )
+            remote_checksum = result.stdout.strip()
+            return remote_checksum == expected_checksum
+        except Exception:
+            return False
+
+    # Process chunks with progressive verification
+    bytes_transferred = 0
+    failed_chunk: int | None = None
+
+    with tempfile.TemporaryDirectory(prefix="chunked_progressive_") as temp_dir:
+        temp_path = Path(temp_dir)
+
+        # Create manifest with checksums
+        manifest = {
+            "filename": local_path.name,
+            "total_size": file_size,
+            "num_chunks": num_chunks,
+            "chunk_size": chunk_size,
+            "checksum": compute_checksum(local_path),
+            "chunks": [],
+        }
+
+        with open(local_path, "rb") as f:
+            for i in range(num_chunks):
+                chunk_name = f"{local_path.stem}.chunk{i:04d}"
+                chunk_path = temp_path / chunk_name
+
+                # Read chunk data
+                f.seek(i * chunk_size)
+                chunk_data = f.read(chunk_size)
+                chunk_checksum = hashlib.md5(chunk_data).hexdigest()
+
+                manifest["chunks"].append(
+                    {
+                        "index": i,
+                        "name": chunk_name,
+                        "size": len(chunk_data),
+                        "checksum": chunk_checksum,
+                    }
+                )
+
+                # Skip already verified chunks
+                if i in verified_chunks:
+                    logger.debug(f"Chunk {i + 1}/{num_chunks} already verified, skipping")
+                    bytes_transferred += len(chunk_data)
+                    continue
+
+                # Write chunk to temp file
+                with open(chunk_path, "wb") as cf:
+                    cf.write(chunk_data)
+
+                # Transfer chunk
+                logger.info(f"Transferring chunk {i + 1}/{num_chunks}")
+                chunk_result = scp_push(
+                    chunk_path, host, port, f"{remote_temp_dir}/", config
+                )
+
+                if not chunk_result.success:
+                    failed_chunk = i
+                    save_resume_state()
+                    break
+
+                # Progressive verification - verify immediately after transfer
+                if verify_remote_chunk(chunk_name, chunk_checksum):
+                    verified_chunks.add(i)
+                    bytes_transferred += len(chunk_data)
+                    save_resume_state()
+                    logger.debug(f"Chunk {i + 1}/{num_chunks} verified ✓")
+                else:
+                    # Retry once on verification failure
+                    logger.warning(
+                        f"Chunk {i + 1}/{num_chunks} verification failed, retrying..."
+                    )
+                    chunk_result = scp_push(
+                        chunk_path, host, port, f"{remote_temp_dir}/", config
+                    )
+                    if chunk_result.success and verify_remote_chunk(
+                        chunk_name, chunk_checksum
+                    ):
+                        verified_chunks.add(i)
+                        bytes_transferred += len(chunk_data)
+                        save_resume_state()
+                        logger.info(f"Chunk {i + 1}/{num_chunks} verified on retry ✓")
+                    else:
+                        failed_chunk = i
+                        save_resume_state()
+                        break
+
+                # Clean up local chunk file to save disk space
+                chunk_path.unlink(missing_ok=True)
+
+        if failed_chunk is not None:
+            return TransferResult(
+                success=False,
+                error=f"Failed at chunk {failed_chunk + 1}/{num_chunks}. "
+                f"Resume with same arguments to continue.",
+                method="chunked_push_progressive",
+                source=str(local_path),
+                destination=f"{host}:{remote_path}",
+                bytes_transferred=bytes_transferred,
+            )
+
+        # All chunks verified - write manifest and reassemble
+        manifest_path = temp_path / f"{local_path.stem}.manifest"
+        with open(manifest_path, "w") as mf:
+            json.dump(manifest, mf, indent=2)
+
+        manifest_result = scp_push(
+            manifest_path, host, port, f"{remote_temp_dir}/", config
+        )
+        if not manifest_result.success:
+            save_resume_state()
+            return TransferResult(
+                success=False,
+                error=f"Failed to transfer manifest: {manifest_result.error}",
+                method="chunked_push_progressive",
+                source=str(local_path),
+                destination=f"{host}:{remote_path}",
+                bytes_transferred=bytes_transferred,
+            )
+
+        # Reassemble on remote
+        final_remote_path = (
+            remote_path
+            if not remote_path.endswith("/")
+            else f"{remote_path}{local_path.name}"
+        )
+        reassemble_script = f'''
+import json
+import os
+import hashlib
+
+manifest_path = "{remote_temp_dir}/{local_path.stem}.manifest"
+with open(manifest_path) as f:
+    manifest = json.load(f)
+
+output_path = "{final_remote_path}"
+os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+
+with open(output_path, "wb") as out:
+    for chunk in manifest["chunks"]:
+        chunk_path = "{remote_temp_dir}/" + chunk["name"]
+        with open(chunk_path, "rb") as cf:
+            out.write(cf.read())
+
+# Verify final checksum
+hasher = hashlib.md5()
+with open(output_path, "rb") as f:
+    for block in iter(lambda: f.read(8192), b""):
+        hasher.update(block)
+
+if hasher.hexdigest() == manifest["checksum"]:
+    print("OK")
+else:
+    print("CHECKSUM_MISMATCH")
+    os.remove(output_path)
+'''
+
+        reassemble_cmd = (
+            ["ssh"]
+            + ssh_opts
+            + [
+                "-p",
+                str(port),
+                f"{config.ssh_user}@{host}",
+                f"python3 -c '{reassemble_script}'",
+            ]
+        )
+        try:
+            result = subprocess.run(
+                reassemble_cmd, capture_output=True, text=True, timeout=120
+            )
+            if "OK" in result.stdout:
+                # Clean up remote temp dir and resume state
+                cleanup_cmd = (
+                    ["ssh"]
+                    + ssh_opts
+                    + [
+                        "-p",
+                        str(port),
+                        f"{config.ssh_user}@{host}",
+                        f"rm -rf {remote_temp_dir}",
+                    ]
+                )
+                subprocess.run(cleanup_cmd, capture_output=True, timeout=30)
+
+                if resume_state_path and Path(resume_state_path).exists():
+                    Path(resume_state_path).unlink(missing_ok=True)
+
+                duration = time.time() - start_time
+                return TransferResult(
+                    success=True,
+                    bytes_transferred=file_size,
+                    duration_seconds=duration,
+                    method="chunked_push_progressive",
+                    source=str(local_path),
+                    destination=f"{host}:{remote_path}",
+                    checksum_verified=True,
+                )
+            else:
+                error = (
+                    "Checksum mismatch after reassembly"
+                    if "CHECKSUM_MISMATCH" in result.stdout
+                    else result.stderr
+                )
+                return TransferResult(
+                    success=False,
+                    error=error,
+                    method="chunked_push_progressive",
+                    source=str(local_path),
+                    destination=f"{host}:{remote_path}",
+                )
+        except Exception as e:
+            return TransferResult(
+                success=False,
+                error=f"Reassembly failed: {e}",
+                method="chunked_push_progressive",
+                source=str(local_path),
+                destination=f"{host}:{remote_path}",
+            )

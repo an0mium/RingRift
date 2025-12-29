@@ -1213,6 +1213,239 @@ class Aria2Transport:
         return results
 
 
+    async def download_with_range(
+        self,
+        url: str,
+        output_path: Path,
+        expected_size: int | None = None,
+        expected_checksum: str | None = None,
+        resume: bool = True,
+    ) -> tuple[bool, int, str]:
+        """Download file with HTTP Range request support for resumable downloads.
+
+        Uses HTTP Range headers to resume interrupted downloads from where they
+        left off. Ideal for large files over unreliable connections where BitTorrent
+        peers are unavailable.
+
+        Keywords for searchability:
+        - HTTP Range request / partial download
+        - resume interrupted download
+        - byte range download
+        - partial content / 206 response
+
+        Args:
+            url: URL to download from
+            output_path: Local destination path
+            expected_size: Expected file size (for progress tracking)
+            expected_checksum: Optional SHA256 checksum for verification
+            resume: Whether to resume from existing partial file
+
+        Returns:
+            Tuple of (success, bytes_downloaded, error_message)
+
+        Example:
+            transport = Aria2Transport()
+            success, size, error = await transport.download_with_range(
+                "http://node:8766/models/large_model.pth",
+                Path("/data/models/large_model.pth"),
+                expected_size=500_000_000,  # 500MB
+                resume=True,
+            )
+        """
+        if not self.is_available():
+            return False, 0, "aria2c not available"
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Check for existing partial file
+        start_byte = 0
+        if resume and output_path.exists():
+            start_byte = output_path.stat().st_size
+            if expected_size and start_byte >= expected_size:
+                # File already complete, verify checksum
+                if expected_checksum:
+                    if verify_file_checksum(output_path, expected_checksum):
+                        return True, start_byte, ""
+                    else:
+                        # Checksum mismatch, re-download
+                        logger.warning(
+                            f"Existing file checksum mismatch, re-downloading: {output_path.name}"
+                        )
+                        output_path.unlink()
+                        start_byte = 0
+                else:
+                    return True, start_byte, ""
+            elif start_byte > 0:
+                logger.info(
+                    f"Resuming download from byte {start_byte} "
+                    f"({start_byte / 1024 / 1024:.1f}MB)"
+                )
+
+        # Build aria2c command with Range support
+        cmd = [
+            "aria2c",
+            f"--max-connection-per-server={self.config.connections_per_server}",
+            f"--split={self.config.split}",
+            f"--min-split-size={self.config.min_split_size}",
+            f"--connect-timeout={self.config.connect_timeout}",
+            f"--timeout={self.config.timeout}",
+            f"--retry-wait={self.config.retry_wait}",
+            f"--max-tries={self.config.max_tries}",
+            f"--dir={output_path.parent}",
+            f"--out={output_path.name}",
+            "--file-allocation=falloc",
+            "--console-log-level=warn",
+            "--summary-interval=0",
+            "--continue=true",  # Enable resume
+            "--auto-file-renaming=false",  # Don't rename on conflict
+        ]
+
+        # Add Range header if resuming
+        if start_byte > 0:
+            cmd.append(f"--header=Range: bytes={start_byte}-")
+
+        cmd.append(url)
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=self.config.timeout,
+            )
+
+            if process.returncode == 0 and output_path.exists():
+                final_size = output_path.stat().st_size
+
+                # Verify checksum if provided
+                if expected_checksum:
+                    if not verify_file_checksum(output_path, expected_checksum):
+                        actual = compute_file_checksum(
+                            output_path, chunk_size=LARGE_CHUNK_SIZE, truncate=len(expected_checksum)
+                        )
+                        logger.warning(
+                            f"Checksum mismatch for {output_path.name}: "
+                            f"expected {expected_checksum[:16]}..., got {actual[:16]}..."
+                        )
+                        return False, final_size, f"Checksum mismatch"
+
+                return True, final_size, ""
+            else:
+                error = stderr.decode()[:200] if stderr else "Unknown error"
+                return False, 0, error
+
+        except asyncio.TimeoutError:
+            # Save progress for resume
+            if output_path.exists():
+                current_size = output_path.stat().st_size
+                return False, current_size, f"Download timeout (saved {current_size} bytes for resume)"
+            return False, 0, "Download timeout"
+        except Exception as e:
+            return False, 0, str(e)[:200]
+
+    async def check_range_support(self, url: str) -> bool:
+        """Check if server supports HTTP Range requests.
+
+        Args:
+            url: URL to check
+
+        Returns:
+            True if server supports Range requests (returns 206 Partial Content)
+        """
+        try:
+            session = await self._get_session()
+            if session:
+                headers = {"Range": "bytes=0-0"}
+                async with session.head(url, headers=headers, timeout=10) as resp:
+                    # 206 = Partial Content (Range supported)
+                    # 200 with Accept-Ranges header also indicates support
+                    if resp.status == 206:
+                        return True
+                    if resp.status == 200 and resp.headers.get("Accept-Ranges") == "bytes":
+                        return True
+            return False
+        except Exception as e:
+            logger.debug(f"Range support check failed for {url}: {e}")
+            return False
+
+    async def download_with_smart_resume(
+        self,
+        sources: list[str],
+        output_path: Path,
+        expected_size: int | None = None,
+        expected_checksum: str | None = None,
+    ) -> tuple[bool, int, str]:
+        """Download with automatic method selection based on server capabilities.
+
+        Checks for Range support, then uses the best available method:
+        1. HTTP Range requests (if supported) - fastest for partial resume
+        2. aria2 multi-connection download - parallel chunks
+        3. BitTorrent (if available) - resilient for very large files
+
+        Keywords for searchability:
+        - smart download / intelligent resume
+        - automatic method selection
+        - adaptive download
+
+        Args:
+            sources: List of mirror URLs to try
+            output_path: Local destination path
+            expected_size: Expected file size
+            expected_checksum: Optional SHA256 checksum
+
+        Returns:
+            Tuple of (success, bytes_downloaded, error_message)
+        """
+        output_path = Path(output_path)
+
+        # Check existing partial download
+        existing_size = 0
+        if output_path.exists():
+            existing_size = output_path.stat().st_size
+            if expected_size and existing_size >= expected_size:
+                # File appears complete, verify
+                if expected_checksum and verify_file_checksum(output_path, expected_checksum):
+                    return True, existing_size, ""
+
+        # Try each source until success
+        for url in sources:
+            try:
+                # Check if server supports Range requests
+                supports_range = await self.check_range_support(url)
+
+                if supports_range and existing_size > 0:
+                    logger.info(f"Using HTTP Range resume for {output_path.name}")
+                    success, size, error = await self.download_with_range(
+                        url,
+                        output_path,
+                        expected_size=expected_size,
+                        expected_checksum=expected_checksum,
+                        resume=True,
+                    )
+                    if success:
+                        return success, size, error
+                else:
+                    # Use standard aria2 multi-connection download
+                    success, size, error = await self.download_file(
+                        sources=[url],
+                        output_dir=output_path.parent,
+                        filename=output_path.name,
+                        expected_checksum=expected_checksum,
+                    )
+                    if success:
+                        return success, size, error
+
+            except Exception as e:
+                logger.debug(f"Download from {url} failed: {e}")
+                continue
+
+        return False, 0, "All download sources failed"
+
+
 # Factory function for integration with unified_data_sync
 def create_aria2_transport(config: dict[str, Any] | None = None) -> Aria2Transport:
     """Create an Aria2Transport instance from config dict."""

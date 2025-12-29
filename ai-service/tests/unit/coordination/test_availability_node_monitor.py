@@ -17,6 +17,7 @@ from app.coordination.availability.node_monitor import (
     NodeMonitor,
     NodeMonitorConfig,
     get_node_monitor,
+    reset_node_monitor,
 )
 
 
@@ -106,74 +107,71 @@ class TestNodeMonitorConfig:
 class TestNodeMonitor:
     """Tests for NodeMonitor daemon."""
 
+    def setup_method(self):
+        """Reset singleton before each test."""
+        reset_node_monitor()
+
+    def teardown_method(self):
+        """Reset singleton after each test."""
+        reset_node_monitor()
+
     def test_singleton_pattern(self):
         """Test that get_node_monitor returns singleton."""
-        # Reset singleton for test
-        NodeMonitor._instance = None
-
         monitor1 = get_node_monitor()
         monitor2 = get_node_monitor()
 
         assert monitor1 is monitor2
 
-        # Cleanup
-        NodeMonitor._instance = None
-
     def test_event_subscriptions(self):
         """Test event subscription setup."""
-        NodeMonitor._instance = None
         monitor = get_node_monitor()
 
         subs = monitor._get_event_subscriptions()
 
-        # Should subscribe to relevant events
-        assert "NODE_ACTIVATED" in subs or len(subs) >= 0
-
-        NodeMonitor._instance = None
+        # Should be a dict of event name -> handler
+        assert isinstance(subs, dict)
 
     def test_get_node_status(self):
         """Test getting status for a specific node."""
-        NodeMonitor._instance = None
         monitor = get_node_monitor()
 
-        # Initially no status
+        # Status for unknown node should have None values
         status = monitor.get_node_status("unknown-node")
-        assert status is None or "node_id" not in status
-
-        NodeMonitor._instance = None
+        assert "node_id" in status
+        assert status["node_id"] == "unknown-node"
 
     def test_get_all_node_statuses(self):
         """Test getting all node statuses."""
-        NodeMonitor._instance = None
         monitor = get_node_monitor()
 
         statuses = monitor.get_all_node_statuses()
         assert isinstance(statuses, dict)
 
-        NodeMonitor._instance = None
-
-    @pytest.mark.asyncio
-    async def test_health_check(self):
+    def test_health_check(self):
         """Test health_check method returns valid result."""
-        NodeMonitor._instance = None
         monitor = get_node_monitor()
 
         result = monitor.health_check()
 
         assert "healthy" in result
-        assert "name" in result
-        assert result["name"] == "NodeMonitor"
-
-        NodeMonitor._instance = None
+        assert "message" in result
+        assert "details" in result
 
 
 class TestNodeMonitorIntegration:
     """Integration tests for NodeMonitor."""
 
+    def setup_method(self):
+        """Reset singleton before each test."""
+        reset_node_monitor()
+
+    def teardown_method(self):
+        """Reset singleton after each test."""
+        reset_node_monitor()
+
     @pytest.mark.asyncio
     async def test_p2p_check_with_mock(self):
         """Test P2P health check with mocked HTTP client."""
-        NodeMonitor._instance = None
         monitor = get_node_monitor()
 
         # Mock the HTTP call
@@ -192,5 +190,3 @@ class TestNodeMonitorIntegration:
             # The actual check would use the mock
             # This verifies the monitor can be instantiated and checked
             assert monitor is not None
-
-        NodeMonitor._instance = None
