@@ -388,6 +388,33 @@ def get_elo_facade() -> EloServiceFacade:
     return _facade_instance
 
 
+def reset_elo_facade() -> None:
+    """Reset the singleton EloServiceFacade (for testing).
+
+    Dec 29, 2025: Added to fix tournament test class leak issue.
+    Ensures test isolation by clearing the cached facade instance.
+    Also resets the underlying EloService singleton to fully clear state.
+
+    Usage in tests:
+        @pytest.fixture(autouse=True)
+        def cleanup_elo():
+            yield
+            reset_elo_facade()
+    """
+    global _facade_instance
+
+    # Reset the facade instance
+    _facade_instance = None
+
+    # Also reset the underlying EloService singleton for full cleanup
+    try:
+        from app.training.elo_service import reset_elo_service
+
+        reset_elo_service()
+    except ImportError:
+        pass  # EloService not available, nothing to reset
+
+
 # Backward-compatible alias
 EloFacade = EloServiceFacade
 
@@ -397,4 +424,5 @@ __all__ = [
     "EloFacade",
     "LegacyEloRating",
     "get_elo_facade",
+    "reset_elo_facade",
 ]
