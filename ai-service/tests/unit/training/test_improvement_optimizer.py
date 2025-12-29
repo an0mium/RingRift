@@ -1041,19 +1041,28 @@ class TestSingletonBehavior:
         """Test get_instance returns the same object."""
         ImprovementOptimizer.reset_instance()
 
-        opt1 = ImprovementOptimizer(state_path=temp_state_path)
-        # Since the first call creates the singleton, subsequent get_instance should return it
-        opt2 = ImprovementOptimizer.get_instance()
+        with patch(
+            "app.training.improvement_optimizer.OPTIMIZER_STATE_PATH",
+            temp_state_path,
+        ):
+            # Use get_instance() to create the singleton
+            opt1 = ImprovementOptimizer.get_instance()
+            opt2 = ImprovementOptimizer.get_instance()
 
-        assert opt1 is opt2
+            assert opt1 is opt2
 
     def test_has_instance_after_creation(self, temp_state_path):
-        """Test has_instance returns True after creation."""
+        """Test has_instance returns True after creation via get_instance."""
         ImprovementOptimizer.reset_instance()
         assert not ImprovementOptimizer.has_instance()
 
-        ImprovementOptimizer(state_path=temp_state_path)
-        assert ImprovementOptimizer.has_instance()
+        with patch(
+            "app.training.improvement_optimizer.OPTIMIZER_STATE_PATH",
+            temp_state_path,
+        ):
+            # Use get_instance() to register in the singleton registry
+            ImprovementOptimizer.get_instance()
+            assert ImprovementOptimizer.has_instance()
 
 
 class TestDataQualityEdgeCases:

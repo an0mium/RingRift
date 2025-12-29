@@ -110,9 +110,9 @@ From [`AI_TRAINING_ASSESSMENT_FINAL.md`](../ai/AI_TRAINING_ASSESSMENT_FINAL.md):
                                     │
                                     ▼
                     ┌─────────────────────────────────┐
-                    │     GameReplayDB (Schema v9)     │
+                    │     GameReplayDB (Schema v15)    │
                     │  - game_moves table REQUIRED     │
-                    │  - snapshots table               │
+                    │  - game_state_snapshots table    │
                     │  - games table                   │
                     └─────────────────────────────────┘
                                     │
@@ -717,7 +717,7 @@ The AI Training Pipeline Remediation is complete when:
 1. ✅ Removed 0-byte placeholder file at `ai-service/data/games/canonical_hexagonal.db`
 2. ✅ Archived malformed DB to `ai-service/data/games/canonical_hexagonal.db.malformed.bak`
 3. ✅ Ran `generate_canonical_selfplay.py --board hexagonal --num-games 50`
-4. ✅ New DB created with correct schema v9 (all 9 tables present)
+4. ✅ New DB created with correct schema v9 at the time (current schema v15)
 5. ⚠️ Only 1 game recorded due to parity divergence on first game
 
 **Schema Verification:**
@@ -783,7 +783,7 @@ Re-ran with the trace-mode fix in place; canonical gate now passes for hexagonal
 
 1. ✅ Archived prior DB to `ai-service/data/games/canonical_square19.db.archived_20251220_052509`
 2. ✅ Ran `generate_canonical_selfplay.py --board square19 --num-games 200`
-3. ✅ New DB created with schema v9 (all 9 tables present)
+3. ✅ New DB created with schema v9 at the time (current schema v15)
 4. ⚠️ Only 1 game recorded due to parity divergence on first game
 
 **Data Verification:**

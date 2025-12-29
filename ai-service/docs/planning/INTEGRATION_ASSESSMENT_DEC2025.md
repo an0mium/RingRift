@@ -14,13 +14,13 @@ Comprehensive architectural assessment of RingRift AI-Service covering:
 
 ### Key Findings
 
-| Area                   | Status                              | Critical Gaps                             |
-| ---------------------- | ----------------------------------- | ----------------------------------------- |
-| Training Pipeline      | Components exist, poorly integrated | No event-driven triggers between stages   |
-| Event Systems          | Sophisticated but fragmented        | Missing subscribers, no dead letter queue |
-| Code Duplication       | Some consolidation done             | Model factories, CLI parsing, logging     |
-| Cluster Infrastructure | Production-ready                    | No feedback to training decisions         |
-| Valuable Patterns      | 14+ patterns identified             | Underutilized across codebase             |
+| Area                   | Status                              | Critical Gaps                             | Resolution (Dec 29)                |
+| ---------------------- | ----------------------------------- | ----------------------------------------- | ---------------------------------- |
+| Training Pipeline      | Components exist, poorly integrated | No event-driven triggers between stages   | ✅ Event triggers implemented      |
+| Event Systems          | Sophisticated but fragmented        | Missing subscribers, no dead letter queue | ✅ Dead letter queue added         |
+| Code Duplication       | Some consolidation done             | Model factories, CLI parsing, logging     | ⏳ Partial                         |
+| Cluster Infrastructure | Production-ready                    | No feedback to training decisions         | ✅ Feedback loops wired            |
+| Valuable Patterns      | 14+ patterns identified             | Underutilized across codebase             | ✅ HandlerBase, P2PMixinBase added |
 
 ---
 
@@ -44,22 +44,21 @@ Selfplay → [EVENT: games_ready] → Export → [EVENT: export_complete]
 ### Gap #1: Selfplay → Export (30-60 min lag)
 
 **Severity:** HIGH
+**Status:** ✅ RESOLVED (December 2025)
 
-**Current State:**
+**Resolution:**
+
+- `SELFPLAY_COMPLETED` event now emitted by selfplay_runner
+- `DataPipelineOrchestrator` subscribes and triggers export automatically
+- Lag reduced from 30-60 min to near-instant
+
+**Original State:**
 
 - `selfplay_runner.py` generates games → SQLite
 - `auto_export_training_data.py` polls on fixed interval
 - No event notification when games ready
 
-**Fix Required:**
-
-```python
-# In selfplay_runner.py line 232 (after run loop):
-from app.coordination.event_emitters import emit_selfplay_complete
-emit_selfplay_complete(config_key, games_completed, samples_total)
-```
-
-**Files:** `app/training/selfplay_runner.py:232`, `scripts/auto_export_training_data.py`
+**Files:** `app/training/selfplay_runner.py`, `app/coordination/data_pipeline_orchestrator.py`
 
 ### Gap #2: Export → Training (30 min lag)
 

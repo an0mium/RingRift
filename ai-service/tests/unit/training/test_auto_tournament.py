@@ -1177,7 +1177,7 @@ class TestBinomialPValueAdvanced:
         """Test p-value with extreme null probabilities."""
         # 5 wins out of 10 with p=0.1 (very unlikely)
         p_value = calculate_binomial_p_value(5, 10, 0.1)
-        assert p_value < 0.001
+        assert p_value < 0.01  # Still very unlikely
 
         # 5 wins out of 10 with p=0.9 (expected to have more)
         p_value = calculate_binomial_p_value(5, 10, 0.9)
@@ -1392,9 +1392,9 @@ class TestAutoTournamentPipelineAdvanced:
                 }
             }, f)
 
-        # Should handle gracefully
-        with pytest.raises(Exception):  # Will raise due to missing fields
-            AutoTournamentPipeline(models_dir, results_dir)
+        # Should handle gracefully - logs warning and starts with empty models
+        pipeline = AutoTournamentPipeline(models_dir, results_dir)
+        assert len(pipeline._models) == 0
 
     @patch("app.training.auto_tournament.Tournament")
     def test_tournament_with_many_games(

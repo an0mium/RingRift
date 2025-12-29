@@ -419,26 +419,8 @@ class ConfigPriority:
         )
 
 
-@dataclass
-class NodeCapability:
-    """Capability information for a cluster node."""
-    node_id: str
-    gpu_type: str = "unknown"
-    gpu_memory_gb: float = 0.0
-    is_ephemeral: bool = False
-    current_load: float = 0.0  # 0-1, current utilization
-    current_jobs: int = 0  # Dec 29 2025: Current selfplay job count
-    data_lag_seconds: float = 0.0  # Sync lag from coordinator
-
-    @property
-    def capacity_weight(self) -> float:
-        """Get capacity weight based on GPU type."""
-        return get_gpu_weight(self.gpu_type)
-
-    @property
-    def available_capacity(self) -> float:
-        """Get available capacity (0-1)."""
-        return max(0.0, 1.0 - self.current_load) * self.capacity_weight
+# Note: NodeCapability is now imported from app.coordination.node_allocator
+# (December 2025 consolidation - removed ~20 lines of duplicate code)
 
 
 class SelfplayScheduler:
