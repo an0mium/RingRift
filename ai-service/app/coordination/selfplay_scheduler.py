@@ -1211,24 +1211,62 @@ class SelfplayScheduler:
         """Get current Elo ratings per config.
 
         Dec 29, 2025: Added for adaptive Gumbel budget scaling.
+        Uses 3-layer fallback: QueuePopulator -> EloService -> default 1500.
 
         Returns:
             Dict mapping config_key to current Elo rating
         """
         result = {}
 
+        # Layer 1: Try QueuePopulator's ConfigTarget (fastest, in-memory)
         try:
-            # Try using QueuePopulator's ConfigTarget if available
             from app.coordination.unified_queue_populator import get_queue_populator
 
             populator = get_queue_populator()
             if populator:
                 for config_key, target in populator._targets.items():
-                    result[config_key] = target.current_best_elo
+                    if target.current_best_elo > 0:
+                        result[config_key] = target.current_best_elo
         except ImportError:
             pass
         except (AttributeError, KeyError) as e:
-            logger.warning(f"[SelfplayScheduler] Error getting current Elos (using defaults): {e}")
+            logger.debug(f"[SelfplayScheduler] QueuePopulator unavailable: {e}")
+
+        # Layer 2: Fallback to EloService database for missing configs
+        missing_configs = [c for c in ALL_CONFIGS if c not in result]
+        if missing_configs:
+            try:
+                from app.training.elo_service import get_elo_service
+
+                elo_service = get_elo_service()
+                for config_key in missing_configs:
+                    # Parse config_key: "hex8_2p" -> board_type="hex8", num_players=2
+                    parts = config_key.rsplit("_", 1)
+                    if len(parts) == 2:
+                        board_type = parts[0]
+                        num_players = int(parts[1].replace("p", ""))
+                        # Get leaderboard and take top model's Elo
+                        leaderboard = elo_service.get_leaderboard(
+                            board_type=board_type,
+                            num_players=num_players,
+                            limit=1,
+                            min_games=5,  # Require some confidence
+                        )
+                        if leaderboard:
+                            result[config_key] = leaderboard[0].rating
+                            logger.debug(
+                                f"[SelfplayScheduler] Got Elo from EloService for {config_key}: "
+                                f"{leaderboard[0].rating:.0f}"
+                            )
+            except ImportError:
+                logger.debug("[SelfplayScheduler] EloService not available")
+            except Exception as e:
+                logger.debug(f"[SelfplayScheduler] EloService query failed: {e}")
+
+        # Layer 3: Default 1500 for any still-missing configs
+        for config_key in ALL_CONFIGS:
+            if config_key not in result:
+                result[config_key] = 1500.0  # Default starting Elo
 
         return result
 

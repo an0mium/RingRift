@@ -515,10 +515,10 @@ class TestDynamicBatchSizer:
         config = MemoryConfig()
         sizer = DynamicBatchSizer(memory_config=config)
 
-        assert sizer.target_batch_size == 64
-        assert sizer.min_batch_size == 8
-        assert sizer.max_batch_size == 256
-        assert sizer.memory_threshold == 0.85
+        # Uses actual attribute names from the class
+        assert sizer.batch_size_min == 100
+        assert sizer.batch_size_max == 1600
+        assert sizer.memory_safety_margin == 0.8
 
     def test_init_custom(self):
         """Test custom initialization."""
@@ -527,48 +527,43 @@ class TestDynamicBatchSizer:
         config = MemoryConfig()
         sizer = DynamicBatchSizer(
             memory_config=config,
-            target_batch_size=128,
-            min_batch_size=16,
-            max_batch_size=512,
-            memory_threshold=0.90,
+            batch_size_min=16,
+            batch_size_max=512,
+            memory_safety_margin=0.90,
         )
 
-        assert sizer.target_batch_size == 128
-        assert sizer.min_batch_size == 16
-        assert sizer.max_batch_size == 512
-        assert sizer.memory_threshold == 0.90
+        assert sizer.batch_size_min == 16
+        assert sizer.batch_size_max == 512
+        assert sizer.memory_safety_margin == 0.90
 
-    def test_get_batch_size_returns_valid_range(self):
-        """Test that get_batch_size returns value in valid range."""
+    def test_get_optimal_batch_size_returns_valid_range(self):
+        """Test that get_optimal_batch_size returns value in valid range."""
         from app.utils.memory_config import MemoryConfig
 
         config = MemoryConfig()
         sizer = DynamicBatchSizer(
             memory_config=config,
-            target_batch_size=64,
-            min_batch_size=8,
-            max_batch_size=256,
+            batch_size_min=8,
+            batch_size_max=256,
         )
 
-        batch_size = sizer.get_batch_size()
-        assert sizer.min_batch_size <= batch_size <= sizer.max_batch_size
+        batch_size = sizer.get_optimal_batch_size()
+        assert sizer.batch_size_min <= batch_size <= sizer.batch_size_max
 
-    def test_get_batch_size_with_low_memory(self):
-        """Test batch size reduction under memory pressure."""
+    def test_get_optimal_batch_size_with_current_nodes(self):
+        """Test batch size calculation with existing node count."""
         from app.utils.memory_config import MemoryConfig
 
         config = MemoryConfig()
         sizer = DynamicBatchSizer(
             memory_config=config,
-            target_batch_size=64,
-            min_batch_size=8,
-            max_batch_size=256,
-            memory_threshold=0.10,  # Very low threshold
+            batch_size_min=8,
+            batch_size_max=256,
         )
 
-        batch_size = sizer.get_batch_size()
-        # Should reduce batch size due to memory pressure
-        assert batch_size >= sizer.min_batch_size
+        # With current nodes, should still return valid range
+        batch_size = sizer.get_optimal_batch_size(current_node_count=1000)
+        assert batch_size >= sizer.batch_size_min
 
 
 # =============================================================================
@@ -599,11 +594,10 @@ class TestMCTSAI:
 
         from app.ai.mcts_ai import MCTSAI
 
-        with patch("app.ai.mcts_ai.NeuralNetAI") as mock_nn:
-            mock_nn.return_value = MagicMock()
-            ai = MCTSAI(player_number=1, config=ai_config)
-            # Should attempt to load neural net at D6+
-            # (may fail if model not available)
+        ai = MCTSAI(player_number=1, config=ai_config)
+        ai.config = ai_config  # Set config manually after mock init
+        # At D6+, MCTS should attempt to use neural network guidance
+        # (may fall back to heuristic if model not available)
 
     @patch("app.ai.mcts_ai.HeuristicAI.__init__")
     def test_normalized_entropy_empty(self, mock_heuristic_init, ai_config):
@@ -674,6 +668,7 @@ class TestMCTSAI:
         from app.ai.mcts_ai import MCTSAI
 
         ai = MCTSAI(player_number=1, config=ai_config)
+        ai.config = ai_config  # Set config manually after mock init
 
         rave_k = ai._rave_k_for_node(0, [0.25, 0.25, 0.25, 0.25])
         assert rave_k >= 0.0
@@ -773,6 +768,7 @@ class TestMCTSAI:
         from app.ai.mcts_ai import MCTSAI
 
         ai = MCTSAI(player_number=1, config=ai_config)
+        ai.config = ai_config  # Set config manually after mock init
 
         # Create a node with children
         node = MCTSNodeLite()
