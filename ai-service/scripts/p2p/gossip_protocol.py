@@ -254,17 +254,21 @@ class GossipProtocolMixin(P2PMixinBase):
 
         # Select K random peers to gossip with (fanout = 3)
         GOSSIP_FANOUT = 3
+
+        # Dec 2025: Copy peer IDs under lock to avoid stale references.
+        # Previously, we copied NodeInfo objects which could become stale
+        # between lock release and gossip sending, causing race conditions.
+        import random
         with self.peers_lock:
-            alive_peers = [
-                p for p in self.peers.values()
+            alive_peer_ids = [
+                p.node_id for p in self.peers.values()
                 if p.is_alive() and not getattr(p, "retired", False)
             ]
 
-        if not alive_peers:
+        if not alive_peer_ids:
             return
 
-        import random
-        peers_to_gossip = random.sample(alive_peers, min(GOSSIP_FANOUT, len(alive_peers)))
+        selected_ids = random.sample(alive_peer_ids, min(GOSSIP_FANOUT, len(alive_peer_ids)))
 
         # Import session helper
         try:
@@ -273,11 +277,14 @@ class GossipProtocolMixin(P2PMixinBase):
             # Fallback for legacy imports
             get_client_session = None
 
-        # Send gossip to selected peers
+        # Send gossip to selected peers, fetching fresh peer info under lock
         timeout = ClientTimeout(total=5)
 
-        for peer in peers_to_gossip:
-            await self._send_gossip_to_peer(peer, local_state, timeout, get_client_session)
+        for peer_id in selected_ids:
+            with self.peers_lock:
+                peer = self.peers.get(peer_id)
+            if peer and peer.is_alive():
+                await self._send_gossip_to_peer(peer, local_state, timeout, get_client_session)
 
     def _build_local_gossip_state(self, now: float) -> dict[str, Any]:
         """Build local state dict to share via gossip."""

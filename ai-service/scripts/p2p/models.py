@@ -117,6 +117,18 @@ class NodeInfo:
         """Check if node is in SUSPECT state (grace period)."""
         return self.get_health_state() == NodeHealthState.SUSPECT
 
+    def is_available(self) -> bool:
+        """Check if node is available for new work (ALIVE only, not SUSPECT).
+
+        Use this for job scheduling decisions where SUSPECT nodes should be skipped.
+        Use is_alive() for membership/heartbeat checks where SUSPECT is acceptable.
+
+        Dec 2025: Added to standardize health checks across codebase.
+        Previously, some code used get_health_state() == ALIVE (strict) while
+        most used is_alive() (lenient), causing nodes to appear/disappear.
+        """
+        return self.get_health_state() == NodeHealthState.ALIVE
+
     def is_healthy(self) -> bool:
         """Check if node is healthy for new jobs (not just reachable)."""
         if not self.is_alive():

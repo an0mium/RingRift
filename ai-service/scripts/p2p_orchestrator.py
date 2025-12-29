@@ -451,6 +451,7 @@ from scripts.p2p.cluster_config import (
 from scripts.p2p.handlers import (
     ABTestHandlersMixin,
     AdminHandlersMixin,
+    CanonicalGateHandlersMixin,
     CMAESHandlersMixin,
     DeliveryHandlersMixin,
     ElectionHandlersMixin,
@@ -1188,6 +1189,7 @@ class P2POrchestrator(
     ManifestHandlersMixin,  # Phase 8: Manifest handlers extraction (Dec 28, 2025)
     ABTestHandlersMixin,    # Phase 8: A/B test handlers extraction (Dec 28, 2025)
     ImprovementHandlersMixin,  # Phase 8: Improvement loop handlers extraction (Dec 28, 2025)
+    CanonicalGateHandlersMixin,  # Phase 8: Canonical gate handlers extraction (Dec 28, 2025)
     NetworkUtilsMixin,
     PeerManagerMixin,
     LeaderElectionMixin,
@@ -15873,40 +15875,17 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
-    def _canonical_slug_for_board(self, board_type: str) -> str:
-        return {
-            "square8": "square8",
-            "square19": "square19",
-            "hex8": "hex8",
-            "hexagonal": "hex",
-        }.get(board_type, board_type)
+    # =========================================================================
+    # NOTE: Canonical gate handlers moved to scripts/p2p/handlers/canonical_gate.py (Dec 28, 2025 - Phase 8)
+    # Inherited from CanonicalGateHandlersMixin:
+    # - _canonical_slug_for_board, _canonical_gate_paths, _tail_text_file, _canonical_gate_log_dir
+    # - _monitor_canonical_gate_job
+    # - handle_api_canonical_health, handle_api_canonical_jobs_list, handle_api_canonical_job_get
+    # - handle_api_canonical_job_log, handle_api_canonical_logs_list, handle_api_canonical_log_tail
+    # - handle_api_canonical_generate, handle_api_canonical_job_cancel
+    # =========================================================================
 
-    def _canonical_gate_paths(self, board_type: str, num_players: int) -> tuple[Path, Path]:
-        """Compute canonical DB + gate summary paths (leader-side conventions)."""
-        slug = self._canonical_slug_for_board(board_type)
-        suffix = "" if int(num_players) == 2 else f"_{int(num_players)}p"
-        ai_root = Path(self.ringrift_path) / "ai-service"
-        db_path = (ai_root / "data" / "games" / f"canonical_{slug}{suffix}.db").resolve()
-        summary_path = (ai_root / "data" / "games" / f"db_health.canonical_{slug}{suffix}.json").resolve()
-        return db_path, summary_path
-
-    def _tail_text_file(self, path: Path, *, max_lines: int = 200, max_bytes: int = 256_000) -> str:
-        """Best-effort tail of a potentially large log file."""
-        try:
-            if not path.exists():
-                return ""
-            with path.open("rb") as f:
-                f.seek(0, os.SEEK_END)
-                size = f.tell()
-                seek = max(0, size - int(max_bytes))
-                f.seek(seek)
-                data = f.read().decode("utf-8", errors="replace")
-            lines = data.splitlines()
-            return "\n".join(lines[-int(max_lines) :])
-        except Exception as e:  # noqa: BLE001
-            return f"[tail_error] {e}"
-
-    async def handle_api_canonical_health(self, request: web.Request) -> web.Response:
+    async def _removed_handle_api_canonical_health(self, request: web.Request) -> web.Response:
         """List canonical gate summary JSONs found on this node."""
         try:
             if not self._is_leader() and request.query.get("local") != "1":

@@ -492,7 +492,8 @@ class CompositeScaleAdapter:
     def get_active_nodes(self) -> int:
         """Get count of currently active GPU nodes."""
         peers = self.peers_getter()
-        return len([p for p in peers.values() if p.get_health_state() == NodeHealthState.ALIVE])
+        # Dec 2025: Use is_alive() for consistency - includes SUSPECT state
+        return len([p for p in peers.values() if p.is_alive()])
 
     def get_idle_nodes(self) -> list[str]:
         """Get list of node IDs that are confirmed idle and safe to terminate.
@@ -509,7 +510,8 @@ class CompositeScaleAdapter:
         idle_candidates: list[str] = []
 
         for node_id, peer in peers.items():
-            if peer.get_health_state() != NodeHealthState.ALIVE:
+            # Dec 2025: Use is_alive() for consistency - includes SUSPECT state
+            if not peer.is_alive():
                 continue
 
             # Get or create idle status tracker
@@ -791,9 +793,10 @@ class CompositeScaleAdapter:
 
         # Check 3: Check if any peers are overloaded and could benefit from rebalancing
         peers = self.peers_getter()
+        # Dec 2025: Use is_alive() for consistency - includes SUSPECT state
         overloaded_peers = [
             p_id for p_id, p_info in peers.items()
-            if p_info.get_health_state() == NodeHealthState.ALIVE and p_info.gpu_percent > 90
+            if p_info.is_alive() and p_info.gpu_percent > 90
         ]
         if overloaded_peers:
             logger.info(

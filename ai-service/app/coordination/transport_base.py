@@ -153,21 +153,30 @@ class PermanentTransportError(TransportError):
 
 @dataclass
 class CircuitBreakerConfig:
-    """Configuration for circuit breaker behavior."""
+    """Configuration for circuit breaker behavior.
 
-    failure_threshold: int = 3  # Failures before opening circuit
-    recovery_timeout: float = 300.0  # Seconds before trying again
+    Dec 2025: Updated defaults for P2P cluster stability:
+    - Increased failure_threshold from 3 to 5 to tolerate network blips
+    - Reduced recovery_timeout from 300s to 60s for faster recovery
+    - Added backoff parameters for exponential backoff with jitter
+    """
+
+    failure_threshold: int = 5  # Failures before opening circuit (was 3)
+    recovery_timeout: float = 60.0  # Seconds before trying again (was 300)
     half_open_max_calls: int = 1  # Calls allowed in half-open state
+    backoff_multiplier: float = 2.0  # Exponential backoff multiplier
+    max_backoff: float = 300.0  # Maximum backoff in seconds
+    jitter_factor: float = 0.1  # Randomization factor (±10%)
 
     @classmethod
     def aggressive(cls) -> CircuitBreakerConfig:
         """Quick-failing configuration for unreliable targets."""
-        return cls(failure_threshold=2, recovery_timeout=60.0)
+        return cls(failure_threshold=2, recovery_timeout=30.0)
 
     @classmethod
     def patient(cls) -> CircuitBreakerConfig:
         """Tolerant configuration for occasionally-failing targets."""
-        return cls(failure_threshold=5, recovery_timeout=600.0)
+        return cls(failure_threshold=10, recovery_timeout=120.0)
 
 
 @dataclass

@@ -47,9 +47,10 @@ TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 # Matches RELAY_HEARTBEAT_INTERVAL. 10s would match voters but may cause
 # false positives on congested networks.
 HEARTBEAT_INTERVAL = 15  # seconds
-# Dec 2025: Reduced from 90s to 60s - with 15s heartbeats, 4 missed = dead
-# Previous 90s with 30s heartbeat meant 3 missed = dead, keeping same ratio
-PEER_TIMEOUT = 60  # seconds without heartbeat = node considered dead
+# Dec 2025: Increased from 60s to 90s - 2x HTTP_TOTAL_TIMEOUT (45s) to prevent
+# false-positive node deaths from slow HTTP requests. With 15s heartbeats, 6 missed = dead.
+# Environment variable allows runtime tuning without code changes.
+PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "90") or 90)
 # SUSPECT grace period: nodes transition ALIVE -> SUSPECT -> DEAD
 # Dec 2025: 30s grace prevents transient network issues from causing failover
 # With 15s heartbeats, this means 2 missed = suspect, 4 missed = dead
@@ -160,7 +161,10 @@ RETRY_DEAD_NODE_INTERVAL = 120  # Retry dead nodes every 2 minutes (reduced from
 # Gossip fanout - number of peers to forward gossip messages to
 GOSSIP_FANOUT = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT", "3") or 3)
 # Gossip interval - seconds between gossip rounds
-GOSSIP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_GOSSIP_INTERVAL", "60") or 60)
+# Dec 2025: Reduced from 60s to 15s for faster state convergence (6 gossip rounds per PEER_TIMEOUT)
+GOSSIP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_GOSSIP_INTERVAL", "15") or 15)
+# Gossip jitter - randomization factor to prevent thundering herd (±10%)
+GOSSIP_JITTER = float(os.environ.get("RINGRIFT_P2P_GOSSIP_JITTER", "0.2") or 0.2)
 # Upper bound on peer endpoints included in gossip payloads to limit message size.
 GOSSIP_MAX_PEER_ENDPOINTS = int(
     os.environ.get("RINGRIFT_P2P_GOSSIP_MAX_PEER_ENDPOINTS", "25") or 25

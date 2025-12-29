@@ -200,6 +200,7 @@ class SelfplayOrchestrator:
             router.subscribe(DataEventType.BACKPRESSURE_RELEASED.value, self._on_backpressure_released)
             router.subscribe(DataEventType.RESOURCE_CONSTRAINT.value, self._on_resource_constraint)
             router.subscribe(DataEventType.REGRESSION_DETECTED.value, self._on_regression_detected)
+            router.subscribe(DataEventType.REGRESSION_CLEARED.value, self._on_regression_cleared)
             router.subscribe(DataEventType.PROMOTION_ROLLED_BACK.value, self._on_promotion_rolled_back)
 
             # Subscribe to curriculum events (December 2025 - Phase 1 feedback loop)
@@ -576,6 +577,27 @@ class SelfplayOrchestrator:
         else:
             logger.info(
                 f"[SelfplayOrchestrator] Minor regression detected in {metric_name}"
+            )
+
+    async def _on_regression_cleared(self, event) -> None:
+        """Handle REGRESSION_CLEARED - resume selfplay after model recovery.
+
+        December 2025: Completes the regression→recovery feedback loop for selfplay.
+        When model performance is restored, automatically resumes selfplay.
+        """
+        payload = event.payload
+        config_key = payload.get("config_key", "")
+        metric_name = payload.get("metric_name") or payload.get("metric", "unknown")
+
+        if self._paused_for_regression:
+            self._paused_for_regression = False
+            logger.info(
+                f"[SelfplayOrchestrator] Regression cleared for {metric_name} "
+                f"(config={config_key}) - selfplay resumed"
+            )
+        else:
+            logger.debug(
+                f"[SelfplayOrchestrator] REGRESSION_CLEARED received but selfplay was not paused"
             )
 
     async def _on_promotion_rolled_back(self, event) -> None:

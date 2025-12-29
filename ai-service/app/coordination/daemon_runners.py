@@ -933,13 +933,14 @@ async def create_multi_provider() -> None:
 async def create_queue_populator() -> None:
     """Create and run queue populator daemon (Phase 4)."""
     try:
-        from app.coordination.unified_queue_populator import UnifiedQueuePopulator
+        from app.coordination.unified_queue_populator import UnifiedQueuePopulatorDaemon
 
-        populator = UnifiedQueuePopulator()
-        await populator.start()
-        await _wait_for_daemon(populator)
+        # Use the daemon wrapper which has start/stop lifecycle
+        daemon = UnifiedQueuePopulatorDaemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
     except ImportError as e:
-        logger.error(f"UnifiedQueuePopulator not available: {e}")
+        logger.error(f"UnifiedQueuePopulatorDaemon not available: {e}")
         raise
 
 

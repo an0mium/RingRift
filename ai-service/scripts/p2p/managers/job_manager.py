@@ -1547,7 +1547,7 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
         for match in matches:
             try:
                 # Import game runner (lazy to avoid circular imports)
-                from app.ai.heuristic_ai import HeuristicAI, HeuristicConfig
+                from app.ai.heuristic_ai import HeuristicAI
 
                 # For now, run heuristic-only matches for testing
                 # Full implementation would load neural net models
