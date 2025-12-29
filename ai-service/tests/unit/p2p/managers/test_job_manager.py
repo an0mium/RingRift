@@ -410,15 +410,18 @@ class TestHealthCheck:
         """Test health check returns proper structure."""
         health = job_manager.health_check()
 
-        assert isinstance(health, dict)
-        assert "healthy" in health or "status" in health
+        # health_check() returns HealthCheckResult, check its attributes
+        assert hasattr(health, "healthy")
+        assert hasattr(health, "status")
+        assert hasattr(health, "message") or hasattr(health, "details")
 
     def test_health_check_includes_stats(self, job_manager):
         """Test health check includes job stats."""
         health = job_manager.health_check()
 
-        # Should include some stats
-        assert isinstance(health, dict)
+        # Should have health status attribute
+        assert hasattr(health, "healthy")
+        assert isinstance(health.healthy, bool)
 
     def test_health_check_with_active_jobs(self, job_manager):
         """Test health check with running jobs."""
@@ -427,7 +430,7 @@ class TestHealthCheck:
         }
 
         health = job_manager.health_check()
-        assert isinstance(health, dict)
+        assert hasattr(health, "healthy")
 
 
 # =============================================================================

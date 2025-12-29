@@ -33,19 +33,18 @@ logger = logging.getLogger(__name__)
 
 
 # Configs that need priority selfplay (from config analysis Dec 28, 2025)
-# Updated based on latest database counts
+# Updated based on latest database counts after quarantine restore
 PRIORITY_CONFIGS = {
     # CRITICAL - 0 or near-zero games
     "square19_4p": {"games": 500, "reason": "CRITICAL - 0 games"},
-    "hexagonal_3p": {"games": 500, "reason": "CRITICAL - DB missing"},
-    "hexagonal_4p": {"games": 500, "reason": "CRITICAL - DB missing"},
-    # HIGH - under 100 games
-    "hexagonal_2p": {"games": 500, "reason": "HIGH - 21 games"},
-    "hex8_4p": {"games": 500, "reason": "HIGH - 45 games"},
-    "square19_2p": {"games": 450, "reason": "HIGH - 78 games"},
-    # MEDIUM - under 200 games
-    "hex8_3p": {"games": 400, "reason": "MEDIUM - 149 games"},
-    "square19_3p": {"games": 400, "reason": "MEDIUM - 150 games"},
+    "hexagonal_2p": {"games": 500, "reason": "CRITICAL - 21 games"},
+    # HIGH - under 200 games
+    "square19_3p": {"games": 400, "reason": "HIGH - 150 games"},
+    "hexagonal_4p": {"games": 300, "reason": "HIGH - 300 games (after restore)"},
+    # MEDIUM - under 700 games
+    "hexagonal_3p": {"games": 200, "reason": "MEDIUM - 545 games (after restore)"},
+    "hex8_4p": {"games": 200, "reason": "MEDIUM - 567 games"},
+    "square19_2p": {"games": 200, "reason": "MEDIUM - 677 games"},
 }
 
 
