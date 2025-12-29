@@ -1627,12 +1627,13 @@ def _start_unified_feedback_orchestrator() -> bool:
         # Start the orchestrator (this subscribes to events and begins processing)
         if hasattr(orchestrator, "start"):
             import asyncio
+            from app.utils.async_utils import fire_and_forget
 
             # Handle sync/async context
             try:
                 loop = asyncio.get_running_loop()
-                # If we're in an async context, schedule the start
-                asyncio.create_task(orchestrator.start())
+                # If we're in an async context, schedule the start with error handling
+                fire_and_forget(orchestrator.start(), name="unified_feedback_orchestrator_start")
                 logger.info("[Bootstrap] Unified feedback orchestrator start scheduled")
             except RuntimeError:
                 # No running loop - run synchronously
@@ -1772,10 +1773,11 @@ def _restore_event_subscriptions() -> dict[str, Any]:
         # Restore subscriptions from persistent store
         try:
             import asyncio
+            from app.utils.async_utils import fire_and_forget
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # Create task if we're in async context
-                task = asyncio.create_task(router.restore_subscriptions())
+                # Create task if we're in async context with error handling
+                fire_and_forget(router.restore_subscriptions(), name="restore_subscriptions")
                 # Can't await in sync function, log that it will complete async
                 logger.debug(
                     "[Bootstrap] Subscription restoration scheduled (async context)"
@@ -1794,7 +1796,7 @@ def _restore_event_subscriptions() -> dict[str, Any]:
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                task = asyncio.create_task(router.replay_stale_dlq_events())
+                fire_and_forget(router.replay_stale_dlq_events(), name="replay_stale_dlq")
                 logger.debug("[Bootstrap] DLQ replay scheduled (async context)")
             else:
                 results["dlq_events_replayed"] = loop.run_until_complete(
@@ -1812,7 +1814,7 @@ def _restore_event_subscriptions() -> dict[str, Any]:
             store = get_subscription_store()
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                task = asyncio.create_task(store.emit_stale_dlq_alerts())
+                fire_and_forget(store.emit_stale_dlq_alerts(), name="emit_stale_dlq_alerts")
             else:
                 results["stale_alerts_emitted"] = loop.run_until_complete(
                     store.emit_stale_dlq_alerts()

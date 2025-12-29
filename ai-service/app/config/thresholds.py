@@ -327,12 +327,14 @@ MIN_WIN_RATE_VS_HEURISTIC_3P = 0.45  # 45% (must beat heuristic convincingly)
 # 4-Player Adjusted Thresholds
 # -----------------------------------------------------------------------------
 # For 4-player games, random baseline is 25% (1/4 chance), not 50%.
-# Dec 28, 2025: Raised thresholds - weak data was causing plateau
-# 85% for 2p (3.4x over 25%) -> 65% for 4p (2.6x over 25%)
-# Heuristic raised to 40% to ensure quality training data
+# Dec 29, 2025: Fixed thresholds - 4p should be LOWER than 3p, not higher!
+# Using consistent ~1.7x multiplier over random baseline:
+#   2p: 50% * 1.7 = 85%
+#   3p: 33% * 1.7 = 56% ~ 55%
+#   4p: 25% * 1.7 = 42.5% ~ 45%
 
-MIN_WIN_RATE_VS_RANDOM_4P = 0.65  # 65% (2.6x better than 25% random baseline)
-MIN_WIN_RATE_VS_HEURISTIC_4P = 0.40  # 40% (must beat heuristic convincingly)
+MIN_WIN_RATE_VS_RANDOM_4P = 0.45  # 45% (1.8x better than 25% random baseline)
+MIN_WIN_RATE_VS_HEURISTIC_4P = 0.35  # 35% (scaled down from 3p's 45%)
 
 
 def get_min_win_rate_vs_random(num_players: int = 2) -> float:
@@ -672,7 +674,8 @@ ELECTION_TIMEOUT = 10
 LEADER_LEASE_RENEW_INTERVAL = 10
 
 # Job status check interval (seconds)
-JOB_CHECK_INTERVAL = 60
+# Dec 29, 2025: Reduced from 60s to 15s for faster job status updates
+JOB_CHECK_INTERVAL = 15
 
 # Peer discovery broadcast interval (seconds)
 DISCOVERY_INTERVAL = 120

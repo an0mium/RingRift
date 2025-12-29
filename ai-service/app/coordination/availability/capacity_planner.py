@@ -26,11 +26,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class ScaleAction(str, Enum):
-    """Recommended scaling action."""
-    SCALE_UP = "scale_up"
-    SCALE_DOWN = "scale_down"
-    NONE = "none"
+# December 2025: Import from canonical source to avoid collision with resource_optimizer.py
+from app.coordination.enums import ScaleAction
 
 
 @dataclass

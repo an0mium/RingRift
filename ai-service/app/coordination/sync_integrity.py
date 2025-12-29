@@ -1121,6 +1121,56 @@ async def _emit_sync_checksum_failed(
 
 
 # =============================================================================
+# Quarantine Functions (Phase 7 - December 29, 2025)
+# =============================================================================
+
+
+def quarantine_corrupted_db(db_path: Path) -> Path | None:
+    """Move corrupted database to quarantine directory.
+
+    Phase 7 - December 29, 2025: Quarantine corrupted databases to prevent them
+    from participating in sync operations and potentially spreading corruption.
+
+    Args:
+        db_path: Path to the corrupted database file
+
+    Returns:
+        Path to the quarantined file, or None if quarantine failed
+    """
+    import shutil
+
+    if not db_path.exists():
+        logger.warning(f"[SyncIntegrity] Cannot quarantine - file not found: {db_path}")
+        return None
+
+    try:
+        quarantine_dir = db_path.parent / "quarantine"
+        quarantine_dir.mkdir(exist_ok=True)
+
+        # Add timestamp to filename to avoid collisions
+        timestamp = int(time.time())
+        dest = quarantine_dir / f"{db_path.name}.{timestamp}"
+
+        # Move the database file
+        shutil.move(str(db_path), str(dest))
+        logger.warning(f"[SyncIntegrity] Quarantined corrupted DB: {db_path} -> {dest}")
+
+        # Also move associated WAL and SHM files if they exist
+        for suffix in ["-wal", "-shm", "-journal"]:
+            wal_path = db_path.parent / f"{db_path.name}{suffix}"
+            if wal_path.exists():
+                wal_dest = quarantine_dir / f"{db_path.name}.{timestamp}{suffix}"
+                shutil.move(str(wal_path), str(wal_dest))
+                logger.debug(f"[SyncIntegrity] Quarantined WAL/SHM: {wal_path}")
+
+        return dest
+
+    except (OSError, PermissionError, shutil.Error) as e:
+        logger.error(f"[SyncIntegrity] Failed to quarantine {db_path}: {e}")
+        return None
+
+
+# =============================================================================
 # Module Exports
 # =============================================================================
 
@@ -1136,6 +1186,7 @@ __all__ = [
     "compute_file_checksum",
     "compute_remote_checksum",
     "prepare_database_for_transfer",
+    "quarantine_corrupted_db",
     "verified_database_copy",
     "verify_and_retry_sync",
     "verify_checksum",

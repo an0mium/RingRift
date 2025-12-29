@@ -1282,6 +1282,46 @@ class UnifiedEventRouter:
             logger.warning(f"[EventRouter] Failed to replay DLQ events: {e}")
             return 0
 
+    async def _dlq_replay_loop(self) -> None:
+        """Background loop that periodically replays DLQ events.
+
+        Phase 6 - December 29, 2025: Auto-replay DLQ events with exponential backoff.
+
+        Runs every _dlq_replay_interval seconds and replays events older than 5 minutes.
+        Events with retry_count >= 5 are skipped (permanent failure).
+        """
+        logger.info("[EventRouter] DLQ auto-replay loop started")
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+
+        while True:
+            try:
+                await asyncio.sleep(self._dlq_replay_interval)
+
+                # Replay stale events (older than 5 minutes)
+                replayed = await self.replay_stale_dlq_events(min_age_seconds=300)
+                if replayed > 0:
+                    self._dlq_events_replayed += replayed
+                    logger.info(f"[EventRouter] DLQ auto-replay: {replayed} events replayed")
+
+                # Reset error counter on success
+                consecutive_errors = 0
+
+            except asyncio.CancelledError:
+                logger.info("[EventRouter] DLQ auto-replay loop cancelled")
+                break
+            except Exception as e:
+                consecutive_errors += 1
+                logger.warning(
+                    f"[EventRouter] DLQ replay loop error ({consecutive_errors}/{max_consecutive_errors}): {e}"
+                )
+
+                # Exponential backoff on errors
+                if consecutive_errors >= max_consecutive_errors:
+                    backoff = min(300, self._dlq_replay_interval * (2 ** consecutive_errors))
+                    logger.warning(f"[EventRouter] DLQ replay backing off for {backoff}s")
+                    await asyncio.sleep(backoff)
+
     def register_handler(
         self,
         event_type: str,

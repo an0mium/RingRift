@@ -37,10 +37,13 @@ class TestTrainingTriggerConfig:
         config = TrainingTriggerConfig()
         assert config.enabled is True
         assert config.min_samples_threshold == 5000
-        assert config.training_cooldown_hours == 1.0
-        assert config.max_concurrent_training == 2
+        # December 29, 2025: Reduced from 1.0 to 0.083 (5 min) for faster iteration
+        assert config.training_cooldown_hours == 0.083
+        # December 29, 2025: Increased from 2 to 10 for better cluster utilization
+        assert config.max_concurrent_training == 10
         assert config.gpu_idle_threshold_percent == 20.0
-        assert config.scan_interval_seconds == 120
+        # December 29, 2025: Reduced from 120s to 30s for faster detection
+        assert config.scan_interval_seconds == 30
         assert config.default_epochs == 50
         assert config.default_batch_size == 512
         assert config.model_version == "v2"

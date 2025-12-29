@@ -2722,10 +2722,10 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
             bus = get_event_bus()
             try:
                 loop = asyncio.get_running_loop()
-                asyncio.create_task(bus.publish(event))
+                fire_and_forget(bus.publish(event), name="memory_constraint_event")
             except RuntimeError:
-                # Not in async context, use fire_and_forget
-                pass
+                # Not in async context - cannot emit event
+                logger.debug("Skipping memory constraint event - not in async context")
         except Exception as e:
             logger.debug(f"Best-effort memory constraint event failed: {e}")
 

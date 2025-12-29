@@ -120,6 +120,7 @@ from app.coordination.pipeline_event_handler_mixin import PipelineEventHandlerMi
 from app.coordination.pipeline_metrics_mixin import PipelineMetricsMixin
 from app.coordination.pipeline_stage_mixin import PipelineStageMixin
 from app.coordination.pipeline_trigger_mixin import PipelineTriggerMixin
+from app.utils.async_utils import fire_and_forget
 
 logger = logging.getLogger(__name__)
 
@@ -1506,7 +1507,7 @@ class DataPipelineOrchestrator(
             bus = get_event_bus()
             try:
                 loop = asyncio.get_running_loop()
-                asyncio.create_task(bus.publish(event))
+                fire_and_forget(bus.publish(event), name="pipeline_stage_event")
             except RuntimeError:
                 asyncio.run(bus.publish(event))
 

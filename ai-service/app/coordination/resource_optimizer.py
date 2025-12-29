@@ -154,12 +154,8 @@ from app.coordination.types import ResourceType
 # Canonical values: CPU, GPU, MEMORY, DISK, NETWORK, HYBRID, IO
 
 
-class ScaleAction(str, Enum):
-    """Scaling actions."""
-    NONE = "none"
-    SCALE_UP = "scale_up"
-    SCALE_DOWN = "scale_down"
-    REBALANCE = "rebalance"
+# December 2025: Import from canonical source to avoid collision with capacity_planner.py
+from app.coordination.enums import ScaleAction
 
 
 @dataclass

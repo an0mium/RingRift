@@ -99,7 +99,7 @@ from app.coordination.protocols import (
     register_coordinator,
     unregister_coordinator,
 )
-from app.coordination.sync_integrity import check_sqlite_integrity
+from app.coordination.sync_integrity import check_sqlite_integrity, quarantine_corrupted_db
 from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
 from app.coordination.disk_space_reservation import (
     DiskSpaceReservation,
@@ -1479,6 +1479,18 @@ class AutoSyncDaemon(
                     logger.error(
                         f"[AutoSyncDaemon] Database {db_path.name} failed integrity check: {errors}"
                     )
+                    # Phase 7 (Dec 29, 2025): Quarantine corrupted database
+                    # Move to quarantine/ directory to prevent it from participating
+                    # in sync operations and potentially spreading corruption.
+                    quarantine_dest = quarantine_corrupted_db(db_path)
+                    if quarantine_dest:
+                        logger.warning(
+                            f"[AutoSyncDaemon] Quarantined corrupted database: {db_path.name} -> {quarantine_dest}"
+                        )
+                    else:
+                        logger.error(
+                            f"[AutoSyncDaemon] Failed to quarantine corrupted database: {db_path.name}"
+                        )
                     # Emit verification failed event
                     fire_and_forget(
                         self._emit_sync_verification_failed(

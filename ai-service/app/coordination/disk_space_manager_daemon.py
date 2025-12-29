@@ -511,23 +511,66 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
 
         P1.2 Dec 2025: SQLite WAL files grow unbounded until checkpoint.
         This runs TRUNCATE checkpoint to reclaim space in WAL files.
+
+        Dec 29, 2025 Enhancement: Now checkpoints ALL database directories:
+        - games/ (selfplay databases)
+        - coordination/ (pipeline state, delivery ledger, tasks, etc.)
+        - Root data/ (unified_elo.db, cluster_manifest.db, work_queue.db, etc.)
         """
         try:
             from app.coordination.wal_sync_utils import checkpoint_database
 
-            games_dir = self._root_path / self.config.games_dir
-            if not games_dir.exists():
-                return
-
             checkpointed = 0
-            for db_file in games_dir.glob("**/*.db"):
-                if db_file.name.startswith("."):
-                    continue  # Skip hidden files
-                if checkpoint_database(db_file, truncate=True):
-                    checkpointed += 1
+            errors = 0
+
+            # Directories to checkpoint
+            checkpoint_dirs = [
+                self._root_path / self.config.games_dir,  # games/
+                self._root_path / "coordination",  # coordination databases
+                self._root_path,  # Root level databases (unified_elo.db, etc.)
+            ]
+
+            for dir_path in checkpoint_dirs:
+                if not dir_path.exists():
+                    continue
+
+                # For root path, don't recurse (avoid double-processing subdirs)
+                pattern = "*.db" if dir_path == self._root_path else "**/*.db"
+
+                for db_file in dir_path.glob(pattern):
+                    if db_file.name.startswith("."):
+                        continue  # Skip hidden files
+
+                    # Check if WAL file exists (only checkpoint if needed)
+                    wal_file = db_file.with_suffix(db_file.suffix + "-wal")
+                    if not wal_file.exists():
+                        continue  # No WAL file, skip
+
+                    # Check WAL file size - only checkpoint if > 1MB
+                    try:
+                        wal_size = wal_file.stat().st_size
+                        if wal_size < 1024 * 1024:  # < 1MB
+                            continue  # Small WAL, skip
+                    except OSError:
+                        continue
+
+                    try:
+                        if checkpoint_database(db_file, truncate=True):
+                            checkpointed += 1
+                            logger.debug(
+                                f"[{self._get_daemon_name()}] Checkpointed {db_file.name} "
+                                f"(WAL was {wal_size / 1024:.0f}KB)"
+                            )
+                    except Exception as e:
+                        errors += 1
+                        logger.debug(f"Checkpoint failed for {db_file.name}: {e}")
 
             if checkpointed > 0:
-                logger.debug(f"[{self._get_daemon_name()}] Checkpointed {checkpointed} databases")
+                logger.info(
+                    f"[{self._get_daemon_name()}] WAL checkpoint complete: "
+                    f"{checkpointed} databases checkpointed"
+                    + (f", {errors} errors" if errors > 0 else "")
+                )
 
         except ImportError:
             logger.debug("wal_sync_utils not available for WAL checkpoint")

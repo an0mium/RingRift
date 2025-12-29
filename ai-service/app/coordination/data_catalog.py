@@ -57,34 +57,12 @@ __all__ = [
 ]
 
 
-class DataType(Enum):
-    """Types of data tracked in the catalog."""
+# December 2025: Import from canonical source (renamed to CatalogDataType)
+# Backward-compatible alias DataType retained for existing code
+from app.coordination.enums import CatalogDataType
 
-    GAMES = "games"  # SQLite game databases (.db)
-    MODELS = "models"  # PyTorch model checkpoints (.pth)
-    NPZ = "npz"  # NumPy training data (.npz)
-    CHECKPOINT = "checkpoint"  # Training checkpoints
-    CONFIG = "config"  # Configuration files
-    LOG = "log"  # Log files
-    UNKNOWN = "unknown"
-
-    @classmethod
-    def from_path(cls, path: str) -> DataType:
-        """Infer data type from file path."""
-        path_lower = path.lower()
-        if path_lower.endswith(".db"):
-            return cls.GAMES
-        elif path_lower.endswith(".pth") or path_lower.endswith(".pt"):
-            return cls.MODELS
-        elif path_lower.endswith(".npz"):
-            return cls.NPZ
-        elif "checkpoint" in path_lower:
-            return cls.CHECKPOINT
-        elif path_lower.endswith((".yaml", ".yml", ".json")):
-            return cls.CONFIG
-        elif path_lower.endswith(".log"):
-            return cls.LOG
-        return cls.UNKNOWN
+# Backward-compatible alias (deprecated, remove Q2 2026)
+DataType = CatalogDataType
 
 
 @dataclass

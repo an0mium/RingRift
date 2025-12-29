@@ -57,6 +57,7 @@ logger = logging.getLogger(__name__)
 # December 2025: Use consolidated daemon stats base classes
 from app.config.coordination_defaults import SyncDefaults
 from app.coordination.daemon_stats import DaemonStatsBase, JobDaemonStats, PerNodeSyncStats
+from app.utils.async_utils import fire_and_forget
 
 __all__ = [
     "UnifiedReplicationDaemon",
@@ -794,7 +795,7 @@ class UnifiedReplicationDaemon:
 
             for _ in range(min(slots_available, len(self._repair_queue))):
                 job = self._repair_queue.pop(0)
-                asyncio.create_task(self._execute_repair(job))
+                fire_and_forget(self._execute_repair(job), name=f"repair_{job.game_id}")
 
     async def _find_games_needing_repair(self) -> list[tuple[str, int, list[str]]]:
         """Find games that need repair."""

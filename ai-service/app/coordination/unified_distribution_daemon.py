@@ -110,11 +110,13 @@ _remote_path_cache_lock = threading.Lock()
 # Enums and Configuration
 # =============================================================================
 
-class DataType(Enum):
-    """Types of data that can be distributed."""
-    MODEL = auto()
-    NPZ = auto()
-    TORRENT = auto()
+# December 2025: Renamed from DataType to DistributionDataType to avoid collision
+# Import from canonical source for new code:
+#   from app.coordination.enums import DistributionDataType
+from app.coordination.enums import DistributionDataType
+
+# Backward-compatible alias (deprecated, remove Q2 2026)
+DataType = DistributionDataType
 
 
 @dataclass

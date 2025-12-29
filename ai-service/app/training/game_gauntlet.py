@@ -262,15 +262,31 @@ except ImportError:
     BASELINE_ELO_MCTS_MASTER = 2000
     BASELINE_ELO_MCTS_GRANDMASTER = 2100
     GAUNTLET_GAMES_PER_OPPONENT = 50
-    MIN_WIN_RATE_VS_RANDOM = 0.70  # 70% (matches thresholds.py)
-    MIN_WIN_RATE_VS_HEURISTIC = 0.50  # 50% (matches thresholds.py)
+    # Dec 29, 2025: Updated to match thresholds.py (rationalized for player count)
+    # Using ~1.7x multiplier over random baseline consistently
+    MIN_WIN_RATE_VS_RANDOM = 0.85  # 85% for 2p (1.7x over 50% baseline)
+    MIN_WIN_RATE_VS_HEURISTIC = 0.85  # 85% for 2p
+    MIN_WIN_RATE_VS_RANDOM_3P = 0.55  # 55% for 3p (1.65x over 33% baseline)
+    MIN_WIN_RATE_VS_HEURISTIC_3P = 0.45  # 45% for 3p
+    MIN_WIN_RATE_VS_RANDOM_4P = 0.45  # 45% for 4p (1.8x over 25% baseline)
+    MIN_WIN_RATE_VS_HEURISTIC_4P = 0.35  # 35% for 4p
     HAS_ELO_ADAPTIVE = False
 
     def get_min_win_rate_vs_random(num_players: int = 2) -> float:
-        return 0.50 if num_players >= 4 else MIN_WIN_RATE_VS_RANDOM
+        """Get minimum win rate vs random based on player count."""
+        if num_players >= 4:
+            return MIN_WIN_RATE_VS_RANDOM_4P
+        if num_players == 3:
+            return MIN_WIN_RATE_VS_RANDOM_3P
+        return MIN_WIN_RATE_VS_RANDOM
 
     def get_min_win_rate_vs_heuristic(num_players: int = 2) -> float:
-        return 0.20 if num_players >= 4 else MIN_WIN_RATE_VS_HEURISTIC
+        """Get minimum win rate vs heuristic based on player count."""
+        if num_players >= 4:
+            return MIN_WIN_RATE_VS_HEURISTIC_4P
+        if num_players == 3:
+            return MIN_WIN_RATE_VS_HEURISTIC_3P
+        return MIN_WIN_RATE_VS_HEURISTIC
 
     def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) -> float:
         return get_min_win_rate_vs_random(num_players)

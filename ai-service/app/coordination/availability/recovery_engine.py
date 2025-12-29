@@ -29,34 +29,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class RecoveryAction(Enum):
-    """Recovery action types in escalation order."""
-    RESTART_P2P = auto()           # 10s, soft restart of P2P process
-    RESTART_TAILSCALE = auto()     # 30s, network reset
-    REBOOT_INSTANCE = auto()       # 2min, provider reboot API
-    RECREATE_INSTANCE = auto()     # 5min, destroy and recreate
+# December 2025: Import from canonical source (renamed to SystemRecoveryAction)
+# Backward-compatible alias RecoveryAction retained for existing code
+from app.coordination.enums import SystemRecoveryAction
 
-    @property
-    def timeout_seconds(self) -> int:
-        """Get timeout for this action."""
-        timeouts = {
-            RecoveryAction.RESTART_P2P: 30,
-            RecoveryAction.RESTART_TAILSCALE: 60,
-            RecoveryAction.REBOOT_INSTANCE: 180,
-            RecoveryAction.RECREATE_INSTANCE: 600,
-        }
-        return timeouts.get(self, 60)
-
-    @property
-    def description(self) -> str:
-        """Human-readable description."""
-        descriptions = {
-            RecoveryAction.RESTART_P2P: "Restart P2P orchestrator process",
-            RecoveryAction.RESTART_TAILSCALE: "Restart Tailscale networking",
-            RecoveryAction.REBOOT_INSTANCE: "Reboot instance via provider API",
-            RecoveryAction.RECREATE_INSTANCE: "Terminate and recreate instance",
-        }
-        return descriptions.get(self, "Unknown action")
+# Backward-compatible alias (deprecated, remove Q2 2026)
+RecoveryAction = SystemRecoveryAction
 
 
 @dataclass

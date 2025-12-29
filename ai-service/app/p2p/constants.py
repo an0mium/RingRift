@@ -72,7 +72,8 @@ LEADER_LEASE_RENEW_INTERVAL = 15  # How often leader renews lease
 # With Serf integration providing reliable failure detection, we can act quickly
 LEADERLESS_TRAINING_TIMEOUT = 30  # 30 seconds - quick fallback for resilience
 
-JOB_CHECK_INTERVAL = 60  # seconds between job status checks
+# Dec 29, 2025: Reduced from 60s to 15s for faster job status updates
+JOB_CHECK_INTERVAL = int(os.environ.get("RINGRIFT_P2P_JOB_CHECK_INTERVAL", "15") or 15)
 DISCOVERY_PORT = 8771  # UDP port for peer discovery
 DISCOVERY_INTERVAL = 120  # seconds between discovery broadcasts
 

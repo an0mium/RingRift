@@ -1,94 +1,143 @@
-"""Centralized enum definitions for coordination module.
+"""Canonical enum definitions for coordination modules.
 
-This module provides a single import path for all coordination enums,
-ensuring consistent usage across the codebase and avoiding naming collisions.
+This module provides the centralized source of truth for enums that were
+previously duplicated across multiple modules. Each enum is given a unique,
+descriptive name to avoid naming collisions.
+
+December 2025: Created to resolve enum naming collisions identified in
+strategic code quality assessment.
 
 Usage:
     from app.coordination.enums import (
-        # Leadership/cluster role enums
-        LeadershipRole,        # Raft-like roles: LEADER, FOLLOWER, CANDIDATE, OFFLINE
-        ClusterNodeRole,       # Job roles: TRAINING, SELFPLAY, COORDINATOR, IDLE, OFFLINE
-
-        # Recovery action enums (different scopes)
-        JobRecoveryAction,     # Job-level: RESTART_JOB, KILL_JOB, etc.
-        SystemRecoveryAction,  # System-level: RESTART_P2P, SOFT_REBOOT, etc.
-        NodeRecoveryAction,    # Node-level: RESTART, FAILOVER, etc.
-
-        # Daemon management
-        DaemonType,            # All daemon types (60+)
-        DaemonState,           # Daemon states: STOPPED, STARTING, RUNNING, etc.
-
-        # Health and status
-        ErrorSeverity,         # ERROR, WARNING, CRITICAL, etc.
-        RecoveryStatus,        # PENDING, IN_PROGRESS, COMPLETED, FAILED
-        RecoveryResult,        # SUCCESS, FAILED, ESCALATED, SKIPPED
-
-        # Data events
-        DataEventType,         # All data pipeline events
+        ScaleAction,
+        CatalogDataType,
+        DistributionDataType,
+        SystemRecoveryAction,
     )
 
-NOTE (Dec 2025): This module was created during consolidation to avoid
-the naming collision bugs where NodeRole and RecoveryAction had multiple
-conflicting definitions across different modules.
+Migration Notes:
+    - ScaleAction: Consolidated from resource_optimizer.py and capacity_planner.py
+    - CatalogDataType: Renamed from DataType in data_catalog.py
+    - DistributionDataType: Renamed from DataType in unified_distribution_daemon.py
+    - SystemRecoveryAction: Renamed from RecoveryAction in recovery_engine.py
 """
 
-# Leadership/cluster role enums
-from app.coordination.leadership_coordinator import LeadershipRole
-from app.coordination.multi_provider_orchestrator import ClusterNodeRole
+from __future__ import annotations
 
-# Recovery action enums - three different scopes
-from app.coordination.unified_health_manager import (
-    JobRecoveryAction,
-    ErrorSeverity,
-    RecoveryStatus,
-    RecoveryResult,
-)
-from app.coordination.recovery_orchestrator import SystemRecoveryAction
-from app.coordination.node_recovery_daemon import NodeRecoveryAction
-
-# Daemon management
-from app.coordination.daemon_types import DaemonType, DaemonState
-
-# Health states (canonical location: node_status.py)
-from app.coordination.node_status import NodeHealthState
-
-# Data events
-from app.distributed.data_events import DataEventType
-
-# Backward-compat aliases with deprecation warnings
-# These aliases allow existing code to import from enums.py but will
-# emit warnings to encourage migration to specific names
-
-import warnings as _warnings
+from enum import Enum, auto
 
 
-def _deprecated_alias(name: str, replacement: str):
-    """Create a deprecated alias property."""
-    _warnings.warn(
-        f"{name} is deprecated and ambiguous. Use {replacement} instead.",
-        DeprecationWarning,
-        stacklevel=3,
-    )
+class ScaleAction(str, Enum):
+    """Scaling actions for cluster capacity management.
+
+    Consolidated from resource_optimizer.py and capacity_planner.py.
+    The 'str' base enables direct use as string values.
+    """
+
+    NONE = "none"
+    SCALE_UP = "scale_up"
+    SCALE_DOWN = "scale_down"
+    REBALANCE = "rebalance"
 
 
-# Re-export the deprecated alias names for backward compatibility
-# NOTE: Import directly from source modules for the aliases
-from app.coordination.leadership_coordinator import NodeRole as _LeadershipNodeRole
-from app.coordination.multi_provider_orchestrator import NodeRole as _ClusterNodeRole
+class CatalogDataType(Enum):
+    """Types of data tracked in the data catalog.
 
-# Document all exports
+    Renamed from DataType in data_catalog.py to avoid collision with
+    DistributionDataType.
+    """
+
+    GAMES = "games"  # SQLite game databases (.db)
+    MODELS = "models"  # PyTorch model checkpoints (.pth)
+    NPZ = "npz"  # NumPy training data (.npz)
+    CHECKPOINT = "checkpoint"  # Training checkpoints
+    CONFIG = "config"  # Configuration files
+    LOG = "log"  # Log files
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_path(cls, path: str) -> CatalogDataType:
+        """Infer data type from file path."""
+        path_lower = path.lower()
+        if path_lower.endswith(".db"):
+            return cls.GAMES
+        elif path_lower.endswith(".pth") or path_lower.endswith(".pt"):
+            return cls.MODELS
+        elif path_lower.endswith(".npz"):
+            return cls.NPZ
+        elif "checkpoint" in path_lower or path_lower.endswith(".ckpt"):
+            return cls.CHECKPOINT
+        elif path_lower.endswith((".yaml", ".yml", ".json", ".toml")):
+            return cls.CONFIG
+        elif path_lower.endswith(".log"):
+            return cls.LOG
+        return cls.UNKNOWN
+
+
+class DistributionDataType(Enum):
+    """Types of data that can be distributed across cluster.
+
+    Renamed from DataType in unified_distribution_daemon.py to avoid collision
+    with CatalogDataType.
+    """
+
+    MODEL = auto()
+    NPZ = auto()
+    TORRENT = auto()
+
+
+class SystemRecoveryAction(Enum):
+    """Recovery action types for system-level recovery.
+
+    Renamed from RecoveryAction in recovery_engine.py.
+    Ordered by escalation level (least to most disruptive).
+
+    See also:
+    - JobRecoveryAction in unified_health_manager.py (job-level)
+    - NodeRecoveryAction in node_recovery_daemon.py (node-level)
+    """
+
+    RESTART_P2P = auto()  # 10s, soft restart of P2P process
+    RESTART_TAILSCALE = auto()  # 30s, network reset
+    REBOOT_INSTANCE = auto()  # 2min, provider reboot API
+    RECREATE_INSTANCE = auto()  # 5min, destroy and recreate
+
+    @property
+    def timeout_seconds(self) -> int:
+        """Get timeout for this action."""
+        timeouts = {
+            SystemRecoveryAction.RESTART_P2P: 30,
+            SystemRecoveryAction.RESTART_TAILSCALE: 60,
+            SystemRecoveryAction.REBOOT_INSTANCE: 180,
+            SystemRecoveryAction.RECREATE_INSTANCE: 600,
+        }
+        return timeouts.get(self, 60)
+
+    @property
+    def description(self) -> str:
+        """Human-readable description of the action."""
+        descriptions = {
+            SystemRecoveryAction.RESTART_P2P: "Restart P2P orchestrator process",
+            SystemRecoveryAction.RESTART_TAILSCALE: "Restart Tailscale VPN",
+            SystemRecoveryAction.REBOOT_INSTANCE: "Reboot cloud instance",
+            SystemRecoveryAction.RECREATE_INSTANCE: "Destroy and recreate instance",
+        }
+        return descriptions.get(self, "Unknown action")
+
+
+# Backward-compatible aliases (deprecated, remove Q2 2026)
+# These allow gradual migration without breaking existing code
+DataType = CatalogDataType  # Use CatalogDataType or DistributionDataType instead
+RecoveryAction = SystemRecoveryAction  # Use SystemRecoveryAction instead
+
+
 __all__ = [
-    # Primary exports (use these)
-    "LeadershipRole",
-    "ClusterNodeRole",
-    "JobRecoveryAction",
+    # Canonical enum names
+    "ScaleAction",
+    "CatalogDataType",
+    "DistributionDataType",
     "SystemRecoveryAction",
-    "NodeRecoveryAction",
-    "DaemonType",
-    "DaemonState",
-    "NodeHealthState",
-    "ErrorSeverity",
-    "RecoveryStatus",
-    "RecoveryResult",
-    "DataEventType",
+    # Deprecated aliases (for backward compatibility)
+    "DataType",
+    "RecoveryAction",
 ]
