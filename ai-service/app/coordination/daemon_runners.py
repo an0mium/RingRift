@@ -569,13 +569,25 @@ async def create_continuous_training_loop() -> None:
 
 
 async def create_selfplay_coordinator() -> None:
-    """Create and run selfplay coordinator daemon (December 2025)."""
-    try:
-        from app.coordination.selfplay_scheduler import SelfplayScheduler
+    """Initialize selfplay scheduler singleton (December 2025).
 
-        scheduler = SelfplayScheduler()
-        await scheduler.start()
-        await _wait_for_daemon(scheduler)
+    Note: SelfplayScheduler is a utility class, not a daemon with a lifecycle.
+    It provides priority-based selfplay scheduling decisions to other daemons
+    like IdleResourceDaemon. This runner initializes the singleton and wires
+    up its event subscriptions.
+    """
+    try:
+        from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+
+        # Get singleton and wire up event subscriptions
+        scheduler = get_selfplay_scheduler()
+        logger.info(
+            f"[SelfplayCoordinator] Initialized scheduler with {len(scheduler._states)} configs"
+        )
+        # SelfplayScheduler doesn't have a lifecycle - it's used by other daemons
+        # Keep running indefinitely
+        while True:
+            await asyncio.sleep(3600)  # Sleep 1 hour, wake up to check for shutdown
     except ImportError as e:
         logger.error(f"SelfplayScheduler not available: {e}")
         raise

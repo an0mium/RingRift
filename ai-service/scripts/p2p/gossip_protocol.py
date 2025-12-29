@@ -455,7 +455,8 @@ class GossipProtocolMixin(P2PMixinBase):
                 "host": str(getattr(peer, "host", "") or ""),
                 "port": int(getattr(peer, "port", DEFAULT_PORT) or DEFAULT_PORT),
                 "tailscale_ip": str(getattr(peer, "tailscale_ip", "") or ""),
-                "is_alive": True,
+                # Dec 2025: Use dynamic is_alive() instead of hardcoded True
+                "is_alive": peer.is_alive(),
                 "last_heartbeat": float(getattr(peer, "last_heartbeat", 0) or 0),
             }
             endpoints.append(endpoint)
