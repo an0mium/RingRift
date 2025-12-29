@@ -111,6 +111,8 @@ class BandwidthAllocation:
     # December 2025: Added for backward compatibility with tests
     granted: bool = True
     allocation_id: str = ""
+    estimated_mb: int = 0
+    reason: str = ""
 
     def __post_init__(self):
         """Set allocation_id from transfer_id if not provided."""
@@ -124,8 +126,11 @@ class BandwidthAllocation:
 
     @property
     def bwlimit_mbps(self) -> float:
-        """Get bandwidth limit in MB/s."""
-        return self.bwlimit_kbps / 1024.0
+        """Get bandwidth limit in Mbps (megabits per second).
+
+        Converts from KB/s to Mbps: KB/s * 8 / 1000 = KB/s / 125
+        """
+        return self.bwlimit_kbps / 125.0
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -140,6 +145,8 @@ class BandwidthAllocation:
             "expires_at": self.expires_at,
             "granted": self.granted,
             "is_expired": self.is_expired,
+            "estimated_mb": self.estimated_mb,
+            "reason": self.reason,
         }
 
 
@@ -153,11 +160,11 @@ class BandwidthConfig:
     min_bwlimit_kbps: int = 1000  # 1 MB/s minimum
 
     # Per-host limits
-    per_host_limit_kbps: int = 20000  # 20 MB/s per host
+    per_host_limit_kbps: int = 12500  # 100 Mbps = 12.5 MB/s per host (default)
     total_limit_kbps: int = 100000  # 100 MB/s total across all hosts
 
     # Concurrency
-    max_concurrent_per_host: int = 2
+    max_concurrent_per_host: int = 3  # Default per-host limit
     max_concurrent_total: int = 8
 
     # Allocation settings
@@ -488,10 +495,40 @@ class BandwidthManager:
             priority: Transfer priority level.
 
         Returns:
-            BandwidthAllocation with granted=True and allocation details.
+            BandwidthAllocation with granted=True/False and allocation details.
         """
         import uuid
         transfer_id = str(uuid.uuid4())
+
+        # Check concurrent transfer limit per host
+        current_host_transfers = self._host_transfers.get(host, 0)
+        if current_host_transfers >= self.config.max_concurrent_per_host:
+            return BandwidthAllocation(
+                host=host,
+                priority=priority,
+                bwlimit_kbps=0,
+                transfer_id=transfer_id,
+                expires_at=0.0,
+                granted=False,
+                allocation_id=transfer_id,
+                estimated_mb=estimated_mb,
+                reason=f"Max concurrent transfers per host ({self.config.max_concurrent_per_host})",
+            )
+
+        # Check total concurrent limit
+        total_transfers = sum(self._host_transfers.values())
+        if total_transfers >= self.config.max_concurrent_total:
+            return BandwidthAllocation(
+                host=host,
+                priority=priority,
+                bwlimit_kbps=0,
+                transfer_id=transfer_id,
+                expires_at=0.0,
+                granted=False,
+                allocation_id=transfer_id,
+                estimated_mb=estimated_mb,
+                reason=f"Max concurrent transfers total ({self.config.max_concurrent_total})",
+            )
 
         # Calculate bandwidth limit based on priority and host
         if self.config.enable_adaptive and host in self.config.host_bandwidth_hints:
@@ -506,6 +543,20 @@ class BandwidthManager:
         host_max = self.config.host_bandwidth_hints.get(host, self.config.per_host_limit_kbps)
         available = host_max - current_host_usage
 
+        # Check if any bandwidth available
+        if available <= 0:
+            return BandwidthAllocation(
+                host=host,
+                priority=priority,
+                bwlimit_kbps=0,
+                transfer_id=transfer_id,
+                expires_at=0.0,
+                granted=False,
+                allocation_id=transfer_id,
+                estimated_mb=estimated_mb,
+                reason="Insufficient bandwidth available",
+            )
+
         # Apply priority multiplier but cap at available
         bwlimit = int(min(base_limit * multiplier, available, self.config.max_bwlimit_kbps))
         bwlimit = max(bwlimit, self.config.min_bwlimit_kbps)
@@ -518,6 +569,7 @@ class BandwidthManager:
             expires_at=time.time() + self.config.allocation_timeout_seconds,
             granted=True,
             allocation_id=transfer_id,
+            estimated_mb=estimated_mb,
         )
 
         # Track allocation
@@ -573,19 +625,54 @@ class BandwidthManager:
             host: Host to get status for.
 
         Returns:
-            Dict with host bandwidth status.
+            Dict with host bandwidth status including active_transfers, used_mbps, limit_mbps, etc.
         """
+        # Get limit for this host, supporting prefix matching (e.g., "gh200-*")
+        limit_kbps = self._get_host_limit_kbps(host)
+        usage_kbps = self._host_usage.get(host, 0)
+        available_kbps = limit_kbps - usage_kbps
+        active_transfers = self._host_transfers.get(host, 0)
+
+        # Build transfers list for this host
+        transfers = [
+            {"allocation_id": alloc.allocation_id, "priority": alloc.priority.value}
+            for alloc in self._allocations.values()
+            if alloc.host == host
+        ]
+
         return {
             "host": host,
-            "usage_kbps": self._host_usage.get(host, 0),
-            "transfers": self._host_transfers.get(host, 0),
-            "limit_kbps": self.config.host_bandwidth_hints.get(
-                host, self.config.per_host_limit_kbps
-            ),
-            "available_kbps": self.config.host_bandwidth_hints.get(
-                host, self.config.per_host_limit_kbps
-            ) - self._host_usage.get(host, 0),
+            "active_transfers": active_transfers,
+            "used_kbps": usage_kbps,
+            "used_mbps": usage_kbps / 125.0,  # KB/s to Mbps
+            "limit_kbps": limit_kbps,
+            "limit_mbps": limit_kbps / 125.0,  # KB/s to Mbps
+            "available_kbps": available_kbps,
+            "available_mbps": available_kbps / 125.0,  # KB/s to Mbps
+            "transfers": transfers,
         }
+
+    def _get_host_limit_kbps(self, host: str) -> int:
+        """Get bandwidth limit for a host, supporting prefix matching.
+
+        Known prefixes: gh200 -> 2500 Mbps = 312500 KB/s
+
+        Args:
+            host: Host name.
+
+        Returns:
+            Bandwidth limit in KB/s.
+        """
+        # Check exact match first
+        if host in self.config.host_bandwidth_hints:
+            return self.config.host_bandwidth_hints[host]
+
+        # Check known prefixes (gh200 nodes get higher bandwidth)
+        if host.startswith("gh200"):
+            return 312500  # 2500 Mbps = 2500 * 125 KB/s
+
+        # Default limit
+        return self.config.per_host_limit_kbps
 
     def get_optimal_time(self, host: str, size_mb: int) -> tuple:
         """Get optimal time to transfer based on current load.
@@ -595,30 +682,76 @@ class BandwidthManager:
             size_mb: Transfer size in MB.
 
         Returns:
-            Tuple of (estimated_seconds, reason).
+            Tuple of (optimal_datetime, reason) - optimal_datetime is when transfer should start.
         """
+        from datetime import datetime, timedelta
+
         status = self.get_host_status(host)
         available_kbps = max(status.get("available_kbps", 0), self.config.min_bwlimit_kbps)
-        size_kb = size_mb * 1024
+        active_transfers = status.get("active_transfers", 0)
 
-        estimated_seconds = size_kb / available_kbps if available_kbps > 0 else float("inf")
+        # For idle hosts, transfer now
+        if active_transfers == 0:
+            return (datetime.now(), "Host is idle, transfer now")
 
-        if estimated_seconds == float("inf"):
-            reason = "no_bandwidth_available"
-        elif status.get("transfers", 0) == 0:
-            reason = "host_idle"
-        else:
-            reason = f"{status.get('transfers', 0)}_active_transfers"
+        # Estimate when current transfers might complete
+        # Assume each active transfer is ~50% done on average
+        estimated_wait_seconds = 30 * active_transfers  # ~30s wait per active transfer
 
-        return (estimated_seconds, reason)
+        optimal_time = datetime.now() + timedelta(seconds=estimated_wait_seconds)
+        reason = f"{active_transfers} active transfers, estimated {estimated_wait_seconds}s wait"
+
+        return (optimal_time, reason)
 
     def get_stats_sync(self) -> dict:
         """Get bandwidth stats (sync version).
 
         Returns:
-            Dict with bandwidth statistics.
+            Dict with bandwidth statistics including name, status, etc.
         """
-        return self.get_status()
+        status = self.get_status()
+
+        return {
+            "name": "BandwidthManager",
+            "status": "running",
+            "active_allocations": len(self._allocations),
+            "history_24h": {
+                "transfers_completed": 0,  # Would need history tracking
+                "bytes_transferred": 0,
+            },
+            "host_limits": dict(self.config.host_bandwidth_hints),
+            "per_host": {
+                host: self.get_host_status(host)
+                for host in set(self._host_transfers.keys())
+            },
+            **status,
+        }
+
+    def cleanup(self, max_age_days: int = 30) -> int:
+        """Clean up old transfer history.
+
+        Args:
+            max_age_days: Maximum age of history to keep in days.
+                         If 0, delete all history.
+
+        Returns:
+            Number of records deleted.
+        """
+        # For now just cleanup expired allocations
+        # Real implementation would clean up historical stats
+        before_count = len(self._allocations)
+        self._cleanup_expired()
+        after_count = len(self._allocations)
+        deleted = before_count - after_count
+
+        # If max_age_days is 0, clear all allocations
+        if max_age_days == 0:
+            deleted = len(self._allocations)
+            self._allocations.clear()
+            self._host_usage.clear()
+            self._host_transfers.clear()
+
+        return deleted
 
 
 # Phase 5 (Dec 2025): Use canonical SyncResult from sync_constants

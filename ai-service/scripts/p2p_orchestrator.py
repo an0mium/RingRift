@@ -449,6 +449,7 @@ from scripts.p2p.cluster_config import (
     get_webhook_urls,
 )
 from scripts.p2p.handlers import (
+    ABTestHandlersMixin,
     AdminHandlersMixin,
     CMAESHandlersMixin,
     DeliveryHandlersMixin,
@@ -456,6 +457,7 @@ from scripts.p2p.handlers import (
     EloSyncHandlersMixin,
     GauntletHandlersMixin,
     GossipHandlersMixin,
+    ImprovementHandlersMixin,
     RegistryHandlersMixin,
     ManifestHandlersMixin,
     RelayHandlersMixin,
@@ -1184,6 +1186,8 @@ class P2POrchestrator(
     TableHandlersMixin,     # Phase 8: Table/dashboard handlers extraction (Dec 28, 2025)
     RegistryHandlersMixin,  # Phase 8: Registry handlers extraction (Dec 28, 2025)
     ManifestHandlersMixin,  # Phase 8: Manifest handlers extraction (Dec 28, 2025)
+    ABTestHandlersMixin,    # Phase 8: A/B test handlers extraction (Dec 28, 2025)
+    ImprovementHandlersMixin,  # Phase 8: Improvement loop handlers extraction (Dec 28, 2025)
     NetworkUtilsMixin,
     PeerManagerMixin,
     LeaderElectionMixin,
@@ -9772,147 +9776,13 @@ print(json.dumps(result))
     # NOTE: _calculate_tournament_ratings removed Dec 27, 2025 (dead code, never called)
     # Elo rating calculation is now handled in JobManager.run_distributed_tournament()
 
-    # ============================================
-    # Improvement Loop Handlers
-    # ============================================
-
-    async def handle_improvement_start(self, request: web.Request) -> web.Response:
-        """Start an improvement loop (AlphaZero-style training cycle).
-
-        Only the leader can start improvement loops.
-        Request body:
-        {
-            "board_type": "square8",
-            "num_players": 2,
-            "max_iterations": 50,
-            "games_per_iteration": 1000
-        }
-        """
-        try:
-            if self.role != NodeRole.LEADER:
-                return web.json_response({
-                    "error": "Only the leader can start improvement loops",
-                    "leader_id": self.leader_id,
-                }, status=403)
-
-            data = await request.json()
-            job_id = f"improve_{uuid.uuid4().hex[:8]}"
-
-            # Query negotiated rate from resource_optimizer for cooperative utilization
-            # This ensures selfplay rate respects cluster-wide 60-80% utilization target
-            requested_games = data.get("games_per_iteration", 1000)
-            if HAS_RATE_NEGOTIATION and negotiate_selfplay_rate is not None:
-                try:
-                    # Negotiate rate with resource_optimizer (60-80% target)
-                    approved_rate = negotiate_selfplay_rate(
-                        requested_rate=requested_games,
-                        reason=f"p2p_improvement_loop:{job_id}",
-                        requestor=f"p2p_{self.node_id}",
-                    )
-                    if approved_rate != requested_games:
-                        logger.info(f"games_per_iteration adjusted: {requested_games} -> {approved_rate} (utilization-based)")
-                    requested_games = approved_rate
-                except Exception as e:  # noqa: BLE001
-                    logger.info(f"Rate negotiation failed, using default: {e}")
-
-            state = ImprovementLoopState(
-                job_id=job_id,
-                board_type=data.get("board_type", "square8"),
-                num_players=data.get("num_players", 2),
-                max_iterations=data.get("max_iterations", 50),
-                games_per_iteration=requested_games,
-                phase="selfplay",
-                status="running",
-                started_at=time.time(),
-                last_update=time.time(),
-            )
-
-            # Find available workers
-            with self.peers_lock:
-                workers = [p.node_id for p in self.peers.values() if p.is_healthy()]
-                gpu_workers = [p.node_id for p in self.peers.values() if p.is_healthy() and p.has_gpu]
-            state.worker_nodes = workers
-
-            if not gpu_workers:
-                return web.json_response({"error": "No GPU workers available for training"}, status=503)
-
-            self.improvement_loop_state[job_id] = state
-
-            logger.info(f"Started improvement loop {job_id}: {len(workers)} workers, {len(gpu_workers)} GPU workers")
-
-            # Launch improvement loop
-            asyncio.create_task(self._run_improvement_loop(job_id))
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "workers": workers,
-                "gpu_workers": gpu_workers,
-                "config": {
-                    "board_type": state.board_type,
-                    "num_players": state.num_players,
-                    "max_iterations": state.max_iterations,
-                    "games_per_iteration": state.games_per_iteration,
-                },
-            })
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_improvement_status(self, request: web.Request) -> web.Response:
-        """Get status of improvement loops."""
-        try:
-            job_id = request.query.get("job_id")
-
-            if job_id:
-                if job_id not in self.improvement_loop_state:
-                    return web.json_response({"error": "Improvement loop not found"}, status=404)
-                state = self.improvement_loop_state[job_id]
-                return web.json_response(state.to_dict())
-
-            return web.json_response({
-                job_id: state.to_dict()
-                for job_id, state in self.improvement_loop_state.items()
-            })
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_improvement_phase_complete(self, request: web.Request) -> web.Response:
-        """Notify that a phase of the improvement loop is complete."""
-        try:
-            data = await request.json()
-            job_id = data.get("job_id")
-            phase = data.get("phase")
-            worker_id = data.get("worker_id", "unknown")
-            result = data.get("result", {})
-
-            if job_id not in self.improvement_loop_state:
-                return web.json_response({"error": "Improvement loop not found"}, status=404)
-
-            state = self.improvement_loop_state[job_id]
-            state.last_update = time.time()
-
-            # Track progress by phase
-            if phase == "selfplay":
-                games_done = result.get("games_done", 0)
-                state.selfplay_progress[worker_id] = games_done
-                total_done = sum(state.selfplay_progress.values())
-                logger.info(f"Improvement loop selfplay: {total_done}/{state.games_per_iteration} games")
-            elif phase == "train":
-                state.best_model_path = result.get("model_path", state.best_model_path)
-            elif phase == "evaluate":
-                winrate = result.get("winrate", 0.0)
-                if winrate > state.best_winrate:
-                    state.best_winrate = winrate
-                    logger.info(f"New best model: winrate={winrate:.2%}")
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "phase": state.phase,
-                "iteration": state.current_iteration,
-            })
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
+    # =========================================================================
+    # NOTE: Improvement handlers moved to scripts/p2p/handlers/improvement.py (Dec 28, 2025 - Phase 8)
+    # Inherited from ImprovementHandlersMixin:
+    # - handle_improvement_start, handle_improvement_status, handle_improvement_phase_complete
+    # - handle_improvement_cycles_status, handle_improvement_cycles_leaderboard
+    # - handle_improvement_training_complete, handle_improvement_evaluation_complete
+    # =========================================================================
 
     # =========================================================================
     # NOTE: Sync handlers (handle_sync_*) extracted to SyncHandlersMixin
@@ -11756,54 +11626,9 @@ print(json.dumps(result))
     # =========================================================================
 
     # =========================================================================
-    # Phase 5: Improvement Cycle HTTP Handlers
+    # NOTE: Improvement Cycle handlers moved to ImprovementHandlersMixin
+    # See: scripts/p2p/handlers/improvement.py (Dec 28, 2025 - Phase 8)
     # =========================================================================
-
-    async def handle_improvement_cycles_status(self, request: web.Request) -> web.Response:
-        """GET /improvement_cycles/status - Get status of all improvement cycles."""
-        try:
-            if not self.improvement_cycle_manager:
-                return web.json_response({
-                    "success": False,
-                    "error": "ImprovementCycleManager not initialized"
-                })
-
-            status = self.improvement_cycle_manager.get_status()
-            return web.json_response({
-                "success": True,
-                "is_leader": self.role == NodeRole.LEADER,
-                **status,
-            })
-
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"success": False, "error": str(e)})
-
-    async def handle_improvement_cycles_leaderboard(self, request: web.Request) -> web.Response:
-        """GET /improvement_cycles/leaderboard - Get Elo leaderboard."""
-        try:
-            if not self.improvement_cycle_manager:
-                return web.json_response({
-                    "success": False,
-                    "error": "ImprovementCycleManager not initialized"
-                })
-
-            board_type = request.query.get("board_type")
-            num_players_str = request.query.get("num_players")
-            num_players = int(num_players_str) if num_players_str else None
-
-            leaderboard = self.improvement_cycle_manager.get_leaderboard(
-                board_type=board_type,
-                num_players=num_players,
-            )
-
-            return web.json_response({
-                "success": True,
-                "leaderboard": [e.to_dict() for e in leaderboard],
-                "total_models": len(leaderboard),
-            })
-
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"success": False, "error": str(e)})
 
     async def handle_metrics(self, request: web.Request) -> web.Response:
         """GET /metrics - Get metrics summary and history.
@@ -12626,57 +12451,8 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)})
 
-    async def handle_improvement_training_complete(self, request: web.Request) -> web.Response:
-        """POST /improvement_cycles/training_complete - Report training completion."""
-        try:
-            if not self.improvement_cycle_manager:
-                return web.json_response({"success": False, "error": "ImprovementCycleManager not initialized"})
-
-            data = await request.json()
-            cycle_id = data.get("cycle_id")
-            new_model_id = data.get("model_id")
-            model_path = data.get("model_path", "")
-            success = data.get("success", False)
-            error_message = data.get("error", "")
-
-            self.improvement_cycle_manager.handle_training_complete(
-                cycle_id=cycle_id, new_model_id=new_model_id, model_path=model_path,
-                success=success, error_message=error_message,
-            )
-
-            if success and self.role == NodeRole.LEADER:
-                asyncio.create_task(self._schedule_improvement_evaluation(cycle_id, new_model_id))
-
-            return web.json_response({"success": True})
-
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"success": False, "error": str(e)})
-
-    async def handle_improvement_evaluation_complete(self, request: web.Request) -> web.Response:
-        """POST /improvement_cycles/evaluation_complete - Report evaluation completion."""
-        try:
-            if not self.improvement_cycle_manager:
-                return web.json_response({"success": False, "error": "ImprovementCycleManager not initialized"})
-
-            data = await request.json()
-            self.improvement_cycle_manager.handle_evaluation_complete(
-                cycle_id=data.get("cycle_id"), new_model_id=data.get("model_id"),
-                best_model_id=data.get("best_model_id"), wins=data.get("wins", 0),
-                losses=data.get("losses", 0), draws=data.get("draws", 0),
-            )
-
-            # Auto-deploy model if evaluation passed (new model is best)
-            if data.get("model_id") == data.get("best_model_id"):
-                model_path = data.get("model_path", "")
-                board_type = data.get("board_type", "square8")
-                num_players = data.get("num_players", 2)
-                if model_path:
-                    asyncio.create_task(self._auto_deploy_model(model_path, board_type, num_players))
-
-            return web.json_response({"success": True})
-
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"success": False, "error": str(e)})
+    # handle_improvement_training_complete and handle_improvement_evaluation_complete
+    # moved to ImprovementHandlersMixin (Dec 28, 2025 - Phase 8)
 
     async def _schedule_improvement_evaluation(self, cycle_id: str, new_model_id: str):
         """Schedule tournament evaluation for a newly trained model via SSH."""
@@ -15976,384 +15752,11 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             return {"error": str(e)}
 
-    async def handle_abtest_create(self, request: web.Request) -> web.Response:
-        """POST /abtest/create - Create a new A/B test between two models.
-
-        JSON body:
-            name: Test name (required)
-            description: Test description (optional)
-            board_type: Board type (required) - e.g., "square8"
-            num_players: Number of players (required) - e.g., 2
-            model_a: Path or ID of first model (required)
-            model_b: Path or ID of second model (required)
-            target_games: Number of games to play (default: 100)
-            confidence_threshold: Confidence level to conclude (default: 0.95)
-        """
-        try:
-            data = await request.json()
-
-            # Validate required fields
-            required = ["name", "board_type", "num_players", "model_a", "model_b"]
-            for field in required:
-                if field not in data:
-                    return web.json_response({"error": f"Missing required field: {field}"}, status=400)
-
-            test_id = str(uuid.uuid4())
-            now = time.time()
-
-            test_data = {
-                "test_id": test_id,
-                "name": data["name"],
-                "description": data.get("description", ""),
-                "board_type": data["board_type"],
-                "num_players": int(data["num_players"]),
-                "model_a": data["model_a"],
-                "model_b": data["model_b"],
-                "target_games": int(data.get("target_games", 100)),
-                "confidence_threshold": float(data.get("confidence_threshold", 0.95)),
-                "status": "running",
-                "winner": None,
-                "created_at": now,
-                "completed_at": None,
-                "metadata": json.dumps(data.get("metadata", {})),
-            }
-
-            # Store in database
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO ab_tests (
-                    test_id, name, description, board_type, num_players,
-                    model_a, model_b, target_games, confidence_threshold,
-                    status, winner, created_at, completed_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                test_data["test_id"], test_data["name"], test_data["description"],
-                test_data["board_type"], test_data["num_players"],
-                test_data["model_a"], test_data["model_b"],
-                test_data["target_games"], test_data["confidence_threshold"],
-                test_data["status"], test_data["winner"],
-                test_data["created_at"], test_data["completed_at"],
-                test_data["metadata"],
-            ))
-            conn.commit()
-            conn.close()
-
-            # Store in memory
-            with self.ab_test_lock:
-                self.ab_tests[test_id] = test_data
-
-            return web.json_response({
-                "test_id": test_id,
-                "status": "created",
-                "message": f"A/B test '{data['name']}' created. Submit game results via POST /abtest/result",
-            })
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_abtest_result(self, request: web.Request) -> web.Response:
-        """POST /abtest/result - Submit a game result for an A/B test.
-
-        JSON body:
-            test_id: A/B test ID (required)
-            game_id: Unique game ID (required)
-            winner: "model_a", "model_b", or "draw" (required)
-            game_length: Number of moves in the game (optional)
-            metadata: Additional game metadata (optional)
-        """
-        try:
-            data = await request.json()
-
-            test_id = data.get("test_id")
-            if not test_id:
-                return web.json_response({"error": "Missing test_id"}, status=400)
-
-            game_id = data.get("game_id") or str(uuid.uuid4())
-            winner = data.get("winner")
-            if winner not in ["model_a", "model_b", "draw"]:
-                return web.json_response({"error": "winner must be 'model_a', 'model_b', or 'draw'"}, status=400)
-
-            # Calculate scores
-            if winner == "model_a":
-                model_a_result = "win"
-                model_a_score = 1.0
-                model_b_score = 0.0
-            elif winner == "model_b":
-                model_a_result = "loss"
-                model_a_score = 0.0
-                model_b_score = 1.0
-            else:
-                model_a_result = "draw"
-                model_a_score = 0.5
-                model_b_score = 0.5
-
-            now = time.time()
-
-            # Store game result
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-
-            # Verify test exists
-            cursor.execute("SELECT status, target_games, confidence_threshold FROM ab_tests WHERE test_id = ?", (test_id,))
-            row = cursor.fetchone()
-            if not row:
-                conn.close()
-                return web.json_response({"error": f"Test {test_id} not found"}, status=404)
-
-            test_status, target_games, confidence_threshold = row
-            if test_status != "running":
-                conn.close()
-                return web.json_response({"error": f"Test {test_id} is {test_status}, not running"}, status=400)
-
-            # Insert game result
-            cursor.execute("""
-                INSERT INTO ab_test_games (
-                    test_id, game_id, model_a_result, model_a_score, model_b_score,
-                    game_length, played_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                test_id, game_id, model_a_result, model_a_score, model_b_score,
-                data.get("game_length"), now, json.dumps(data.get("metadata", {})),
-            ))
-            conn.commit()
-            conn.close()
-
-            # Calculate updated stats
-            stats = self._calculate_ab_test_stats(test_id)
-
-            # Check if test should conclude
-            should_conclude = False
-            if stats.get("games_played", 0) >= target_games or (stats.get("statistically_significant") and stats.get("confidence", 0) >= confidence_threshold):
-                should_conclude = True
-
-            if should_conclude:
-                winner_model = stats.get("likely_winner")
-                conn = sqlite3.connect(str(self.db_path))
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE ab_tests SET status = 'completed', winner = ?, completed_at = ?
-                    WHERE test_id = ?
-                """, (winner_model, time.time(), test_id))
-                conn.commit()
-                conn.close()
-
-                # Notify
-                self.notifier.notify(
-                    f"A/B Test Complete: {test_id}",
-                    f"Winner: {winner_model or 'inconclusive'}\n"
-                    f"Games: {stats['games_played']}, Confidence: {stats['confidence']:.1%}"
-                )
-
-            return web.json_response({
-                "test_id": test_id,
-                "game_id": game_id,
-                "recorded": True,
-                "stats": stats,
-                "concluded": should_conclude,
-            })
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_abtest_status(self, request: web.Request) -> web.Response:
-        """GET /abtest/status - Get status of an A/B test.
-
-        Query params:
-            test_id: A/B test ID (required)
-        """
-        try:
-            test_id = request.query.get("test_id")
-            if not test_id:
-                return web.json_response({"error": "Missing test_id parameter"}, status=400)
-
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM ab_tests WHERE test_id = ?", (test_id,))
-            row = cursor.fetchone()
-            conn.close()
-
-            if not row:
-                return web.json_response({"error": f"Test {test_id} not found"}, status=404)
-
-            test_data = {
-                "test_id": row[0],
-                "name": row[1],
-                "description": row[2],
-                "board_type": row[3],
-                "num_players": row[4],
-                "model_a": row[5],
-                "model_b": row[6],
-                "target_games": row[7],
-                "confidence_threshold": row[8],
-                "status": row[9],
-                "winner": row[10],
-                "created_at": row[11],
-                "completed_at": row[12],
-                "metadata": json.loads(row[13]) if row[13] else {},
-            }
-
-            # Add current stats
-            test_data["stats"] = self._calculate_ab_test_stats(test_id)
-
-            return web.json_response(test_data)
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_abtest_list(self, request: web.Request) -> web.Response:
-        """GET /abtest/list - List all A/B tests.
-
-        Query params:
-            status: Filter by status (optional) - "running", "completed", "cancelled"
-            limit: Max results (default: 50)
-        """
-        try:
-            status_filter = request.query.get("status")
-            limit = int(request.query.get("limit", "50"))
-
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-
-            if status_filter:
-                cursor.execute(
-                    "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                    "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT ?",
-                    (status_filter, limit)
-                )
-            else:
-                cursor.execute(
-                    "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                    "FROM ab_tests ORDER BY created_at DESC LIMIT ?",
-                    (limit,)
-                )
-
-            rows = cursor.fetchall()
-            conn.close()
-
-            tests = []
-            for row in rows:
-                test_id = row[0]
-                stats = self._calculate_ab_test_stats(test_id)
-                tests.append({
-                    "test_id": test_id,
-                    "name": row[1],
-                    "board_type": row[2],
-                    "num_players": row[3],
-                    "model_a": row[4],
-                    "model_b": row[5],
-                    "status": row[6],
-                    "winner": row[7],
-                    "created_at": row[8],
-                    "games_played": stats.get("games_played", 0),
-                    "model_a_winrate": stats.get("model_a_winrate", 0),
-                    "model_b_winrate": stats.get("model_b_winrate", 0),
-                    "confidence": stats.get("confidence", 0),
-                })
-
-            return web.json_response({"tests": tests, "count": len(tests)})
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
-
-    async def handle_abtest_cancel(self, request: web.Request) -> web.Response:
-        """POST /abtest/cancel - Cancel a running A/B test.
-
-        JSON body:
-            test_id: A/B test ID (required)
-            reason: Cancellation reason (optional)
-        """
-        try:
-            data = await request.json()
-            test_id = data.get("test_id")
-            if not test_id:
-                return web.json_response({"error": "Missing test_id"}, status=400)
-
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute("SELECT status FROM ab_tests WHERE test_id = ?", (test_id,))
-            row = cursor.fetchone()
-
-            if not row:
-                conn.close()
-                return web.json_response({"error": f"Test {test_id} not found"}, status=404)
-
-            if row[0] != "running":
-                conn.close()
-                return web.json_response({"error": f"Test {test_id} is already {row[0]}"}, status=400)
-
-            cursor.execute(
-                "UPDATE ab_tests SET status = 'cancelled', completed_at = ? WHERE test_id = ?",
-                (time.time(), test_id)
-            )
-            conn.commit()
-            conn.close()
-
-            return web.json_response({"test_id": test_id, "status": "cancelled"})
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
-
-    # handle_abtest_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
-
-    async def handle_abtest_run(self, request: web.Request) -> web.Response:
-        """POST /abtest/run - Start running games for an A/B test using the cluster.
-
-        This schedules games to be played between model_a and model_b on available nodes.
-
-        JSON body:
-            test_id: A/B test ID (required)
-            parallel_games: Number of games to run in parallel (default: 4)
-            think_time_ms: AI think time in ms (default: 100)
-        """
-        try:
-            data = await request.json()
-            test_id = data.get("test_id")
-            if not test_id:
-                return web.json_response({"error": "Missing test_id"}, status=400)
-
-            # Get test info
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT board_type, num_players, model_a, model_b, target_games, status "
-                "FROM ab_tests WHERE test_id = ?",
-                (test_id,)
-            )
-            row = cursor.fetchone()
-            conn.close()
-
-            if not row:
-                return web.json_response({"error": f"Test {test_id} not found"}, status=404)
-
-            _board_type, _num_players, _model_a, _model_b, target_games, status = row
-            if status != "running":
-                return web.json_response({"error": f"Test is {status}, not running"}, status=400)
-
-            # Get current game count
-            stats = self._calculate_ab_test_stats(test_id)
-            games_remaining = target_games - stats.get("games_played", 0)
-
-            if games_remaining <= 0:
-                return web.json_response({
-                    "test_id": test_id,
-                    "message": "Test has reached target games",
-                    "stats": stats,
-                })
-
-            parallel = int(data.get("parallel_games", 4))
-            think_time = int(data.get("think_time_ms", 100))
-
-            # Schedule games via existing tournament infrastructure
-            # This creates a mini-tournament between the two models
-            f"abtest_{test_id[:8]}"
-
-            return web.json_response({
-                "test_id": test_id,
-                "status": "scheduled",
-                "games_remaining": games_remaining,
-                "parallel_games": parallel,
-                "think_time_ms": think_time,
-                "message": f"Use tournament infrastructure to run {games_remaining} games between models",
-                "hint": "Games should be submitted via POST /abtest/result as they complete",
-            })
-        except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=500)
+    # A/B Test handlers moved to scripts/p2p/handlers/abtest.py (Dec 28, 2025 - Phase 8)
+    # Inherited from ABTestHandlersMixin:
+    # - handle_abtest_create, handle_abtest_result, handle_abtest_status
+    # - handle_abtest_list, handle_abtest_cancel, handle_abtest_run
+    # Note: handle_abtest_table() was previously moved to TableHandlersMixin
 
     async def handle_api_training_status(self, request: web.Request) -> web.Response:
         """Get training pipeline status including NNUE, CMAES, and auto-promotion state.

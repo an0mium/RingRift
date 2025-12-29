@@ -1334,12 +1334,22 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
             if job_id in self.distributed_tournament_state:
                 self.distributed_tournament_state[job_id].status = f"error: {e}"
             self._emit_task_event("TASK_FAILED", job_id, "tournament", error=str(e))
+        except (asyncio.TimeoutError, asyncio.CancelledError, ConnectionError) as e:
+            # Dec 28, 2025: Added narrower handler for async/network errors
+            # TimeoutError: Matches didn't complete in time
+            # CancelledError: Tournament cancelled by caller
+            # ConnectionError: Worker communication failure
+            logger.exception(f"Tournament {job_id} communication error: {e}")
+            if job_id in self.distributed_tournament_state:
+                self.distributed_tournament_state[job_id].status = f"error: {type(e).__name__}"
+            self._emit_task_event("TASK_FAILED", job_id, "tournament", error=str(e))
         except Exception:
-            # Catch-all for truly unexpected errors - log with traceback
+            # Catch-all for truly unexpected errors - log with traceback and re-raise
             logger.exception(f"Unexpected error in tournament {job_id}")
             if job_id in self.distributed_tournament_state:
                 self.distributed_tournament_state[job_id].status = "error: unexpected"
             self._emit_task_event("TASK_FAILED", job_id, "tournament", error="unexpected_error")
+            raise  # Dec 28, 2025: CRITICAL - re-raise to signal caller that tournament failed
 
     def _generate_tournament_matches(
         self,

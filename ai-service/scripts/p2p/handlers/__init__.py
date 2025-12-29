@@ -80,6 +80,7 @@ from .handlers_utils import (
     RetryResult,
     MetricsCollector,
 )
+from .abtest import ABTestHandlersMixin
 from .admin import AdminHandlersMixin
 from .delivery import DeliveryHandlersMixin
 from .network_discovery import NetworkDiscoveryMixin
@@ -88,6 +89,7 @@ from .election import ElectionHandlersMixin
 from .elo_sync import EloSyncHandlersMixin
 from .gauntlet import GauntletHandlersMixin
 from .gossip import GossipHandlersMixin
+from .improvement import ImprovementHandlersMixin
 from .raft import RaftHandlersMixin
 from .relay import RelayHandlersMixin
 from .ssh_tournament import SSHTournamentHandlersMixin
@@ -106,6 +108,7 @@ __all__ = [
     "make_json_response",
     "make_error_response",
     # Handler mixins
+    "ABTestHandlersMixin",
     "AdminHandlersMixin",
     "CMAESHandlersMixin",
     "DeliveryHandlersMixin",
@@ -113,6 +116,7 @@ __all__ = [
     "EloSyncHandlersMixin",
     "GauntletHandlersMixin",
     "GossipHandlersMixin",
+    "ImprovementHandlersMixin",
     "NetworkDiscoveryMixin",
     "RaftHandlersMixin",
     "RegistryHandlersMixin",

@@ -1,390 +1,439 @@
 # P2P Orchestrator Architecture
 
-Comprehensive architecture documentation for the RingRift P2P orchestration layer.
-
-**Created**: December 28, 2025
-**Last Updated**: December 28, 2025
-
----
+> **December 2025 Refactoring Summary**: The P2P orchestrator underwent major decomposition, extracting ~1,990 LOC into modular managers and background loops. This document describes the current architecture.
 
 ## Overview
 
-The P2P orchestrator is the distributed coordination brain of RingRift's AI training infrastructure. It manages:
+The P2P orchestrator is a distributed coordination layer that enables autonomous cluster-wide training, selfplay, and data synchronization across 30+ nodes. It runs on each node and uses leader election to coordinate work distribution.
 
-- **Cluster membership**: Node discovery, health tracking, and peer-to-peer gossip
-- **Leader election**: Bully-based election with optional SWIM/Raft upgrades
-- **Job orchestration**: Selfplay, training, and tournament job dispatch
-- **Data synchronization**: Cross-node game and model data sync
-- **Resource management**: GPU utilization and idle detection
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         P2P Orchestrator                            │
+│                    (scripts/p2p_orchestrator.py)                    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │
+│  │   Mixins    │  │  Managers   │  │    Loops    │  │  Handlers   │ │
+│  ├─────────────┤  ├─────────────┤  ├─────────────┤  ├─────────────┤ │
+│  │ Leadership  │  │ JobManager  │  │ JobReaper   │  │ /spawn/*    │ │
+│  │ Membership  │  │ StateManager│  │ IdleDetect  │  │ /status     │ │
+│  │ Gossip      │  │ SyncPlanner │  │ EloSync     │  │ /health     │ │
+│  │ Consensus   │  │ NodeSelector│  │ AutoScale   │  │ /sync       │ │
+│  │ PeerManager │  │ SelfplaySch │  │ SelfHealing │  │ /gossip     │ │
+│  │             │  │ TrainingCrd │  │ DataSync    │  │             │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘ │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────────┤
+│  │ Event System (DataEventType → Cross-Process Queue → Handlers)   │
+│  └──────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────────────────┤
+│  │ State Persistence (SQLite WAL mode, peers, jobs, leader state)  │
+│  └──────────────────────────────────────────────────────────────────┤
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-**Location**: `scripts/p2p_orchestrator.py` (~25,000 LOC after Dec 2025 cleanup)
+## Manager Classes
+
+All managers are located in `scripts/p2p/managers/` and follow a dependency injection pattern for testability.
+
+### Manager Overview
+
+| Manager               | LOC   | Purpose             | Key Methods                                                          |
+| --------------------- | ----- | ------------------- | -------------------------------------------------------------------- |
+| `StateManager`        | 1,016 | SQLite persistence  | `load_state()`, `save_state()`, `get_cluster_epoch()`                |
+| `NodeSelector`        | 741   | Node ranking        | `get_best_gpu_node()`, `get_training_nodes_ranked()`                 |
+| `SyncPlanner`         | 1,508 | Data sync planning  | `collect_manifest()`, `create_sync_plan()`, `execute_sync()`         |
+| `JobManager`          | 1,859 | Job lifecycle       | `run_gpu_selfplay_job()`, `spawn_training()`, `cleanup_stale_jobs()` |
+| `SelfplayScheduler`   | 1,510 | Selfplay allocation | `pick_weighted_config()`, `get_target_jobs_for_node()`               |
+| `TrainingCoordinator` | 1,363 | Training workflow   | `dispatch_training_job()`, `handle_completion()`                     |
+
+### Dependency Injection Pattern
+
+All managers receive callbacks to access orchestrator state rather than importing it directly:
+
+```python
+class MyManager:
+    def __init__(
+        self,
+        get_peers: Callable[[], dict[str, NodeInfo]],
+        get_self_info: Callable[[], NodeInfo],
+        peers_lock: threading.Lock,
+        config: ManagerConfig | None = None,
+    ):
+        self._get_peers = get_peers
+        self._get_self_info = get_self_info
+        self._peers_lock = peers_lock
+```
+
+**Benefits:**
+
+- **Testability**: Unit tests use mock callbacks
+- **Decoupling**: No circular imports with orchestrator
+- **Flexibility**: Different data sources for testing vs production
+
+### Manager Responsibilities
+
+#### StateManager
+
+- SQLite persistence for cluster state (WAL mode for durability)
+- Database tables: `peers`, `jobs`, `state`, `metrics_history`, `peer_cache`, `config`
+- Thread-safe operations with explicit locking
+- Cluster epoch tracking for split-brain resolution
+
+#### NodeSelector
+
+- GPU power scoring: H100 > GH200 > A100 > L40S > RTX 4090 > RTX 3090
+- Node filtering by health, availability, capabilities
+- Training node selection based on VRAM and memory
+
+#### SyncPlanner
+
+- Local manifest collection (game DBs, models, NPZ files)
+- Cluster manifest aggregation from all peers
+- Sync plan generation based on file hashes
+- Event emission: `DATA_SYNC_STARTED`, `DATA_SYNC_COMPLETED`
+
+#### JobManager
+
+- Engine mode routing (search modes → hybrid, simple modes → GPU)
+- Job count tracking per node
+- Stale job cleanup (1hr threshold)
+
+#### SelfplayScheduler
+
+- Priority calculation combining: static priority, Elo boost, curriculum weights
+- Diversity tracking across configs
+- Backpressure integration
+
+#### TrainingCoordinator
+
+- Training readiness checks (data thresholds)
+- Post-training workflow: gauntlet → promotion → distribution
+- Cooldown management to prevent duplicate training
 
 ---
 
-## Architecture Diagram
+## Background Loops
 
+Loops run via `LoopManager` and provide continuous background processing. Located in `scripts/p2p/loops/`.
+
+### Loop Overview
+
+| Loop                       | File                          | Interval | Purpose                          |
+| -------------------------- | ----------------------------- | -------- | -------------------------------- |
+| `JobReaperLoop`            | `job_loops.py`                | 5 min    | Clean stale/stuck jobs           |
+| `IdleDetectionLoop`        | `job_loops.py`                | 30 sec   | Detect idle GPUs, spawn selfplay |
+| `WorkerPullLoop`           | `job_loops.py`                | 30 sec   | Workers poll leader for work     |
+| `SelfHealingLoop`          | `resilience_loops.py`         | 5 min    | Recover stuck processes          |
+| `PredictiveMonitoringLoop` | `resilience_loops.py`         | 5 min    | Trend analysis, early alerts     |
+| `EloSyncLoop`              | `elo_sync_loop.py`            | 5 min    | Elo rating synchronization       |
+| `QueuePopulatorLoop`       | `queue_populator_loop.py`     | 1 min    | Work queue maintenance           |
+| `AutoScalingLoop`          | `coordination_loops.py`       | 5 min    | Scale cluster resources          |
+| `ManifestCollectionLoop`   | `manifest_collection_loop.py` | 1 min    | Collect data manifests           |
+
+### LoopManager
+
+The `LoopManager` class (`scripts/p2p/loops/base.py`) coordinates all background loops:
+
+```python
+from scripts.p2p.loops.base import LoopManager
+
+# Initialize
+loop_manager = LoopManager()
+
+# Register loops
+loop_manager.register(job_reaper_loop)
+loop_manager.register(idle_detection_loop)
+
+# Start all loops
+await loop_manager.start_all()
+
+# Stop all loops gracefully
+await loop_manager.stop_all()
 ```
-                         ┌─────────────────────────────────────────────────┐
-                         │              P2P Orchestrator                   │
-                         │                 (Leader)                        │
-                         └─────────────────────────────────────────────────┘
-                                            │
-              ┌─────────────────────────────┼─────────────────────────────┐
-              │                             │                             │
-              ▼                             ▼                             ▼
-    ┌─────────────────┐          ┌─────────────────┐          ┌─────────────────┐
-    │   P2P Follower  │◀────────▶│   P2P Follower  │◀────────▶│   P2P Follower  │
-    │   (Worker)      │  gossip  │   (Worker)      │  gossip  │   (Worker)      │
-    └─────────────────┘          └─────────────────┘          └─────────────────┘
-           │                            │                            │
-           ▼                            ▼                            ▼
-    ┌─────────────────┐          ┌─────────────────┐          ┌─────────────────┐
-    │  GPU Selfplay   │          │   Training      │          │  GPU Selfplay   │
-    │     Jobs        │          │     Job         │          │     Jobs        │
-    └─────────────────┘          └─────────────────┘          └─────────────────┘
+
+### Loop Health Checks
+
+All loops implement `health_check()` returning standardized status:
+
+```python
+{
+    "healthy": True,
+    "message": "Loop running normally",
+    "details": {
+        "cycles_completed": 142,
+        "last_cycle_time": "2025-12-28T10:30:00Z",
+        "errors_count": 0,
+        "average_cycle_duration_ms": 1523,
+    }
+}
 ```
 
 ---
 
-## Manager Delegation Pattern
+## Mixin Classes
 
-The P2P orchestrator uses a modular manager architecture for separation of concerns:
+Mixins provide modular functionality that the orchestrator composes. Located in `scripts/p2p/`.
 
+### Mixin Overview
+
+| Mixin                 | LOC    | Purpose                                 |
+| --------------------- | ------ | --------------------------------------- |
+| `P2PMixinBase`        | 995    | Shared helpers (DB, logging, state)     |
+| `LeaderElectionMixin` | 800+   | Bully election, lease management        |
+| `MembershipMixin`     | 330    | HTTP polling membership (optional SWIM) |
+| `GossipProtocolMixin` | 1,000+ | Gossip propagation, metrics             |
+| `ConsensusMixin`      | 709    | Vote collection (optional Raft)         |
+| `PeerManagerMixin`    | 450+   | Peer lifecycle, retirement              |
+
+### P2PMixinBase Helpers
+
+```python
+from scripts.p2p.p2p_mixin_base import P2PMixinBase
+
+class MyMixin(P2PMixinBase):
+    MIXIN_TYPE = "my_mixin"
+
+    def my_method(self):
+        # Database helpers
+        self._execute_db_query("SELECT * FROM peers")
+
+        # State management
+        self._ensure_state_attr("_cache", {})
+
+        # Event emission
+        self._safe_emit_event("MY_EVENT", {"data": "value"})
+
+        # Logging (prefixed with MIXIN_TYPE)
+        self._log_info("Operation completed")
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          P2P Orchestrator                                   │
-│                                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │ StateManager│  │NodeSelector │  │ JobManager  │  │SelfplaySched│        │
-│  │             │  │             │  │             │  │    uler     │        │
-│  │ - SQLite    │  │ - GPU/CPU   │  │ - Spawn     │  │ - Priority  │        │
-│  │ - State     │  │   ranking   │  │ - Track     │  │ - Diversity │        │
-│  │ - Epochs    │  │ - Selection │  │ - Cleanup   │  │ - Curriculum│        │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
-│                                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────────────────┐ │
-│  │ SyncPlanner │  │TrainingCoord│  │            LoopManager              │ │
-│  │             │  │   inator    │  │                                     │ │
-│  │ - Manifest  │  │ - Dispatch  │  │ JobReaper, IdleDetection, EloSync, │ │
-│  │ - Planning  │  │ - Gauntlet  │  │ QueuePopulator, SelfHealing, ...   │ │
-│  │ - Sync exec │  │ - Promotion │  │                                     │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────────────────────┘ │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+
+### EventSubscriptionMixin
+
+Standardized event subscription for managers:
+
+```python
+from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
+
+class MyManager(EventSubscriptionMixin):
+    _subscription_log_prefix = "MyManager"
+
+    def _get_event_subscriptions(self) -> dict:
+        return {
+            "HOST_OFFLINE": self._on_host_offline,
+            "NODE_RECOVERED": self._on_node_recovered,
+        }
+
+    async def _on_host_offline(self, event) -> None:
+        payload = self._extract_event_payload(event)
+        node_id = payload.get("node_id")
+        self._log_info(f"Host offline: {node_id}")
+
+# Subscribe during initialization
+manager = MyManager()
+manager.subscribe_to_events()
 ```
 
-### Manager Summary
+---
 
-| Manager               | Responsibility                       | LOC  | Key Methods                                               |
-| --------------------- | ------------------------------------ | ---- | --------------------------------------------------------- |
-| `StateManager`        | SQLite persistence, cluster epochs   | ~450 | `load_state()`, `save_state()`                            |
-| `NodeSelector`        | Node ranking and selection           | ~350 | `get_best_gpu_node()`, `get_training_nodes_ranked()`      |
-| `JobManager`          | Job spawning and lifecycle           | ~550 | `run_gpu_selfplay_job()`, `spawn_training()`              |
-| `SelfplayScheduler`   | Priority-based config selection      | ~600 | `pick_weighted_config()`, `get_target_jobs_for_node()`    |
-| `SyncPlanner`         | Data sync planning and execution     | ~450 | `collect_manifest()`, `create_sync_plan()`                |
-| `TrainingCoordinator` | Training job dispatch and completion | ~500 | `dispatch_training_job()`, `handle_training_completion()` |
-| `LoopManager`         | Background loop coordination         | ~300 | `start_all()`, `stop_all()`, `health_check()`             |
+## Event Flow
 
-**Full manager documentation**: See `scripts/p2p/managers/README.md`
+The P2P orchestrator integrates with the unified event system for cross-component coordination.
+
+### Key Events Emitted
+
+| Event                 | Emitter             | Purpose                 |
+| --------------------- | ------------------- | ----------------------- |
+| `HOST_OFFLINE`        | PeerManagerMixin    | Node went offline       |
+| `HOST_ONLINE`         | PeerManagerMixin    | Node came back online   |
+| `LEADER_ELECTED`      | LeaderElectionMixin | Leadership change       |
+| `DATA_SYNC_STARTED`   | SyncPlanner         | Sync operation began    |
+| `DATA_SYNC_COMPLETED` | SyncPlanner         | Sync operation finished |
+| `TRAINING_STARTED`    | TrainingCoordinator | Training job dispatched |
+| `TRAINING_COMPLETED`  | TrainingCoordinator | Training finished       |
+| `SELFPLAY_COMPLETE`   | JobManager          | Selfplay batch finished |
+
+### Event Subscription Example
+
+```python
+# In TrainingCoordinator
+def _get_event_subscriptions(self) -> dict:
+    return {
+        "DATA_SYNC_COMPLETED": self._on_sync_complete,
+        "SELFPLAY_COMPLETE": self._on_selfplay_complete,
+    }
+
+async def _on_sync_complete(self, event):
+    # Check if training should start
+    if self.check_training_readiness():
+        await self.dispatch_training_job()
+```
+
+---
+
+## HTTP Endpoints
+
+The orchestrator exposes HTTP endpoints on port 8770 for inter-node communication.
+
+| Endpoint          | Method | Purpose                                |
+| ----------------- | ------ | -------------------------------------- |
+| `/status`         | GET    | Full node status (leader, peers, jobs) |
+| `/health`         | GET    | Quick health check                     |
+| `/gossip`         | POST   | Receive gossip from peers              |
+| `/spawn/selfplay` | POST   | Spawn selfplay job                     |
+| `/spawn/training` | POST   | Spawn training job                     |
+| `/sync/manifest`  | GET    | Get local data manifest                |
+| `/sync/pull`      | POST   | Pull data from this node               |
+
+### Status Response Structure
+
+```json
+{
+  "node_id": "nebius-h100-3",
+  "role": "LEADER",
+  "leader_id": "nebius-h100-3",
+  "alive_peers": 28,
+  "total_peers": 36,
+  "uptime_seconds": 86400,
+  "jobs": {
+    "running": 12,
+    "pending": 3,
+    "completed_24h": 847
+  },
+  "managers": {
+    "job_manager": { "healthy": true },
+    "sync_planner": { "healthy": true },
+    "selfplay_scheduler": { "healthy": true }
+  },
+  "loops": {
+    "job_reaper": { "healthy": true, "cycles": 288 },
+    "idle_detection": { "healthy": true, "cycles": 2880 }
+  }
+}
+```
 
 ---
 
 ## Leader Election
 
-### Bully Algorithm (Production)
+The P2P cluster uses a Bully election algorithm with lease-based leadership.
 
-The default leader election uses a modified Bully algorithm:
+### Election Flow
 
-1. **Node ordering**: Nodes are ranked by (IP, port) tuple
-2. **Election trigger**: When leader is unresponsive for >60 seconds
-3. **Election process**:
-   - Node sends ELECTION message to all higher-ranked nodes
-   - If no response in 10 seconds, node declares itself leader
-   - If higher node responds, yield to that node's election
-4. **Quorum**: Requires 3+ nodes from voter set for valid election
+```
+1. Startup
+   └── Load persisted state (including vote grants)
 
-```python
-# Voter configuration in distributed_hosts.yaml
+2. Election Trigger
+   ├── Leader lease expired
+   ├── Leader went offline
+   └── Explicit stepdown request
+
+3. Election Phase
+   ├── Collect votes from higher-ranked nodes
+   ├── If no higher node responds → become leader
+   └── If higher node responds → defer to it
+
+4. Leader Duties
+   ├── Renew lease every 30 seconds
+   ├── Dispatch training/selfplay jobs
+   ├── Coordinate data sync
+   └── Monitor cluster health
+```
+
+### Voter Configuration
+
+P2P voters are stable, non-NAT-blocked nodes (configured in `distributed_hosts.yaml`):
+
+```yaml
 p2p_voters:
   - nebius-backbone-1
   - nebius-h100-3
   - hetzner-cpu1
   - hetzner-cpu2
   - vultr-a100-20gb
-```
-
-### Optional SWIM/Raft (Experimental)
-
-**SWIM Protocol** (membership):
-
-- Gossip-based membership with 5s failure detection
-- Requires `swim-p2p>=1.2.0`
-- Enable: `export RINGRIFT_SWIM_ENABLED=true`
-
-**Raft Protocol** (consensus):
-
-- Replicated work queue with sub-second failover
-- Requires `pysyncobj>=0.3.14`
-- Enable: `export RINGRIFT_RAFT_ENABLED=true`
-
----
-
-## Background Loops
-
-The LoopManager coordinates all background processing:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            LoopManager                                      │
-│                                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐             │
-│  │  JobReaperLoop  │  │IdleDetectionLoop│  │   EloSyncLoop   │             │
-│  │   (5 min)       │  │   (30 sec)      │  │   (5 min)       │             │
-│  │                 │  │                 │  │                 │             │
-│  │ Clean stale     │  │ Detect idle     │  │ Sync Elo        │             │
-│  │ and stuck jobs  │  │ GPUs, trigger   │  │ ratings across  │             │
-│  │                 │  │ selfplay        │  │ cluster         │             │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘             │
-│                                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐             │
-│  │QueuePopulatorLp │  │ SelfHealingLoop │  │ WorkerPullLoop  │             │
-│  │   (1 min)       │  │   (5 min)       │  │   (30 sec)      │             │
-│  │                 │  │                 │  │                 │             │
-│  │ Maintain work   │  │ Recover stuck   │  │ Workers poll    │             │
-│  │ queue until     │  │ jobs, clean     │  │ leader for new  │             │
-│  │ Elo targets met │  │ stale processes │  │ work            │             │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘             │
-│                                                                             │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐             │
-│  │ManifestCollLoop │  │TrainingSyncLoop │  │PredictiveMonLoop│             │
-│  │   (1 min)       │  │   (5 min)       │  │   (5 min)       │             │
-│  │                 │  │                 │  │                 │             │
-│  │ Collect data    │  │ Sync training   │  │ Track trends,   │             │
-│  │ manifests from  │  │ data to         │  │ emit alerts     │             │
-│  │ peers           │  │ training nodes  │  │ before threshold│             │
-│  └─────────────────┘  └─────────────────┘  └─────────────────┘             │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Creating Custom Loops
-
-```python
-from scripts.p2p.loops import BaseLoop
-
-class MyCustomLoop(BaseLoop):
-    def __init__(self, get_data_fn, process_fn):
-        super().__init__(
-            name="my_custom_loop",
-            interval=60.0,  # Run every 60 seconds
-            depends_on=["elo_sync"],  # Start after elo_sync
-        )
-        self.get_data = get_data_fn
-        self.process = process_fn
-
-    async def _run_once(self) -> None:
-        """Execute one iteration of the loop."""
-        data = self.get_data()
-        if data:
-            await self.process(data)
-
-    async def _on_start(self) -> None:
-        self._log_info("Starting custom loop")
-
-    async def _on_error(self, error: Exception) -> None:
-        self._log_error(f"Error: {error}")
-```
-
----
-
-## Event System Integration
-
-The P2P orchestrator emits events for coordination with the daemon layer:
-
-### Events Emitted
-
-| Event                 | Trigger                      | Subscribers                     |
-| --------------------- | ---------------------------- | ------------------------------- |
-| `HOST_OFFLINE`        | Peer retired (offline >300s) | UnifiedHealthManager            |
-| `HOST_ONLINE`         | Retired peer recovers        | UnifiedHealthManager            |
-| `LEADER_ELECTED`      | This node becomes leader     | LeadershipCoordinator           |
-| `DATA_SYNC_STARTED`   | Sync operation begins        | DataPipelineOrchestrator        |
-| `DATA_SYNC_COMPLETED` | Sync operation ends          | DataPipelineOrchestrator        |
-| `TRAINING_STARTED`    | Training job dispatched      | SyncRouter, IdleShutdown        |
-| `TRAINING_COMPLETED`  | Training job finishes        | FeedbackLoop, ModelDistribution |
-
-### Event Emission Pattern
-
-```python
-def _emit_p2p_host_offline(self, node_id: str) -> None:
-    """Emit HOST_OFFLINE event when a peer is retired."""
-    try:
-        from app.coordination.event_emitters import emit_host_offline
-        emit_host_offline(node_id=node_id, source="p2p_orchestrator")
-    except ImportError:
-        logger.debug("Event emitters not available")
-    except Exception as e:
-        logger.warning(f"Failed to emit HOST_OFFLINE: {e}")
-```
-
----
-
-## HTTP API Endpoints
-
-The orchestrator exposes a REST API on port 8770:
-
-### Core Endpoints
-
-| Endpoint  | Method | Description                         |
-| --------- | ------ | ----------------------------------- |
-| `/status` | GET    | Cluster status, leader info, health |
-| `/health` | GET    | Simple health check (200/503)       |
-| `/peers`  | GET    | List all known peers                |
-| `/jobs`   | GET    | List active jobs                    |
-
-### Job Control (Leader Only)
-
-| Endpoint               | Method | Description           |
-| ---------------------- | ------ | --------------------- |
-| `/dispatch_selfplay`   | POST   | Dispatch selfplay job |
-| `/dispatch_training`   | POST   | Dispatch training job |
-| `/cancel_job/{job_id}` | POST   | Cancel a running job  |
-
-### Data Sync (Leader Only)
-
-| Endpoint     | Method | Description             |
-| ------------ | ------ | ----------------------- |
-| `/sync_data` | POST   | Trigger data sync       |
-| `/manifest`  | GET    | Get local data manifest |
-
-### Example Usage
-
-```bash
-# Check cluster status
-curl -s http://localhost:8770/status | python3 -c '
-import sys, json
-d = json.load(sys.stdin)
-print(f"Leader: {d.get(\"leader_id\")}")
-print(f"Alive peers: {d.get(\"alive_peers\")}")
-print(f"Role: {d.get(\"role\")}")
-'
-
-# Dispatch selfplay (if leader)
-curl -X POST http://localhost:8770/dispatch_selfplay \
-  -H "Content-Type: application/json" \
-  -d '{"board_type": "hex8", "num_players": 2, "num_games": 100}'
+  - runpod-a100-1
+  - runpod-a100-2
+  # With 7 voters, quorum = 4
 ```
 
 ---
 
 ## State Persistence
 
-### SQLite State Database
+### SQLite Schema
 
-Location: `data/coordination/p2p_state.db`
+The orchestrator uses SQLite with WAL mode for state persistence:
 
-**Tables**:
+```sql
+-- Core tables
+CREATE TABLE peers (
+    node_id TEXT PRIMARY KEY,
+    last_seen REAL,
+    status TEXT,
+    metadata JSON
+);
 
-| Table        | Purpose                                 |
-| ------------ | --------------------------------------- |
-| `peers`      | Node information (IP, port, last_seen)  |
-| `jobs`       | Running job records                     |
-| `state`      | Key-value state (leader, role)          |
-| `config`     | Cluster epoch and settings              |
-| `peer_cache` | Persistent peer storage with reputation |
+CREATE TABLE jobs (
+    job_id TEXT PRIMARY KEY,
+    job_type TEXT,
+    node_id TEXT,
+    status TEXT,
+    created_at REAL,
+    updated_at REAL,
+    config JSON
+);
 
-### Cluster Epochs
+CREATE TABLE state (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 
-Epochs prevent split-brain scenarios:
-
-1. Each leader election increments the epoch
-2. Stale leaders (lower epoch) yield to new leaders
-3. Epoch is persisted and synchronized via gossip
-
-```python
-# StateManager epoch handling
-def increment_epoch(self) -> int:
-    """Increment and persist cluster epoch."""
-    with self._db_lock:
-        self._current_epoch += 1
-        self._execute("UPDATE config SET epoch = ?", (self._current_epoch,))
-        return self._current_epoch
+-- Metrics and cache
+CREATE TABLE metrics_history (...);
+CREATE TABLE peer_cache (...);
+CREATE TABLE config (...);
 ```
+
+### State Recovery
+
+On startup, the orchestrator:
+
+1. Loads persisted state (peers, jobs, leader info)
+2. Validates leader lease (may trigger election)
+3. Reconnects to known peers
+4. Resumes background loops
 
 ---
 
-## Health Monitoring
+## Health Check Integration
 
-### Health Check Aggregation
-
-The orchestrator aggregates health from all managers:
+All components implement `health_check()` for unified monitoring:
 
 ```python
+# Aggregated by DaemonManager
 def health_check(self) -> HealthCheckResult:
-    """Aggregate health from all managers."""
     manager_health = self._validate_manager_health()
+    loop_health = self._validate_loop_health()
 
-    if not manager_health["all_healthy"]:
-        return HealthCheckResult(
-            healthy=False,
-            status=CoordinatorStatus.DEGRADED,
-            message=f"Unhealthy managers: {manager_health['unhealthy']}",
-            details=manager_health,
-        )
+    is_healthy = all([
+        manager_health["all_healthy"],
+        loop_health["all_healthy"],
+        self._is_leader_healthy(),
+    ])
 
     return HealthCheckResult(
-        healthy=True,
-        status=CoordinatorStatus.RUNNING,
-        message="P2P orchestrator operational",
+        healthy=is_healthy,
+        message="P2P orchestrator status",
         details={
             "node_id": self.node_id,
             "role": self.role.name,
-            "leader_id": self.leader_id,
-            "active_peers": len(self.peers),
-            "uptime_seconds": time.time() - self._start_time,
-        },
+            "managers": manager_health,
+            "loops": loop_health,
+        }
     )
 ```
-
-### Manager Health Metrics
-
-| Manager             | Key Health Metrics                   |
-| ------------------- | ------------------------------------ |
-| StateManager        | DB connection, pending writes, epoch |
-| NodeSelector        | Cache freshness, selection latency   |
-| TrainingCoordinator | Active jobs, cooldown status         |
-| JobManager          | Active jobs, spawn rate, errors      |
-| SelfplayScheduler   | Diversity metrics, curriculum state  |
-| SyncPlanner         | Sync in progress, manifest freshness |
-| LoopManager         | Loops running, failing loops         |
-
----
-
-## Gossip Protocol
-
-### Peer Discovery
-
-Nodes discover each other via:
-
-1. **YAML configuration**: Initial peer list from `distributed_hosts.yaml`
-2. **Gossip protocol**: Peers share their peer lists
-3. **Health probing**: Periodic `/status` checks (every 15 seconds)
-
-### Gossip Message Types
-
-| Message     | Direction                | Content                     |
-| ----------- | ------------------------ | --------------------------- |
-| `HELLO`     | Node → Peers             | Node identity, capabilities |
-| `PEERS`     | Leader → Nodes           | Full peer list              |
-| `HEARTBEAT` | Node → Leader            | Health status, job count    |
-| `ELECTION`  | Candidate → Higher nodes | Election initiation         |
-| `LEADER`    | Winner → All             | New leader announcement     |
-
-### Failure Detection
-
-- **Heartbeat interval**: 15 seconds (reduced from 30s in Dec 2025)
-- **Peer timeout**: 60 seconds (reduced from 90s)
-- **Retirement threshold**: 300 seconds (5 minutes)
 
 ---
 
@@ -394,62 +443,74 @@ Nodes discover each other via:
 
 | Variable                            | Default | Description                                 |
 | ----------------------------------- | ------- | ------------------------------------------- |
-| `RINGRIFT_P2P_PORT`                 | 8770    | P2P HTTP API port                           |
-| `RINGRIFT_P2P_HEARTBEAT_INTERVAL`   | 15      | Heartbeat interval (seconds)                |
-| `RINGRIFT_P2P_PEER_TIMEOUT`         | 60      | Peer timeout (seconds)                      |
-| `RINGRIFT_P2P_STARTUP_GRACE_PERIOD` | 120     | Grace period before killing stuck processes |
-| `RINGRIFT_SWIM_ENABLED`             | false   | Enable SWIM protocol                        |
-| `RINGRIFT_RAFT_ENABLED`             | false   | Enable Raft protocol                        |
+| `RINGRIFT_P2P_PORT`                 | 8770    | HTTP server port                            |
+| `RINGRIFT_P2P_LEADER_LEASE_SECONDS` | 60      | Leader lease duration                       |
+| `RINGRIFT_HEARTBEAT_INTERVAL`       | 15      | Peer heartbeat interval                     |
+| `RINGRIFT_PEER_TIMEOUT`             | 60      | Peer timeout for retirement                 |
+| `RINGRIFT_EXTRACTED_LOOPS`          | true    | Use LoopManager for background loops        |
+| `RINGRIFT_P2P_STARTUP_GRACE_PERIOD` | 120     | Grace period before killing stale processes |
 
-### distributed_hosts.yaml
+### Feature Flags
 
-```yaml
-# P2P voter nodes (must be stable, non-NAT-blocked)
-p2p_voters:
-  - nebius-backbone-1
-  - nebius-h100-3
-  - hetzner-cpu1
-  - hetzner-cpu2
-  - vultr-a100-20gb
-
-# Node definitions
-nodes:
-  nebius-backbone-1:
-    tailscale_ip: '100.x.x.x'
-    ssh_host: '89.169.112.47'
-    status: ready
-    role: backbone
-    gpu: L40S
-    is_coordinator: false
-```
+| Flag                       | Default | Description                     |
+| -------------------------- | ------- | ------------------------------- |
+| `RINGRIFT_SWIM_ENABLED`    | false   | Enable SWIM membership protocol |
+| `RINGRIFT_RAFT_ENABLED`    | false   | Enable Raft consensus           |
+| `RINGRIFT_MEMBERSHIP_MODE` | http    | Membership: http, swim, hybrid  |
+| `RINGRIFT_CONSENSUS_MODE`  | bully   | Consensus: bully, raft, hybrid  |
 
 ---
 
 ## December 2025 Refactoring Summary
 
-### LOC Removed from p2p_orchestrator.py
+### Code Removed from p2p_orchestrator.py
 
-| Phase              | LOC Removed | Description                |
-| ------------------ | ----------- | -------------------------- |
-| Manager Delegation | ~1,990      | 7 managers fully delegated |
-| Loop Extraction    | ~400        | 5 loops to LoopManager     |
-| Dead Code Removal  | ~186        | Legacy manifest, wrappers  |
-| **Total**          | **~2,576**  | From ~28,000 to ~25,000    |
+| Category                       | Methods Removed | LOC Saved  |
+| ------------------------------ | --------------- | ---------- |
+| StateManager delegation        | 7 methods       | ~200       |
+| JobManager delegation          | 7 methods       | ~400       |
+| SyncPlanner delegation         | 4 methods       | ~60        |
+| SelfplayScheduler delegation   | 7 methods       | ~430       |
+| TrainingCoordinator delegation | 5 methods       | ~450       |
+| NodeSelector delegation        | 6 methods       | ~50        |
+| Background loops extraction    | 5 loops         | ~400       |
+| **Total**                      | **41 methods**  | **~1,990** |
 
-### Key Improvements
+### New Module Structure
 
-1. **Modular managers**: Each concern in separate, testable module
-2. **Background loops**: Centralized via LoopManager with dependency ordering
-3. **Health integration**: All managers report to DaemonManager
-4. **Event emission**: P2P lifecycle events for coordination layer
-5. **Faster failure detection**: 15s heartbeat, 60s timeout
+```
+scripts/p2p/
+├── p2p_orchestrator.py        # Main orchestrator (now slimmer)
+├── p2p_mixin_base.py          # Base classes and helpers
+├── managers/
+│   ├── state_manager.py
+│   ├── node_selector.py
+│   ├── sync_planner.py
+│   ├── job_manager.py
+│   ├── selfplay_scheduler.py
+│   └── training_coordinator.py
+├── loops/
+│   ├── base.py                # LoopManager
+│   ├── job_loops.py           # JobReaper, IdleDetection
+│   ├── resilience_loops.py    # SelfHealing, Predictive
+│   ├── elo_sync_loop.py
+│   └── ...
+├── handlers/
+│   ├── handlers_base.py
+│   ├── spawn_handlers.py
+│   └── status_handlers.py
+└── mixins/
+    ├── leader_election.py
+    ├── membership_mixin.py
+    ├── gossip_protocol.py
+    └── consensus_mixin.py
+```
 
 ---
 
-## Related Documentation
+## See Also
 
-- `scripts/p2p/managers/README.md` - Manager delegation details
-- `docs/architecture/COORDINATION_SYSTEM.md` - Coordination layer overview
-- `docs/architecture/DAEMON_LIFECYCLE.md` - Daemon management
-- `docs/runbooks/P2P_LEADER_FAILOVER.md` - Leader election troubleshooting
-- `docs/runbooks/P2P_ORCHESTRATOR_OPERATIONS.md` - Operational procedures
+- `scripts/p2p/managers/README.md` - Manager module documentation
+- `docs/SYNC_STRATEGY_GUIDE.md` - Data sync strategies
+- `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - P2P troubleshooting
+- `docs/CLUSTER_INTEGRATION_GUIDE.md` - Cluster architecture
