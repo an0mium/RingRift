@@ -36,6 +36,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Constants
+MAX_DISK_USAGE_PERCENT = 70  # Don't sync to nodes above this usage
+
 
 # ============================================================================
 # Data Classes
@@ -54,6 +57,11 @@ class NodeCapacity:
     last_updated: float = 0.0
 
     @property
+    def can_receive_sync(self) -> bool:
+        """Check if node can receive more data."""
+        return self.usage_percent < MAX_DISK_USAGE_PERCENT
+
+    @property
     def free_percent(self) -> float:
         """Percentage of disk that is free."""
         return 100.0 - self.usage_percent
@@ -67,6 +75,7 @@ class NodeInventory:
     game_count: int = 0
     model_count: int = 0
     npz_count: int = 0
+    total_games_size: int = 0
     total_models_size: int = 0
     total_npz_size: int = 0
     capacity: NodeCapacity | None = None
