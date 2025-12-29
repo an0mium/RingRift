@@ -597,9 +597,25 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
                 AND game_status IN ('completed', 'finished', 'victory')
             """, (board_type, num_players))
 
+            # December 29, 2025: Fetch all rows first for batch move counting
+            all_rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+
+            # December 29, 2025: Batch pre-fetch move counts to avoid N+1 queries
+            # This reduces O(n) database round trips to O(1)
+            move_counts: dict[str, int] = {}
+            if self.config.validate_before_merge:
+                candidate_ids = [
+                    row["game_id"]
+                    for row in all_rows
+                    if row["game_id"] not in existing_ids
+                    and (row["total_moves"] or 0) >= self.config.min_moves_for_valid
+                ]
+                move_counts = self._batch_count_moves(source_conn, candidate_ids)
+
             now = time.time()
 
-            for row in cursor:
+            for row in all_rows:
                 stats["scanned"] += 1
                 game_id = row["game_id"]
 
@@ -614,11 +630,9 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
                     stats["invalid"] += 1
                     continue
 
-                # December 2025: Verify actual move count in game_moves table
-                # This catches race conditions where games record has moves but
-                # game_moves table is incomplete
+                # December 29, 2025: Use pre-fetched move counts (O(1) lookup vs O(n) queries)
                 if self.config.validate_before_merge:
-                    actual_moves = self._count_actual_moves(source_conn, game_id)
+                    actual_moves = move_counts.get(game_id, 0)
                     if actual_moves < self.config.min_moves_for_valid:
                         logger.debug(
                             f"[DataConsolidationDaemon] Skipping {game_id}: "
@@ -671,6 +685,41 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
 
         return stats
 
+    def _batch_count_moves(
+        self,
+        conn: sqlite3.Connection,
+        game_ids: list[str],
+    ) -> dict[str, int]:
+        """Count actual moves for multiple games in a single query.
+
+        December 29, 2025: Optimized batch query to replace N+1 pattern.
+        Uses GROUP BY to fetch all move counts in O(1) round trips.
+
+        Args:
+            conn: SQLite connection to query
+            game_ids: List of game IDs to check
+
+        Returns:
+            Dict mapping game_id -> move count (0 if not found)
+        """
+        if not game_ids:
+            return {}
+
+        try:
+            # Batch query with GROUP BY - O(1) round trips vs O(n)
+            placeholders = ",".join("?" * len(game_ids))
+            cursor = conn.execute(
+                f"""SELECT game_id, COUNT(*) as move_count
+                    FROM game_moves
+                    WHERE game_id IN ({placeholders})
+                    GROUP BY game_id""",
+                game_ids,
+            )
+            return {row[0]: row[1] for row in cursor.fetchall()}
+        except sqlite3.Error as e:
+            logger.warning(f"[DataConsolidationDaemon] Error counting moves: {e}")
+            return {}
+
     def _count_actual_moves(
         self,
         conn: sqlite3.Connection,
@@ -681,6 +730,8 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
         December 2025: Added to catch race conditions where games record has
         total_moves set but game_moves table is incomplete (sync captured
         database mid-write).
+
+        Note: For batch operations, use _batch_count_moves() instead.
 
         Args:
             conn: SQLite connection to query
