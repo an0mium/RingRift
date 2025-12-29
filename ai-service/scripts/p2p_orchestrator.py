@@ -64,6 +64,24 @@ import socket
 import sqlite3
 import subprocess
 import sys
+
+# Safe database connection context manager (December 2025)
+try:
+    from app.distributed.db_utils import safe_db_connection
+except ImportError:
+    # Fallback for when db_utils isn't available
+    from contextlib import contextmanager as _cm
+    @_cm
+    def safe_db_connection(db_path, timeout=30):
+        conn = sqlite3.connect(str(db_path), timeout=timeout)
+        try:
+            yield conn
+            conn.commit()
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 import threading
 import time
 import uuid

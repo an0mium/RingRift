@@ -922,3 +922,7 @@ def close_all_connections() -> None:
 
 # Register cleanup on module unload
 atexit.register(close_all_connections)
+
+
+# Alias for backward compatibility (used by p2p_orchestrator.py)
+safe_db_connection = safe_transaction

@@ -22,22 +22,12 @@ RingRift uses a unified event system to coordinate training pipeline components,
 
 ### Components
 
-<<<<<<< Updated upstream
-| Component | Location | Purpose | Persistence |
-|-----------|----------|---------|-------------|
-| **EventRouter** | `event_router.py` | Unified API, routes to all buses | In-memory |
-| **EventBus** | `data_events.py` | Training/data events | In-memory |
-| **StageEventBus** | `stage_events.py` | Pipeline stage completion | In-memory |
-| **CrossProcessEventQueue** | `cross_process_events.py` | Multi-process coordination | SQLite |
-=======
-| Component | Location | Purpose | Persistence |
+| Component                  | Location                  | Purpose                          | Persistence |
 | -------------------------- | ------------------------- | -------------------------------- | ----------- |
-| **EventRouter** | `event_router.py` | Unified API, routes to all buses | In-memory |
-| **EventBus** | `data_events.py` | Training/data events | In-memory |
-| **StageEventBus** | `stage_events.py` | Pipeline stage completion | In-memory |
-| **CrossProcessEventQueue** | `cross_process_events.py` | Multi-process coordination | SQLite |
-
-> > > > > > > Stashed changes
+| **EventRouter**            | `event_router.py`         | Unified API, routes to all buses | In-memory   |
+| **EventBus**               | `data_events.py`          | Training/data events             | In-memory   |
+| **StageEventBus**          | `stage_events.py`         | Pipeline stage completion        | In-memory   |
+| **CrossProcessEventQueue** | `cross_process_events.py` | Multi-process coordination       | SQLite      |
 
 ## Event Types
 
@@ -45,19 +35,11 @@ Events are defined in `DataEventType` enum (252 total, ~100 actively used):
 
 ### Training Events
 
-# <<<<<<< Updated upstream
-
-> > > > > > > Stashed changes
-
 - `TRAINING_STARTED`, `TRAINING_COMPLETED`, `TRAINING_FAILED`
 - `TRAINING_LOSS_TREND`, `TRAINING_LOSS_ANOMALY`
 - `TRAINING_EARLY_STOPPED`, `TRAINING_STALLED`
 
 ### Model Events
-
-# <<<<<<< Updated upstream
-
-> > > > > > > Stashed changes
 
 - `MODEL_PROMOTED`, `MODEL_REGISTERED`, `MODEL_DISTRIBUTED`
 - `PROMOTION_CANDIDATE`, `PROMOTION_FAILED`
@@ -65,29 +47,17 @@ Events are defined in `DataEventType` enum (252 total, ~100 actively used):
 
 ### Data Events
 
-# <<<<<<< Updated upstream
-
-> > > > > > > Stashed changes
-
 - `DATA_SYNC_COMPLETED`, `DATA_SYNC_FAILED`
 - `GAMES_GENERATED`, `NPZ_EXPORTED`
 - `QUALITY_SCORE_UPDATED`, `QUALITY_DEGRADED`
 
 ### Cluster Events
 
-# <<<<<<< Updated upstream
-
-> > > > > > > Stashed changes
-
 - `HOST_ONLINE`, `HOST_OFFLINE`
 - `LEADER_ELECTED`, `NODE_OVERLOADED`
 - `CLUSTER_CAPACITY_CHANGED`
 
 ### Daemon Events
-
-# <<<<<<< Updated upstream
-
-> > > > > > > Stashed changes
 
 - `DAEMON_STARTED`, `DAEMON_STOPPED`, `DAEMON_STATUS_CHANGED`
 
@@ -184,28 +154,15 @@ DATA_SYNC_COMPLETED    TRAINING_STARTED
 
 ### Feedback Loops (13 loops documented)
 
-<<<<<<< Updated upstream
-| Loop | Trigger | Handler | Action |
-|------|---------|---------|--------|
-| 1 | `MODEL_PROMOTED` | SelfplayScheduler | Adjust curriculum weights |
-| 2 | `TRAINING_LOSS_TREND` | FeedbackLoopController | Adjust exploration boost |
-| 3 | `QUALITY_DEGRADED` | QualityMonitorDaemon | Throttle data generation |
-| 4 | `ELO_VELOCITY_CHANGED` | CurriculumFeedback | Rebalance config priorities |
-| 5 | `EVALUATION_COMPLETED` | TrainingCoordinator | Adjust hyperparameters |
-| 6 | `REGRESSION_DETECTED` | RollbackManager | Auto-rollback to checkpoint |
-| ... | ... | ... | ... |
-=======
-| Loop | Trigger | Handler | Action |
+| Loop | Trigger                | Handler                | Action                      |
 | ---- | ---------------------- | ---------------------- | --------------------------- |
-| 1 | `MODEL_PROMOTED` | SelfplayScheduler | Adjust curriculum weights |
-| 2 | `TRAINING_LOSS_TREND` | FeedbackLoopController | Adjust exploration boost |
-| 3 | `QUALITY_DEGRADED` | QualityMonitorDaemon | Throttle data generation |
-| 4 | `ELO_VELOCITY_CHANGED` | CurriculumFeedback | Rebalance config priorities |
-| 5 | `EVALUATION_COMPLETED` | TrainingCoordinator | Adjust hyperparameters |
-| 6 | `REGRESSION_DETECTED` | RollbackManager | Auto-rollback to checkpoint |
-| ... | ... | ... | ... |
-
-> > > > > > > Stashed changes
+| 1    | `MODEL_PROMOTED`       | SelfplayScheduler      | Adjust curriculum weights   |
+| 2    | `TRAINING_LOSS_TREND`  | FeedbackLoopController | Adjust exploration boost    |
+| 3    | `QUALITY_DEGRADED`     | QualityMonitorDaemon   | Throttle data generation    |
+| 4    | `ELO_VELOCITY_CHANGED` | CurriculumFeedback     | Rebalance config priorities |
+| 5    | `EVALUATION_COMPLETED` | TrainingCoordinator    | Adjust hyperparameters      |
+| 6    | `REGRESSION_DETECTED`  | RollbackManager        | Auto-rollback to checkpoint |
+| ...  | ...                    | ...                    | ...                         |
 
 ## Cross-Process Events
 
@@ -306,26 +263,14 @@ await publish(DataEventType.TRAINING_COMPLETED, payload, source="my_module")
 
 ## Files
 
-<<<<<<< Updated upstream
-| File | Purpose |
-|------|---------|
-| `app/coordination/event_router.py` | Unified router (main entry point) |
-| `app/distributed/data_events.py` | DataEventType enum, EventBus, emit functions |
-| `app/coordination/stage_events.py` | Pipeline stage events |
-| `app/coordination/cross_process_events.py` | SQLite-backed cross-process queue |
-| `app/coordination/event_normalization.py` | Event type normalization utilities |
-| `app/coordination/event_emitters.py` | Convenience emit functions |
-=======
-| File | Purpose |
+| File                                       | Purpose                                      |
 | ------------------------------------------ | -------------------------------------------- |
-| `app/coordination/event_router.py` | Unified router (main entry point) |
-| `app/distributed/data_events.py` | DataEventType enum, EventBus, emit functions |
-| `app/coordination/stage_events.py` | Pipeline stage events |
-| `app/coordination/cross_process_events.py` | SQLite-backed cross-process queue |
-| `app/coordination/event_normalization.py` | Event type normalization utilities |
-| `app/coordination/event_emitters.py` | Convenience emit functions |
-
-> > > > > > > Stashed changes
+| `app/coordination/event_router.py`         | Unified router (main entry point)            |
+| `app/distributed/data_events.py`           | DataEventType enum, EventBus, emit functions |
+| `app/coordination/stage_events.py`         | Pipeline stage events                        |
+| `app/coordination/cross_process_events.py` | SQLite-backed cross-process queue            |
+| `app/coordination/event_normalization.py`  | Event type normalization utilities           |
+| `app/coordination/event_emitters.py`       | Convenience emit functions                   |
 
 ## See Also
 

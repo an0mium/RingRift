@@ -1510,3 +1510,645 @@ class TestConstants:
     def test_min_games_per_allocation_positive(self):
         """Minimum games per allocation is positive."""
         assert MIN_GAMES_PER_ALLOCATION > 0
+
+
+# =============================================================================
+# December 29, 2025 Feature Tests
+# =============================================================================
+
+
+class TestDynamicWeightsDataclass:
+    """Tests for DynamicWeights dataclass (Dec 29, 2025)."""
+
+    def test_default_values(self):
+        """Test default DynamicWeights values."""
+        from app.coordination.selfplay_scheduler import (
+            DynamicWeights,
+            STALENESS_WEIGHT,
+            ELO_VELOCITY_WEIGHT,
+            TRAINING_NEED_WEIGHT,
+            EXPLORATION_BOOST_WEIGHT,
+            CURRICULUM_WEIGHT,
+            IMPROVEMENT_BOOST_WEIGHT,
+            DATA_DEFICIT_WEIGHT,
+            QUALITY_WEIGHT,
+            VOI_WEIGHT,
+        )
+
+        weights = DynamicWeights()
+
+        # Check weight fields have correct defaults
+        assert weights.staleness == STALENESS_WEIGHT
+        assert weights.velocity == ELO_VELOCITY_WEIGHT
+        assert weights.training == TRAINING_NEED_WEIGHT
+        assert weights.exploration == EXPLORATION_BOOST_WEIGHT
+        assert weights.curriculum == CURRICULUM_WEIGHT
+        assert weights.improvement == IMPROVEMENT_BOOST_WEIGHT
+        assert weights.data_deficit == DATA_DEFICIT_WEIGHT
+        assert weights.quality == QUALITY_WEIGHT
+        assert weights.voi == VOI_WEIGHT
+
+        # Check cluster state fields
+        assert weights.idle_gpu_fraction == 0.0
+        assert weights.training_queue_depth == 0
+        assert weights.configs_at_target_fraction == 0.0
+        assert weights.average_elo == 1500.0
+
+    def test_custom_values(self):
+        """Test DynamicWeights with custom values."""
+        from app.coordination.selfplay_scheduler import DynamicWeights
+
+        weights = DynamicWeights(
+            staleness=0.3,
+            velocity=0.2,
+            training=0.15,
+            idle_gpu_fraction=0.5,
+            training_queue_depth=10,
+            configs_at_target_fraction=0.25,
+            average_elo=1800.0,
+        )
+
+        assert weights.staleness == 0.3
+        assert weights.velocity == 0.2
+        assert weights.training == 0.15
+        assert weights.idle_gpu_fraction == 0.5
+        assert weights.training_queue_depth == 10
+        assert weights.configs_at_target_fraction == 0.25
+        assert weights.average_elo == 1800.0
+
+    def test_to_dict(self):
+        """Test DynamicWeights.to_dict() method."""
+        from app.coordination.selfplay_scheduler import DynamicWeights
+
+        weights = DynamicWeights(
+            staleness=0.25,
+            velocity=0.15,
+            idle_gpu_fraction=0.3,
+            average_elo=1700.0,
+        )
+
+        result = weights.to_dict()
+
+        assert isinstance(result, dict)
+        assert result["staleness"] == 0.25
+        assert result["velocity"] == 0.15
+        assert result["idle_gpu_fraction"] == 0.3
+        assert result["average_elo"] == 1700.0
+
+        # Should have all weight keys
+        expected_keys = [
+            "staleness", "velocity", "training", "exploration",
+            "curriculum", "improvement", "data_deficit", "quality", "voi",
+            "idle_gpu_fraction", "training_queue_depth",
+            "configs_at_target_fraction", "average_elo",
+        ]
+        for key in expected_keys:
+            assert key in result
+
+
+class TestConfigPriorityVOIProperties:
+    """Tests for VOI-related ConfigPriority properties (Dec 29, 2025)."""
+
+    def test_player_count_2p(self):
+        """Test player_count extraction for 2-player config."""
+        priority = ConfigPriority(config_key="hex8_2p")
+        assert priority.player_count == 2
+
+    def test_player_count_3p(self):
+        """Test player_count extraction for 3-player config."""
+        priority = ConfigPriority(config_key="square19_3p")
+        assert priority.player_count == 3
+
+    def test_player_count_4p(self):
+        """Test player_count extraction for 4-player config."""
+        priority = ConfigPriority(config_key="hexagonal_4p")
+        assert priority.player_count == 4
+
+    def test_player_count_invalid_format(self):
+        """Test player_count fallback for invalid format."""
+        priority = ConfigPriority(config_key="invalid")
+        assert priority.player_count == 2  # Default fallback
+
+    def test_elo_gap_below_target(self):
+        """Test elo_gap when below target."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            current_elo=1500.0,
+            target_elo=2000.0,
+        )
+        assert priority.elo_gap == 500.0
+
+    def test_elo_gap_at_target(self):
+        """Test elo_gap when at target."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            current_elo=2000.0,
+            target_elo=2000.0,
+        )
+        assert priority.elo_gap == 0.0
+
+    def test_elo_gap_above_target(self):
+        """Test elo_gap clamped to 0 when above target."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            current_elo=2100.0,
+            target_elo=2000.0,
+        )
+        assert priority.elo_gap == 0.0  # Can't be negative
+
+    def test_info_gain_per_game_no_games(self):
+        """Test info_gain_per_game with no games (max info)."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            game_count=0,
+            elo_uncertainty=200.0,
+        )
+        assert priority.info_gain_per_game == 200.0  # Full uncertainty
+
+    def test_info_gain_per_game_with_games(self):
+        """Test info_gain_per_game decreases with sqrt(n)."""
+        import math
+
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            game_count=100,
+            elo_uncertainty=200.0,
+        )
+        expected = 200.0 / math.sqrt(100)  # = 20.0
+        assert abs(priority.info_gain_per_game - expected) < 0.01
+
+    def test_voi_score_high_uncertainty(self):
+        """Test VOI score with high uncertainty."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            elo_uncertainty=300.0,  # Max (normalized to 1.0)
+            current_elo=1500.0,
+            target_elo=2000.0,  # 500 gap (normalized to 1.0)
+            game_count=0,  # Max info gain
+        )
+        # voi_score = 1.0 * 0.4 + 1.0 * 0.3 + 1.0 * 0.3 = 1.0 (max)
+        assert priority.voi_score > 0.9  # Near max
+
+    def test_voi_score_low_uncertainty(self):
+        """Test VOI score with low uncertainty (at target)."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            elo_uncertainty=30.0,  # Low (normalized to 0.1)
+            current_elo=2000.0,
+            target_elo=2000.0,  # No gap
+            game_count=1000,  # Many games = low info gain
+        )
+        # All factors near minimum
+        assert priority.voi_score < 0.3
+
+
+class TestGameCountNormalization:
+    """Tests for game count normalization (Dec 29, 2025)."""
+
+    def test_games_needed_defaults(self):
+        """Test games_needed with default values."""
+        priority = ConfigPriority(config_key="hex8_2p")
+        # Default target_training_samples = 100000, samples_per_game = 50
+        # games_needed = 100000 / 50 = 2000
+        assert priority.games_needed == 2000
+
+    def test_games_needed_with_existing_games(self):
+        """Test games_needed subtracts existing games."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            game_count=500,
+            target_training_samples=100000,
+            samples_per_game_estimate=50.0,
+        )
+        # Current samples = 500 * 50 = 25000
+        # Remaining = 100000 - 25000 = 75000
+        # Games needed = 75000 / 50 = 1500
+        assert priority.games_needed == 1500
+
+    def test_games_needed_target_met(self):
+        """Test games_needed returns 0 when target met."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            game_count=2500,
+            target_training_samples=100000,
+            samples_per_game_estimate=50.0,
+        )
+        # Current samples = 2500 * 50 = 125000 > 100000
+        assert priority.games_needed == 0
+
+    def test_games_needed_zero_samples_per_game(self):
+        """Test games_needed handles zero samples_per_game."""
+        priority = ConfigPriority(
+            config_key="hex8_2p",
+            samples_per_game_estimate=0.0,
+        )
+        assert priority.games_needed == 0  # Avoid division by zero
+
+    def test_set_target_training_samples(self):
+        """Test set_target_training_samples method."""
+        scheduler = SelfplayScheduler()
+
+        scheduler.set_target_training_samples("hex8_2p", 50000)
+
+        priority = scheduler._config_priorities["hex8_2p"]
+        assert priority.target_training_samples == 50000
+
+    def test_set_target_training_samples_unknown_config(self):
+        """Test set_target_training_samples creates new config."""
+        scheduler = SelfplayScheduler()
+
+        scheduler.set_target_training_samples("new_config_7p", 25000)
+
+        assert "new_config_7p" in scheduler._config_priorities
+        assert scheduler._config_priorities["new_config_7p"].target_training_samples == 25000
+
+    def test_get_games_needed(self):
+        """Test get_games_needed method."""
+        scheduler = SelfplayScheduler()
+        scheduler._config_priorities["hex8_2p"].target_training_samples = 50000
+        scheduler._config_priorities["hex8_2p"].game_count = 100
+        scheduler._config_priorities["hex8_2p"].samples_per_game_estimate = 50.0
+
+        # 50000 - (100 * 50) = 45000 / 50 = 900
+        assert scheduler.get_games_needed("hex8_2p") == 900
+
+    def test_get_games_needed_unknown_config(self):
+        """Test get_games_needed returns 0 for unknown config."""
+        scheduler = SelfplayScheduler()
+        assert scheduler.get_games_needed("unknown_config") == 0
+
+    def test_get_all_games_needed(self):
+        """Test get_all_games_needed method."""
+        scheduler = SelfplayScheduler()
+
+        result = scheduler.get_all_games_needed()
+
+        assert isinstance(result, dict)
+        # Should include all configs from ALL_CONFIGS
+        assert "hex8_2p" in result
+        assert "square8_4p" in result
+
+
+class TestAdaptiveBudget:
+    """Tests for _get_adaptive_budget_for_elo (Dec 29, 2025)."""
+
+    def test_budget_low_elo(self):
+        """Test budget for low Elo (<1500)."""
+        from app.coordination.selfplay_scheduler import GUMBEL_BUDGET_STANDARD
+
+        scheduler = SelfplayScheduler()
+        budget = scheduler._get_adaptive_budget_for_elo(1200.0)
+
+        assert budget == GUMBEL_BUDGET_STANDARD
+
+    def test_budget_medium_elo(self):
+        """Test budget for medium Elo (1500-1800)."""
+        from app.coordination.selfplay_scheduler import GUMBEL_BUDGET_QUALITY
+
+        scheduler = SelfplayScheduler()
+        budget = scheduler._get_adaptive_budget_for_elo(1650.0)
+
+        assert budget == GUMBEL_BUDGET_QUALITY
+
+    def test_budget_high_elo(self):
+        """Test budget for high Elo (1800-2000)."""
+        from app.coordination.selfplay_scheduler import GUMBEL_BUDGET_ULTIMATE
+
+        scheduler = SelfplayScheduler()
+        budget = scheduler._get_adaptive_budget_for_elo(1900.0)
+
+        assert budget == GUMBEL_BUDGET_ULTIMATE
+
+    def test_budget_master_elo(self):
+        """Test budget for master Elo (>=2000)."""
+        from app.coordination.selfplay_scheduler import GUMBEL_BUDGET_MASTER
+
+        scheduler = SelfplayScheduler()
+        budget = scheduler._get_adaptive_budget_for_elo(2100.0)
+
+        assert budget == GUMBEL_BUDGET_MASTER
+
+    def test_budget_boundary_1500(self):
+        """Test budget at 1500 boundary."""
+        from app.coordination.selfplay_scheduler import GUMBEL_BUDGET_QUALITY
+
+        scheduler = SelfplayScheduler()
+        budget = scheduler._get_adaptive_budget_for_elo(1500.0)
+
+        assert budget == GUMBEL_BUDGET_QUALITY
+
+    def test_budget_boundary_1800(self):
+        """Test budget at 1800 boundary."""
+        from app.coordination.selfplay_scheduler import GUMBEL_BUDGET_ULTIMATE
+
+        scheduler = SelfplayScheduler()
+        budget = scheduler._get_adaptive_budget_for_elo(1800.0)
+
+        assert budget == GUMBEL_BUDGET_ULTIMATE
+
+    def test_budget_boundary_2000(self):
+        """Test budget at 2000 boundary."""
+        from app.coordination.selfplay_scheduler import GUMBEL_BUDGET_MASTER
+
+        scheduler = SelfplayScheduler()
+        budget = scheduler._get_adaptive_budget_for_elo(2000.0)
+
+        assert budget == GUMBEL_BUDGET_MASTER
+
+
+class TestDynamicWeightsComputation:
+    """Tests for _compute_dynamic_weights method (Dec 29, 2025)."""
+
+    def test_rate_limiting(self):
+        """Test that weight computation is rate-limited."""
+        scheduler = SelfplayScheduler()
+
+        # First call computes weights
+        weights1 = scheduler._compute_dynamic_weights()
+
+        # Immediate second call returns cached weights
+        weights2 = scheduler._compute_dynamic_weights()
+
+        # Should be the same object (cached)
+        assert weights1 is weights2
+
+    def test_idle_gpu_fraction_calculation(self):
+        """Test idle GPU fraction is computed from node capabilities."""
+        scheduler = SelfplayScheduler()
+
+        # Set up node capabilities - 2 idle GPU nodes out of 4 = 50%
+        scheduler._node_capabilities = {
+            "node1": NodeCapability(node_id="node1", gpu_memory_gb=80.0, current_jobs=0),
+            "node2": NodeCapability(node_id="node2", gpu_memory_gb=80.0, current_jobs=2),
+            "node3": NodeCapability(node_id="node3", gpu_memory_gb=48.0, current_jobs=0),
+            "node4": NodeCapability(node_id="node4", gpu_memory_gb=24.0, current_jobs=1),
+        }
+
+        # Force weight update
+        scheduler._last_dynamic_weights_update = 0
+
+        weights = scheduler._compute_dynamic_weights()
+
+        assert weights.idle_gpu_fraction == 0.5
+
+    def test_high_idle_gpus_boosts_staleness(self):
+        """Test that high idle GPU fraction boosts staleness weight."""
+        from app.coordination.selfplay_scheduler import STALENESS_WEIGHT
+
+        scheduler = SelfplayScheduler()
+
+        # Set up many idle GPUs (>50%)
+        scheduler._node_capabilities = {
+            f"node{i}": NodeCapability(
+                node_id=f"node{i}",
+                gpu_memory_gb=80.0,
+                current_jobs=0 if i < 6 else 1,  # 6 idle out of 8
+            )
+            for i in range(8)
+        }
+
+        scheduler._last_dynamic_weights_update = 0
+        weights = scheduler._compute_dynamic_weights()
+
+        # Staleness should be boosted (but bounded)
+        assert weights.staleness >= STALENESS_WEIGHT
+
+    def test_configs_at_target_fraction(self):
+        """Test configs at target fraction calculation."""
+        scheduler = SelfplayScheduler()
+
+        # Set 3 of 12 configs at target Elo
+        for i, (cfg, priority) in enumerate(scheduler._config_priorities.items()):
+            priority.current_elo = 2100.0 if i < 3 else 1500.0
+
+        scheduler._last_dynamic_weights_update = 0
+        weights = scheduler._compute_dynamic_weights()
+
+        assert weights.configs_at_target_fraction == 3 / 12
+
+    def test_average_elo_calculation(self):
+        """Test average Elo calculation."""
+        scheduler = SelfplayScheduler()
+
+        # Set varied Elos
+        elos = [1400, 1500, 1600, 1700, 1800, 1900, 1500, 1600, 1700, 1500, 1600, 1700]
+        for cfg, elo in zip(scheduler._config_priorities.keys(), elos):
+            scheduler._config_priorities[cfg].current_elo = float(elo)
+
+        scheduler._last_dynamic_weights_update = 0
+        weights = scheduler._compute_dynamic_weights()
+
+        expected_avg = sum(elos) / len(elos)
+        assert abs(weights.average_elo - expected_avg) < 1.0
+
+
+class TestEloVelocityTracking:
+    """Tests for Elo velocity tracking (Dec 29, 2025)."""
+
+    def test_get_elo_velocity_unknown_config(self):
+        """Test get_elo_velocity returns 0 for unknown config."""
+        scheduler = SelfplayScheduler()
+        assert scheduler.get_elo_velocity("unknown_config") == 0.0
+
+    def test_on_elo_updated_initializes_history(self):
+        """Test _on_elo_updated initializes history for new config."""
+        scheduler = SelfplayScheduler()
+
+        event = {"config_key": "hex8_2p", "new_elo": 1600.0}
+        scheduler._on_elo_updated(event)
+
+        assert "hex8_2p" in scheduler._elo_history
+        assert len(scheduler._elo_history["hex8_2p"]) == 1
+
+    def test_on_elo_updated_tracks_multiple_points(self):
+        """Test _on_elo_updated accumulates history."""
+        scheduler = SelfplayScheduler()
+
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 1500.0})
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 1550.0})
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 1600.0})
+
+        assert len(scheduler._elo_history["hex8_2p"]) == 3
+
+    def test_velocity_calculation_requires_minimum_time(self):
+        """Test velocity needs at least 30 min of data."""
+        scheduler = SelfplayScheduler()
+
+        # Two points but too close in time
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 1500.0})
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 1600.0})
+
+        # Velocity should not be computed yet (needs 30min)
+        # But history is tracked
+        assert len(scheduler._elo_history["hex8_2p"]) == 2
+
+    def test_velocity_calculation_with_time_spread(self):
+        """Test velocity calculation with sufficient time spread."""
+        import time as time_module
+
+        scheduler = SelfplayScheduler()
+
+        # Manually insert history with time spread
+        now = time_module.time()
+        scheduler._elo_history["hex8_2p"] = [
+            (now - 7200, 1500.0),  # 2 hours ago
+            (now, 1600.0),  # Now
+        ]
+
+        # Trigger velocity calculation
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 1600.0})
+
+        # Velocity should be ~50 Elo/hour (100 over 2 hours)
+        velocity = scheduler.get_elo_velocity("hex8_2p")
+        assert abs(velocity - 50.0) < 5.0
+
+    def test_history_pruning_24h(self):
+        """Test history older than 24h is pruned."""
+        import time as time_module
+
+        scheduler = SelfplayScheduler()
+
+        now = time_module.time()
+        # Insert old and recent data
+        scheduler._elo_history["hex8_2p"] = [
+            (now - 100000, 1400.0),  # >24h ago (should be pruned)
+            (now - 3600, 1500.0),    # 1h ago (should be kept)
+        ]
+
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 1550.0})
+
+        # Old entry should be pruned
+        assert len(scheduler._elo_history["hex8_2p"]) == 2  # Only recent entries
+
+    def test_on_elo_updated_ignores_invalid_payload(self):
+        """Test _on_elo_updated ignores invalid payloads."""
+        scheduler = SelfplayScheduler()
+
+        # Empty config
+        scheduler._on_elo_updated({"config_key": "", "new_elo": 1500.0})
+        assert len(scheduler._elo_history) == 0
+
+        # Zero Elo
+        scheduler._on_elo_updated({"config_key": "hex8_2p", "new_elo": 0.0})
+        assert "hex8_2p" not in scheduler._elo_history
+
+    def test_on_elo_updated_handles_event_with_payload_attr(self):
+        """Test _on_elo_updated handles event objects with payload attribute."""
+        scheduler = SelfplayScheduler()
+
+        class MockEvent:
+            payload = {"config_key": "hex8_2p", "new_elo": 1650.0}
+
+        scheduler._on_elo_updated(MockEvent())
+
+        assert "hex8_2p" in scheduler._elo_history
+
+
+class TestComputeTargetGames:
+    """Tests for _compute_target_games method (Dec 29, 2025)."""
+
+    def test_target_games_at_target_elo(self):
+        """Test target games is 0 when at target Elo."""
+        scheduler = SelfplayScheduler()
+
+        result = scheduler._compute_target_games("hex8_2p", 1900.0)
+
+        assert result == 0
+
+    def test_target_games_above_target_elo(self):
+        """Test target games is 0 when above target Elo."""
+        scheduler = SelfplayScheduler()
+
+        result = scheduler._compute_target_games("hex8_2p", 2100.0)
+
+        assert result == 0
+
+    def test_target_games_below_target(self):
+        """Test target games calculation below target."""
+        scheduler = SelfplayScheduler()
+
+        # 400 Elo gap * 500 base = 200,000 base
+        result = scheduler._compute_target_games("hex8_2p", 1500.0)
+
+        # Should be > 0 and proportional to gap
+        assert result > 0
+        assert result > scheduler._compute_target_games("hex8_2p", 1700.0)
+
+    def test_target_games_board_difficulty_scaling(self):
+        """Test larger boards need more target games."""
+        scheduler = SelfplayScheduler()
+
+        hex8_target = scheduler._compute_target_games("hex8_2p", 1500.0)
+        square19_target = scheduler._compute_target_games("square19_2p", 1500.0)
+
+        # square19 is larger board, should need more games
+        assert square19_target > hex8_target
+
+
+class TestDynamicWeightBounds:
+    """Tests for DYNAMIC_WEIGHT_BOUNDS constants (Dec 29, 2025)."""
+
+    def test_bounds_defined_for_key_weights(self):
+        """Test bounds are defined for key weight types."""
+        from app.coordination.selfplay_scheduler import DYNAMIC_WEIGHT_BOUNDS
+
+        assert "staleness" in DYNAMIC_WEIGHT_BOUNDS
+        assert "velocity" in DYNAMIC_WEIGHT_BOUNDS
+        assert "curriculum" in DYNAMIC_WEIGHT_BOUNDS
+
+    def test_bounds_are_tuples(self):
+        """Test bounds are (min, max) tuples."""
+        from app.coordination.selfplay_scheduler import DYNAMIC_WEIGHT_BOUNDS
+
+        for name, bounds in DYNAMIC_WEIGHT_BOUNDS.items():
+            assert isinstance(bounds, tuple)
+            assert len(bounds) == 2
+            min_val, max_val = bounds
+            assert min_val < max_val
+
+    def test_bounds_are_reasonable(self):
+        """Test bounds are within 0-1 range."""
+        from app.coordination.selfplay_scheduler import DYNAMIC_WEIGHT_BOUNDS
+
+        for name, (min_val, max_val) in DYNAMIC_WEIGHT_BOUNDS.items():
+            assert 0.0 <= min_val <= 1.0
+            assert 0.0 <= max_val <= 1.0
+
+
+class TestDec29Constants:
+    """Tests for Dec 29, 2025 threshold constants."""
+
+    def test_idle_gpu_thresholds(self):
+        """Test idle GPU threshold values."""
+        from app.coordination.selfplay_scheduler import (
+            IDLE_GPU_HIGH_THRESHOLD,
+            IDLE_GPU_LOW_THRESHOLD,
+        )
+
+        assert IDLE_GPU_LOW_THRESHOLD < IDLE_GPU_HIGH_THRESHOLD
+        assert 0.0 <= IDLE_GPU_LOW_THRESHOLD <= 1.0
+        assert 0.0 <= IDLE_GPU_HIGH_THRESHOLD <= 1.0
+
+    def test_training_queue_threshold(self):
+        """Test training queue threshold is positive."""
+        from app.coordination.selfplay_scheduler import TRAINING_QUEUE_HIGH_THRESHOLD
+
+        assert TRAINING_QUEUE_HIGH_THRESHOLD > 0
+
+    def test_elo_thresholds_ordered(self):
+        """Test Elo thresholds are properly ordered."""
+        from app.coordination.selfplay_scheduler import (
+            ELO_MEDIUM_THRESHOLD,
+            ELO_HIGH_THRESHOLD,
+        )
+
+        assert ELO_MEDIUM_THRESHOLD < ELO_HIGH_THRESHOLD
+
+    def test_configs_at_target_threshold(self):
+        """Test configs at target threshold is 0-1."""
+        from app.coordination.selfplay_scheduler import CONFIGS_AT_TARGET_THRESHOLD
+
+        assert 0.0 <= CONFIGS_AT_TARGET_THRESHOLD <= 1.0
+
+
+# Run with: pytest tests/unit/coordination/test_selfplay_scheduler.py -v -k "Dec29 or DynamicWeights or VOI or GameCount or AdaptiveBudget or EloVelocity"

@@ -2159,6 +2159,9 @@ class SelfplayScheduler:
                 _safe_subscribe(DataEventType.BACKPRESSURE_ACTIVATED, self._on_backpressure_activated, "BACKPRESSURE_ACTIVATED")
             if hasattr(DataEventType, 'BACKPRESSURE_RELEASED'):
                 _safe_subscribe(DataEventType.BACKPRESSURE_RELEASED, self._on_backpressure_released, "BACKPRESSURE_RELEASED")
+            # Dec 29, 2025: Subscribe to NODE_OVERLOADED for per-node backpressure
+            if hasattr(DataEventType, 'NODE_OVERLOADED'):
+                _safe_subscribe(DataEventType.NODE_OVERLOADED, self._on_node_overloaded, "NODE_OVERLOADED")
 
             # Dec 29, 2025 - Phase 2: Subscribe to ELO_UPDATED for velocity tracking
             if hasattr(DataEventType, 'ELO_UPDATED'):
@@ -3273,6 +3276,56 @@ class SelfplayScheduler:
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling backpressure released: {e}")
 
+    def _on_node_overloaded(self, event: Any) -> None:
+        """Handle NODE_OVERLOADED - add backoff period for overloaded node.
+
+        Dec 29, 2025: When a node reports high CPU/GPU/memory utilization,
+        temporarily reduce job dispatch to that node.
+
+        Args:
+            event: Event with payload containing host, cpu_percent, gpu_percent,
+                   memory_percent, resource_type
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            host = payload.get("host", "")
+            cpu_pct = payload.get("cpu_percent", 0)
+            gpu_pct = payload.get("gpu_percent", 0)
+            memory_pct = payload.get("memory_percent", 0)
+            resource_type = payload.get("resource_type", "unknown")
+
+            if not host:
+                return
+
+            # Initialize overloaded nodes tracking if needed
+            if not hasattr(self, "_overloaded_nodes"):
+                self._overloaded_nodes: dict[str, float] = {}
+
+            # Add node to overloaded set with backoff timestamp (60 seconds default)
+            backoff_duration = 60.0
+            if resource_type == "consecutive_failures":
+                backoff_duration = 120.0  # Longer backoff for failures
+            elif resource_type == "memory":
+                backoff_duration = 90.0  # Memory issues take longer to resolve
+
+            import time
+            self._overloaded_nodes[host] = time.time() + backoff_duration
+
+            logger.warning(
+                f"[SelfplayScheduler] Node overloaded ({resource_type}): {host} - "
+                f"CPU={cpu_pct:.0f}%, GPU={gpu_pct:.0f}%, MEM={memory_pct:.0f}%, "
+                f"backoff={backoff_duration:.0f}s"
+            )
+
+            # Clean up expired backoffs
+            current_time = time.time()
+            expired = [n for n, t in self._overloaded_nodes.items() if t < current_time]
+            for n in expired:
+                del self._overloaded_nodes[n]
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling node overloaded: {e}")
+
     def _on_elo_updated(self, event: Any) -> None:
         """Handle ELO_UPDATED - track Elo history and compute velocity.
 
@@ -3637,12 +3690,60 @@ class SelfplayScheduler:
             "allocation_window_seconds": self._allocation_window_seconds,
         }
 
+    def is_node_under_backoff(self, node_id: str) -> bool:
+        """Check if a node is under backoff due to overload.
+
+        Dec 29, 2025: Used by job dispatch to avoid overloaded nodes.
+
+        Args:
+            node_id: Node identifier to check
+
+        Returns:
+            True if node is in backoff period, False otherwise
+        """
+        if not hasattr(self, "_overloaded_nodes"):
+            return False
+
+        import time
+        current_time = time.time()
+        backoff_until = self._overloaded_nodes.get(node_id, 0)
+        return backoff_until > current_time
+
+    def get_overloaded_nodes(self) -> list[str]:
+        """Get list of nodes currently under backoff.
+
+        Dec 29, 2025: Returns nodes that should be avoided for job dispatch.
+
+        Returns:
+            List of node IDs currently in backoff period
+        """
+        if not hasattr(self, "_overloaded_nodes"):
+            return []
+
+        import time
+        current_time = time.time()
+
+        # Clean up expired backoffs and return active ones
+        active = []
+        expired = []
+        for node_id, backoff_until in self._overloaded_nodes.items():
+            if backoff_until > current_time:
+                active.append(node_id)
+            else:
+                expired.append(node_id)
+
+        for node_id in expired:
+            del self._overloaded_nodes[node_id]
+
+        return active
+
     def get_status(self) -> dict[str, Any]:
         """Get scheduler status."""
         return {
             "subscribed": self._subscribed,
             "last_priority_update": self._last_priority_update,
             "node_count": len(self._node_capabilities),
+            "overloaded_nodes": self.get_overloaded_nodes(),
             "config_priorities": {
                 cfg: {
                     "priority_score": p.priority_score,

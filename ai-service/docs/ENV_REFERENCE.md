@@ -3,7 +3,7 @@
 This document provides a curated reference for commonly used `RINGRIFT_*` environment variables in the RingRift AI training infrastructure. For a full listing, see `ENV_REFERENCE_COMPREHENSIVE.md`.
 
 **Created**: December 28, 2025
-**Canonical Source**: `app/config/env.py`
+**Primary Source**: `app/config/env.py` (some coordination flags are read directly by their modules)
 
 ---
 

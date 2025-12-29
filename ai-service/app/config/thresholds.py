@@ -1762,7 +1762,7 @@ COORDINATION_LOCK_TIMEOUT = 60
 QUEUE_POLL_INTERVAL = 5
 
 # Event handler timeout (seconds)
-EVENT_HANDLER_TIMEOUT = 30
+EVENT_HANDLER_TIMEOUT = 600
 
 # Work timeout for async tasks (seconds)
 WORK_TIMEOUT = 300
