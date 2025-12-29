@@ -727,8 +727,59 @@ class GameReplayDB:
         # Ensure parent directory exists
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Track whether database has been closed
+        self._closed = False
+
         # Initialize schema
         self._init_schema()
+
+    def __enter__(self) -> "GameReplayDB":
+        """Context manager entry - returns self for use in with statements."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Context manager exit - cleanup on exit.
+
+        Performs WAL checkpoint before closing to prevent unbounded WAL growth.
+        Returns False to propagate any exceptions.
+        """
+        self.close()
+        return False
+
+    def close(self) -> None:
+        """Close the database with proper cleanup.
+
+        Performs WAL checkpoint to flush pending writes and prevent WAL lock issues.
+        Safe to call multiple times.
+        """
+        if self._closed:
+            return
+
+        # Checkpoint WAL before closing to prevent unbounded growth
+        if self._journal_mode == "WAL":
+            try:
+                pages_before, pages_remaining = self.checkpoint_wal()
+                if pages_before > 0:
+                    logger.debug(
+                        f"Checkpointed WAL on close: {pages_before} pages, "
+                        f"{pages_remaining} remaining"
+                    )
+            except sqlite3.Error as e:
+                logger.warning(f"WAL checkpoint on close failed: {e}")
+
+        self._closed = True
+
+    def __del__(self) -> None:
+        """Destructor - ensure WAL is checkpointed on garbage collection.
+
+        This is a safety net; prefer explicit close() or context manager usage.
+        """
+        try:
+            if not getattr(self, "_closed", True):
+                self.close()
+        except Exception:
+            # Suppress errors during garbage collection
+            pass
 
     @contextmanager
     def _get_conn(self):

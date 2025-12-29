@@ -5,7 +5,7 @@ This document describes the data flow through the RingRift AI training pipeline,
 ## Pipeline Stages
 
 ```
-SELFPLAY → SYNC → NPZ_EXPORT → TRAINING → EVALUATION → PROMOTION
+SELFPLAY → SYNC → NPZ_EXPORT → NPZ_COMBINATION → TRAINING → EVALUATION → PROMOTION
 ```
 
 ### Stage 1: SELFPLAY
@@ -57,8 +57,14 @@ SELFPLAY → SYNC → NPZ_EXPORT → TRAINING → EVALUATION → PROMOTION
 
 **Events**:
 
-- Subscribes to: `NEW_GAMES_AVAILABLE`, `TRAINING_STARTED`, `NODE_RECOVERED`
+- Subscribes to: `NEW_GAMES_AVAILABLE`, `TRAINING_STARTED`, `NODE_RECOVERED`, `DATA_STALE`, `SYNC_REQUEST`
 - Emits: `DATA_SYNC_STARTED`, `DATA_SYNC_COMPLETED`, `DATA_SYNC_FAILED`
+
+### Cross-cutting: Data Freshness Gate
+
+`TrainingFreshness` emits `DATA_STALE` / `DATA_FRESH` when training data ages past
+the configured threshold. `DATA_STALE` triggers a priority sync (`SYNC_REQUEST`)
+and `TrainingTriggerDaemon` blocks training until data is fresh again.
 
 ### Stage 3: NPZ_EXPORT
 
@@ -82,11 +88,36 @@ SELFPLAY → SYNC → NPZ_EXPORT → TRAINING → EVALUATION → PROMOTION
   - `features`: Board state tensors
   - `policy_targets`: Move probability distributions
   - `value_targets`: Game outcome values
+  - `sample_weights` + `timestamps` when `--quality-weighted` is enabled
 
 **Events**:
 
 - Triggered by: `DATA_SYNC_COMPLETED` (via DataPipelineOrchestrator)
 - Emits: `NPZ_EXPORT_COMPLETE`
+
+### Stage 3b: NPZ_COMBINATION (Optional)
+
+**Purpose**: Combine multiple NPZ files into a single quality-weighted dataset.
+
+**Components**:
+
+- `NPZCombinationDaemon` - Orchestrates combination after export
+- `npz_combiner.py` - Quality + freshness weighting and deduplication
+
+**Inputs**:
+
+- One or more NPZ export files for the config
+
+**Outputs**:
+
+- Combined NPZ file (typically `{config}_combined.npz`)
+
+**Events**:
+
+- Triggered by: `NPZ_EXPORT_COMPLETE`
+- Emits: `NPZ_COMBINATION_STARTED`, `NPZ_COMBINATION_COMPLETE`, `NPZ_COMBINATION_FAILED`
+
+If combination fails, the pipeline falls back to training on the latest export.
 
 ### Stage 4: TRAINING
 
@@ -191,6 +222,11 @@ SELFPLAY → SYNC → NPZ_EXPORT → TRAINING → EVALUATION → PROMOTION
                     │   NPZ Export      │
                     └─────────┬─────────┘
                               │ NPZ_EXPORT_COMPLETE
+                              ▼
+                    ┌─────────────────┐
+                    │ NPZ Combination  │
+                    └─────────┬─────────┘
+                              │ NPZ_COMBINATION_COMPLETE
                               ▼
                     ┌─────────────────┐
                     │   Training        │
