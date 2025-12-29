@@ -234,17 +234,18 @@ class OWCMirror:
             if not local_path.exists():
                 continue
 
-            # Get directory size
+            # Get directory size (cross-platform: macOS uses -sk, Linux uses -sb)
             try:
+                # Try Linux-style first (bytes), fallback to macOS (kilobytes)
                 result = subprocess.run(
-                    ["du", "-sb", str(local_path)],
+                    ["du", "-sk", str(local_path)],
                     capture_output=True,
                     text=True,
-                    timeout=60,
+                    timeout=120,
                 )
                 if result.returncode == 0:
-                    size_bytes = int(result.stdout.split()[0])
-                    size_gb = size_bytes / (1024**3)
+                    size_kb = int(result.stdout.split()[0])
+                    size_gb = size_kb / (1024**2)
 
                     if sync_dir.tier <= 2:
                         monthly_cost = size_gb * standard_per_gb
