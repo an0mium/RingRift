@@ -51,6 +51,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+# Ensure AWS CLI is in PATH (pip-installed version on mac-studio)
+_aws_paths = [
+    os.path.expanduser("~/Library/Python/3.9/bin"),
+    os.path.expanduser("~/Library/Python/3.10/bin"),
+    os.path.expanduser("~/Library/Python/3.11/bin"),
+    "/usr/local/bin",
+    "/opt/homebrew/bin",
+]
+for _path in _aws_paths:
+    if _path not in os.environ.get("PATH", "") and os.path.exists(_path):
+        os.environ["PATH"] = f"{_path}:{os.environ.get('PATH', '')}"
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -502,9 +514,9 @@ class OWCMirror:
         # Check S3 bucket access
         try:
             result = subprocess.run(
-                ["aws", "s3", "ls", f"s3://{self.config.s3_bucket}/", "--max-items", "1"],
+                ["aws", "s3", "ls", f"s3://{self.config.s3_bucket}/"],
                 capture_output=True,
-                timeout=30,
+                timeout=60,
             )
             if result.returncode != 0:
                 errors.append(f"Cannot access S3 bucket: {self.config.s3_bucket}")
