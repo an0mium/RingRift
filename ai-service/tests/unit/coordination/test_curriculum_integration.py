@@ -430,3 +430,17 @@ class TestCurriculumAdvancementHandler:
 
         # Should not raise, just log warning
         bridge._on_curriculum_advancement_needed(mock_event)
+
+    def test_curriculum_advancement_needed_event_exists(self):
+        """CURRICULUM_ADVANCEMENT_NEEDED event type exists in DataEventType."""
+        from app.distributed.data_events import DataEventType
+
+        assert hasattr(DataEventType, 'CURRICULUM_ADVANCEMENT_NEEDED')
+        assert DataEventType.CURRICULUM_ADVANCEMENT_NEEDED.value == "curriculum_advancement_needed"
+
+    def test_curriculum_advanced_event_exists(self):
+        """CURRICULUM_ADVANCED event type exists in DataEventType."""
+        from app.distributed.data_events import DataEventType
+
+        assert hasattr(DataEventType, 'CURRICULUM_ADVANCED')
+        assert DataEventType.CURRICULUM_ADVANCED.value == "curriculum_advanced"
