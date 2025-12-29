@@ -1269,6 +1269,13 @@ class P2POrchestrator(
         # Gossip-learned peer endpoints (Phase 28)
         self._gossip_learned_endpoints: dict[str, dict[str, Any]] = {}
 
+        # Phase 2.4 (Dec 29, 2025): Partition read-only mode
+        # When in minority partition, pause job dispatch to prevent data divergence
+        self._partition_readonly_mode: bool = False
+        self._partition_readonly_since: float = 0.0
+        self._last_partition_check: float = 0.0
+        self._partition_check_interval: float = 30.0  # Check every 30 seconds
+
         # Storage configuration: "disk", "ramdrive", or "auto" (detected)
         self.sync_to_disk_interval = sync_to_disk_interval
         self.ramdrive_path = "/dev/shm/ringrift/data"  # Standard ramdrive location
@@ -5336,6 +5343,111 @@ class P2POrchestrator(
             logger.info("Disabling Tailscale-priority mode (connectivity recovered)")
             self._tailscale_priority = False
 
+    # =========================================================================
+    # Partition Read-Only Mode (Phase 2.4 - Dec 29, 2025)
+    # =========================================================================
+
+    def _check_partition_mode(self) -> None:
+        """Check partition status and enable/disable read-only mode.
+
+        December 2025 (Phase 2.4): Prevent data divergence during network partitions.
+
+        When this node is in a minority partition (<50% of peers alive):
+        - Pause training job dispatch
+        - Pause selfplay job dispatch
+        - Continue serving existing data (read-only)
+        - Allow sync operations to help recovery
+
+        This prevents split-brain scenarios where both partitions continue
+        generating training data that later conflicts during merge.
+        """
+        now = time.time()
+
+        # Rate limit partition checks
+        if now - self._last_partition_check < self._partition_check_interval:
+            return
+        self._last_partition_check = now
+
+        # Use gossip protocol's partition detection
+        status, ratio = self.detect_partition_status()
+
+        if status in ("minority", "isolated"):
+            if not self._partition_readonly_mode:
+                logger.warning(
+                    f"[P2P] Entering partition read-only mode: "
+                    f"status={status}, health_ratio={ratio:.2%}"
+                )
+                self._partition_readonly_mode = True
+                self._partition_readonly_since = now
+
+                # Emit event for monitoring
+                self._safe_emit_event("PARTITION_READONLY_ENTERED", {
+                    "node_id": self.node_id,
+                    "status": status,
+                    "health_ratio": ratio,
+                    "timestamp": now,
+                })
+        else:
+            if self._partition_readonly_mode:
+                readonly_duration = now - self._partition_readonly_since
+                logger.info(
+                    f"[P2P] Exiting partition read-only mode: "
+                    f"status={status}, health_ratio={ratio:.2%}, "
+                    f"was_readonly_for={readonly_duration:.0f}s"
+                )
+                self._partition_readonly_mode = False
+                self._partition_readonly_since = 0.0
+
+                # Emit event for monitoring
+                self._safe_emit_event("PARTITION_READONLY_EXITED", {
+                    "node_id": self.node_id,
+                    "status": status,
+                    "health_ratio": ratio,
+                    "readonly_duration_seconds": readonly_duration,
+                    "timestamp": now,
+                })
+
+    def is_partition_readonly(self) -> bool:
+        """Check if this node is in partition read-only mode.
+
+        December 2025 (Phase 2.4): Query method for dispatch gates.
+
+        Returns:
+            True if job dispatch should be paused due to partition status.
+        """
+        # Do a fresh check if it's been a while
+        self._check_partition_mode()
+        return self._partition_readonly_mode
+
+    def get_partition_status(self) -> dict[str, Any]:
+        """Get current partition status details.
+
+        December 2025 (Phase 2.4): Status API for monitoring/debugging.
+
+        Returns:
+            Dict with partition status, mode, and duration.
+        """
+        status, ratio = self.detect_partition_status()
+        now = time.time()
+
+        result = {
+            "partition_status": status,
+            "health_ratio": round(ratio, 3),
+            "readonly_mode": self._partition_readonly_mode,
+            "readonly_since": self._partition_readonly_since,
+            "readonly_duration_seconds": (
+                now - self._partition_readonly_since
+                if self._partition_readonly_mode else 0.0
+            ),
+            "last_check": self._last_partition_check,
+        }
+
+        # Add detailed peer info if available
+        if hasattr(self, "get_partition_details"):
+            result["details"] = self.get_partition_details()
+
+        return result
+
     # _tailscale_urls_for_voter: Provided by NetworkUtilsMixin
 
     # NOTE: _is_in_startup_grace_period, _get_resource_usage, _check_nfs_accessible,
@@ -7746,6 +7858,12 @@ class P2POrchestrator(
             "timestamp": 0,
         })
 
+        # Phase 2.4 (Dec 29, 2025): Partition status for cluster monitoring
+        try:
+            partition_status = self.get_partition_status()
+        except Exception as e:  # noqa: BLE001
+            partition_status = {"error": str(e)}
+
         return web.json_response({
             "node_id": self.node_id,
             "role": self.role.value,
@@ -7775,6 +7893,7 @@ class P2POrchestrator(
             "data_dedup": data_dedup,
             "swim_raft": swim_raft_status,
             "event_subscriptions": event_subscriptions,
+            "partition": partition_status,
         })
 
     async def handle_external_work(self, request: web.Request) -> web.Response:
@@ -8454,6 +8573,21 @@ class P2POrchestrator(
         Uses run_hybrid_selfplay.py for GPU-accelerated game generation.
         """
         try:
+            # Phase 2.4 (Dec 29, 2025): Block dispatch if in partition readonly mode
+            if self.is_partition_readonly():
+                status = self.get_partition_status()
+                logger.warning(
+                    f"[P2P] Rejecting selfplay start: partition readonly mode "
+                    f"(status={status['partition_status']}, ratio={status['health_ratio']:.2%})"
+                )
+                return web.json_response({
+                    "success": False,
+                    "error": "Node is in partition readonly mode",
+                    "partition_status": status["partition_status"],
+                    "health_ratio": status["health_ratio"],
+                    "retry_after_seconds": 60,
+                }, status=503)
+
             data = await request.json()
             board_type = data.get("board_type", "square8")
             num_players = data.get("num_players", 2)
@@ -9814,7 +9948,7 @@ from app.training.initial_state import create_initial_state
 from app.rules import get_rules_engine
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.random_ai import RandomAI
-from app.ai.config import AIConfig
+from app.models import AIConfig
 import json
 import os
 
@@ -10141,6 +10275,11 @@ print(json.dumps(result))
     async def _check_and_trigger_training(self):
         """Periodic check for training readiness (leader only)."""
         if self.role != NodeRole.LEADER:
+            return
+
+        # Phase 2.4 (Dec 29, 2025): Skip training dispatch in partition readonly mode
+        if self.is_partition_readonly():
+            logger.debug("[P2P] Skipping training check: partition readonly mode")
             return
 
         current_time = time.time()
@@ -15337,6 +15476,50 @@ print(json.dumps(result))
                 })
                 logger.debug(f"  Process {i}: {profile['description']}")
 
+            # Dec 29, 2025: NAT-blocked node detection and work queue routing
+            # NAT-blocked nodes can't receive inbound HTTP connections, so we
+            # add work to the queue instead. WorkerPullLoop on the node will claim it.
+            is_nat_blocked = getattr(peer, "nat_blocked", False)
+            if is_nat_blocked:
+                try:
+                    from app.coordination.work_queue import WorkItem, WorkType, get_work_queue
+                    wq = get_work_queue()
+                    if wq is not None:
+                        queued_count = 0
+                        for cfg in job_configs:
+                            work_item = WorkItem(
+                                work_type=WorkType.SELFPLAY,
+                                priority=50,  # Normal priority for auto-idle work
+                                config={
+                                    **cfg,
+                                    "target_node": peer.node_id,  # Hint for WorkerPullLoop
+                                    "nat_blocked_dispatch": True,  # Mark as NAT-blocked dispatch
+                                },
+                                timeout_seconds=3600.0,  # 1 hour timeout
+                            )
+                            wq.add_work(work_item)
+                            queued_count += 1
+
+                        from collections import Counter
+                        engine_counts = Counter(cfg["engine_mode"] for cfg in job_configs)
+                        board_counts = Counter(cfg["board_type"] for cfg in job_configs)
+                        profile_summary = ", ".join(f"{k}:{v}" for k, v in engine_counts.items())
+                        board_summary = ", ".join(f"{k}:{v}" for k, v in board_counts.items())
+
+                        logger.info(
+                            f"NAT-blocked node {peer.node_id}: Queued {queued_count} selfplay jobs "
+                            f"[engines: {profile_summary}] [boards: {board_summary}] "
+                            f"(idle for {idle_duration:.0f}s, WorkerPullLoop will claim)"
+                        )
+                        return  # Success via queue path
+                    else:
+                        logger.warning(f"NAT-blocked node {peer.node_id}: Work queue unavailable, cannot dispatch")
+                        return
+                except Exception as e:
+                    logger.warning(f"NAT-blocked node {peer.node_id}: Failed to queue work: {e}")
+                    return
+
+            # Non-NAT-blocked nodes: Direct HTTP push to /selfplay/start endpoint
             async def send_selfplay_request(session, payload):
                 """Send a single selfplay start request."""
                 async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
