@@ -483,7 +483,8 @@ class PriorityCalculator:
         if self._get_quality_score_fn:
             try:
                 quality_score = self._get_quality_score_fn(inputs.config_key)
-            except Exception:
+            except (KeyError, ValueError, TypeError, AttributeError):
+                # Config not found, invalid value, or callback misconfigured - use default
                 pass
         quality = (quality_score - 0.7) * w.quality + inputs.quality_penalty
 
@@ -511,7 +512,8 @@ class PriorityCalculator:
         if self._get_elo_velocity_fn:
             try:
                 elo_velocity = self._get_elo_velocity_fn(inputs.config_key)
-            except Exception:
+            except (KeyError, ValueError, TypeError, AttributeError):
+                # Config not found, invalid value, or callback misconfigured - use input default
                 pass
         if elo_velocity < 0.5:
             score *= 0.7  # Reduce for stagnant configs
@@ -532,7 +534,8 @@ class PriorityCalculator:
         if self._get_cascade_priority_fn:
             try:
                 cascade_boost = self._get_cascade_priority_fn(inputs.config_key)
-            except Exception:
+            except (KeyError, ValueError, TypeError, AttributeError):
+                # Config not found, invalid value, or callback misconfigured - use default
                 pass
         score *= cascade_boost
 
