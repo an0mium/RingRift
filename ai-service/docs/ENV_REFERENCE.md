@@ -192,7 +192,15 @@ Use `{PROVIDER}_IDLE_*` prefix (e.g., `VAST_IDLE_ENABLED`, `RUNPOD_IDLE_THRESHOL
 | ------------------------------------ | ---- | ------- | ----------------------------- |
 | `RINGRIFT_TS_REPLAY_DUMP_DIR`        | str  | None    | Directory for TS replay dumps |
 | `RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K` | str  | None    | Dump state at move K          |
-| `RINGRIFT_EVENT_TRACE`               | bool | `false` | Enable event tracing          |
+
+---
+
+## Event Handling
+
+| Variable                           | Type  | Default | Description                              |
+| ---------------------------------- | ----- | ------- | ---------------------------------------- |
+| `RINGRIFT_EVENT_HANDLER_TIMEOUT`   | float | `600.0` | Event handler timeout (seconds)          |
+| `RINGRIFT_EVENT_VALIDATION_STRICT` | bool  | `false` | Reject unknown events instead of warning |
 
 ---
 
@@ -273,7 +281,6 @@ export RINGRIFT_SELFPLAY_ENABLED=false
 ```bash
 export RINGRIFT_LOG_LEVEL=DEBUG
 export RINGRIFT_TRACE_DEBUG=true
-export RINGRIFT_EVENT_TRACE=true
 ```
 
 ### Autonomous Mode

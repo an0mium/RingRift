@@ -243,7 +243,7 @@ grep "HANDLER_TIMEOUT" logs/coordination.log | tail -10
 ```python
 # Increase handler timeout
 import os
-os.environ["RINGRIFT_HANDLER_TIMEOUT"] = "60"  # 60 seconds
+os.environ["RINGRIFT_EVENT_HANDLER_TIMEOUT"] = "900"  # 15 minutes
 
 # Retry DLQ events
 from app.coordination.dead_letter_queue import get_dead_letter_queue
@@ -342,11 +342,10 @@ time.sleep(5)
 | Variable                             | Default | Description                         |
 | ------------------------------------ | ------- | ----------------------------------- |
 | `RINGRIFT_FEEDBACK_ENABLED`          | true    | Enable feedback loops               |
-| `RINGRIFT_HANDLER_TIMEOUT`           | 30      | Event handler timeout (seconds)     |
+| `RINGRIFT_EVENT_HANDLER_TIMEOUT`     | 600     | Event handler timeout (seconds)     |
 | `RINGRIFT_CURRICULUM_CHECK_INTERVAL` | 120     | Curriculum check interval (seconds) |
 | `RINGRIFT_QUALITY_CHECK_INTERVAL`    | 300     | Quality check interval (seconds)    |
 | `RINGRIFT_HYPERPARAMETER_FEEDBACK`   | true    | Enable hyperparameter feedback      |
-| `RINGRIFT_DLQ_RETENTION_HOURS`       | 24      | DLQ retention period                |
 
 ## Related Runbooks
 

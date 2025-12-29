@@ -263,10 +263,9 @@ Add your event to the appropriate table above.
 
 ## Debugging Events
 
-### Enable Event Tracing
+### Enable Event Debug Logging
 
 ```bash
-export RINGRIFT_EVENT_TRACE=true
 export RINGRIFT_LOG_LEVEL=DEBUG
 ```
 

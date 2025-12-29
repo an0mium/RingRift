@@ -597,6 +597,22 @@ class TrainingCoordinator(EventSubscriptionMixin):
         job.worker_node = worker_node.node_id
         job.status = "queued"
 
+        # Reserve the GPU node for training (December 2025)
+        # This prevents selfplay jobs from being scheduled on this node
+        try:
+            from app.coordination.task_coordinator import TaskCoordinator
+            task_coordinator = TaskCoordinator.get_instance()
+            reserved = task_coordinator.reserve_for_training(
+                [worker_node.node_id],
+                duration_seconds=7200.0,  # 2 hours
+                config_key=config_key,
+            )
+            if reserved:
+                logger.info(f"Reserved {worker_node.node_id} for training job {job_id}")
+        except (ImportError, AttributeError, RuntimeError) as e:
+            # Continue without reservation if TaskCoordinator unavailable
+            logger.debug(f"Could not reserve node for training: {e}")
+
         # Store job
         with training_lock:
             training_jobs[job_id] = job
@@ -883,6 +899,17 @@ class TrainingCoordinator(EventSubscriptionMixin):
 
         except Exception as e:
             logger.error(f"handling training completion for {job.job_id}: {e}")
+        finally:
+            # Release GPU reservation (December 2025)
+            # Always release reservation regardless of success/failure
+            if hasattr(job, "worker_node") and job.worker_node:
+                try:
+                    from app.coordination.task_coordinator import TaskCoordinator
+                    task_coordinator = TaskCoordinator.get_instance()
+                    task_coordinator.release_from_training([job.worker_node])
+                    logger.info(f"Released training reservation for node {job.worker_node}")
+                except (ImportError, AttributeError, RuntimeError) as e:
+                    logger.debug(f"Could not release training reservation: {e}")
 
     async def _schedule_model_comparison_tournament(self, job: Any) -> None:
         """Schedule a tournament to compare the new model against baseline."""

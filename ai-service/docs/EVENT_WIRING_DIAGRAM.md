@@ -411,11 +411,10 @@ This order is enforced in `daemon_lifecycle.py:_reorder_for_critical_startup()`.
 
 ### Event Handler Timeout
 
-1. **Default timeout**: 30 seconds (configurable via `RINGRIFT_EVENT_HANDLER_TIMEOUT`)
+1. **Default timeout**: 600 seconds (configurable via `RINGRIFT_EVENT_HANDLER_TIMEOUT`)
 2. **Check handler complexity**: Simplify or make async
-3. **Enable tracing**:
+3. **Enable debug logging**:
    ```bash
-   export RINGRIFT_EVENT_TRACE=true
    export RINGRIFT_LOG_LEVEL=DEBUG
    ```
 
@@ -440,9 +439,9 @@ from app.coordination.data_pipeline_orchestrator import get_data_pipeline_orches
 dpo = get_data_pipeline_orchestrator()
 print(f"Subscribed: {dpo._subscribed}")
 
-# Enable event tracing
+# Enable debug logging
 import os
-os.environ["RINGRIFT_EVENT_TRACE"] = "true"
+os.environ["RINGRIFT_LOG_LEVEL"] = "DEBUG"
 ```
 
 ## Related Documentation

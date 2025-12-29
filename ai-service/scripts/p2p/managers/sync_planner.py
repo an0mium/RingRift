@@ -1146,7 +1146,13 @@ class SyncPlanner(EventSubscriptionMixin):
                         logger.info("Using cached local manifest as partial fallback")
                         # Continue without full cluster manifest - sync may be incomplete
                         manifest = None  # Will fail gracefully below
-                except Exception:
+                except (OSError, json.JSONDecodeError) as e:
+                    # Cache file read/parse errors
+                    logger.debug(f"Cache read error: {e}")
+                    manifest = None
+                except (ValueError, KeyError) as e:
+                    # Invalid cached data structure
+                    logger.debug(f"Cache data format error: {e}")
                     manifest = None
 
         if not manifest:

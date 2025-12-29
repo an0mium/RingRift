@@ -153,7 +153,7 @@ print(f"Details: {health.details}")
 **Diagnosis**:
 
 ```bash
-export RINGRIFT_EVENT_TRACE=1
+export RINGRIFT_LOG_LEVEL=DEBUG
 # Check if events are being delivered
 grep "Delivered to" logs/coordination.log | grep -v "YOUR_DAEMON"
 ```

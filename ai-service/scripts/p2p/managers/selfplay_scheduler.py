@@ -1761,8 +1761,12 @@ class SelfplayScheduler(EventSubscriptionMixin):
             curriculum_weights = {}
             try:
                 curriculum_weights = self.load_curriculum_weights()
-            except Exception:
-                pass  # Use empty weights if loading fails
+            except (OSError, json.JSONDecodeError) as e:
+                # Config file read/parse errors - use empty weights
+                logger.debug(f"Could not load curriculum weights: {e}")
+            except (ValueError, KeyError) as e:
+                # Invalid weight values/structure - use empty weights
+                logger.debug(f"Invalid curriculum weights format: {e}")
             self._emit_selfplay_allocation_updated(
                 config_key, curriculum_weights, boost_factor, "exploration_boost"
             )

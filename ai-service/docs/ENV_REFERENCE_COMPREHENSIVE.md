@@ -281,10 +281,18 @@ value = env.get("CUSTOM_VAR", "default")
 | `RINGRIFT_HTTP_TIMEOUT`          | int  | `30`    | ✓         | HTTP timeout (seconds)  |
 | `RINGRIFT_RSYNC_TIMEOUT`         | int  | `300`   | ✓         | Rsync timeout (seconds) |
 | `RINGRIFT_ELO_SYNC_INTERVAL`     | int  | `300`   | ✓         | Elo sync interval       |
-| `RINGRIFT_EVENT_HANDLER_TIMEOUT` | int  | `30`    | ✓         | Event handler timeout   |
+| `RINGRIFT_EVENT_HANDLER_TIMEOUT` | int  | `600`   | ✓         | Event handler timeout   |
 | `RINGRIFT_LOCK_TIMEOUT`          | int  | `60`    | ✓         | Lock timeout            |
 | `RINGRIFT_AI_TIMEOUT`            | int  | None    |           | AI service timeout      |
 | `RINGRIFT_TCP_PROBE_TIMEOUT`     | int  | None    |           | TCP probe timeout       |
+
+---
+
+## Event Handling
+
+| Variable                           | Type | Default | In env.py | Description                              |
+| ---------------------------------- | ---- | ------- | --------- | ---------------------------------------- |
+| `RINGRIFT_EVENT_VALIDATION_STRICT` | bool | `false` |           | Reject unknown events instead of warning |
 
 ---
 

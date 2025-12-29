@@ -786,7 +786,8 @@ class DLQRetryDaemon:
                     (limit,),
                 ).fetchall()
                 return [row[0] for row in rows]
-        except Exception:
+        except (sqlite3.Error, OSError):
+            # Database errors should not crash the recovery loop
             return []
 
     def _abandon_stale_events(self, max_age_hours: float = 168.0) -> int:

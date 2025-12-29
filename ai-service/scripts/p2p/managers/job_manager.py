@@ -1395,17 +1395,19 @@ class JobManager(EventSubscriptionMixin):
                     del self.active_jobs["selfplay"][job_id]
             logger.error(f"Error running selfplay job {job_id}: {e}")
             self._emit_task_event("TASK_FAILED", job_id, "selfplay", error=str(e), board_type=board_type)
-        except Exception:
-            # Catch-all for truly unexpected errors - log with traceback and re-raise
+        except (asyncio.CancelledError, ChildProcessError, BrokenPipeError) as e:
+            # Dec 2025: Narrowed catch-all to subprocess cancellation/pipe errors
+            # asyncio.CancelledError: Task was cancelled
+            # ChildProcessError: Child process state error
+            # BrokenPipeError: Process pipe communication failed
             await self._kill_process(job_id, proc)
-            # Phase 15.1.9: Unregister from heartbeat tracking on unexpected error
             self._unregister_job_heartbeat(job_id)
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
                     del self.active_jobs["selfplay"][job_id]
-            logger.exception(f"Unexpected error in selfplay job {job_id}")
-            self._emit_task_event("TASK_FAILED", job_id, "selfplay", error="unexpected_error", board_type=board_type)
+            logger.warning(f"Selfplay job {job_id} interrupted: {type(e).__name__}: {e}")
+            self._emit_task_event("TASK_FAILED", job_id, "selfplay", error=str(e), board_type=board_type)
             raise
 
     async def run_distributed_selfplay(self, job_id: str) -> None:
@@ -1873,11 +1875,11 @@ class JobManager(EventSubscriptionMixin):
             await self._kill_process(job_id, proc)
             logger.error(f"Local selfplay error: {e}")
             self._emit_task_event("TASK_FAILED", job_id, "selfplay", error=str(e), board_type=board_type)
-        except Exception:
-            # Catch-all for truly unexpected errors - log with traceback and re-raise
+        except (asyncio.CancelledError, ChildProcessError, BrokenPipeError) as e:
+            # Dec 2025: Narrowed to subprocess cancellation/pipe errors
             await self._kill_process(job_id, proc)
-            logger.exception("Unexpected error in local selfplay")
-            self._emit_task_event("TASK_FAILED", job_id, "selfplay", error="unexpected_error", board_type=board_type)
+            logger.warning(f"Local selfplay interrupted: {type(e).__name__}: {e}")
+            self._emit_task_event("TASK_FAILED", job_id, "selfplay", error=str(e), board_type=board_type)
             raise
 
     # =========================================================================
@@ -1989,11 +1991,11 @@ class JobManager(EventSubscriptionMixin):
             await self._kill_process(export_job_id, proc)
             logger.error(f"Training data export error: {e}")
             self._emit_task_event("TASK_FAILED", job_id, "export", error=str(e))
-        except Exception:
-            # Catch-all for truly unexpected errors - log with traceback and re-raise
+        except (asyncio.CancelledError, ChildProcessError, BrokenPipeError) as e:
+            # Dec 2025: Narrowed to subprocess cancellation/pipe errors
             await self._kill_process(export_job_id, proc)
-            logger.exception("Unexpected error in training data export")
-            self._emit_task_event("TASK_FAILED", job_id, "export", error="unexpected_error")
+            logger.warning(f"Training export interrupted: {type(e).__name__}: {e}")
+            self._emit_task_event("TASK_FAILED", job_id, "export", error=str(e))
             raise
 
     async def run_training(self, job_id: str) -> None:
@@ -2142,11 +2144,11 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
             await self._kill_process(training_job_id, proc)
             logger.error(f"Local training error: {e}")
             self._emit_task_event("TASK_FAILED", job_id, "training", error=str(e))
-        except Exception:
-            # Catch-all for truly unexpected errors - log with traceback and re-raise
+        except (asyncio.CancelledError, ChildProcessError, BrokenPipeError) as e:
+            # Dec 2025: Narrowed to subprocess cancellation/pipe errors
             await self._kill_process(training_job_id, proc)
-            logger.exception("Unexpected error in local training")
-            self._emit_task_event("TASK_FAILED", job_id, "training", error="unexpected_error")
+            logger.warning(f"Local training interrupted: {type(e).__name__}: {e}")
+            self._emit_task_event("TASK_FAILED", job_id, "training", error=str(e))
             raise
 
     # =========================================================================
@@ -2246,13 +2248,13 @@ print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
             if job_id in self.distributed_tournament_state:
                 self.distributed_tournament_state[job_id].status = f"error: {type(e).__name__}"
             self._emit_task_event("TASK_FAILED", job_id, "tournament", error=str(e))
-        except Exception:
-            # Catch-all for truly unexpected errors - log with traceback and re-raise
-            logger.exception(f"Unexpected error in tournament {job_id}")
+        except (aiohttp.ClientError, aiohttp.ServerTimeoutError) as e:
+            # Dec 2025: Narrowed to network client errors not caught above
+            logger.exception(f"Tournament {job_id} network error: {e}")
             if job_id in self.distributed_tournament_state:
-                self.distributed_tournament_state[job_id].status = "error: unexpected"
-            self._emit_task_event("TASK_FAILED", job_id, "tournament", error="unexpected_error")
-            raise  # Dec 28, 2025: CRITICAL - re-raise to signal caller that tournament failed
+                self.distributed_tournament_state[job_id].status = f"error: {type(e).__name__}"
+            self._emit_task_event("TASK_FAILED", job_id, "tournament", error=str(e))
+            raise
 
     def _generate_tournament_matches(
         self,

@@ -105,8 +105,11 @@ def _safe_emit_event(event_type: str, payload: dict) -> bool:
         coro = bus.publish(event)
         try:
             fire_and_forget(coro)
-        except Exception:
-            # Close coroutine to avoid "never awaited" warning
+        except (AttributeError, RuntimeError, TypeError) as e:
+            # AttributeError: coro.close() not available
+            # RuntimeError: event bus not initialized
+            # TypeError: coro has wrong type
+            logger.debug(f"Event emission error for {event_type}: {e}")
             coro.close()
             return False
         return True

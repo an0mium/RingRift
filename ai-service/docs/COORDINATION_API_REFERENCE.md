@@ -776,7 +776,8 @@ Key configuration via environment variables:
 
 | Variable                            | Default | Description                         |
 | ----------------------------------- | ------- | ----------------------------------- |
-| `RINGRIFT_EVENT_HANDLER_TIMEOUT`    | 30.0    | Event handler timeout (seconds)     |
+| `RINGRIFT_EVENT_HANDLER_TIMEOUT`    | 600.0   | Event handler timeout (seconds)     |
+| `RINGRIFT_EVENT_VALIDATION_STRICT`  | false   | Reject unknown events               |
 | `RINGRIFT_P2P_STARTUP_GRACE_PERIOD` | 120     | P2P startup grace period (seconds)  |
 | `RINGRIFT_ALLOW_PENDING_GATE`       | false   | Allow pending parity gate databases |
 | `RINGRIFT_SWIM_ENABLED`             | false   | Enable SWIM membership protocol     |

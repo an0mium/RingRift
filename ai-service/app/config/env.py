@@ -659,7 +659,7 @@ class RingRiftEnv:
     @cached_property
     def event_handler_timeout(self) -> int:
         """Event handler timeout in seconds."""
-        return int(os.environ.get("RINGRIFT_EVENT_HANDLER_TIMEOUT", "30"))
+        return int(os.environ.get("RINGRIFT_EVENT_HANDLER_TIMEOUT", "600"))
 
     @cached_property
     def lock_timeout(self) -> int:

@@ -575,8 +575,9 @@ class SplitBrainDetectionLoop(BaseLoop):
                         if resp.status == 200:
                             data = await resp.json()
                             return peer_id, data.get("leader_id")
-            except Exception:
-                pass  # Peer unreachable, skip
+            except (aiohttp.ClientError, asyncio.TimeoutError, ConnectionError) as e:
+                # Network errors - peer unreachable, skip
+                logger.debug(f"Could not poll peer {peer_id}: {e}")
             return peer_id, None
 
         # Poll all peers

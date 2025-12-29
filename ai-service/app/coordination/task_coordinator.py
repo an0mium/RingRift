@@ -913,6 +913,13 @@ class TaskCoordinator(SingletonMixin):
         self._gauntlet_reserved: set[str] = set()
         self._gauntlet_lock = threading.RLock()
 
+        # Training reservation: reserved GPU nodes for training jobs (December 2025)
+        # When a node is reserved for training, selfplay jobs should not be scheduled
+        # on it to ensure training gets priority GPU access
+        self._training_reserved: set[str] = set()
+        self._training_lock = threading.RLock()
+        self._training_reservation_expiry: dict[str, float] = {}  # node_id -> expiry timestamp
+
         # Heartbeat monitor for orphan detection (December 2025)
         self._heartbeat_monitor = TaskHeartbeatMonitor(
             registry=self.registry,
@@ -1146,6 +1153,158 @@ class TaskCoordinator(SingletonMixin):
             return candidates[:count]
 
     # ==========================================
+    # Training Reservation (December 2025)
+    # ==========================================
+
+    def reserve_for_training(
+        self,
+        node_ids: list[str],
+        duration_seconds: float = 7200.0,  # Default 2 hours
+        config_key: str = "",
+    ) -> list[str]:
+        """Reserve GPU nodes for training jobs.
+
+        Reserved nodes are excluded from selfplay task assignment
+        until released or the reservation expires. This ensures training
+        jobs get priority access to GPU resources.
+
+        December 2025: Implements Phase 4 of the Training Loop Improvement Plan
+        to ensure training jobs get dedicated GPU access.
+
+        Args:
+            node_ids: List of node IDs to reserve
+            duration_seconds: How long to reserve (default 2 hours)
+            config_key: Optional config key for logging
+
+        Returns:
+            List of successfully reserved node IDs
+        """
+        reserved = []
+        expiry = time.time() + duration_seconds
+        with self._training_lock:
+            for node_id in node_ids:
+                if node_id not in self._training_reserved:
+                    self._training_reserved.add(node_id)
+                    self._training_reservation_expiry[node_id] = expiry
+                    reserved.append(node_id)
+                    logger.info(
+                        f"[Training] Reserved node {node_id} for training "
+                        f"(config={config_key or 'any'}, expires in {duration_seconds/60:.0f}min)"
+                    )
+        return reserved
+
+    def release_from_training(self, node_ids: list[str]) -> None:
+        """Release nodes from training reservation.
+
+        Args:
+            node_ids: List of node IDs to release
+        """
+        with self._training_lock:
+            for node_id in node_ids:
+                if node_id in self._training_reserved:
+                    self._training_reserved.discard(node_id)
+                    self._training_reservation_expiry.pop(node_id, None)
+                    logger.info(f"[Training] Released node: {node_id}")
+
+    def release_all_training(self) -> int:
+        """Release all nodes from training reservation.
+
+        Returns:
+            Number of nodes released
+        """
+        with self._training_lock:
+            count = len(self._training_reserved)
+            self._training_reserved.clear()
+            self._training_reservation_expiry.clear()
+            if count > 0:
+                logger.info(f"[Training] Released all {count} reserved nodes")
+            return count
+
+    def is_reserved_for_training(self, node_id: str) -> bool:
+        """Check if a node is reserved for training.
+
+        Also cleans up expired reservations.
+
+        Args:
+            node_id: Node ID to check
+
+        Returns:
+            True if reserved and not expired
+        """
+        with self._training_lock:
+            self._cleanup_expired_training_reservations()
+            return node_id in self._training_reserved
+
+    def get_training_reserved(self) -> set[str]:
+        """Get set of all nodes reserved for training."""
+        with self._training_lock:
+            self._cleanup_expired_training_reservations()
+            return self._training_reserved.copy()
+
+    def _cleanup_expired_training_reservations(self) -> None:
+        """Remove expired training reservations (internal helper).
+
+        Called internally when checking reservations.
+        Must be called with _training_lock held.
+        """
+        now = time.time()
+        expired = [
+            node_id for node_id, expiry in self._training_reservation_expiry.items()
+            if expiry < now
+        ]
+        for node_id in expired:
+            self._training_reserved.discard(node_id)
+            self._training_reservation_expiry.pop(node_id, None)
+            logger.debug(f"[Training] Reservation expired for node: {node_id}")
+
+    def get_available_for_training(
+        self,
+        all_nodes: list[str],
+        gpu_nodes_only: bool = True,
+        exclude_gauntlet: bool = True,
+    ) -> list[str]:
+        """Get available nodes that can be reserved for training.
+
+        Prefers GPU nodes and excludes already reserved nodes.
+
+        Args:
+            all_nodes: List of all known node IDs
+            gpu_nodes_only: Whether to filter for GPU nodes only
+            exclude_gauntlet: Whether to exclude gauntlet-reserved nodes
+
+        Returns:
+            List of available node IDs for training
+        """
+        with self._training_lock:
+            self._cleanup_expired_training_reservations()
+            available = [n for n in all_nodes if n not in self._training_reserved]
+
+        if exclude_gauntlet:
+            with self._gauntlet_lock:
+                available = [n for n in available if n not in self._gauntlet_reserved]
+
+        if gpu_nodes_only:
+            # Filter for nodes with GPU indicators in their ID
+            gpu_indicators = ["gpu", "cuda", "h100", "a100", "l40", "4090", "3090", "gh200"]
+            available = [
+                n for n in available
+                if any(ind in n.lower() for ind in gpu_indicators)
+            ]
+
+        return available
+
+    def is_any_node_reserved(self, node_id: str) -> bool:
+        """Check if a node is reserved for any purpose (training or gauntlet).
+
+        Args:
+            node_id: Node ID to check
+
+        Returns:
+            True if reserved for training or gauntlet
+        """
+        return self.is_reserved_for_training(node_id) or self.is_reserved_for_gauntlet(node_id)
+
+    # ==========================================
     # Admission Control
     # ==========================================
 
@@ -1186,6 +1345,14 @@ class TaskCoordinator(SingletonMixin):
         last = self._last_spawn.get(node_id, 0)
         if time.time() - last < self.limits.spawn_cooldown_seconds:
             return (False, "Spawn cooldown active")
+
+        # Check node reservations for selfplay tasks (December 2025)
+        # Training and gauntlet get priority over selfplay
+        if task_type in (TaskType.SELFPLAY, TaskType.GPU_SELFPLAY, TaskType.HYBRID_SELFPLAY):
+            if self.is_reserved_for_training(node_id):
+                return (False, f"Node {node_id} reserved for training")
+            if self.is_reserved_for_gauntlet(node_id):
+                return (False, f"Node {node_id} reserved for gauntlet")
 
         # Check node health (December 2025)
         # Uses cached SSH connectivity checks to avoid spawning on unreachable hosts
@@ -1839,6 +2006,7 @@ class TaskCoordinator(SingletonMixin):
                 "spawns_last_minute": stats["spawns_last_minute"],
                 "rate_limiter_tokens": stats["rate_limiter_tokens"],
                 "gauntlet_reserved": len(self._gauntlet_reserved),
+                "training_reserved": len(self._training_reserved),
             },
         )
 

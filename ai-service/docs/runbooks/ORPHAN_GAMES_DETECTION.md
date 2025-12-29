@@ -105,8 +105,8 @@ for node, data in manifest.get("nodes", {}).items():
 Verify orphan detection events are being emitted:
 
 ```bash
-# Enable event tracing
-export RINGRIFT_EVENT_TRACE=1
+# Enable debug logging
+export RINGRIFT_LOG_LEVEL=DEBUG
 
 # Check for orphan events in logs
 grep "ORPHAN_GAMES" logs/coordination.log | tail -20

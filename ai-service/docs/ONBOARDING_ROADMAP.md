@@ -474,8 +474,8 @@ Selfplay → Game DB → Export → NPZ → Train → Evaluate → Promote
 **Watch events flow:**
 
 ```bash
-# Enable event tracing
-export RINGRIFT_EVENT_TRACE=true
+# Enable debug logging
+export RINGRIFT_LOG_LEVEL=DEBUG
 
 # Run master loop and watch events
 python scripts/master_loop.py --watch

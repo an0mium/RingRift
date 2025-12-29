@@ -619,18 +619,26 @@ If events are "lost", check that:
 
 ## Debugging Events
 
-### Enable Event Tracing
+### Enable Event Debug Logging
 
 ```bash
-export RINGRIFT_EVENT_TRACE=1
+export RINGRIFT_LOG_LEVEL=DEBUG
 ```
 
-This logs all events to the coordination log:
+This logs event routing details to the coordination log:
 
 ```
 [EventRouter] Published: TRAINING_COMPLETED (source=TrainingCoordinator)
 [EventRouter] Delivered to: FeedbackLoopController, DataPipelineOrchestrator
 ```
+
+### Strict Event Validation
+
+```bash
+export RINGRIFT_EVENT_VALIDATION_STRICT=true
+```
+
+Rejects unknown event types instead of warning, which helps catch typos or stale enum values.
 
 ### Check Event Subscriptions
 

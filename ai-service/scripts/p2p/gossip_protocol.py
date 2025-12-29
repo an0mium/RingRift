@@ -1230,7 +1230,13 @@ class GossipProtocolMixin(P2PMixinBase):
 
         except ImportError:
             return []
-        except Exception:
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+            # Database query errors - log and return empty
+            logger.debug(f"Database error in get_active_checkpoint_peers: {e}")
+            return []
+        except (TypeError, KeyError) as e:
+            # Malformed row data - log and return empty
+            logger.debug(f"Data format error in get_active_checkpoint_peers: {e}")
             return []
 
     def _process_gossip_peer_endpoints(self, peer_endpoints: list[dict]) -> None:

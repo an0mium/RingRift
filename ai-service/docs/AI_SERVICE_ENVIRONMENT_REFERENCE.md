@@ -748,9 +748,17 @@ HTTP request timeout in seconds.
 
 | Property | Default | Description |
 | -------- | ------- | ----------- |
-| Type     | `float` | `30.0`      |
+| Type     | `float` | `600.0`     |
 
 Event handler timeout in seconds.
+
+### `RINGRIFT_EVENT_VALIDATION_STRICT`
+
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| Type     | `bool`  | `false`     |
+
+Reject unknown events instead of warning (used by event normalization).
 
 ---
 

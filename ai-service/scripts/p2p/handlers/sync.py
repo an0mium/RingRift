@@ -746,8 +746,14 @@ class SyncHandlersMixin(BaseP2PHandler):
                 disk_percent = (usage.used / usage.total) * 100
                 return disk_percent < max_disk, disk_percent
             return True, 0.0
-        except Exception:
-            return True, 0.0  # Fail open
+        except ValueError as e:
+            # Invalid env var format for float() - log and fail open
+            logger.warning(f"Invalid RINGRIFT_MAX_DISK_USAGE_PERCENT value: {e}")
+            return True, 0.0
+        except OSError as e:
+            # disk_usage() error - log and fail open
+            logger.warning(f"Could not check disk usage: {e}")
+            return True, 0.0
 
     def _queue_rsync_pull(
         self,

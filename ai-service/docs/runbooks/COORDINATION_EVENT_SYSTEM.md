@@ -338,12 +338,13 @@ for event_type in DataEventType:
 
 ## Environment Variables
 
-| Variable                       | Default | Description                     |
-| ------------------------------ | ------- | ------------------------------- |
-| `RINGRIFT_EVENT_DEDUP_WINDOW`  | 60      | Deduplication window (sec)      |
-| `RINGRIFT_HANDLER_TIMEOUT`     | 30      | Handler execution timeout (sec) |
-| `RINGRIFT_DLQ_RETENTION_HOURS` | 24      | DLQ event retention             |
-| `RINGRIFT_EVENT_LOG_LEVEL`     | DEBUG   | Event logging verbosity         |
+| Variable                           | Default | Description                              |
+| ---------------------------------- | ------- | ---------------------------------------- |
+| `RINGRIFT_EVENT_HANDLER_TIMEOUT`   | 600     | Event handler timeout (seconds)          |
+| `RINGRIFT_EVENT_VALIDATION_STRICT` | false   | Reject unknown events                    |
+| `RINGRIFT_LOG_LEVEL`               | INFO    | Log verbosity (use DEBUG for event logs) |
+
+DLQ retention is managed via `DeadLetterQueue.cleanup(older_than_hours=...)`.
 
 ## See Also
 
