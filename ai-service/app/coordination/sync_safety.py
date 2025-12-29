@@ -23,5 +23,28 @@ warnings.warn(
 )
 
 # Re-export from archive for backward compatibility
-from archive.deprecated_coordination._deprecated_sync_safety import *
-from archive.deprecated_coordination._deprecated_sync_safety import __all__
+from archive.deprecated_coordination._deprecated_sync_safety import (
+    SyncWAL,
+    SyncWALEntry,
+    DeadLetterQueue,
+    DLQEntry,
+    SyncStatus,
+    check_sqlite_integrity,
+    compute_file_checksum,
+    SyncStallHandler,
+    SyncBloomFilter,
+    BloomFilterStats,
+)
+
+__all__ = [
+    "SyncWAL",
+    "SyncWALEntry",
+    "DeadLetterQueue",
+    "DLQEntry",
+    "SyncStatus",
+    "check_sqlite_integrity",
+    "compute_file_checksum",
+    "SyncStallHandler",
+    "SyncBloomFilter",
+    "BloomFilterStats",
+]

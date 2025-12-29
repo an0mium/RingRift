@@ -19,5 +19,24 @@ warnings.warn(
 )
 
 # Re-export from archive for backward compatibility
-from archive.deprecated_coordination._deprecated_base_handler import *
-from archive.deprecated_coordination._deprecated_base_handler import __all__
+from archive.deprecated_coordination._deprecated_base_handler import (
+    BaseEventHandler,
+    BaseSingletonHandler,
+    MultiEventHandler,
+    HandlerBase,
+    HandlerStats,
+    EventHandlerConfig,
+    create_handler_stats,
+    safe_subscribe,
+)
+
+__all__ = [
+    "BaseEventHandler",
+    "BaseSingletonHandler",
+    "MultiEventHandler",
+    "HandlerBase",
+    "HandlerStats",
+    "EventHandlerConfig",
+    "create_handler_stats",
+    "safe_subscribe",
+]

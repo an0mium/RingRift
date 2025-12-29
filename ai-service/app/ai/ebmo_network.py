@@ -14,4 +14,36 @@ from __future__ import annotations
 
 # Re-export the deprecated implementation.
 # The underlying module already emits a DeprecationWarning.
-from archive.deprecated_ai.ebmo_network import *  # noqa: F401,F403
+from archive.deprecated_ai.ebmo_network import (
+    ActionEncoder,
+    ActionFeatureExtractor,
+    EBMOConfig,
+    EBMONetwork,
+    EnergyHead,
+    StateEncoder,
+    combined_ebmo_loss,
+    contrastive_energy_loss,
+    extract_state_features,
+    hard_negative_contrastive_loss,
+    load_ebmo_model,
+    margin_ranking_loss,
+    outcome_weighted_energy_loss,
+    save_ebmo_model,
+)
+
+__all__ = [
+    "ActionEncoder",
+    "ActionFeatureExtractor",
+    "EBMOConfig",
+    "EBMONetwork",
+    "EnergyHead",
+    "StateEncoder",
+    "combined_ebmo_loss",
+    "contrastive_energy_loss",
+    "extract_state_features",
+    "hard_negative_contrastive_loss",
+    "load_ebmo_model",
+    "margin_ranking_loss",
+    "outcome_weighted_energy_loss",
+    "save_ebmo_model",
+]
