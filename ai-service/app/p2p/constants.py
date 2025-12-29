@@ -494,6 +494,43 @@ AUTO_WORK_BATCH_SIZE = int(os.environ.get("RINGRIFT_P2P_AUTO_WORK_BATCH_SIZE", "
 UNIFIED_DISCOVERY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_UNIFIED_DISCOVERY_INTERVAL", "60") or 60)
 
 # ============================================
+# Selfplay Scheduler (December 2025)
+# ============================================
+
+# Exploration boost default duration (15 minutes)
+EXPLORATION_BOOST_DEFAULT_DURATION = int(os.environ.get("RINGRIFT_SCHEDULER_EXPLORATION_BOOST_DURATION", "900") or 900)
+
+# Plateau penalty default duration (30 minutes)
+PLATEAU_PENALTY_DEFAULT_DURATION = int(os.environ.get("RINGRIFT_SCHEDULER_PLATEAU_PENALTY_DURATION", "1800") or 1800)
+
+# Training completion boost duration (30 minutes)
+TRAINING_BOOST_DURATION = int(os.environ.get("RINGRIFT_SCHEDULER_TRAINING_BOOST_DURATION", "1800") or 1800)
+
+# Win rate threshold for clearing plateau status (50%)
+PLATEAU_CLEAR_WIN_RATE = float(os.environ.get("RINGRIFT_SCHEDULER_PLATEAU_CLEAR_WIN_RATE", "0.50") or 0.50)
+
+# Priority change thresholds for event emission
+PRIORITY_CHANGE_THRESHOLD = int(os.environ.get("RINGRIFT_SCHEDULER_PRIORITY_CHANGE_THRESHOLD", "2") or 2)
+HIGH_PRIORITY_THRESHOLD = int(os.environ.get("RINGRIFT_SCHEDULER_HIGH_PRIORITY_THRESHOLD", "5") or 5)
+RELATIVE_CHANGE_THRESHOLD = float(os.environ.get("RINGRIFT_SCHEDULER_RELATIVE_CHANGE_THRESHOLD", "0.5") or 0.5)
+
+# Target change thresholds
+TARGET_CHANGE_THRESHOLD = int(os.environ.get("RINGRIFT_SCHEDULER_TARGET_CHANGE_THRESHOLD", "3") or 3)
+
+# CPU-only job spawn threshold (min CPU count)
+CPU_ONLY_JOB_MIN_CPUS = int(os.environ.get("RINGRIFT_SCHEDULER_CPU_ONLY_JOB_MIN_CPUS", "128") or 128)
+
+# Promotion penalty durations (critical/multiple/single failure)
+PROMOTION_PENALTY_DURATION_CRITICAL = int(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_CRITICAL", "7200") or 7200)  # 2 hours
+PROMOTION_PENALTY_DURATION_MULTIPLE = int(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_MULTIPLE", "3600") or 3600)  # 1 hour
+PROMOTION_PENALTY_DURATION_SINGLE = int(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_SINGLE", "1800") or 1800)  # 30 min
+
+# Promotion penalty factors (multipliers for selfplay priority)
+PROMOTION_PENALTY_FACTOR_CRITICAL = float(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_FACTOR_CRITICAL", "0.3") or 0.3)
+PROMOTION_PENALTY_FACTOR_MULTIPLE = float(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_FACTOR_MULTIPLE", "0.5") or 0.5)
+PROMOTION_PENALTY_FACTOR_SINGLE = float(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_FACTOR_SINGLE", "0.7") or 0.7)
+
+# ============================================
 # Network Helpers
 # ============================================
 

@@ -2559,6 +2559,85 @@ class FeedbackLoopController:
         except ImportError:
             pass
 
+    def _get_adaptive_promotion_threshold(
+        self, elo: float, state: FeedbackState
+    ) -> float:
+        """Get Elo-adaptive promotion threshold.
+
+        Dec 29, 2025: Higher Elo models need stronger win rates to be promoted.
+        This prevents promoting models that are only marginally better at high
+        Elo levels, ensuring real progress before promotion.
+
+        Elo-based threshold tiers:
+        - Beginner (< 1300): 0.55 (55%) - easier to promote beginners
+        - Intermediate (1300-1600): 0.60 (60%) - standard threshold
+        - Advanced (1600-1800): 0.65 (65%) - need to show real progress
+        - Elite (> 1800): 0.70 (70%) - near target, must be clearly better
+
+        Additional modifiers:
+        - Consecutive successes (3+): -0.03 (reward momentum)
+        - Consecutive failures (2+): +0.02 (require more evidence)
+        - Fast velocity (improving): -0.02 (capitalize on momentum)
+        - Plateau (low velocity): +0.02 (wait for real improvement)
+
+        Returns:
+            Adaptive promotion threshold (0.50 - 0.75 range)
+        """
+        # Base threshold based on Elo tier
+        if elo < 1300:
+            base_threshold = 0.55  # Beginner tier - easier promotion
+        elif elo < 1600:
+            base_threshold = 0.60  # Intermediate tier - standard
+        elif elo < 1800:
+            base_threshold = 0.65  # Advanced tier - harder
+        else:
+            base_threshold = 0.70  # Elite tier - hardest
+
+        # Apply modifiers
+        modifier = 0.0
+
+        # Momentum modifier: reward consecutive successes
+        if state.consecutive_successes >= 3:
+            modifier -= 0.03
+            logger.debug(
+                f"[FeedbackLoopController] Threshold modifier -0.03 for "
+                f"{state.consecutive_successes} consecutive successes"
+            )
+
+        # Caution modifier: require more evidence after failures
+        if state.consecutive_failures >= 2:
+            modifier += 0.02
+            logger.debug(
+                f"[FeedbackLoopController] Threshold modifier +0.02 for "
+                f"{state.consecutive_failures} consecutive failures"
+            )
+
+        # Velocity modifier: adjust based on improvement speed
+        if len(state.elo_history or []) >= 3:
+            velocity = state.elo_velocity
+            if velocity > ELO_FAST_IMPROVEMENT_PER_HOUR:
+                modifier -= 0.02  # Fast improvement - capitalize
+                logger.debug(
+                    f"[FeedbackLoopController] Threshold modifier -0.02 for "
+                    f"fast velocity ({velocity:.1f} Elo/hr)"
+                )
+            elif velocity < ELO_PLATEAU_PER_HOUR:
+                modifier += 0.02  # Plateau - wait for real improvement
+                logger.debug(
+                    f"[FeedbackLoopController] Threshold modifier +0.02 for "
+                    f"plateau velocity ({velocity:.1f} Elo/hr)"
+                )
+
+        # Clamp final threshold to reasonable range
+        threshold = max(0.50, min(0.75, base_threshold + modifier))
+
+        logger.debug(
+            f"[FeedbackLoopController] Adaptive threshold: base={base_threshold:.2f}, "
+            f"modifier={modifier:+.2f}, final={threshold:.2f} (elo={elo:.0f})"
+        )
+
+        return threshold
+
     def _consider_promotion(
         self,
         config_key: str,

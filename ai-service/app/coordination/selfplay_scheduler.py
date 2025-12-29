@@ -1097,6 +1097,12 @@ class SelfplayScheduler:
         player_multiplier = PLAYER_COUNT_ALLOCATION_MULTIPLIER.get(priority.player_count, 1.0)
         score *= player_multiplier
 
+        # Dec 29, 2025: Cascade training priority boost
+        # Configs that are blocking cascade advancement get boosted priority
+        # to accelerate multiplayer bootstrapping (2p → 3p → 4p)
+        cascade_boost = self._get_cascade_priority(priority.config_key)
+        score *= cascade_boost
+
         return score
 
     async def _get_data_freshness(self) -> dict[str, float]:
@@ -1400,6 +1406,32 @@ class SelfplayScheduler:
         for config in ALL_CONFIGS:
             result[config] = self._get_config_data_quality(config)
         return result
+
+    def _get_cascade_priority(self, config_key: str) -> float:
+        """Get cascade training priority boost for a config.
+
+        Dec 29, 2025: Cascade training for multiplayer bootstrapping.
+        Configs that are blocking cascade advancement (2p → 3p → 4p)
+        get boosted priority to accelerate training.
+
+        Args:
+            config_key: Config key like "hex8_2p"
+
+        Returns:
+            Priority multiplier (1.0 = normal, >1.0 = boosted)
+        """
+        try:
+            from app.coordination.cascade_training import get_cascade_orchestrator
+
+            orchestrator = get_cascade_orchestrator()
+            if orchestrator:
+                return orchestrator.get_bootstrap_priority(config_key)
+        except ImportError:
+            logger.debug("[SelfplayScheduler] cascade_training not available")
+        except (AttributeError, RuntimeError) as e:
+            logger.debug(f"[SelfplayScheduler] Error getting cascade priority for {config_key}: {e}")
+
+        return 1.0  # No boost by default
 
     def _get_improvement_boosts(self) -> dict[str, float]:
         """Get improvement boosts from ImprovementOptimizer per config.
