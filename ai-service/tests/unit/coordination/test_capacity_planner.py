@@ -662,7 +662,12 @@ class TestGetScaleRecommendation:
         config = CapacityPlannerConfig(hourly_budget_usd=10.0)
         planner = CapacityPlanner(config=config)
         planner.budget.current_hourly_usd = 9.5  # Almost at limit
+        planner._last_scale_up_time = 0  # No cooldown
 
+        # Need high utilization (>= 85% overall) to trigger scale-up attempt
+        # overall = 0.5 * gpu + 0.3 * job_util + 0.2 * memory
+        # With gpu=0.95, jobs=10/10=1.0, memory=0.95:
+        # overall = 0.5 * 0.95 + 0.3 * 1.0 + 0.2 * 0.95 = 0.475 + 0.3 + 0.19 = 0.965
         with patch.object(
             planner,
             "_collect_utilization_metrics",
@@ -672,6 +677,7 @@ class TestGetScaleRecommendation:
                 active_gpu_nodes=10,
                 gpu_utilization_avg=0.95,
                 memory_utilization_avg=0.95,
+                selfplay_jobs_running=10,  # Need jobs to increase utilization
             ),
         ):
             rec = await planner.get_scale_recommendation()

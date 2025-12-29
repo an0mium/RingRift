@@ -3,6 +3,8 @@
 **Date**: December 26, 2025
 **Task**: Find and archive unused/deprecated sync modules
 
+> Status: Historical snapshot (Dec 2025). Kept for reference; for current sync docs see `ai-service/docs/README.md`.
+
 ## Quick Summary
 
 ✅ **Task Complete**: 1 unused module archived, 1 actively-used module retained

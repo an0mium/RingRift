@@ -24,6 +24,9 @@ Event Integration:
 - Subscribes to DAEMON_STARTED: Track daemon lifecycle for health visibility (Dec 2025)
 - Subscribes to DAEMON_STOPPED: Track daemon stops and detect unexpected failures (Dec 2025)
 - Subscribes to DAEMON_PERMANENTLY_FAILED: Handle daemons that exceeded restart limit (Dec 2025)
+- Subscribes to DLQ_STALE_EVENTS: Track stale events in dead letter queue (Dec 29, 2025)
+- Subscribes to DLQ_EVENTS_REPLAYED: Track successful event replays from DLQ (Dec 29, 2025)
+- Subscribes to DLQ_EVENTS_PURGED: Track purged events for data loss visibility (Dec 29, 2025)
 
 Usage:
     from app.coordination.unified_health_manager import (
@@ -548,6 +551,11 @@ class UnifiedHealthManager(CoordinatorBase):
 
             # Daemon permanent failure (December 2025 - wires exceeded restart limit to health manager)
             router.subscribe(DataEventType.DAEMON_PERMANENTLY_FAILED, self._on_daemon_permanently_failed)
+
+            # DLQ events (December 29, 2025 - wires dead letter queue events to health manager)
+            router.subscribe(DataEventType.DLQ_STALE_EVENTS, self._on_dlq_stale_events)
+            router.subscribe(DataEventType.DLQ_EVENTS_REPLAYED, self._on_dlq_events_replayed)
+            router.subscribe(DataEventType.DLQ_EVENTS_PURGED, self._on_dlq_events_purged)
 
             self._subscribed = True
             logger.info("[UnifiedHealthManager] Subscribed to health events via event router")
@@ -1606,6 +1614,127 @@ class UnifiedHealthManager(CoordinatorBase):
             List of daemon keys (daemon_name@hostname) for running daemons
         """
         return [key for key, state in self._daemon_states.items() if state.is_running]
+
+    # =========================================================================
+    # DLQ Event Handlers (December 29, 2025)
+    # =========================================================================
+
+    async def _on_dlq_stale_events(self, event) -> None:
+        """Handle DLQ_STALE_EVENTS event - track stale events in dead letter queue.
+
+        Monitors when events are detected as stale in the DLQ, indicating
+        potential issues with event handlers or backpressure in the system.
+
+        December 29, 2025: Added to close the DLQ feedback loop and provide
+        visibility into failed event processing across the cluster.
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        stale_count = payload.get("count", 0)
+        oldest_age_hours = payload.get("oldest_age_hours", 0)
+        event_types = payload.get("event_types", [])
+
+        logger.warning(
+            f"[UnifiedHealthManager] DLQ has {stale_count} stale events "
+            f"(oldest: {oldest_age_hours:.1f}h, types: {event_types})"
+        )
+
+        # Record as warning-level error for visibility
+        error = ErrorRecord(
+            error_id=f"dlq_stale_{int(time.time() * 1000)}",
+            timestamp=time.time(),
+            component="dead_letter_queue",
+            error_type="stale_events",
+            message=f"DLQ has {stale_count} stale events (oldest: {oldest_age_hours:.1f}h)",
+            node_id="",
+            severity=ErrorSeverity.WARNING,
+            context={
+                "stale_count": stale_count,
+                "oldest_age_hours": oldest_age_hours,
+                "event_types": event_types,
+            },
+        )
+        self._record_error(error)
+
+        # Increment DLQ metric
+        self._dlq_stale_events_count = getattr(self, "_dlq_stale_events_count", 0) + stale_count
+
+    async def _on_dlq_events_replayed(self, event) -> None:
+        """Handle DLQ_EVENTS_REPLAYED event - track successful event replays.
+
+        Monitors when failed events are successfully replayed from the DLQ,
+        indicating the system is recovering from transient failures.
+
+        December 29, 2025: Added to track DLQ recovery and system resilience.
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        replay_count = payload.get("count", 0)
+        event_types = payload.get("event_types", [])
+        source = payload.get("source", "unknown")
+
+        logger.info(
+            f"[UnifiedHealthManager] DLQ replayed {replay_count} events successfully "
+            f"(types: {event_types}, source: {source})"
+        )
+
+        # Track successful replays for health scoring
+        self._dlq_replayed_count = getattr(self, "_dlq_replayed_count", 0) + replay_count
+
+        # Record component success for DLQ circuit breaker
+        self._on_component_success("dead_letter_queue")
+
+    async def _on_dlq_events_purged(self, event) -> None:
+        """Handle DLQ_EVENTS_PURGED event - track purged (data loss) events.
+
+        Monitors when events are purged from the DLQ (typically due to age
+        or being unrecoverable), indicating potential data loss.
+
+        December 29, 2025: Added to track DLQ data loss and alert on
+        significant purges that may require investigation.
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+
+        purge_count = payload.get("count", 0)
+        reason = payload.get("reason", "unknown")
+        timestamp = payload.get("timestamp", "")
+
+        logger.warning(
+            f"[UnifiedHealthManager] DLQ purged {purge_count} events "
+            f"(reason: {reason}, at: {timestamp})"
+        )
+
+        # Record as error since purge means data loss
+        error = ErrorRecord(
+            error_id=f"dlq_purge_{int(time.time() * 1000)}",
+            timestamp=time.time(),
+            component="dead_letter_queue",
+            error_type="events_purged",
+            message=f"DLQ purged {purge_count} events: {reason}",
+            node_id="",
+            severity=ErrorSeverity.WARNING if purge_count < 100 else ErrorSeverity.ERROR,
+            context={
+                "purge_count": purge_count,
+                "reason": reason,
+                "timestamp": timestamp,
+            },
+        )
+        self._record_error(error)
+
+        # Track total purged for metrics
+        self._dlq_purged_count = getattr(self, "_dlq_purged_count", 0) + purge_count
+
+    def get_dlq_metrics(self) -> dict[str, int]:
+        """Get DLQ-related metrics (December 29, 2025).
+
+        Returns:
+            Dict with stale_events, replayed, purged counts
+        """
+        return {
+            "stale_events": getattr(self, "_dlq_stale_events_count", 0),
+            "replayed": getattr(self, "_dlq_replayed_count", 0),
+            "purged": getattr(self, "_dlq_purged_count", 0),
+        }
 
     # =========================================================================
     # Error and Recovery Recording

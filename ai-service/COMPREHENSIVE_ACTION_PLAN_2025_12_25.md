@@ -4,6 +4,8 @@
 **Status**: Phase 7 Complete → Consolidation & Optimization
 **Cluster**: 23/24 nodes updated (95.8% coverage)
 
+> Status: Historical snapshot (Dec 2025). Kept for reference; consult `ai-service/docs/README.md` for current guidance.
+
 ---
 
 ## Executive Summary

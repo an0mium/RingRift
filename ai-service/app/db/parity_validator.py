@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import shutil
+import sqlite3
 import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -1292,7 +1293,8 @@ def has_ts_hashes(db: GameReplayDB, game_id: str) -> bool:
                 (game_id,),
             )
             return cursor.fetchone() is not None
-    except Exception:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        # Table may not exist or database may be corrupted
         return False
 
 
@@ -1305,7 +1307,8 @@ def count_games_with_ts_hashes(db: GameReplayDB) -> int:
             )
             result = cursor.fetchone()
             return result[0] if result else 0
-    except Exception:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        # Table may not exist or database may be corrupted
         return 0
 
 
