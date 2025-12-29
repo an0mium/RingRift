@@ -205,16 +205,29 @@ class GPUMCTSSelfplayRunner:
     def _load_neural_net(self) -> None:
         """Load neural network for MCTS evaluation."""
         try:
+            from ..models import AIConfig
             from ..ai.neural_net import NeuralNetAI
 
+            # Create config for NeuralNetAI with the explicit checkpoint path
+            ai_config = AIConfig(
+                difficulty=8,  # Not used for selfplay, but required
+                use_neural_net=True,
+                nn_model_id=f"canonical_{self.config.board_type}_{self.config.num_players}p",
+            )
+            # Set the explicit checkpoint path
+            ai_config.explicit_checkpoint_path = self._model_path
+
+            # Create NeuralNetAI with player 1 (will be used for all players in batch eval)
             self._neural_net = NeuralNetAI(
+                player_number=1,
+                config=ai_config,
                 board_type=self._board_type,
-                num_players=self.config.num_players,
-                model_path=self._model_path,
             )
             logger.info(f"Loaded neural network from {self._model_path}")
         except Exception as e:
+            import traceback
             logger.warning(f"Failed to load neural network: {e}")
+            logger.debug(traceback.format_exc())
             self._neural_net = None
 
     def run_batch(self, num_games: int | None = None) -> list[GameRecord]:
