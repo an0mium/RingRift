@@ -48,12 +48,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Import JobType enum lazily to avoid circular imports
-try:
-    from scripts.p2p_orchestrator import JobType
-except ImportError:
-    JobType = None
-
 
 class JobsApiHandlersMixin(BaseP2PHandler):
     """Mixin providing Jobs API HTTP handlers.
