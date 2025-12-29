@@ -1667,6 +1667,90 @@ class SelfplayScheduler:
 
         return allocation
 
+    def _enforce_starvation_floor(
+        self,
+        allocation: dict[str, dict[str, int]],
+        games_per_config: int,
+    ) -> dict[str, dict[str, int]]:
+        """Enforce minimum allocation for data-starved configs.
+
+        Dec 29, 2025 - Phase 5: Data starvation floor enforcement.
+        Any config with <100 games MUST receive allocation, even if it wasn't
+        in the initial priority list. This addresses critical gaps like:
+        - square19_4p: 1 game
+        - hexagonal_4p: 400 games
+
+        For emergency configs (<100 games): allocate 2x base games
+        For critical configs (<1000 games): allocate 1.5x base games
+
+        Args:
+            allocation: Current allocation {config_key: {node_id: games}}
+            games_per_config: Base games per config
+
+        Returns:
+            Adjusted allocation with starvation floors enforced
+        """
+        added_configs = []
+
+        for config_key in ALL_CONFIGS:
+            priority = self._config_priorities.get(config_key)
+            if not priority:
+                continue
+
+            game_count = priority.game_count
+
+            # Skip if already adequately allocated
+            current_allocation = sum(
+                allocation.get(config_key, {}).values()
+            )
+
+            # Determine minimum floor based on starvation level
+            if game_count < DATA_STARVATION_EMERGENCY_THRESHOLD:
+                # EMERGENCY: <100 games - must get 2x allocation
+                min_floor = int(games_per_config * 2.0)
+                level = "EMERGENCY"
+            elif game_count < DATA_STARVATION_CRITICAL_THRESHOLD:
+                # CRITICAL: <1000 games - must get 1.5x allocation
+                min_floor = int(games_per_config * 1.5)
+                level = "CRITICAL"
+            else:
+                # Not starved, no floor needed
+                continue
+
+            if current_allocation >= min_floor:
+                continue  # Already meets floor
+
+            # Need to allocate more for this starved config
+            shortfall = min_floor - current_allocation
+
+            # Allocate to available nodes
+            additional_allocation = self._allocate_to_nodes(config_key, shortfall)
+
+            if additional_allocation:
+                if config_key not in allocation:
+                    allocation[config_key] = {}
+
+                # Merge with existing allocation
+                for node_id, games in additional_allocation.items():
+                    allocation[config_key][node_id] = (
+                        allocation[config_key].get(node_id, 0) + games
+                    )
+
+                added_configs.append(
+                    f"{config_key}({level}:{game_count}g→+{shortfall})"
+                )
+                logger.warning(
+                    f"[SelfplayScheduler] Starvation floor: {config_key} "
+                    f"({level}, {game_count} games) allocated +{shortfall} games"
+                )
+
+        if added_configs:
+            logger.info(
+                f"[SelfplayScheduler] Starvation floor enforcement: {', '.join(added_configs)}"
+            )
+
+        return allocation
+
     def _enforce_4p_allocation_minimums(
         self,
         allocation: dict[str, dict[str, int]],

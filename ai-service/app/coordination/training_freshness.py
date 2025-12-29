@@ -164,6 +164,7 @@ class TrainingFreshnessChecker:
         # Lazy-loaded components
         self._manifest = None
         self._sync_daemon = None
+        self._data_catalog = None  # Dec 2025: DataCatalog integration
 
         logger.debug(
             f"TrainingFreshnessChecker initialized: "
@@ -208,6 +209,25 @@ class TrainingFreshnessChecker:
             except ImportError:
                 logger.debug("AutoSyncDaemon not available")
         return self._sync_daemon
+
+    def _get_data_catalog(self) -> "DataCatalog | None":
+        """Lazy-load DataCatalog for cluster-wide NPZ discovery.
+
+        December 2025: Integration with DataCatalog provides cluster-wide
+        visibility into NPZ files, enabling more accurate freshness checks
+        by considering data available on other nodes.
+
+        Returns:
+            DataCatalog instance or None if unavailable.
+        """
+        if self._data_catalog is None:
+            try:
+                from app.distributed.data_catalog import get_data_catalog
+                self._data_catalog = get_data_catalog()
+                logger.debug("DataCatalog integration enabled")
+            except ImportError:
+                logger.debug("DataCatalog not available for freshness checks")
+        return self._data_catalog
 
     def find_local_databases(
         self,

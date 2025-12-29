@@ -42,7 +42,8 @@ class TestNodeAvailabilityConfig:
         """Test from_env with no environment variables."""
         with patch.dict("os.environ", {}, clear=True):
             config = NodeAvailabilityConfig.from_env()
-            assert config.enabled is False  # No ENABLED env var
+            # Default is enabled=True (code uses "1" as default)
+            assert config.enabled is True
             assert config.dry_run is True  # Default is safe
 
     def test_from_env_enabled(self):
@@ -222,8 +223,9 @@ class TestNodeAvailabilityDaemon:
         with patch.object(NodeAvailabilityDaemon, "_init_checkers"):
             daemon = NodeAvailabilityDaemon()
 
+            # Patch the emit_generic_event function in event_emitters
             with patch(
-                "app.coordination.node_availability.daemon.emit_generic_event",
+                "app.coordination.event_emitters.emit_generic_event",
                 new_callable=AsyncMock,
             ) as mock_emit:
                 await daemon._emit_state_change_event("node1", "ready", "offline")
@@ -421,13 +423,14 @@ class TestCheckProvider:
         with patch.object(NodeAvailabilityDaemon, "_init_checkers"):
             daemon = NodeAvailabilityDaemon()
 
+            # Note: yaml_status is a property, not an init parameter
             mock_instance = InstanceInfo(
                 instance_id="inst-1",
                 provider="vast",
                 state=ProviderInstanceState.RUNNING,
-                yaml_status="ready",
                 node_name="vast-123",
             )
+            # yaml_status is computed from state -> RUNNING maps to "ready"
 
             mock_checker = MagicMock()
             mock_checker.get_instance_states = AsyncMock(return_value=[mock_instance])

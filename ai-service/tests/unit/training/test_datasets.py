@@ -363,25 +363,26 @@ class TestRingRiftDatasetMetadata:
 class TestWeightedRingRiftDatasetInitialization:
     """Tests for WeightedRingRiftDataset initialization."""
 
-    def test_init_with_quality_scores(self, weighted_npz_file):
-        """Dataset loads quality scores correctly."""
-        dataset = WeightedRingRiftDataset(weighted_npz_file)
-        assert dataset.weights is not None
-        assert len(dataset.weights) == len(dataset)
+    def test_init_with_weighting_strategy(self, weighted_npz_file):
+        """Dataset applies weighting strategy correctly."""
+        dataset = WeightedRingRiftDataset(weighted_npz_file, weighting='uniform')
+        assert dataset.weighting == 'uniform'
+        assert dataset.sample_weights is not None
+        assert len(dataset.sample_weights) == len(dataset)
 
     def test_init_without_quality_scores(self, sample_npz_file):
         """Dataset works without quality scores (uniform weights)."""
-        dataset = WeightedRingRiftDataset(sample_npz_file)
+        dataset = WeightedRingRiftDataset(sample_npz_file, weighting='uniform')
         # Should have uniform weights
-        if dataset.weights is not None:
-            assert np.allclose(dataset.weights, dataset.weights[0])
+        if dataset.sample_weights is not None:
+            assert np.allclose(dataset.sample_weights, dataset.sample_weights[0])
 
     def test_weights_normalized(self, weighted_npz_file):
-        """Weights are properly normalized."""
-        dataset = WeightedRingRiftDataset(weighted_npz_file)
-        if dataset.weights is not None:
+        """Weights are properly normalized to sum to dataset length."""
+        dataset = WeightedRingRiftDataset(weighted_npz_file, weighting='uniform')
+        if dataset.sample_weights is not None:
             # Weights should sum to length (for compatibility with WeightedRandomSampler)
-            weight_sum = np.sum(dataset.weights)
+            weight_sum = np.sum(dataset.sample_weights)
             assert abs(weight_sum - len(dataset)) < 1e-5
 
 
@@ -421,15 +422,15 @@ class TestWeightedRingRiftDatasetWeightComputation:
         npz_path = tmp_path / "quality_test.npz"
         np.savez(npz_path, **data)
 
-        dataset = WeightedRingRiftDataset(str(npz_path))
-        if dataset.weights is not None and len(dataset.weights) > 10:
+        dataset = WeightedRingRiftDataset(str(npz_path), weighting='quality')
+        if dataset.sample_weights is not None and len(dataset.sample_weights) > 10:
             # Last samples should have higher weights than first
-            avg_first_10 = np.mean(dataset.weights[:10])
-            avg_last_10 = np.mean(dataset.weights[-10:])
+            avg_first_10 = np.mean(dataset.sample_weights[:10])
+            avg_last_10 = np.mean(dataset.sample_weights[-10:])
             assert avg_last_10 > avg_first_10
 
     def test_move_number_affects_weights(self, tmp_path):
-        """Earlier moves can have different weight than later moves."""
+        """Late game weighting gives higher weight to later moves."""
         num_samples = 100
         data = {
             'features': np.random.randn(num_samples, 10, 8, 8).astype(np.float32),
@@ -443,9 +444,9 @@ class TestWeightedRingRiftDatasetWeightComputation:
         npz_path = tmp_path / "move_test.npz"
         np.savez(npz_path, **data)
 
-        dataset = WeightedRingRiftDataset(str(npz_path))
+        dataset = WeightedRingRiftDataset(str(npz_path), weighting='late_game')
         # Should load without error
-        assert dataset.weights is not None or len(dataset) > 0
+        assert dataset.sample_weights is not None or len(dataset) > 0
 
 
 # =============================================================================
