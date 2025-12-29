@@ -300,7 +300,13 @@ class TestCurriculumFeedbackStageTracking:
         feedback.advance_stage("square8_4p", 5)
 
         stages = feedback.get_all_curriculum_stages()
-        assert stages == {"hex8_2p": 2, "square8_4p": 5}
+        # December 29, 2025: ALL_CANONICAL_CONFIGS are pre-initialized at stage 0
+        assert len(stages) == 12  # All canonical configs
+        assert stages["hex8_2p"] == 2  # Advanced config
+        assert stages["square8_4p"] == 5  # Advanced config
+        # All other configs should be at stage 0
+        non_advanced = {k: v for k, v in stages.items() if k not in ("hex8_2p", "square8_4p")}
+        assert all(s == 0 for s in non_advanced.values())
 
 
 class TestCurriculumFeedbackEventHandlers:
