@@ -89,24 +89,26 @@ value = env.get("CUSTOM_VAR", "default")
 
 ## P2P / Cluster
 
-| Variable                            | Type | Default | In env.py | Description                       |
-| ----------------------------------- | ---- | ------- | --------- | --------------------------------- |
-| `RINGRIFT_COORDINATOR_URL`          | str  | `""`    | ✓         | Central coordinator URL           |
-| `RINGRIFT_COORDINATOR_IP`           | str  | None    |           | Coordinator IP address            |
-| `RINGRIFT_CLUSTER_AUTH_TOKEN`       | str  | None    | ✓         | Cluster auth token                |
-| `RINGRIFT_CLUSTER_AUTH_TOKEN_FILE`  | str  | None    | ✓         | Token file path                   |
-| `RINGRIFT_CLUSTER_NAME`             | str  | None    |           | Cluster name                      |
-| `RINGRIFT_CLUSTER_API`              | str  | None    | ✓         | Cluster API endpoint              |
-| `RINGRIFT_CLUSTER_HOSTS`            | str  | None    |           | Comma-separated host list         |
-| `RINGRIFT_P2P_AGENT_MODE`           | bool | `false` | ✓         | Agent mode (defer to coordinator) |
-| `RINGRIFT_P2P_AUTO_UPDATE`          | bool | `false` | ✓         | Enable auto-updates               |
-| `RINGRIFT_P2P_PORT`                 | int  | `8770`  | ✓         | P2P port                          |
-| `RINGRIFT_P2P_SEEDS`                | str  | `""`    | ✓         | P2P seed nodes                    |
-| `RINGRIFT_P2P_URL`                  | str  | None    | ✓         | P2P orchestrator URL              |
-| `RINGRIFT_P2P_STARTUP_GRACE_PERIOD` | int  | `120`   | ✓         | Startup grace period (seconds)    |
-| `RINGRIFT_HEALTH_PORT`              | int  | `8790`  | ✓         | Health check port                 |
-| `RINGRIFT_HEARTBEAT_INTERVAL`       | int  | `15`    | ✓         | Heartbeat interval (seconds)      |
-| `RINGRIFT_HEARTBEAT_TIMEOUT`        | int  | `60`    | ✓         | Heartbeat timeout (seconds)       |
+| Variable                                      | Type  | Default | In env.py | Description                          |
+| --------------------------------------------- | ----- | ------- | --------- | ------------------------------------ |
+| `RINGRIFT_COORDINATOR_URL`                    | str   | `""`    | ✓         | Central coordinator URL              |
+| `RINGRIFT_COORDINATOR_IP`                     | str   | None    |           | Coordinator IP address               |
+| `RINGRIFT_CLUSTER_AUTH_TOKEN`                 | str   | None    | ✓         | Cluster auth token                   |
+| `RINGRIFT_CLUSTER_AUTH_TOKEN_FILE`            | str   | None    | ✓         | Token file path                      |
+| `RINGRIFT_CLUSTER_NAME`                       | str   | None    |           | Cluster name                         |
+| `RINGRIFT_CLUSTER_API`                        | str   | None    | ✓         | Cluster API endpoint                 |
+| `RINGRIFT_CLUSTER_HOSTS`                      | str   | None    |           | Comma-separated host list            |
+| `RINGRIFT_P2P_AGENT_MODE`                     | bool  | `false` | ✓         | Agent mode (defer to coordinator)    |
+| `RINGRIFT_P2P_AUTO_UPDATE`                    | bool  | `false` | ✓         | Enable auto-updates                  |
+| `RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD` | int   | `5`     |           | Failures before opening node circuit |
+| `RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT`  | float | `60.0`  |           | Seconds before half-open recovery    |
+| `RINGRIFT_P2P_PORT`                           | int   | `8770`  | ✓         | P2P port                             |
+| `RINGRIFT_P2P_SEEDS`                          | str   | `""`    | ✓         | P2P seed nodes                       |
+| `RINGRIFT_P2P_URL`                            | str   | None    | ✓         | P2P orchestrator URL                 |
+| `RINGRIFT_P2P_STARTUP_GRACE_PERIOD`           | int   | `120`   | ✓         | Startup grace period (seconds)       |
+| `RINGRIFT_HEALTH_PORT`                        | int   | `8790`  | ✓         | Health check port                    |
+| `RINGRIFT_HEARTBEAT_INTERVAL`                 | int   | `15`    | ✓         | Heartbeat interval (seconds)         |
+| `RINGRIFT_HEARTBEAT_TIMEOUT`                  | int   | `60`    | ✓         | Heartbeat timeout (seconds)          |
 
 ---
 

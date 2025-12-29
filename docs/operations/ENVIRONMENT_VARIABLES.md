@@ -1877,6 +1877,38 @@ Notes:
 - `ai-service/run.sh` auto-sets this to `data/trained_heuristic_profiles.json` if the file exists.
 - Produced by CMA-ES / heuristic training flows (see `ai-service/scripts/run_iterative_cmaes.py`).
 
+### `RINGRIFT_ENCODING_CHUNK_SIZE`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `64`     |
+| Required | No       |
+
+Chunk size used by the Python `ParallelEncoder` when batching games for
+parallel encoding (`ai-service/app/training/parallel_encoding.py`).
+
+### `RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `5`      |
+| Required | No       |
+
+Consecutive failures before opening the per-node health circuit breaker
+(`ai-service/app/coordination/node_circuit_breaker.py`).
+
+### `RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `60.0`   |
+| Required | No       |
+
+Seconds before an open per-node circuit breaker transitions to half-open.
+
 ### `RINGRIFT_DISABLE_NEURAL_NET`
 
 | Property | Value                                       |

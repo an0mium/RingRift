@@ -140,11 +140,8 @@ class ParityValidationDaemon(BaseDaemon):
         Args:
             config: Configuration for the daemon. Uses environment if None.
         """
-        self.config = config or ParityValidationConfig.from_env()
-        super().__init__(
-            name="parity_validation",
-            check_interval=self.config.check_interval_seconds,
-        )
+        # Pass config to parent - it will use _get_default_config if None
+        super().__init__(config=config)
 
         # Stats
         self._total_validations = 0
@@ -166,6 +163,11 @@ class ParityValidationDaemon(BaseDaemon):
         """Reset singleton instance (for testing)."""
         cls._instance = None
 
+    @staticmethod
+    def _get_default_config() -> ParityValidationConfig:
+        """Return default configuration."""
+        return ParityValidationConfig.from_env()
+
     # -------------------------------------------------------------------------
     # Core Daemon Methods
     # -------------------------------------------------------------------------
@@ -177,7 +179,8 @@ class ParityValidationDaemon(BaseDaemon):
                 "[ParityValidationDaemon] npx not available - skipping validation"
             )
             if self.config.fail_on_missing_npx:
-                self._record_error("npx not available on this node")
+                self._errors_count += 1
+                self._last_error = "npx not available on this node"
             return
 
         summary = await self._validate_all_databases()
@@ -212,7 +215,7 @@ class ParityValidationDaemon(BaseDaemon):
             "total_validations": self._total_validations,
             "total_passed": self._total_passed,
             "total_failed": self._total_failed,
-            "error_count": len(self._errors),
+            "error_count": self._errors_count,
         }
 
         if self._last_validation_time:

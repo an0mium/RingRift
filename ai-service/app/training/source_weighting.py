@@ -73,6 +73,146 @@ class SourceWeightConfig:
     normalize: bool = True  # Normalize weights to mean=1
 
 
+@dataclass
+class FreshnessWeightConfig:
+    """Configuration for data freshness-based weighting.
+
+    December 2025: Added for quality-weighted sampling improvement.
+    Fresh data from recent selfplay is weighted higher than older data
+    since it reflects current model capabilities better.
+    """
+    half_life_days: float = 3.0  # Days until weight decays to 50%
+    min_weight: float = 0.1  # Minimum weight for very old data
+    max_weight: float = 1.0  # Maximum weight for fresh data
+    enabled: bool = True  # Enable freshness weighting
+
+
+def compute_freshness_weight(
+    age_seconds: float,
+    config: FreshnessWeightConfig | None = None,
+) -> float:
+    """Compute sample weight based on data age (freshness).
+
+    Uses exponential decay: weight = max_weight * exp(-age / half_life)
+
+    December 2025: Part of quality-weighted sampling improvement.
+
+    Args:
+        age_seconds: Age of the data in seconds (time since game was played).
+        config: Freshness weighting configuration.
+
+    Returns:
+        Weight value between min_weight and max_weight.
+    """
+    import math
+
+    config = config or FreshnessWeightConfig()
+
+    if not config.enabled or age_seconds <= 0:
+        return config.max_weight
+
+    # Convert half_life from days to seconds
+    half_life_seconds = config.half_life_days * 24 * 3600
+
+    # Exponential decay formula
+    decay = math.exp(-age_seconds * math.log(2) / half_life_seconds)
+    weight = config.max_weight * decay
+
+    # Clamp to min_weight
+    return max(config.min_weight, weight)
+
+
+def compute_freshness_weights(
+    timestamps: np.ndarray | list[float] | None,
+    reference_time: float | None = None,
+    config: FreshnessWeightConfig | None = None,
+) -> np.ndarray:
+    """Compute sample weights based on data freshness for batch of samples.
+
+    December 2025: Part of quality-weighted sampling improvement.
+
+    Args:
+        timestamps: Array of Unix timestamps (seconds since epoch) for each sample.
+        reference_time: Reference time for computing age (default: current time).
+        config: Freshness weighting configuration.
+
+    Returns:
+        Array of freshness weights.
+    """
+    import time
+
+    if timestamps is None or len(timestamps) == 0:
+        return np.ones(1)
+
+    config = config or FreshnessWeightConfig()
+    reference_time = reference_time or time.time()
+
+    n_samples = len(timestamps)
+    weights = np.ones(n_samples, dtype=np.float64)
+
+    for i, ts in enumerate(timestamps):
+        age = reference_time - float(ts)
+        weights[i] = compute_freshness_weight(age, config)
+
+    return weights
+
+
+def compute_combined_weights(
+    engine_modes: np.ndarray | list[str] | None = None,
+    timestamps: np.ndarray | list[float] | None = None,
+    source_config: SourceWeightConfig | None = None,
+    freshness_config: FreshnessWeightConfig | None = None,
+    normalize: bool = True,
+) -> np.ndarray:
+    """Compute combined weights from source quality and data freshness.
+
+    December 2025: Part of quality-weighted sampling improvement.
+    Combines engine-based quality weights with time-based freshness weights
+    for more effective training sample selection.
+
+    Final weight = source_weight * freshness_weight
+
+    Args:
+        engine_modes: Array of engine mode strings for each sample.
+        timestamps: Array of Unix timestamps for each sample.
+        source_config: Source quality weighting configuration.
+        freshness_config: Freshness weighting configuration.
+        normalize: Normalize final weights to mean=1.
+
+    Returns:
+        Array of combined sample weights.
+    """
+    # Get source-based weights (or uniform if not provided)
+    if engine_modes is not None and len(engine_modes) > 0:
+        source_weights = compute_source_weights(engine_modes, source_config)
+    else:
+        n = len(timestamps) if timestamps is not None else 1
+        source_weights = np.ones(n, dtype=np.float64)
+
+    # Get freshness-based weights
+    if timestamps is not None and len(timestamps) > 0:
+        freshness_weights = compute_freshness_weights(timestamps, config=freshness_config)
+    else:
+        freshness_weights = np.ones(len(source_weights), dtype=np.float64)
+
+    # Ensure same length
+    if len(source_weights) != len(freshness_weights):
+        logger.warning(
+            f"Weight length mismatch: source={len(source_weights)}, "
+            f"freshness={len(freshness_weights)}. Using source length."
+        )
+        freshness_weights = np.ones(len(source_weights), dtype=np.float64)
+
+    # Combine weights multiplicatively
+    combined = source_weights * freshness_weights
+
+    # Normalize if requested
+    if normalize and combined.mean() > 0:
+        combined = combined / combined.mean()
+
+    return combined
+
+
 def get_quality_tier(engine_mode: str | None) -> str:
     """Classify engine mode into quality tier.
 

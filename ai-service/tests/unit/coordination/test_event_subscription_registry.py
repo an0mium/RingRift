@@ -189,12 +189,8 @@ class TestProcessInitCallRegistry:
         """Test processing populates results dict."""
         results = {}
 
-        with patch.object(
-            __builtins__["__import__"] if hasattr(__builtins__, "__import__") else __builtins__,
-            "__import__",
-        ) as mock_import:
-            # This will fail imports gracefully
-            mock_import.side_effect = ImportError("Test import error")
+        # Patch builtins.__import__ which is used internally by __import__()
+        with patch("builtins.__import__", side_effect=ImportError("Test import error")):
             process_init_call_registry(results)
 
         # Should have entries for each spec (all False due to import failure)
@@ -206,12 +202,25 @@ class TestProcessInitCallRegistry:
         """Test successful init function call."""
         results = {}
 
-        # Create a mock registry with a simple spec
+        # Create a mock function with proper __code__ attribute
         mock_func = MagicMock(return_value=True)
+        mock_func.__code__ = MagicMock()
+        mock_func.__code__.co_varnames = ()
+        mock_func.__code__.co_argcount = 0
+
         mock_module = MagicMock()
         mock_module.test_func = mock_func
 
-        with patch.dict("sys.modules", {"app.test.module": mock_module}):
+        # Save original __import__
+        original_import = __import__
+
+        def mock_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "app.test.module":
+                return mock_module
+            # Fall through to real import for everything else
+            return original_import(name, globals, locals, fromlist, level)
+
+        with patch("builtins.__import__", side_effect=mock_import):
             with patch("app.coordination.event_subscription_registry.INIT_CALL_REGISTRY", (
                 InitCallSpec(
                     name="test_init",
@@ -222,7 +231,8 @@ class TestProcessInitCallRegistry:
                 process_init_call_registry(results)
 
         # Should succeed with our mocked module
-        # Note: This test verifies the flow, actual success depends on import patching
+        assert results.get("test_init") is True
+        mock_func.assert_called_once()
 
 
 class TestProcessDelegationRegistry:
@@ -232,11 +242,16 @@ class TestProcessDelegationRegistry:
         """Test handling when event bus unavailable."""
         results = {}
 
-        with patch(
-            "app.coordination.event_subscription_registry.get_event_bus",
-            side_effect=ImportError("No event bus"),
-        ):
-            process_delegation_registry(results)
+        # Use patch.dict to temporarily remove the event_router module
+        with patch.dict("sys.modules", {"app.coordination.event_router": None}):
+            # Also patch the import to raise ImportError for event_router
+            with patch("builtins.__import__") as mock_import:
+                def import_side_effect(name, *args, **kwargs):
+                    if "event_router" in name:
+                        raise ImportError("No event bus")
+                    return __import__(name, *args, **kwargs)
+                mock_import.side_effect = import_side_effect
+                process_delegation_registry(results)
 
         # All should be False
         for spec in DELEGATION_REGISTRY:
@@ -250,18 +265,18 @@ class TestProcessDelegationRegistry:
         mock_bus = MagicMock()
         mock_bus.subscribe = MagicMock()
 
-        with patch(
-            "app.coordination.event_subscription_registry.get_event_bus",
-            return_value=mock_bus,
-        ):
-            with patch(
-                "app.coordination.event_subscription_registry.DataEventType",
-            ) as mock_event_type:
-                # Mock the event type enum
-                mock_event_type.HOST_OFFLINE = "HOST_OFFLINE"
-                mock_event_type.HOST_ONLINE = "HOST_ONLINE"
+        # Create mock event type with all needed attributes
+        mock_event_type = MagicMock()
+        for spec in DELEGATION_REGISTRY:
+            setattr(mock_event_type, spec.event_type, spec.event_type)
 
-                process_delegation_registry(results)
+        with patch.dict("sys.modules", {
+            "app.coordination.event_router": MagicMock(
+                get_event_bus=MagicMock(return_value=mock_bus),
+                DataEventType=mock_event_type,
+            )
+        }):
+            process_delegation_registry(results)
 
         # subscribe should have been called for valid event types
         assert mock_bus.subscribe.call_count > 0

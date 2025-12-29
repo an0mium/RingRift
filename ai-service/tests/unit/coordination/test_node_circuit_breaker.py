@@ -237,6 +237,10 @@ class TestNodeCircuitBreaker:
         breaker.record_failure("test-node")
         time.sleep(0.15)
 
+        # Verify we're in half-open state before recording failure
+        assert breaker.get_state("test-node") == NodeCircuitState.HALF_OPEN
+
+        # Now record failure - should reopen
         breaker.record_failure("test-node")
         assert breaker.get_state("test-node") == NodeCircuitState.OPEN
 

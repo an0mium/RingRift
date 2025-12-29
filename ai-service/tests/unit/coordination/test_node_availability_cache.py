@@ -369,7 +369,7 @@ class TestNodeAvailabilityCache:
         """Test subscribing to events."""
         cache = NodeAvailabilityCache.get_instance()
 
-        with patch("app.coordination.node_availability_cache.get_router") as mock_get_router:
+        with patch("app.coordination.event_router.get_router") as mock_get_router:
             mock_router = MagicMock()
             mock_get_router.return_value = mock_router
 
@@ -383,7 +383,7 @@ class TestNodeAvailabilityCache:
         """Test wire_to_events is idempotent."""
         cache = NodeAvailabilityCache.get_instance()
 
-        with patch("app.coordination.node_availability_cache.get_router") as mock_get_router:
+        with patch("app.coordination.event_router.get_router") as mock_get_router:
             mock_router = MagicMock()
             mock_get_router.return_value = mock_router
 
@@ -396,13 +396,13 @@ class TestNodeAvailabilityCache:
     def test_wire_to_events_handles_import_error(self):
         """Test wire_to_events handles import error gracefully."""
         cache = NodeAvailabilityCache.get_instance()
+        cache._event_subscribed = False  # Reset state
 
-        with patch(
-            "app.coordination.node_availability_cache.get_router",
-            side_effect=ImportError("No router"),
-        ):
+        # Patch the import inside wire_to_events to raise ImportError
+        with patch.dict("sys.modules", {"app.coordination.event_router": None}):
             # Should not raise
             cache.wire_to_events()
+            # Event subscription should fail silently
             assert cache._event_subscribed is False
 
 

@@ -1608,7 +1608,21 @@ class JobManager(EventSubscriptionMixin):
         timeout = ClientTimeout(total=JobDefaults.HEALTH_CHECK_TIMEOUT)
 
         # December 2025: Determine engine mode and GPU requirements upfront
-        effective_engine_mode = "gumbel-mcts" if model_path else "heuristic-only"
+        # Dec 29 2025: Use multi-armed bandit for engine selection when model available
+        if model_path:
+            try:
+                from app.coordination.selfplay_engine_bandit import get_selfplay_engine_bandit
+                bandit = get_selfplay_engine_bandit()
+                config_key = f"{board_type}_{num_players}p"
+                effective_engine_mode = bandit.select_engine(config_key)
+                logger.info(
+                    f"[EngineBandit] Selected engine '{effective_engine_mode}' for {config_key}"
+                )
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[EngineBandit] Fallback to gumbel-mcts: {e}")
+                effective_engine_mode = "gumbel-mcts"
+        else:
+            effective_engine_mode = "heuristic-only"
         gpu_required = self._engine_mode_requires_gpu(effective_engine_mode)
 
         if gpu_required:

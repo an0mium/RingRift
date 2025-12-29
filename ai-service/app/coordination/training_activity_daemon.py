@@ -133,6 +133,10 @@ class TrainingActivityDaemon(BaseDaemon[TrainingActivityConfig]):
 
         self._training_nodes = training_detected
 
+        # December 29, 2025: Update SyncRouter with training-active nodes
+        # This enables priority sync to training nodes (reduces data staleness)
+        self._update_sync_router_training_nodes(training_detected)
+
     async def _check_p2p_training(self) -> set[str]:
         """Check P2P status for training activity."""
         training_detected: set[str] = set()

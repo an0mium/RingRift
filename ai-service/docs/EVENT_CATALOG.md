@@ -74,13 +74,15 @@ These events form the main training pipeline:
 
 ## Evaluation Events
 
-| Event                  | Emitter          | Subscribers                         | Purpose                   |
-| ---------------------- | ---------------- | ----------------------------------- | ------------------------- |
-| `EVALUATION_STARTED`   | EvaluationDaemon | MetricsAnalysisOrchestrator         | Evaluation begins         |
-| `EVALUATION_PROGRESS`  | GameGauntlet     | MetricsAnalysisOrchestrator         | Real-time eval progress   |
-| `EVALUATION_COMPLETED` | GameGauntlet     | FeedbackLoop, CurriculumIntegration | Adjust curriculum weights |
-| `EVALUATION_FAILED`    | EvaluationDaemon | AlertManager                        | Handle eval failures      |
-| `ELO_UPDATED`          | EloSyncManager   | CurriculumIntegration               | Elo rating updated        |
+| Event                              | Emitter          | Subscribers                         | Purpose                                |
+| ---------------------------------- | ---------------- | ----------------------------------- | -------------------------------------- |
+| `EVALUATION_STARTED`               | EvaluationDaemon | MetricsAnalysisOrchestrator         | Evaluation begins                      |
+| `EVALUATION_PROGRESS`              | GameGauntlet     | MetricsAnalysisOrchestrator         | Real-time eval progress                |
+| `EVALUATION_COMPLETED`             | GameGauntlet     | FeedbackLoop, CurriculumIntegration | Adjust curriculum weights              |
+| `EVALUATION_FAILED`                | EvaluationDaemon | AlertManager                        | Handle eval failures                   |
+| `EVALUATION_BACKPRESSURE`          | EvaluationDaemon | TrainingTriggerDaemon               | Pause training when eval queue is deep |
+| `EVALUATION_BACKPRESSURE_RELEASED` | EvaluationDaemon | TrainingTriggerDaemon               | Resume training when queue drains      |
+| `ELO_UPDATED`                      | EloSyncManager   | CurriculumIntegration               | Elo rating updated                     |
 
 ## Promotion Events
 

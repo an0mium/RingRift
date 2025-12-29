@@ -337,7 +337,7 @@ class TestParityValidationDaemon:
             scan_time=datetime.now(timezone.utc).isoformat(),
         )
 
-        with patch("app.coordination.parity_validation_daemon.get_event_bus") as mock_get_bus:
+        with patch("app.coordination.event_router.get_event_bus") as mock_get_bus:
             mock_bus = MagicMock()
             mock_get_bus.return_value = mock_bus
 
