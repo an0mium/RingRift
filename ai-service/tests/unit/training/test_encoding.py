@@ -213,12 +213,26 @@ def empty_square8_game_state():
 @pytest.fixture
 def hex_game_state_with_pieces():
     """Create a hex game state with some pieces on the board."""
+    from app.models import Position
+
     stacks = {
-        "0,0": RingStack(controllingPlayer=1, height=2),
-        "1,-1": RingStack(controllingPlayer=2, height=3),
+        "0,0,0": RingStack(
+            position=Position(x=0, y=0, z=0),
+            rings=[1, 1],
+            stackHeight=2,
+            capHeight=2,
+            controllingPlayer=1,
+        ),
+        "1,-1,0": RingStack(
+            position=Position(x=1, y=-1, z=0),
+            rings=[2, 2, 2],
+            stackHeight=3,
+            capHeight=3,
+            controllingPlayer=2,
+        ),
     }
     collapsed_spaces = {
-        "2,-1": 1,  # Player 1 territory
+        "2,-1,0": 1,  # Player 1 territory
     }
     return create_hex_game_state(
         board_type=BoardType.HEXAGONAL,
@@ -650,7 +664,17 @@ class TestEncodingEdgeCases:
 
     def test_stack_height_normalization(self, hex_encoder):
         """Stack heights are normalized to [0, 1]."""
-        stacks = {"0,0": RingStack(controllingPlayer=1, height=10)}  # Very tall
+        from app.models import Position
+
+        stacks = {
+            "0,0,0": RingStack(
+                position=Position(x=0, y=0, z=0),
+                rings=[1] * 10,  # Very tall stack
+                stackHeight=10,
+                capHeight=10,
+                controllingPlayer=1,
+            )
+        }
         state = create_hex_game_state(
             board_type=BoardType.HEXAGONAL,
             phase=GamePhase.MOVEMENT,
