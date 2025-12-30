@@ -175,10 +175,21 @@ Selfplay → NEW_GAMES_AVAILABLE → DataPipeline → TRAINING_THRESHOLD_REACHED
 **Key Events:**
 | Event | Emitter | Subscribers |
 |-------|---------|-------------|
-| `TRAINING_COMPLETED` | TrainingCoordinator | FeedbackLoop, DataPipeline |
-| `MODEL_PROMOTED` | PromotionController | UnifiedDistributionDaemon |
-| `DATA_SYNC_COMPLETED` | AutoSyncDaemon | DataPipelineOrchestrator |
-| `REGRESSION_DETECTED` | RegressionDetector | ModelLifecycleCoordinator |
+| `TRAINING_COMPLETED` | TrainingCoordinator | FeedbackLoop, DataPipeline, UnifiedQueuePopulator |
+| `TRAINING_LOCK_ACQUIRED` | TrainingCoordinator | (Internal tracking) |
+| `TRAINING_SLOT_UNAVAILABLE` | TrainingCoordinator | (Internal tracking) |
+| `MODEL_PROMOTED` | PromotionController | UnifiedDistributionDaemon, CurriculumIntegration |
+| `DATA_SYNC_COMPLETED` | AutoSyncDaemon | DataPipelineOrchestrator, TransferVerification |
+| `REGRESSION_DETECTED` | RegressionDetector | TrainingCoordinator, UnifiedFeedback |
+| `REGRESSION_CRITICAL` | RegressionDetector | DaemonManager, CurriculumIntegration |
+| `EVALUATION_BACKPRESSURE` | EvaluationDaemon | TrainingCoordinator (pauses training) |
+| `NEW_GAMES_AVAILABLE` | AutoExportDaemon | DataPipeline, TrainingCoordinator |
+| `SELFPLAY_COMPLETE` | SelfplayRunner | DataConsolidation, UnifiedFeedback |
+
+**Complete Event Documentation:**
+
+- `docs/architecture/EVENT_SUBSCRIPTION_MATRIX.md` - Full list of 118+ events with emitters/subscribers
+- `docs/architecture/EVENT_FLOW_INTEGRATION.md` - Event flow diagrams and integration patterns
 
 ```python
 from app.coordination.event_emitters import emit_training_complete
@@ -444,5 +455,7 @@ Recent stability improvements to the P2P orchestrator:
 - `SECURITY.md` - Security considerations
 - `docs/DAEMON_REGISTRY.md` - Full daemon reference
 - `docs/EVENT_SYSTEM_REFERENCE.md` - Complete event documentation
+- `docs/architecture/EVENT_SUBSCRIPTION_MATRIX.md` - Event emitter/subscriber matrix
+- `docs/architecture/EVENT_FLOW_INTEGRATION.md` - Event flow diagrams
 - `archive/` - Deprecated modules with migration guides
 - `../CLAUDE.md` - Root project context

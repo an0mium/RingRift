@@ -944,5 +944,264 @@ class TestMigrateLegacyStateDict:
         assert migrated["accumulator.weight"].shape[1] == target_size
 
 
+# =============================================================================
+# MultiPlayerNNUE Tests (December 2025)
+# =============================================================================
+
+
+class TestMultiPlayerNNUEInitialization:
+    """Tests for MultiPlayerNNUE initialization."""
+
+    def test_default_initialization(self):
+        """Test default initialization with 4 players."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE()
+        assert model.num_players == 4
+        assert model.board_type == BoardType.SQUARE8
+
+    def test_custom_num_players(self):
+        """Test initialization with custom player count."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        for num_players in [2, 3, 4]:
+            model = MultiPlayerNNUE(num_players=num_players)
+            assert model.num_players == num_players
+
+    def test_custom_hidden_dim(self):
+        """Test initialization with custom hidden dimension."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE(hidden_dim=512, num_players=3)
+        assert model.hidden_dim == 512
+
+    def test_custom_board_type(self):
+        """Test initialization with different board types."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        for board_type in [BoardType.SQUARE8, BoardType.HEX8]:
+            model = MultiPlayerNNUE(board_type=board_type, num_players=4)
+            assert model.board_type == board_type
+
+    def test_output_layer_shape(self):
+        """Test output layer has correct shape for num_players."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        for num_players in [2, 3, 4]:
+            model = MultiPlayerNNUE(num_players=num_players)
+            assert model.output.out_features == num_players
+
+    def test_architecture_version(self):
+        """Test architecture version is set for multiplayer."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE()
+        assert model.ARCHITECTURE_VERSION == "v1.0.0-mp"
+
+
+class TestMultiPlayerNNUEForward:
+    """Tests for MultiPlayerNNUE forward pass."""
+
+    def test_forward_output_shape(self):
+        """Test forward returns correct shape (batch, num_players)."""
+        from app.ai.nnue import MultiPlayerNNUE, get_feature_dim
+
+        for num_players in [2, 3, 4]:
+            model = MultiPlayerNNUE(
+                num_players=num_players, board_type=BoardType.SQUARE8
+            )
+            model.eval()
+
+            input_dim = get_feature_dim(BoardType.SQUARE8)
+            batch_size = 16
+            x = torch.randn(batch_size, input_dim)
+
+            output = model(x)
+            assert output.shape == (batch_size, num_players)
+
+    def test_forward_output_range(self):
+        """Test forward output is in [-1, 1] range (due to tanh)."""
+        from app.ai.nnue import MultiPlayerNNUE, get_feature_dim
+
+        model = MultiPlayerNNUE(num_players=4, board_type=BoardType.SQUARE8)
+        model.eval()
+
+        input_dim = get_feature_dim(BoardType.SQUARE8)
+        x = torch.randn(32, input_dim)
+
+        output = model(x)
+        assert (output >= -1.0).all()
+        assert (output <= 1.0).all()
+
+    def test_forward_single_sample(self):
+        """Test forward with single sample."""
+        from app.ai.nnue import MultiPlayerNNUE, get_feature_dim
+
+        model = MultiPlayerNNUE(num_players=3, board_type=BoardType.SQUARE8)
+        model.eval()
+
+        input_dim = get_feature_dim(BoardType.SQUARE8)
+        x = torch.randn(1, input_dim)
+
+        output = model(x)
+        assert output.shape == (1, 3)
+
+    def test_forward_with_hidden(self):
+        """Test forward_with_hidden returns values and hidden."""
+        from app.ai.nnue import MultiPlayerNNUE, get_feature_dim
+
+        model = MultiPlayerNNUE(num_players=4, board_type=BoardType.SQUARE8)
+        model.eval()
+
+        input_dim = get_feature_dim(BoardType.SQUARE8)
+        x = torch.randn(8, input_dim)
+
+        values, hidden = model.forward_with_hidden(x)
+        assert values.shape == (8, 4)  # (batch, num_players)
+        assert hidden.shape == (8, 32)  # Hidden features
+
+    def test_forward_deterministic_eval_mode(self):
+        """Test forward is deterministic in eval mode."""
+        from app.ai.nnue import MultiPlayerNNUE, get_feature_dim
+
+        model = MultiPlayerNNUE(num_players=3, board_type=BoardType.SQUARE8)
+        model.eval()
+
+        input_dim = get_feature_dim(BoardType.SQUARE8)
+        x = torch.randn(4, input_dim)
+
+        output1 = model(x)
+        output2 = model(x)
+        assert torch.allclose(output1, output2)
+
+
+class TestMultiPlayerNNUESpecialFeatures:
+    """Tests for MultiPlayerNNUE special features."""
+
+    def test_spectral_norm(self):
+        """Test spectral normalization can be enabled."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE(num_players=4, use_spectral_norm=True)
+        # Should initialize without error
+        assert model is not None
+
+    def test_batch_norm(self):
+        """Test batch normalization can be enabled."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE(num_players=4, use_batch_norm=True)
+        assert model.acc_batch_norm is not None
+
+    def test_multi_head_attention(self):
+        """Test multi-head feature projection."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE(num_players=4, num_heads=4)
+        assert model.num_heads == 4
+        assert model.head_projections is not None
+
+    def test_stochastic_depth(self):
+        """Test stochastic depth can be enabled."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE(num_players=4, stochastic_depth_prob=0.1)
+        # Should initialize without error
+        assert model is not None
+
+
+class TestMultiPlayerNNUEGradients:
+    """Tests for MultiPlayerNNUE gradient flow."""
+
+    def test_backward_pass(self):
+        """Test gradients flow correctly through network."""
+        from app.ai.nnue import MultiPlayerNNUE, get_feature_dim
+
+        model = MultiPlayerNNUE(num_players=4, board_type=BoardType.SQUARE8)
+
+        input_dim = get_feature_dim(BoardType.SQUARE8)
+        x = torch.randn(4, input_dim, requires_grad=True)
+
+        output = model(x)
+        loss = output.sum()
+        loss.backward()
+
+        assert x.grad is not None
+        assert not torch.isnan(x.grad).any()
+
+    def test_parameter_gradients(self):
+        """Test all parameters receive gradients."""
+        from app.ai.nnue import MultiPlayerNNUE, get_feature_dim
+
+        model = MultiPlayerNNUE(num_players=3, board_type=BoardType.SQUARE8)
+
+        input_dim = get_feature_dim(BoardType.SQUARE8)
+        x = torch.randn(4, input_dim)
+
+        output = model(x)
+        loss = output.sum()
+        loss.backward()
+
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"No gradient for {name}"
+
+
+class TestMultiPlayerNNUEInheritance:
+    """Tests for MultiPlayerNNUE inheritance from RingRiftNNUE."""
+
+    def test_inherits_from_ringrift_nnue(self):
+        """Test MultiPlayerNNUE inherits from RingRiftNNUE."""
+        from app.ai.nnue import MultiPlayerNNUE, RingRiftNNUE
+
+        model = MultiPlayerNNUE()
+        assert isinstance(model, RingRiftNNUE)
+
+    def test_has_accumulator(self):
+        """Test inherits accumulator from parent."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE()
+        assert hasattr(model, "accumulator")
+        assert model.accumulator is not None
+
+    def test_has_hidden_blocks(self):
+        """Test inherits hidden blocks from parent."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE(num_hidden_layers=3)
+        assert hasattr(model, "hidden_blocks")
+        assert len(model.hidden_blocks) == 3
+
+
+class TestMultiPlayerNNUESaveLoad:
+    """Tests for MultiPlayerNNUE save/load functionality."""
+
+    def test_state_dict_roundtrip(self):
+        """Test state dict can be saved and loaded."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model1 = MultiPlayerNNUE(num_players=4)
+        state = model1.state_dict()
+
+        model2 = MultiPlayerNNUE(num_players=4)
+        model2.load_state_dict(state)
+
+        # Should have same parameters
+        for (n1, p1), (n2, p2) in zip(
+            model1.named_parameters(), model2.named_parameters()
+        ):
+            assert n1 == n2
+            assert torch.allclose(p1, p2)
+
+    def test_eval_mode_preserved(self):
+        """Test eval mode can be set on model."""
+        from app.ai.nnue import MultiPlayerNNUE
+
+        model = MultiPlayerNNUE()
+        model.eval()
+        assert not model.training
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

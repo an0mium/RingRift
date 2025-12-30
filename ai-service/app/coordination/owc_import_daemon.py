@@ -39,6 +39,7 @@ from typing import Any
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+from app.core.ssh import SSHClient, SSHConfig, SSHResult
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,14 @@ class OWCImportDaemon(BaseDaemon[OWCImportConfig]):
         self._import_history: list[ImportStats] = []
         self._total_games_imported = 0
         self._owc_available = True
+        # Dec 29, 2025: Use canonical SSHClient for all SSH operations
+        self._ssh_client = SSHClient(SSHConfig(
+            host=self.config.owc_host,
+            user=self.config.owc_user,
+            key_path=self.config.owc_ssh_key,
+            connect_timeout=10,
+            command_timeout=self.config.ssh_timeout,
+        ))
 
     @staticmethod
     def _get_default_config() -> OWCImportConfig:
@@ -171,40 +180,20 @@ class OWCImportDaemon(BaseDaemon[OWCImportConfig]):
         cls._instance = None
 
     # =========================================================================
-    # OWC Operations
+    # OWC Operations (Dec 29, 2025: Uses canonical SSHClient from app/core/ssh)
     # =========================================================================
 
     async def _run_ssh_command(self, command: str) -> tuple[bool, str]:
-        """Run SSH command on OWC host."""
-        ssh_cmd = [
-            "ssh",
-            "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=no",
-            "-i", self.config.owc_ssh_key,
-            f"{self.config.owc_user}@{self.config.owc_host}",
-            command,
-        ]
+        """Run SSH command on OWC host using canonical SSHClient.
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *ssh_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=self.config.ssh_timeout,
-            )
-
-            if proc.returncode == 0:
-                return True, stdout.decode().strip()
-            else:
-                return False, stderr.decode().strip()
-
-        except asyncio.TimeoutError:
-            return False, "SSH command timed out"
-        except Exception as e:
-            return False, str(e)
+        Dec 29, 2025: Migrated from inline SSH subprocess to use app.core.ssh.SSHClient
+        for consistent connection handling, circuit breakers, and metrics.
+        """
+        result = await self._ssh_client.run_async(command, timeout=self.config.ssh_timeout)
+        if result.success:
+            return True, result.stdout.strip()
+        else:
+            return False, result.stderr.strip() or result.error or "Unknown error"
 
     async def _check_owc_available(self) -> bool:
         """Check if OWC drive is accessible."""
