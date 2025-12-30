@@ -534,6 +534,7 @@ def export_replay_dataset_multi(
     engine_modes_list: list[str] = []  # For source-based sample weighting (Gumbel 3x weight)
     move_types_list: list[str] = []  # For chain-aware sample weighting
     opponent_elo_list: list[float] = []  # For ELO-weighted training (December 2025)
+    opponent_types_list: list[str] = []  # For opponent diversity tracking (December 2025)
     quality_score_list: list[float] = []  # For quality-weighted training (December 2025)
     heuristics_list: list[np.ndarray] = []  # For v5 heavy training (December 2025)
     timestamps_list: list[float] = []  # For freshness-weighted sampling (December 2025)
@@ -710,6 +711,24 @@ def export_replay_dataset_multi(
             # Extract opponent ELO for ELO-weighted training (December 2025)
             # Use 1500.0 as default (baseline ELO) if not available
             opponent_elo = float(meta.get("opponent_elo", meta.get("model_elo", 1500.0)))
+
+            # Extract opponent type for diversity tracking (December 2025)
+            # Check both new column and legacy metadata locations
+            opponent_type = meta.get("opponent_type") or ""
+            if not opponent_type:
+                # Infer from source/engine_mode for backward compatibility
+                if "random" in source_raw.lower():
+                    opponent_type = "random"
+                elif "heuristic" in source_raw.lower():
+                    opponent_type = "heuristic"
+                elif "mcts" in source_raw.lower():
+                    opponent_type = "mcts"
+                elif "gumbel" in source_raw.lower():
+                    opponent_type = "gumbel_mcts"
+                elif "neural" in source_raw.lower() or "nn" in source_raw.lower():
+                    opponent_type = "neural"
+                else:
+                    opponent_type = "unknown"
 
             # Extract game timestamp for freshness weighting (December 2025)
             # Convert to Unix epoch for compute_freshness_weight()
@@ -983,6 +1002,7 @@ def export_replay_dataset_multi(
                 engine_modes_list.append(engine_mode)
                 move_types_list.append(move_type_str)
                 opponent_elo_list.append(opponent_elo)
+                opponent_types_list.append(opponent_type)
                 quality_score_list.append(game_quality_score)
                 timestamps_list.append(game_timestamp)
 
@@ -1036,6 +1056,7 @@ def export_replay_dataset_multi(
     engine_modes_arr = np.array(engine_modes_list, dtype=object)  # For source-based sample weighting
     move_types_arr = np.array(move_types_list, dtype=object)  # For chain-aware sample weighting
     opponent_elo_arr = np.array(opponent_elo_list, dtype=np.float32)  # For ELO-weighted training
+    opponent_types_arr = np.array(opponent_types_list, dtype=object)  # For opponent diversity tracking
     quality_score_arr = np.array(quality_score_list, dtype=np.float32)  # For quality-weighted training
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)

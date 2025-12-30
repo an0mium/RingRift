@@ -3351,6 +3351,8 @@ class GameReplayDB:
         if existing:
             # Update existing record (preserves FK relationships)
             engine_mode = metadata.get("engine_mode")
+            opponent_type = metadata.get("opponent_type")
+            opponent_model_id = metadata.get("opponent_model_id")
             conn.execute(
                 """
                 UPDATE games SET
@@ -3365,7 +3367,9 @@ class GameReplayDB:
                     metadata_json = ?,
                     quality_score = ?,
                     quality_category = ?,
-                    engine_mode = ?
+                    engine_mode = ?,
+                    opponent_type = ?,
+                    opponent_model_id = ?
                 WHERE game_id = ?
                 """,
                 (
@@ -3381,20 +3385,25 @@ class GameReplayDB:
                     quality_score,
                     quality_category,
                     engine_mode,
+                    opponent_type,
+                    opponent_model_id,
                     game_id,
                 ),
             )
         else:
             # Insert new game record
             engine_mode = metadata.get("engine_mode")
+            opponent_type = metadata.get("opponent_type")
+            opponent_model_id = metadata.get("opponent_model_id")
             conn.execute(
                 """
                 INSERT INTO games
                 (game_id, board_type, num_players, rng_seed, created_at, completed_at,
                  game_status, winner, termination_reason, total_moves, total_turns,
                  duration_ms, source, schema_version, metadata_json,
-                 quality_score, quality_category, engine_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 quality_score, quality_category, engine_mode,
+                 opponent_type, opponent_model_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     game_id,
@@ -3415,6 +3424,8 @@ class GameReplayDB:
                     quality_score,
                     quality_category,
                     engine_mode,
+                    opponent_type,
+                    opponent_model_id,
                 ),
             )
 

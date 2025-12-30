@@ -62,22 +62,24 @@ _release_orchestrator_role = None
 _check_before_spawn = None
 
 try:
-    from app.coordination import (
-        CircuitBreaker,
-        CircuitState,
-        OrchestratorRegistry,
-        OrchestratorRole,
-        Safeguards,
+    # Import directly from specific modules to avoid circular imports via __init__.py
+    # Dec 29, 2025: Fixed circular dependency through coordination package
+    from app.coordination.types import TaskType
+    from app.coordination.task_coordinator import (
         TaskCoordinator,
         TaskLimits,
-        TaskType,
-        acquire_orchestrator_role,
         can_spawn,
-        check_before_spawn,
         get_coordinator,
+    )
+    from app.coordination.orchestrator_registry import (
+        OrchestratorRegistry,
+        OrchestratorRole,
+        acquire_orchestrator_role,
         get_registry,
         release_orchestrator_role,
     )
+    from app.coordination.safeguards import Safeguards, check_before_spawn
+    from app.distributed.circuit_breaker import CircuitBreaker, CircuitState
     _HAS_COORDINATION = True
     _TaskCoordinator = TaskCoordinator
     _TaskType = TaskType

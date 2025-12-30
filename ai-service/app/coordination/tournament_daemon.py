@@ -81,6 +81,12 @@ class TournamentDaemonConfig:
         "mcts_medium",      # ~1700 Elo - 128 simulations
     ])
 
+    # Game recording for training data (Dec 2025)
+    # When enabled, tournament games are saved to canonical databases for training
+    enable_game_recording: bool = True
+    recording_db_prefix: str = "tournament"
+    recording_db_dir: str = "data/games"
+
     # Calibration tournaments - validate Elo ladder (Dec 2025)
     enable_calibration_tournaments: bool = True
     calibration_interval_seconds: float = 3600.0 * 24  # Daily
@@ -563,6 +569,113 @@ class TournamentDaemon:
             self._stats.errors.append(str(e))
 
         results["duration_seconds"] = time.time() - start_time
+        return results
+
+    async def _run_calibration_tournament(self) -> dict[str, Any]:
+        """Run calibration tournament to validate Elo ladder.
+
+        Tests expected win rates between baseline opponents:
+        - Heuristic vs Random: ~95%+ win rate (validates 800 Elo gap)
+        - Heuristic_Strong vs Heuristic: ~60% win rate (validates 200 Elo gap)
+        - MCTS_Light vs Heuristic_Strong: ~55% win rate (validates 100 Elo gap)
+
+        Returns:
+            Tournament results with calibration validation status
+        """
+        logger.info("Running calibration tournament to validate Elo ladder")
+        start_time = time.time()
+
+        results = {
+            "tournament_id": str(uuid.uuid4()),
+            "tournament_type": "calibration",
+            "success": False,
+            "matchups": {},
+        }
+
+        try:
+            from app.training.game_gauntlet import (
+                create_baseline_ai,
+                play_single_game,
+                BaselineOpponent,
+            )
+            from app.models import BoardType
+
+            # Define calibration matchups: (stronger, weaker, expected_win_rate)
+            calibration_pairs = [
+                (BaselineOpponent.HEURISTIC, BaselineOpponent.RANDOM, 0.90),
+                (BaselineOpponent.HEURISTIC_STRONG, BaselineOpponent.HEURISTIC, 0.55),
+                (BaselineOpponent.MCTS_LIGHT, BaselineOpponent.HEURISTIC_STRONG, 0.55),
+            ]
+
+            # Use square8_2p for calibration (fast games)
+            board_type = BoardType.SQUARE8
+            num_players = 2
+            games_per_matchup = self.config.calibration_games
+
+            for stronger, weaker, expected_rate in calibration_pairs:
+                matchup_key = f"{stronger.value}_vs_{weaker.value}"
+                wins = 0
+
+                for game_num in range(games_per_matchup):
+                    try:
+                        # Alternate which player is "stronger" for position fairness
+                        if game_num % 2 == 0:
+                            player_0_ai = create_baseline_ai(stronger, board_type, num_players)
+                            player_1_ai = create_baseline_ai(weaker, board_type, num_players)
+                            stronger_player = 0
+                        else:
+                            player_0_ai = create_baseline_ai(weaker, board_type, num_players)
+                            player_1_ai = create_baseline_ai(stronger, board_type, num_players)
+                            stronger_player = 1
+
+                        game_result = play_single_game(
+                            board_type=board_type,
+                            num_players=num_players,
+                            player_ais=[player_0_ai, player_1_ai],
+                            timeout=self.config.game_timeout_seconds,
+                        )
+
+                        if game_result.get("winner") == stronger_player:
+                            wins += 1
+
+                        self._stats.games_played += 1
+
+                    except Exception as e:
+                        logger.warning(f"Calibration game failed: {e}")
+
+                actual_rate = wins / games_per_matchup if games_per_matchup > 0 else 0
+                # Allow 10% margin below expected rate
+                calibration_valid = actual_rate >= expected_rate * 0.9
+
+                results["matchups"][matchup_key] = {
+                    "wins": wins,
+                    "games": games_per_matchup,
+                    "win_rate": actual_rate,
+                    "expected_rate": expected_rate,
+                    "calibration_valid": calibration_valid,
+                }
+
+                if not calibration_valid:
+                    logger.warning(
+                        f"Calibration FAILED: {matchup_key} win rate {actual_rate:.1%} "
+                        f"below expected {expected_rate:.1%}"
+                    )
+
+            results["success"] = True
+            results["all_valid"] = all(
+                m["calibration_valid"] for m in results["matchups"].values()
+            )
+
+        except ImportError as e:
+            logger.warning(f"Calibration tournament dependencies not available: {e}")
+            results["error"] = str(e)
+        except Exception as e:
+            logger.error(f"Calibration tournament failed: {e}")
+            results["error"] = str(e)
+            self._stats.errors.append(str(e))
+
+        results["duration_seconds"] = time.time() - start_time
+        logger.info(f"Calibration tournament completed: {results.get('all_valid', False)}")
         return results
 
     async def _update_elo(

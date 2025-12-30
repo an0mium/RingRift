@@ -650,6 +650,7 @@ def play_single_game(
     max_moves: int = 500,
     seed: int | None = None,
     opponent_ais: dict[int, Any] | None = None,
+    recording_config: Any | None = None,
 ) -> GameResult:
     """Play a single game between candidate and opponent(s).
 
@@ -663,6 +664,8 @@ def play_single_game(
         seed: Optional random seed
         opponent_ais: Dict mapping player numbers to AI instances for multiplayer.
                       If not provided, all non-candidate players use opponent_ai.
+        recording_config: Optional RecordingConfig for saving game data (Dec 2025).
+                         When provided, games are recorded to canonical databases.
 
     Returns:
         GameResult with game outcome
@@ -671,6 +674,18 @@ def play_single_game(
 
     engine = DefaultRulesEngine()
     state = create_initial_state(board_type, num_players)
+
+    # Initialize recorder if config provided (Dec 2025 - tournament game recording)
+    recorder = None
+    if recording_config is not None:
+        try:
+            from app.db.unified_recording import UnifiedGameRecorder, is_recording_enabled
+            if is_recording_enabled():
+                import uuid
+                recorder = UnifiedGameRecorder(recording_config, state, game_id=str(uuid.uuid4()))
+                recorder.__enter__()
+        except ImportError:
+            pass
 
     # Build player->AI mapping for multiplayer support
     # NOTE: Players are 1-indexed (1, 2, 3, ...) in the game engine!
@@ -698,7 +713,20 @@ def play_single_game(
         move = ai.select_move(state)
 
         if move:
+            state_before = state
             state = engine.apply_move(state, move)
+
+            # Record move if recording enabled (Dec 2025)
+            if recorder is not None:
+                try:
+                    recorder.add_move(
+                        move,
+                        state_after=state,
+                        state_before=state_before,
+                        available_moves_count=0,  # Not tracking for gauntlet
+                    )
+                except Exception:
+                    pass  # Don't fail game on recording error
         else:
             # No valid move available - this shouldn't happen in normal games
             logger.warning(f"Player {current_player} returned no move at turn {move_count}")
@@ -712,6 +740,22 @@ def play_single_game(
 
     winner = state.winner
     candidate_won = winner == candidate_player if winner is not None else False
+
+    # Finalize recording if enabled (Dec 2025)
+    if recorder is not None:
+        try:
+            recorder.finalize(state, extra_metadata={
+                "source": "gauntlet",
+                "candidate_player": candidate_player,
+                "candidate_won": candidate_won,
+                "victory_reason": str(victory_reason) if victory_reason else "max_moves",
+            })
+            recorder.__exit__(None, None, None)
+        except Exception:
+            try:
+                recorder.__exit__(None, None, None)
+            except Exception:
+                pass
 
     return GameResult(
         winner=winner,
