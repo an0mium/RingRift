@@ -184,7 +184,7 @@ from app.coordination.cross_process_events import CrossProcessEventQueue
 
 ## See Also
 
-- `EVENT_SYSTEM_REFERENCE.md` - Full 207-event documentation
+- `EVENT_SYSTEM_REFERENCE.md` - Full 211-event documentation
 - `EVENT_CATALOG.md` - All emitter/subscriber mappings
 - `EVENT_WIRING_GUIDE.md` - How to add new events
 - `HANDLER_BASE_API.md` - Handler base class reference

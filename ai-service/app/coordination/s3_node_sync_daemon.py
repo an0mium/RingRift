@@ -52,6 +52,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.coordination.event_handler_utils import extract_config_key
+
 
 def get_node_id() -> str:
     """Get unique node identifier."""
@@ -315,7 +317,7 @@ class S3NodeSyncDaemon:
         """
         try:
             payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
-            config_key = payload.get("config_key") or payload.get("config", "")
+            config_key = extract_config_key(payload)
             model_path = payload.get("model_path", "")
 
             logger.info(f"Training completed for {config_key}, triggering S3 push")
@@ -337,7 +339,7 @@ class S3NodeSyncDaemon:
         try:
             payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
             games_count = payload.get("games_count") or payload.get("games_added", 0)
-            config_key = payload.get("config_key") or payload.get("config", "")
+            config_key = extract_config_key(payload)
 
             # Only sync for significant batches (>=100 games)
             if games_count >= 100:
@@ -363,7 +365,7 @@ class S3NodeSyncDaemon:
         try:
             payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
             model_path = payload.get("model_path", "")
-            config_key = payload.get("config_key") or payload.get("board_type", "")
+            config_key = extract_config_key(payload) or payload.get("board_type", "")
 
             logger.info(f"Model promoted ({config_key}), triggering high-priority S3 push")
 

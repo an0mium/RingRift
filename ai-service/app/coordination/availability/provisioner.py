@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.safe_event_emitter import SafeEventEmitterMixin
 
 if TYPE_CHECKING:
     from app.coordination.providers.base import GPUType, Instance
@@ -76,7 +77,7 @@ class ClusterCapacity:
     providers: dict[str, int] = field(default_factory=dict)
 
 
-class Provisioner(BaseDaemon[ProvisionerConfig]):
+class Provisioner(BaseDaemon[ProvisionerConfig], SafeEventEmitterMixin):
     """Auto-provisioning daemon for maintaining cluster capacity.
 
     Monitors cluster GPU capacity and automatically provisions new
@@ -87,6 +88,8 @@ class Provisioner(BaseDaemon[ProvisionerConfig]):
         provisioner = Provisioner()
         await provisioner.start()
     """
+
+    _event_source = "Provisioner"
 
     def __init__(self, config: ProvisionerConfig | None = None):
         super().__init__(config)
@@ -379,7 +382,7 @@ class Provisioner(BaseDaemon[ProvisionerConfig]):
     async def _emit_nodes_provisioned(self, result: ProvisionResult) -> None:
         """Emit NODE_PROVISIONED events."""
         for instance_id in result.instance_ids:
-            await self._safe_emit_event(
+            await self._safe_emit_event_async(
                 "NODE_PROVISIONED",
                 {
                     "instance_id": instance_id,
@@ -391,7 +394,7 @@ class Provisioner(BaseDaemon[ProvisionerConfig]):
 
     async def _emit_provision_failed(self, result: ProvisionResult) -> None:
         """Emit PROVISION_FAILED event."""
-        await self._safe_emit_event(
+        await self._safe_emit_event_async(
             "PROVISION_FAILED",
             {
                 "error": result.error,
@@ -401,31 +404,13 @@ class Provisioner(BaseDaemon[ProvisionerConfig]):
 
     async def _emit_budget_exceeded(self) -> None:
         """Emit BUDGET_EXCEEDED event."""
-        await self._safe_emit_event(
+        await self._safe_emit_event_async(
             "BUDGET_EXCEEDED",
             {
                 "reason": "provisioning_blocked",
                 "timestamp": datetime.now().isoformat(),
             },
         )
-
-    async def _safe_emit_event(self, event_type: str, payload: dict) -> None:
-        """Safely emit an event via the event router."""
-        try:
-            from app.coordination.event_router import get_event_bus
-
-            bus = get_event_bus()
-            if bus:
-                from app.distributed.data_events import DataEvent
-
-                event = DataEvent(
-                    event_type=event_type,
-                    payload=payload,
-                    source="Provisioner",
-                )
-                bus.publish(event)
-        except Exception as e:
-            logger.debug(f"Event emission failed: {e}")
 
     def get_provision_history(self, limit: int = 20) -> list[dict]:
         """Get recent provisioning history."""

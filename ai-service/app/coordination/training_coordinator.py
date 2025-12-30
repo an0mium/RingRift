@@ -64,6 +64,7 @@ from typing import Any
 
 from app.coordination.distributed_lock import DistributedLock
 from app.coordination.event_handler_utils import extract_config_key
+from app.coordination.event_utils import parse_config_key
 from app.utils.paths import DATA_DIR
 
 # Use centralized event emitters (December 2025)
@@ -590,9 +591,9 @@ class TrainingCoordinator:
         if not config_key:
             # Try to extract from model_id (format: "{board}_{n}p_...")
             if model_id and "_" in model_id:
-                parts = model_id.split("_")
-                if len(parts) >= 2:
-                    config_key = f"{parts[0]}_{parts[1]}"
+                candidate = "_".join(model_id.split("_")[:2])
+                if parse_config_key(candidate):
+                    config_key = candidate
 
         if not config_key:
             logger.debug("[TrainingCoordinator] REGRESSION_DETECTED without config_key, ignoring")
@@ -614,12 +615,13 @@ class TrainingCoordinator:
                 f"[TrainingCoordinator] Moderate regression for {config_key}: "
                 f"Elo drop {elo_drop:.0f}, reducing capacity {old_capacity:.1%} → {self._cluster_capacity:.1%}"
             )
-            # Emit capacity change event
+            # Emit capacity change event - parse using canonical utility
+            parsed_cfg = parse_config_key(config_key)
             self._emit_training_event(
                 "capacity_reduced",
                 job_id="",
-                board_type=config_key.split("_")[0] if "_" in config_key else config_key,
-                num_players=int(config_key.split("_")[1].replace("p", "")) if "_" in config_key else 2,
+                board_type=parsed_cfg.board_type if parsed_cfg else config_key,
+                num_players=parsed_cfg.num_players if parsed_cfg else 2,
                 reason="regression_detected",
                 elo_drop=elo_drop,
             )
@@ -653,9 +655,9 @@ class TrainingCoordinator:
         elo_drop = payload.get("elo_drop", 0)
 
         if not config_key and model_id and "_" in model_id:
-            parts = model_id.split("_")
-            if len(parts) >= 2:
-                config_key = f"{parts[0]}_{parts[1]}"
+            candidate = "_".join(model_id.split("_")[:2])
+            if parse_config_key(candidate):
+                config_key = candidate
 
         if not config_key:
             logger.error("[TrainingCoordinator] REGRESSION_CRITICAL without config_key")
@@ -703,9 +705,9 @@ class TrainingCoordinator:
         elo_recovered = payload.get("elo_recovered", 0)
 
         if not config_key and model_id and "_" in model_id:
-            parts = model_id.split("_")
-            if len(parts) >= 2:
-                config_key = f"{parts[0]}_{parts[1]}"
+            candidate = "_".join(model_id.split("_")[:2])
+            if parse_config_key(candidate):
+                config_key = candidate
 
         if not config_key:
             logger.warning("[TrainingCoordinator] REGRESSION_CLEARED without config_key")
@@ -953,13 +955,13 @@ class TrainingCoordinator:
             True if training was paused, False if no active training
         """
         # Parse config_key
-        if "_" not in config_key:
+        parsed = parse_config_key(config_key)
+        if not parsed:
             logger.warning(f"[TrainingCoordinator] Invalid config_key format: {config_key}")
             return False
 
-        parts = config_key.split("_")
-        board_type = parts[0]
-        num_players = int(parts[1].replace("p", ""))
+        board_type = parsed.board_type
+        num_players = parsed.num_players
 
         # Check for active training job
         job = self.get_job(board_type, num_players)
@@ -995,14 +997,13 @@ class TrainingCoordinator:
         Returns:
             True if successfully resumed, False if not paused
         """
-        # Parse config_key
-        if "_" not in config_key:
+        # Parse config_key using canonical utility
+        parsed = parse_config_key(config_key)
+        if not parsed:
             logger.warning(f"[TrainingCoordinator] Invalid config_key format: {config_key}")
             return False
-
-        parts = config_key.split("_")
-        board_type = parts[0]
-        num_players = int(parts[1].replace("p", ""))
+        board_type = parsed.board_type
+        num_players = parsed.num_players
 
         # Resume paused job if exists
         job = self.get_job(board_type, num_players)
@@ -1062,14 +1063,10 @@ class TrainingCoordinator:
                 f"{old_capacity:.1%} → {self._cluster_capacity:.1%}"
             )
 
-            # Parse num_players from config_key (e.g., "hex8_3p" -> 3)
-            parts = config_key.rsplit("_", 1)
-            if len(parts) == 2 and parts[1].endswith("p"):
-                board_type = parts[0]
-                num_players = int(parts[1][:-1])
-            else:
-                board_type = config_key
-                num_players = 2  # Fallback for invalid format
+            # Parse config_key using canonical utility
+            parsed = parse_config_key(config_key)
+            board_type = parsed.board_type if parsed else config_key
+            num_players = parsed.num_players if parsed else 2
 
             self._emit_training_event(
                 "capacity_reduced",

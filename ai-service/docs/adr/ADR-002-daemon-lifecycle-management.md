@@ -8,7 +8,7 @@
 
 ## Context
 
-The RingRift training infrastructure runs 62+ background daemons across 20+ nodes:
+The RingRift training infrastructure runs 89 daemon types across 20+ nodes:
 
 - Selfplay generators
 - Data sync daemons
@@ -30,7 +30,7 @@ Implement a centralized **DaemonManager** (`app/coordination/daemon_manager.py`)
 
 ### DaemonType Enum
 
-As of Dec 2025, 100 daemon types organized by category (6 deprecated, Q2 2026 removal):
+As of Dec 2025, 89 daemon types organized by category (78 active, 11 deprecated, Q2 2026 removal):
 
 - Core: `EVENT_ROUTER`, `P2P_BACKEND`
 - Data: `AUTO_SYNC`, `EPHEMERAL_SYNC`, `SYNC_BANDWIDTH`

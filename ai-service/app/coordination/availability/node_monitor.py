@@ -21,6 +21,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.safe_event_emitter import SafeEventEmitterMixin
 from app.config.ports import P2P_DEFAULT_PORT
 
 if TYPE_CHECKING:
@@ -75,7 +76,7 @@ class NodeMonitorConfig(DaemonConfig):
     p2p_port: int = P2P_DEFAULT_PORT
 
 
-class NodeMonitor(BaseDaemon):
+class NodeMonitor(BaseDaemon, SafeEventEmitterMixin):
     """Multi-layer node health monitoring daemon.
 
     Monitors all cluster nodes at regular intervals using multiple health
@@ -85,6 +86,8 @@ class NodeMonitor(BaseDaemon):
         monitor = NodeMonitor()
         await monitor.start()
     """
+
+    _event_source = "NodeMonitor"
 
     def __init__(
         self,
@@ -505,7 +508,7 @@ class NodeMonitor(BaseDaemon):
         try:
             from app.distributed.data_events import DataEventType
 
-            await self._safe_emit_event(
+            await self._safe_emit_event_async(
                 DataEventType.NODE_UNHEALTHY.value,
                 {
                     "node_id": node.name,
@@ -530,7 +533,7 @@ class NodeMonitor(BaseDaemon):
         try:
             from app.distributed.data_events import DataEventType
 
-            await self._safe_emit_event(
+            await self._safe_emit_event_async(
                 DataEventType.NODE_RECOVERED.value,
                 {
                     "node_id": node.name,
@@ -549,7 +552,7 @@ class NodeMonitor(BaseDaemon):
         try:
             from app.distributed.data_events import DataEventType
 
-            await self._safe_emit_event(
+            await self._safe_emit_event_async(
                 DataEventType.RECOVERY_INITIATED.value,
                 {
                     "node_id": node.name,
@@ -560,24 +563,6 @@ class NodeMonitor(BaseDaemon):
             )
         except Exception as e:
             logger.debug(f"Failed to emit RECOVERY_INITIATED: {e}")
-
-    async def _safe_emit_event(self, event_type: str, payload: dict) -> None:
-        """Safely emit an event via the event router."""
-        try:
-            from app.coordination.event_router import get_event_bus
-
-            bus = get_event_bus()
-            if bus:
-                from app.distributed.data_events import DataEvent
-
-                event = DataEvent(
-                    event_type=event_type,
-                    payload=payload,
-                    source="NodeMonitor",
-                )
-                bus.publish(event)
-        except Exception as e:
-            logger.debug(f"Event emission failed: {e}")
 
     def get_node_status(self, node_id: str) -> dict:
         """Get current status for a specific node."""

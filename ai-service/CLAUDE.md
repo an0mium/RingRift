@@ -340,7 +340,7 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-89 daemon types (83 active, 6 deprecated). Three-layer architecture:
+89 daemon types (78 active, 11 deprecated). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
@@ -436,7 +436,7 @@ Selfplay → NEW_GAMES_AVAILABLE → DataPipeline → TRAINING_THRESHOLD_REACHED
 
 **Complete Event Documentation:**
 
-- `docs/architecture/EVENT_SUBSCRIPTION_MATRIX.md` - Critical event wiring matrix (DataEventType: 207 events)
+- `docs/architecture/EVENT_SUBSCRIPTION_MATRIX.md` - Critical event wiring matrix (DataEventType: 211 events)
 - `docs/architecture/EVENT_FLOW_INTEGRATION.md` - Event flow diagrams and integration patterns
 
 ```python
@@ -745,7 +745,7 @@ Comprehensive exploration verified the following are ALREADY COMPLETE:
 | **Event Emitters**     | PROGRESS_STALL_DETECTED, PROGRESS_RECOVERED, REGRESSION_CLEARED | ✅ progress_watchdog_daemon.py:394,414, regression_detector.py:508 |
 | **Pipeline Stages**    | SELFPLAY → SYNC → NPZ_EXPORT → TRAINING                         | ✅ data_pipeline_orchestrator.py:756-900                           |
 | **Code Consolidation** | Event patterns (16 files)                                       | ✅ event_utils.py, event_handler_utils.py                          |
-| **Daemon Counts**      | 89 types (83 active, 6 deprecated)                              | ✅ Verified via DaemonType enum (Dec 30, 2025)                     |
+| **Daemon Counts**      | 89 types (78 active, 11 deprecated)                             | ✅ Verified via DaemonType enum (Dec 30, 2025)                     |
 | **Event Types**        | 211 DataEventType members                                       | ✅ Verified via DataEventType enum (Dec 30, 2025)                  |
 | **Startup Order**      | EVENT_ROUTER → FEEDBACK_LOOP → DATA_PIPELINE → sync daemons     | ✅ master_loop.py:1109-1119 (race condition fixed Dec 2025)        |
 

@@ -46,6 +46,7 @@ from typing import Any, Callable
 
 from app.config.coordination_defaults import DataFreshnessDefaults, SyncDefaults
 from app.config.env import env
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
@@ -683,7 +684,7 @@ class TrainingTriggerDaemon(HandlerBase):
         """Handle training completion to update state."""
         try:
             payload = getattr(event, "payload", {})
-            config_key = payload.get("config")
+            config_key = extract_config_key(payload)
 
             if config_key and config_key in self._training_states:
                 state = self._training_states[config_key]
@@ -718,7 +719,7 @@ class TrainingTriggerDaemon(HandlerBase):
         """Handle training threshold reached events from master_loop."""
         try:
             payload = getattr(event, "payload", {})
-            config_key = payload.get("config") or payload.get("config_key")
+            config_key = extract_config_key(payload)
             if not config_key:
                 return
 
@@ -747,7 +748,7 @@ class TrainingTriggerDaemon(HandlerBase):
         """Handle quality score updates to keep intensity in sync."""
         try:
             payload = getattr(event, "payload", {})
-            config_key = payload.get("config_key") or payload.get("config")
+            config_key = extract_config_key(payload)
             if not config_key:
                 return
 
@@ -776,7 +777,7 @@ class TrainingTriggerDaemon(HandlerBase):
         """
         try:
             payload = getattr(event, "payload", {})
-            config_key = payload.get("config_key") or payload.get("config")
+            config_key = extract_config_key(payload)
             if not config_key:
                 return
 
@@ -803,7 +804,7 @@ class TrainingTriggerDaemon(HandlerBase):
         """Handle training blocked events to pause intensity."""
         try:
             payload = getattr(event, "payload", {})
-            config_key = payload.get("config_key") or payload.get("config")
+            config_key = extract_config_key(payload)
             if not config_key:
                 return
 
@@ -941,7 +942,7 @@ class TrainingTriggerDaemon(HandlerBase):
         try:
             # December 30, 2025: Use consolidated extraction from HandlerBase
             payload = self._get_payload(event)
-            config_key = payload.get("config_key") or payload.get("config")
+            config_key = extract_config_key(payload)
             if not config_key:
                 return
 
@@ -984,7 +985,7 @@ class TrainingTriggerDaemon(HandlerBase):
         try:
             # December 30, 2025: Use consolidated extraction from HandlerBase
             payload = self._get_payload(event)
-            config_key = payload.get("config_key") or payload.get("config")
+            config_key = extract_config_key(payload)
             sync_type = payload.get("sync_type", "")
 
             # Also handle generic syncs that may have refreshed multiple configs
@@ -1102,7 +1103,7 @@ class TrainingTriggerDaemon(HandlerBase):
         try:
             # December 30, 2025: Use consolidated extraction from HandlerBase
             payload = self._get_payload(event)
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             velocity = payload.get("velocity", 0.0)
             trend = payload.get("trend", "stable")
             previous_velocity = payload.get("previous_velocity", 0.0)
@@ -1182,7 +1183,7 @@ class TrainingTriggerDaemon(HandlerBase):
         try:
             # December 30, 2025: Use consolidated extraction from HandlerBase
             payload = self._get_payload(event)
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             error = payload.get("error", "Unknown error")
             job_id = payload.get("job_id", "")
 

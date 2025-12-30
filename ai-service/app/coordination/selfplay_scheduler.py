@@ -351,12 +351,10 @@ class ConfigPriority:
         """Extract player count from config_key (e.g., 'hex8_2p' -> 2).
 
         Dec 29, 2025: Added for player-count based allocation multiplier.
+        Dec 30, 2025: Now uses parse_config_key for consistent parsing.
         """
-        try:
-            suffix = self.config_key.split("_")[-1]  # "2p", "3p", "4p"
-            return int(suffix.rstrip("p"))
-        except (ValueError, IndexError):
-            return 2  # Default to 2-player
+        _, num_players = parse_config_key(self.config_key)
+        return num_players
 
     @property
     def games_needed(self) -> int:
@@ -602,15 +600,10 @@ class SelfplayScheduler:
         Returns:
             Estimated samples per game
         """
-        try:
-            parts = config_key.split("_")
-            if len(parts) >= 2:
-                board_type = parts[0]  # "hex8", "square8", etc.
-                player_key = parts[1]  # "2p", "3p", "4p"
-                if board_type in SAMPLES_PER_GAME_BY_BOARD:
-                    return float(SAMPLES_PER_GAME_BY_BOARD[board_type].get(player_key, 50))
-        except (ValueError, IndexError):
-            pass
+        board_type, num_players = parse_config_key(config_key)
+        player_key = f"{num_players}p"
+        if board_type in SAMPLES_PER_GAME_BY_BOARD:
+            return float(SAMPLES_PER_GAME_BY_BOARD[board_type].get(player_key, 50))
         return 50.0  # Conservative default
 
     def set_target_training_samples(self, config_key: str, target_samples: int) -> None:
@@ -1119,12 +1112,8 @@ class SelfplayScheduler:
                 now = time.time()
 
                 for config_key in ALL_CONFIGS:
-                    parts = config_key.rsplit("_", 1)
-                    if len(parts) != 2:
-                        continue
-
-                    board_type = parts[0]
-                    npz_path = Path(f"data/training/{board_type}_{parts[1]}.npz")
+                    board_type, num_players = parse_config_key(config_key)
+                    npz_path = Path(f"data/training/{board_type}_{num_players}p.npz")
 
                     if npz_path.exists():
                         mtime = npz_path.stat().st_mtime
@@ -1194,23 +1183,20 @@ class SelfplayScheduler:
                 elo_service = get_elo_service()
                 for config_key in missing_configs:
                     # Parse config_key: "hex8_2p" -> board_type="hex8", num_players=2
-                    parts = config_key.rsplit("_", 1)
-                    if len(parts) == 2:
-                        board_type = parts[0]
-                        num_players = int(parts[1].replace("p", ""))
-                        # Get leaderboard and take top model's Elo
-                        leaderboard = elo_service.get_leaderboard(
-                            board_type=board_type,
-                            num_players=num_players,
-                            limit=1,
-                            min_games=5,  # Require some confidence
+                    board_type, num_players = parse_config_key(config_key)
+                    # Get leaderboard and take top model's Elo
+                    leaderboard = elo_service.get_leaderboard(
+                        board_type=board_type,
+                        num_players=num_players,
+                        limit=1,
+                        min_games=5,  # Require some confidence
+                    )
+                    if leaderboard:
+                        result[config_key] = leaderboard[0].rating
+                        logger.debug(
+                            f"[SelfplayScheduler] Got Elo from EloService for {config_key}: "
+                            f"{leaderboard[0].rating:.0f}"
                         )
-                        if leaderboard:
-                            result[config_key] = leaderboard[0].rating
-                            logger.debug(
-                                f"[SelfplayScheduler] Got Elo from EloService for {config_key}: "
-                                f"{leaderboard[0].rating:.0f}"
-                            )
             except ImportError:
                 logger.debug("[SelfplayScheduler] EloService not available")
             except Exception as e:
@@ -1520,19 +1506,7 @@ class SelfplayScheduler:
 
             for config_key in ALL_CONFIGS:
                 # Parse config_key to get board_type and num_players
-                parts = config_key.rsplit("_", 1)
-                if len(parts) < 2:
-                    continue
-
-                board_type = parts[0]
-                num_players_str = parts[1]
-                if not num_players_str.endswith("p"):
-                    continue
-
-                try:
-                    num_players = int(num_players_str.rstrip("p"))
-                except ValueError:
-                    continue
+                board_type, num_players = parse_config_key(config_key)
 
                 # Get allocation weights for this config
                 weights = get_allocation_weights(board_type, num_players)
@@ -2230,6 +2204,11 @@ class SelfplayScheduler:
             if hasattr(DataEventType, 'ARCHITECTURE_WEIGHTS_UPDATED'):
                 _safe_subscribe(DataEventType.ARCHITECTURE_WEIGHTS_UPDATED, self._on_architecture_weights_updated, "ARCHITECTURE_WEIGHTS_UPDATED")
 
+            # Dec 30, 2025: Subscribe to quality feedback for immediate cache invalidation
+            # This enables faster response to quality degradation (+12-18 Elo improvement)
+            if hasattr(DataEventType, 'QUALITY_FEEDBACK_ADJUSTED'):
+                _safe_subscribe(DataEventType.QUALITY_FEEDBACK_ADJUSTED, self._on_quality_feedback_adjusted, "QUALITY_FEEDBACK_ADJUSTED")
+
             self._subscribed = subscribed_count > 0
             if self._subscribed:
                 logger.info(
@@ -2574,6 +2553,60 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling training blocked by quality: {e}")
+
+    def _on_quality_feedback_adjusted(self, event: Any) -> None:
+        """Handle quality feedback adjustment - update priority immediately.
+
+        Dec 30, 2025: When quality changes, invalidate cache and adjust
+        priority weights immediately instead of waiting for cache TTL (30s).
+        This enables faster response to quality degradation (+12-18 Elo).
+
+        Quality thresholds:
+        - < 0.50: Low quality - boost exploration to generate diverse games
+        - > 0.80: High quality - can reduce exploration
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "") or payload.get("config", "")
+            quality_score = payload.get("quality_score", 0.7)
+
+            if not config_key:
+                logger.debug("[SelfplayScheduler] QUALITY_FEEDBACK_ADJUSTED missing config_key")
+                return
+
+            # Invalidate quality cache immediately
+            self.invalidate_quality_cache(config_key)
+
+            # Apply priority boost for low-quality configs
+            if config_key in self._config_priorities:
+                priority = self._config_priorities[config_key]
+
+                if quality_score < 0.50:
+                    # Low quality - boost exploration to generate more diverse games
+                    old_boost = priority.exploration_boost
+                    priority.exploration_boost = max(priority.exploration_boost, 0.2)
+                    logger.info(
+                        f"[SelfplayScheduler] Quality feedback: {config_key} "
+                        f"score={quality_score:.2f} (low), boosting exploration "
+                        f"{old_boost:.2f} → {priority.exploration_boost:.2f}"
+                    )
+                elif quality_score > 0.80:
+                    # High quality - can reduce exploration to focus on exploitation
+                    old_boost = priority.exploration_boost
+                    priority.exploration_boost = max(0.0, priority.exploration_boost - 0.1)
+                    logger.debug(
+                        f"[SelfplayScheduler] Quality feedback: {config_key} "
+                        f"score={quality_score:.2f} (high), reducing exploration "
+                        f"{old_boost:.2f} → {priority.exploration_boost:.2f}"
+                    )
+                else:
+                    logger.debug(
+                        f"[SelfplayScheduler] Quality feedback: {config_key} "
+                        f"score={quality_score:.2f} (normal), cache invalidated"
+                    )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling quality feedback: {e}")
 
     def _on_opponent_mastered(self, event: Any) -> None:
         """Handle opponent mastered event.

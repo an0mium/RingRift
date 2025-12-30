@@ -21,6 +21,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.safe_event_emitter import SafeEventEmitterMixin
 from .node_monitor import NodeHealthResult
 
 if TYPE_CHECKING:
@@ -90,7 +91,7 @@ class RecoveryEngineConfig(DaemonConfig):
     )
 
 
-class RecoveryEngine(BaseDaemon):
+class RecoveryEngine(BaseDaemon, SafeEventEmitterMixin):
     """Escalating node recovery engine.
 
     Subscribes to NODE_UNHEALTHY events and attempts recovery using
@@ -102,6 +103,8 @@ class RecoveryEngine(BaseDaemon):
         await engine.start()
         # Will listen for NODE_UNHEALTHY events and attempt recovery
     """
+
+    _event_source = "RecoveryEngine"
 
     # Escalation order
     ESCALATION_ORDER = [
@@ -552,7 +555,7 @@ class RecoveryEngine(BaseDaemon):
         try:
             from app.distributed.data_events import DataEventType
 
-            await self._safe_emit_event(
+            await self._safe_emit_event_async(
                 DataEventType.RECOVERY_COMPLETED.value,
                 {
                     "node_id": result.node_id,
@@ -568,7 +571,7 @@ class RecoveryEngine(BaseDaemon):
         try:
             from app.distributed.data_events import DataEventType
 
-            await self._safe_emit_event(
+            await self._safe_emit_event_async(
                 DataEventType.RECOVERY_FAILED.value,
                 result.to_dict(),
             )
@@ -578,7 +581,7 @@ class RecoveryEngine(BaseDaemon):
     async def _emit_node_failed_permanently(self, node_id: str) -> None:
         """Emit event when all recovery attempts exhausted."""
         try:
-            await self._safe_emit_event(
+            await self._safe_emit_event_async(
                 "NODE_FAILED_PERMANENTLY",
                 {
                     "node_id": node_id,
@@ -588,24 +591,6 @@ class RecoveryEngine(BaseDaemon):
             )
         except Exception as e:
             logger.debug(f"Failed to emit NODE_FAILED_PERMANENTLY: {e}")
-
-    async def _safe_emit_event(self, event_type: str, payload: dict) -> None:
-        """Safely emit an event via the event router."""
-        try:
-            from app.coordination.event_router import get_event_bus
-
-            bus = get_event_bus()
-            if bus:
-                from app.distributed.data_events import DataEvent
-
-                event = DataEvent(
-                    event_type=event_type,
-                    payload=payload,
-                    source="RecoveryEngine",
-                )
-                bus.publish(event)
-        except Exception as e:
-            logger.debug(f"Event emission failed: {e}")
 
     def get_recovery_state(self, node_id: str) -> dict | None:
         """Get current recovery state for a node."""

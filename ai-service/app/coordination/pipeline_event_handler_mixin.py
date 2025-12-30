@@ -24,6 +24,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.pipeline_mixin_base import PipelineMixinBase
 
 if TYPE_CHECKING:
@@ -66,7 +67,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        config_key = payload.get("config_key") or payload.get("config")
+        config_key = extract_config_key(payload)
         games_generated = payload.get("games_played", payload.get("games_generated", 0))
         metadata = {"config_key": config_key, **payload}
 
@@ -93,7 +94,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        config_key = payload.get("config") or payload.get("config_key")
+        config_key = extract_config_key(payload)
         games_synced = payload.get("games_synced", 0) or payload.get("files_synced", 0)
         metadata = {"config_key": config_key, **payload}
         iteration = self._current_iteration_for_data_event()
@@ -115,7 +116,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        metadata = {"config_key": extract_config_key(payload), **payload}
         iteration = self._current_iteration_for_data_event()
 
         result = SimpleNamespace(
@@ -132,7 +133,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        config_key = payload.get("config") or payload.get("config_key")
+        config_key = extract_config_key(payload)
         metadata = {"config_key": config_key, **payload}
         iteration = self._current_iteration_for_data_event()
 
@@ -161,7 +162,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        metadata = {"config_key": extract_config_key(payload), **payload}
         iteration = self._current_iteration_for_data_event()
 
         result = SimpleNamespace(
@@ -178,7 +179,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        metadata = {"config_key": extract_config_key(payload), **payload}
         iteration = self._current_iteration_for_data_event()
 
         result = SimpleNamespace(
@@ -198,7 +199,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        metadata = {"config_key": extract_config_key(payload), **payload}
         iteration = self._current_iteration_for_data_event()
 
         result = SimpleNamespace(
@@ -215,7 +216,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             return
 
         payload = getattr(event, "payload", {}) or {}
-        metadata = {"config_key": payload.get("config") or payload.get("config_key"), **payload}
+        metadata = {"config_key": extract_config_key(payload), **payload}
         iteration = self._current_iteration_for_data_event()
 
         result = SimpleNamespace(
@@ -242,7 +243,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         payload = getattr(event, "payload", {}) or {}
         orphan_count = payload.get("orphan_count", 0)
         source_node = payload.get("source_node")
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
 
         if orphan_count == 0:
             return
@@ -267,7 +268,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         """
         payload = getattr(event, "payload", {}) or {}
         registered_count = payload.get("registered_count", 0)
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         board_type = payload.get("board_type")
         num_players = payload.get("num_players")
 
@@ -316,7 +317,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         payload = getattr(event, "payload", {}) or {}
         board_type = payload.get("board_type")
         num_players = payload.get("num_players")
-        config_key = payload.get("config_key") or f"{board_type}_{num_players}p"
+        config_key = extract_config_key(payload) or f"{board_type}_{num_players}p"
 
         logger.info(
             f"[DataPipelineOrchestrator] Consolidation started for {config_key}"
@@ -336,7 +337,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         payload = getattr(event, "payload", {}) or {}
         board_type = payload.get("board_type")
         num_players = payload.get("num_players")
-        config_key = payload.get("config_key") or f"{board_type}_{num_players}p"
+        config_key = extract_config_key(payload) or f"{board_type}_{num_players}p"
         games_consolidated = payload.get("games_consolidated", 0)
         canonical_db = payload.get("canonical_db")
 
@@ -387,7 +388,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         from app.coordination.data_pipeline_orchestrator import PipelineStage
 
         payload = getattr(event, "payload", {}) or {}
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         output_path = payload.get("output_path", "")
         total_samples = payload.get("total_samples", 0)
         samples_by_source = payload.get("samples_by_source", {})
@@ -446,7 +447,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         from app.coordination.data_pipeline_orchestrator import PipelineStage
 
         payload = getattr(event, "payload", {}) or {}
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         error = payload.get("error", "Unknown error")
 
         logger.warning(
@@ -596,7 +597,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         payload = getattr(event, "payload", {}) or {}
         game_id = payload.get("game_id")
         quality_score = payload.get("quality_score", 0.0)
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
 
         # Track quality scores
         if not hasattr(self, "_recent_quality_scores"):
@@ -623,7 +624,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         get priority in the training pipeline.
         """
         payload = getattr(event, "payload", {}) or {}
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         new_weights = payload.get("weights", {})
 
         logger.info(
@@ -643,7 +644,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         for tracking training progress.
         """
         payload = getattr(event, "payload", {}) or {}
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         new_tier = payload.get("tier")
         old_tier = payload.get("old_tier")
 
@@ -906,7 +907,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         """
         payload = event.payload if hasattr(event, "payload") else event
 
-        config_key = payload.get("config_key", "unknown")
+        config_key = extract_config_key(payload, default="unknown")
         boost_factor = payload.get("boost_factor", 1.2)
         reason = payload.get("reason", "exploration_plateau")
 
@@ -952,7 +953,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         payload = event.payload if hasattr(event, "payload") else event
 
         reason = payload.get("reason", "stale_data")
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         data_age_hours = payload.get("data_age_hours", 0)
         source = payload.get("source", "unknown")
 
@@ -991,7 +992,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         """
         payload = event.payload if hasattr(event, "payload") else event
 
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         data_age_hours = payload.get("data_age_hours", 0)
         max_age_hours = payload.get("max_age_hours", 1.0)
         source = payload.get("source", "unknown")
@@ -1051,7 +1052,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         """
         payload = event.payload if hasattr(event, "payload") else event
 
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         # Read with fallback chain for backward compatibility (canonical: new_games)
         game_count = payload.get(
             "new_games",
@@ -1090,7 +1091,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         """
         payload = event.payload if hasattr(event, "payload") else event
 
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         severity = payload.get("severity", "unknown")
         elo_change = payload.get("elo_change", 0)
         reason = payload.get("reason", "")
@@ -1140,7 +1141,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
 
         payload = event.payload if hasattr(event, "payload") else event
 
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         reason = payload.get("reason", payload.get("error", "unknown"))
         model_path = payload.get("model_path", payload.get("model_id", ""))
 
@@ -1249,7 +1250,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         from app.coordination.data_pipeline_orchestrator import PipelineStage
 
         payload = event.payload if hasattr(event, 'payload') else event
-        config = payload.get("config", "")
+        config = extract_config_key(payload)
         games = payload.get("games", 0)
 
         logger.info(
@@ -1278,7 +1279,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         from app.coordination.data_pipeline_orchestrator import PipelineStage
 
         payload = event.payload if hasattr(event, 'payload') else event
-        config = payload.get("config", "")
+        config = extract_config_key(payload)
         model_id = payload.get("model_id", "")
 
         logger.info(
@@ -1302,7 +1303,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         """
         payload = event.payload if hasattr(event, 'payload') else event
         work_type = payload.get("work_type", "unknown")
-        config = payload.get("config", "")
+        config = extract_config_key(payload)
 
         logger.debug(
             f"[DataPipelineOrchestrator] Work queued: {work_type} ({config})"
@@ -1335,7 +1336,7 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         task_type = payload.get("task_type", "unknown")
         reason = payload.get("reason", "unknown")
         node_id = payload.get("node_id", "")
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
 
         logger.info(
             f"[DataPipelineOrchestrator] Task abandoned: {task_id} "

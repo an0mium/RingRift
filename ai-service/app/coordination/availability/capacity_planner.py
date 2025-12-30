@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.safe_event_emitter import SafeEventEmitterMixin
 
 if TYPE_CHECKING:
     from app.coordination.providers.base import Instance
@@ -213,7 +214,7 @@ class UtilizationMetrics:
         )
 
 
-class CapacityPlanner(BaseDaemon):
+class CapacityPlanner(BaseDaemon, SafeEventEmitterMixin):
     """Budget-aware capacity planner for cluster management.
 
     Monitors cluster utilization and spending, providing scaling
@@ -234,6 +235,8 @@ class CapacityPlanner(BaseDaemon):
             # Handle scale up
             pass
     """
+
+    _event_source = "CapacityPlanner"
 
     def __init__(self, config: CapacityPlannerConfig | None = None):
         super().__init__(config)
@@ -518,7 +521,7 @@ class CapacityPlanner(BaseDaemon):
 
     async def _emit_budget_alert(self) -> None:
         """Emit budget alert event."""
-        await self._safe_emit_event(
+        await self._safe_emit_event_async(
             "BUDGET_ALERT",
             {
                 "hourly_percent_used": self.budget.hourly_budget_percent_used(),
@@ -530,24 +533,6 @@ class CapacityPlanner(BaseDaemon):
                 "threshold": self.budget.alert_threshold_percent,
             },
         )
-
-    async def _safe_emit_event(self, event_type: str, payload: dict) -> None:
-        """Safely emit an event via the event router."""
-        try:
-            from app.coordination.event_router import get_event_bus
-
-            bus = get_event_bus()
-            if bus:
-                from app.distributed.data_events import DataEvent
-
-                event = DataEvent(
-                    event_type=event_type,
-                    payload=payload,
-                    source="CapacityPlanner",
-                )
-                bus.publish(event)
-        except Exception as e:
-            logger.debug(f"Event emission failed: {e}")
 
     def get_budget_status(self) -> dict:
         """Get current budget status."""

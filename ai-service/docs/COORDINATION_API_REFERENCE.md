@@ -789,7 +789,7 @@ Key configuration via environment variables:
 ## 8. See Also
 
 - `docs/DAEMON_REGISTRY.md` - Complete daemon type reference
-- `docs/EVENT_SYSTEM_REFERENCE.md` - Full event catalog (207 types)
+- `docs/EVENT_SYSTEM_REFERENCE.md` - Full event catalog (211 types)
 - `docs/CLUSTER_INTEGRATION_GUIDE.md` - Cluster architecture integration
 - `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Troubleshooting guide
 - `docs/runbooks/EVENT_WIRING_VERIFICATION.md` - Event wiring verification
