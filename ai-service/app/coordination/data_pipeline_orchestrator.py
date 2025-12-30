@@ -411,7 +411,8 @@ class DataPipelineOrchestrator(
 
         # Quality gate configuration (December 2025 - Phase 14)
         self.quality_gate_enabled = getattr(config, "quality_gate_enabled", True) if config else True
-        self.quality_gate_threshold = getattr(config, "quality_gate_threshold", 0.6) if config else 0.6
+        # December 2025: Relaxed from 0.6 to 0.3 for faster training iteration
+        self.quality_gate_threshold = getattr(config, "quality_gate_threshold", 0.3) if config else 0.3
         self.quality_gate_min_high_quality_pct = getattr(config, "quality_gate_min_high_quality_pct", 0.30) if config else 0.30
         self._quality_check_history: list[float] = []  # Track quality trend
         self._last_quality_score: float = 0.0
