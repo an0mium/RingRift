@@ -59,7 +59,7 @@ python scripts/update_all_nodes.py --restart-p2p
 | `app/config/coordination_defaults.py` | Centralized timeouts, thresholds, priority weights             |
 | `app/config/thresholds.py`            | Centralized quality/training/budget thresholds (canonical)     |
 
-### Coordination Infrastructure (224 modules)
+### Coordination Infrastructure (257 modules)
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
@@ -339,11 +339,11 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-95 daemon types (89 active, 6 deprecated). Three-layer architecture:
+89 daemon types (83 active, 6 deprecated). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 90 async runner functions
+3. **`daemon_runners.py`** - 91 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
@@ -401,11 +401,11 @@ Automatic retry for transient failures (GPU OOM, timeouts):
 
 **Integration Status**: 99.5% COMPLETE (Dec 30, 2025)
 
-202 event types defined in DataEventType enum. All critical event flows are fully wired.
+211 event types defined in DataEventType enum. All critical event flows are fully wired.
 Only 2 minor informational gaps remain (SELFPLAY_ALLOCATION_UPDATED undercoverage,
 NODE_CAPACITY_UPDATED dual emitters) - neither affects core pipeline operation.
 
-202 event types across 3 layers:
+211 event types across 3 layers:
 
 1. **In-memory EventBus** - Local daemon communication
 2. **Stage events** - Pipeline stage completion
@@ -744,8 +744,8 @@ Comprehensive exploration verified the following are ALREADY COMPLETE:
 | **Event Emitters**     | PROGRESS_STALL_DETECTED, PROGRESS_RECOVERED, REGRESSION_CLEARED | ✅ progress_watchdog_daemon.py:394,414, regression_detector.py:508 |
 | **Pipeline Stages**    | SELFPLAY → SYNC → NPZ_EXPORT → TRAINING                         | ✅ data_pipeline_orchestrator.py:756-900                           |
 | **Code Consolidation** | Event patterns (16 files)                                       | ✅ event_utils.py, event_handler_utils.py                          |
-| **Daemon Counts**      | 95 types (89 active, 6 deprecated)                              | ✅ Verified via DaemonType enum (Dec 30, 2025)                     |
-| **Event Types**        | 202 DataEventType members                                       | ✅ Verified via DataEventType enum (Dec 30, 2025)                  |
+| **Daemon Counts**      | 89 types (83 active, 6 deprecated)                              | ✅ Verified via DaemonType enum (Dec 30, 2025)                     |
+| **Event Types**        | 211 DataEventType members                                       | ✅ Verified via DataEventType enum (Dec 30, 2025)                  |
 | **Startup Order**      | EVENT_ROUTER → FEEDBACK_LOOP → DATA_PIPELINE → sync daemons     | ✅ master_loop.py:1109-1119 (race condition fixed Dec 2025)        |
 
 **Important for future agents**: Before implementing suggested improvements, VERIFY current state.

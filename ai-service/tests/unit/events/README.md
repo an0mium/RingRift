@@ -136,9 +136,9 @@ python -m pytest tests/unit/events/test_types.py::TestRingRiftEventType::test_ev
 
 ### Comprehensive Event Coverage
 
-- All 140+ event types are validated
+- All 173 unified event types are validated (`RingRiftEventType`)
 - All 15 event categories are tested
-- Cross-process event set verified (40+ events)
+- Cross-process event set verified (39 events)
 
 ### Pipeline Integration
 

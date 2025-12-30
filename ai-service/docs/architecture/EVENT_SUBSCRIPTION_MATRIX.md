@@ -8,24 +8,25 @@ All critical events have been verified to have proper emitters and subscribers. 
 were previously thought to be "orphaned" (TASK_SPAWNED, TASK_HEARTBEAT, QUALITY_DEGRADED,
 PROGRESS_STALL_DETECTED) have been verified to have 2-5 active subscribers each.
 
-This document provides a comprehensive matrix of all 211 event types in the RingRift coordination layer,
-their emitters, and subscribers. This is the single source of truth for event integration.
+This document provides a matrix of critical events in the RingRift coordination layer,
+their emitters, and subscribers. `DataEventType` defines 207 events; this file focuses on
+high-impact wiring. For the full list, see `docs/EVENT_REFERENCE_AUTO.md` and `docs/EVENT_CATALOG.md`.
 
 ## Quick Reference
 
-| Category   | Event Count | Description                 |
-| ---------- | ----------- | --------------------------- |
-| Training   | 15          | Training lifecycle events   |
-| Selfplay   | 12          | Selfplay coordination       |
-| Evaluation | 8           | Model evaluation pipeline   |
-| Promotion  | 9           | Model promotion/rollback    |
-| Sync       | 11          | Data synchronization        |
-| Health     | 26          | Node and cluster health     |
-| Daemon     | 13          | Daemon lifecycle            |
-| Quality    | 10          | Data quality signals        |
-| Curriculum | 8           | Curriculum adjustments      |
-| Work Queue | 12          | Distributed work management |
-| Other      | 12+         | Miscellaneous events        |
+| Category   | Event Count (subset) | Description                 |
+| ---------- | -------------------- | --------------------------- |
+| Training   | 15                   | Training lifecycle events   |
+| Selfplay   | 12                   | Selfplay coordination       |
+| Evaluation | 8                    | Model evaluation pipeline   |
+| Promotion  | 9                    | Model promotion/rollback    |
+| Sync       | 11                   | Data synchronization        |
+| Health     | 26                   | Node and cluster health     |
+| Daemon     | 13                   | Daemon lifecycle            |
+| Quality    | 10                   | Data quality signals        |
+| Curriculum | 8                    | Curriculum adjustments      |
+| Work Queue | 12                   | Distributed work management |
+| Other      | 12+                  | Miscellaneous events        |
 
 ---
 
@@ -380,10 +381,9 @@ their emitters, and subscribers. This is the single source of truth for event in
 
 - **Emitter**: `memory_monitor_daemon.py`
 - **Purpose**: GPU VRAM or system memory is critically low
-- **Payload**: `node_id`, `vram_used_pct`, `system_used_pct`, `threshold`
+- **Payload**: `source`, `gpu_utilization`, `ram_utilization`, `gpu_used_gb`, `gpu_total_gb`, `timestamp`
 - **Subscribers**:
-  - `selfplay_scheduler.py` - Pauses job spawning on affected nodes
-  - `daemon_event_handlers.py` - May trigger process cleanup
+  - `idle_resource_daemon.py` - Pauses job spawning on affected nodes
 - **Added**: December 2025 (48-hour autonomous operation)
 
 ### HEALTH_ALERT
@@ -720,8 +720,10 @@ their emitters, and subscribers. This is the single source of truth for event in
 
 ### RESOURCE_CONSTRAINT
 
-- **Emitter**: `daemon_manager.py`
+- **Emitter**: `memory_monitor_daemon.py`, `unified_cluster_monitor.py`
 - **Subscribers**:
+  - `idle_resource_daemon.py` - Pauses spawning under pressure
+  - `resource_monitoring_coordinator.py` - Tracks cluster pressure
   - `auto_scaler.py` - Scales resources
 
 ### NODE_TERMINATED
