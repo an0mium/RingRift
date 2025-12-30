@@ -1039,9 +1039,10 @@ class GossipProtocolMixin(P2PMixinBase):
         # O(log30/log5) ≈ 2.1 rounds for full propagation vs ~3.1 with fanout=3.
         # Dec 30, 2025: Coordinators get higher fanout (8) for more reliable state
         # propagation, since they're critical for cluster-wide visibility.
+        # Fanout is now configurable via RINGRIFT_GOSSIP_FANOUT_LEADER/_FOLLOWER env vars.
         is_coordinator = getattr(self, "role", None) in ("coordinator", "leader") or \
                          getattr(self, "is_coordinator", False)
-        GOSSIP_FANOUT = 8 if is_coordinator else 5
+        GOSSIP_FANOUT = self.GOSSIP_FANOUT_LEADER if is_coordinator else self.GOSSIP_FANOUT_FOLLOWER
 
         # Dec 2025: Copy peer IDs under lock to avoid stale references.
         # Previously, we copied NodeInfo objects which could become stale
@@ -1638,13 +1639,12 @@ class GossipProtocolMixin(P2PMixinBase):
 
         now = time.time()
 
-        # Rate limit: anti-entropy every 2 minutes (was 5 min)
+        # Rate limit: anti-entropy interval is now configurable via RINGRIFT_ANTI_ENTROPY_INTERVAL
         # Dec 29, 2025: Reduced interval (300s → 120s) for faster partition recovery.
         # This catches missed updates more quickly, especially for the local-mac node
         # which has intermittent visibility due to stricter home network NAT.
-        ANTI_ENTROPY_INTERVAL = 120
         last_repair = getattr(self, "_last_anti_entropy_repair", 0)
-        if now - last_repair < ANTI_ENTROPY_INTERVAL:
+        if now - last_repair < self.ANTI_ENTROPY_INTERVAL_SECONDS:
             return
         self._last_anti_entropy_repair = now
 

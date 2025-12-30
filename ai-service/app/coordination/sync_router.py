@@ -275,6 +275,7 @@ class SyncRouter:
         num_players: int | None = None,
         exclude_nodes: list[str] | None = None,
         max_targets: int = 10,
+        size_bytes: int = 0,
     ) -> list[SyncTarget]:
         """Get candidate nodes for syncing data.
 
@@ -284,6 +285,7 @@ class SyncRouter:
             num_players: Optional num_players filter
             exclude_nodes: Nodes to exclude
             max_targets: Maximum number of targets to return
+            size_bytes: Estimated size of data to sync (for pool capacity check)
 
         Returns:
             List of SyncTarget sorted by priority
@@ -316,6 +318,10 @@ class SyncRouter:
             if not self._check_node_capacity(node_id):
                 continue
 
+            # Dec 30, 2025 (Phase 2.3): Check rotating pool capacity for coordinators
+            if size_bytes > 0 and not self._check_pool_capacity(node_id, size_bytes, node_config):
+                continue
+
             # Skip if NFS sharing applies (data already visible)
             if self._shares_storage_with(node_id):
                 continue
@@ -334,6 +340,54 @@ class SyncRouter:
         targets.sort(key=lambda t: t.priority, reverse=True)
 
         return targets[:max_targets]
+
+    def _check_pool_capacity(
+        self,
+        node_id: str,
+        size_bytes: int,
+        node_config: object | None = None,
+    ) -> bool:
+        """Check if a node has rotating pool capacity for sync data.
+
+        Dec 30, 2025: Phase 2.3 of distributed data pipeline architecture.
+
+        For coordinator nodes that use rotating pools, this checks if the pool
+        has sufficient capacity for the incoming data. Non-coordinator nodes
+        and nodes without pools always return True.
+
+        Args:
+            node_id: Node identifier
+            size_bytes: Estimated size of data to sync
+            node_config: Optional ClusterNode config
+
+        Returns:
+            True if node can accept the data, False otherwise
+        """
+        try:
+            # Only check pool for coordinator nodes or nodes with skip_sync_receive
+            if node_config is not None:
+                role = getattr(node_config, "role", None)
+                if role != "coordinator":
+                    return True  # Non-coordinators don't use pools
+
+            # Check if this is the local node
+            from app.config.env import env
+
+            if node_id != env.node_id:
+                return True  # Can't check remote pool capacity here
+
+            # Check local rotating pool
+            from app.coordination.rotating_disk_pool import get_rotating_pool_manager
+
+            pool = get_rotating_pool_manager()
+            return pool.can_accept_data(size_bytes)
+
+        except ImportError:
+            # Rotating pool not available
+            return True
+        except Exception as e:
+            logger.debug(f"[SyncRouter] Error checking pool capacity for {node_id}: {e}")
+            return True  # Allow sync on error
 
     def get_sync_sources(
         self,

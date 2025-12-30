@@ -414,6 +414,66 @@ Emitted when GPU/CPU memory reaches critical levels.
 
 ---
 
+## Progress Monitoring Events (48h Autonomous Operation)
+
+### PROGRESS_STALL_DETECTED
+
+Emitted when a config's Elo progress stalls (no positive velocity for 6+ hours).
+
+| Field                  | Type    | Required | Description                                      |
+| ---------------------- | ------- | -------- | ------------------------------------------------ |
+| `config_key`           | `str`   | Yes      | Config identifier (e.g., `"hex8_2p"`)            |
+| `action`               | `str`   | Yes      | Recovery action: `"boost_selfplay"`, `"retrain"` |
+| `stall_duration_hours` | `float` | Yes      | Hours without positive Elo velocity              |
+| `current_velocity`     | `float` | No       | Current Elo velocity (Elo/hour)                  |
+| `source`               | `str`   | Yes      | `"ProgressWatchdogDaemon"`                       |
+
+**Subscribers:**
+
+- `SelfplayScheduler` - Boosts selfplay priority for stalled config (1.5x exploration boost)
+
+**Example:**
+
+```python
+{
+    "config_key": "hex8_4p",
+    "action": "boost_selfplay",
+    "stall_duration_hours": 8.5,
+    "current_velocity": -0.02,
+    "source": "ProgressWatchdogDaemon",
+}
+```
+
+---
+
+### PROGRESS_RECOVERED
+
+Emitted when a previously stalled config resumes positive Elo velocity.
+
+| Field                     | Type    | Required | Description                     |
+| ------------------------- | ------- | -------- | ------------------------------- |
+| `config_key`              | `str`   | Yes      | Config identifier               |
+| `recovery_duration_hours` | `float` | Yes      | Hours since stall was detected  |
+| `current_velocity`        | `float` | Yes      | Current Elo velocity (Elo/hour) |
+| `source`                  | `str`   | Yes      | `"ProgressWatchdogDaemon"`      |
+
+**Subscribers:**
+
+- `SelfplayScheduler` - Resets exploration boost to normal levels
+
+**Example:**
+
+```python
+{
+    "config_key": "hex8_4p",
+    "recovery_duration_hours": 12.0,
+    "current_velocity": 0.15,
+    "source": "ProgressWatchdogDaemon",
+}
+```
+
+---
+
 ## Regression Events
 
 ### REGRESSION_DETECTED

@@ -602,6 +602,17 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         auto_restart=True,
         max_restarts=10,  # More restarts allowed for critical recovery daemon
     ),
+    # Voter health monitor (December 30, 2025) - continuous voter probing
+    # Multi-transport probing: P2P HTTP → Tailscale → SSH
+    # Emits VOTER_OFFLINE, VOTER_ONLINE, QUORUM_LOST/RESTORED/AT_RISK
+    DaemonType.VOTER_HEALTH_MONITOR: DaemonSpec(
+        runner_name="create_voter_health_monitor",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="health",
+        health_check_interval=60.0,  # 1 min - fast voter health tracking
+        auto_restart=True,
+        max_restarts=10,  # Critical for quorum protection
+    ),
     # Memory monitor (December 30, 2025) - prevents OOM crashes
     # Monitors GPU VRAM and process RSS, emits MEMORY_PRESSURE events
     DaemonType.MEMORY_MONITOR: DaemonSpec(

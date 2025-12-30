@@ -9,7 +9,7 @@ Use this checklist before running baseline or stress load tests to ensure accura
 - [ ] **Server Running** - Target server is up and healthy
 
   ```bash
-  curl -f http://localhost:3001/health
+  curl -f http://localhost:3000/health
   ```
 
 - [ ] **Database Ready** - PostgreSQL is running and accessible
@@ -82,6 +82,7 @@ Use this checklist before running baseline or stress load tests to ensure accura
   ```
 
 - [ ] **Dry Run Passes** - Scenarios can parse and initialize
+
   ```bash
   cd tests/load && npm run validate:dry-run
   ```
@@ -100,7 +101,7 @@ Before running full baseline, verify with a quick smoke test:
 npm run load:smoke:all
 
 # Or individual scenario
-k6 run --env BASE_URL=http://localhost:3001 \
+k6 run --env BASE_URL=http://localhost:3000 \
   --env LOAD_PROFILE=smoke \
   tests/load/scenarios/concurrent-games.js
 ```
@@ -134,7 +135,7 @@ cd tests/load
 
 ```bash
 k6 run \
-  --env BASE_URL=http://localhost:3001 \
+  --env BASE_URL=http://localhost:3000 \
   --env LOAD_PROFILE=load \
   --out json=tests/load/results/baseline.json \
   tests/load/scenarios/concurrent-games.js
@@ -214,7 +215,7 @@ k6 run \
 ```bash
 # Check everything is ready
 npm run dev:doctor         # If available
-curl http://localhost:3001/health
+curl http://localhost:3000/health
 
 # Validate load tests
 cd tests/load && npm run validate:syntax

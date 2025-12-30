@@ -82,7 +82,7 @@ Complete these validation steps before any deployment.
 ```bash
 # Configure environment
 export BASE_URL=http://localhost:3000
-export WS_URL=ws://localhost:3001
+export WS_URL=ws://localhost:3000
 export RATE_LIMIT_BYPASS_ENABLED=true
 export RATE_LIMIT_BYPASS_TOKEN="<staging_bypass_token>"
 
