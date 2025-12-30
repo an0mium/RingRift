@@ -468,6 +468,9 @@ Generated: 2025-12-29
 | `RINGRIFT_PARITY_BACKEND`                              | `ai-service/app/db/parity_validator.py:110`                                 |                |
 | `RINGRIFT_PARITY_DATA_DIR`                             | `ai-service/tests/unit/coordination/test_parity_validation_daemon.py:52`    | test-only      |
 | `RINGRIFT_PARITY_MAX_GAMES_PER_DB`                     | `ai-service/tests/unit/coordination/test_parity_validation_daemon.py:53`    | test-only      |
+| `RINGRIFT_PARITY_VALIDATION`                           | `ai-service/app/db/parity_validator.py:56`                                  |                |
+| `RINGRIFT_PARITY_DUMP_DIR`                             | `ai-service/app/db/parity_validator.py:68`                                  |                |
+| `RINGRIFT_PARITY_PROGRESS_EVERY`                       | `ai-service/scripts/check_ts_python_replay_parity.py:507`                   |                |
 | `RINGRIFT_SKIP_PARITY`                                 | `ai-service/app/db/parity_validator.py:105`                                 |                |
 | `RINGRIFT_PATH`                                        | `ai-service/deploy/scripts/ringrift-p2p-start.sh:14`                        |                |
 | `RINGRIFT_PEAK_HOURS_END`                              | `ai-service/app/config/coordination_defaults.py:872`                        |                |

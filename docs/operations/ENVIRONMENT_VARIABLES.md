@@ -2215,6 +2215,16 @@ Use `skip` to disable parity validation entirely.
 
 Skip parity validation entirely (overrides backend and mode).
 
+### `RINGRIFT_PARITY_PROGRESS_EVERY`
+
+| Property | Value |
+| -------- | ----- |
+| Type     | `int` |
+| Default  | `250` |
+| Required | No    |
+
+Progress logging interval (in moves) for parity replays.
+
 ### `RINGRIFT_SKIP_SHADOW_CONTRACTS`
 
 | Property | Value                                       |

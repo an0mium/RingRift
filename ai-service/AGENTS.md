@@ -270,3 +270,91 @@ All singleton utilities are in `app/coordination/singleton_mixin.py`:
 - `SingletonMeta` - Metaclass
 - `ThreadSafeSingletonMixin` - Thread-safe mixin
 - `create_singleton_accessors` - Helper to create get/reset functions
+
+---
+
+## 10. Circular Import Mitigation
+
+The coordination layer has complex interdependencies. Follow these patterns to avoid circular imports:
+
+### 10.1 Import Order Rules
+
+1. **Low-level modules import nothing from coordination:**
+   - `app/config/*` - Configuration only
+   - `app/models/*` - Data classes only
+   - `app/utils/*` - Pure utilities
+
+2. **Mid-level modules use lazy imports:**
+   - `app/coordination/protocols.py` - Defines interfaces
+   - `app/coordination/daemon_types.py` - Enums only
+   - Import heavy modules inside functions, not at module level
+
+3. **High-level orchestrators can import freely:**
+   - `app/coordination/daemon_manager.py`
+   - `app/coordination/coordination_bootstrap.py`
+
+### 10.2 Lazy Import Pattern
+
+Use lazy imports for modules that create cycles:
+
+```python
+# BAD - Creates circular import
+from app.coordination.event_router import get_router
+
+def my_function():
+    router = get_router()
+    router.emit("MY_EVENT", {})
+
+# GOOD - Lazy import breaks the cycle
+def my_function():
+    from app.coordination.event_router import get_router
+    router = get_router()
+    router.emit("MY_EVENT", {})
+```
+
+### 10.3 TYPE_CHECKING Pattern
+
+For type hints that would cause cycles:
+
+```python
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.coordination.daemon_manager import DaemonManager
+
+class MyClass:
+    def __init__(self, manager: "DaemonManager"):
+        self._manager = manager
+```
+
+### 10.4 High-Risk Circular Import Areas
+
+These module groups have complex interdependencies:
+
+| Module Group                            | Pattern Used             | Notes                                           |
+| --------------------------------------- | ------------------------ | ----------------------------------------------- |
+| `daemon_manager` ↔ `daemon_runners`     | Lazy imports in runners  | Factory functions import manager lazily         |
+| `event_router` ↔ event emitters         | Lazy imports in emitters | `get_router()` called inside emit functions     |
+| `coordination_bootstrap` ↔ coordinators | Forward references       | TYPE_CHECKING for type hints                    |
+| P2P managers ↔ orchestrator             | Protocol interfaces      | Managers implement protocols defined separately |
+
+### 10.5 Detection Tools
+
+Run circular import detection:
+
+```bash
+# Check for potential circular imports
+python scripts/audit_circular_deps.py
+
+# Test imports don't fail
+python -c "from app.coordination import *"
+```
+
+### 10.6 When Adding New Modules
+
+1. Start with minimal imports at module level
+2. Add imports inside functions that need them
+3. Test with `python -c "import my_module"`
+4. If circular import error, use lazy import pattern
+5. Document any intentional lazy imports with comments

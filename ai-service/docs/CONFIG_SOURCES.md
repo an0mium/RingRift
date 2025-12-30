@@ -490,6 +490,13 @@ non-prefixed variables (for example `AI_SERVICE_PORT`, `CORS_ORIGINS`, or
 | `RINGRIFT_GAUNTLET_ENABLED`      | bool   | true    | Gauntlet enabled on this node                           |
 | `RINGRIFT_EXPORT_ENABLED`        | bool   | true    | Export enabled on this node                             |
 
+### Debugging
+
+| Variable                         | Type   | Default           | Description                             |
+| -------------------------------- | ------ | ----------------- | --------------------------------------- |
+| `RINGRIFT_PARITY_DUMP_DIR`       | string | "parity_failures" | Parity failure dump directory           |
+| `RINGRIFT_PARITY_PROGRESS_EVERY` | int    | 250               | Parity replay progress interval (moves) |
+
 ### Training
 
 | Variable                      | Type | Default | Description                        |
