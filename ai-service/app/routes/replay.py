@@ -14,7 +14,7 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 from app.db.game_replay import GameReplayDB
 from app.utils.error_utils import sanitize_error_detail
@@ -496,9 +496,21 @@ class StoreGameRequest(BaseModel):
     gameId: str | None = Field(None, max_length=100, description="Optional game ID (generated if not provided)")
     initialState: dict[str, Any] = Field(..., description="Initial game state")
     finalState: dict[str, Any] = Field(..., description="Final game state")
-    moves: list[dict[str, Any]] = Field(..., max_length=10000, description="List of moves (max 10000)")
-    choices: list[dict[str, Any]] | None = Field(None, max_length=1000, description="List of choices (max 1000)")
+    moves: list[dict[str, Any]] = Field(..., description="List of moves (max 10000)")
+    choices: list[dict[str, Any]] | None = Field(None, description="List of choices (max 1000)")
     metadata: dict[str, Any] | None = Field(None, description="Optional metadata")
+
+    @validator("moves")
+    def validate_moves_length(cls, v):
+        if len(v) > 10000:
+            raise ValueError("moves list cannot exceed 10000 items")
+        return v
+
+    @validator("choices")
+    def validate_choices_length(cls, v):
+        if v is not None and len(v) > 1000:
+            raise ValueError("choices list cannot exceed 1000 items")
+        return v
 
 
 class StoreGameResponse(BaseModel):

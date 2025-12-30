@@ -17,7 +17,7 @@ from typing import Any, TypedDict
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 try:
     from typing import Self  # Python 3.11+
@@ -518,8 +518,6 @@ class BatchMoveRequest(BaseModel):
     """Request model for batch AI move selection (multiple games at once)"""
     game_states: list[GameState] = Field(
         ...,
-        min_length=1,
-        max_length=64,
         description="List of game states to get moves for (1-64 games)"
     )
     player_numbers: list[int] = Field(
@@ -541,6 +539,14 @@ class BatchMoveRequest(BaseModel):
         default=64,
         description="Simulation budget per move"
     )
+
+    @validator("game_states")
+    def validate_game_states_length(cls, v):
+        if len(v) < 1:
+            raise ValueError("game_states must have at least 1 item")
+        if len(v) > 64:
+            raise ValueError("game_states cannot exceed 64 items")
+        return v
 
     @root_validator(skip_on_failure=True)
     def validate_lengths(cls, values: dict) -> dict:

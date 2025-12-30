@@ -228,7 +228,7 @@ batch_size = 512  # Line 92 - use config
 
 1. ~~**IdleResourceDaemon** - spawns jobs on idle GPUs~~ ✅ 27 tests added (Dec 26)
 2. ~~**SelfplayScheduler** - allocates selfplay work~~ ✅ 22 tests added (Dec 26)
-3. **DaemonManager** - manages 35+ daemon types, minimal tests
+3. **DaemonManager** - managed 35+ daemon types at snapshot time (now 89); minimal tests
 4. **P2P Orchestrator** - cluster coordination, minimal tests
 
 ### Recommended Test Files to Create
