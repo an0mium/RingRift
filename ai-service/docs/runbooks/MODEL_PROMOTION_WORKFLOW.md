@@ -129,10 +129,10 @@ python scripts/auto_promote.py --gauntlet \
 python scripts/auto_promote.py --force \
   --model models/my_model.pth \
   --board-type hex8 --num-players 2
+```
 
 Manual promotion bypasses AutoPromotionDaemon gates; run parity/quality checks
 explicitly when promoting this way.
-```
 
 ### Via P2P Admin Endpoint
 

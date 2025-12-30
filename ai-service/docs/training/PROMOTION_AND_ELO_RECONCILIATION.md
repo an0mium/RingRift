@@ -11,6 +11,27 @@ The promotion and Elo reconciliation system provides:
 3. **Prometheus Metrics** - Observability for promotion decisions and Elo drift
 4. **CLI Tools** - Manual reconciliation and debugging
 
+## AutoPromotionDaemon (Event-Driven)
+
+`AutoPromotionDaemon` (`app/coordination/auto_promotion_daemon.py`) is the
+event-driven promotion path used in the coordination layer. It listens to
+`EVALUATION_COMPLETED`, applies the two-tier thresholds in
+`app/config/thresholds.py` (`should_promote_model()`), and then delegates the
+actual promotion to `PromotionController`.
+
+Additional gates applied before promotion:
+
+- **Parity gate**: checks `parity_gate` status in
+  `data/games/canonical_<board>_<players>p.db` and can run live TS↔Python parity
+  validation on coordinator nodes if the DB status is pending.
+- **Quality gate**: enforces `min_training_games` and `min_quality_score`
+  (via `app/training/data_quality.get_database_quality_score` when available).
+- **Stability gate**: blocks volatile/declining models using
+  `app/coordination/stability_heuristic.py` (`max_volatility_score`).
+
+The daemon emits `MODEL_PROMOTED`, `PROMOTION_FAILED`, and `PROMOTION_COMPLETED`
+events for downstream automation (distribution + curriculum updates).
+
 ## Promotion Controller
 
 ### Purpose

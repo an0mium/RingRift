@@ -235,13 +235,13 @@ NPZ combination and data freshness gates). For a complete event list, see
 
 ### Core Pipeline Events
 
-| Event                  | Emitter(s)          | Subscriber(s)                                 | Purpose                               |
-| ---------------------- | ------------------- | --------------------------------------------- | ------------------------------------- |
-| `TRAINING_STARTED`     | TrainingCoordinator | SyncRouter, IdleShutdown, DataPipeline        | Pause idle detection, prioritize sync |
-| `TRAINING_COMPLETED`   | TrainingCoordinator | FeedbackLoop, DataPipeline, ModelDistribution | Trigger evaluation pipeline           |
-| `TRAINING_FAILED`      | TrainingCoordinator | DaemonManager, RecoveryOrchestrator           | Handle failure, initiate recovery     |
-| `EVALUATION_COMPLETED` | GameGauntlet        | FeedbackLoop, CurriculumIntegration           | Update curriculum weights             |
-| `MODEL_PROMOTED`       | PromotionController | UnifiedDistributionDaemon, FeedbackLoop       | Distribute model to cluster           |
+| Event                  | Emitter(s)          | Subscriber(s)                                            | Purpose                               |
+| ---------------------- | ------------------- | -------------------------------------------------------- | ------------------------------------- |
+| `TRAINING_STARTED`     | TrainingCoordinator | SyncRouter, IdleShutdown, DataPipeline                   | Pause idle detection, prioritize sync |
+| `TRAINING_COMPLETED`   | TrainingCoordinator | FeedbackLoop, DataPipeline, ModelDistribution            | Trigger evaluation pipeline           |
+| `TRAINING_FAILED`      | TrainingCoordinator | DaemonManager, RecoveryOrchestrator                      | Handle failure, initiate recovery     |
+| `EVALUATION_COMPLETED` | GameGauntlet        | FeedbackLoop, CurriculumIntegration, AutoPromotionDaemon | Update curriculum weights             |
+| `MODEL_PROMOTED`       | AutoPromotionDaemon | UnifiedDistributionDaemon, FeedbackLoop                  | Distribute model to cluster           |
 
 ### Data Synchronization Events
 
@@ -261,6 +261,7 @@ NPZ combination and data freshness gates). For a complete event list, see
 | `PROMOTION_CANDIDATE` | AutoPromotionDaemon      | DataPipelineOrchestrator                | Track promotion candidates     |
 | `PROMOTION_STARTED`   | AutoPromotionDaemon      | DataPipelineOrchestrator                | Track promotion lifecycle      |
 | `PROMOTION_FAILED`    | AutoPromotionDaemon      | ModelLifecycleCoordinator, DataPipeline | Track and notify failures      |
+| `PROMOTION_COMPLETED` | AutoPromotionDaemon      | CurriculumIntegration                   | Promotion attempt finalized    |
 | `MODEL_UPDATED`       | ModelRegistry            | UnifiedDistributionDaemon               | Sync model metadata            |
 | `REGRESSION_DETECTED` | ModelPerformanceWatchdog | ModelLifecycleCoordinator, DataPipeline | Rollback bad models            |
 | `REGRESSION_CRITICAL` | RegressionDetector       | DaemonManager, AlertManager             | Critical alert, pause training |

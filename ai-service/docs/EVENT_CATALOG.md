@@ -84,15 +84,15 @@ These events form the main training pipeline:
 
 ## Evaluation Events
 
-| Event                              | Emitter          | Subscribers                         | Purpose                                |
-| ---------------------------------- | ---------------- | ----------------------------------- | -------------------------------------- |
-| `EVALUATION_STARTED`               | EvaluationDaemon | MetricsAnalysisOrchestrator         | Evaluation begins                      |
-| `EVALUATION_PROGRESS`              | GameGauntlet     | MetricsAnalysisOrchestrator         | Real-time eval progress                |
-| `EVALUATION_COMPLETED`             | GameGauntlet     | FeedbackLoop, CurriculumIntegration | Adjust curriculum weights              |
-| `EVALUATION_FAILED`                | EvaluationDaemon | AlertManager                        | Handle eval failures                   |
-| `EVALUATION_BACKPRESSURE`          | EvaluationDaemon | TrainingTriggerDaemon               | Pause training when eval queue is deep |
-| `EVALUATION_BACKPRESSURE_RELEASED` | EvaluationDaemon | TrainingTriggerDaemon               | Resume training when queue drains      |
-| `ELO_UPDATED`                      | EloSyncManager   | CurriculumIntegration               | Elo rating updated                     |
+| Event                              | Emitter          | Subscribers                                              | Purpose                                |
+| ---------------------------------- | ---------------- | -------------------------------------------------------- | -------------------------------------- |
+| `EVALUATION_STARTED`               | EvaluationDaemon | MetricsAnalysisOrchestrator                              | Evaluation begins                      |
+| `EVALUATION_PROGRESS`              | GameGauntlet     | MetricsAnalysisOrchestrator                              | Real-time eval progress                |
+| `EVALUATION_COMPLETED`             | GameGauntlet     | FeedbackLoop, CurriculumIntegration, AutoPromotionDaemon | Adjust curriculum weights              |
+| `EVALUATION_FAILED`                | EvaluationDaemon | AlertManager                                             | Handle eval failures                   |
+| `EVALUATION_BACKPRESSURE`          | EvaluationDaemon | TrainingTriggerDaemon                                    | Pause training when eval queue is deep |
+| `EVALUATION_BACKPRESSURE_RELEASED` | EvaluationDaemon | TrainingTriggerDaemon                                    | Resume training when queue drains      |
+| `ELO_UPDATED`                      | EloSyncManager   | CurriculumIntegration                                    | Elo rating updated                     |
 
 ## Promotion Events
 
@@ -100,8 +100,9 @@ These events form the main training pipeline:
 | ----------------------- | ------------------------- | --------------------------------------- | ------------------------------------ |
 | `PROMOTION_CANDIDATE`   | EvaluationDaemon          | AutoPromotionDaemon                     | Model is promotion candidate         |
 | `PROMOTION_STARTED`     | AutoPromotionDaemon       | DataPipeline                            | Promotion process started            |
-| `MODEL_PROMOTED`        | PromotionController       | UnifiedDistributionDaemon, FeedbackLoop | Distribute model to cluster          |
+| `MODEL_PROMOTED`        | AutoPromotionDaemon       | UnifiedDistributionDaemon, FeedbackLoop | Distribute model to cluster          |
 | `PROMOTION_FAILED`      | AutoPromotionDaemon       | ModelLifecycleCoordinator, DataPipeline | Track failed promotions              |
+| `PROMOTION_COMPLETED`   | AutoPromotionDaemon       | CurriculumIntegration                   | Promotion attempt finalized          |
 | `PROMOTION_REJECTED`    | AutoPromotionDaemon       | FeedbackLoop, CurriculumFeedback        | Promotion rejected (below threshold) |
 | `PROMOTION_ROLLED_BACK` | ModelLifecycleCoordinator | FeedbackLoop                            | Promotion rolled back                |
 | `MODEL_UPDATED`         | ModelRegistry             | UnifiedDistributionDaemon               | Sync model metadata to nodes         |

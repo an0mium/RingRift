@@ -62,9 +62,10 @@ These tables are representative. For the full event list, see `EVENT_CATALOG.md`
 
 | Event Type            | Emitter                    | Subscribers                                 | Purpose                        |
 | --------------------- | -------------------------- | ------------------------------------------- | ------------------------------ |
-| `MODEL_PROMOTED`      | `PromotionController`      | `UnifiedDistributionDaemon`, `FeedbackLoop` | Distribute to cluster          |
+| `MODEL_PROMOTED`      | `AutoPromotionDaemon`      | `UnifiedDistributionDaemon`, `FeedbackLoop` | Distribute to cluster          |
 | `MODEL_UPDATED`       | `ModelRegistry`            | `UnifiedDistributionDaemon`                 | Sync metadata                  |
 | `PROMOTION_FAILED`    | `AutoPromotionDaemon`      | `ModelLifecycleCoordinator`, `DataPipeline` | Track failures                 |
+| `PROMOTION_COMPLETED` | `AutoPromotionDaemon`      | `CurriculumIntegration`                     | Promotion attempt finalized    |
 | `REGRESSION_DETECTED` | `ModelPerformanceWatchdog` | `ModelLifecycleCoordinator`, `DataPipeline` | Rollback bad models            |
 | `REGRESSION_CRITICAL` | `RegressionDetector`       | `DaemonManager`, `AlertManager`             | Critical alert, pause training |
 

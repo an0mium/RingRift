@@ -76,6 +76,7 @@ router.subscribe(DataEventType.MODEL_PROMOTED, on_model_promoted)
 | `PROMOTION_STARTED`   | `promotion_started`   | Promotion process begins | `{model_path}`           |
 | `MODEL_PROMOTED`      | `model_promoted`      | Model is new canonical   | `{old_model, new_model}` |
 | `PROMOTION_FAILED`    | `promotion_failed`    | Promotion failed         | `{reason}`               |
+| `PROMOTION_COMPLETED` | `promotion_completed` | Promotion finalized      | `{config_key, success}`  |
 | `PROMOTION_REJECTED`  | `promotion_rejected`  | Model didn't qualify     | `{threshold, actual}`    |
 | `MODEL_UPDATED`       | `model_updated`       | Model metadata changed   | `{model_path, changes}`  |
 
@@ -308,15 +309,15 @@ await publish(
 
 Key event handlers by module:
 
-| Module                           | Events Handled                             | Purpose               |
-| -------------------------------- | ------------------------------------------ | --------------------- |
-| `data_pipeline_orchestrator.py`  | SYNC*COMPLETED, TRAINING*_, EVALUATION\__  | Pipeline coordination |
-| `feedback_loop_controller.py`    | TRAINING_COMPLETED, EVALUATION_COMPLETED   | Training feedback     |
-| `selfplay_scheduler.py`          | ELO*\*, CURRICULUM*_, QUALITY\__           | Selfplay allocation   |
-| `daemon_manager.py`              | DAEMON*\*, HANDLER*\*, REGRESSION_CRITICAL | Daemon lifecycle      |
-| `auto_sync_daemon.py`            | TRAINING_STARTED, NODE_RECOVERED           | Sync triggers         |
-| `unified_distribution_daemon.py` | MODEL_PROMOTED, MODEL_UPDATED              | Model distribution    |
-| `idle_resource_daemon.py`        | BACKPRESSURE*\*, IDLE_RESOURCE*\*          | GPU utilization       |
+| Module                           | Events Handled                              | Purpose               |
+| -------------------------------- | ------------------------------------------- | --------------------- |
+| `data_pipeline_orchestrator.py`  | SYNC*COMPLETED, TRAINING*\_, EVALUATION\_\_ | Pipeline coordination |
+| `feedback_loop_controller.py`    | TRAINING_COMPLETED, EVALUATION_COMPLETED    | Training feedback     |
+| `selfplay_scheduler.py`          | ELO*\*, CURRICULUM*\_, QUALITY\_\_          | Selfplay allocation   |
+| `daemon_manager.py`              | DAEMON*\*, HANDLER*\*, REGRESSION_CRITICAL  | Daemon lifecycle      |
+| `auto_sync_daemon.py`            | TRAINING_STARTED, NODE_RECOVERED            | Sync triggers         |
+| `unified_distribution_daemon.py` | MODEL_PROMOTED, MODEL_UPDATED               | Model distribution    |
+| `idle_resource_daemon.py`        | BACKPRESSURE*\*, IDLE_RESOURCE*\*           | GPU utilization       |
 
 ---
 
