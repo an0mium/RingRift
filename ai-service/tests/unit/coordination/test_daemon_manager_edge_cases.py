@@ -329,6 +329,7 @@ class TestHealthCheckReturnTypes:
 
         info = manager._daemons[DaemonType.MODEL_SYNC]
         info.instance = mock_daemon  # Set instance with health_check method
+        info.startup_grace_period = 0  # Allow immediate health check
 
         # Run health loop
         await manager._check_health()
@@ -370,6 +371,7 @@ class TestHealthCheckReturnTypes:
 
         info = manager._daemons[DaemonType.MODEL_SYNC]
         info.instance = mock_daemon  # Set instance with unhealthy health_check
+        info.startup_grace_period = 0  # Allow immediate health check
         original_error = info.last_error
 
         # Run health check - should detect unhealthy
@@ -488,6 +490,7 @@ class TestHealthCheckReturnTypes:
 
         info = manager._daemons[DaemonType.MODEL_SYNC]
         info.instance = mock_daemon  # Set instance with async health_check
+        info.startup_grace_period = 0  # Allow immediate health check
 
         # Run health check
         await manager._check_health()

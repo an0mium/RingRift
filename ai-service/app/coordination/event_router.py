@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import hashlib
+import json
 import logging
 import os
 import threading
@@ -1518,6 +1519,10 @@ class UnifiedEventRouter:
             "max_seen_events": self._max_seen_events,
             # Handler timeout metrics (Phase 5.1 - Dec 29, 2025)
             "handler_timeouts": self._handler_timeouts,
+            # Cross-process degradation metrics (Dec 29, 2025)
+            "cross_process_failures": self._cross_process_failures,
+            "cross_process_degraded": self._cross_process_degraded,
+            "last_cp_failure_time": self._last_cp_failure_time,
         }
 
     def get_orphaned_events(self) -> dict[str, list[str]]:
@@ -1686,6 +1691,12 @@ class UnifiedEventRouter:
                 "stage_events": stats["has_stage_events"],
                 "cross_process": stats["has_cross_process"],
                 "cross_process_polling": stats["cross_process_polling"],
+            },
+            # Dec 29, 2025: Cross-process degradation monitoring
+            "cross_process_status": {
+                "degraded": stats.get("cross_process_degraded", False),
+                "failures": stats.get("cross_process_failures", 0),
+                "last_failure_time": stats.get("last_cp_failure_time", 0.0),
             },
             "health": {
                 "issues": validation.get("issues", []),

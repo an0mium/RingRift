@@ -61,22 +61,22 @@ python scripts/update_all_nodes.py --restart-p2p
 
 ### Coordination Infrastructure (248 modules)
 
-| Module                          | Purpose                                           |
-| ------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`             | Lifecycle for 90 daemon types (~2,000 LOC)        |
-| `daemon_registry.py`            | Declarative daemon specs (DaemonSpec dataclass)   |
-| `daemon_runners.py`             | 81 async runner functions                         |
-| `event_router.py`               | Unified event bus (118 event types, SHA256 dedup) |
-| `selfplay_scheduler.py`         | Priority-based selfplay allocation (~3,800 LOC)   |
-| `budget_calculator.py`          | Gumbel budget tiers, target games calculation     |
-| `progress_watchdog_daemon.py`   | Stall detection for 48h autonomous operation      |
-| `p2p_recovery_daemon.py`        | P2P cluster health recovery                       |
-| `stale_fallback.py`             | Graceful degradation with older models            |
-| `data_pipeline_orchestrator.py` | Pipeline stage tracking                           |
-| `auto_sync_daemon.py`           | P2P data synchronization                          |
-| `sync_router.py`                | Intelligent sync routing                          |
-| `feedback_loop_controller.py`   | Training feedback signals                         |
-| `health_facade.py`              | Unified health check API                          |
+| Module                          | Purpose                                            |
+| ------------------------------- | -------------------------------------------------- |
+| `daemon_manager.py`             | Lifecycle for 90 daemon types (~2,000 LOC)         |
+| `daemon_registry.py`            | Declarative daemon specs (DaemonSpec dataclass)    |
+| `daemon_runners.py`             | 81 async runner functions                          |
+| `event_router.py`               | Unified event bus (220+ event types, SHA256 dedup) |
+| `selfplay_scheduler.py`         | Priority-based selfplay allocation (~3,800 LOC)    |
+| `budget_calculator.py`          | Gumbel budget tiers, target games calculation      |
+| `progress_watchdog_daemon.py`   | Stall detection for 48h autonomous operation       |
+| `p2p_recovery_daemon.py`        | P2P cluster health recovery                        |
+| `stale_fallback.py`             | Graceful degradation with older models             |
+| `data_pipeline_orchestrator.py` | Pipeline stage tracking                            |
+| `auto_sync_daemon.py`           | P2P data synchronization                           |
+| `sync_router.py`                | Intelligent sync routing                           |
+| `feedback_loop_controller.py`   | Training feedback signals                          |
+| `health_facade.py`              | Unified health check API                           |
 
 ### AI Components
 
@@ -272,7 +272,7 @@ Automatic retry for transient failures (GPU OOM, timeouts):
 
 ## Event System
 
-118 event types across 3 layers:
+220+ event types across 3 layers:
 
 1. **In-memory EventBus** - Local daemon communication
 2. **Stage events** - Pipeline stage completion
@@ -302,7 +302,7 @@ Selfplay → NEW_GAMES_AVAILABLE → DataPipeline → TRAINING_THRESHOLD_REACHED
 
 **Complete Event Documentation:**
 
-- `docs/architecture/EVENT_SUBSCRIPTION_MATRIX.md` - Full list of 118+ events with emitters/subscribers
+- `docs/architecture/EVENT_SUBSCRIPTION_MATRIX.md` - Full list of 220+ events with emitters/subscribers
 - `docs/architecture/EVENT_FLOW_INTEGRATION.md` - Event flow diagrams and integration patterns
 
 ```python
