@@ -202,16 +202,15 @@ class TestRecoveryEngineInit:
         engine = RecoveryEngine(config=config)
         assert engine.config.max_attempts_per_action == 5
 
-    def test_get_default_config(self) -> None:
-        """Test _get_default_config method."""
+    def test_config_property(self) -> None:
+        """Test config property (HandlerBase pattern)."""
         engine = RecoveryEngine()
-        config = engine._get_default_config()
-        assert isinstance(config, RecoveryEngineConfig)
+        assert isinstance(engine.config, RecoveryEngineConfig)
 
-    def test_get_daemon_name(self) -> None:
-        """Test daemon name."""
+    def test_name_attribute(self) -> None:
+        """Test name attribute (HandlerBase pattern)."""
         engine = RecoveryEngine()
-        assert engine._get_daemon_name() == "RecoveryEngine"
+        assert engine.name == "RecoveryEngine"
 
 
 class TestRecoveryEngineEventSubscriptions:
@@ -463,9 +462,9 @@ class TestRecoveryEngineHealthCheck:
         engine = RecoveryEngine()
         health = engine.health_check()
 
-        assert health["healthy"] is True
-        assert "nodes_in_recovery" in health["details"]
-        assert "queue_size" in health["details"]
+        assert health.healthy is True
+        assert "nodes_in_recovery" in health.details
+        assert "queue_size" in health.details
 
     def test_health_check_with_nodes_in_recovery(self) -> None:
         """Test health check with nodes being recovered."""
@@ -475,7 +474,7 @@ class TestRecoveryEngineHealthCheck:
 
         health = engine.health_check()
 
-        assert health["details"]["nodes_in_recovery"] == 1  # Only node1
+        assert health.details["nodes_in_recovery"] == 1  # Only node1
 
 
 # =============================================================================

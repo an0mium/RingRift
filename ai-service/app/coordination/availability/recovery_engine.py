@@ -20,8 +20,8 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import TYPE_CHECKING
 
-from app.coordination.base_daemon import BaseDaemon, DaemonConfig
-from app.coordination.safe_event_emitter import SafeEventEmitterMixin
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus
 from .node_monitor import NodeHealthResult
 
 if TYPE_CHECKING:
@@ -72,10 +72,14 @@ class RecoveryState:
     cooldown_until: datetime | None = None
 
 
-@dataclass(kw_only=True)
-class RecoveryEngineConfig(DaemonConfig):
-    """Configuration for RecoveryEngine."""
-    check_interval_seconds: int = 60  # Overrides DaemonConfig default
+@dataclass
+class RecoveryEngineConfig:
+    """Configuration for RecoveryEngine.
+
+    December 2025: Simplified - no longer inherits from DaemonConfig.
+    HandlerBase uses cycle_interval directly.
+    """
+    check_interval_seconds: int = 60
     max_attempts_per_action: int = 3
     backoff_base_seconds: float = 30.0
     backoff_multiplier: float = 2.0
@@ -91,8 +95,12 @@ class RecoveryEngineConfig(DaemonConfig):
     )
 
 
-class RecoveryEngine(BaseDaemon, SafeEventEmitterMixin):
+class RecoveryEngine(HandlerBase):
     """Escalating node recovery engine.
+
+    December 2025: Migrated to HandlerBase pattern.
+    - Uses HandlerBase singleton (get_instance/reset_instance)
+    - Uses _stats for metrics tracking
 
     Subscribes to NODE_UNHEALTHY events and attempts recovery using
     escalating strategies. Tracks attempts per-node to avoid repeated
@@ -115,18 +123,22 @@ class RecoveryEngine(BaseDaemon, SafeEventEmitterMixin):
     ]
 
     def __init__(self, config: RecoveryEngineConfig | None = None):
-        super().__init__(config)
+        self._daemon_config = config or RecoveryEngineConfig()
+
+        super().__init__(
+            name="RecoveryEngine",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
+
         self._recovery_states: dict[str, RecoveryState] = {}
         self._recovery_queue: asyncio.Queue[tuple[str, NodeHealthResult]] = asyncio.Queue()
         self._recovery_history: list[RecoveryResult] = []
 
-    def _get_default_config(self) -> RecoveryEngineConfig:
-        """Return default configuration."""
-        return RecoveryEngineConfig()
-
-    def _get_daemon_name(self) -> str:
-        """Return daemon name for logging."""
-        return "RecoveryEngine"
+    @property
+    def config(self) -> RecoveryEngineConfig:
+        """Get daemon configuration."""
+        return self._daemon_config
 
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to recovery-related events."""
@@ -614,14 +626,12 @@ class RecoveryEngine(BaseDaemon, SafeEventEmitterMixin):
         """Get recent recovery history."""
         return [r.to_dict() for r in self._recovery_history[-limit:]]
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Return health status for DaemonManager integration.
 
         Returns:
             HealthCheckResult with status based on recovery queue state.
         """
-        from app.coordination.protocols import HealthCheckResult
-
         in_recovery = sum(
             1 for state in self._recovery_states.values()
             if state.current_action_index > 0
@@ -630,28 +640,34 @@ class RecoveryEngine(BaseDaemon, SafeEventEmitterMixin):
 
         return HealthCheckResult(
             healthy=True,
+            status=CoordinatorStatus.RUNNING if self._running else CoordinatorStatus.STOPPED,
             message=f"Recovery engine: {in_recovery} nodes in recovery, {queue_size} queued",
             details={
                 "nodes_in_recovery": in_recovery,
                 "queue_size": queue_size,
                 "total_recoveries": len(self._recovery_history),
+                "cycles_completed": self._stats.cycles_completed,
+                "errors_count": self._stats.errors_count,
             },
         )
 
 
-# Singleton instance
-_recovery_engine: RecoveryEngine | None = None
+# =============================================================================
+# Singleton Access (using HandlerBase class methods)
+# =============================================================================
 
 
 def get_recovery_engine() -> RecoveryEngine:
-    """Get the singleton RecoveryEngine instance."""
-    global _recovery_engine
-    if _recovery_engine is None:
-        _recovery_engine = RecoveryEngine()
-    return _recovery_engine
+    """Get or create the singleton RecoveryEngine instance.
+
+    Uses HandlerBase.get_instance() for thread-safe singleton access.
+    """
+    return RecoveryEngine.get_instance()
 
 
 def reset_recovery_engine() -> None:
-    """Reset the singleton (for testing)."""
-    global _recovery_engine
-    _recovery_engine = None
+    """Reset the singleton instance (for testing).
+
+    Uses HandlerBase.reset_instance() for thread-safe cleanup.
+    """
+    RecoveryEngine.reset_instance()

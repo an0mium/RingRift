@@ -204,16 +204,15 @@ class TestNodeMonitorInit:
         monitor = NodeMonitor(nodes=nodes)
         assert len(monitor._nodes) == 2
 
-    def test_get_default_config(self) -> None:
-        """_get_default_config should return NodeMonitorConfig."""
+    def test_config_property(self) -> None:
+        """config property should return NodeMonitorConfig."""
         monitor = NodeMonitor()
-        config = monitor._get_default_config()
-        assert isinstance(config, NodeMonitorConfig)
+        assert isinstance(monitor.config, NodeMonitorConfig)
 
-    def test_get_daemon_name(self) -> None:
-        """_get_daemon_name should return 'NodeMonitor'."""
+    def test_name_attribute(self) -> None:
+        """name attribute should be 'NodeMonitor' (HandlerBase pattern)."""
         monitor = NodeMonitor()
-        assert monitor._get_daemon_name() == "NodeMonitor"
+        assert monitor.name == "NodeMonitor"
 
 
 # --- NodeMonitor set_nodes Tests ---
@@ -901,9 +900,9 @@ class TestNodeMonitorHealthCheck:
         monitor._failure_counts["node-2"] = 0
 
         health = monitor.health_check()
-        assert health["healthy"] is True
-        assert "2 nodes" in health["message"]
-        assert health["details"]["unhealthy_count"] == 0
+        assert health.healthy is True
+        assert "2 nodes" in health.message
+        assert health.details["unhealthy_count"] == 0
 
     def test_health_check_some_unhealthy(self) -> None:
         """health_check should report unhealthy when nodes fail."""
@@ -916,8 +915,8 @@ class TestNodeMonitorHealthCheck:
         monitor._failure_counts["node-2"] = 0
 
         health = monitor.health_check()
-        assert health["healthy"] is False
-        assert health["details"]["unhealthy_count"] == 1
+        assert health.healthy is False
+        assert health.details["unhealthy_count"] == 1
 
 
 # --- Singleton Tests ---
