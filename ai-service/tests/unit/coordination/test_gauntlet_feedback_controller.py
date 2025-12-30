@@ -143,67 +143,58 @@ class TestControllerInitialization:
 class TestControllerLifecycle:
     """Test controller start/stop lifecycle.
 
-    December 30, 2025: Tests need refactoring to use BaseEventHandler API
-    (_on_start, _on_stop, _handle_event) instead of old API
-    (_subscribe_to_events, _unsubscribe_from_events).
+    December 30, 2025: Refactored to use BaseEventHandler API
+    (_subscribe_all_events, _unsubscribe_all_events, _on_start, _on_stop).
     """
 
-    @pytest.mark.skip(reason="Uses old API - needs refactor to BaseEventHandler")
     @pytest.mark.asyncio
     async def test_start_success(self, controller):
         """Controller starts successfully with mocked event subscription."""
-        async def mock_subscribe():
-            controller._subscribed = True
-            return True
-
-        with patch.object(controller, "_subscribe_to_events", side_effect=mock_subscribe):
-            result = await controller.start()
-
-            assert result is True
-            assert controller.is_running
-            assert controller._status == CoordinatorStatus.RUNNING
-            assert controller.uptime_seconds > 0
-
-    @pytest.mark.skip(reason="Uses old API - needs refactor to BaseEventHandler")
-    @pytest.mark.asyncio
-    async def test_start_failure(self, controller):
-        """Controller handles subscription failure."""
-        with patch.object(controller, "_subscribe_to_events", new_callable=AsyncMock) as mock_sub:
-            mock_sub.return_value = False
-
-            result = await controller.start()
-
-            assert result is False
-            assert not controller.is_running
-            assert controller._status == CoordinatorStatus.STOPPED  # Stays STOPPED on failure
-
-    @pytest.mark.skip(reason="Uses old API - needs refactor to BaseEventHandler")
-    @pytest.mark.asyncio
-    async def test_double_start(self, controller):
-        """Starting an already-started controller is idempotent."""
-        with patch.object(controller, "_subscribe_to_events", new_callable=AsyncMock) as mock_sub:
-            mock_sub.return_value = True
-
+        # Mock the sync event subscription method
+        with patch.object(controller, "_subscribe_all_events"):
             await controller.start()
-            result = await controller.start()
 
-            assert result is True
-            assert mock_sub.call_count == 1  # Only called once
+            assert controller._running is True
+            assert controller._status == CoordinatorStatus.RUNNING
+            assert controller.uptime_seconds >= 0
 
-    @pytest.mark.skip(reason="Uses old API - needs refactor to BaseEventHandler")
+            # Cleanup
+            await controller.stop()
+
+    @pytest.mark.asyncio
+    async def test_double_start_warns(self, controller):
+        """Starting an already-started controller logs warning."""
+        with patch.object(controller, "_subscribe_all_events"):
+            await controller.start()
+
+            # Second start should just warn, not error
+            await controller.start()
+
+            assert controller._running is True
+
+            # Cleanup
+            await controller.stop()
+
     @pytest.mark.asyncio
     async def test_stop(self, controller):
         """Controller stops cleanly."""
-        with patch.object(controller, "_subscribe_to_events", new_callable=AsyncMock) as mock_sub:
-            with patch.object(controller, "_unsubscribe_from_events", new_callable=AsyncMock) as mock_unsub:
-                mock_sub.return_value = True
-
+        with patch.object(controller, "_subscribe_all_events"):
+            with patch.object(controller, "_unsubscribe_all_events") as mock_unsub:
                 await controller.start()
                 await controller.stop()
 
-                assert not controller.is_running
+                assert controller._running is False
                 assert controller._status == CoordinatorStatus.STOPPED
                 mock_unsub.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_stop_when_not_running(self, controller):
+        """Stopping a non-running controller is a no-op."""
+        # Stop without starting first
+        await controller.stop()
+
+        assert controller._running is False
+        assert controller._status == CoordinatorStatus.STOPPED
 
 
 # =============================================================================
@@ -476,27 +467,28 @@ class TestMetricsAndHealth:
         assert "actions_taken" in metrics
         assert "subscribed" in metrics
 
-    @pytest.mark.skip(reason="Requires controller._running to be set via start()")
     def test_health_check_healthy(self, controller):
-        """Health check returns healthy for running controller."""
-        controller._started = True
-        controller._subscribed = True
+        """Health check returns healthy for running controller.
+
+        December 30, 2025: Fixed to set _running which is what health_check checks.
+        """
+        controller._running = True
         controller._status = CoordinatorStatus.RUNNING
 
         result = controller.health_check()
 
         assert result.healthy is True
+        assert result.status == CoordinatorStatus.RUNNING
 
-    @pytest.mark.skip(reason="Requires controller._running to be set via start()")
-    def test_health_check_unhealthy_on_error(self, controller):
-        """Health check returns unhealthy on error state."""
-        controller._status = CoordinatorStatus.ERROR
-        controller._last_error = "Test error"
+    def test_health_check_unhealthy_when_not_running(self, controller):
+        """Health check returns unhealthy when not running."""
+        controller._running = False
+        controller._status = CoordinatorStatus.STOPPED
 
         result = controller.health_check()
 
         assert result.healthy is False
-        assert "Test error" in result.message
+        assert "not running" in result.message.lower()
 
 
 # =============================================================================
@@ -531,31 +523,33 @@ class TestSingleton:
 class TestIntegration:
     """Integration tests for the feedback loop.
 
-    December 30, 2025: Tests need refactoring to use BaseEventHandler API.
+    December 30, 2025: Refactored to use BaseEventHandler API.
     """
 
-    @pytest.mark.skip(reason="Uses old API - needs refactor to BaseEventHandler")
     @pytest.mark.asyncio
     async def test_full_feedback_cycle(self, controller, strong_evaluation):
         """Test complete feedback cycle from event to action."""
         # Start controller with mocked subscriptions
-        with patch.object(controller, "_subscribe_to_events", new_callable=AsyncMock) as mock_sub:
-            mock_sub.return_value = True
+        with patch.object(controller, "_subscribe_all_events"):
             await controller.start()
 
         # Create tracker for the config
         tracker = ConfigTracker()
         controller._config_trackers["hex8_2p"] = tracker
 
-        # Mock event emission
-        with patch.object(controller, "_emit_hyperparameter_update", new_callable=AsyncMock):
-            with patch.object(controller, "_emit_adaptive_params_changed", new_callable=AsyncMock):
-                # Process a strong evaluation
-                actions = await controller._analyze_and_act(strong_evaluation, tracker)
+        try:
+            # Mock event emission
+            with patch.object(controller, "_emit_hyperparameter_update", new_callable=AsyncMock):
+                with patch.object(controller, "_emit_adaptive_params_changed", new_callable=AsyncMock):
+                    # Process a strong evaluation
+                    actions = await controller._analyze_and_act(strong_evaluation, tracker)
 
-                # Should have taken some action
-                assert len(actions) > 0
-                assert FeedbackAction.REDUCE_EXPLORATION in actions or FeedbackAction.NO_ACTION not in actions
+                    # Should have taken some action
+                    assert len(actions) > 0
+                    assert FeedbackAction.REDUCE_EXPLORATION in actions or FeedbackAction.NO_ACTION not in actions
+        finally:
+            # Cleanup
+            await controller.stop()
 
     @pytest.mark.asyncio
     async def test_tracker_persistence_across_evaluations(self, controller):

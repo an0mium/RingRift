@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.core.async_context import safe_create_task
 
@@ -178,13 +179,8 @@ class ReactiveDispatcher(HandlerBase):
 
     async def _on_training_completed(self, event: Any) -> None:
         """Handle training completion - GPU resources freed."""
-        config_key = None
-        if hasattr(event, "config_key"):
-            config_key = event.config_key
-        elif hasattr(event, "metadata"):
-            config_key = event.metadata.get("config_key") or event.metadata.get("config")
-        elif isinstance(event, dict):
-            config_key = event.get("config_key") or event.get("config")
+        payload = self._get_payload(event)
+        config_key = extract_config_key(payload)
 
         await self._enqueue_event(
             event_type="training_completed",

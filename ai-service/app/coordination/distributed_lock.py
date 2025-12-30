@@ -112,6 +112,14 @@ class LockProtocol(Protocol):
         """Release the lock."""
         ...
 
+    def heartbeat(self) -> bool:
+        """Extend TTL of currently held lock.
+
+        Returns:
+            True if TTL was extended
+        """
+        ...
+
     @property
     def name(self) -> str:
         """Get the lock name."""
@@ -284,6 +292,118 @@ class DistributedLock:
             return self._redis_client.exists(f"lock:{self.name}") > 0
         else:
             return self._is_file_locked()
+
+    def heartbeat(self) -> bool:
+        """Extend TTL of currently held lock (December 2025).
+
+        Call this periodically during long-running operations to prevent
+        the lock from expiring while still in use. Recommended to call
+        every lock_timeout/2 seconds.
+
+        Returns:
+            True if TTL was extended, False if lock not held or extension failed
+        """
+        if not self._acquired:
+            logger.debug(f"Cannot heartbeat lock {self.name}: not acquired")
+            return False
+
+        try:
+            if self._redis_client is not None:
+                # Extend Redis key TTL
+                result = self._redis_client.expire(f"lock:{self.name}", self.lock_timeout)
+                if result:
+                    logger.debug(f"Extended Redis lock TTL: {self.name} (+{self.lock_timeout}s)")
+                    return True
+                else:
+                    logger.warning(f"Failed to extend Redis lock TTL: {self.name} (key may not exist)")
+                    return False
+            else:
+                # Update timestamp in file lock
+                if self._file_fd is not None:
+                    os.lseek(self._file_fd, 0, os.SEEK_SET)
+                    os.ftruncate(self._file_fd, 0)
+                    lock_info = f"{self._lock_id}\n{time.time()}\n{self.lock_timeout}\n"
+                    os.write(self._file_fd, lock_info.encode())
+                    logger.debug(f"Extended file lock TTL: {self.name}")
+                    return True
+                return False
+        except (OSError, ConnectionError, TimeoutError) as e:
+            logger.warning(f"Heartbeat failed for lock {self.name}: {e}")
+            return False
+        except Exception as e:
+            # Catch redis.RedisError and other exceptions
+            if "redis" in type(e).__module__.lower():
+                logger.warning(f"Redis heartbeat failed for lock {self.name}: {e}")
+            else:
+                logger.warning(f"Unexpected heartbeat error for lock {self.name}: {e}")
+            return False
+
+    def get_time_remaining(self) -> float:
+        """Get remaining TTL of the lock in seconds (December 2025).
+
+        Returns:
+            Remaining time in seconds, or 0 if not held or unknown
+        """
+        if not self._acquired:
+            return 0.0
+
+        try:
+            if self._redis_client is not None:
+                ttl = self._redis_client.ttl(f"lock:{self.name}")
+                return max(0.0, float(ttl)) if ttl and ttl > 0 else 0.0
+            else:
+                # Read timestamp from file
+                lock_path = self._get_lock_path()
+                if lock_path.exists():
+                    with open(lock_path) as f:
+                        lines = f.readlines()
+                        if len(lines) >= 3:
+                            lock_time = float(lines[1].strip())
+                            lock_timeout = float(lines[2].strip())
+                            remaining = lock_timeout - (time.time() - lock_time)
+                            return max(0.0, remaining)
+        except (OSError, ValueError, ConnectionError) as e:
+            logger.debug(f"Error getting TTL for lock {self.name}: {e}")
+        return 0.0
+
+    # Async wrappers (December 2025)
+    async def acquire_async(
+        self, timeout: int = DEFAULT_ACQUIRE_TIMEOUT, blocking: bool = True
+    ) -> bool:
+        """Async wrapper for acquire() - runs in thread pool.
+
+        Use this in async contexts to avoid blocking the event loop.
+
+        Args:
+            timeout: Maximum time to wait for lock (seconds)
+            blocking: If True, wait for lock. If False, return immediately.
+
+        Returns:
+            True if lock acquired, False otherwise
+        """
+        import asyncio
+        return await asyncio.to_thread(self.acquire, timeout, blocking)
+
+    async def release_async(self) -> None:
+        """Async wrapper for release() - runs in thread pool."""
+        import asyncio
+        await asyncio.to_thread(self.release)
+
+    async def heartbeat_async(self) -> bool:
+        """Async wrapper for heartbeat() - runs in thread pool."""
+        import asyncio
+        return await asyncio.to_thread(self.heartbeat)
+
+    async def __aenter__(self):
+        """Async context manager entry (December 2025)."""
+        if not await self.acquire_async():
+            raise RuntimeError(f"Could not acquire lock: {self.name}")
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.release_async()
+        return False
 
     def __enter__(self):
         """Context manager entry."""

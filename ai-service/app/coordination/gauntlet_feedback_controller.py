@@ -265,7 +265,8 @@ class GauntletFeedbackController(BaseEventHandler):
         """
         from app.coordination.event_utils import extract_evaluation_data
 
-        payload = event.payload if hasattr(event, "payload") else event
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
 
         # December 30, 2025: Use unified extraction for consistency
         data = extract_evaluation_data(payload)

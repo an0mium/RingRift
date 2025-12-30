@@ -393,6 +393,22 @@ class SyncRouter:
                 reason=reason,
             ))
 
+        # Dec 30, 2025: Include external storage as high-priority sources
+        # External storage (OWC drives) often contains archival data
+        for storage in getattr(self, "_external_storage", []):
+            host = storage.get("host", "")
+            if host in exclude:
+                continue
+
+            # Check if storage can provide this data type
+            if self._can_external_storage_provide(storage, data_type):
+                path = storage.get("path", "")
+                sources.append(SyncTarget(
+                    node_id=host,
+                    priority=150.0,  # Higher than cluster nodes (archival data)
+                    reason=f"external_storage:{path}",
+                ))
+
         # Sort by priority (highest first - nodes with most data)
         sources.sort(key=lambda s: s.priority, reverse=True)
 
@@ -413,6 +429,24 @@ class SyncRouter:
         elif data_type == DataType.NPZ:
             # NPZ data comes from export, usually on training nodes
             return cap.training_enabled or cap.selfplay_enabled
+        return False
+
+    def _can_external_storage_provide(
+        self,
+        storage: dict[str, Any],
+        data_type: DataType,
+    ) -> bool:
+        """Check if external storage can provide a specific data type.
+
+        Dec 30, 2025: Added to support external storage as sync sources.
+        External storage config uses receive_* flags to indicate what data is stored.
+        """
+        if data_type == DataType.GAME:
+            return storage.get("receive_games", False)
+        elif data_type == DataType.MODEL:
+            return storage.get("receive_models", False)
+        elif data_type == DataType.NPZ:
+            return storage.get("receive_npz", False)
         return False
 
     def _compute_source_priority(

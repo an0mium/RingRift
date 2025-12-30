@@ -28,6 +28,7 @@ import threading
 import time
 from typing import Any
 
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
 
 logger = logging.getLogger(__name__)
@@ -248,7 +249,7 @@ class MomentumToCurriculumBridge:
         try:
             payload = event.payload if hasattr(event, 'payload') else {}
 
-            config_key = payload.get("config", "")
+            config_key = extract_config_key(payload)
             change_percent = payload.get("change_percent", 0)
             momentum_state = payload.get("momentum_state", "stable")
 
@@ -285,7 +286,7 @@ class MomentumToCurriculumBridge:
         try:
             payload = event.payload if hasattr(event, 'payload') else {}
 
-            config_key = payload.get("config", payload.get("config_key", ""))
+            config_key = extract_config_key(payload)
             old_elo = payload.get("old_elo", 0)
             new_elo = payload.get("new_elo", payload.get("elo", 0))
             delta = payload.get("delta", new_elo - old_elo if old_elo else 0)

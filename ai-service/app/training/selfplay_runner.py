@@ -1171,8 +1171,39 @@ class SelfplayRunner(ABC):
                         snapshot_interval=getattr(self.config, 'snapshot_interval', 20),
                     )
             logger.debug(f"Saved game {result.game_id} to database")
+
+            # Dec 30, 2025: Register game for immediate cluster visibility
+            self._register_game_location(result.game_id, db_path)
+
         except (OSError, sqlite3.Error, ValueError, TypeError) as e:
             logger.warning(f"Failed to save game {result.game_id} to database: {e}")
+
+    def _register_game_location(self, game_id: str, db_path: Path) -> None:
+        """Register game location in ClusterManifest for immediate cluster visibility.
+
+        Dec 30, 2025: Added to enable immediate cluster-wide data discovery.
+        Games are registered with the DataLocationRegistry so other nodes can find them
+        without waiting for gossip propagation.
+
+        Args:
+            game_id: The game ID to register
+            db_path: Path to the database containing the game
+        """
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+            manifest.register_game(
+                game_id=game_id,
+                node_id=manifest.node_id,
+                db_path=str(db_path),
+                board_type=self.config.board_type,
+                num_players=self.config.num_players,
+                engine_mode=str(self.config.engine) if hasattr(self.config, 'engine') else None,
+            )
+        except Exception as e:
+            # Registration failure should not block selfplay
+            logger.debug(f"[SelfplayRunner] Could not register game {game_id}: {e}")
 
     def _save_game_with_mcts_data(self, result: GameResult) -> None:
         """Save game using incremental storage to preserve MCTS distribution data.

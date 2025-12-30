@@ -202,6 +202,43 @@ class OWCImportDaemon(BaseDaemon[OWCImportConfig]):
         )
         return success
 
+    async def _discover_owc_databases(self) -> list[str]:
+        """Dynamically discover databases on OWC drive.
+
+        Dec 30, 2025: Added to replace hardcoded OWC_SOURCE_DATABASES list.
+        Searches for .db files in common locations on the OWC drive.
+        Falls back to static list if discovery fails.
+        """
+        find_cmd = (
+            f"find '{self.config.owc_base_path}' "
+            f"\\( -path '*/selfplay_repository/*' -o -path '*/training_data/*' -o -path '*/data/games/*' \\) "
+            f"-name '*.db' -type f 2>/dev/null"
+        )
+        success, output = await self._run_ssh_command(find_cmd)
+
+        if not success or not output.strip():
+            logger.debug("[OWCImport] Dynamic discovery failed, using static list")
+            return OWC_SOURCE_DATABASES
+
+        databases = []
+        base_path = self.config.owc_base_path
+        for line in output.strip().split("\n"):
+            line = line.strip()
+            if line.endswith(".db"):
+                # Convert absolute path to relative path
+                if line.startswith(base_path):
+                    rel_path = line[len(base_path):].lstrip("/")
+                    databases.append(rel_path)
+                else:
+                    databases.append(line)
+
+        if not databases:
+            logger.debug("[OWCImport] No databases found, using static list")
+            return OWC_SOURCE_DATABASES
+
+        logger.info(f"[OWCImport] Discovered {len(databases)} databases on OWC")
+        return databases
+
     async def _scan_owc_database(self, rel_path: str) -> OWCDatabaseInfo | None:
         """Scan a database on OWC for game counts by config."""
         full_path = f"{self.config.owc_base_path}/{rel_path}"
@@ -385,10 +422,11 @@ class OWCImportDaemon(BaseDaemon[OWCImportConfig]):
 
         logger.info(f"[OWCImport] Checking OWC for underserved configs: {underserved}")
 
-        # Scan OWC databases
+        # Scan OWC databases - Dec 30, 2025: Use dynamic discovery
         databases_to_sync: list[OWCDatabaseInfo] = []
+        owc_databases = await self._discover_owc_databases()
 
-        for rel_path in OWC_SOURCE_DATABASES:
+        for rel_path in owc_databases:
             info = await self._scan_owc_database(rel_path)
             if info:
                 stats.databases_scanned += 1

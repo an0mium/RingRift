@@ -38,6 +38,8 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+
+from app.coordination.event_handler_utils import extract_config_key, extract_model_path
 from pathlib import Path
 from typing import Any, Callable, ClassVar
 
@@ -211,7 +213,7 @@ class NNUETrainingDaemon(HandlerBase):
 
     async def _on_new_games(self, event: dict[str, Any]) -> None:
         """Handle new games available event."""
-        config_key = event.get("config_key")
+        config_key = extract_config_key(event)
         game_count = event.get("game_count", 0)
 
         if config_key and game_count:
@@ -220,7 +222,7 @@ class NNUETrainingDaemon(HandlerBase):
 
     async def _on_consolidation_complete(self, event: dict[str, Any]) -> None:
         """Handle consolidation complete event."""
-        config_key = event.get("config_key")
+        config_key = extract_config_key(event)
         if config_key:
             # Refresh game counts after consolidation
             await self._refresh_game_counts()
@@ -245,9 +247,9 @@ class NNUETrainingDaemon(HandlerBase):
         Args:
             event: Training completed event with config_key, success, model_path
         """
-        config_key = event.get("config_key")
+        config_key = extract_config_key(event)
         success = event.get("success", False)
-        model_path = event.get("model_path")
+        model_path = extract_model_path(event)
 
         if not config_key:
             return

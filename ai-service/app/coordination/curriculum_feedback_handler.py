@@ -446,7 +446,8 @@ class CurriculumFeedbackHandler(HandlerBase):
 
     def _on_selfplay_quality_assessed(self, event: Any) -> None:
         """Handle SELFPLAY_QUALITY_ASSESSED event."""
-        payload = event.payload if hasattr(event, "payload") else {}
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
         config_key = payload.get("config_key", "")
         quality_score = payload.get("quality_score", 0.5)
 
@@ -455,7 +456,8 @@ class CurriculumFeedbackHandler(HandlerBase):
 
     def _on_training_metrics_available(self, event: Any) -> None:
         """Handle TRAINING_METRICS_AVAILABLE event."""
-        payload = event.payload if hasattr(event, "payload") else {}
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
         config_key = payload.get("config", "")
         policy_accuracy = payload.get("policy_accuracy", 0.0)
         value_accuracy = payload.get("value_accuracy", 0.0)
@@ -467,7 +469,8 @@ class CurriculumFeedbackHandler(HandlerBase):
 
     def _on_training_completed(self, event: Any) -> None:
         """Handle TRAINING_COMPLETED event."""
-        payload = event.payload if hasattr(event, "payload") else {}
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
         config_key = payload.get("config", "")
 
         if config_key:

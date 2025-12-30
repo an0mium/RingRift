@@ -1183,7 +1183,11 @@ def _wire_missing_event_subscriptions() -> dict[str, bool]:
                     source="bootstrap",
                 ))
             except Exception:  # noqa: BLE001
-                pass  # Best effort event emission
+                # Best effort event emission - failures here should not crash
+                # coordinator bootstrap. This broad catch is intentional to ensure
+                # bootstrap completes even if event bus is temporarily unavailable.
+                # The BOOTSTRAP_DEGRADED event is non-critical informational only.
+                pass
 
     except (ImportError, AttributeError, TypeError) as e:
         results["architecture_tracker"] = False

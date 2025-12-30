@@ -11,6 +11,44 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def normalize_event_payload(event: Any) -> dict[str, Any]:
+    """Extract payload from an event object with fallback chain.
+
+    December 30, 2025: Consolidated from 225 occurrences across 32 coordination files.
+    This is the canonical payload extraction function for the coordination layer.
+
+    The fallback chain handles various event formats:
+    1. event.payload - Standard event object with payload attribute
+    2. event.metadata - Alternative attribute name used in some contexts
+    3. dict event - Event is already a dictionary
+    4. Empty dict - Safe fallback when no payload found
+
+    Args:
+        event: Event object (may have .payload/.metadata or be a dict)
+
+    Returns:
+        Event payload as a dictionary (never None).
+
+    Examples:
+        >>> class Event: payload = {"config_key": "hex8_2p"}
+        >>> normalize_event_payload(Event())
+        {'config_key': 'hex8_2p'}
+
+        >>> normalize_event_payload({"config_key": "square8_4p"})
+        {'config_key': 'square8_4p'}
+
+        >>> normalize_event_payload(None)
+        {}
+    """
+    if hasattr(event, "payload"):
+        return event.payload
+    if hasattr(event, "metadata"):
+        return event.metadata
+    if isinstance(event, dict):
+        return event
+    return {}
+
+
 @dataclass
 class ParsedConfigKey:
     """Result of parsing a config key like 'hex8_2p'."""

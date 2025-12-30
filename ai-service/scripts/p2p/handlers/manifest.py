@@ -152,3 +152,93 @@ class ManifestHandlersMixin(BaseP2PHandler):
             })
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_data_inventory(self, request: web.Request) -> web.Response:
+        """Return cluster-wide game inventory with counts by config and node.
+
+        Dec 30, 2025: Added for quick cluster-wide data visibility.
+        Unlike /cluster_data_manifest, this endpoint:
+        - Returns simpler, smaller response focused on game counts
+        - Queries ClusterManifest directly (no manifest collection)
+        - Works on any node (not leader-only)
+
+        Query params:
+            refresh: If "true", bypass cache and query fresh
+
+        Returns:
+            {
+                "timestamp": ...,
+                "total_games": ...,
+                "games_by_config": {"hex8_2p": 1234, ...},
+                "games_by_node": {"node-1": 500, ...},
+            }
+        """
+        import time
+        try:
+            refresh_raw = str(request.query.get("refresh", "") or "").strip().lower()
+            refresh = refresh_raw in {"1", "true", "yes", "y"}
+
+            inventory = await self._collect_data_inventory(refresh=refresh)
+
+            return web.json_response({
+                "timestamp": time.time(),
+                "node_id": self.node_id,
+                **inventory,
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[ManifestHandlers] Error in handle_data_inventory")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _collect_data_inventory(self, refresh: bool = False) -> dict:
+        """Collect cluster-wide data inventory from ClusterManifest.
+
+        Dec 30, 2025: Added for quick game count aggregation.
+        """
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+
+            # Get all game locations from the registry
+            games_by_config: dict[str, int] = {}
+            games_by_node: dict[str, int] = {}
+            total_games = 0
+
+            # Query game_locations table for aggregated counts
+            with manifest._connection() as conn:
+                # Count by config
+                cursor = conn.execute("""
+                    SELECT board_type || '_' || num_players || 'p' as config, COUNT(DISTINCT game_id)
+                    FROM game_locations
+                    GROUP BY board_type, num_players
+                """)
+                for row in cursor:
+                    config_key = row[0]
+                    count = row[1]
+                    games_by_config[config_key] = count
+                    total_games += count
+
+                # Count by node
+                cursor = conn.execute("""
+                    SELECT node_id, COUNT(DISTINCT game_id)
+                    FROM game_locations
+                    GROUP BY node_id
+                """)
+                for row in cursor:
+                    node_id = row[0]
+                    count = row[1]
+                    games_by_node[node_id] = count
+
+            return {
+                "total_games": total_games,
+                "games_by_config": games_by_config,
+                "games_by_node": games_by_node,
+            }
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error collecting inventory: {e}")
+            return {
+                "total_games": 0,
+                "games_by_config": {},
+                "games_by_node": {},
+                "error": str(e),
+            }

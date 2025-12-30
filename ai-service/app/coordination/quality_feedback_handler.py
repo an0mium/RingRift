@@ -209,7 +209,8 @@ class QualityFeedbackHandler(HandlerBase):
         - Also boost exploration to gather more diverse data
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else {}
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
 
             # Source tracking loop guard - skip events we emitted
             source = payload.get("source", "")
@@ -429,7 +430,8 @@ class QualityFeedbackHandler(HandlerBase):
         Triggers additional selfplay to improve data quality and adjusts
         training parameters to be more conservative.
         """
-        payload = event.payload if hasattr(event, "payload") else {}
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
         config = payload.get("config", "")
         quality_score = payload.get("quality_score", 0.0)
         threshold = payload.get("threshold", 0.6)
@@ -472,7 +474,8 @@ class QualityFeedbackHandler(HandlerBase):
         Adjusts training intensity and exploration based on data quality feedback.
         When quality improves, accelerate training. When quality degrades, boost exploration.
         """
-        payload = event.payload if hasattr(event, "payload") else {}
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
         config_key = payload.get("config_key", "")
         quality_score = payload.get("quality_score", 0.5)
         budget_multiplier = payload.get("budget_multiplier", 1.0)
@@ -525,7 +528,8 @@ class QualityFeedbackHandler(HandlerBase):
         2. Accelerates training intensity
         3. Updates quality tracking metrics
         """
-        payload = event.payload if hasattr(event, "payload") else {}
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
         config_key = payload.get("config_key", "")
         quality_score = payload.get("quality_score", 0.0)
         sample_count = payload.get("sample_count", 0)
@@ -558,7 +562,8 @@ class QualityFeedbackHandler(HandlerBase):
         2. Adjusts training intensity based on quality trends
         3. Triggers exploration boost if quality is declining
         """
-        payload = event.payload if hasattr(event, "payload") else {}
+        # December 30, 2025: Use consolidated extraction from HandlerBase
+        payload = self._get_payload(event)
         config_key = payload.get("config_key", "")
         quality_score = payload.get("quality_score", 0.0)
         trend = payload.get("trend", "stable")

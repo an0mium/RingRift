@@ -25319,6 +25319,7 @@ print(json.dumps({{
             app.router.add_get('/data_manifest', self.handle_data_manifest)
             app.router.add_get('/cluster_data_manifest', self.handle_cluster_data_manifest)
             app.router.add_post('/refresh_manifest', self.handle_refresh_manifest)
+            app.router.add_get('/data-inventory', self.handle_data_inventory)  # Dec 30, 2025: Quick game counts
 
             # Phase 3: Delivery verification routes (Dec 27, 2025)
             app.router.add_post('/delivery/verify', self.handle_delivery_verify)

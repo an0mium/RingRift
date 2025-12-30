@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from app.coordination.contracts import HealthCheckResult
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.handler_base import HandlerBase, HandlerStats
 from app.distributed.data_events import DataEventType
 from app.training.npz_combiner import (
@@ -170,7 +171,7 @@ class NPZCombinationDaemon(HandlerBase):
             logger.debug("Skipping duplicate NPZ_EXPORT_COMPLETE event")
             return
 
-        config_key = event.get("config_key")
+        config_key = extract_config_key(event)
         if not config_key:
             logger.warning("NPZ_EXPORT_COMPLETE event missing config_key")
             return

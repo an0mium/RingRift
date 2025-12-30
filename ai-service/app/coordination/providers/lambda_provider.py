@@ -6,6 +6,7 @@ Supports GH200, H100, A100, and other GPU types.
 API Documentation: https://cloud.lambdalabs.com/api/v1/docs
 
 Created: Dec 28, 2025
+December 30, 2025: Added circuit breaker protection for API resilience.
 """
 
 from __future__ import annotations
@@ -26,8 +27,41 @@ from .base import (
     InstanceStatus,
     ProviderType,
 )
+from app.distributed.circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+)
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Lambda Labs API calls (December 30, 2025)
+# Lambda handles training-only workloads on 6 GH200 nodes, so we use
+# tolerant thresholds to avoid blocking training during transient issues
+_lambda_circuit_breaker: CircuitBreaker | None = None
+
+
+def get_lambda_circuit_breaker() -> CircuitBreaker:
+    """Get the Lambda Labs API circuit breaker singleton."""
+    global _lambda_circuit_breaker
+    if _lambda_circuit_breaker is None:
+        _lambda_circuit_breaker = CircuitBreaker(
+            failure_threshold=4,  # Open after 4 consecutive failures
+            recovery_timeout=60.0,  # Wait 60s before testing recovery
+            half_open_max_calls=1,  # Single test call in half-open
+            success_threshold=1,
+            operation_type="lambda_api",
+            max_backoff=300.0,  # Cap at 5 minutes
+        )
+    return _lambda_circuit_breaker
+
+
+def reset_lambda_circuit_breaker() -> None:
+    """Reset the circuit breaker (for testing)."""
+    global _lambda_circuit_breaker
+    if _lambda_circuit_breaker is not None:
+        _lambda_circuit_breaker.reset_all()
+    _lambda_circuit_breaker = None
 
 
 @dataclass

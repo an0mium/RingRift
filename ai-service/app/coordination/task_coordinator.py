@@ -451,6 +451,14 @@ class TaskRegistry:
 
     @property
     def conn(self) -> sqlite3.Connection:
+        """Get thread-local SQLite database connection for task tracking.
+
+        Lazily initializes connection on first access for the current thread.
+        Each thread gets its own connection to avoid SQLite threading issues.
+
+        Returns:
+            sqlite3.Connection with Row factory enabled for dict-like access.
+        """
         if not hasattr(self._local, 'conn'):
             self._local.conn = sqlite3.connect(str(self.db_path))
             self._local.conn.row_factory = sqlite3.Row
@@ -1679,12 +1687,34 @@ class TaskCoordinator(SingletonMixin):
     # Callbacks
     # ==========================================
 
-    def on_limit_reached(self, callback: Callable) -> None:
-        """Register callback for when limits are reached."""
+    def on_limit_reached(self, callback: Callable[[str, int, int], None]) -> None:
+        """Register callback invoked when task spawn count reaches per-type limit.
+
+        Used for monitoring, adaptive throttling, and alerting when the cluster
+        is at capacity for a specific task type.
+
+        Args:
+            callback: Function with signature (task_type: str, current: int, max_val: int)
+                - task_type: The type of task that hit its limit (e.g., "selfplay", "training")
+                - current: Current number of active tasks of this type
+                - max_val: Maximum allowed tasks of this type
+
+        Example:
+            def on_limit(task_type, current, max_val):
+                logger.warning(f"{task_type} at capacity: {current}/{max_val}")
+            coordinator.on_limit_reached(on_limit)
+        """
         self._on_limit_reached.append(callback)
 
-    def on_emergency(self, callback: Callable) -> None:
-        """Register callback for emergency stop."""
+    def on_emergency(self, callback: Callable[[str], None]) -> None:
+        """Register callback invoked during emergency stop conditions.
+
+        Called when the coordinator detects critical issues requiring immediate
+        intervention, such as runaway process counts or resource exhaustion.
+
+        Args:
+            callback: Function with signature (reason: str) describing the emergency
+        """
         self._on_emergency.append(callback)
 
     # ==========================================

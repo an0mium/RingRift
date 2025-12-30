@@ -34,9 +34,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# December 29, 2025: Cache configuration
-# 5-minute TTL for manifest cache by default (configurable via env var)
-DEFAULT_CACHE_TTL_SECONDS = int(os.environ.get("RINGRIFT_MANIFEST_CACHE_TTL", "300"))
+# December 30, 2025: Reduced cache TTL for faster data visibility
+# Changed from 300s (5 min) to 30s for near-real-time game counts
+# Configurable via env var for nodes that prefer lower query load
+DEFAULT_CACHE_TTL_SECONDS = int(os.environ.get("RINGRIFT_MANIFEST_CACHE_TTL", "30"))
 
 __all__ = [
     "DataLocationRegistry",
