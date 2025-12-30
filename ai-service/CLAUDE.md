@@ -59,14 +59,14 @@ python scripts/update_all_nodes.py --restart-p2p
 | `app/config/coordination_defaults.py` | Centralized timeouts, thresholds, priority weights             |
 | `app/config/thresholds.py`            | Centralized quality/training/budget thresholds (canonical)     |
 
-### Coordination Infrastructure (257 modules)
+### Coordination Infrastructure (224 modules)
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`                    | Lifecycle for 95 daemon types (~2,000 LOC)        |
+| `daemon_manager.py`                    | Lifecycle for 89 daemon types (~2,000 LOC)        |
 | `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)   |
-| `daemon_runners.py`                    | 90 async runner functions                         |
-| `event_router.py`                      | Unified event bus (202 event types, SHA256 dedup) |
+| `daemon_runners.py`                    | 91 async runner functions                         |
+| `event_router.py`                      | Unified event bus (211 event types, SHA256 dedup) |
 | `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)   |
 | `budget_calculator.py`                 | Gumbel budget tiers, target games calculation     |
 | `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation      |
@@ -744,7 +744,7 @@ Comprehensive exploration verified the following are ALREADY COMPLETE:
 | **Event Emitters**     | PROGRESS_STALL_DETECTED, PROGRESS_RECOVERED, REGRESSION_CLEARED | ✅ progress_watchdog_daemon.py:394,414, regression_detector.py:508 |
 | **Pipeline Stages**    | SELFPLAY → SYNC → NPZ_EXPORT → TRAINING                         | ✅ data_pipeline_orchestrator.py:756-900                           |
 | **Code Consolidation** | Event patterns (16 files)                                       | ✅ event_utils.py, event_handler_utils.py                          |
-| **Daemon Counts**      | 99 types (93 active, 6 deprecated)                              | ✅ Verified via DaemonType enum (Dec 30, 2025)                     |
+| **Daemon Counts**      | 95 types (89 active, 6 deprecated)                              | ✅ Verified via DaemonType enum (Dec 30, 2025)                     |
 | **Event Types**        | 202 DataEventType members                                       | ✅ Verified via DataEventType enum (Dec 30, 2025)                  |
 | **Startup Order**      | EVENT_ROUTER → FEEDBACK_LOOP → DATA_PIPELINE → sync daemons     | ✅ master_loop.py:1109-1119 (race condition fixed Dec 2025)        |
 

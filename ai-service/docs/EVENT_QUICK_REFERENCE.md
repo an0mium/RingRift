@@ -74,22 +74,22 @@ REGRESSION_DETECTED → REGRESSION_CRITICAL → TRAINING_ROLLBACK_NEEDED
 
 ## Event Categories at a Glance
 
-| Category         | Key Events                                              | Primary Emitter              |
-| ---------------- | ------------------------------------------------------- | ---------------------------- |
-| **Data**         | `NEW_GAMES_AVAILABLE`, `DATA_SYNC_*`                    | AutoSyncDaemon, DataPipeline |
-| **Training**     | `TRAINING_*`, `TRAINING_LOSS_*`                         | TrainingCoordinator          |
-| **Evaluation**   | `EVALUATION_*`, `ELO_UPDATED`                           | EvaluationDaemon             |
-| **Promotion**    | `MODEL_PROMOTED`, `PROMOTION_*`                         | AutoPromotionDaemon          |
-| **Selfplay**     | `SELFPLAY_*`, `ARCHITECTURE_WEIGHTS_UPDATED`, `BATCH_*` | SelfplayScheduler            |
-| **Quality**      | `QUALITY_*`, `TRAINING_BLOCKED_BY_*`                    | QualityMonitorDaemon         |
-| **Curriculum**   | `CURRICULUM_*`, `EXPLORATION_*`                         | CurriculumIntegration        |
-| **Regression**   | `REGRESSION_*`, `PLATEAU_*`                             | RegressionDetector           |
-| **Distribution** | `MODEL_DISTRIBUTION_*`, `SYNC_*`                        | UnifiedDistributionDaemon    |
-| **Cluster**      | `NODE_*`, `HOST_*`, `CLUSTER_*`                         | P2POrchestrator              |
-| **Resources**    | `BACKPRESSURE_*`, `IDLE_*`, `CAPACITY_*`                | ResourceMonitors             |
-| **Daemon**       | `DAEMON_*`, `COORDINATOR_*`                             | DaemonManager                |
-| **Work Queue**   | `WORK_*`, `TASK_*`, `JOB_*`                             | JobManager                   |
-| **Leader**       | `LEADER_*`, `SPLIT_BRAIN_*`                             | P2POrchestrator              |
+| Category         | Key Events                                                               | Primary Emitter              |
+| ---------------- | ------------------------------------------------------------------------ | ---------------------------- |
+| **Data**         | `NEW_GAMES_AVAILABLE`, `DATA_SYNC_*`                                     | AutoSyncDaemon, DataPipeline |
+| **Training**     | `TRAINING_*`, `TRAINING_LOSS_*`                                          | TrainingCoordinator          |
+| **Evaluation**   | `EVALUATION_*`, `ELO_UPDATED`                                            | EvaluationDaemon             |
+| **Promotion**    | `MODEL_PROMOTED`, `PROMOTION_*`                                          | AutoPromotionDaemon          |
+| **Selfplay**     | `SELFPLAY_*`, `ARCHITECTURE_WEIGHTS_UPDATED`, `BATCH_*`                  | SelfplayScheduler            |
+| **Quality**      | `QUALITY_*`, `TRAINING_BLOCKED_BY_*`                                     | QualityMonitorDaemon         |
+| **Curriculum**   | `CURRICULUM_*`, `EXPLORATION_*`                                          | CurriculumIntegration        |
+| **Regression**   | `REGRESSION_*`, `PLATEAU_*`                                              | RegressionDetector           |
+| **Distribution** | `MODEL_DISTRIBUTION_*`, `SYNC_*`                                         | UnifiedDistributionDaemon    |
+| **Cluster**      | `NODE_*`, `HOST_*`, `CLUSTER_*`                                          | P2POrchestrator              |
+| **Resources**    | `BACKPRESSURE_*`, `RESOURCE_CONSTRAINT`, `MEMORY_PRESSURE`, `CAPACITY_*` | ResourceMonitors             |
+| **Daemon**       | `DAEMON_*`, `COORDINATOR_*`                                              | DaemonManager                |
+| **Work Queue**   | `WORK_*`, `TASK_*`, `JOB_*`                                              | JobManager                   |
+| **Leader**       | `LEADER_*`, `SPLIT_BRAIN_*`                                              | P2POrchestrator              |
 
 ---
 
@@ -184,7 +184,7 @@ from app.coordination.cross_process_events import CrossProcessEventQueue
 
 ## See Also
 
-- `EVENT_SYSTEM_REFERENCE.md` - Full 140+ event documentation
+- `EVENT_SYSTEM_REFERENCE.md` - Full 207-event documentation
 - `EVENT_CATALOG.md` - All emitter/subscriber mappings
 - `EVENT_WIRING_GUIDE.md` - How to add new events
 - `HANDLER_BASE_API.md` - Handler base class reference

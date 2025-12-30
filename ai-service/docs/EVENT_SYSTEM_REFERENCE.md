@@ -1,6 +1,6 @@
 # Event System Reference
 
-The RingRift coordination infrastructure uses an event-driven architecture with 140+ event types organized into 25+ categories. This document provides a comprehensive reference for the event system.
+The RingRift coordination infrastructure uses an event-driven architecture with 207 event types defined in `DataEventType`. This document provides a comprehensive reference for the event system; for the full list and mappings, see `EVENT_CATALOG.md` and `EVENT_REFERENCE_AUTO.md`.
 
 **Created**: December 2025 (Wave 4 Phase 2)
 **Updated**: December 29, 2025 (Event wiring + payload updates)
@@ -91,7 +91,7 @@ The event system supports cross-process communication via SQLite-backed queues. 
 
 ### Bridged Event Types (December 28, 2025)
 
-The following 129 event types are bridged for cross-process communication:
+The following 163 event types are bridged for cross-process communication:
 
 #### Cluster Coordination Events
 
