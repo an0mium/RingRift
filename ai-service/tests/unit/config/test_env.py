@@ -147,17 +147,27 @@ class TestRingRiftEnvResourceManagement:
 class TestRingRiftEnvFeatureFlags:
     """Tests for feature flag properties."""
 
-    def test_skip_shadow_contracts_true(self):
+    def test_skip_shadow_contracts_true_explicit(self):
         """skip_shadow_contracts should be True when set to '1'."""
         with patch.dict(os.environ, {"RINGRIFT_SKIP_SHADOW_CONTRACTS": "1"}):
             e = RingRiftEnv()
             assert e.skip_shadow_contracts is True
 
-    def test_skip_shadow_contracts_false(self):
-        """skip_shadow_contracts should be False by default."""
+    def test_skip_shadow_contracts_true_by_default(self):
+        """skip_shadow_contracts should be True by default.
+
+        Dec 29, 2025: The code defaults to 'true' (skip shadow contracts)
+        which is the safe default for cluster nodes that lack Node.js.
+        """
         env_copy = os.environ.copy()
         env_copy.pop("RINGRIFT_SKIP_SHADOW_CONTRACTS", None)
         with patch.dict(os.environ, env_copy, clear=True):
+            e = RingRiftEnv()
+            assert e.skip_shadow_contracts is True
+
+    def test_skip_shadow_contracts_false_explicit(self):
+        """skip_shadow_contracts should be False when explicitly set to '0'."""
+        with patch.dict(os.environ, {"RINGRIFT_SKIP_SHADOW_CONTRACTS": "0"}):
             e = RingRiftEnv()
             assert e.skip_shadow_contracts is False
 
