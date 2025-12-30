@@ -75,34 +75,20 @@ class HarnessType(str, Enum):
     BRS = "brs"
 
 
-# Compatibility matrix: which harnesses work with which model types
-HARNESS_MATRIX: dict[ModelType, list[HarnessType]] = {
-    ModelType.NN: [
-        HarnessType.POLICY_ONLY,
-        HarnessType.MCTS,
-        HarnessType.GUMBEL_MCTS,
-        HarnessType.DESCENT,
-    ],
-    ModelType.NNUE: [
-        HarnessType.MINIMAX,
-    ],
-    ModelType.NNUE_MP: [
-        HarnessType.MAXN,
-        HarnessType.BRS,
-        HarnessType.MINIMAX,  # Can use in 2p paranoid mode
-    ],
-}
+# Import consolidated compatibility from harness_registry (Dec 2025)
+# These were previously defined locally but are now derived from the
+# canonical HARNESS_COMPATIBILITY in harness_registry.py
+from app.ai.harness.harness_registry import (
+    get_harness_matrix,
+    get_harness_player_range,
+    get_harnesses_for_model_and_players,
+    is_harness_valid_for_player_count,
+    HARNESS_PLAYER_RESTRICTIONS,
+)
 
-# Player count restrictions for harnesses
-HARNESS_PLAYER_RESTRICTIONS: dict[HarnessType, tuple[int, int]] = {
-    HarnessType.POLICY_ONLY: (2, 4),
-    HarnessType.MCTS: (2, 4),
-    HarnessType.GUMBEL_MCTS: (2, 4),
-    HarnessType.DESCENT: (2, 4),
-    HarnessType.MINIMAX: (2, 2),  # Only 2-player
-    HarnessType.MAXN: (3, 4),  # 3-4 player only
-    HarnessType.BRS: (3, 4),  # 3-4 player only
-}
+# Backward compatibility: HARNESS_MATRIX is now computed from canonical source
+# Use get_harness_matrix() for current values
+HARNESS_MATRIX: dict[ModelType, list[HarnessType]] = get_harness_matrix()
 
 
 @dataclass
@@ -241,9 +227,9 @@ class MultiHarnessGauntlet:
             model_type = ModelType(model_type)
 
         compatible = []
+        # Use consolidated function from harness_registry (Dec 2025)
         for harness in HARNESS_MATRIX.get(model_type, []):
-            min_players, max_players = HARNESS_PLAYER_RESTRICTIONS.get(harness, (2, 4))
-            if min_players <= num_players <= max_players:
+            if is_harness_valid_for_player_count(harness, num_players):
                 compatible.append(harness)
 
         return compatible
@@ -713,19 +699,14 @@ run_multi_harness_evaluation = evaluate_model_all_harnesses
 
 # ============================================
 # Harness Compatibility Helpers (Dec 2025)
+# Consolidated to use harness_registry as single source of truth
 # ============================================
 
-# Compatibility dict for tests and external consumers
-# Maps harness name -> {nn: bool, nnue: bool, policy_required: bool, min_players: int}
-HARNESS_COMPATIBILITY: dict[str, dict[str, Any]] = {
-    "gumbel_mcts": {"nn": True, "nnue": False, "policy_required": True, "min_players": 2},
-    "mcts": {"nn": True, "nnue": False, "policy_required": True, "min_players": 2},
-    "policy_only": {"nn": True, "nnue": False, "policy_required": True, "min_players": 2},
-    "descent": {"nn": True, "nnue": False, "policy_required": True, "min_players": 2},
-    "minimax": {"nn": True, "nnue": True, "policy_required": False, "min_players": 2},
-    "maxn": {"nn": True, "nnue": True, "policy_required": False, "min_players": 3},
-    "brs": {"nn": True, "nnue": True, "policy_required": False, "min_players": 3},
-}
+# Import canonical compatibility dict from harness_registry
+from app.ai.harness.harness_registry import get_harness_compatibility_dict
+
+# Backward compatibility: derive HARNESS_COMPATIBILITY from canonical source
+HARNESS_COMPATIBILITY: dict[str, dict[str, Any]] = get_harness_compatibility_dict()
 
 
 def get_compatible_harnesses_for_model(model_type: str) -> list[str]:
@@ -738,7 +719,8 @@ def get_compatible_harnesses_for_model(model_type: str) -> list[str]:
         List of compatible harness type names
     """
     key = "nn" if model_type == "nn" else "nnue"
-    return [name for name, compat in HARNESS_COMPATIBILITY.items() if compat.get(key, False)]
+    compat_dict = get_harness_compatibility_dict()
+    return [name for name, compat in compat_dict.items() if compat.get(key, False)]
 
 
 def is_harness_compatible(harness_type: str, model_type: str) -> bool:
@@ -753,7 +735,8 @@ def is_harness_compatible(harness_type: str, model_type: str) -> bool:
     """
     if not harness_type:
         return False
-    compat = HARNESS_COMPATIBILITY.get(harness_type)
+    compat_dict = get_harness_compatibility_dict()
+    compat = compat_dict.get(harness_type)
     if compat is None:
         return False
     key = "nn" if model_type == "nn" else "nnue"

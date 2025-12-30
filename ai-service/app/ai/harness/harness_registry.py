@@ -316,3 +316,127 @@ def _generate_model_id(
 
     # Fall back to filename
     return stem
+
+
+# =============================================================================
+# Player Restrictions (Dec 2025 consolidation)
+# =============================================================================
+
+# Canonical player count restrictions for harnesses
+# Format: (min_players, max_players)
+HARNESS_PLAYER_RESTRICTIONS: dict[HarnessType, tuple[int, int]] = {
+    HarnessType.GUMBEL_MCTS: (2, 4),
+    HarnessType.GPU_GUMBEL: (2, 4),
+    HarnessType.MCTS: (2, 4),
+    HarnessType.POLICY_ONLY: (2, 4),
+    HarnessType.DESCENT: (2, 4),
+    HarnessType.HEURISTIC: (2, 4),
+    HarnessType.MINIMAX: (2, 2),  # Only 2-player (alpha-beta)
+    HarnessType.MAXN: (3, 4),  # 3-4 player only (multiplayer search)
+    HarnessType.BRS: (3, 4),  # 3-4 player only (best-reply search)
+}
+
+
+def get_harness_player_range(harness_type: HarnessType) -> tuple[int, int]:
+    """Get valid player count range for a harness.
+
+    Args:
+        harness_type: The harness type to query.
+
+    Returns:
+        Tuple of (min_players, max_players).
+    """
+    return HARNESS_PLAYER_RESTRICTIONS.get(harness_type, (2, 4))
+
+
+def is_harness_valid_for_player_count(
+    harness_type: HarnessType,
+    num_players: int,
+) -> bool:
+    """Check if a harness supports a given player count.
+
+    Args:
+        harness_type: The harness type to check.
+        num_players: Number of players (2, 3, or 4).
+
+    Returns:
+        True if the harness supports this player count.
+    """
+    min_p, max_p = get_harness_player_range(harness_type)
+    return min_p <= num_players <= max_p
+
+
+def get_harnesses_for_model_and_players(
+    model_type: ModelType,
+    num_players: int,
+) -> list[HarnessType]:
+    """Get harnesses compatible with both model type and player count.
+
+    This is the preferred function for gauntlet evaluation as it filters
+    by both model compatibility AND player count restrictions.
+
+    Args:
+        model_type: The model type (NN, NNUE, NNUE_MP, HEURISTIC).
+        num_players: Number of players (2, 3, or 4).
+
+    Returns:
+        List of compatible HarnessType values.
+    """
+    # First get model-compatible harnesses
+    compatible = get_compatible_harnesses(model_type)
+
+    # Then filter by player count
+    return [
+        h for h in compatible
+        if is_harness_valid_for_player_count(h, num_players)
+    ]
+
+
+def get_harness_matrix() -> dict[ModelType, list[HarnessType]]:
+    """Get derived harness compatibility matrix by model type.
+
+    This function derives the matrix from the canonical HARNESS_COMPATIBILITY
+    dataclass entries rather than maintaining a duplicate definition.
+
+    Returns:
+        Dictionary mapping ModelType to list of compatible HarnessType.
+    """
+    matrix: dict[ModelType, list[HarnessType]] = {
+        ModelType.NEURAL_NET: [],
+        ModelType.NNUE: [],
+        ModelType.HEURISTIC: [],
+    }
+
+    for harness_type, compat in HARNESS_COMPATIBILITY.items():
+        if compat.supports_nn:
+            matrix[ModelType.NEURAL_NET].append(harness_type)
+        if compat.supports_nnue:
+            matrix[ModelType.NNUE].append(harness_type)
+        if harness_type == HarnessType.HEURISTIC:
+            matrix[ModelType.HEURISTIC].append(harness_type)
+
+    return matrix
+
+
+def get_harness_compatibility_dict() -> dict[str, dict[str, Any]]:
+    """Get harness compatibility as simple dict for external consumers.
+
+    This is for backwards compatibility with code that expects string keys
+    rather than enum types.
+
+    Returns:
+        Dictionary mapping harness name to compatibility info.
+    """
+    result: dict[str, dict[str, Any]] = {}
+    for harness_type, compat in HARNESS_COMPATIBILITY.items():
+        min_p, max_p = get_harness_player_range(harness_type)
+        result[harness_type.value] = {
+            "nn": compat.supports_nn,
+            "nnue": compat.supports_nnue,
+            "policy_required": compat.requires_policy_head,
+            "min_players": min_p,
+            "max_players": max_p,
+            "optimal_for": compat.optimal_for,
+            "description": compat.description,
+        }
+    return result
