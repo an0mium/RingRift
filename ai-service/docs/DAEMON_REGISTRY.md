@@ -101,7 +101,7 @@ Data synchronization across the cluster.
 - `_create_npz_distribution()` → Creates `NPZDistributionDaemon`
 - `_create_external_drive_sync()` → Creates `ExternalDriveSyncDaemon`
 - `_create_cluster_data_sync()` → Creates `ClusterDataSyncDaemon`
-- `_create_training_node_watcher()` → Uses `cluster_data_sync.get_training_node_watcher()`
+- `create_training_node_watcher()` → Creates `TrainingActivityDaemon` (in `training_activity_daemon.py`)
 - `_create_high_quality_sync()` → Creates `HighQualitySyncDaemon`
 - `_create_elo_sync()` → Creates `EloSyncDaemon`
 - `create_training_data_sync()` → Creates `TrainingDataSyncDaemon` (in daemon_runners.py)
