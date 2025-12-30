@@ -92,6 +92,34 @@ python scripts/update_all_nodes.py --restart-p2p
 | `cascade_training.py`                  | Cascade training across architectures              |
 | `orphan_detection_daemon.py`           | Detects incomplete selfplay records                |
 | `integrity_check_daemon.py`            | Data integrity validation                          |
+| `event_utils.py`                       | Unified event extraction utilities (Dec 2025)      |
+
+### Event Extraction Utilities (Dec 2025)
+
+The `event_utils.py` module consolidates duplicate event extraction patterns across 40+ coordination modules:
+
+```python
+from app.coordination.event_utils import (
+    parse_config_key,
+    extract_evaluation_data,
+    extract_training_data,
+    make_config_key,
+)
+
+# Parse config key to board_type and num_players
+parsed = parse_config_key("hex8_2p")
+# -> ParsedConfigKey(board_type='hex8', num_players=2)
+
+# Extract all fields from EVALUATION_COMPLETED event
+data = extract_evaluation_data(event)
+# -> EvaluationEventData(config_key, board_type, num_players, elo, ...)
+
+# Create canonical config key
+key = make_config_key("hex8", 2)
+# -> "hex8_2p"
+```
+
+**When to use**: Any handler processing events with `config_key`, `model_path`, `elo`, `board_type`, or `num_players` fields should use these utilities instead of inline parsing.
 
 ### AI Components
 

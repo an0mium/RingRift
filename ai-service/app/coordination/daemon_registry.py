@@ -600,6 +600,25 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         auto_restart=True,
         max_restarts=10,  # More restarts allowed for critical recovery daemon
     ),
+    # Memory monitor (December 30, 2025) - prevents OOM crashes
+    # Monitors GPU VRAM and process RSS, emits MEMORY_PRESSURE events
+    DaemonType.MEMORY_MONITOR: DaemonSpec(
+        runner_name="create_memory_monitor",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="health",
+        health_check_interval=60.0,  # 1 min - critical for preventing OOM
+        auto_restart=True,
+        max_restarts=10,
+    ),
+    # Stale fallback (December 30, 2025) - graceful degradation
+    # Uses older models when sync fails to maintain selfplay continuity
+    DaemonType.STALE_FALLBACK: DaemonSpec(
+        runner_name="create_stale_fallback",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AUTO_SYNC),
+        category="sync",
+        health_check_interval=300.0,  # 5 min
+        auto_restart=True,
+    ),
     # =========================================================================
     # Tailscale Health Monitoring (December 29, 2025)
     # Monitors and auto-recovers Tailscale connectivity on each cluster node

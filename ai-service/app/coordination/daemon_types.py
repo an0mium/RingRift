@@ -314,9 +314,13 @@ class DaemonType(Enum):
     # These daemons enable the system to run unattended for 48+ hours:
     # - ProgressWatchdog: Detects Elo velocity stalls and triggers recovery
     # - P2PRecovery: Auto-restarts P2P orchestrator on partition/failure
+    # - MemoryMonitor: Proactive VRAM/RSS monitoring to prevent OOM crashes
+    # - StaleFallback: Uses older models when sync fails to maintain selfplay
     # =========================================================================
     PROGRESS_WATCHDOG = "progress_watchdog"
     P2P_RECOVERY = "p2p_recovery"
+    MEMORY_MONITOR = "memory_monitor"
+    STALE_FALLBACK = "stale_fallback"
 
     # =========================================================================
     # Connectivity Recovery (December 29, 2025)
@@ -496,6 +500,7 @@ CRITICAL_DAEMONS: set[DaemonType] = {
     DaemonType.QUEUE_POPULATOR,  # Keeps work queue populated
     DaemonType.IDLE_RESOURCE,  # Ensures GPUs stay utilized
     DaemonType.FEEDBACK_LOOP,  # Coordinates training feedback signals
+    DaemonType.MEMORY_MONITOR,  # Prevents OOM crashes (Dec 30, 2025)
 }
 
 # P0 Critical Fix (Dec 2025): Daemon startup order to prevent race conditions
@@ -521,14 +526,16 @@ DAEMON_STARTUP_ORDER: list[DaemonType] = [
     DaemonType.TRAINING_TRIGGER,       # 10. Training trigger (after pipeline)
 
     # =========================================================================
-    # Monitoring daemons (positions 11-15) - Dec 27, 2025
+    # Monitoring daemons (positions 11-16) - Dec 27, 2025
     # Added: 8 daemons missing from startup order per exploration analysis
+    # Dec 30, 2025: Added MEMORY_MONITOR for 48-hour autonomous operation
     # =========================================================================
     DaemonType.CLUSTER_MONITOR,        # 11. Cluster monitoring (depends on EVENT_ROUTER)
     DaemonType.NODE_HEALTH_MONITOR,    # 12. Node health (depends on EVENT_ROUTER)
     DaemonType.HEALTH_SERVER,          # 13. Health endpoints (depends on EVENT_ROUTER)
     DaemonType.CLUSTER_WATCHDOG,       # 14. Cluster watchdog (depends on CLUSTER_MONITOR)
     DaemonType.NODE_RECOVERY,          # 15. Node recovery (depends on NODE_HEALTH_MONITOR)
+    DaemonType.MEMORY_MONITOR,         # 16. Memory/VRAM monitor (prevents OOM crashes)
 
     # =========================================================================
     # Quality and training enhancement (positions 16-19) - Dec 27, 2025
@@ -733,6 +740,14 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # Trains NNUE models when game thresholds are met
     DaemonType.NNUE_TRAINING: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
     DaemonType.ARCHITECTURE_FEEDBACK: {DaemonType.EVENT_ROUTER},  # Dec 29, 2025
+
+    # =========================================================================
+    # 48-Hour Autonomous Operation daemons (December 30, 2025)
+    # =========================================================================
+    DaemonType.PROGRESS_WATCHDOG: {DaemonType.EVENT_ROUTER},
+    DaemonType.P2P_RECOVERY: {DaemonType.EVENT_ROUTER},
+    DaemonType.MEMORY_MONITOR: {DaemonType.EVENT_ROUTER},  # Emits MEMORY_PRESSURE events
+    DaemonType.STALE_FALLBACK: {DaemonType.EVENT_ROUTER, DaemonType.AUTO_SYNC},  # Fallback when sync fails
 }
 
 

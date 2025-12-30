@@ -1694,6 +1694,76 @@ async def create_p2p_recovery() -> None:
         raise
 
 
+async def create_memory_monitor() -> None:
+    """Create and run MemoryMonitor daemon.
+
+    December 30, 2025: Part of 48-hour autonomous operation enablement.
+    Monitors GPU VRAM and process RSS to detect memory pressure before OOM.
+
+    Key thresholds:
+    - GPU VRAM: 75% warning, 85% critical → Emit MEMORY_PRESSURE, pause spawning
+    - System RAM: 80% warning, 90% critical → Emit RESOURCE_CONSTRAINT
+    - Process RSS: 32GB critical → SIGTERM → wait 60s → SIGKILL
+
+    Subscribes to: None (cycle-based)
+    Emits: MEMORY_PRESSURE, RESOURCE_CONSTRAINT
+    """
+    try:
+        from app.coordination.memory_monitor_daemon import get_memory_monitor
+
+        daemon = get_memory_monitor()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"MemoryMonitor not available: {e}")
+        raise
+
+
+async def create_stale_fallback() -> None:
+    """Create and run StaleFallback controller.
+
+    December 30, 2025: Part of 48-hour autonomous operation enablement.
+    Enables graceful degradation when sync fails by using older model versions.
+
+    Note: TrainingFallbackController is a utility controller, not a full daemon.
+    This runner initializes it and subscribes to relevant events.
+
+    Subscribes to: DATA_SYNC_FAILED, DATA_SYNC_COMPLETED
+    Emits: STALE_TRAINING_FALLBACK (via controller.should_allow_training)
+    """
+    try:
+        from app.coordination.stale_fallback import get_training_fallback_controller
+
+        controller = get_training_fallback_controller()
+
+        # Subscribe to sync events
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            if router:
+                router.subscribe(
+                    "DATA_SYNC_FAILED",
+                    lambda e: controller.record_sync_failure(e.get("config_key", "unknown")),
+                    handler_name="stale_fallback_sync_failed",
+                )
+                router.subscribe(
+                    "DATA_SYNC_COMPLETED",
+                    lambda e: controller.record_sync_success(e.get("config_key", "unknown")),
+                    handler_name="stale_fallback_sync_completed",
+                )
+                logger.info("[StaleFallback] Subscribed to sync events")
+        except Exception as e:
+            logger.debug(f"[StaleFallback] Could not subscribe to events: {e}")
+
+        # Keep running (controller is stateful)
+        while True:
+            await asyncio.sleep(60)
+    except ImportError as e:
+        logger.error(f"StaleFallback not available: {e}")
+        raise
+
+
 async def create_tailscale_health() -> None:
     """Create and run TailscaleHealthDaemon.
 
@@ -1842,9 +1912,11 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.CASCADE_TRAINING.name: create_cascade_training,
         # PER orchestrator (December 29, 2025)
         DaemonType.PER_ORCHESTRATOR.name: create_per_orchestrator,
-        # 48-Hour Autonomous Operation (December 29, 2025)
+        # 48-Hour Autonomous Operation (December 29-30, 2025)
         DaemonType.PROGRESS_WATCHDOG.name: create_progress_watchdog,
         DaemonType.P2P_RECOVERY.name: create_p2p_recovery,
+        DaemonType.MEMORY_MONITOR.name: create_memory_monitor,
+        DaemonType.STALE_FALLBACK.name: create_stale_fallback,
         # Tailscale health monitoring (December 29, 2025)
         DaemonType.TAILSCALE_HEALTH.name: create_tailscale_health,
         # Connectivity recovery coordinator (December 29, 2025)
