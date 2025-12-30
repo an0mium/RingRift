@@ -444,6 +444,9 @@ class GameDiscovery:
         Phase 5.3 Dec 29, 2025: Added to prevent silent 0-game returns
         when databases have incompatible schema.
 
+        Dec 30, 2025: Added game_moves table validation to prevent export
+        failures when databases have different move storage schemas.
+
         Args:
             conn: Open SQLite connection
 
@@ -458,11 +461,27 @@ class GameDiscovery:
             if not cursor.fetchone():
                 return False
 
-            # Check required columns exist
+            # Check required columns exist in games table
             cursor = conn.execute("PRAGMA table_info(games)")
             columns = {row[1] for row in cursor.fetchall()}
             required = {"winner", "board_type", "num_players"}
-            return required.issubset(columns)
+            if not required.issubset(columns):
+                return False
+
+            # Check if game_moves table exists with required columns
+            # This is critical for export - databases without move_json will fail
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='game_moves'"
+            )
+            if cursor.fetchone():
+                # game_moves table exists - verify it has move_json column
+                cursor = conn.execute("PRAGMA table_info(game_moves)")
+                move_columns = {row[1] for row in cursor.fetchall()}
+                if "move_json" not in move_columns:
+                    logger.debug("game_moves table exists but lacks move_json column")
+                    return False
+
+            return True
         except sqlite3.Error:
             return False
 

@@ -988,6 +988,29 @@ def validate_database_for_export(
             f"This usually means JSONL-to-DB import failed to populate game_moves table."
         )
 
+    # Dec 30, 2025: Validate game_moves schema has required move_json column
+    # This prevents export failures from databases with incompatible schemas
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10.0)
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='game_moves'"
+        )
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(game_moves)")
+            move_columns = {row[1] for row in cursor.fetchall()}
+            conn.close()
+            if "move_json" not in move_columns:
+                return False, (
+                    f"Database has game_moves table but missing required 'move_json' column. "
+                    f"Columns found: {', '.join(sorted(move_columns))}. "
+                    f"This indicates an incompatible database schema version."
+                )
+        else:
+            conn.close()
+    except sqlite3.Error as e:
+        return False, f"Failed to validate game_moves schema: {e}"
+
     # Check for games matching the requested config
     if board_type and num_players:
         try:
