@@ -118,22 +118,65 @@ class VultrProvider(CloudProvider):
         return config_path.exists()
 
     async def _run_cli(self, *args: str) -> tuple[str, str, int]:
-        """Run vultr-cli command.
+        """Run vultr-cli command with circuit breaker protection.
+
+        December 30, 2025: Added circuit breaker to prevent cascading failures
+        when Vultr API is experiencing issues.
 
         Returns:
             Tuple of (stdout, stderr, returncode)
+
+        Raises:
+            RuntimeError: If CLI not found
+            CircuitOpenError: If circuit is open due to recent failures
         """
         if not self._cli_path:
             raise RuntimeError("vultr-cli not found")
 
+        breaker = get_vultr_circuit_breaker()
+        target = "vultr_api"
+
+        # Check circuit state before attempting call
+        if not breaker.can_execute(target):
+            state = breaker.get_status(target)
+            logger.warning(
+                f"Vultr circuit breaker is {state.state.value}, "
+                f"skipping CLI call (failures={state.failure_count})"
+            )
+            raise CircuitOpenError(f"Vultr API circuit is {state.state.value}")
+
         cmd = [self._cli_path] + list(args) + ["--output", "json"]
 
-        result = await asyncio.get_running_loop().run_in_executor(
-            None,
-            lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        )
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            )
 
-        return result.stdout, result.stderr, result.returncode
+            # Check for API-level errors (non-zero exit code)
+            if result.returncode != 0:
+                # Some errors are expected (e.g., instance not found) - don't trip circuit
+                stderr_lower = result.stderr.lower()
+                if "not found" in stderr_lower or "no instances" in stderr_lower:
+                    # Expected condition, still success for circuit purposes
+                    breaker.record_success(target)
+                else:
+                    # Actual API failure - record but don't raise
+                    logger.debug(f"Vultr CLI returned {result.returncode}: {result.stderr}")
+                    breaker.record_failure(target)
+            else:
+                breaker.record_success(target)
+
+            return result.stdout, result.stderr, result.returncode
+
+        except subprocess.TimeoutExpired as e:
+            logger.warning(f"Vultr CLI timeout: {e}")
+            breaker.record_failure(target)
+            raise
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning(f"Vultr CLI error: {e}")
+            breaker.record_failure(target)
+            raise
 
     def _parse_instance(self, data: dict) -> Instance:
         """Parse Vultr instance JSON into Instance object."""
@@ -305,18 +348,28 @@ class VultrProvider(CloudProvider):
         """Check provider health for CoordinatorProtocol compliance.
 
         December 2025: Added for daemon health monitoring integration.
+        December 30, 2025: Added circuit breaker status to health check.
         """
         from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
 
         cli_available = self._cli_path is not None
         configured = self.is_configured()
 
+        # Get circuit breaker status
+        breaker = get_vultr_circuit_breaker()
+        circuit_status = breaker.get_status("vultr_api")
+        circuit_state = circuit_status.state
+
         if not cli_available:
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.ERROR,
                 message="VultrProvider: vultr-cli not found",
-                details={"cli_path": None, "configured": False},
+                details={
+                    "cli_path": None,
+                    "configured": False,
+                    "circuit_state": circuit_state.value,
+                },
             )
 
         if not configured:
@@ -324,12 +377,36 @@ class VultrProvider(CloudProvider):
                 healthy=False,
                 status=CoordinatorStatus.DEGRADED,
                 message="VultrProvider: config file not found",
-                details={"cli_path": self._cli_path, "configured": False},
+                details={
+                    "cli_path": self._cli_path,
+                    "configured": False,
+                    "circuit_state": circuit_state.value,
+                },
+            )
+
+        # Check if circuit breaker is open
+        if circuit_state == CircuitState.OPEN:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"VultrProvider: API circuit open (failures={circuit_status.failure_count})",
+                details={
+                    "cli_path": self._cli_path,
+                    "configured": True,
+                    "circuit_state": circuit_state.value,
+                    "circuit_failures": circuit_status.failure_count,
+                    "circuit_opened_at": circuit_status.opened_at,
+                },
             )
 
         return HealthCheckResult(
             healthy=True,
             status=CoordinatorStatus.RUNNING,
             message="VultrProvider: CLI available and configured",
-            details={"cli_path": self._cli_path, "configured": True},
+            details={
+                "cli_path": self._cli_path,
+                "configured": True,
+                "circuit_state": circuit_state.value,
+                "circuit_failures": circuit_status.failure_count,
+            },
         )
