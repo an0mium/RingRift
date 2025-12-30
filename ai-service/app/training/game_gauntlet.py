@@ -1743,6 +1743,10 @@ def run_baseline_gauntlet(
                             "estimated_elo": result.estimated_elo,
                             "model_type": model_type,
                             "passes_gating": result.passes_baseline_gating,
+                            # Dec 29: Harness metadata for unified evaluation
+                            "harness_type": result.harness_type or "",
+                            "harness_config_hash": result.harness_config_hash or "",
+                            "model_id": result.model_id or "",
                         },
                     )
                 logger.debug(f"[gauntlet] Stored results for {effective_model_id} in gauntlet_results.db")

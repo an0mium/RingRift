@@ -440,6 +440,8 @@ class NNUETrainingDaemon(HandlerBase):
 
     def health_check(self) -> HealthCheckResult:
         """Return health check result for this daemon."""
+        from app.coordination.contracts import CoordinatorStatus
+
         is_healthy = self._running
 
         details = {
@@ -459,8 +461,8 @@ class NNUETrainingDaemon(HandlerBase):
             }
 
         return HealthCheckResult(
-            is_healthy=is_healthy,
-            status="running" if is_healthy else "stopped",
+            healthy=is_healthy,
+            status=CoordinatorStatus.RUNNING if is_healthy else CoordinatorStatus.STOPPED,
             details=details,
         )
 
