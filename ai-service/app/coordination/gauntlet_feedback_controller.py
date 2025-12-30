@@ -182,6 +182,15 @@ class GauntletFeedbackController(BaseEventHandler):
         await super().stop()
         logger.info(f"[{self.name}] Stopped")
 
+    async def _run_cycle(self) -> None:
+        """No-op cycle for event-driven handler.
+
+        December 30, 2025: GauntletFeedbackController is purely event-driven.
+        It only responds to EVALUATION_COMPLETED events and doesn't need
+        periodic polling. This satisfies the abstract method requirement.
+        """
+        pass
+
     def get_metrics(self) -> dict[str, Any]:
         """Get controller metrics.
 
