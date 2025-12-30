@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-RingRift currently has no strong Neural Network (NN) based AI despite having substantial infrastructure for NN training and deployment. The difficulty ladder (D1-D10) shows that while search-based AIs (Minimax, MCTS, Descent) are functional, NN-guided variants in D6-D10 are not significantly stronger than their heuristic counterparts.
+RingRift currently has no strong Neural Network (NN) based AI despite having substantial infrastructure for NN training and deployment. The difficulty ladder (D1-D10) shows that while search-based AIs (Minimax, Descent, MCTS, Gumbel MCTS) are functional, NN-guided variants in D6-D10 are not significantly stronger than their heuristic counterparts.
 
 **Key Finding:** The NN infrastructure exists but has never been properly trained and validated to produce competitive models. The root causes are:
 

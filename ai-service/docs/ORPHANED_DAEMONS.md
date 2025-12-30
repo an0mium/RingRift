@@ -7,7 +7,7 @@
 
 ## Summary
 
-Out of 53 daemon types defined in `daemon_manager.py`, 19 are "orphaned" - meaning they are not included in any production profile (coordinator, training_node, ephemeral, selfplay, minimal).
+Snapshot (Dec 2025): out of 53 daemon types defined in `daemon_manager.py`, 19 are "orphaned" - meaning they are not included in any production profile (coordinator, training_node, ephemeral, selfplay, minimal). Current registry count is 89; see `ai-service/docs/DAEMON_REGISTRY.md` for the live inventory.
 
 ## Daemon Categories
 
@@ -82,7 +82,7 @@ Out of 53 daemon types defined in `daemon_manager.py`, 19 are "orphaned" - meani
 - `RECOVERY_ORCHESTRATOR` - Keep for fault tolerance
 - `MULTI_PROVIDER` - Keep for multi-cloud expansion
 
-## Profile Coverage
+## Profile Coverage (Snapshot)
 
 | Profile       | Daemon Count | Notes                      |
 | ------------- | ------------ | -------------------------- |

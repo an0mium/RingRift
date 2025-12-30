@@ -326,26 +326,28 @@ class TestProvisioner:
     def test_health_check_healthy(self):
         """Test health check when healthy."""
         provisioner = Provisioner()
+        provisioner._running = True  # Mark as running for health check
         for _ in range(3):
             provisioner._provision_history.append(
                 ProvisionResult(success=True, instances_created=1)
             )
 
         health = provisioner.health_check()
-        assert health["healthy"] is True
-        assert "pending" in health["message"].lower()
+        assert health.healthy is True
+        assert "pending" in health.message.lower()
 
     def test_health_check_unhealthy(self):
-        """Test health check when unhealthy."""
+        """Test health check when unhealthy (too many failures)."""
         provisioner = Provisioner()
+        provisioner._running = True  # Mark as running for health check
         for _ in range(6):
             provisioner._provision_history.append(
                 ProvisionResult(success=False, instances_created=0, error="Failed")
             )
 
         health = provisioner.health_check()
-        assert health["healthy"] is False
-        assert health["details"]["recent_failures"] == 6
+        assert health.healthy is False
+        assert health.details["recent_failures"] == 6
 
     def test_get_provision_history(self):
         """Test getting provision history."""

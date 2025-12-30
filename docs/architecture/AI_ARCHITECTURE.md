@@ -438,7 +438,7 @@ appropriate network + action encoder for:
 
 - AI opponent indicator badges in game header and player cards
 - Color-coded difficulty labels (green=Beginner, blue=Intermediate, purple=Advanced, red=Expert)
-- AI type display (Random/Heuristic/Minimax/MCTS)
+- AI type display (Random/Heuristic/Minimax/Descent/MCTS/Gumbel MCTS)
 - Animated "thinking" indicators during AI turns
 - Distinct styling for AI players vs human players
 

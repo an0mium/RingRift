@@ -400,7 +400,7 @@ async def test_event_flow():
 | Document                  | Update Required          |
 | ------------------------- | ------------------------ |
 | `docs/DAEMON_REGISTRY.md` | Add new daemon entry     |
-| `docs/EVENT_REFERENCE.md` | Add new events           |
+| `EVENT_REFERENCE.md`      | Add new events           |
 | `ai-service/CLAUDE.md`    | Add to relevant sections |
 | Module docstring          | Describe purpose, events |
 
@@ -431,7 +431,7 @@ Configuration:
 
 See Also:
     - docs/DAEMON_REGISTRY.md
-    - docs/EVENT_REFERENCE.md
+    - EVENT_REFERENCE.md
 """
 ```
 

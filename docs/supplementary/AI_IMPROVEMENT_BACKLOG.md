@@ -104,7 +104,7 @@ Canonical mapping (see `AI_ARCHITECTURE.md` §1.2):
 - [ ] **Per-game RNG for all Python AIs**
   - Give `BaseAI` an instance `self.rng: random.Random`, seeded from an `rng_seed` in `AIConfig`.
   - Route **all** randomness (ε-greedy choices, MCTS expansions/rollouts, tie-breaking) through this RNG.
-  - Ensure `RandomAI`, `HeuristicAI`, `MinimaxAI`, `MCTSAI`, and `NeuralNetAI` no longer call `random.*` directly.
+  - Ensure `RandomAI`, `HeuristicAI`, `MinimaxAI`, `DescentAI`, `MCTSAI`, `GumbelMCTSAI`, and `PolicyOnlyAI` no longer call `random.*` directly.
 
 - [ ] **Extend `/ai/move` to accept an explicit RNG seed**
   - Add `seed: Optional[int]` to the MoveRequest model in `ai-service/app/main.py` (already supported on the TypeScript side via `AIServiceClient`).
@@ -117,7 +117,7 @@ Canonical mapping (see `AI_ARCHITECTURE.md` §1.2):
   - Document the seed propagation path in `AI_ARCHITECTURE.md`.
 
 - [ ] **Add AI-level determinism tests**
-  - For each AI type (Random, Heuristic, Minimax, MCTS, Descent):
+  - For each AI type (Random, Heuristic, Minimax, Descent, MCTS, Gumbel MCTS; policy_only when applicable):
     - Seed TS and Python RNGs with a known value.
     - Run a fixed number of AI turns from a known initial `GameState`.
     - Assert that move sequences and `hashGameState`/`hash_game_state` stay identical across runs.

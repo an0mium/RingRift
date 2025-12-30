@@ -323,7 +323,7 @@ await publish(
 )
 ```
 
-See `docs/EVENT_CATALOG.md` for all available event types.
+See `EVENT_CATALOG.md` for all available event types.
 
 ## Configuration
 
@@ -340,5 +340,5 @@ Gossip interval is configured in `config/distributed_hosts.yaml` via
 ## See Also
 
 - `scripts/p2p/managers/` - Domain logic managers
-- `docs/EVENT_CATALOG.md` - Event types reference
+- `EVENT_CATALOG.md` - Event types reference
 - `docs/COORDINATION_ARCHITECTURE.md` - Overall architecture

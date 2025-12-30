@@ -10,7 +10,7 @@ PROGRESS_STALL_DETECTED) have been verified to have 2-5 active subscribers each.
 
 This document provides a matrix of critical events in the RingRift coordination layer,
 their emitters, and subscribers. `DataEventType` defines 211 events; this file focuses on
-high-impact wiring. For the full list, see `docs/EVENT_REFERENCE_AUTO.md` and `docs/EVENT_CATALOG.md`.
+high-impact wiring. For the full list, see `../EVENT_REFERENCE_AUTO.md` and `../EVENT_CATALOG.md`.
 
 ## Quick Reference
 
@@ -811,6 +811,6 @@ When adding a new event:
 ## See Also
 
 - `docs/architecture/EVENT_FLOW_INTEGRATION.md` - Event flow diagrams
-- `docs/EVENT_SYSTEM_REFERENCE.md` - Detailed event documentation
+- `../EVENT_SYSTEM_REFERENCE.md` - Detailed event documentation
 - `app/coordination/data_events.py` - Event type definitions
 - `app/coordination/event_router.py` - Event bus implementation

@@ -288,4 +288,4 @@ Configure alerts for:
 | REGRESSION_DETECTED    | ModelWatchdog       | DataPipeline, FeedbackLoop |
 | BACKPRESSURE_ACTIVATED | ResourceMonitor     | SelfplayCoordinator        |
 
-See `docs/EVENT_REFERENCE.md` for the complete event catalog.
+See `EVENT_REFERENCE.md` for the complete event catalog.

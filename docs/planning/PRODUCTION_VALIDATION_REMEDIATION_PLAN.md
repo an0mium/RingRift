@@ -1296,7 +1296,7 @@ aiOpponents: {
 
 Despite `mode: 'service'` being specified, the backend is **not routing AI move requests to the Python AI service**. This could be caused by:
 
-1. **Backend AI routing logic** - The GameEngine may be configured to use local AI for heuristic type, only calling the Python service for minimax/mcts/descent types
+1. **Backend AI routing logic** - The GameEngine may be configured to use local AI for heuristic type, only calling the Python service for minimax/mcts/descent/gumbel_mcts types (plus override-only policy_only/ig_gmo when explicitly selected)
 2. **Fallback to local** - The Python service call may be failing silently and falling back to local AI
 3. **Missing service configuration** - The `AI_SERVICE_URL` is set but may not be used for heuristic AI type
 
@@ -1313,7 +1313,7 @@ Investigation shows `AI_SERVICE_URL=http://ai-service:8001` is correctly configu
 **Recommendation:** Create an AI-service-specific load test scenario that:
 
 - Calls the AI service directly via HTTP POST to `/ai/move`
-- Or uses `aiType: 'minimax'` or `aiType: 'mcts'` which require the Python service
+- Or uses `aiType: 'minimax'`, `aiType: 'mcts'`, `aiType: 'descent'`, or `aiType: 'gumbel_mcts'` which route to the Python service
 - Record `ai_move_latency_seconds` histogram for p95/p99 analysis
 
 #### Gap 2: No AI-Specific Metrics in k6 Scenario
@@ -1383,7 +1383,7 @@ Investigation shows `AI_SERVICE_URL=http://ai-service:8001` is correctly configu
    ```
 
 2. **Test with Python-Routed AI Types**
-   Modify websocket-gameplay.js to use `aiType: 'minimax'` or `'mcts'` which should route to the Python AI service.
+   Modify websocket-gameplay.js to use `aiType: 'minimax'`, `'mcts'`, `'descent'`, or `'gumbel_mcts'` which should route to the Python AI service.
 
 3. **Verify AI Service Routing**
    Add logging to backend AI engine to confirm when requests are sent to Python service vs handled locally.
@@ -1414,7 +1414,7 @@ However, **AI-specific SLOs could not be validated** because the Python AI servi
 **To fully complete PV-09, one of the following is needed:**
 
 1. Create a direct AI service load test scenario, OR
-2. Modify the existing scenario to use AI types that route to the Python service (minimax/mcts/descent)
+2. Modify the existing scenario to use AI types that route to the Python service (minimax/mcts/descent/gumbel_mcts)
 
 **Next step:** PV-10 - AI Service Degradation Drill (can proceed, will exercise AI service directly)
 
@@ -2023,7 +2023,9 @@ AI types that **would** route to the Python AI service:
 - `minimax` - Minimax search (requires Python)
 - `mcts` - Monte Carlo Tree Search (requires Python)
 - `descent` - UBFM/Descent tree search (requires Python)
-- `neural` - Neural network inference (requires Python)
+- `gumbel_mcts` - Gumbel MCTS (requires Python)
+- `policy_only` - Policy-only NN inference (override-only)
+- `ig_gmo` - Information-gain GMO (override-only)
 
 #### Impact of Gap
 
@@ -2054,7 +2056,7 @@ const response = http.post(
 ```
 
 **Option B: Modify WebSocket Test AI Type**
-Change `aiType` from `'heuristic'` to `'minimax'` or `'mcts'`:
+Change `aiType` from `'heuristic'` to `'minimax'`, `'mcts'`, `'descent'`, or `'gumbel_mcts'`:
 
 ```javascript
 aiOpponents: {
@@ -2100,7 +2102,7 @@ aiOpponents: {
 - ⚠️ This gap is **acceptable for v1.0** since:
   - AI service health/degradation is validated in PV-10
   - Heuristic AI (the default) runs locally and is fully tested
-  - Python AI types (minimax, mcts, descent) are optional difficulty levels
+  - Python AI types (minimax, mcts, descent, gumbel_mcts) are optional difficulty levels
 
 **The gap is documented and a clear path for future enhancement is provided.**
 
@@ -2212,10 +2214,10 @@ The Rate Limiting Configuration Guide includes:
 | 1.2     | 2025-12-20 | Added PV-07 Execution Report documenting blocking infrastructure issues: Dockerfile out of sync (postcss.config.js → .mjs), outdated Docker image, password seeding mismatch. Recommendations for short-term local dev server workaround and long-term Dockerfile fix.                                                                                                                                                                                                                                                                   |
 | 1.3     | 2025-12-20 | **PV-07.2 completed.** Docker containers rebuilt successfully with Dockerfile fix. Baseline load test executed with 60+ VUs. Results: HTTP p95=12.74ms ✅, True errors=0 ✅, Rate limit hits=9030 ❌ (bypass not applied to game endpoints). Core SLOs pass; rate limit bypass needs fix for clean signal.                                                                                                                                                                                                                               |
 | 1.4     | 2025-12-20 | **PV-08 completed. ✅ PASS.** Target-scale load test executed with 100 VUs for 13 minutes. Results: HTTP p95=14.68ms (97% below target), True errors=0%, Rate limit hits=0, Contract failures=0, Lifecycle mismatches=0. All SLOs pass. Rate limit bypass working correctly. Resource usage stable.                                                                                                                                                                                                                                      |
-| 1.5     | 2025-12-20 | **PV-09 completed. ⚠️ PARTIAL PASS.** AI-heavy load test executed with 300 VUs for 30 minutes. WebSocket move RTT p95=11ms ✅, Move success=100% ✅, Connection success=100% ✅, True errors=0% ✅. **GAP IDENTIFIED:** Python AI service received 0 requests - heuristic AI runs locally in TypeScript. AI-specific SLOs (response latency, fallback rate) could not be validated. Recommendations: create direct AI service test or use minimax/mcts AI types that route to Python service.                                            |
+| 1.5     | 2025-12-20 | **PV-09 completed. ⚠️ PARTIAL PASS.** AI-heavy load test executed with 300 VUs for 30 minutes. WebSocket move RTT p95=11ms ✅, Move success=100% ✅, Connection success=100% ✅, True errors=0% ✅. **GAP IDENTIFIED:** Python AI service received 0 requests - heuristic AI runs locally in TypeScript. AI-specific SLOs (response latency, fallback rate) could not be validated. Recommendations: create direct AI service test or use minimax/mcts/descent/gumbel_mcts AI types that route to Python service.                        |
 | 1.6     | 2025-12-20 | **PV-10 completed. ✅ PASS.** AI Service Degradation Drill executed with 3 phases (baseline, degraded, recovery). All phases passed: AI service health monitoring works, graceful degradation detected (status: "degraded" when AI down), no cascading failures to DB/Redis, recovery time ~10 seconds. Drill script automated via `scripts/run-ai-degradation-drill.ts`. Artifacts saved to `results/ops/` and `results/load-test/`.                                                                                                    |
 | 1.7     | 2025-12-20 | **PV-11 completed. ✅ PASS (infrastructure) / ⚠️ PARTIAL (web app metrics).** Grafana dashboard validation completed. All 10 dashboards load without errors. Prometheus scraping AI cluster successfully (14+ nodes, 5108 selfplay games). AI Cluster dashboard shows live data (GPU utilization, selfplay jobs). Gap identified: Web app not instrumented for Prometheus (no prom-client, no /metrics endpoint). System Health dashboard panels show "No data" for HTTP/WebSocket. Non-blocking for v1.0 launch - k6 provides SLO data. |
 | 1.8     | 2025-12-20 | **PV-12 completed. ✅ PASS.** Production Validation Gate Checklist created at `docs/production/PRODUCTION_VALIDATION_GATE.md`. Document includes all validation criteria from PV-01 through PV-11, machine-parseable checkbox syntax, clear PASS/FAIL criteria, command references, and known gaps section. Production validation remediation plan (PV-01 through PV-12) is now complete.                                                                                                                                                |
-| 1.9     | 2025-12-20 | **PV-13 completed. ✅ PASS with known gap.** WebSocket Load Test Validation: reviewed `websocket-gameplay.js` (1356 lines), documented test coverage (connection, handshake, move RTT, stalls), identified Python AI service gap (heuristic AI runs locally, not via Python service). Gap is acceptable for v1.0 - AI service health validated in PV-10, heuristic AI is default. Future enhancement path documented (direct AI service test or minimax/mcts AI types).                                                                  |
+| 1.9     | 2025-12-20 | **PV-13 completed. ✅ PASS with known gap.** WebSocket Load Test Validation: reviewed `websocket-gameplay.js` (1356 lines), documented test coverage (connection, handshake, move RTT, stalls), identified Python AI service gap (heuristic AI runs locally, not via Python service). Gap is acceptable for v1.0 - AI service health validated in PV-10, heuristic AI is default. Future enhancement path documented (direct AI service test or minimax/mcts/descent/gumbel_mcts AI types).                                              |
 | 1.10    | 2025-12-20 | **PV-14 completed. ✅ PASS.** Rate Limit Documentation: created comprehensive `docs/operations/RATE_LIMITING.md` with all environment variables (40+), production vs staging configuration table, security requirements (bypass disabled in production), bypass mechanism documentation, monitoring/alerting guidance, and troubleshooting guide. **Production Validation Remediation Plan (PV-01 through PV-14) is now COMPLETE.**                                                                                                      |
 | 1.11    | 2025-12-20 | **PV-09 remediation wiring.** Added `LOADTEST_AI_*` overrides in AI-heavy scenarios and pinned the AI-heavy runner to `mode=service`, `aiType=mcts`, square8/4p/3-AI seats by default to exercise the Python AI service.                                                                                                                                                                                                                                                                                                                 |

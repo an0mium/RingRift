@@ -406,6 +406,6 @@ RINGRIFT_CB_RECOVERY_TIMEOUT=300
 
 ## See Also
 
-- `docs/EVENT_SYSTEM_REFERENCE.md` - Complete event type reference
+- `EVENT_SYSTEM_REFERENCE.md` - Complete event type reference
 - `docs/DAEMON_REGISTRY.md` - Daemon specifications
 - `docs/runbooks/FEEDBACK_LOOP_TROUBLESHOOTING.md` - Feedback loop debugging

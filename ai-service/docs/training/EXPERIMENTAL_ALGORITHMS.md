@@ -288,7 +288,7 @@ move = ai.select_move(game_state)
 
 - Active development with 56-channel input architecture
 - Curriculum training and self-play pipelines
-- Benchmarking against AI ladder (Random, Heuristic, MCTS)
+- Benchmarking against AI ladder (Random, Heuristic, MCTS/Descent/Gumbel MCTS where available)
 
 ### GMO
 

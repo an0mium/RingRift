@@ -456,7 +456,7 @@ from app.coordination.unified_replication_daemon import UnifiedReplicationDaemon
 
 ## See Also
 
-- `docs/EVENT_SYSTEM_REFERENCE.md` - Event types and subscriptions
+- `EVENT_SYSTEM_REFERENCE.md` - Event types and subscriptions
 - `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Daemon troubleshooting guide
 - `docs/audits/CIRCULAR_DEPENDENCY_MAP.md` - Import dependency graph
 - `app/coordination/COORDINATOR_GUIDE.md` - Coordination module documentation

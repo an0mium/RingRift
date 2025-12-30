@@ -494,15 +494,15 @@ Evaluation on Square8 board type (December 2024):
 | GMO vs Random AI    | **74%**      | 50    | Target was >60%       |
 | GMO vs Heuristic AI | **62.5%**    | 40    | Stronger than level 2 |
 
-**Position in Difficulty Ladder:**
+**Position in Difficulty Ladder (Snapshot):**
 
-GMO's performance places it between Heuristic (level 2) and Policy-only (level 3):
+Snapshot (Dec 2024): GMO's performance placed it between Heuristic (level 2) and a policy-only baseline used for internal comparisons. The current canonical ladder uses Minimax (D3-4), Descent (D5-6), MCTS (D7-8), and Gumbel MCTS (D9-10), so this placement should be treated as historical context only.
 
 ```
 Level 1: Random AI        <- GMO beats 74%
 Level 2: Heuristic AI     <- GMO beats 62.5%
-Level 3: Policy-only AI   <- GMO comparable
-Level 4+: Minimax, MCTS   <- Not evaluated
+Level 3: Policy-only AI   <- GMO comparable (historical baseline)
+Level 4+: Minimax/Descent/MCTS/Gumbel MCTS <- Not evaluated
 ```
 
 GMO is available via `AIFactory.create_for_tournament("gmo", player_number)` but is not part of the main difficulty ladder. It serves as an alternative approach demonstrating gradient-based inference.

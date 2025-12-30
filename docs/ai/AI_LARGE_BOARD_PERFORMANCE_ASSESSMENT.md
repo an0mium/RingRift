@@ -145,7 +145,7 @@ class SearchBoard:
         ...
 ```
 
-**Expected speedup**: 10-50× for tree-search AIs (Minimax, MCTS, Descent).
+**Expected speedup**: 10-50× for tree-search AIs (Minimax, Descent, MCTS, Gumbel MCTS).
 For HeuristicAI (single-depth), speedup is smaller but still significant.
 
 ### 3.2 Lazy Move Generation

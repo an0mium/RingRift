@@ -250,4 +250,4 @@ python scripts/dlq_dashboard.py --pending --limit 20
 
 ---
 
-_Generated: December 2025 | See `CLAUDE.md` and `docs/EVENT_SYSTEM_REFERENCE.md` for full details_
+_Generated: December 2025 | See `../CLAUDE.md` and `EVENT_SYSTEM_REFERENCE.md` for full details_

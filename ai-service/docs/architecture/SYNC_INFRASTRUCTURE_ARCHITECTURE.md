@@ -302,6 +302,6 @@ health = facade.health_check()
 ## See Also
 
 - `docs/DAEMON_REGISTRY.md` - All daemon types and configurations
-- `docs/EVENT_SYSTEM_REFERENCE.md` - Event types and wiring
+- `../EVENT_SYSTEM_REFERENCE.md` - Event types and wiring
 - `docs/runbooks/SYNC_STALL_DETECTION.md` - Operational runbook
 - `docs/CLUSTER_TRANSPORT_ARCHITECTURE.md` - Transport layer details

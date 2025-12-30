@@ -393,4 +393,4 @@ async def stop(self) -> None:
 - `app/coordination/handler_base.py` - Base class for event-driven daemons
 - `app/coordination/monitor_base.py` - Base class for monitoring daemons
 - `app/coordination/daemon_manager.py` - Daemon lifecycle management
-- `docs/EVENT_SYSTEM_REFERENCE.md` - Complete event documentation
+- `EVENT_SYSTEM_REFERENCE.md` - Complete event documentation

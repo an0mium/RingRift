@@ -15,7 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus
 from app.coordination.safe_event_emitter import SafeEventEmitterMixin
 
 if TYPE_CHECKING:
@@ -50,9 +51,13 @@ class ProvisionResult:
         }
 
 
-@dataclass(kw_only=True)
-class ProvisionerConfig(DaemonConfig):
-    """Configuration for Provisioner."""
+@dataclass
+class ProvisionerConfig:
+    """Configuration for Provisioner.
+
+    December 2025: Simplified - no longer inherits from DaemonConfig.
+    HandlerBase uses cycle_interval directly.
+    """
     check_interval_seconds: int = 300  # 5 minutes
     min_gpu_capacity: int = 4  # Minimum active GPU nodes
     target_gpu_capacity: int = 10  # Target GPU nodes
@@ -77,8 +82,12 @@ class ClusterCapacity:
     providers: dict[str, int] = field(default_factory=dict)
 
 
-class Provisioner(BaseDaemon[ProvisionerConfig], SafeEventEmitterMixin):
+class Provisioner(HandlerBase, SafeEventEmitterMixin):
     """Auto-provisioning daemon for maintaining cluster capacity.
+
+    December 2025: Migrated to HandlerBase pattern.
+    - Uses HandlerBase singleton (get_instance/reset_instance)
+    - Uses _stats for metrics tracking
 
     Monitors cluster GPU capacity and automatically provisions new
     instances when capacity drops below minimum thresholds. Respects
@@ -92,13 +101,21 @@ class Provisioner(BaseDaemon[ProvisionerConfig], SafeEventEmitterMixin):
     _event_source = "Provisioner"
 
     def __init__(self, config: ProvisionerConfig | None = None):
-        super().__init__(config)
+        self._daemon_config = config or ProvisionerConfig()
+
+        super().__init__(
+            name="Provisioner",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
+
         self._provision_history: list[ProvisionResult] = []
         self._pending_provisions: int = 0
 
-    def _get_default_config(self) -> ProvisionerConfig:
-        """Return default configuration."""
-        return ProvisionerConfig()
+    @property
+    def config(self) -> ProvisionerConfig:
+        """Get daemon configuration."""
+        return self._daemon_config
 
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to capacity-related events."""
@@ -416,43 +433,49 @@ class Provisioner(BaseDaemon[ProvisionerConfig], SafeEventEmitterMixin):
         """Get recent provisioning history."""
         return [r.to_dict() for r in self._provision_history[-limit:]]
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Return health status for DaemonManager integration.
 
         Returns:
             HealthCheckResult with status based on recent provision failures.
         """
-        from app.coordination.protocols import HealthCheckResult
-
         recent_failures = sum(
             1 for r in self._provision_history[-10:]
             if not r.success
         )
 
+        is_healthy = recent_failures < 5
+
         return HealthCheckResult(
-            healthy=recent_failures < 5,
+            healthy=is_healthy,
+            status=CoordinatorStatus.RUNNING if self._running else CoordinatorStatus.STOPPED,
             message=f"Provisioner: {self._pending_provisions} pending, {len(self._provision_history)} total attempts",
             details={
                 "pending_provisions": self._pending_provisions,
                 "total_provisions": len(self._provision_history),
                 "recent_failures": recent_failures,
+                "cycles_completed": self._stats.cycles_completed,
+                "errors_count": self._stats.errors_count,
             },
         )
 
 
-# Singleton instance
-_provisioner: Provisioner | None = None
+# =============================================================================
+# Singleton Access (using HandlerBase class methods)
+# =============================================================================
 
 
 def get_provisioner() -> Provisioner:
-    """Get the singleton Provisioner instance."""
-    global _provisioner
-    if _provisioner is None:
-        _provisioner = Provisioner()
-    return _provisioner
+    """Get or create the singleton Provisioner instance.
+
+    Uses HandlerBase.get_instance() for thread-safe singleton access.
+    """
+    return Provisioner.get_instance()
 
 
 def reset_provisioner() -> None:
-    """Reset the singleton (for testing)."""
-    global _provisioner
-    _provisioner = None
+    """Reset the singleton instance (for testing).
+
+    Uses HandlerBase.reset_instance() for thread-safe cleanup.
+    """
+    Provisioner.reset_instance()

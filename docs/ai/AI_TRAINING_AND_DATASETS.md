@@ -545,7 +545,7 @@ A 30-game `mixed` engine-mode soak on `square8` (2-player, seed 42, light diffic
 1. The swap rule is **legally available** (P2 can invoke after P1's first non-swap move, at most once per game, only during `ACTIVE` status).
 2. No AI policy currently assigns meaningful value to the swap action, which is expected given:
    - Heuristic/material evaluators don't explicitly model first-move advantage.
-   - Tree search AIs (Minimax, MCTS, Descent) don't observe enough strategic value to prefer swapping over other legal moves.
+   - Tree search AIs sampled in this run (Minimax, MCTS, Descent) don't observe enough strategic value to prefer swapping over other legal moves.
 
 ### 8.2 Future Exploration
 
