@@ -197,6 +197,32 @@ class S3NodeSyncDaemon:
     def name(self) -> str:
         return f"S3NodeSyncDaemon-{self.node_id}"
 
+    def _schedule_async(self, coro: Any, operation_name: str = "operation") -> None:
+        """Safely schedule an async operation from a sync context.
+
+        December 30, 2025: Added to fix "no running event loop" errors when
+        event handlers are called from sync code.
+
+        Args:
+            coro: Coroutine to schedule
+            operation_name: Name for logging purposes
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            # No running event loop - try to get the main loop
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.run_coroutine_threadsafe(coro, loop)
+                else:
+                    # Last resort: run in new loop (blocking, but works)
+                    logger.debug(f"Running {operation_name} synchronously (no event loop)")
+                    asyncio.run(coro)
+            except Exception as e:
+                logger.debug(f"Could not schedule {operation_name}: {e}")
+
     def is_running(self) -> bool:
         return self._running
 
@@ -324,7 +350,7 @@ class S3NodeSyncDaemon:
 
             # Schedule push on next loop iteration (non-blocking)
             if self._running:
-                asyncio.create_task(self._push_models())
+                self._schedule_async(self._push_models(), "S3 push models after training")
 
         except Exception as e:
             logger.warning(f"Error handling TRAINING_COMPLETED event: {e}")
@@ -348,7 +374,7 @@ class S3NodeSyncDaemon:
                     f"triggering S3 push"
                 )
                 if self._running:
-                    asyncio.create_task(self._push_games())
+                    self._schedule_async(self._push_games(), "S3 push games")
             else:
                 logger.debug(f"Selfplay batch too small ({games_count} < 100), skipping S3 sync")
 
@@ -370,7 +396,7 @@ class S3NodeSyncDaemon:
             logger.info(f"Model promoted ({config_key}), triggering high-priority S3 push")
 
             if self._running:
-                asyncio.create_task(self._push_models())
+                self._schedule_async(self._push_models(), "S3 push models")
 
         except Exception as e:
             logger.warning(f"Error handling MODEL_PROMOTED event: {e}")
