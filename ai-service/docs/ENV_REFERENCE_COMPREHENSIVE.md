@@ -193,8 +193,8 @@ value = env.get("CUSTOM_VAR", "default")
 
 | Variable                         | Type | Default | In env.py | Description                        |
 | -------------------------------- | ---- | ------- | --------- | ---------------------------------- |
-| `RINGRIFT_SKIP_SHADOW_CONTRACTS` | bool | `false` | ✓         | Skip shadow validation             |
-| `RINGRIFT_PARITY_VALIDATION`     | str  | `warn`  | ✓         | Parity mode (warn, strict, off)    |
+| `RINGRIFT_SKIP_SHADOW_CONTRACTS` | bool | `true`  | ✓         | Skip shadow validation             |
+| `RINGRIFT_PARITY_VALIDATION`     | str  | `off`   | ✓         | Parity mode (off, warn, strict)    |
 | `RINGRIFT_AUTONOMOUS_MODE`       | bool | `false` | ✓         | Enable autonomous operation        |
 | `RINGRIFT_ALLOW_PENDING_GATE`    | bool | `false` | ✓         | Allow pending_gate databases       |
 | `RINGRIFT_ALLOW_NONCANONICAL_DB` | bool | `false` |           | Allow non-canonical databases      |
@@ -383,13 +383,15 @@ value = env.get("CUSTOM_VAR", "default")
 
 ## Debugging
 
-| Variable                             | Type | Default | In env.py | Description                 |
-| ------------------------------------ | ---- | ------- | --------- | --------------------------- |
-| `RINGRIFT_TS_REPLAY_DUMP_DIR`        | str  | None    | ✓         | TS replay dump directory    |
-| `RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K` | str  | None    | ✓         | Dump state at move K        |
-| `RINGRIFT_PARITY_DUMP_DIR`           | str  | None    |           | Parity dump directory       |
-| `RINGRIFT_PARITY_PROGRESS_EVERY`     | int  | None    |           | Progress report interval    |
-| `RINGRIFT_SOAK_FAILURE_DIR`          | str  | None    |           | Soak test failure directory |
+| Variable                             | Type | Default           | In env.py | Description                                             |
+| ------------------------------------ | ---- | ----------------- | --------- | ------------------------------------------------------- |
+| `RINGRIFT_TS_REPLAY_DUMP_DIR`        | str  | None              | ✓         | TS replay dump directory                                |
+| `RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K` | str  | None              | ✓         | Dump state at move K                                    |
+| `RINGRIFT_PARITY_BACKEND`            | str  | `auto`            |           | Parity backend (auto, ts, python_only, ts_hashes, skip) |
+| `RINGRIFT_PARITY_DUMP_DIR`           | str  | `parity_failures` |           | Parity dump directory                                   |
+| `RINGRIFT_PARITY_PROGRESS_EVERY`     | int  | `250`             |           | Progress report interval                                |
+| `RINGRIFT_SKIP_PARITY`               | bool | `false`           |           | Skip parity validation entirely                         |
+| `RINGRIFT_SOAK_FAILURE_DIR`          | str  | None              |           | Soak test failure directory                             |
 
 ---
 

@@ -118,16 +118,18 @@ variables are unset; set explicit values to keep behavior consistent.
 
 ## Feature Flags
 
-| Variable                         | Type | Default | Description                                |
-| -------------------------------- | ---- | ------- | ------------------------------------------ |
-| `RINGRIFT_SKIP_SHADOW_CONTRACTS` | bool | `false` | Skip shadow contract validation            |
-| `RINGRIFT_PARITY_VALIDATION`     | str  | `warn`  | Parity validation mode (warn, strict, off) |
-| `RINGRIFT_AUTONOMOUS_MODE`       | bool | `false` | Enable autonomous operation                |
-| `RINGRIFT_ALLOW_PENDING_GATE`    | bool | `false` | Allow training with pending_gate databases |
-| `RINGRIFT_ALLOW_NONCANONICAL_DB` | bool | `false` | Allow non-canonical database names         |
-| `RINGRIFT_ALLOW_STALE_DATA`      | bool | `false` | Allow training with stale data             |
-| `RINGRIFT_IDLE_RESOURCE_ENABLED` | bool | `true`  | Enable idle resource detection             |
-| `RINGRIFT_LAMBDA_IDLE_ENABLED`   | bool | `true`  | Enable Lambda idle shutdown                |
+| Variable                         | Type | Default | Description                                             |
+| -------------------------------- | ---- | ------- | ------------------------------------------------------- |
+| `RINGRIFT_SKIP_SHADOW_CONTRACTS` | bool | `true`  | Skip shadow contract validation                         |
+| `RINGRIFT_PARITY_VALIDATION`     | str  | `off`   | Parity validation mode (off, warn, strict)              |
+| `RINGRIFT_PARITY_BACKEND`        | str  | `auto`  | Parity backend (auto, ts, python_only, ts_hashes, skip) |
+| `RINGRIFT_SKIP_PARITY`           | bool | `false` | Skip parity validation entirely                         |
+| `RINGRIFT_AUTONOMOUS_MODE`       | bool | `false` | Enable autonomous operation                             |
+| `RINGRIFT_ALLOW_PENDING_GATE`    | bool | `false` | Allow training with pending_gate databases              |
+| `RINGRIFT_ALLOW_NONCANONICAL_DB` | bool | `false` | Allow non-canonical database names                      |
+| `RINGRIFT_ALLOW_STALE_DATA`      | bool | `false` | Allow training with stale data                          |
+| `RINGRIFT_IDLE_RESOURCE_ENABLED` | bool | `true`  | Enable idle resource detection                          |
+| `RINGRIFT_LAMBDA_IDLE_ENABLED`   | bool | `true`  | Enable Lambda idle shutdown                             |
 
 ---
 

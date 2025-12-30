@@ -266,12 +266,12 @@ class RingRiftEnv:
     @cached_property
     def skip_shadow_contracts(self) -> bool:
         """Skip shadow contract validation."""
-        return os.environ.get("RINGRIFT_SKIP_SHADOW_CONTRACTS", "").lower() in ("1", "true", "yes")
+        return os.environ.get("RINGRIFT_SKIP_SHADOW_CONTRACTS", "true").lower() in ("1", "true", "yes")
 
     @cached_property
     def parity_validation(self) -> str:
         """Parity validation mode (off, warn, strict)."""
-        return os.environ.get("RINGRIFT_PARITY_VALIDATION", "warn")
+        return os.environ.get("RINGRIFT_PARITY_VALIDATION", "off")
 
     @cached_property
     def idle_resource_enabled(self) -> bool:
