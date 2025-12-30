@@ -2,7 +2,7 @@
 
 **Last Updated**: December 29, 2025
 
-This document provides a comprehensive matrix of all 207 event types in the RingRift coordination layer,
+This document provides a comprehensive matrix of all 220+ event types in the RingRift coordination layer,
 their emitters, and subscribers. This is the single source of truth for event integration.
 
 ## Quick Reference
@@ -12,14 +12,14 @@ their emitters, and subscribers. This is the single source of truth for event in
 | Training   | 15          | Training lifecycle events   |
 | Selfplay   | 12          | Selfplay coordination       |
 | Evaluation | 8           | Model evaluation pipeline   |
-| Promotion  | 6           | Model promotion/rollback    |
-| Sync       | 10          | Data synchronization        |
-| Health     | 18          | Node and cluster health     |
-| Daemon     | 12          | Daemon lifecycle            |
+| Promotion  | 9           | Model promotion/rollback    |
+| Sync       | 11          | Data synchronization        |
+| Health     | 26          | Node and cluster health     |
+| Daemon     | 13          | Daemon lifecycle            |
 | Quality    | 10          | Data quality signals        |
 | Curriculum | 8           | Curriculum adjustments      |
-| Work Queue | 10          | Distributed work management |
-| Other      | 9+          | Miscellaneous events        |
+| Work Queue | 12          | Distributed work management |
+| Other      | 12+         | Miscellaneous events        |
 
 ---
 
@@ -204,6 +204,36 @@ their emitters, and subscribers. This is the single source of truth for event in
 - **Subscribers**:
   - `unified_distribution_daemon.py` - Waits for evaluation
 
+### PROMOTION_CANDIDATE
+
+- **Emitter**: `auto_promotion_daemon.py`, `gauntlet_runner.py`
+- **Purpose**: Model passed gauntlet and is candidate for promotion
+- **Payload**: `model_path`, `config_key`, `gauntlet_results`, `elo_gain`
+- **Subscribers**:
+  - `promotion_controller.py` - Evaluates promotion decision
+  - `curriculum_integration.py` - Prepares for potential promotion
+- **Added**: December 2025
+
+### PROMOTION_STARTED
+
+- **Emitter**: `promotion_controller.py`
+- **Purpose**: Model promotion process has started
+- **Payload**: `model_path`, `config_key`, `promotion_type`
+- **Subscribers**:
+  - `unified_distribution_daemon.py` - Prepares for distribution
+  - `coordination_bootstrap.py` - Tracks promotion state
+- **Added**: December 2025
+
+### PROMOTION_REJECTED
+
+- **Emitter**: `promotion_controller.py`, `auto_promotion_daemon.py`
+- **Purpose**: Model failed promotion criteria (regression, poor gauntlet, etc.)
+- **Payload**: `model_path`, `config_key`, `rejection_reason`, `gauntlet_results`
+- **Subscribers**:
+  - `curriculum_integration.py` - May adjust training parameters
+  - `unified_feedback.py` - Updates feedback signals
+- **Added**: December 2025
+
 ---
 
 ## 5. Sync Events
@@ -245,6 +275,16 @@ their emitters, and subscribers. This is the single source of truth for event in
 - **Emitter**: `training_freshness.py`
 - **Subscribers**:
   - `unified_feedback.py` - Adjusts training decisions
+
+### GAME_SYNCED
+
+- **Emitter**: `auto_sync_daemon.py`, P2P orchestrator
+- **Purpose**: Individual game or batch of games synced to node
+- **Payload**: `game_ids`, `source_node`, `target_node`, `sync_type` (ephemeral/broadcast)
+- **Subscribers**:
+  - `data_consolidation_daemon.py` - Updates local game counts
+  - `training_freshness.py` - Refreshes data staleness tracking
+- **Added**: December 2025 (ephemeral sync events)
 
 ---
 
@@ -352,6 +392,75 @@ their emitters, and subscribers. This is the single source of truth for event in
 - **Subscribers**:
   - `unified_health_manager.py` - Tracks recovery state
 
+### NODE_SUSPECT
+
+- **Emitter**: `node_availability/daemon.py`, `unified_health_manager.py`
+- **Purpose**: Node health is degraded but not yet offline (suspect state in SWIM protocol)
+- **Payload**: `node_id`, `reason`, `suspect_since`, `health_score`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Reduces job allocation to suspect nodes
+  - `sync_router.py` - Prefers healthy nodes for sync targets
+- **Added**: December 2025
+
+### NODE_RETIRED
+
+- **Emitter**: `node_availability/daemon.py`, P2P orchestrator
+- **Purpose**: Node has been permanently removed from cluster (offline too long)
+- **Payload**: `node_id`, `retired_at`, `reason`, `data_migrated`
+- **Subscribers**:
+  - `unified_health_manager.py` - Removes from active node list
+  - `sync_router.py` - Updates routing tables
+- **Added**: December 2025
+
+### NODE_INCOMPATIBLE_WITH_WORKLOAD
+
+- **Emitter**: `job_dispatcher.py`, `node_selector.py`
+- **Purpose**: Node cannot run assigned workload (missing deps, wrong GPU, etc.)
+- **Payload**: `node_id`, `workload_type`, `reason`, `alternatives`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Excludes node for this workload type
+- **Added**: December 2025
+
+### HEALTH_CHECK_PASSED / HEALTH_CHECK_FAILED
+
+- **Emitter**: `health_check_orchestrator.py`
+- **Purpose**: Per-node health check result
+- **Payload**: `node_id`, `check_type`, `latency_ms`, `details`
+- **Subscribers**:
+  - `unified_health_manager.py` - Updates node health scores
+  - `daemon_event_handlers.py` - May trigger recovery on failures
+- **Added**: December 2025
+
+### SYNC_STALLED
+
+- **Emitter**: `auto_sync_daemon.py`, `sync_router.py`
+- **Purpose**: Data sync has not completed within expected time
+- **Payload**: `sync_id`, `stall_duration_seconds`, `pending_bytes`, `target_node`
+- **Subscribers**:
+  - `daemon_event_handlers.py` - May trigger alternative sync path
+  - `unified_health_manager.py` - Tracks sync health
+- **Added**: December 2025
+
+### NODE_OVERLOADED
+
+- **Emitter**: `resource_monitor.py`, `selfplay_scheduler.py`
+- **Purpose**: Node has too many active jobs or resource utilization is high
+- **Payload**: `node_id`, `active_jobs`, `cpu_pct`, `gpu_pct`, `memory_pct`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Reduces job allocation
+  - `job_dispatcher.py` - Routes jobs elsewhere
+- **Added**: December 2025 (48-hour autonomous operation)
+
+### IDLE_RESOURCE_DETECTED
+
+- **Emitter**: `idle_resource_daemon.py`
+- **Purpose**: GPU or CPU resources are idle and available for work
+- **Payload**: `node_id`, `idle_gpus`, `idle_cpus`, `idle_duration_seconds`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Spawns jobs on idle resources
+  - `job_dispatcher.py` - Prioritizes idle nodes
+- **Added**: December 2025
+
 ---
 
 ## 7. Daemon Events
@@ -374,6 +483,16 @@ their emitters, and subscribers. This is the single source of truth for event in
 - **Emitter**: `daemon_manager.py`
 - **Subscribers**:
   - `unified_health_manager.py` - Triggers alert
+
+### DAEMON_CRASH_LOOP_DETECTED
+
+- **Emitter**: `daemon_manager.py`, `daemon_watchdog.py`
+- **Purpose**: Daemon has restarted too many times in short period (crash loop)
+- **Payload**: `daemon_type`, `restart_count`, `last_error`, `window_seconds`
+- **Subscribers**:
+  - `unified_health_manager.py` - Tracks daemon health
+  - `daemon_event_handlers.py` - May escalate or pause daemon
+- **Added**: December 2025
 
 ### ALL_CRITICAL_DAEMONS_READY
 
@@ -530,6 +649,26 @@ their emitters, and subscribers. This is the single source of truth for event in
   - `unified_health_manager.py` - TASK_FAILED
   - `unified_queue_populator.py` - TASK_ABANDONED
 
+### BATCH_SCHEDULED
+
+- **Emitter**: `job_dispatcher.py`, `selfplay_scheduler.py`
+- **Purpose**: Batch of selfplay/training jobs scheduled for execution
+- **Payload**: `batch_id`, `job_count`, `config_keys`, `target_nodes`, `priority`
+- **Subscribers**:
+  - `unified_queue_populator.py` - Updates queue stats
+  - `resource_monitor.py` - Tracks expected resource usage
+- **Added**: December 2025
+
+### BATCH_DISPATCHED
+
+- **Emitter**: `job_dispatcher.py`, P2P orchestrator
+- **Purpose**: Batch of jobs has been dispatched to target nodes
+- **Payload**: `batch_id`, `dispatched_count`, `nodes`, `dispatch_time_ms`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Updates job tracking
+  - `unified_idle_shutdown_daemon.py` - Resets idle timers
+- **Added**: December 2025
+
 ---
 
 ## 12. Other Events
@@ -594,6 +733,36 @@ their emitters, and subscribers. This is the single source of truth for event in
 - **Emitter**: `hyperparameter_tuner.py`, `adaptive_training.py`
 - **Subscribers**:
   - `daemon_manager.py` - Routes to handlers
+
+### DEADLOCK_DETECTED
+
+- **Emitter**: `deadlock_detector.py`, `resource_monitor.py`
+- **Purpose**: Circular wait or resource deadlock detected in pipeline
+- **Payload**: `deadlock_type`, `involved_components`, `detection_time`, `recovery_action`
+- **Subscribers**:
+  - `daemon_manager.py` - Initiates deadlock recovery
+  - `unified_health_manager.py` - Tracks system health
+- **Added**: December 2025
+
+### CHECKPOINT_SAVED
+
+- **Emitter**: `training_coordinator.py`, `train.py`
+- **Purpose**: Training checkpoint saved to disk
+- **Payload**: `checkpoint_path`, `config_key`, `epoch`, `metrics`
+- **Subscribers**:
+  - `unified_distribution_daemon.py` - May distribute intermediate checkpoints
+  - `data_pipeline_orchestrator.py` - Tracks training progress
+- **Added**: December 2025
+
+### CHECKPOINT_LOADED
+
+- **Emitter**: `training_coordinator.py`, `train.py`
+- **Purpose**: Training checkpoint loaded (resume or transfer learning)
+- **Payload**: `checkpoint_path`, `config_key`, `source_epoch`, `transfer_type`
+- **Subscribers**:
+  - `curriculum_integration.py` - Updates curriculum based on checkpoint
+  - `unified_feedback.py` - Adjusts feedback signals
+- **Added**: December 2025
 
 ---
 

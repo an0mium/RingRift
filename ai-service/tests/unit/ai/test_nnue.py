@@ -973,7 +973,8 @@ class TestMultiPlayerNNUEInitialization:
         from app.ai.nnue import MultiPlayerNNUE
 
         model = MultiPlayerNNUE(hidden_dim=512, num_players=3)
-        assert model.hidden_dim == 512
+        # Verify hidden_dim was used by checking accumulator output features
+        assert model.accumulator.out_features == 512
 
     def test_custom_board_type(self):
         """Test initialization with different board types."""

@@ -1848,7 +1848,49 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
     # - _on_backpressure_activated
     # - _on_backpressure_released
     # - _on_disk_space_low
+    #
+    # Forwarding methods below for backward compatibility with existing tests.
     # =========================================================================
+
+    async def _on_regression_critical(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_regression_critical(event)
+
+    async def _on_selfplay_target_updated(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_selfplay_target_updated(event)
+
+    async def _on_exploration_boost(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_exploration_boost(event)
+
+    async def _on_daemon_status_changed(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_daemon_status_changed(event)
+
+    async def _on_host_offline(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_host_offline(event)
+
+    async def _on_host_online(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_host_online(event)
+
+    async def _on_leader_elected(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_leader_elected(event)
+
+    async def _on_backpressure_activated(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_backpressure_activated(event)
+
+    async def _on_backpressure_released(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_backpressure_released(event)
+
+    async def _on_disk_space_low(self, event: Any) -> None:
+        """Forward to DaemonEventHandlers."""
+        await self._event_handlers._on_disk_space_low(event)
 
     async def _ensure_coordination_wired(self) -> None:
         """Ensure coordination events are wired exactly once.

@@ -383,6 +383,10 @@ class UnifiedEventRouter:
         # Metrics
         self._events_routed: dict[str, int] = {}
         self._events_by_source: dict[str, int] = {}
+        # Dec 29, 2025: Track cross-process degradation (when events fail to route)
+        self._cross_process_failures: int = 0
+        self._cross_process_degraded: bool = False
+        self._last_cp_failure_time: float = 0.0
 
         # Cross-process polling
         self._cp_poller: CrossProcessEventPoller | None = None

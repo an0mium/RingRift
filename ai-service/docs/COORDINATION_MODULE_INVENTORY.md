@@ -1,7 +1,7 @@
 # Coordination Module Inventory
 
 **Last Updated:** December 30, 2025
-**Total Modules:** 219 Python modules in `app/coordination/`
+**Total Modules:** 254 Python modules in `app/coordination/`
 **Status:** Active
 
 Counts are snapshots unless noted; use:
@@ -145,13 +145,14 @@ Work queue, scheduling, backpressure.
 
 Training feedback loops and curriculum learning.
 
-| Module                            | LOC  | Status | Purpose                                 |
-| --------------------------------- | ---- | ------ | --------------------------------------- |
-| `feedback_loop_controller.py`     | ~600 | Active | Central feedback loop orchestration     |
-| `gauntlet_feedback_controller.py` | ~400 | Active | Bridges gauntlet evaluation to training |
-| `unified_feedback.py`             | ~500 | Active | Unified feedback signal processing      |
-| `feedback_signals.py`             | ~200 | Active | Feedback signal dataclasses             |
-| `curriculum_weights.py`           | ~200 | Active | Curriculum weight management            |
+| Module                                | LOC  | Status | Purpose                                 |
+| ------------------------------------- | ---- | ------ | --------------------------------------- |
+| `feedback_loop_controller.py`         | ~600 | Active | Central feedback loop orchestration     |
+| `gauntlet_feedback_controller.py`     | ~400 | Active | Bridges gauntlet evaluation to training |
+| `unified_feedback.py`                 | ~500 | Active | Unified feedback signal processing      |
+| `feedback_signals.py`                 | ~200 | Active | Feedback signal dataclasses             |
+| `curriculum_weights.py`               | ~200 | Active | Curriculum weight management            |
+| `architecture_feedback_controller.py` | ~400 | Active | Architecture-level allocation feedback  |
 
 ### Pipeline Actions & Triggers
 
@@ -168,29 +169,31 @@ Pipeline stage actions and triggers.
 
 Active daemon implementations. See [DAEMON_REGISTRY.md](DAEMON_REGISTRY.md) for full details.
 
-| Module                            | Status | Purpose                                  |
-| --------------------------------- | ------ | ---------------------------------------- |
-| `auto_export_daemon.py`           | Active | Triggers NPZ export when thresholds met  |
-| `auto_promotion_daemon.py`        | Active | Auto-promote models based on evaluation  |
-| `auto_scaler.py`                  | Active | Cluster auto-scaling                     |
-| `cluster_watchdog_daemon.py`      | Active | Self-healing cluster utilization         |
-| `data_cleanup_daemon.py`          | Active | Auto-quarantine poor quality databases   |
-| `data_consolidation_daemon.py`    | Active | Consolidate scattered selfplay games     |
-| `disk_space_manager_daemon.py`    | Active | Proactive disk space management          |
-| `evaluation_daemon.py`            | Active | Auto-evaluate models after training      |
-| `idle_resource_daemon.py`         | Active | Monitors idle GPUs, spawns selfplay      |
-| `maintenance_daemon.py`           | Active | Log rotation, DB vacuum, cleanup         |
-| `node_recovery_daemon.py`         | Active | Auto-recover terminated nodes            |
-| `orphan_detection_daemon.py`      | Active | Detect orphaned games not in manifest    |
-| `p2p_auto_deployer.py`            | Active | Ensure P2P runs on all nodes             |
-| `quality_monitor_daemon.py`       | Active | Continuous selfplay quality monitoring   |
-| `s3_backup_daemon.py`             | Active | Backup models to S3                      |
-| `tournament_daemon.py`            | Active | Automatic tournament scheduling          |
-| `training_activity_daemon.py`     | Active | Detects training, triggers priority sync |
-| `unified_distribution_daemon.py`  | Active | Model + NPZ distribution                 |
-| `unified_idle_shutdown_daemon.py` | Active | Provider-agnostic idle detection         |
-| `unified_replication_daemon.py`   | Active | Monitoring + repair combined             |
-| `work_queue_monitor_daemon.py`    | Active | Work queue lifecycle + backpressure      |
+| Module                                | Status | Purpose                                     |
+| ------------------------------------- | ------ | ------------------------------------------- |
+| `auto_export_daemon.py`               | Active | Triggers NPZ export when thresholds met     |
+| `auto_promotion_daemon.py`            | Active | Auto-promote models based on evaluation     |
+| `architecture_feedback_controller.py` | Active | Architecture feedback weights               |
+| `auto_scaler.py`                      | Active | Cluster auto-scaling                        |
+| `cluster_watchdog_daemon.py`          | Active | Self-healing cluster utilization            |
+| `data_cleanup_daemon.py`              | Active | Auto-quarantine poor quality databases      |
+| `data_consolidation_daemon.py`        | Active | Consolidate scattered selfplay games        |
+| `disk_space_manager_daemon.py`        | Active | Proactive disk space management             |
+| `evaluation_daemon.py`                | Active | Auto-evaluate models after training         |
+| `idle_resource_daemon.py`             | Active | Monitors idle GPUs, spawns selfplay         |
+| `maintenance_daemon.py`               | Active | Log rotation, DB vacuum, cleanup            |
+| `nnue_training_daemon.py`             | Active | Auto-trains NNUE models when thresholds met |
+| `node_recovery_daemon.py`             | Active | Auto-recover terminated nodes               |
+| `orphan_detection_daemon.py`          | Active | Detect orphaned games not in manifest       |
+| `p2p_auto_deployer.py`                | Active | Ensure P2P runs on all nodes                |
+| `quality_monitor_daemon.py`           | Active | Continuous selfplay quality monitoring      |
+| `s3_backup_daemon.py`                 | Active | Backup models to S3                         |
+| `tournament_daemon.py`                | Active | Automatic tournament scheduling             |
+| `training_activity_daemon.py`         | Active | Detects training, triggers priority sync    |
+| `unified_distribution_daemon.py`      | Active | Model + NPZ distribution                    |
+| `unified_idle_shutdown_daemon.py`     | Active | Provider-agnostic idle detection            |
+| `unified_replication_daemon.py`       | Active | Monitoring + repair combined                |
+| `work_queue_monitor_daemon.py`        | Active | Work queue lifecycle + backpressure         |
 
 ### Utilities & Helpers
 

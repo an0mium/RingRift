@@ -85,6 +85,120 @@ python scripts/update_all_nodes.py --restart-p2p
 | `app/ai/gpu_parallel_games.py`   | Vectorized GPU selfplay (6-57× speedup)     |
 | `app/ai/gumbel_search_engine.py` | Unified MCTS entry point                    |
 | `app/ai/gumbel_common.py`        | Shared Gumbel data structures, budget tiers |
+| `app/ai/harness/`                | Harness abstraction layer (see below)       |
+| `app/ai/nnue.py`                 | NNUE evaluation network (~256 hidden)       |
+| `app/ai/nnue_policy.py`          | NNUE with policy head for MCTS              |
+
+### Harness Abstraction Layer (Dec 2025)
+
+The harness abstraction provides a unified interface for evaluating models under different AI algorithms. This enables tracking separate Elo ratings per (model, harness) combination.
+
+**Files:**
+
+| Module                                  | Purpose                                    |
+| --------------------------------------- | ------------------------------------------ |
+| `app/ai/harness/base_harness.py`        | `AIHarness` abstract base, `HarnessConfig` |
+| `app/ai/harness/harness_registry.py`    | Factory, compatibility matrix              |
+| `app/ai/harness/evaluation_metadata.py` | `EvaluationMetadata` for Elo tracking      |
+| `app/ai/harness/implementations.py`     | Concrete harness implementations           |
+
+**Harness Types:**
+
+| Type          | NN  | NNUE | Policy   | Best For                    |
+| ------------- | --- | ---- | -------- | --------------------------- |
+| `GUMBEL_MCTS` | ✓   | -    | Required | Training data, high quality |
+| `GPU_GUMBEL`  | ✓   | -    | Required | High throughput selfplay    |
+| `MINIMAX`     | ✓   | ✓    | -        | 2-player, fast evaluation   |
+| `MAXN`        | ✓   | ✓    | -        | 3-4 player multiplayer      |
+| `BRS`         | ✓   | ✓    | -        | Fast multiplayer            |
+| `POLICY_ONLY` | ✓   | ✓\*  | Required | Baselines, fast play        |
+| `DESCENT`     | ✓   | -    | Required | Exploration, research       |
+| `HEURISTIC`   | -   | -    | -        | Baselines, bootstrap        |
+
+**Usage:**
+
+```python
+from app.ai.harness import create_harness, HarnessType, get_compatible_harnesses
+
+# Create a harness
+harness = create_harness(
+    HarnessType.MINIMAX,
+    model_path="models/nnue_hex8_2p.pt",
+    board_type="hex8",
+    num_players=2,
+    depth=4,
+)
+
+# Evaluate position
+move, metadata = harness.evaluate(game_state, player_number=1)
+
+# Metadata includes visit distribution for soft targets
+print(f"Value: {metadata.value_estimate}, Nodes: {metadata.nodes_visited}")
+
+# Composite ID for Elo: "nnue_hex8_2p:minimax:d4abc123"
+participant_id = harness.get_composite_participant_id()
+```
+
+### NNUE Evaluation (Dec 2025)
+
+NNUE (Efficiently Updatable Neural Network) provides fast CPU inference for minimax-style search.
+
+**Architecture (V3):**
+
+- 26 spatial planes + 32 global features per position
+- ~256 hidden units, ClippedReLU activations
+- Output: [-1, 1] scaled to centipawn-like score
+
+**Feature Planes (26):**
+| Planes | Content |
+|--------|---------|
+| 0-3 | Ring presence per player |
+| 4-7 | Stack height per player |
+| 8-11 | Territory ownership per player |
+| 12-15 | Marker presence per player |
+| 16-19 | Cap height per player |
+| 20-23 | Line threat per direction |
+| 24-25 | Capture threat (vulnerability, opportunity) |
+
+**Usage:**
+
+```python
+from app.ai.nnue import RingRiftNNUE, clear_nnue_cache
+
+# Load NNUE model
+nnue = RingRiftNNUE.from_checkpoint("models/nnue_hex8_2p.pt", board_type="hex8")
+
+# Evaluate position
+score = nnue.evaluate(game_state, perspective_player=1)
+
+# Clear cache when done
+clear_nnue_cache()
+```
+
+### Multi-Harness Gauntlet (Dec 2025)
+
+Evaluates models under all compatible harnesses, producing Elo ratings per combination.
+
+```python
+from app.training.multi_harness_gauntlet import MultiHarnessGauntlet
+
+gauntlet = MultiHarnessGauntlet()
+results = await gauntlet.evaluate_model(
+    model_path="models/canonical_hex8_4p.pth",
+    model_type="nn",  # or "nnue", "nnue_mp"
+    board_type="hex8",
+    num_players=4,
+)
+
+for harness, rating in results.ratings.items():
+    print(f"  {harness}: Elo {rating.elo:.0f} ({rating.win_rate:.1%})")
+```
+
+**Model Types:**
+
+- `nn`: Full neural network (v2-v6), compatible with policy-based harnesses
+- `nnue`: NNUE (2-player), uses minimax
+- `nnue_mp`: Multi-player NNUE, uses MaxN/BRS
 
 ### Base Classes
 
