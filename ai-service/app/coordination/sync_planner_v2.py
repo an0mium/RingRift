@@ -67,6 +67,7 @@ from app.coordination.data_catalog import (
     DataType,
     get_data_catalog,
 )
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.transport_manager import (
     Transport,
     TransportManager,
@@ -473,7 +474,7 @@ class SyncPlanner:
     def _handle_selfplay_complete(self, payload: dict) -> list[SyncPlan]:
         """Handle SELFPLAY_COMPLETE event - sync new games to cluster."""
         source_node = payload.get("source_node", payload.get("node_id", self._node_id))
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         game_count = payload.get("game_count", payload.get("count", 0))
         db_path = payload.get("db_path", "")
 
@@ -510,7 +511,7 @@ class SyncPlanner:
     def _handle_training_started(self, payload: dict) -> list[SyncPlan]:
         """Handle TRAINING_STARTED - ensure training deps are synced."""
         node_id = payload.get("node_id", payload.get("host", ""))
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
 
         if not node_id or not config_key:
             return []
@@ -526,7 +527,7 @@ class SyncPlanner:
         """Handle MODEL_PROMOTED - sync model to all GPU nodes."""
         model_path = payload.get("model_path", "")
         source_node = payload.get("source_node", payload.get("node_id", self._node_id))
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
 
         if not model_path:
             return []
@@ -558,7 +559,7 @@ class SyncPlanner:
     def _handle_orphan_detected(self, payload: dict) -> list[SyncPlan]:
         """Handle ORPHAN_GAMES_DETECTED - urgent sync from ephemeral nodes."""
         source_node = payload.get("source_node", payload.get("node_id", ""))
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         game_ids = payload.get("game_ids", [])
 
         if not source_node:
@@ -613,7 +614,7 @@ class SyncPlanner:
         source_node = payload.get("source", payload.get("source_node", self._node_id))
         target_nodes = payload.get("targets", payload.get("target_nodes", []))
         data_type = payload.get("data_type", "games")
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         priority_str = payload.get("priority", "NORMAL")
 
         # Parse priority

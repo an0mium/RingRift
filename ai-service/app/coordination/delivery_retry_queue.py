@@ -26,9 +26,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DeliveryRetryQueue",
-    "RetryConfig",
+    "DeliveryRetryConfig",
     "get_delivery_retry_queue",
     "reset_delivery_retry_queue",
+    # Backward-compat alias (deprecated, use DeliveryRetryConfig)
+    "RetryConfig",
 ]
 
 # Singleton instance
@@ -36,8 +38,15 @@ _retry_queue_instance: "DeliveryRetryQueue | None" = None
 
 
 @dataclass
-class RetryConfig:
-    """Configuration for retry behavior."""
+class DeliveryRetryConfig:
+    """Configuration for delivery retry behavior.
+
+    This is a domain-specific retry configuration for the delivery queue.
+    For general retry utilities, use app.utils.retry.RetryConfig.
+
+    December 2025: Renamed from RetryConfig to avoid collision with
+    centralized retry utilities in app/utils/retry.py.
+    """
 
     # Retry settings
     initial_delay_seconds: float = 30.0
@@ -67,6 +76,10 @@ class RetryConfig:
         return min(delay, self.max_delay_seconds)
 
 
+# Backward-compatible alias (deprecated - use DeliveryRetryConfig)
+RetryConfig = DeliveryRetryConfig
+
+
 @dataclass(order=True)
 class PendingRetry:
     """A retry scheduled in the queue.
@@ -92,19 +105,19 @@ class DeliveryRetryQueue:
     def __init__(
         self,
         ledger: DeliveryLedger | None = None,
-        config: RetryConfig | None = None,
+        config: DeliveryRetryConfig | None = None,
         retry_handler: Callable[[DeliveryRecord], Coroutine[Any, Any, bool]] | None = None,
     ):
         """Initialize the retry queue.
 
         Args:
             ledger: DeliveryLedger to use for persistence. Uses singleton if not specified.
-            config: RetryConfig for retry behavior. Uses defaults if not specified.
+            config: DeliveryRetryConfig for retry behavior. Uses defaults if not specified.
             retry_handler: Async callable that performs the actual retry. Takes a
                 DeliveryRecord and returns True on success, False on failure.
         """
         self.ledger = ledger or get_delivery_ledger()
-        self.config = config or RetryConfig()
+        self.config = config or DeliveryRetryConfig()
         self._retry_handler = retry_handler
 
         # Priority queue of pending retries

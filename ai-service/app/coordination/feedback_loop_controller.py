@@ -41,6 +41,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_utils import parse_config_key
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
@@ -700,7 +701,7 @@ class FeedbackLoopController(HandlerBase):
             def on_scheduler_registered(event) -> None:
                 """Wire exploration boost when new scheduler registers."""
                 payload = event.payload if hasattr(event, "payload") else {}
-                config_key = payload.get("config_key", "")
+                config_key = extract_config_key(payload)
 
                 if not config_key:
                     return
@@ -744,7 +745,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "")
+            config_key = extract_config_key(payload)
             games_count = payload.get("games_count", 0)
             db_path = payload.get("db_path", "")
             engine_mode = payload.get("engine_mode", "gumbel-mcts")  # Dec 29 2025
@@ -801,7 +802,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "")
+            config_key = extract_config_key(payload)
             old_rate = payload.get("old_rate", 1.0)
             new_rate = payload.get("new_rate", 1.0)
             change_percent = payload.get("change_percent", 0.0)
@@ -883,7 +884,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "") or payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             games_count = payload.get("games_count", 0) or payload.get("games_generated", 0)
             db_path = payload.get("db_path", "")
             node_id = payload.get("node_id", "")
@@ -937,7 +938,7 @@ class FeedbackLoopController(HandlerBase):
             payload = event.payload if hasattr(event, "payload") else {}
 
             db_path = payload.get("db_path", "")
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             board_type = payload.get("board_type", "")
             num_players = payload.get("num_players", 0)
             node_id = payload.get("node_id", "")
@@ -975,7 +976,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "")
+            config_key = extract_config_key(payload)
             loss_value = payload.get("loss", 0.0)
             expected_loss = payload.get("expected_loss", 0.0)
             deviation = payload.get("deviation", 0.0)
@@ -1021,7 +1022,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "")
+            config_key = extract_config_key(payload)
             trend = payload.get("trend", "unknown")  # improving, stalled, degrading
             current_loss = payload.get("current_loss", 0.0)
             trend_duration_epochs = payload.get("trend_duration_epochs", 0)
@@ -1081,7 +1082,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else event
 
-            config_key = payload.get("config_key", "") or payload.get("config", "")
+            config_key = extract_config_key(payload)
             plateau_type = payload.get("plateau_type", "data_limitation")
             exploration_boost = payload.get("exploration_boost", 1.3)
             train_val_gap = payload.get("train_val_gap", 0.0)
@@ -1293,7 +1294,7 @@ class FeedbackLoopController(HandlerBase):
                 logger.debug("[FeedbackLoopController] Skipping self-emitted QUALITY_DEGRADED event")
                 return
 
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             quality_score = payload.get("quality_score", 0.5)
             threshold = payload.get("threshold", MEDIUM_QUALITY_THRESHOLD)
 
@@ -1523,7 +1524,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "")
+            config_key = extract_config_key(payload)
             policy_accuracy = payload.get("policy_accuracy", 0.0)
             value_accuracy = payload.get("value_accuracy", 0.0)
             model_path = payload.get("model_path", "")
@@ -1643,7 +1644,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "")
+            config_key = extract_config_key(payload)
             win_rate = payload.get("win_rate", 0.0)
             elo = payload.get("elo", 1500.0)
             model_path = payload.get("model_path", "")
@@ -1875,7 +1876,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config", "") or payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             model_path = payload.get("model_path", "")
             error = payload.get("error", "unknown")
             retry_count = payload.get("retry_count", 0)
@@ -1949,7 +1950,7 @@ class FeedbackLoopController(HandlerBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
 
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             elo_drop = payload.get("elo_drop", 0.0)
             consecutive_regressions = payload.get("consecutive_regressions", 1)
 
@@ -3072,7 +3073,7 @@ class FeedbackLoopController(HandlerBase):
         Added: December 2025
         """
         payload = event.payload if hasattr(event, "payload") else {}
-        config = payload.get("config", "")
+        config = extract_config_key(payload)
         reason = payload.get("reason", "")
         epoch = payload.get("epoch", 0)
 
@@ -3112,7 +3113,7 @@ class FeedbackLoopController(HandlerBase):
         Added: December 28, 2025 - Fixes orphan event (no prior subscriber)
         """
         payload = event.payload if hasattr(event, "payload") else {}
-        config_key = payload.get("config_key") or payload.get("config", "")
+        config_key = extract_config_key(payload)
         model_id = payload.get("model_id", "")
         rollback_from = payload.get("rollback_from", "")
         rollback_to = payload.get("rollback_to", "")
@@ -3171,7 +3172,7 @@ class FeedbackLoopController(HandlerBase):
         Added: December 2025
         """
         payload = event.payload if hasattr(event, "payload") else {}
-        config = payload.get("config", "")
+        config = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.0)
         threshold = payload.get("threshold", 0.6)
 
@@ -3217,7 +3218,7 @@ class FeedbackLoopController(HandlerBase):
         Added: December 2025 - Closes critical feedback loop gap
         """
         payload = event.payload if hasattr(event, "payload") else {}
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.5)
         budget_multiplier = payload.get("budget_multiplier", 1.0)
         adjustment_type = payload.get("adjustment_type", "unknown")
@@ -3276,7 +3277,7 @@ class FeedbackLoopController(HandlerBase):
         Added: December 2025 - Closes quality recovery feedback loop
         """
         payload = event.payload if hasattr(event, "payload") else {}
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.0)
         sample_count = payload.get("sample_count", 0)
 
@@ -3316,7 +3317,7 @@ class FeedbackLoopController(HandlerBase):
             event: Event with payload containing config_key, quality_score, trend
         """
         payload = event.payload if hasattr(event, "payload") else {}
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.0)
         trend = payload.get("trend", "stable")  # improving, declining, stable
         sample_count = payload.get("sample_count", 0)

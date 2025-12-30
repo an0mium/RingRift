@@ -47,6 +47,7 @@ __all__ = [
 
 # December 2025: Use consolidated daemon stats base class
 from app.coordination.daemon_stats import CleanupDaemonStats
+from app.coordination.event_utils import parse_config_key
 
 
 @dataclass
@@ -870,14 +871,11 @@ class MaintenanceDaemon:
                 if name.startswith("selfplay_"):
                     name = name[len("selfplay_"):]
 
-                # Parse board_type and num_players
-                parts = name.rsplit("_", 1)
-                if len(parts) == 2:
-                    board_type = parts[0]
-                    players_str = parts[1]
-                    if players_str.endswith("p"):
-                        with contextlib.suppress(ValueError):
-                            num_players = int(players_str[:-1])
+                # Parse board_type and num_players using canonical utility
+                parsed = parse_config_key(name)
+                if parsed:
+                    board_type = parsed.board_type
+                    num_players = parsed.num_players
 
                 # Fallback: if we can't parse, use defaults
                 if not board_type:

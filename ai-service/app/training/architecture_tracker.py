@@ -77,6 +77,12 @@ class ArchitectureStats:
     _elo_sum: float = 0.0
     _elo_sum_sq: float = 0.0
 
+    # Per-harness Elo breakdown (Dec 2025)
+    # Maps harness name (e.g., "gumbel_mcts", "policy_only") to Elo rating
+    harness_elos: dict[str, float] = field(default_factory=dict)
+    harness_games: dict[str, int] = field(default_factory=dict)
+    harness_variance: dict[str, float] = field(default_factory=dict)
+
     @property
     def config_key(self) -> str:
         """Configuration key for this architecture."""
@@ -156,6 +162,64 @@ class ArchitectureStats:
         if self.training_hours > 0:
             self.elo_per_training_hour = max(0.0, self.avg_elo - 1000.0) / self.training_hours
 
+    def record_harness_evaluation(
+        self,
+        harness: str,
+        elo: float,
+        games: int,
+    ) -> None:
+        """Record evaluation result for a specific harness.
+
+        Tracks per-harness Elo ratings separately from overall Elo.
+        This enables comparing architectures under different search algorithms.
+
+        Args:
+            harness: Harness name (e.g., "gumbel_mcts", "policy_only", "minimax")
+            elo: Elo rating achieved under this harness
+            games: Number of games evaluated
+        """
+        # Update games count
+        prev_games = self.harness_games.get(harness, 0)
+        new_games = prev_games + games
+        self.harness_games[harness] = new_games
+
+        # Update Elo using weighted average
+        prev_elo = self.harness_elos.get(harness, elo)
+        if prev_games == 0:
+            self.harness_elos[harness] = elo
+        else:
+            # Weighted average of previous and new Elo
+            self.harness_elos[harness] = (
+                prev_elo * prev_games + elo * games
+            ) / new_games
+
+        # Update variance using Welford's algorithm (simplified)
+        if harness not in self.harness_variance:
+            self.harness_variance[harness] = 0.0
+
+    def get_harness_elo(self, harness: str, default: float = 1000.0) -> float:
+        """Get Elo rating for a specific harness.
+
+        Args:
+            harness: Harness name
+            default: Default value if no data
+
+        Returns:
+            Elo rating for harness
+        """
+        return self.harness_elos.get(harness, default)
+
+    def get_best_harness(self) -> tuple[str, float] | None:
+        """Get the harness where this architecture performs best.
+
+        Returns:
+            Tuple of (harness_name, elo) or None if no harness data
+        """
+        if not self.harness_elos:
+            return None
+        best_harness = max(self.harness_elos.items(), key=lambda x: x[1])
+        return best_harness
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary for persistence."""
         return {
@@ -173,6 +237,10 @@ class ArchitectureStats:
             "last_evaluation_time": self.last_evaluation_time,
             "_elo_sum": self._elo_sum,
             "_elo_sum_sq": self._elo_sum_sq,
+            # Per-harness Elo breakdown (Dec 2025)
+            "harness_elos": self.harness_elos.copy(),
+            "harness_games": self.harness_games.copy(),
+            "harness_variance": self.harness_variance.copy(),
         }
 
     @classmethod
@@ -194,6 +262,10 @@ class ArchitectureStats:
         stats.last_evaluation_time = data.get("last_evaluation_time", 0.0)
         stats._elo_sum = data.get("_elo_sum", 0.0)
         stats._elo_sum_sq = data.get("_elo_sum_sq", 0.0)
+        # Per-harness Elo breakdown (Dec 2025)
+        stats.harness_elos = data.get("harness_elos", {}).copy()
+        stats.harness_games = data.get("harness_games", {}).copy()
+        stats.harness_variance = data.get("harness_variance", {}).copy()
         return stats
 
 

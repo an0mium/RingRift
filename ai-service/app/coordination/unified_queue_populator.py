@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 # Canonical types (December 2025 consolidation)
 from app.coordination.types import BackpressureLevel, BoardType
+from app.coordination.event_utils import parse_config_key
 
 if TYPE_CHECKING:
     from app.coordination.selfplay_scheduler import SelfplayScheduler
@@ -1216,15 +1217,12 @@ class UnifiedQueuePopulatorDaemon:
                 if not config_key:
                     return
 
-                parts = config_key.rsplit("_", 1)
-                if len(parts) != 2 or not parts[1].endswith("p"):
+                # Parse config_key using canonical utility
+                parsed = parse_config_key(config_key)
+                if not parsed:
                     return
-
-                board_type = parts[0]
-                try:
-                    num_players = int(parts[1][:-1])
-                except ValueError:
-                    return
+                board_type = parsed.board_type
+                num_players = parsed.num_players
 
                 if self._populator._work_queue is None:
                     return

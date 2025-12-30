@@ -30,6 +30,7 @@ from typing import Any
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
 from app.coordination.contracts import CoordinatorStatus
 from app.coordination.protocols import HealthCheckResult
+from app.coordination.event_utils import parse_config_key
 
 logger = logging.getLogger(__name__)
 
@@ -301,16 +302,14 @@ class ParityValidationDaemon(BaseDaemon):
             validation_time=datetime.now(timezone.utc).isoformat(),
         )
 
-        # Parse board type and num_players from filename
+        # Parse board type and num_players from filename using canonical utility
         # Format: canonical_hex8_2p.db
         stem = db_path.stem  # canonical_hex8_2p
-        parts = stem.replace("canonical_", "").rsplit("_", 1)
-        if len(parts) == 2:
-            result.board_type = parts[0]
-            try:
-                result.num_players = int(parts[1].rstrip("p"))
-            except ValueError:
-                pass
+        config_key = stem.replace("canonical_", "").replace("selfplay_", "")
+        parsed = parse_config_key(config_key)
+        if parsed:
+            result.board_type = parsed.board_type
+            result.num_players = parsed.num_players
 
         # Import here to avoid circular imports
         try:

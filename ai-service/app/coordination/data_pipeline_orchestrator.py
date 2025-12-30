@@ -114,6 +114,8 @@ from app.coordination.protocols import (
     register_coordinator,
     unregister_coordinator,
 )
+from app.coordination.event_handler_utils import extract_config_key
+from app.coordination.event_utils import parse_config_key
 
 # December 2025: Import mixin classes for DataPipelineOrchestrator decomposition
 from app.coordination.pipeline_event_handler_mixin import PipelineEventHandlerMixin
@@ -544,19 +546,15 @@ class DataPipelineOrchestrator(
             if not num_players and "num_players" in metadata:
                 num_players = metadata["num_players"]
 
-            # Try to parse from config_key (e.g., "hex8_2p" or "square8_4p")
+            # Try to parse from config_key using canonical utility
             if (not board_type or not num_players) and "config_key" in metadata:
                 config_key = metadata["config_key"]
-                if "_" in config_key and config_key.endswith("p"):
-                    parts = config_key.rsplit("_", 1)
-                    if len(parts) == 2:
-                        if not board_type:
-                            board_type = parts[0]
-                        if not num_players:
-                            try:
-                                num_players = int(parts[1].rstrip("p"))
-                            except ValueError:
-                                pass
+                parsed = parse_config_key(config_key)
+                if parsed:
+                    if not board_type:
+                        board_type = parsed.board_type
+                    if not num_players:
+                        num_players = parsed.num_players
 
         # Log if we successfully inferred missing config
         if (board_type and num_players) and (
@@ -1744,7 +1742,7 @@ class DataPipelineOrchestrator(
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             game_count = payload.get("game_count", 0)
             source = payload.get("source", "unknown")
 
@@ -1837,7 +1835,7 @@ class DataPipelineOrchestrator(
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             elo_loss = payload.get("elo_loss", payload.get("elo_drop", 0))
             severity = payload.get("severity", "unknown")
 
@@ -1900,7 +1898,7 @@ class DataPipelineOrchestrator(
         """Handle PROMOTION_FAILED event - log and track for pipeline metrics."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             reason = payload.get("reason", "unknown")
 
             logger.warning(
@@ -1916,7 +1914,7 @@ class DataPipelineOrchestrator(
         """Handle CONSOLIDATION_STARTED event."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             logger.info(f"[DataPipelineOrchestrator] Consolidation started: {config_key}")
             self._record_event_processed()
         except (AttributeError, KeyError, TypeError) as e:
@@ -1926,7 +1924,7 @@ class DataPipelineOrchestrator(
         """Handle CONSOLIDATION_COMPLETE event - trigger export for consolidated data."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             game_count = payload.get("game_count", 0)
             logger.info(
                 f"[DataPipelineOrchestrator] Consolidation complete: "
@@ -1940,7 +1938,7 @@ class DataPipelineOrchestrator(
         """Handle NPZ_COMBINATION_COMPLETE event."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             output_path = payload.get("output_path", "")
             logger.info(
                 f"[DataPipelineOrchestrator] NPZ combination complete: "
@@ -1954,7 +1952,7 @@ class DataPipelineOrchestrator(
         """Handle NPZ_COMBINATION_FAILED event."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             error = payload.get("error", "unknown")
             logger.error(
                 f"[DataPipelineOrchestrator] NPZ combination failed: "
@@ -1968,7 +1966,7 @@ class DataPipelineOrchestrator(
         """Handle REPAIR_COMPLETED event - retrigger sync after data repair."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             files_repaired = payload.get("files_repaired", 0)
             logger.info(
                 f"[DataPipelineOrchestrator] Repair completed: "
@@ -1982,7 +1980,7 @@ class DataPipelineOrchestrator(
         """Handle REPAIR_FAILED event - track repair failures for circuit breaker."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             error = payload.get("error", "unknown")
             logger.error(
                 f"[DataPipelineOrchestrator] Repair failed: "
@@ -2010,7 +2008,7 @@ class DataPipelineOrchestrator(
         """Handle QUALITY_SCORE_UPDATED event - aggregate quality metrics."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             quality_score = payload.get("quality_score", 0.0)
 
             if config_key:
@@ -2041,7 +2039,7 @@ class DataPipelineOrchestrator(
         """Handle CURRICULUM_ADVANCED event - track curriculum progression."""
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             new_tier = payload.get("new_tier", "")
             logger.info(
                 f"[DataPipelineOrchestrator] Curriculum advanced: "
@@ -2092,7 +2090,7 @@ class DataPipelineOrchestrator(
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             data_age_hours = payload.get("data_age_hours", 0)
             threshold_hours = payload.get("threshold_hours", 24)
             source = payload.get("source", "unknown")

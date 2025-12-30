@@ -716,9 +716,9 @@ All 8 critical AI training events fully wired:
 
 ### Daemon Manager - 100% Factory Coverage
 
-- **66 DaemonType** enum values defined
-- **66 factory methods** implemented (100% coverage)
-- **6 daemon categories**: Sync, Training, Monitoring, Events, P2P, Advanced
+- **89 DaemonType** enum values defined (78 active, 11 deprecated)
+- **89 runner functions** implemented in `daemon_runners.py`
+- **Daemon categories**: See `ai-service/docs/DAEMON_REGISTRY.md` for the current list
 
 ### Cluster Infrastructure
 

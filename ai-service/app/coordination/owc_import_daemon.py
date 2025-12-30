@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.event_utils import parse_config_key
 from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
 from app.core.ssh import SSHClient, SSHConfig, SSHResult
 
@@ -316,17 +317,12 @@ class OWCImportDaemon(BaseDaemon[OWCImportConfig]):
 
     def _get_local_game_count(self, config_key: str) -> int:
         """Get current game count in local canonical database."""
-        parts = config_key.rsplit("_", 1)
-        if len(parts) != 2:
+        parsed = parse_config_key(config_key)
+        if not parsed:
             return 0
 
-        board_type = parts[0]
-        num_players_str = parts[1].replace("p", "")
-
-        try:
-            num_players = int(num_players_str)
-        except ValueError:
-            return 0
+        board_type = parsed.board_type
+        num_players = parsed.num_players
 
         canonical_path = Path("data/games") / f"canonical_{board_type}_{num_players}p.db"
 

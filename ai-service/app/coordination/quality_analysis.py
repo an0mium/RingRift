@@ -35,6 +35,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.coordination.event_utils import parse_config_key
+
 if TYPE_CHECKING:
     from typing import Callable
 
@@ -442,11 +444,10 @@ def get_quality_threshold(
         QualityThresholds for the configuration
     """
     # Parse config to potentially adjust thresholds
-    # For now, use defaults - can be extended per-config
-    parts = config_key.rsplit("_", 1)
+    parsed = parse_config_key(config_key)
 
     # 4-player games may need different thresholds due to game complexity
-    if len(parts) == 2 and parts[1] in ("3p", "4p"):
+    if parsed and parsed.num_players >= 3:
         # Slightly lower thresholds for multiplayer (harder to achieve quality)
         return QualityThresholds(
             min_quality=LOW_QUALITY_THRESHOLD - 0.05,

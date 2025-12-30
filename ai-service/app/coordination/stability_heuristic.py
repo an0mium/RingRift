@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from app.coordination.event_utils import parse_config_key
+
 if TYPE_CHECKING:
     from app.training.elo_service import EloService
 
@@ -332,15 +334,11 @@ def get_stability_summary(
         Dict with stability metrics
     """
     # Parse config key
-    parts = config_key.rsplit("_", 1)
-    if len(parts) != 2 or not parts[1].endswith("p"):
+    parsed = parse_config_key(config_key)
+    if not parsed:
         return {"error": f"Invalid config_key format: {config_key}"}
-
-    board_type = parts[0]
-    try:
-        num_players = int(parts[1][:-1])
-    except ValueError:
-        return {"error": f"Invalid player count in config_key: {config_key}"}
+    board_type = parsed.board_type
+    num_players = parsed.num_players
 
     assessment = assess_model_stability(participant_id, board_type, num_players)
     return assessment.to_dict()

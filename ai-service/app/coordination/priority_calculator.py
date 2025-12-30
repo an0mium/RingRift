@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
 from app.config.coordination_defaults import SelfplayPriorityWeightDefaults
+from app.coordination.event_utils import parse_config_key
 
 logger = logging.getLogger(__name__)
 
@@ -253,11 +254,8 @@ def extract_player_count(config_key: str) -> int:
     Returns:
         Player count (2, 3, or 4). Defaults to 2 on parse error.
     """
-    try:
-        suffix = config_key.split("_")[-1]  # "2p", "3p", "4p"
-        return int(suffix.rstrip("p"))
-    except (ValueError, IndexError):
-        return 2
+    parsed = parse_config_key(config_key)
+    return parsed.num_players if parsed else 2
 
 
 def compute_games_needed(

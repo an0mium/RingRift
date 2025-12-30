@@ -64,7 +64,7 @@ Migration: Use `app/core/ssh` for new code, SSHTransport for P2P.
 - `ephemeral`/`selfplay`: ✅ OK (all daemons registered)
 - `minimal`: ✅ OK (only EVENT_ROUTER)
 
-As of Dec 2025, all 66 daemon types had factory implementations in `daemon_runners.py`.
+As of the Dec 2025 snapshot, all 66 daemon types had factory implementations in `daemon_runners.py` (current count: 89; see `ai-service/docs/DAEMON_REGISTRY.md`).
 
 ### Quick Wins
 

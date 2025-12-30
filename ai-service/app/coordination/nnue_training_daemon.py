@@ -40,6 +40,7 @@ import time
 from dataclasses import dataclass, field
 
 from app.coordination.event_handler_utils import extract_config_key, extract_model_path
+from app.coordination.event_utils import parse_config_key
 from pathlib import Path
 from typing import Any, Callable, ClassVar
 
@@ -414,13 +415,13 @@ class NNUETrainingDaemon(HandlerBase):
         job_id = ""
 
         try:
-            # Parse config key
-            parts = config_key.rsplit("_", 1)
-            if len(parts) != 2:
+            # Parse config key using canonical utility
+            parsed = parse_config_key(config_key)
+            if not parsed:
                 raise ValueError(f"Invalid config_key format: {config_key}")
 
-            board_type = parts[0]
-            num_players = int(parts[1].rstrip("p"))
+            board_type = parsed.board_type
+            num_players = parsed.num_players
 
             # Dispatch to P2P leader via HTTP
             # The P2P orchestrator will find a suitable GPU node and start training

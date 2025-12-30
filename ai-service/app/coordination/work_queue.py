@@ -38,6 +38,7 @@ from typing import Any
 from app.coordination.types import WorkStatus  # noqa: E402
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult  # noqa: E402
 from app.utils.disk_utils import is_enospc_error, handle_enospc_error
+from app.coordination.event_utils import parse_config_key
 
 logger = logging.getLogger(__name__)
 
@@ -1658,15 +1659,12 @@ class WorkQueue:
             if weight <= 0:
                 continue
 
-            # Parse board type to extract num_players
+            # Parse board type to extract num_players using canonical utility
             # Formats: "square8_2p", "hexagonal_3p", etc.
-            parts = board_type.rsplit("_", 1)
-            if len(parts) == 2 and parts[1].endswith("p"):
-                board = parts[0]
-                try:
-                    num_players = int(parts[1].rstrip("p"))
-                except ValueError:
-                    num_players = 2
+            parsed = parse_config_key(board_type)
+            if parsed:
+                board = parsed.board_type
+                num_players = parsed.num_players
             else:
                 board = board_type
                 num_players = 2

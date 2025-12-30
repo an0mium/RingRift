@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.core.async_context import safe_create_task
+from app.coordination.event_utils import parse_config_key
 
 if TYPE_CHECKING:
     from app.coordination.data_pipeline_orchestrator import DataPipelineOrchestrator
@@ -575,10 +576,11 @@ def parse_config_arg(config_str: str) -> tuple[str, int]:
         parts = config_str.split(":")
         return (parts[0], int(parts[1]))
 
-    # Handle 'board_Xp' format
+    # Handle 'board_Xp' format using canonical utility
     if "_" in config_str and config_str.endswith("p"):
-        parts = config_str.rsplit("_", 1)
-        return (parts[0], int(parts[1][:-1]))
+        parsed = parse_config_key(config_str)
+        if parsed:
+            return (parsed.board_type, parsed.num_players)
 
     raise ValueError(f"Invalid config format: {config_str}. Use 'board:players' or 'board_Xp'")
 

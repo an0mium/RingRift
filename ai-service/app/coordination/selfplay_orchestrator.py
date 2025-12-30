@@ -52,6 +52,7 @@ from enum import Enum
 from typing import Any
 
 from app.coordination.event_handler_utils import extract_config_key
+from app.coordination.event_utils import parse_config_key
 
 logger = logging.getLogger(__name__)
 
@@ -939,16 +940,12 @@ class SelfplayOrchestrator:
         # Generate task ID for tracking
         task_id = f"selfplay-{uuid.uuid4().hex[:8]}"
 
-        # Parse config_key to extract board_type and num_players
-        try:
-            parts = config_key.rsplit("_", 1)
-            if len(parts) == 2 and parts[1].endswith("p"):
-                board_type = parts[0]
-                num_players = int(parts[1][:-1])
-            else:
-                board_type = config_key
-                num_players = 2
-        except (ValueError, IndexError):
+        # Parse config_key using canonical utility
+        parsed = parse_config_key(config_key)
+        if parsed:
+            board_type = parsed.board_type
+            num_players = parsed.num_players
+        else:
             board_type = config_key
             num_players = 2
 
