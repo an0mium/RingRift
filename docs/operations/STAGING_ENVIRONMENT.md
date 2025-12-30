@@ -40,16 +40,18 @@ The staging environment is configured to mirror production topology, enabling me
 
 Ensure these ports are available before deployment:
 
-| Port | Service      | Description                  |
-| ---- | ------------ | ---------------------------- |
-| 3000 | API Server   | HTTP API endpoints           |
-| 3001 | WebSocket    | Real-time game communication |
-| 3002 | Grafana      | Monitoring dashboards        |
-| 5432 | PostgreSQL   | Database                     |
-| 6379 | Redis        | Cache and sessions           |
-| 8001 | AI Service   | Python AI backend            |
-| 9090 | Prometheus   | Metrics collection           |
-| 9093 | Alertmanager | Alert routing                |
+| Port | Service         | Description                        |
+| ---- | --------------- | ---------------------------------- |
+| 3000 | API + WebSocket | HTTP API + Socket.IO (shared port) |
+| 3001 | Legacy (unused) | Deprecated `SOCKET_PORT` mapping   |
+| 3002 | Grafana         | Monitoring dashboards              |
+| 5432 | PostgreSQL      | Database                           |
+| 6379 | Redis           | Cache and sessions                 |
+| 8001 | AI Service      | Python AI backend                  |
+| 9090 | Prometheus      | Metrics collection                 |
+| 9093 | Alertmanager    | Alert routing                      |
+
+**Note:** WebSocket traffic shares the main `PORT`; `SOCKET_PORT` is legacy and ignored by current server builds.
 
 ---
 

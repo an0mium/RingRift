@@ -42,17 +42,16 @@ APP_METRICS_BASE=${APP_METRICS_BASE:-$APP_BASE}
 
 ### Service Ports
 
-| Service         | Internal Port | External Port |
-| --------------- | ------------- | ------------- |
-| App (HTTP)      | 3000          | 3000          |
-| App (WebSocket) | 3001          | 3001          |
-| PostgreSQL      | 5432          | 5432          |
-| Redis           | 6379          | 6379          |
-| AI Service      | 8001          | 8001          |
-| Nginx           | 80/443        | 80/443        |
-| Prometheus      | 9090          | 9090          |
-| Grafana         | 3000          | 3002          |
-| Alertmanager    | 9093          | 9093          |
+| Service                | Internal Port | External Port |
+| ---------------------- | ------------- | ------------- |
+| App (HTTP + WebSocket) | 3000          | 3000          |
+| PostgreSQL             | 5432          | 5432          |
+| Redis                  | 6379          | 6379          |
+| AI Service             | 8001          | 8001          |
+| Nginx                  | 80/443        | 80/443        |
+| Prometheus             | 9090          | 9090          |
+| Grafana                | 3000          | 3002          |
+| Alertmanager           | 9093          | 9093          |
 
 ### Health Check Endpoints
 

@@ -41,17 +41,16 @@
 
 ### Required Ports
 
-| Port | Service                | Protocol |
-| ---- | ---------------------- | -------- |
-| 80   | nginx (HTTP)           | TCP      |
-| 443  | nginx (HTTPS)          | TCP      |
-| 3000 | Backend API (internal) | TCP      |
-| 3001 | WebSocket (internal)   | TCP      |
-| 5432 | PostgreSQL             | TCP      |
-| 6379 | Redis                  | TCP      |
-| 8001 | AI Service             | TCP      |
-| 9090 | Prometheus             | TCP      |
-| 3002 | Grafana                | TCP      |
+| Port | Service                            | Protocol |
+| ---- | ---------------------------------- | -------- |
+| 80   | nginx (HTTP)                       | TCP      |
+| 443  | nginx (HTTPS)                      | TCP      |
+| 3000 | Backend API + WebSocket (internal) | TCP      |
+| 5432 | PostgreSQL                         | TCP      |
+| 6379 | Redis                              | TCP      |
+| 8001 | AI Service                         | TCP      |
+| 9090 | Prometheus                         | TCP      |
+| 3002 | Grafana                            | TCP      |
 
 ### Access Requirements
 

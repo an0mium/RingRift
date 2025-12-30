@@ -13,11 +13,13 @@ This runbook documents operational procedures for the RingRift production enviro
 
 ## Services
 
-| Service        | Port   | PM2 Name        | Description                       |
-| -------------- | ------ | --------------- | --------------------------------- |
-| Node.js Server | 3001   | ringrift-server | Main API and WebSocket server     |
-| AI Service     | 8765   | ringrift-ai     | Python FastAPI AI move service    |
-| nginx          | 80/443 | (system)        | Reverse proxy and SSL termination |
+| Service        | Port          | PM2 Name        | Description                        |
+| -------------- | ------------- | --------------- | ---------------------------------- |
+| Node.js Server | `PORT` (3001) | ringrift-server | Main API + WebSocket (shared port) |
+| AI Service     | 8765          | ringrift-ai     | Python FastAPI AI move service     |
+| nginx          | 80/443        | (system)        | Reverse proxy and SSL termination  |
+
+**Note:** WebSocket traffic shares the main app `PORT`; the legacy `SOCKET_PORT` is unused.
 
 ## Common Commands
 
@@ -48,7 +50,8 @@ pm2 logs ringrift-ai
 ### Health Checks
 
 ```bash
-curl http://localhost:3001/health
+APP_PORT=${APP_PORT:-3001}
+curl http://localhost:${APP_PORT}/health
 curl http://localhost:8765/health
 /home/ubuntu/ringrift/scripts/ringrift-health-check.sh
 ```

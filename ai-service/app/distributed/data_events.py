@@ -245,6 +245,13 @@ class DataEventType(Enum):
     NETWORK_ISOLATION_DETECTED = "network_isolation_detected"  # Dec 2025: P2P sees fewer peers than Tailscale
     QUORUM_PRIORITY_RECONNECT = "quorum_priority_reconnect"  # Dec 30, 2025: Priority reconnection order for quorum
 
+    # Voter health events (December 30, 2025 - 48h autonomous operation)
+    VOTER_OFFLINE = "voter_offline"  # Individual voter became unreachable
+    VOTER_ONLINE = "voter_online"  # Individual voter recovered
+    QUORUM_LOST = "quorum_lost"  # Quorum threshold crossed (was OK, now lost)
+    QUORUM_RESTORED = "quorum_restored"  # Quorum threshold crossed (was lost, now OK)
+    QUORUM_AT_RISK = "quorum_at_risk"  # Quorum marginal (e.g., exactly at threshold)
+
     # Progress monitoring events (December 2025 - 48h autonomous operation)
     PROGRESS_STALL_DETECTED = "progress_stall_detected"  # Config Elo stalled, recovery triggered
     PROGRESS_RECOVERED = "progress_recovered"  # Config resumed making Elo progress

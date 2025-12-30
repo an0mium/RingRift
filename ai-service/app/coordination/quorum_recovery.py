@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Awaitable, Callable, AsyncIterator
 
+from app.coordination.contracts import HealthCheckResult
 from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
@@ -435,36 +436,26 @@ class QuorumRecoveryManager(SingletonMixin):
             "stats": dict(self._stats),
         }
 
-    def health_check(self) -> dict[str, Any]:
+    def health_check(self) -> HealthCheckResult:
         """Health check for daemon manager integration.
 
         Returns:
-            Health check result dict.
+            HealthCheckResult with quorum status.
         """
-        try:
-            from app.coordination.contracts import HealthCheckResult
+        status = self.get_status()
+        has_quorum = status["has_quorum"]
 
-            status = self.get_status()
-            has_quorum = status["has_quorum"]
-
-            if has_quorum:
-                return HealthCheckResult.healthy(
-                    f"Quorum met ({status['online_voters']}/{status['quorum_size']})",
-                    **status,
-                )
-            else:
-                return HealthCheckResult.degraded(
-                    f"Quorum not met ({status['online_voters']}/{status['quorum_size']}), "
-                    f"need {status['voters_needed']} more voters",
-                    **status,
-                )
-        except ImportError:
-            status = self.get_status()
-            return {
-                "healthy": status["has_quorum"],
-                "status": "healthy" if status["has_quorum"] else "degraded",
-                "details": status,
-            }
+        if has_quorum:
+            return HealthCheckResult.healthy(
+                f"Quorum met ({status['online_voters']}/{status['quorum_size']})",
+                **status,
+            )
+        else:
+            return HealthCheckResult.degraded(
+                f"Quorum not met ({status['online_voters']}/{status['quorum_size']}), "
+                f"need {status['voters_needed']} more voters",
+                **status,
+            )
 
 
 # =============================================================================

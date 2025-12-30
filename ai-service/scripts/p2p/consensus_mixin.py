@@ -27,10 +27,30 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from enum import Enum
 from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 from scripts.p2p.p2p_mixin_base import P2PMixinBase
+
+
+class RaftInitState(str, Enum):
+    """State machine for Raft initialization.
+
+    Dec 30, 2025: Added to fix race condition where _raft_initialized=True was set
+    before Raft objects were fully ready. Code checking is_raft_leader() could
+    access partially-initialized objects.
+
+    States:
+        NOT_STARTED: Initial state before init called
+        INITIALIZING: Init in progress, Raft objects being created
+        READY: All objects initialized and ready for use
+        FAILED: Initialization failed, fallback to SQLite
+    """
+    NOT_STARTED = "not_started"
+    INITIALIZING = "initializing"
+    READY = "ready"
+    FAILED = "failed"
 
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeInfo

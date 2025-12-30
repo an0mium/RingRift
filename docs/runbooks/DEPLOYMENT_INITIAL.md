@@ -305,7 +305,8 @@ curl -X POST http://localhost:3000/api/auth/login \
 npm install -g wscat
 
 # Test WebSocket connection
-wscat -c ws://localhost:3001
+APP_PORT=${APP_PORT:-3000}
+wscat -c ws://localhost:${APP_PORT}
 # Should connect without errors
 # Type "ping" and expect a response
 ```

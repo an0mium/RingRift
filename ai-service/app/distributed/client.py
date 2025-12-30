@@ -214,9 +214,11 @@ class WorkerClient:
             - eligible_boards: List of board types worker can handle
         """
         health = self.health_check()
-        if health.get("status") != "healthy":
+        if not health.healthy:
             return {"total_gb": 0, "available_gb": 0, "eligible_boards": []}
-        return health.get("memory", {"total_gb": 0, "available_gb": 0, "eligible_boards": []})
+        # Extract memory info from the remote response stored in details
+        remote_response = health.details.get("remote_response", {})
+        return remote_response.get("memory", {"total_gb": 0, "available_gb": 0, "eligible_boards": []})
 
     def can_handle_board(self, board_type: str) -> bool:
         """

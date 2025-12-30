@@ -298,12 +298,15 @@ class GossipProtocolMixin(P2PMixinBase):
         # This allows faster cluster state recovery after P2P restarts
         self._restore_gossip_state_on_startup()
 
-    def _cleanup_gossip_state(self) -> None:
+    async def _cleanup_gossip_state(self) -> None:
         """Dec 28, 2025: Clean up stale gossip state to prevent memory growth.
 
         Called periodically to:
         1. Remove entries older than TTL
         2. Enforce max size limits with LRU eviction
+
+        Dec 30, 2025: Made async and added locking to prevent race conditions
+        when multiple coroutines access _gossip_peer_states concurrently.
         """
         now = time.time()
 
@@ -312,75 +315,90 @@ class GossipProtocolMixin(P2PMixinBase):
             return
         self._last_gossip_cleanup = now
 
-        cleaned_states = 0
-        cleaned_manifests = 0
-        cleaned_endpoints = 0
+        # Acquire lock with timeout to prevent deadlocks
+        # Graceful fallback if lock unavailable (e.g., during initialization)
+        lock = getattr(self, "_gossip_state_lock", None)
+        if lock is not None:
+            acquired = await lock.acquire(timeout=5.0)
+            if not acquired:
+                self._log_warning("Gossip state lock acquisition timed out during cleanup")
+                return
+        else:
+            acquired = False
 
-        # 1. Clean stale peer states (older than TTL)
-        cutoff = now - self.GOSSIP_STATE_TTL
-        stale_state_ids = [
-            node_id for node_id, state in self._gossip_peer_states.items()
-            if state.get("timestamp", 0) < cutoff
-        ]
-        for node_id in stale_state_ids:
-            del self._gossip_peer_states[node_id]
-            cleaned_states += 1
+        try:
+            cleaned_states = 0
+            cleaned_manifests = 0
+            cleaned_endpoints = 0
 
-        # 2. Enforce max size with LRU eviction (oldest first)
-        if len(self._gossip_peer_states) > self.GOSSIP_MAX_PEER_STATES:
-            # Sort by timestamp, keep newest
-            sorted_states = sorted(
-                self._gossip_peer_states.items(),
-                key=lambda x: x[1].get("timestamp", 0),
-                reverse=True,
-            )
-            # Keep only max entries
-            self._gossip_peer_states = dict(sorted_states[:self.GOSSIP_MAX_PEER_STATES])
-            cleaned_states += len(sorted_states) - self.GOSSIP_MAX_PEER_STATES
+            # 1. Clean stale peer states (older than TTL)
+            cutoff = now - self.GOSSIP_STATE_TTL
+            stale_state_ids = [
+                node_id for node_id, state in self._gossip_peer_states.items()
+                if state.get("timestamp", 0) < cutoff
+            ]
+            for node_id in stale_state_ids:
+                del self._gossip_peer_states[node_id]
+                cleaned_states += 1
 
-        # 3. Clean stale manifests (no timestamp, so just enforce size)
-        if len(self._gossip_peer_manifests) > self.GOSSIP_MAX_MANIFESTS:
-            # Keep first N (arbitrary but bounded)
-            items = list(self._gossip_peer_manifests.items())
-            self._gossip_peer_manifests = dict(items[:self.GOSSIP_MAX_MANIFESTS])
-            cleaned_manifests = len(items) - self.GOSSIP_MAX_MANIFESTS
+            # 2. Enforce max size with LRU eviction (oldest first)
+            if len(self._gossip_peer_states) > self.GOSSIP_MAX_PEER_STATES:
+                # Sort by timestamp, keep newest
+                sorted_states = sorted(
+                    self._gossip_peer_states.items(),
+                    key=lambda x: x[1].get("timestamp", 0),
+                    reverse=True,
+                )
+                # Keep only max entries
+                self._gossip_peer_states = dict(sorted_states[:self.GOSSIP_MAX_PEER_STATES])
+                cleaned_states += len(sorted_states) - self.GOSSIP_MAX_PEER_STATES
 
-        # 4. Clean stale learned endpoints
-        endpoint_cutoff = now - self.GOSSIP_ENDPOINT_TTL
-        stale_endpoint_ids = [
-            node_id for node_id, ep in self._gossip_learned_endpoints.items()
-            if ep.get("learned_at", 0) < endpoint_cutoff
-        ]
-        for node_id in stale_endpoint_ids:
-            del self._gossip_learned_endpoints[node_id]
-            cleaned_endpoints += 1
+            # 3. Clean stale manifests (no timestamp, so just enforce size)
+            if len(self._gossip_peer_manifests) > self.GOSSIP_MAX_MANIFESTS:
+                # Keep first N (arbitrary but bounded)
+                items = list(self._gossip_peer_manifests.items())
+                self._gossip_peer_manifests = dict(items[:self.GOSSIP_MAX_MANIFESTS])
+                cleaned_manifests = len(items) - self.GOSSIP_MAX_MANIFESTS
 
-        # 5. Enforce max endpoints
-        if len(self._gossip_learned_endpoints) > self.GOSSIP_MAX_ENDPOINTS:
-            sorted_endpoints = sorted(
-                self._gossip_learned_endpoints.items(),
-                key=lambda x: x[1].get("learned_at", 0),
-                reverse=True,
-            )
-            self._gossip_learned_endpoints = dict(sorted_endpoints[:self.GOSSIP_MAX_ENDPOINTS])
-            cleaned_endpoints += len(sorted_endpoints) - self.GOSSIP_MAX_ENDPOINTS
+            # 4. Clean stale learned endpoints
+            endpoint_cutoff = now - self.GOSSIP_ENDPOINT_TTL
+            stale_endpoint_ids = [
+                node_id for node_id, ep in self._gossip_learned_endpoints.items()
+                if ep.get("learned_at", 0) < endpoint_cutoff
+            ]
+            for node_id in stale_endpoint_ids:
+                del self._gossip_learned_endpoints[node_id]
+                cleaned_endpoints += 1
 
-        # 6. Dec 28, 2025 (Phase 6): Clean up stale gossip health tracking data
-        cleaned_health = 0
-        if hasattr(self, "_gossip_health_tracker"):
-            cleaned_health = self._gossip_health_tracker.cleanup_stale_peers(
-                max_age_seconds=self.GOSSIP_STATE_TTL
-            )
+            # 5. Enforce max endpoints
+            if len(self._gossip_learned_endpoints) > self.GOSSIP_MAX_ENDPOINTS:
+                sorted_endpoints = sorted(
+                    self._gossip_learned_endpoints.items(),
+                    key=lambda x: x[1].get("learned_at", 0),
+                    reverse=True,
+                )
+                self._gossip_learned_endpoints = dict(sorted_endpoints[:self.GOSSIP_MAX_ENDPOINTS])
+                cleaned_endpoints += len(sorted_endpoints) - self.GOSSIP_MAX_ENDPOINTS
 
-        # Log if significant cleanup occurred
-        total_cleaned = cleaned_states + cleaned_manifests + cleaned_endpoints + cleaned_health
-        if total_cleaned > 10:
-            # Phase 4: Use base class logging helper
-            self._log_info(
-                f"Cleanup: removed {cleaned_states} stale states, "
-                f"{cleaned_manifests} manifests, {cleaned_endpoints} endpoints, "
-                f"{cleaned_health} health tracking entries"
-            )
+            # 6. Dec 28, 2025 (Phase 6): Clean up stale gossip health tracking data
+            cleaned_health = 0
+            if hasattr(self, "_gossip_health_tracker"):
+                cleaned_health = self._gossip_health_tracker.cleanup_stale_peers(
+                    max_age_seconds=self.GOSSIP_STATE_TTL
+                )
+
+            # Log if significant cleanup occurred
+            total_cleaned = cleaned_states + cleaned_manifests + cleaned_endpoints + cleaned_health
+            if total_cleaned > 10:
+                # Phase 4: Use base class logging helper
+                self._log_info(
+                    f"Cleanup: removed {cleaned_states} stale states, "
+                    f"{cleaned_manifests} manifests, {cleaned_endpoints} endpoints, "
+                    f"{cleaned_health} health tracking entries"
+                )
+        finally:
+            if lock is not None and acquired:
+                lock.release()
 
     # =========================================================================
     # Endpoint Validation (Dec 30, 2025)
@@ -975,7 +993,8 @@ class GossipProtocolMixin(P2PMixinBase):
             return
 
         # Dec 28, 2025: Clean up stale gossip state to prevent OOM
-        self._cleanup_gossip_state()
+        # Dec 30, 2025: Now async with locking for thread safety
+        await self._cleanup_gossip_state()
 
         # Dec 29, 2025: Periodically persist gossip state to SQLite
         # Enables fast cluster state recovery after P2P restart

@@ -193,7 +193,8 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/health
 # Expected: 200
 
 # Test WebSocket connectivity
-timeout 5 wscat -c ws://localhost:3001 -x "ping" 2>/dev/null && echo "✅ WebSocket OK" || echo "⚠️ WebSocket check failed"
+APP_PORT=${APP_PORT:-3000}
+timeout 5 wscat -c ws://localhost:${APP_PORT} -x "ping" 2>/dev/null && echo "✅ WebSocket OK" || echo "⚠️ WebSocket check failed"
 
 # Test game creation (requires valid auth token)
 # curl -X POST http://localhost:3000/api/games \

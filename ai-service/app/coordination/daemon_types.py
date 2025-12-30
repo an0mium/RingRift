@@ -318,11 +318,13 @@ class DaemonType(Enum):
     # These daemons enable the system to run unattended for 48+ hours:
     # - ProgressWatchdog: Detects Elo velocity stalls and triggers recovery
     # - P2PRecovery: Auto-restarts P2P orchestrator on partition/failure
+    # - VoterHealthMonitor: Continuous voter probing with multi-transport fallback
     # - MemoryMonitor: Proactive VRAM/RSS monitoring to prevent OOM crashes
     # - StaleFallback: Uses older models when sync fails to maintain selfplay
     # =========================================================================
     PROGRESS_WATCHDOG = "progress_watchdog"
     P2P_RECOVERY = "p2p_recovery"
+    VOTER_HEALTH_MONITOR = "voter_health_monitor"  # Dec 30, 2025: Continuous voter probing
     MEMORY_MONITOR = "memory_monitor"
     STALE_FALLBACK = "stale_fallback"
 
@@ -751,6 +753,7 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # =========================================================================
     DaemonType.PROGRESS_WATCHDOG: {DaemonType.EVENT_ROUTER},
     DaemonType.P2P_RECOVERY: {DaemonType.EVENT_ROUTER},
+    DaemonType.VOTER_HEALTH_MONITOR: {DaemonType.EVENT_ROUTER},  # Dec 30, 2025: Continuous voter probing
     DaemonType.MEMORY_MONITOR: {DaemonType.EVENT_ROUTER},  # Emits MEMORY_PRESSURE events
     DaemonType.STALE_FALLBACK: {DaemonType.EVENT_ROUTER, DaemonType.AUTO_SYNC},  # Fallback when sync fails
 }
