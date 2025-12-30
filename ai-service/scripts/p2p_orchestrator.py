@@ -2365,7 +2365,7 @@ class P2POrchestrator(
                 peer_cleanup = PeerCleanupLoop(
                     get_all_peers=lambda: dict(self.peers),
                     purge_peer=_purge_single_peer_async,
-                    emit_event=self._emit_event,
+                    # emit_event omitted - optional, uses default None
                     config=PeerCleanupConfig(
                         cleanup_interval_seconds=float(
                             os.environ.get("RINGRIFT_PEER_CLEANUP_INTERVAL", "300")
@@ -18378,6 +18378,35 @@ print(json.dumps({{
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Could not load bootstrap seeds from config: {e}")
             return []
+
+    def _load_distributed_hosts(self) -> dict[str, Any]:
+        """Load distributed hosts configuration for NetworkHealthMixin.
+
+        Required by NetworkHealthMixin for cross-verifying P2P mesh health
+        against Tailscale connectivity.
+
+        Returns:
+            Dict with structure: {"hosts": {node_name: {config...}}}
+            Each host config includes: tailscale_ip, p2p_enabled, p2p_port, etc.
+
+        December 30, 2025: Added to fix /network/health endpoint.
+        """
+        try:
+            from app.config.cluster_config import load_cluster_config
+
+            config = load_cluster_config()
+            hosts_raw = getattr(config, "hosts_raw", {})
+
+            # Convert to the format expected by NetworkHealthMixin
+            # hosts_raw already has the right structure: {node_name: {config_dict}}
+            return {"hosts": hosts_raw}
+
+        except ImportError:
+            logger.debug("cluster_config not available for distributed hosts")
+            return {"hosts": {}}
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Could not load distributed hosts: {e}")
+            return {"hosts": {}}
 
     # NOTE: _follower_discovery_loop() removed Dec 2025 (75 LOC).
     # Now runs via LoopManager as FollowerDiscoveryLoop.
