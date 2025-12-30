@@ -275,11 +275,11 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-91 active daemon types, 6 deprecated. Three-layer architecture:
+76 active daemon types, 11 deprecated. Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 89 async runner functions
+3. **`daemon_runners.py`** - 87 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
