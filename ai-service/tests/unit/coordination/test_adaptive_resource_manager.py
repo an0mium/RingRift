@@ -1334,17 +1334,24 @@ class TestErrorRecovery:
 
     def test_get_gpu_memory_all_errors_handled(self, manager: AdaptiveResourceManager) -> None:
         """Test all GPU memory errors are handled gracefully."""
-        error_types = [
-            FileNotFoundError("nvidia-smi not found"),
-            PermissionError("Access denied"),
-            subprocess.TimeoutExpired("nvidia-smi", 10),
-        ]
+        # Test FileNotFoundError
+        with patch("subprocess.run", side_effect=FileNotFoundError("nvidia-smi not found")):
+            used, total = manager._get_gpu_memory()
+            assert used == 0
+            assert total == 0
 
-        for error in error_types:
-            with patch("subprocess.run", side_effect=error):
-                used, total = manager._get_gpu_memory()
-                assert used == 0
-                assert total == 0
+        # Test PermissionError
+        with patch("subprocess.run", side_effect=PermissionError("Access denied")):
+            used, total = manager._get_gpu_memory()
+            assert used == 0
+            assert total == 0
+
+        # TimeoutExpired needs different handling - create a proper instance
+        timeout_err = subprocess.TimeoutExpired(cmd="nvidia-smi", timeout=10)
+        with patch("subprocess.run", side_effect=timeout_err):
+            used, total = manager._get_gpu_memory()
+            assert used == 0
+            assert total == 0
 
     @pytest.mark.asyncio
     async def test_cleanup_recovers_from_individual_stat_error(self, manager: AdaptiveResourceManager) -> None:
