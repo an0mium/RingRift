@@ -444,3 +444,313 @@ class TestCurriculumAdvancementHandler:
 
         assert hasattr(DataEventType, 'CURRICULUM_ADVANCED')
         assert DataEventType.CURRICULUM_ADVANCED.value == "curriculum_advanced"
+
+
+# =============================================================================
+# PromotionFailedToCurriculumWatcher Tests
+# =============================================================================
+
+
+class TestPromotionFailedToCurriculumWatcher:
+    """Tests for PromotionFailedToCurriculumWatcher class."""
+
+    def test_init(self):
+        """Watcher initializes with correct defaults."""
+        from app.coordination.curriculum_integration import PromotionFailedToCurriculumWatcher
+
+        watcher = PromotionFailedToCurriculumWatcher()
+        assert watcher.WEIGHT_INCREASE_PER_FAILURE == 0.20
+        assert watcher._subscribed is False
+        assert len(watcher._failure_counts) == 0
+
+    def test_get_failure_counts_empty(self):
+        """get_failure_counts returns empty dict initially."""
+        from app.coordination.curriculum_integration import PromotionFailedToCurriculumWatcher
+
+        watcher = PromotionFailedToCurriculumWatcher()
+        assert watcher.get_failure_counts() == {}
+
+    def test_reset_failure_count_nonexistent(self):
+        """reset_failure_count is safe for nonexistent config."""
+        from app.coordination.curriculum_integration import PromotionFailedToCurriculumWatcher
+
+        watcher = PromotionFailedToCurriculumWatcher()
+        watcher.reset_failure_count("nonexistent_config")  # Should not raise
+
+    def test_subscribe_returns_bool(self):
+        """subscribe returns a boolean."""
+        from app.coordination.curriculum_integration import PromotionFailedToCurriculumWatcher
+
+        watcher = PromotionFailedToCurriculumWatcher()
+        # Will likely return False since event router may not be fully initialized
+        result = watcher.subscribe()
+        assert isinstance(result, bool)
+
+    def test_health_check_returns_result(self):
+        """health_check returns a HealthCheckResult."""
+        from app.coordination.curriculum_integration import PromotionFailedToCurriculumWatcher
+        from app.coordination.contracts import HealthCheckResult
+
+        watcher = PromotionFailedToCurriculumWatcher()
+        health = watcher.health_check()
+
+        assert isinstance(health, HealthCheckResult)
+        assert hasattr(health, "healthy")
+        assert hasattr(health, "status")
+
+
+# =============================================================================
+# PromotionCompletedToCurriculumWatcher Tests
+# =============================================================================
+
+
+class TestPromotionCompletedToCurriculumWatcher:
+    """Tests for PromotionCompletedToCurriculumWatcher class."""
+
+    def test_init(self):
+        """Watcher initializes with correct defaults."""
+        from app.coordination.curriculum_integration import PromotionCompletedToCurriculumWatcher
+
+        watcher = PromotionCompletedToCurriculumWatcher()
+        assert watcher.WEIGHT_REDUCTION_PER_REGRESSION == 0.15
+        assert watcher.CONSECUTIVE_FAILURE_THRESHOLD == 3
+        assert watcher.WEIGHT_BOOST_ON_SUCCESS == 0.10
+        assert watcher._subscribed is False
+        assert len(watcher._success_streak) == 0
+
+    def test_get_success_streaks_empty(self):
+        """get_success_streaks returns empty dict initially."""
+        from app.coordination.curriculum_integration import PromotionCompletedToCurriculumWatcher
+
+        watcher = PromotionCompletedToCurriculumWatcher()
+        assert watcher.get_success_streaks() == {}
+
+    def test_subscribe_returns_bool(self):
+        """subscribe returns a boolean."""
+        from app.coordination.curriculum_integration import PromotionCompletedToCurriculumWatcher
+
+        watcher = PromotionCompletedToCurriculumWatcher()
+        # Will likely return False since event router may not be fully initialized
+        result = watcher.subscribe()
+        assert isinstance(result, bool)
+
+    def test_health_check_returns_result(self):
+        """health_check returns a HealthCheckResult."""
+        from app.coordination.curriculum_integration import PromotionCompletedToCurriculumWatcher
+        from app.coordination.contracts import HealthCheckResult
+
+        watcher = PromotionCompletedToCurriculumWatcher()
+        health = watcher.health_check()
+
+        assert isinstance(health, HealthCheckResult)
+        assert hasattr(health, "healthy")
+
+
+# =============================================================================
+# RegressionCriticalToCurriculumWatcher Tests
+# =============================================================================
+
+
+class TestRegressionCriticalToCurriculumWatcher:
+    """Tests for RegressionCriticalToCurriculumWatcher class."""
+
+    def test_init(self):
+        """Watcher initializes with correct defaults."""
+        from app.coordination.curriculum_integration import RegressionCriticalToCurriculumWatcher
+
+        watcher = RegressionCriticalToCurriculumWatcher()
+        assert watcher.WEIGHT_INCREASE_MODERATE == 0.25
+        assert watcher.WEIGHT_INCREASE_SEVERE == 0.50
+        assert watcher._subscribed is False
+        assert len(watcher._regression_counts) == 0
+
+    def test_get_regression_counts_empty(self):
+        """get_regression_counts returns empty dict initially."""
+        from app.coordination.curriculum_integration import RegressionCriticalToCurriculumWatcher
+
+        watcher = RegressionCriticalToCurriculumWatcher()
+        assert watcher.get_regression_counts() == {}
+
+    def test_reset_regression_count_nonexistent(self):
+        """reset_regression_count is safe for nonexistent config."""
+        from app.coordination.curriculum_integration import RegressionCriticalToCurriculumWatcher
+
+        watcher = RegressionCriticalToCurriculumWatcher()
+        watcher.reset_regression_count("nonexistent_config")  # Should not raise
+
+    def test_subscribe_returns_bool(self):
+        """subscribe returns a boolean."""
+        from app.coordination.curriculum_integration import RegressionCriticalToCurriculumWatcher
+
+        watcher = RegressionCriticalToCurriculumWatcher()
+        # Will likely return False since event router may not be fully initialized
+        result = watcher.subscribe()
+        assert isinstance(result, bool)
+
+    def test_health_check_returns_result(self):
+        """health_check returns a HealthCheckResult."""
+        from app.coordination.curriculum_integration import RegressionCriticalToCurriculumWatcher
+        from app.coordination.contracts import HealthCheckResult
+
+        watcher = RegressionCriticalToCurriculumWatcher()
+        health = watcher.health_check()
+
+        assert isinstance(health, HealthCheckResult)
+        assert hasattr(health, "healthy")
+
+
+# =============================================================================
+# Additional Convenience Function Tests
+# =============================================================================
+
+
+class TestAdditionalConvenienceFunctions:
+    """Tests for additional convenience functions."""
+
+    def test_get_promotion_success_streaks_empty(self):
+        """get_promotion_success_streaks returns empty when no watcher."""
+        from app.coordination.curriculum_integration import get_promotion_success_streaks
+
+        result = get_promotion_success_streaks()
+        assert isinstance(result, dict)
+
+    def test_get_regression_critical_counts_empty(self):
+        """get_regression_critical_counts returns empty when no watcher."""
+        from app.coordination.curriculum_integration import get_regression_critical_counts
+
+        result = get_regression_critical_counts()
+        assert isinstance(result, dict)
+
+    def test_reset_regression_critical_count_no_watcher(self):
+        """reset_regression_critical_count is safe when no watcher."""
+        from app.coordination.curriculum_integration import reset_regression_critical_count
+
+        reset_regression_critical_count("hex8_2p")  # Should not raise
+
+
+# =============================================================================
+# MomentumToCurriculumBridge Event Handler Tests
+# =============================================================================
+
+
+class TestMomentumBridgeEventHandlers:
+    """Tests for MomentumToCurriculumBridge event handlers."""
+
+    def test_on_evaluation_completed(self):
+        """_on_evaluation_completed handles valid event."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "hex8_2p",
+            "win_rate": 0.75,
+            "elo_change": 50.0,
+        }
+
+        # Should not raise
+        bridge._on_evaluation_completed(mock_event)
+
+    def test_on_selfplay_rate_changed(self):
+        """_on_selfplay_rate_changed handles valid event."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "hex8_2p",
+            "old_rate": 0.1,
+            "new_rate": 0.2,
+        }
+
+        # Should not raise
+        bridge._on_selfplay_rate_changed(mock_event)
+
+    def test_on_elo_significant_change(self):
+        """_on_elo_significant_change handles valid event."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "hex8_2p",
+            "old_elo": 1200,
+            "new_elo": 1350,
+        }
+
+        # Should not raise
+        bridge._on_elo_significant_change(mock_event)
+
+    def test_on_selfplay_allocation_updated(self):
+        """_on_selfplay_allocation_updated handles valid event."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "allocations": {"hex8_2p": 100, "square8_2p": 50},
+        }
+
+        # Should not raise
+        bridge._on_selfplay_allocation_updated(mock_event)
+
+    def test_on_model_promoted(self):
+        """_on_model_promoted handles valid event."""
+        bridge = MomentumToCurriculumBridge()
+
+        mock_event = MagicMock()
+        mock_event.payload = {
+            "config_key": "hex8_2p",
+            "model_path": "/path/to/model.pth",
+            "elo_gain": 75.0,
+        }
+
+        # Should not raise
+        bridge._on_model_promoted(mock_event)
+
+
+# =============================================================================
+# Health Check Tests for All Watchers
+# =============================================================================
+
+
+class TestWatcherHealthChecks:
+    """Tests for health_check methods across all watchers."""
+
+    def test_momentum_bridge_health_check(self):
+        """MomentumToCurriculumBridge health_check."""
+        bridge = MomentumToCurriculumBridge()
+        health = bridge.health_check()
+
+        from app.coordination.contracts import HealthCheckResult
+
+        assert isinstance(health, HealthCheckResult)
+        assert hasattr(health, "healthy")
+        assert hasattr(health, "details")
+        assert isinstance(health.details, dict)
+
+    def test_pfsp_watcher_health_check(self):
+        """PFSPWeaknessWatcher health_check."""
+        watcher = PFSPWeaknessWatcher()
+        health = watcher.health_check()
+
+        from app.coordination.contracts import HealthCheckResult
+
+        assert isinstance(health, HealthCheckResult)
+        assert hasattr(health, "healthy")
+
+    def test_quality_penalty_watcher_health_check(self):
+        """QualityPenaltyToCurriculumWatcher health_check."""
+        watcher = QualityPenaltyToCurriculumWatcher()
+        health = watcher.health_check()
+
+        from app.coordination.contracts import HealthCheckResult
+
+        assert isinstance(health, HealthCheckResult)
+        assert hasattr(health, "healthy")
+
+    def test_quality_temperature_watcher_health_check(self):
+        """QualityToTemperatureWatcher health_check."""
+        watcher = QualityToTemperatureWatcher()
+        health = watcher.health_check()
+
+        from app.coordination.contracts import HealthCheckResult
+
+        assert isinstance(health, HealthCheckResult)
+        assert hasattr(health, "healthy")
