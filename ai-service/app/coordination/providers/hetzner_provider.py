@@ -314,18 +314,29 @@ class HetznerProvider(CloudProvider):
         """Check provider health for CoordinatorProtocol compliance.
 
         December 2025: Added for daemon health monitoring integration.
+        December 30, 2025: Added circuit breaker status to health check.
         """
         from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
 
         cli_available = self._cli_path is not None
         configured = self.is_configured()
 
+        # Get circuit breaker status
+        breaker = get_hetzner_circuit_breaker()
+        circuit_status = breaker.get_status("hetzner_api")
+        circuit_state = circuit_status.state
+
         if not cli_available and not self._token:
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.ERROR,
                 message="HetznerProvider: hcloud CLI not found and no API token",
-                details={"cli_path": None, "has_token": False, "configured": False},
+                details={
+                    "cli_path": None,
+                    "has_token": False,
+                    "configured": False,
+                    "circuit_state": circuit_state.value,
+                },
             )
 
         if not configured:
@@ -333,12 +344,39 @@ class HetznerProvider(CloudProvider):
                 healthy=False,
                 status=CoordinatorStatus.DEGRADED,
                 message="HetznerProvider: not configured",
-                details={"cli_path": self._cli_path, "has_token": bool(self._token), "configured": False},
+                details={
+                    "cli_path": self._cli_path,
+                    "has_token": bool(self._token),
+                    "configured": False,
+                    "circuit_state": circuit_state.value,
+                },
+            )
+
+        # Check if circuit breaker is open
+        if circuit_state == CircuitState.OPEN:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"HetznerProvider: API circuit open (failures={circuit_status.failure_count})",
+                details={
+                    "cli_path": self._cli_path,
+                    "has_token": bool(self._token),
+                    "configured": True,
+                    "circuit_state": circuit_state.value,
+                    "circuit_failures": circuit_status.failure_count,
+                    "circuit_opened_at": circuit_status.opened_at,
+                },
             )
 
         return HealthCheckResult(
             healthy=True,
             status=CoordinatorStatus.RUNNING,
             message="HetznerProvider: configured",
-            details={"cli_path": self._cli_path, "has_token": bool(self._token), "configured": True},
+            details={
+                "cli_path": self._cli_path,
+                "has_token": bool(self._token),
+                "configured": True,
+                "circuit_state": circuit_state.value,
+                "circuit_failures": circuit_status.failure_count,
+            },
         )
