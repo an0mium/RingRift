@@ -283,19 +283,77 @@ class HandlerBase(ABC):
             self._subscribed = False
 
     def _get_payload(self, event: Any) -> dict[str, Any]:
-        """Extract payload from event (backward-compat for base_handler.py API).
+        """Extract payload from event with fallback chain.
+
+        December 30, 2025: Enhanced to check multiple attribute names
+        for compatibility with different event formats across the codebase.
 
         Args:
             event: Event object or dict
 
         Returns:
-            Payload dictionary
+            Payload dictionary (empty dict if extraction fails)
         """
         if hasattr(event, "payload"):
             return event.payload
+        if hasattr(event, "metadata"):
+            return event.metadata
         if isinstance(event, dict):
             return event
         return {}
+
+    def _extract_model_path(self, payload: dict[str, Any]) -> str | None:
+        """Extract model path from event payload with fallback chain.
+
+        December 30, 2025: Consolidates model path extraction pattern
+        found in 20+ handlers. Checks multiple field names in priority order.
+
+        Args:
+            payload: Event payload dictionary
+
+        Returns:
+            Model path string, or None if not found
+        """
+        return (
+            payload.get("checkpoint_path")
+            or payload.get("model_path")
+            or payload.get("model_id")
+        )
+
+    def _extract_config_key(self, payload: dict[str, Any]) -> str:
+        """Extract config key from event payload.
+
+        December 30, 2025: Consolidates config key extraction pattern.
+        Constructs from board_type/num_players if config_key not present.
+
+        Args:
+            payload: Event payload dictionary
+
+        Returns:
+            Config key (e.g., "hex8_2p") or "unknown" if not found
+        """
+        if "config_key" in payload:
+            return payload["config_key"]
+        board_type = payload.get("board_type")
+        num_players = payload.get("num_players")
+        if board_type and num_players:
+            return f"{board_type}_{num_players}p"
+        return "unknown"
+
+    def _extract_board_config(self, payload: dict[str, Any]) -> tuple[str, int]:
+        """Extract board type and num players from event payload.
+
+        December 30, 2025: Consolidates board config extraction pattern.
+
+        Args:
+            payload: Event payload dictionary
+
+        Returns:
+            Tuple of (board_type, num_players) with defaults if not found
+        """
+        board_type = payload.get("board_type", "unknown")
+        num_players = payload.get("num_players", 2)
+        return (board_type, num_players)
 
     def add_custom_stat(self, key: str, value: Any) -> None:
         """Add a custom stat (backward-compat for base_handler.py API).

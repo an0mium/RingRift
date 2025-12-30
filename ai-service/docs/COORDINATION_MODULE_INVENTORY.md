@@ -1,7 +1,7 @@
 # Coordination Module Inventory
 
 **Last Updated:** December 30, 2025
-**Total Modules:** 254 Python modules in `app/coordination/`
+**Total Modules:** 256 Python modules in `app/coordination/`
 **Status:** Active
 
 Counts are snapshots unless noted; use:
@@ -16,7 +16,7 @@ This document is a curated inventory of primary modules in `app/coordination/` (
 | Category            | Count | Description                                  |
 | ------------------- | ----- | -------------------------------------------- |
 | Core Infrastructure | ~16   | Event system, types, enums, protocols        |
-| Daemons             | 87    | Background services (see DAEMON_REGISTRY.md) |
+| Daemons             | 89    | Background services (see DAEMON_REGISTRY.md) |
 | Sync                | ~18   | Data synchronization modules                 |
 | Health & Monitoring | ~14   | Health checks, status, metrics               |
 | Coordination        | ~15   | Orchestrators, coordinators, bridges         |
@@ -56,7 +56,7 @@ Daemon lifecycle and factory modules.
 | Module                              | LOC    | Status | Purpose                                                |
 | ----------------------------------- | ------ | ------ | ------------------------------------------------------ |
 | `daemon_manager.py`                 | ~2,000 | Active | Main DaemonManager class, lifecycle, health monitoring |
-| `daemon_runners.py`                 | ~1,100 | Active | 87 async runner functions for all daemon types         |
+| `daemon_runners.py`                 | ~1,100 | Active | 89 async runner functions for all daemon types         |
 | `daemon_registry.py`                | ~150   | Active | Declarative DaemonSpec registry                        |
 | `daemon_factory.py`                 | ~300   | Active | Factory pattern for daemon creation                    |
 | `daemon_factory_implementations.py` | ~200   | Active | Factory method implementations                         |
@@ -69,22 +69,23 @@ Daemon lifecycle and factory modules.
 
 Data synchronization infrastructure.
 
-| Module                     | LOC  | Status     | Purpose                                         |
-| -------------------------- | ---- | ---------- | ----------------------------------------------- |
-| `auto_sync_daemon.py`      | ~500 | Active     | P2P sync daemon (HYBRID/EPHEMERAL/BROADCAST)    |
-| `sync_facade.py`           | ~600 | Active     | Unified programmatic sync entry point           |
-| `sync_router.py`           | ~400 | Active     | Intelligent routing based on node capabilities  |
-| `sync_bandwidth.py`        | ~700 | Active     | Bandwidth-coordinated rsync, BatchRsync         |
-| `sync_coordinator.py`      | ~300 | DEPRECATED | Use AUTO_SYNC, removal Q2 2026                  |
-| `sync_base.py`             | ~100 | Active     | Base classes for sync modules                   |
-| `sync_constants.py`        | ~50  | Active     | Sync configuration constants                    |
-| `sync_durability.py`       | ~150 | Active     | Durability guarantees for sync                  |
-| `sync_mutex.py`            | ~100 | Active     | Distributed mutex for sync                      |
-| `sync_stall_handler.py`    | ~150 | Active     | Handle stalled sync operations                  |
-| `sync_bloom_filter.py`     | ~100 | Active     | Bloom filter for sync deduplication             |
-| `database_sync_manager.py` | ~500 | Active     | Base class for database sync (Elo, Registry)    |
-| `cluster_transport.py`     | ~500 | Active     | Multi-transport failover (Tailscale→SSH→Base64) |
-| `training_freshness.py`    | ~200 | Active     | Pre-training data freshness checks              |
+| Module                     | LOC  | Status     | Purpose                                            |
+| -------------------------- | ---- | ---------- | -------------------------------------------------- |
+| `auto_sync_daemon.py`      | ~500 | Active     | P2P sync daemon (HYBRID/EPHEMERAL/BROADCAST)       |
+| `sync_facade.py`           | ~600 | Active     | Unified programmatic sync entry point              |
+| `sync_router.py`           | ~400 | Active     | Intelligent routing based on node capabilities     |
+| `sync_bandwidth.py`        | ~700 | Active     | Bandwidth-coordinated rsync, BatchRsync            |
+| `sync_coordinator.py`      | ~300 | DEPRECATED | Use AUTO_SYNC, removal Q2 2026                     |
+| `sync_base.py`             | ~100 | Active     | Base classes for sync modules                      |
+| `sync_constants.py`        | ~50  | Active     | Sync configuration constants                       |
+| `sync_durability.py`       | ~150 | Active     | Durability guarantees for sync                     |
+| `sync_mutex.py`            | ~100 | Active     | Distributed mutex for sync                         |
+| `sync_stall_handler.py`    | ~150 | Active     | Handle stalled sync operations                     |
+| `sync_bloom_filter.py`     | ~100 | Active     | Bloom filter for sync deduplication                |
+| `database_sync_manager.py` | ~500 | Active     | Base class for database sync (Elo, Registry)       |
+| `cluster_transport.py`     | ~500 | Active     | Multi-transport failover (Tailscale→SSH→Base64)    |
+| `training_freshness.py`    | ~200 | Active     | Pre-training data freshness checks                 |
+| `stale_fallback.py`        | ~490 | Active     | Fallback controller when sync fails (older models) |
 
 ### Health & Monitoring
 
@@ -102,6 +103,7 @@ Health checks, status monitoring, metrics.
 | `node_circuit_breaker.py`          | ~465 | Active | Per-node health circuit breaker for node probes  |
 | `stall_detection.py`               | ~200 | Active | Detect stalled operations                        |
 | `metrics_analysis_orchestrator.py` | ~500 | Active | Continuous metrics monitoring, plateau detection |
+| `memory_monitor_daemon.py`         | ~620 | Active | GPU/CPU memory pressure monitor (OOM prevention) |
 | `handler_resilience.py`            | ~150 | Active | Handler retry/circuit breaker logic              |
 
 ### Coordination & Orchestration

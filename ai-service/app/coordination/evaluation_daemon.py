@@ -46,7 +46,7 @@ from app.coordination.daemon_stats import EvaluationDaemonStats
 
 # December 2025: Event types and contracts
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
-from app.coordination.event_router import DataEventType, emit
+from app.coordination.event_router import DataEventType, safe_emit_event
 
 # December 2025: Distribution defaults and utilities
 from app.config.coordination_defaults import DistributionDefaults
@@ -505,14 +505,15 @@ class EvaluationDaemon(BaseEventHandler):
                     f"{count}/{min_nodes} nodes"
                 )
                 # Emit MODEL_EVALUATION_BLOCKED event
-                await emit(
+                safe_emit_event(
                     event_type="MODEL_EVALUATION_BLOCKED",
-                    data={
+                    payload={
                         "model_path": model_path,
                         "required_nodes": min_nodes,
                         "actual_nodes": count,
                         "reason": "insufficient_distribution",
                     },
+                    source="evaluation_daemon",
                 )
 
             return (success, count)

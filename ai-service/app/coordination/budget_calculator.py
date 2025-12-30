@@ -173,6 +173,9 @@ def get_adaptive_budget_for_games(game_count: int, elo: float) -> int:
 def parse_config_key(config: str) -> tuple[str, int]:
     """Parse a config key into board type and player count.
 
+    December 2025: Now delegates to event_utils.parse_config_key() for
+    consistent parsing across the codebase.
+
     Args:
         config: Config key (e.g., "hex8_2p", "square19_4p")
 
@@ -185,13 +188,12 @@ def parse_config_key(config: str) -> tuple[str, int]:
         >>> parse_config_key("square19_4p")
         ("square19", 4)
     """
-    try:
-        parts = config.split("_")
-        board = parts[0] if parts and parts[0] else "hex8"
-        players = int(parts[1][0]) if len(parts) > 1 else 2
-        return board, players
-    except (IndexError, ValueError):
-        return "hex8", 2
+    from app.coordination.event_utils import parse_config_key as _parse
+
+    parsed = _parse(config)
+    if parsed is None:
+        return "hex8", 2  # Default fallback
+    return parsed.board_type, parsed.num_players
 
 
 def compute_target_games(config: str, current_elo: float) -> int:

@@ -449,21 +449,17 @@ class AutoExportDaemon(HandlerBase):
             logger.error(f"[AutoExportDaemon] Error handling DATA_SYNC_COMPLETED event: {e}")
 
     def _parse_config_key(self, config_key: str) -> tuple[str | None, int | None]:
-        """Parse a config key like "square8_2p" into (board_type, num_players)."""
-        if "_" not in config_key or not config_key.endswith("p"):
-            return None, None
+        """Parse a config key like "square8_2p" into (board_type, num_players).
 
-        parts = config_key.rsplit("_", 1)
-        if len(parts) != 2:
-            return None, None
+        December 2025: Now delegates to event_utils.parse_config_key() for
+        consistent parsing across the codebase.
+        """
+        from app.coordination.event_utils import parse_config_key
 
-        board_type = parts[0]
-        try:
-            num_players = int(parts[1].replace("p", ""))
-        except ValueError:
+        parsed = parse_config_key(config_key)
+        if parsed is None:
             return None, None
-
-        return board_type, num_players
+        return parsed.board_type, parsed.num_players
 
     # ========== Event-Driven Batch Export (December 2025) ==========
 

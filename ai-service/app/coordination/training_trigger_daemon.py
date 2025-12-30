@@ -1408,10 +1408,15 @@ class TrainingTriggerDaemon(HandlerBase):
             from app.coordination.sync_facade import get_sync_facade
 
             facade = get_sync_facade()
-            response = await facade.trigger_priority_sync(
-                reason="training_data_stale",
-                config_key=config_key,
-                data_type="training",
+            # Dec 30, 2025: Add timeout protection to prevent hanging indefinitely
+            # on network issues during 48h autonomous operation
+            response = await asyncio.wait_for(
+                facade.trigger_priority_sync(
+                    reason="training_data_stale",
+                    config_key=config_key,
+                    data_type="training",
+                ),
+                timeout=300.0,  # 5 minute timeout for sync operation
             )
 
             if response.get("success"):
@@ -1426,6 +1431,11 @@ class TrainingTriggerDaemon(HandlerBase):
                 )
                 return False
 
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[TrainingTriggerDaemon] Priority sync timed out for {config_key} after 5min"
+            )
+            return False
         except ImportError:
             logger.debug("[TrainingTriggerDaemon] SyncFacade not available for priority sync")
             return False

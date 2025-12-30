@@ -65,6 +65,12 @@ from typing import Any, Optional
 
 from app.coordination.singleton_mixin import SingletonMixin
 
+# December 30, 2025: Extracted ReservationManager as part of god class refactoring
+from app.coordination.task_coordinator_reservations import (
+    ReservationManager,
+    get_reservation_manager,
+)
+
 logger = logging.getLogger(__name__)
 
 # Use centralized event emitters (December 2025)
@@ -908,16 +914,9 @@ class TaskCoordinator(SingletonMixin):
         self._resource_cache: dict[str, dict[str, float]] = {}
         self._resource_cache_time: float = 0
 
-        # Gauntlet evaluation: reserved workers
-        self._gauntlet_reserved: set[str] = set()
-        self._gauntlet_lock = threading.RLock()
-
-        # Training reservation: reserved GPU nodes for training jobs (December 2025)
-        # When a node is reserved for training, selfplay jobs should not be scheduled
-        # on it to ensure training gets priority GPU access
-        self._training_reserved: set[str] = set()
-        self._training_lock = threading.RLock()
-        self._training_reservation_expiry: dict[str, float] = {}  # node_id -> expiry timestamp
+        # December 30, 2025: Delegate reservations to extracted ReservationManager
+        # This was previously inline state, now managed by ReservationManager singleton
+        self._reservation_manager = get_reservation_manager()
 
         # Heartbeat monitor for orphan detection (December 2025)
         self._heartbeat_monitor = TaskHeartbeatMonitor(

@@ -208,6 +208,9 @@ def extract_metadata(
 def parse_config_key(config_key: str) -> tuple[str | None, int | None]:
     """Parse config key into board type and num players.
 
+    December 2025: Now delegates to event_utils.parse_config_key() for
+    consistent parsing across the codebase.
+
     Args:
         config_key: Config key string (e.g., "hex8_2p").
 
@@ -220,24 +223,12 @@ def parse_config_key(config_key: str) -> tuple[str | None, int | None]:
         >>> parse_config_key("square19_4p")
         ('square19', 4)
     """
-    if not config_key or "_" not in config_key:
+    from app.coordination.event_utils import parse_config_key as _parse
+
+    parsed = _parse(config_key)
+    if parsed is None:
         return None, None
-
-    parts = config_key.rsplit("_", 1)
-    if len(parts) != 2:
-        return None, None
-
-    board_type, player_str = parts
-
-    if not player_str.endswith("p"):
-        return None, None
-
-    try:
-        num_players = int(player_str[:-1])
-    except ValueError:
-        return None, None
-
-    return board_type, num_players
+    return parsed.board_type, parsed.num_players
 
 
 def build_config_key(board_type: str, num_players: int) -> str:

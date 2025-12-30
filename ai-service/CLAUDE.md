@@ -61,38 +61,38 @@ python scripts/update_all_nodes.py --restart-p2p
 
 ### Coordination Infrastructure (256 modules)
 
-| Module                                 | Purpose                                            |
-| -------------------------------------- | -------------------------------------------------- |
-| `daemon_manager.py`                    | Lifecycle for 99 daemon types (~2,000 LOC)         |
-| `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)    |
-| `daemon_runners.py`                    | 90 async runner functions                          |
-| `event_router.py`                      | Unified event bus (200+ event types, SHA256 dedup) |
-| `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)    |
-| `budget_calculator.py`                 | Gumbel budget tiers, target games calculation      |
-| `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation       |
-| `p2p_recovery_daemon.py`               | P2P cluster health recovery                        |
-| `stale_fallback.py`                    | Graceful degradation with older models             |
-| `data_pipeline_orchestrator.py`        | Pipeline stage tracking                            |
-| `auto_sync_daemon.py`                  | P2P data synchronization                           |
-| `sync_router.py`                       | Intelligent sync routing                           |
-| `feedback_loop_controller.py`          | Training feedback signals                          |
-| `health_facade.py`                     | Unified health check API                           |
-| `quality_monitor_daemon.py`            | Monitors selfplay data quality, emits events       |
-| `quality_analysis.py`                  | Quality scoring, intensity mapping, thresholds     |
-| `training_trigger_daemon.py`           | Automatic training decision logic                  |
-| `architecture_feedback_controller.py`  | NN architecture selection based on evaluation      |
-| `npz_combination_daemon.py`            | Quality-weighted NPZ file combination              |
-| `evaluation_daemon.py`                 | Model evaluation with retry and backpressure       |
-| `auto_promotion_daemon.py`             | Automatic model promotion after evaluation         |
-| `unified_distribution_daemon.py`       | Model and NPZ distribution to cluster              |
-| `unified_replication_daemon.py`        | Data replication monitoring and repair             |
-| `training_coordinator.py`              | Training job management and coordination           |
-| `connectivity_recovery_coordinator.py` | Network recovery and reconnection                  |
-| `curriculum_feedback_handler.py`       | Curriculum adjustment based on performance         |
-| `cascade_training.py`                  | Cascade training across architectures              |
-| `orphan_detection_daemon.py`           | Detects incomplete selfplay records                |
-| `integrity_check_daemon.py`            | Data integrity validation                          |
-| `event_utils.py`                       | Unified event extraction utilities (Dec 2025)      |
+| Module                                 | Purpose                                           |
+| -------------------------------------- | ------------------------------------------------- |
+| `daemon_manager.py`                    | Lifecycle for 89 daemon types (~2,000 LOC)        |
+| `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)   |
+| `daemon_runners.py`                    | 89 async runner functions                         |
+| `event_router.py`                      | Unified event bus (207 event types, SHA256 dedup) |
+| `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)   |
+| `budget_calculator.py`                 | Gumbel budget tiers, target games calculation     |
+| `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation      |
+| `p2p_recovery_daemon.py`               | P2P cluster health recovery                       |
+| `stale_fallback.py`                    | Graceful degradation with older models            |
+| `data_pipeline_orchestrator.py`        | Pipeline stage tracking                           |
+| `auto_sync_daemon.py`                  | P2P data synchronization                          |
+| `sync_router.py`                       | Intelligent sync routing                          |
+| `feedback_loop_controller.py`          | Training feedback signals                         |
+| `health_facade.py`                     | Unified health check API                          |
+| `quality_monitor_daemon.py`            | Monitors selfplay data quality, emits events      |
+| `quality_analysis.py`                  | Quality scoring, intensity mapping, thresholds    |
+| `training_trigger_daemon.py`           | Automatic training decision logic                 |
+| `architecture_feedback_controller.py`  | NN architecture selection based on evaluation     |
+| `npz_combination_daemon.py`            | Quality-weighted NPZ file combination             |
+| `evaluation_daemon.py`                 | Model evaluation with retry and backpressure      |
+| `auto_promotion_daemon.py`             | Automatic model promotion after evaluation        |
+| `unified_distribution_daemon.py`       | Model and NPZ distribution to cluster             |
+| `unified_replication_daemon.py`        | Data replication monitoring and repair            |
+| `training_coordinator.py`              | Training job management and coordination          |
+| `connectivity_recovery_coordinator.py` | Network recovery and reconnection                 |
+| `curriculum_feedback_handler.py`       | Curriculum adjustment based on performance        |
+| `cascade_training.py`                  | Cascade training across architectures             |
+| `orphan_detection_daemon.py`           | Detects incomplete selfplay records               |
+| `integrity_check_daemon.py`            | Data integrity validation                         |
+| `event_utils.py`                       | Unified event extraction utilities (Dec 2025)     |
 
 ### Event Extraction Utilities (Dec 2025)
 
@@ -303,11 +303,11 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-88 active daemon types, 11 deprecated (99 total). Three-layer architecture:
+82 active daemon types, 7 deprecated (89 total). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 90 async runner functions
+3. **`daemon_runners.py`** - 89 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
@@ -363,13 +363,13 @@ Automatic retry for transient failures (GPU OOM, timeouts):
 
 ## Event System
 
-**Integration Status**: VERIFIED COMPLETE (Dec 30, 2025)
+**Integration Status**: MOSTLY COMPLETE (Dec 30, 2025)
 
-All 220+ event types have been verified to have proper emitters and subscribers. Previously reported
-"orphaned" events (TASK_SPAWNED, TASK_HEARTBEAT, QUALITY_DEGRADED, PROGRESS_STALL_DETECTED) have 2-5
-active subscribers each. No integration gaps remain in the event system.
+207 event types defined in DataEventType enum. Most critical event flows are wired. Some integration
+gaps remain for feedback loop events (quality scores, loss anomalies, exploration adjustments) which
+are emitted but lack subscribers. See exploration agent findings from Dec 30, 2025.
 
-220+ event types across 3 layers:
+207 event types across 3 layers:
 
 1. **In-memory EventBus** - Local daemon communication
 2. **Stage events** - Pipeline stage completion
