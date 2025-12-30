@@ -1202,14 +1202,18 @@ class BandwidthCoordinatedRsync:
 
         ssh_cmd = ["ssh", *ssh_opts, remote_target, decode_cmd]
 
-        # Pipe base64 data through SSH
-        result = subprocess.run(
-            ssh_cmd,
-            input=encoded_data,
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
+        # December 30, 2025: Wrap blocking subprocess in asyncio.to_thread
+        # to avoid blocking the event loop during file transfer
+        def _run_ssh_transfer() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                ssh_cmd,
+                input=encoded_data,
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+
+        result = await asyncio.to_thread(_run_ssh_transfer)
 
         duration = time.time() - start_time
 

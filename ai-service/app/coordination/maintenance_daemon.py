@@ -884,12 +884,17 @@ class MaintenanceDaemon:
                     num_players = 2
 
                 # Count games in the database
-                game_count = 0
-                try:
-                    with sqlite3.connect(str(db_path), timeout=5.0) as conn:
-                        cursor = conn.execute("SELECT COUNT(*) FROM games")
-                        game_count = cursor.fetchone()[0]
-                except (sqlite3.Error, OSError, IndexError):
+                # December 30, 2025: Wrap blocking SQLite in asyncio.to_thread
+                def _count_games(path: str) -> int:
+                    try:
+                        with sqlite3.connect(path, timeout=5.0) as conn:
+                            cursor = conn.execute("SELECT COUNT(*) FROM games")
+                            return cursor.fetchone()[0]
+                    except (sqlite3.Error, OSError, IndexError):
+                        return -1  # Signal error
+
+                game_count = await asyncio.to_thread(_count_games, str(db_path))
+                if game_count < 0:
                     # If we can't read the database, skip it
                     logger.debug(f"[Maintenance] Couldn't read orphan DB {db_path}, skipping")
                     continue

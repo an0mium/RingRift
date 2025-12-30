@@ -473,13 +473,17 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
             )
 
             if os.path.exists(p2p_script):
-                # Start in background (subprocess.Popen is non-blocking)
-                process = subprocess.Popen(
-                    [sys.executable, p2p_script],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+                # December 30, 2025: Wrap Popen in asyncio.to_thread for consistency
+                # Popen is mostly non-blocking, but fork can briefly block
+                def _start_p2p() -> subprocess.Popen[bytes]:
+                    return subprocess.Popen(
+                        [sys.executable, p2p_script],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+
+                process = await asyncio.to_thread(_start_p2p)
                 logger.info(f"Started new P2P process (PID {process.pid})")
             else:
                 logger.warning(
