@@ -26,10 +26,13 @@ docker compose up -d
 Verify that core services are healthy:
 
 ```bash
-curl -s http://localhost:3000/health | jq      # App HTTP
-curl -s http://localhost:3001/health | jq      # App WebSocket/HTTP proxy (if exposed)
+APP_BASE=${APP_BASE:-http://localhost}
+curl -s $APP_BASE/health | jq      # App HTTP + WebSocket (nginx → app)
 curl -s http://localhost:8001/health | jq      # AI service
 ```
+
+> If you expose the app directly (no nginx), set `APP_BASE` to the app port
+> (for example `http://localhost:3000`).
 
 Confirm monitoring components:
 
@@ -90,7 +93,7 @@ npm run test:smoke:concurrent-games
 Target the docker‑compose app:
 
 ```bash
-BASE_URL=http://localhost:3001 k6 run scenarios/game-creation.js
+BASE_URL=${BASE_URL:-http://localhost} k6 run scenarios/game-creation.js
 ```
 
 ### 2.3 Full Load Profile
@@ -105,11 +108,11 @@ npm run test:load:all
 Or individually:
 
 ```bash
-BASE_URL=http://localhost:3001 k6 run scenarios/game-creation.js
-BASE_URL=http://localhost:3001 k6 run scenarios/concurrent-games.js
-BASE_URL=http://localhost:3001 k6 run scenarios/player-moves.js
-BASE_URL=http://localhost:3001 \
-WS_URL=ws://localhost:3001 \
+BASE_URL=${BASE_URL:-http://localhost} k6 run scenarios/game-creation.js
+BASE_URL=${BASE_URL:-http://localhost} k6 run scenarios/concurrent-games.js
+BASE_URL=${BASE_URL:-http://localhost} k6 run scenarios/player-moves.js
+BASE_URL=${BASE_URL:-http://localhost} \
+WS_URL=${WS_URL:-ws://localhost} \
   k6 run scenarios/websocket-stress.js
 ```
 

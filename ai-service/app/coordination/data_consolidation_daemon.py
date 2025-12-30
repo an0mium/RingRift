@@ -163,7 +163,15 @@ class DataConsolidationDaemon(HandlerBase):
         before this daemon started are consolidated. Without this, canonical
         databases remain empty until NEW_GAMES_AVAILABLE or SELFPLAY_COMPLETE
         events arrive, which may never happen for historical data.
+
+        Dec 30, 2025: Added eligibility check (Phase 3.5 of distributed data pipeline).
+        Consolidation only runs on eligible nodes based on disk space, role, etc.
         """
+        # Phase 3.5: Check eligibility before running consolidation
+        if not await self._check_node_eligibility():
+            logger.info("[DataConsolidationDaemon] Node not eligible for consolidation, skipping")
+            return
+
         await self._subscribe_to_events()
 
         # CRITICAL: Trigger initial consolidation for all configs

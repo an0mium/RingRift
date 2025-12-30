@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import gzip
 import json
+import os
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -245,9 +246,21 @@ class GossipProtocolMixin(P2PMixinBase):
     GOSSIP_STATE_TTL = 3600  # 1 hour TTL for stale states
     GOSSIP_ENDPOINT_TTL = 1800  # 30 min TTL for learned endpoints
 
+    # Dec 30, 2025: Configurable gossip parameters via environment variables
+    # These can be tuned per cluster without code changes
+    GOSSIP_FANOUT_LEADER = int(os.environ.get("RINGRIFT_GOSSIP_FANOUT_LEADER", "8"))
+    GOSSIP_FANOUT_FOLLOWER = int(os.environ.get("RINGRIFT_GOSSIP_FANOUT_FOLLOWER", "5"))
+    GOSSIP_INTERVAL_SECONDS = float(os.environ.get("RINGRIFT_GOSSIP_INTERVAL", "30"))
+    ANTI_ENTROPY_INTERVAL_SECONDS = float(
+        os.environ.get("RINGRIFT_ANTI_ENTROPY_INTERVAL", "120")
+    )
+
     # Dec 30, 2025: Message size limits for network stability
-    GOSSIP_MAX_MESSAGE_SIZE_BYTES = 1 * 1024 * 1024  # 1MB compressed limit
-    GOSSIP_MESSAGE_SIZE_WARNING_BYTES = 512 * 1024  # 512KB warning threshold
+    # RINGRIFT_GOSSIP_MAX_SIZE is in bytes (default 1MB)
+    GOSSIP_MAX_MESSAGE_SIZE_BYTES = int(
+        os.environ.get("RINGRIFT_GOSSIP_MAX_SIZE", str(1 * 1024 * 1024))
+    )
+    GOSSIP_MESSAGE_SIZE_WARNING_BYTES = GOSSIP_MAX_MESSAGE_SIZE_BYTES // 2
 
     def _init_gossip_protocol(self) -> None:
         """Initialize gossip protocol state and metrics.

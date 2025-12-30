@@ -832,7 +832,9 @@ class TestModuleExports:
         # Helper functions (backward-compat for base_handler.py)
         assert hasattr(handler_base, "create_handler_stats")
         assert hasattr(handler_base, "safe_subscribe")
-        assert len(handler_base.__all__) == 10
+        # SafeEventEmitterMixin added Dec 30, 2025
+        assert hasattr(handler_base, "SafeEventEmitterMixin")
+        assert len(handler_base.__all__) == 11
 
 
 class TestDeduplicationTTL:

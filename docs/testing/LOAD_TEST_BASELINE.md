@@ -55,7 +55,7 @@ From the repo root, targeting the staging stack on `localhost`:
 THRESHOLD_ENV=staging \
 RINGRIFT_ENV=staging \
 BASE_URL=http://localhost:3000 \
-WS_URL=ws://localhost:3001 \
+WS_URL=ws://localhost:3000 \
 npm run load-test:baseline
 ```
 

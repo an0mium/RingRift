@@ -399,6 +399,9 @@ class ConsensusMixin(P2PMixinBase):
     def _init_raft_consensus(self) -> bool:
         """Initialize Raft consensus if enabled.
 
+        Dec 30, 2025: Added two-phase initialization with state machine to fix race
+        condition where _raft_initialized=True was set before objects were ready.
+
         Returns:
             True if Raft was initialized successfully, False otherwise
         """
@@ -407,6 +410,8 @@ class ConsensusMixin(P2PMixinBase):
         self._raft_job_assignments = None
         self._raft_initialized = False
         self._raft_init_error: str | None = None
+        # Dec 30, 2025: State machine for safe initialization
+        self._raft_init_state = RaftInitState.NOT_STARTED
 
         if not RAFT_ENABLED:
             logger.debug("Raft consensus disabled (RINGRIFT_RAFT_ENABLED != true)")
@@ -414,17 +419,22 @@ class ConsensusMixin(P2PMixinBase):
 
         if not PYSYNCOBJ_AVAILABLE:
             self._raft_init_error = "pysyncobj not installed"
+            self._raft_init_state = RaftInitState.FAILED
             logger.warning(
                 f"Raft consensus unavailable: {self._raft_init_error}. "
                 "Install with: pip install pysyncobj"
             )
             return False
 
+        # Transition to INITIALIZING - callers should check this state
+        self._raft_init_state = RaftInitState.INITIALIZING
+
         try:
             # Get Raft partner addresses
             partners = self._get_raft_partners()
             if not partners:
                 self._raft_init_error = "no Raft partners available"
+                self._raft_init_state = RaftInitState.FAILED
                 logger.warning(f"Raft consensus unavailable: {self._raft_init_error}")
                 return False
 
@@ -448,7 +458,10 @@ class ConsensusMixin(P2PMixinBase):
                 partner_addrs=partners,
             )
 
-            self._raft_initialized = True
+            # Dec 30, 2025: Only mark READY after ALL objects are initialized
+            # The state machine prevents other code from using Raft before this point
+            self._raft_init_state = RaftInitState.READY
+            self._raft_initialized = True  # Legacy compatibility
             logger.info("Raft consensus initialized successfully")
 
             # Emit leader change event if we're the Raft leader
@@ -459,6 +472,7 @@ class ConsensusMixin(P2PMixinBase):
 
         except Exception as e:
             self._raft_init_error = str(e)
+            self._raft_init_state = RaftInitState.FAILED
             logger.error(f"Failed to initialize Raft consensus: {e}")
             return False
 
@@ -489,9 +503,18 @@ class ConsensusMixin(P2PMixinBase):
     def _should_use_raft(self) -> bool:
         """Check if Raft should be used for consensus operations.
 
+        Dec 30, 2025: Now checks RaftInitState to prevent using Raft during
+        initialization when objects may not be ready.
+
         Returns:
             True if Raft should be used, False to fall back to SQLite
         """
+        # Check state machine first (more accurate than legacy flag)
+        init_state = getattr(self, "_raft_init_state", RaftInitState.NOT_STARTED)
+        if init_state != RaftInitState.READY:
+            return False
+
+        # Also check legacy flag for backward compatibility
         if not RAFT_ENABLED or not getattr(self, "_raft_initialized", False):
             return False
 

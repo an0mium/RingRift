@@ -529,13 +529,15 @@ class TailscaleHealthDaemon(HandlerBase):
         """Run a shell command asynchronously."""
         try:
             if background:
-                # Fire and forget
-                subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
+                # Fire and forget - wrap in thread to avoid blocking event loop
+                def _run_background():
+                    subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                await asyncio.to_thread(_run_background)
                 return {"returncode": 0, "stdout": "", "stderr": ""}
 
             proc = await asyncio.create_subprocess_exec(
