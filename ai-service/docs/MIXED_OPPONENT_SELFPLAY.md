@@ -149,20 +149,24 @@ INFO:app.training.mixed_opponent_selfplay:  heuristic: 398/1000 (39.8%, target: 
 INFO:app.training.mixed_opponent_selfplay:  mcts: 297/1000 (29.7%, target: 30.0%)
 ```
 
-Metadata is stored in game database for analysis:
+Opponent metadata is stored in the game database for analysis:
 
 ```python
 # Query games by opponent type
 import sqlite3
 conn = sqlite3.connect("data/games/hex8_2p_mixed.db")
 cursor = conn.execute("""
-    SELECT metadata->>'opponent_type', COUNT(*)
+    SELECT opponent_type, COUNT(*)
     FROM games
-    GROUP BY metadata->>'opponent_type'
+    WHERE opponent_type IS NOT NULL
+    GROUP BY opponent_type
 """)
 for opponent_type, count in cursor:
     print(f"{opponent_type}: {count} games")
 ```
+
+For older schemas without the dedicated columns, read from `metadata_json`
+instead (JSON1 extension required).
 
 ## Performance Considerations
 

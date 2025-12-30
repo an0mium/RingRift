@@ -703,6 +703,53 @@ class EloService:
             confidence=0.0
         )
 
+    def _get_adaptive_k_factor(
+        self,
+        games_a: int,
+        games_b: int,
+        base_k: float,
+    ) -> float:
+        """Calculate adaptive K-factor based on games played.
+
+        Adaptive K-factor improves rating convergence:
+        - New models (< 30 games): K = 1.5x base (faster convergence)
+        - Developing models (30-100 games): K = 1.25x base
+        - Established models (100-300 games): K = 1.0x base
+        - Mature models (300+ games): K = 0.75x base (stability)
+
+        The K-factor is determined by the LESS confident participant,
+        so matches involving new models are more impactful.
+
+        Args:
+            games_a: Games played by participant A
+            games_b: Games played by participant B
+            base_k: Base K-factor (after multiplayer scaling)
+
+        Returns:
+            Adaptive K-factor scaled by confidence
+
+        December 2025: Added to improve rating accuracy for new models
+        while maintaining stability for established models.
+        """
+        # Use the minimum games (less confident participant drives K)
+        min_games = min(games_a, games_b)
+
+        # Tiered K-factor multipliers
+        if min_games < 30:
+            # Provisional: High K for rapid convergence
+            k_multiplier = 1.5
+        elif min_games < 100:
+            # Developing: Moderately high K
+            k_multiplier = 1.25
+        elif min_games < 300:
+            # Established: Standard K
+            k_multiplier = 1.0
+        else:
+            # Mature: Lower K for stability
+            k_multiplier = 0.75
+
+        return base_k * k_multiplier
+
     def record_match(
         self,
         participant_a: str,
@@ -747,7 +794,16 @@ class EloService:
         # Scale K-factor for multiplayer games
         # In N-player games, each pairwise matchup is 1/(N-1) of the rating info
         # This ensures consistent rating change magnitude across player counts
-        k = self.K_FACTOR / (num_players - 1) if num_players > 2 else self.K_FACTOR
+        base_k = self.K_FACTOR / (num_players - 1) if num_players > 2 else self.K_FACTOR
+
+        # Apply adaptive K-factor based on confidence (December 2025)
+        # New models (low games) get higher K for faster convergence
+        # Established models (high games) get lower K for stability
+        k = self._get_adaptive_k_factor(
+            games_a=rating_a.games_played,
+            games_b=rating_b.games_played,
+            base_k=base_k,
+        )
 
         # Calculate Elo changes
         change_a = k * (score_a - exp_a)

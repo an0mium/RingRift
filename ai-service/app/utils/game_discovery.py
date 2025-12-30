@@ -6,11 +6,12 @@ of where they're stored. It handles all known storage patterns:
 1. Central databases: data/games/selfplay.db, data/games/jsonl_aggregated.db
 2. Per-config databases: data/games/{board_type}_{num_players}.db
 3. Tournament databases: data/games/tournament_{board_type}_{num_players}.db
-4. Canonical databases: data/selfplay/canonical_{board_type}_{num_players}.db
-5. Unified selfplay: data/selfplay/unified_*/games.db
-6. P2P selfplay: data/selfplay/p2p/{board_type}_{num_players}*/*/games.db
-7. P2P hybrid: data/selfplay/p2p_hybrid/{board_type}_{num_players}/*/games.db
-8. Harvested data: data/training/*/harvested_games.db
+4. Gauntlet databases: data/games/gauntlet_{board_type}_{num_players}p.db
+5. Canonical databases: data/selfplay/canonical_{board_type}_{num_players}.db
+6. Unified selfplay: data/selfplay/unified_*/games.db
+7. P2P selfplay: data/selfplay/p2p/{board_type}_{num_players}*/*/games.db
+8. P2P hybrid: data/selfplay/p2p_hybrid/{board_type}_{num_players}/*/games.db
+9. Harvested data: data/training/*/harvested_games.db
 
 Usage:
     from app.utils.game_discovery import GameDiscovery
@@ -121,6 +122,9 @@ class GameDiscovery:
         # Tournament databases
         ("data/games/tournament_{board_type}_{num_players}p.db", False),
         ("data/games/tournament_{board_type}_{num_players}.db", False),
+        # Gauntlet evaluation databases (Dec 29, 2025)
+        ("data/games/gauntlet_{board_type}_{num_players}p.db", False),
+        ("data/games/baseline_calibration_{board_type}_{num_players}p.db", False),
         # Canonical selfplay databases
         ("data/selfplay/canonical_{board_type}_{num_players}p.db", False),
         ("data/selfplay/canonical_{board_type}.db", True),  # May contain multiple player counts

@@ -179,10 +179,16 @@ class TestEventSubscription:
         daemon = AutoPromotionDaemon()
 
         mock_router = MagicMock()
-        mock_router.subscribe = AsyncMock()
+        mock_router.subscribe = MagicMock()  # subscribe is synchronous, not async
+
+        # Dec 29, 2025: Must also patch DataEventType to be non-None
+        mock_event_type = MagicMock()
+        mock_event_type.EVALUATION_COMPLETED = "evaluation_completed"
 
         with patch(
             "app.coordination.event_router.get_router", return_value=mock_router
+        ), patch(
+            "app.coordination.event_router.DataEventType", mock_event_type
         ):
             await daemon._subscribe_to_events()
             assert daemon._subscribed is True
@@ -482,9 +488,16 @@ class TestEventEmission:
         mock_router = MagicMock()
         mock_router.publish = AsyncMock()
 
+        # Dec 29, 2025: Must also patch DataEventType to be non-None
+        mock_event_type = MagicMock()
+        mock_event_type.MODEL_PROMOTED = "model_promoted"
+
         with patch(
             "app.coordination.event_router.get_router",
             return_value=mock_router,
+        ), patch(
+            "app.coordination.event_router.DataEventType",
+            mock_event_type,
         ), patch(
             "app.coordination.event_router.emit_curriculum_advanced",
             new_callable=AsyncMock,

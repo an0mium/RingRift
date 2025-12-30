@@ -63,9 +63,13 @@ logger = logging.getLogger(__name__)
 PHASE2_ALGORITHMS = ["gumbel_mcts", "mcts", "descent", "gmo_gumbel"]
 
 # Baseline composite IDs (pinned ratings)
+# Dec 29, 2025: Extended to match game_gauntlet.py default baselines
+# Provides coverage from 400-1700 Elo for meaningful model evaluation
 BASELINE_COMPOSITE_IDS = {
-    "none:random:d1": 400.0,
-    "none:heuristic:d2": 1000.0,
+    "none:random:d1": 400.0,        # Random baseline anchor
+    "none:heuristic:d2": 1200.0,    # Basic heuristic (was 1000, aligned with game_gauntlet)
+    "none:mcts:d4": 1500.0,         # MCTS_LIGHT (~32 simulations)
+    "none:mcts:d6": 1700.0,         # MCTS_MEDIUM (~128 simulations)
 }
 
 
@@ -736,6 +740,40 @@ class CompositeGauntlet:
                     difficulty=difficulty,
                 ),
             )
+        elif ai_type == "mcts":
+            # Dec 29, 2025: Added MCTS baseline support
+            # Difficulty maps to think_time for consistent strength
+            difficulty = config.get("difficulty", 4)
+            # Map difficulty to think_time (aligned with game_gauntlet.py)
+            think_time_map = {
+                4: 500,    # MCTS_LIGHT (~32 sims)
+                6: 2000,   # MCTS_MEDIUM (~128 sims)
+                8: 8000,   # MCTS_STRONG (~512 sims)
+                9: 16000,  # MCTS_MASTER (~1024 sims)
+                10: 32000, # MCTS_GRANDMASTER (~2048 sims)
+            }
+            think_time = think_time_map.get(difficulty, 500)
+            try:
+                from app.ai.mcts_ai import MCTSAI
+                return MCTSAI(
+                    player_number=player_number,
+                    config=self._AIConfig(
+                        ai_type=self._AIType.MCTS,
+                        board_type=board_type_enum,
+                        difficulty=difficulty,
+                        think_time=think_time,
+                    ),
+                )
+            except ImportError:
+                logger.warning("MCTS AI not available, falling back to heuristic")
+                return self._HeuristicAI(
+                    player_number=player_number,
+                    config=self._AIConfig(
+                        ai_type=self._AIType.HEURISTIC,
+                        board_type=board_type_enum,
+                        difficulty=5,
+                    ),
+                )
 
         # Default to random
         return self._RandomAI(

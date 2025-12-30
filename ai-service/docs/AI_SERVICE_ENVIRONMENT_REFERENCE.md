@@ -479,6 +479,40 @@ Enable selfplay on this node.
 When enabled, selfplay games are recorded to the replay database. When disabled,
 selfplay runs skip DB writes (JSONL/log output can still be emitted).
 
+### `RINGRIFT_SKIP_SHADOW_CONTRACTS`
+
+| Property | Default   | Description |
+| -------- | --------- | ----------- |
+| Type     | `boolean` | `true`      |
+
+Skip shadow contract validation in the rules engine. Use `false` when
+debugging rules changes or parity mismatches.
+
+### `RINGRIFT_PARITY_VALIDATION`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `string` | `off`       |
+
+On-the-fly parity validation mode for recorded games: `off`, `warn`, `strict`.
+
+### `RINGRIFT_PARITY_BACKEND`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `string` | `auto`      |
+
+Parity backend selector: `auto` (prefer TS if `npx` available), `ts`,
+`python_only`, `ts_hashes`, or `skip`.
+
+### `RINGRIFT_SKIP_PARITY`
+
+| Property | Default   | Description |
+| -------- | --------- | ----------- |
+| Type     | `boolean` | `false`     |
+
+Skip parity validation entirely (overrides backend and mode).
+
 ### `RINGRIFT_GAUNTLET_ENABLED`
 
 | Property | Default   | Description   |
@@ -1036,6 +1070,22 @@ Path to log file.
 | Type     | `boolean` | `false`     |
 
 Enable trace-level debug logging.
+
+### `RINGRIFT_PARITY_DUMP_DIR`
+
+| Property | Default  | Description       |
+| -------- | -------- | ----------------- |
+| Type     | `string` | `parity_failures` |
+
+Directory where parity tooling writes failure bundles and dumps.
+
+### `RINGRIFT_PARITY_PROGRESS_EVERY`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `250`       |
+
+Progress logging interval (in moves) for parity replays.
 
 ### `RINGRIFT_REQUIRE_CRITICAL_IMPORTS`
 

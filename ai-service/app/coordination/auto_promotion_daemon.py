@@ -180,6 +180,12 @@ class AutoPromotionDaemon:
             try:
                 from app.coordination.event_router import DataEventType, get_router
 
+                # Dec 29, 2025: Check if DataEventType is available (None if data_events failed to import)
+                if DataEventType is None:
+                    logger.warning("[AutoPromotion] DataEventType unavailable (data_events not imported)")
+                    self._subscribed = False
+                    return
+
                 router = get_router()
                 if not router:
                     if attempt == max_retries - 1:

@@ -1034,16 +1034,17 @@ class TestEventHandlers:
                 assert coordinator._errors_count >= 1
 
     def test_data_sync_completed_updates_state(self, coordinator):
-        """Data sync completed should update sync time."""
+        """Data sync completed should update sync time for selfplay data."""
         mock_event = MagicMock()
         mock_event.payload = {
             "config_key": "square8_2p",
+            "sync_type": "selfplay",  # Required for sync time update
             "sync_time": time.time(),
         }
 
         coordinator._on_data_sync_completed(mock_event)
 
-        # Sync time should be updated
+        # Sync time should be updated for selfplay syncs
         assert coordinator._last_sync_time > 0
 
 

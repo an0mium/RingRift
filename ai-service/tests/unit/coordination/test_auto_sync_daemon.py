@@ -1065,7 +1065,12 @@ class TestEventEmission:
         mock_router = AsyncMock()
         mock_router.publish = AsyncMock()
 
-        with patch("app.coordination.event_router.get_router", return_value=mock_router):
+        # Dec 29, 2025: Must also patch DataEventType to be non-None
+        mock_event_type = MagicMock()
+        mock_event_type.DATA_SYNC_COMPLETED = "data_sync_completed"
+
+        with patch("app.coordination.event_router.get_router", return_value=mock_router), \
+             patch("app.coordination.event_router.DataEventType", mock_event_type):
             await daemon._emit_sync_completed(games_synced=100, bytes_transferred=1000000)
 
             # Verify the publish was called

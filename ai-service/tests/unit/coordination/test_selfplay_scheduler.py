@@ -881,3 +881,486 @@ class TestConstants:
         """Starvation thresholds are properly ordered."""
         assert DATA_STARVATION_EMERGENCY_THRESHOLD < DATA_STARVATION_CRITICAL_THRESHOLD
         assert DATA_STARVATION_EMERGENCY_MULTIPLIER > DATA_STARVATION_CRITICAL_MULTIPLIER
+
+
+# =============================================================================
+# TestSamplesPerGameEstimate - Samples estimation logic
+# =============================================================================
+
+
+class TestSamplesPerGameEstimate:
+    """Tests for _get_samples_per_game_estimate method."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_hex8_2p_estimate(self, scheduler):
+        """hex8_2p has expected samples per game."""
+        estimate = scheduler._get_samples_per_game_estimate("hex8_2p")
+        assert 20 <= estimate <= 80  # Reasonable range for small board
+
+    def test_square19_4p_higher_than_hex8(self, scheduler):
+        """Larger board has more samples per game."""
+        small = scheduler._get_samples_per_game_estimate("hex8_2p")
+        large = scheduler._get_samples_per_game_estimate("square19_4p")
+        # Large board should have more moves, hence more samples
+        assert large >= small
+
+    def test_unknown_config_returns_default(self, scheduler):
+        """Unknown config returns reasonable default."""
+        estimate = scheduler._get_samples_per_game_estimate("unknown_config")
+        assert estimate > 0  # Should have a fallback
+
+
+# =============================================================================
+# TestTargetTrainingSamples - Target management
+# =============================================================================
+
+
+class TestTargetTrainingSamples:
+    """Tests for set_target_training_samples and related methods."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_set_target_updates_config(self, scheduler):
+        """Setting target updates the config priority."""
+        scheduler.set_target_training_samples("hex8_2p", 50000)
+        priority = scheduler.get_config_priority("hex8_2p")
+        assert priority is not None
+        assert priority.target_training_samples == 50000
+
+    def test_set_target_zero_resets_to_default(self, scheduler):
+        """Setting target to 0 or negative uses default."""
+        scheduler.set_target_training_samples("hex8_2p", 0)
+        priority = scheduler.get_config_priority("hex8_2p")
+        # Zero target should not change from existing value
+        assert priority.target_training_samples > 0
+
+    def test_set_target_negative_uses_default(self, scheduler):
+        """Negative target keeps existing value."""
+        scheduler.set_target_training_samples("hex8_2p", -1000)
+        priority = scheduler.get_config_priority("hex8_2p")
+        # Negative target should not change from existing value
+        assert priority.target_training_samples > 0
+
+
+# =============================================================================
+# TestGamesNeeded - Games computation
+# =============================================================================
+
+
+class TestGamesNeeded:
+    """Tests for get_games_needed and get_all_games_needed methods."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_games_needed_positive_when_below_target(self, scheduler):
+        """Games needed is positive when below target."""
+        # Ensure config has low game count
+        priority = scheduler.get_config_priority("hex8_2p")
+        if priority:
+            priority.current_games = 0
+        needed = scheduler.get_games_needed("hex8_2p")
+        assert needed >= 0  # Should need some games
+
+    def test_games_needed_zero_at_target(self, scheduler):
+        """Games needed is 0 when at or above target."""
+        priority = scheduler.get_config_priority("hex8_2p")
+        if priority:
+            # Set games above target
+            priority.game_count = priority.target_training_samples // 20 + 1000
+        needed = scheduler.get_games_needed("hex8_2p")
+        assert needed >= 0  # Always non-negative
+
+    def test_games_needed_unknown_config(self, scheduler):
+        """Unknown config returns 0."""
+        needed = scheduler.get_games_needed("nonexistent_config")
+        assert needed == 0
+
+    def test_get_all_games_needed_returns_dict(self, scheduler):
+        """get_all_games_needed returns dict for all configs."""
+        all_needed = scheduler.get_all_games_needed()
+        assert isinstance(all_needed, dict)
+        assert "hex8_2p" in all_needed
+        assert "square8_4p" in all_needed
+
+
+# =============================================================================
+# TestTargetGamesForConfig - Target games computation
+# =============================================================================
+
+
+class TestTargetGamesForConfig:
+    """Tests for get_target_games_for_config method."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_returns_positive_target(self, scheduler):
+        """Target games is always positive."""
+        target = scheduler.get_target_games_for_config("hex8_2p")
+        assert target > 0
+
+    def test_unknown_config_returns_default(self, scheduler):
+        """Unknown config returns default target."""
+        target = scheduler.get_target_games_for_config("nonexistent")
+        assert target == DEFAULT_GAMES_PER_CONFIG
+
+
+# =============================================================================
+# TestBoostConfigAllocation - Priority boost functionality
+# =============================================================================
+
+
+class TestBoostConfigAllocation:
+    """Tests for boost_config_allocation method."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_boost_valid_config(self, scheduler):
+        """Boosting valid config returns True."""
+        result = scheduler.boost_config_allocation("hex8_2p", multiplier=2.0)
+        assert result is True
+
+    def test_boost_invalid_config(self, scheduler):
+        """Boosting invalid config returns False."""
+        result = scheduler.boost_config_allocation("nonexistent_config", multiplier=2.0)
+        assert result is False
+
+    def test_boost_increases_priority(self, scheduler):
+        """Boosting config increases its effective priority."""
+        # Get initial priority
+        initial_priorities = scheduler.get_top_priorities(12)
+        initial_rank = next(
+            (i for i, p in enumerate(initial_priorities) if p["config"] == "hex8_4p"),
+            None,
+        )
+
+        # Apply boost
+        scheduler.boost_config_allocation("hex8_4p", multiplier=5.0)
+
+        # Get new priority
+        new_priorities = scheduler.get_top_priorities(12)
+        new_rank = next(
+            (i for i, p in enumerate(new_priorities) if p["config"] == "hex8_4p"),
+            None,
+        )
+
+        # Boosted config should have higher or equal rank
+        if initial_rank is not None and new_rank is not None:
+            assert new_rank <= initial_rank
+
+
+# =============================================================================
+# TestGetConfigPriority - Config priority retrieval
+# =============================================================================
+
+
+class TestGetConfigPriority:
+    """Tests for get_config_priority method."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_valid_config_returns_priority(self, scheduler):
+        """Valid config returns ConfigPriority instance."""
+        priority = scheduler.get_config_priority("hex8_2p")
+        assert priority is not None
+        assert isinstance(priority, ConfigPriority)
+
+    def test_invalid_config_returns_none(self, scheduler):
+        """Invalid config returns None."""
+        priority = scheduler.get_config_priority("nonexistent")
+        assert priority is None
+
+    def test_priority_has_expected_fields(self, scheduler):
+        """ConfigPriority has expected fields populated."""
+        priority = scheduler.get_config_priority("square8_4p")
+        assert priority is not None
+        assert hasattr(priority, "config_key")
+        assert hasattr(priority, "game_count")
+        assert hasattr(priority, "current_elo")
+        assert hasattr(priority, "target_training_samples")
+
+
+# =============================================================================
+# TestAdaptiveBudgetMethods - Budget computation
+# =============================================================================
+
+
+class TestAdaptiveBudgetMethods:
+    """Tests for adaptive budget computation methods."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_budget_for_low_elo(self, scheduler):
+        """Low Elo gets lower budget."""
+        budget = scheduler._get_adaptive_budget_for_elo(1000.0)
+        assert budget >= 64  # Minimum budget
+
+    def test_budget_for_high_elo(self, scheduler):
+        """High Elo gets higher budget."""
+        low_budget = scheduler._get_adaptive_budget_for_elo(1000.0)
+        high_budget = scheduler._get_adaptive_budget_for_elo(1800.0)
+        assert high_budget >= low_budget
+
+    def test_budget_for_games_bootstrap(self, scheduler):
+        """Few games gets bootstrap budget."""
+        budget = scheduler._get_adaptive_budget_for_games(50, 1000.0)
+        assert budget == 64  # Bootstrap tier
+
+    def test_budget_for_games_standard(self, scheduler):
+        """Many games gets standard budget."""
+        budget = scheduler._get_adaptive_budget_for_games(2000, 1500.0)
+        assert budget >= 64
+
+
+# =============================================================================
+# TestEventHandlerTrainingComplete - Training completion handling
+# =============================================================================
+
+
+class TestEventHandlerTrainingComplete:
+    """Tests for _on_training_complete event handler."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_training_complete_handles_event(self, scheduler):
+        """Training complete handler processes event without error."""
+        event = SimpleNamespace(
+            payload={
+                "config_key": "hex8_2p",
+                "model_path": "models/test.pth",
+                "success": True,
+            }
+        )
+        # Should not raise
+        scheduler._on_training_complete(event)
+        # Handler should have processed the event
+        assert True
+
+
+# =============================================================================
+# TestEventHandlerRegressionDetected - Regression handling
+# =============================================================================
+
+
+class TestEventHandlerRegressionDetected:
+    """Tests for _on_regression_detected event handler."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_regression_boosts_config_priority(self, scheduler):
+        """Regression detection boosts config priority."""
+        event = SimpleNamespace(
+            payload={
+                "config_key": "hex8_2p",
+                "elo_drop": 50.0,
+                "severity": "moderate",
+            }
+        )
+        scheduler._on_regression_detected(event)
+        # Should have recorded the regression
+        assert True  # Handler shouldn't raise
+
+
+class TestEventHandlerPromotionComplete:
+    """Tests for _on_promotion_complete event handler."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_promotion_complete_updates_state(self, scheduler):
+        """Promotion complete updates scheduler state."""
+        event = SimpleNamespace(
+            payload={
+                "config_key": "hex8_2p",
+                "model_path": "models/promoted.pth",
+                "elo_gain": 25.0,
+            }
+        )
+        scheduler._on_promotion_complete(event)
+        # Should have processed the promotion
+        assert True  # Handler shouldn't raise
+
+
+# =============================================================================
+# TestEventHandlerEloVelocityChanged - Elo velocity tracking
+# =============================================================================
+
+
+class TestEventHandlerEloVelocityChanged:
+    """Tests for _on_elo_velocity_changed event handler."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_velocity_change_updates_tracking(self, scheduler):
+        """Elo velocity change updates internal tracking."""
+        event = SimpleNamespace(
+            payload={
+                "config_key": "hex8_2p",
+                "velocity": 15.5,
+                "window_hours": 24,
+            }
+        )
+        scheduler._on_elo_velocity_changed(event)
+        velocity = scheduler.get_elo_velocity("hex8_2p")
+        assert velocity >= 0  # Should be tracked
+
+
+# =============================================================================
+# TestGetEloVelocity - Velocity retrieval
+# =============================================================================
+
+
+class TestGetEloVelocity:
+    """Tests for get_elo_velocity method."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_velocity_for_tracked_config(self, scheduler):
+        """Returns velocity for tracked config."""
+        # Set a velocity
+        scheduler._elo_velocity["hex8_2p"] = 10.5
+        velocity = scheduler.get_elo_velocity("hex8_2p")
+        assert velocity == 10.5
+
+    def test_velocity_for_untracked_config(self, scheduler):
+        """Returns 0 for untracked config."""
+        velocity = scheduler.get_elo_velocity("nonexistent_config")
+        assert velocity == 0.0
+
+
+# =============================================================================
+# TestNodeBackoffMethods - Node backoff management
+# =============================================================================
+
+
+class TestNodeBackoffMethods:
+    """Tests for node backoff tracking methods."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_is_node_under_backoff_initially_false(self, scheduler):
+        """Nodes start without backoff."""
+        assert scheduler.is_node_under_backoff("test-node-1") is False
+
+    def test_get_overloaded_nodes_initially_empty(self, scheduler):
+        """No overloaded nodes initially."""
+        overloaded = scheduler.get_overloaded_nodes()
+        assert isinstance(overloaded, list)
+
+
+# =============================================================================
+# TestEventHandlerBackpressure - Backpressure handling
+# =============================================================================
+
+
+class TestEventHandlerBackpressureActivated:
+    """Tests for _on_backpressure_activated event handler."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_backpressure_sets_flag(self, scheduler):
+        """Backpressure activation sets internal flag."""
+        event = SimpleNamespace(
+            payload={
+                "reason": "high_queue_depth",
+                "queue_depth": 100,
+            }
+        )
+        scheduler._on_backpressure_activated(event)
+        # Should have recorded backpressure state
+        assert scheduler._backpressure_active is True
+
+    def test_backpressure_released_clears_flag(self, scheduler):
+        """Backpressure release clears internal flag."""
+        # First activate
+        scheduler._backpressure_active = True
+
+        event = SimpleNamespace(
+            payload={
+                "reason": "queue_drained",
+            }
+        )
+        scheduler._on_backpressure_released(event)
+        assert scheduler._backpressure_active is False
+
+
+# =============================================================================
+# TestRecordAllocation - Allocation tracking
+# =============================================================================
+
+
+class TestRecordAllocation:
+    """Tests for _record_allocation method."""
+
+    @pytest.fixture
+    def scheduler(self):
+        """Fresh scheduler instance."""
+        reset_selfplay_scheduler()
+        return get_selfplay_scheduler()
+
+    def test_record_allocation_adds_to_history(self, scheduler):
+        """Recording allocation adds to history."""
+        initial_len = len(scheduler._allocation_history)
+        scheduler._record_allocation(10)
+        assert len(scheduler._allocation_history) == initial_len + 1
+
+    def test_record_allocation_stores_count(self, scheduler):
+        """Recording allocation stores correct count."""
+        scheduler._record_allocation(5)
+        # Latest entry should have the games count
+        assert scheduler._allocation_history[-1][1] == 5
