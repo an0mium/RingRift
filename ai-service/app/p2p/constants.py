@@ -48,14 +48,15 @@ TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 # false positives on congested networks.
 # Dec 2025: Now configurable via environment variable for cluster tuning.
 HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_HEARTBEAT_INTERVAL", "15") or 15)
-# Dec 2025: Increased from 60s to 90s - 2x HTTP_TOTAL_TIMEOUT (45s) to prevent
-# false-positive node deaths from slow HTTP requests. With 15s heartbeats, 6 missed = dead.
+# Dec 2025: Reduced from 90s to 60s for faster failure detection.
+# With 15s heartbeats, 4 missed = dead. The 90s default caused too-slow detection.
+# Dec 29, 2025: P2P stability analysis showed 60s is optimal for cluster self-healing.
 # Environment variable allows runtime tuning without code changes.
-PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "90") or 90)
+PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "60") or 60)
 # SUSPECT grace period: nodes transition ALIVE -> SUSPECT -> DEAD
-# Dec 2025: Increased from 30s to 60s to reduce false positives from transient network issues
-# With 15s heartbeats, this means 4 missed = suspect, 8 missed = dead
-SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "60") or 60)
+# Dec 29, 2025: Reduced from 60s to 30s - faster suspect detection enables quicker recovery.
+# With 15s heartbeats, this means 2 missed = suspect, 4 missed = dead
+SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "30") or 30)
 # Election timeout configurable for aggressive failover mode
 # Dec 29, 2025: Increased from 10 to 30 to reduce leader thrashing (5 changes/6h → 1/6h)
 # Still fast enough for failover but reduces spurious elections from network hiccups

@@ -30,21 +30,21 @@ Daemons are organized by category:
 
 ### Training Pipeline
 
-| Daemon                 | Purpose                      | Health Check |
-| ---------------------- | ---------------------------- | ------------ |
-| `DATA_PIPELINE`        | Pipeline stage orchestration | Yes          |
-| `SELFPLAY_COORDINATOR` | Priority selfplay scheduling | Yes          |
-| `TRAINING_ACTIVITY`    | Training detection           | Yes          |
-| `TRAINING_TRIGGER`     | Training initiation          | Yes          |
+| Daemon                  | Purpose                      | Health Check |
+| ----------------------- | ---------------------------- | ------------ |
+| `DATA_PIPELINE`         | Pipeline stage orchestration | Yes          |
+| `SELFPLAY_COORDINATOR`  | Priority selfplay scheduling | Yes          |
+| `TRAINING_NODE_WATCHER` | Training activity detection  | Yes          |
+| `TRAINING_TRIGGER`      | Training initiation          | Yes          |
 
 ### Training Activity Config
 
-The `TRAINING_ACTIVITY` daemon is backed by `TrainingActivityDaemon` and uses
+The `TRAINING_NODE_WATCHER` daemon is backed by `TrainingActivityDaemon` and uses
 the `RINGRIFT_TRAINING_ACTIVITY_*` env prefix (via `DaemonConfig.from_env`):
 
 - `RINGRIFT_TRAINING_ACTIVITY_ENABLED` (default: `1`)
-- `RINGRIFT_TRAINING_ACTIVITY_INTERVAL` (seconds, default: `300`)
-- `RINGRIFT_TRAINING_ACTIVITY_HANDLE_SIGNALS` (default: `0`)
+- `RINGRIFT_TRAINING_ACTIVITY_INTERVAL` (seconds, default: `30`)
+- `RINGRIFT_TRAINING_ACTIVITY_HANDLE_SIGNALS` (default: `1`)
 - `RINGRIFT_TRAINING_ACTIVITY_TRIGGER_SYNC` (default: `1`)
 
 ### Evaluation
@@ -144,7 +144,7 @@ COORDINATOR_DAEMONS = [
 ```python
 TRAINING_NODE_DAEMONS = [
     "EVENT_ROUTER",
-    "TRAINING_ACTIVITY",
+    "TRAINING_NODE_WATCHER",
     "DISK_SPACE_MANAGER",
 ]
 ```

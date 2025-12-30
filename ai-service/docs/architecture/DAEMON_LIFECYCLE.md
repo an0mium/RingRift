@@ -58,24 +58,26 @@ await dm.stop(DaemonType.AUTO_SYNC)
 
 **File:** `app/coordination/daemon_registry.py`
 
-Declarative configuration for all 66 daemon types.
+Declarative configuration for all 85 daemon types.
 
 ```python
 @dataclass(frozen=True)
 class DaemonSpec:
-    runner_name: str           # Function name in daemon_runners.py
-    depends_on: tuple          # DaemonTypes that must start first
-    category: str              # "sync", "event", "health", etc.
-    auto_restart: bool = True  # Restart on failure
-    max_restarts: int = 5      # Max restart attempts
-    health_check_interval: float = 30.0
+    runner_name: str                 # Function name in daemon_runners.py
+    depends_on: tuple                # DaemonTypes that must start first
+    health_check_interval: float | None = None
+    auto_restart: bool = True        # Restart on failure
+    max_restarts: int = 5            # Max restart attempts
+    category: str = "misc"           # "sync", "event", "health", etc.
+    deprecated: bool = False
+    deprecated_message: str = ""
 ```
 
-**Categories:**
+**Categories (examples, non-exhaustive):**
 
 - `event`: EVENT_ROUTER, DAEMON_WATCHDOG
 - `sync`: AUTO_SYNC, MODEL_DISTRIBUTION, ELO_SYNC
-- `pipeline`: DATA_PIPELINE, SELFPLAY_COORDINATOR, TRAINING_ACTIVITY
+- `pipeline`: DATA_PIPELINE, SELFPLAY_COORDINATOR, TRAINING_NODE_WATCHER
 - `evaluation`: EVALUATION, AUTO_PROMOTION
 - `health`: NODE_HEALTH_MONITOR, QUALITY_MONITOR
 - `resource`: IDLE_RESOURCE, NODE_RECOVERY
@@ -84,7 +86,7 @@ class DaemonSpec:
 
 **File:** `app/coordination/daemon_runners.py`
 
-62 async runner functions that create and start daemon instances.
+85 async runner functions that create and start daemon instances.
 
 ```python
 async def create_auto_sync() -> None:

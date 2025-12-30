@@ -69,7 +69,7 @@ DAEMON_REGISTRY = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AUTO_EXPORT),
         category="pipeline",
     ),
-    # ... 70+ entries
+    # ... 85 entries
 }
 ```
 
@@ -245,12 +245,11 @@ python -c "from app.coordination.daemon_registry import check_registry_health; r
 
 ## Related Files
 
-- `app/coordination/daemon_types.py` - DaemonType enum, DaemonState, DaemonInfo
+- `app/coordination/daemon_types.py` - DaemonType enum, startup order, dependency validation
 - `app/coordination/daemon_manager.py` - Lifecycle management (~2,000 LOC)
-- `app/coordination/daemon_runners.py` - 70 runner functions (~1,100 LOC)
-- `app/coordination/daemon_registry.py` - Declarative daemon specs
+- `app/coordination/daemon_runners.py` - Async runner functions (create\_\* entrypoints)
+- `app/coordination/daemon_registry.py` - Declarative daemon specs and canonical dependencies
 - `app/coordination/daemon_lifecycle.py` - Lifecycle operations
-- `scripts/master_loop.py` - Production startup order
 
 ## References
 

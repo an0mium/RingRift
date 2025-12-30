@@ -123,7 +123,3 @@ async def safe_json_response(
         if log_errors:
             logger.debug(f"JSON decode error: {e}")
         return default, error
-
-
-# Import asyncio for timeout handling in safe_json_response
-import asyncio

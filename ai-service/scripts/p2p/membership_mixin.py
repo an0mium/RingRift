@@ -65,7 +65,7 @@ except ImportError:
         "SWIM_PING_INTERVAL": 1.0,
         "SWIM_INDIRECT_PING_COUNT": 7,
         "MEMBERSHIP_MODE": "hybrid",  # Changed from "http" to "hybrid"
-        "PEER_TIMEOUT": 90,
+        "PEER_TIMEOUT": 60,  # Dec 29, 2025: Reduced from 90 for faster failure detection
     })
     SWIM_ENABLED = _CONSTANTS["SWIM_ENABLED"]
     SWIM_BIND_PORT = _CONSTANTS["SWIM_BIND_PORT"]

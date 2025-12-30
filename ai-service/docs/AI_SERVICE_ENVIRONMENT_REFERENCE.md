@@ -585,6 +585,41 @@ Minimum seconds between training runs for same config.
 
 Training lock timeout in seconds (2 hours).
 
+### Training Activity Detection
+
+### `RINGRIFT_TRAINING_ACTIVITY_ENABLED`
+
+| Property | Default   | Description |
+| -------- | --------- | ----------- |
+| Type     | `boolean` | `true`      |
+
+Enable the TrainingActivityDaemon (TRAINING_NODE_WATCHER) that detects active
+training jobs and triggers priority sync.
+
+### `RINGRIFT_TRAINING_ACTIVITY_INTERVAL`
+
+| Property | Default  | Description |
+| -------- | -------- | ----------- |
+| Type     | `number` | `30`        |
+
+Training activity check interval in seconds.
+
+### `RINGRIFT_TRAINING_ACTIVITY_HANDLE_SIGNALS`
+
+| Property | Default   | Description |
+| -------- | --------- | ----------- |
+| Type     | `boolean` | `true`      |
+
+Enable SIGTERM/SIGINT handling with a final priority sync on shutdown.
+
+### `RINGRIFT_TRAINING_ACTIVITY_TRIGGER_SYNC`
+
+| Property | Default   | Description |
+| -------- | --------- | ----------- |
+| Type     | `boolean` | `true`      |
+
+Trigger a priority sync when training activity is detected.
+
 ### Data Export (DB Lock Retries)
 
 ### `RINGRIFT_DB_LOCK_MAX_RETRIES`

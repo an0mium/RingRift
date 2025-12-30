@@ -4,6 +4,8 @@
 **Date**: December 2025
 **Author**: RingRift AI Team
 
+> **Note:** This ADR is a historical snapshot. Current daemon counts and names are documented in `ai-service/docs/DAEMON_REGISTRY.md`.
+
 ## Context
 
 The RingRift training infrastructure runs 62+ background daemons across 20+ nodes:

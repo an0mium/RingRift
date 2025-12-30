@@ -684,6 +684,7 @@ from scripts.p2p.resource import (
 # These were extracted from this file for modularity (Phase 1 refactoring)
 from scripts.p2p.types import JobType, NodeRole
 from scripts.p2p.utils import (
+    safe_json_response,
     systemd_notify_ready,
     systemd_notify_watchdog,
 )
@@ -2258,12 +2259,14 @@ class P2POrchestrator(
                     timeout = ClientTimeout(total=10)
                     async with get_client_session(timeout) as session:
                         async with session.get(url) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                node_id = data.get("node_id", hostname)
-                                logger.debug(f"TailscalePeerDiscovery: connected to {node_id}, sending heartbeat")
-                                await self._send_heartbeat_to_peer(ip, DEFAULT_PORT)
-                                return True
+                            data, error = await safe_json_response(resp, default={}, log_errors=False)
+                            if error:
+                                logger.debug(f"TailscalePeerDiscovery: {hostname} response error: {error}")
+                                return False
+                            node_id = data.get("node_id", hostname)
+                            logger.debug(f"TailscalePeerDiscovery: connected to {node_id}, sending heartbeat")
+                            await self._send_heartbeat_to_peer(ip, DEFAULT_PORT)
+                            return True
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"TailscalePeerDiscovery: failed to connect to {hostname}: {e}")
                 return False
@@ -17113,8 +17116,12 @@ print(json.dumps({{
                 scheme = (scheme or "http").lower()
                 url = f"{scheme}://{peer_host}:{peer_port}/heartbeat"
                 async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
+                    data, json_error = await safe_json_response(resp, default=None, log_errors=False)
+                    if json_error or data is None:
+                        # Record failure with circuit breaker for empty/invalid responses
+                        breaker.record_failure(target)
+                        http_failed = True
+                    else:
                         incoming_voters = data.get("voter_node_ids") or data.get("voters") or None
                         if incoming_voters:
                             voters_list: list[str] = []
@@ -17147,10 +17154,6 @@ print(json.dumps({{
                         self._update_peer_reputation(info.node_id, success=True)
 
                         return info
-                    else:
-                        # Non-200 response is a failure
-                        breaker.record_failure(target)
-                        http_failed = True
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, KeyError):
             # Record failure with circuit breaker
             breaker.record_failure(target)
