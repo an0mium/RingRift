@@ -81,9 +81,9 @@ warnings.warn(
 
 logger = logging.getLogger(__name__)
 
-# Use centralized event emitters (December 2025)
-# Note: event_emitters.py handles all routing to data_events, stage_events, and cross-process
-from app.coordination.event_emitters import emit_sync_complete as _emit_sync_event
+# NOTE: event_emitters import moved to lazy loading to avoid circular import
+# The import was causing: event_router → data_events → distributed/__init__ → sync_orchestrator → event_emitters
+# See _emit_sync_complete_event() for the lazy import pattern (December 2025)
 
 
 @dataclass
@@ -583,7 +583,11 @@ class SyncOrchestrator:
             result: The full sync result
         """
         try:
-            emitted = await _emit_sync_event(
+            # Lazy import to avoid circular import chain:
+            # event_router → data_events → distributed/__init__ → sync_orchestrator → event_emitters
+            from app.coordination.event_emitters import emit_sync_complete
+
+            emitted = await emit_sync_complete(
                 sync_type="full",
                 items_synced=result.total_items_synced,
                 success=result.success,
@@ -594,6 +598,9 @@ class SyncOrchestrator:
             )
             if emitted:
                 logger.debug("[SyncOrchestrator] Emitted SYNC_COMPLETE event")
+        except ImportError:
+            # event_emitters not available (rare)
+            logger.debug("[SyncOrchestrator] event_emitters not available, skipping event")
         except Exception as e:
             logger.warning(f"[SyncOrchestrator] Failed to emit sync event: {e}")
 

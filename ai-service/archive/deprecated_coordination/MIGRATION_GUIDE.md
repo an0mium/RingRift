@@ -1,26 +1,49 @@
 # Deprecated Coordination Modules - Migration Guide
 
-**Last Updated:** December 27, 2025
-**Removal Date:** Q2 2026
+**Last Updated:** December 29, 2025
+**Removal Date:** Q2 2026 (April-June 2026)
 
 This guide documents deprecated coordination modules and their replacements.
 
 ---
 
+## Deprecation Timeline
+
+| Phase                  | Date         | Action                                                           |
+| ---------------------- | ------------ | ---------------------------------------------------------------- |
+| **Deprecation**        | Dec 2025     | Modules marked deprecated, emit `DeprecationWarning` on import   |
+| **Soft Freeze**        | Feb 2026     | No new features for deprecated modules, only critical bug fixes  |
+| **Warning Escalation** | Mar 2026     | Warnings upgraded from `DeprecationWarning` to `FutureWarning`   |
+| **Removal**            | Apr-Jun 2026 | Deprecated modules removed, imports will fail with `ImportError` |
+
+### Migration Checkpoints
+
+- **January 2026**: Audit all codepaths using deprecated imports
+- **February 2026**: Update DaemonManager to use only unified modules
+- **March 2026**: Remove backward-compat shims from production config
+- **April 2026**: Begin archival of deprecated source files
+
+---
+
 ## Quick Reference
 
-| Deprecated Module              | Replacement                                         | Status     |
-| ------------------------------ | --------------------------------------------------- | ---------- |
-| `cluster_data_sync.py`         | `AutoSyncDaemon(strategy="broadcast")`              | Deprecated |
-| `ephemeral_sync.py`            | `AutoSyncDaemon(strategy="ephemeral")`              | Deprecated |
-| `node_health_monitor.py`       | `health_check_orchestrator.py`                      | Deprecated |
-| `system_health_monitor.py`     | `unified_health_manager.py`                         | Deprecated |
-| `queue_populator.py`           | `unified_queue_populator.py`                        | Deprecated |
-| `model_distribution_daemon.py` | `unified_distribution_daemon.py`                    | Deprecated |
-| `npz_distribution_daemon.py`   | `unified_distribution_daemon.py`                    | Deprecated |
-| `replication_monitor.py`       | `unified_replication_daemon.py`                     | Deprecated |
-| `replication_repair_daemon.py` | `unified_replication_daemon.py`                     | Deprecated |
-| `auto_evaluation_daemon.py`    | `evaluation_daemon.py` + `auto_promotion_daemon.py` | Deprecated |
+| Deprecated Module              | Replacement                                         | Status     | Location                            |
+| ------------------------------ | --------------------------------------------------- | ---------- | ----------------------------------- |
+| `cluster_data_sync.py`         | `AutoSyncDaemon(strategy="broadcast")`              | Deprecated | Active (with warning)               |
+| `ephemeral_sync.py`            | `AutoSyncDaemon(strategy="ephemeral")`              | Deprecated | Active (with warning)               |
+| `node_health_monitor.py`       | `health_check_orchestrator.py`                      | Archived   | `archive/`                          |
+| `system_health_monitor.py`     | `unified_health_manager.py`                         | Deprecated | Active (with warning)               |
+| `queue_populator.py`           | `unified_queue_populator.py`                        | Archived   | `archive/` (re-export shim remains) |
+| `model_distribution_daemon.py` | `unified_distribution_daemon.py`                    | Archived   | `archive/`                          |
+| `npz_distribution_daemon.py`   | `unified_distribution_daemon.py`                    | Archived   | `archive/`                          |
+| `replication_monitor.py`       | `unified_replication_daemon.py`                     | Archived   | `archive/`                          |
+| `replication_repair_daemon.py` | `unified_replication_daemon.py`                     | Archived   | `archive/`                          |
+| `auto_evaluation_daemon.py`    | `evaluation_daemon.py` + `auto_promotion_daemon.py` | Archived   | `archive/`                          |
+
+**Status Legend:**
+
+- **Deprecated**: Still in `app/coordination/`, emits `DeprecationWarning` on import
+- **Archived**: Moved to `archive/deprecated_coordination/`, no longer importable
 
 ---
 

@@ -395,18 +395,21 @@ class NNUETrainingDaemon(HandlerBase):
         asyncio.create_task(self._run_training(config_key, game_count))
 
     async def _run_training(self, config_key: str, game_count: int) -> None:
-        """Run NNUE training subprocess.
+        """Dispatch NNUE training to cluster via P2P.
+
+        December 29, 2025: Changed from local subprocess to cluster dispatch.
+        Training runs on GPU nodes via P2P orchestrator, not locally.
 
         Args:
             config_key: Configuration key (e.g., "hex8_2p")
             game_count: Current game count
         """
-        import subprocess
-        import shlex
+        import aiohttp
 
         start_time = time.time()
         success = False
         error_msg = ""
+        job_id = ""
 
         try:
             # Parse config key
@@ -417,34 +420,50 @@ class NNUETrainingDaemon(HandlerBase):
             board_type = parts[0]
             num_players = int(parts[1].rstrip("p"))
 
-            # Build training command
-            cmd = [
-                "python", "scripts/train_nnue.py",
-                "--board-type", board_type,
-                "--num-players", str(num_players),
-            ]
+            # Dispatch to P2P leader via HTTP
+            # The P2P orchestrator will find a suitable GPU node and start training
+            p2p_port = int(Path.home().joinpath(".ringrift_p2p_port").read_text().strip()) \
+                if Path.home().joinpath(".ringrift_p2p_port").exists() else 8770
 
-            logger.info(f"NNUETrainingDaemon: Running {shlex.join(cmd)}")
+            dispatch_url = f"http://localhost:{p2p_port}/training/nnue/start"
+            payload = {
+                "board_type": board_type,
+                "num_players": num_players,
+                "epochs": 100,  # Default epochs
+                "batch_size": 4096,  # Default batch size
+            }
 
-            # Run with timeout
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=self._nnue_config.training_timeout_seconds,
-            )
+            logger.info(f"NNUETrainingDaemon: Dispatching training for {config_key} to cluster")
 
-            if proc.returncode == 0:
-                success = True
-                logger.info(f"NNUETrainingDaemon: Training completed for {config_key}")
-            else:
-                error_msg = proc.stderr[:500] if proc.stderr else "Unknown error"
-                logger.error(f"NNUETrainingDaemon: Training failed for {config_key}: {error_msg}")
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
+                async with session.post(dispatch_url, json=payload) as resp:
+                    if resp.status != 200:
+                        error_msg = f"Dispatch failed with status {resp.status}"
+                        logger.error(f"NNUETrainingDaemon: {error_msg}")
+                    else:
+                        result = await resp.json()
+                        if result.get("success"):
+                            job_id = result.get("job_id", "unknown")
+                            logger.info(
+                                f"NNUETrainingDaemon: Training dispatched for {config_key}, "
+                                f"job_id={job_id}"
+                            )
+                            # Wait for training to complete by polling status
+                            success = await self._wait_for_training_completion(
+                                session, p2p_port, config_key, job_id
+                            )
+                            if not success:
+                                error_msg = "Training job failed or timed out"
+                        else:
+                            error_msg = result.get("error", "Unknown dispatch error")
+                            logger.error(f"NNUETrainingDaemon: {error_msg}")
 
-        except subprocess.TimeoutExpired:
-            error_msg = "Training timed out"
-            logger.error(f"NNUETrainingDaemon: Training timed out for {config_key}")
+        except aiohttp.ClientError as e:
+            error_msg = f"HTTP error: {e}"
+            logger.error(f"NNUETrainingDaemon: Network error for {config_key}: {e}")
+        except asyncio.TimeoutError:
+            error_msg = "Dispatch request timed out"
+            logger.error(f"NNUETrainingDaemon: Dispatch timed out for {config_key}")
         except (OSError, ValueError) as e:
             error_msg = str(e)
             logger.error(f"NNUETrainingDaemon: Training error for {config_key}: {e}")
@@ -478,6 +497,60 @@ class NNUETrainingDaemon(HandlerBase):
         })
 
         self._save_state()
+
+    async def _wait_for_training_completion(
+        self,
+        session: Any,  # aiohttp.ClientSession
+        p2p_port: int,
+        config_key: str,
+        job_id: str,
+    ) -> bool:
+        """Poll P2P orchestrator for training job completion.
+
+        Args:
+            session: aiohttp client session
+            p2p_port: P2P orchestrator port
+            config_key: Configuration key being trained
+            job_id: Job ID to monitor
+
+        Returns:
+            True if training completed successfully, False otherwise
+        """
+        import aiohttp
+
+        status_url = f"http://localhost:{p2p_port}/training/status"
+        poll_interval = 60.0  # Check every minute
+        timeout = self._nnue_config.training_timeout_seconds
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            try:
+                async with session.get(status_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        jobs = result.get("jobs", {})
+
+                        # Find our job
+                        job_status = jobs.get(job_id, {}).get("status")
+                        if job_status == "completed":
+                            logger.info(
+                                f"NNUETrainingDaemon: Training completed for {config_key}"
+                            )
+                            return True
+                        elif job_status in ("failed", "cancelled"):
+                            logger.error(
+                                f"NNUETrainingDaemon: Training {job_status} for {config_key}"
+                            )
+                            return False
+                        # Still running, continue polling
+
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.debug(f"NNUETrainingDaemon: Status poll error: {e}")
+
+            await asyncio.sleep(poll_interval)
+
+        logger.warning(f"NNUETrainingDaemon: Timed out waiting for {config_key} training")
+        return False
 
     def _cleanup_active_trainings(self) -> None:
         """Clean up timed-out active trainings."""

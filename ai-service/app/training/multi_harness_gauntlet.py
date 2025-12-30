@@ -758,3 +758,193 @@ def is_harness_compatible(harness_type: str, model_type: str) -> bool:
         return False
     key = "nn" if model_type == "nn" else "nnue"
     return compat.get(key, False)
+
+
+# ============================================
+# NNUE-Specific Evaluation Profile (Dec 2025)
+# Phase 4: NNUE Integration
+# ============================================
+
+
+@dataclass
+class NNUEEvaluationProfile:
+    """NNUE-specific evaluation profile for gauntlet testing.
+
+    Configures how NNUE models should be evaluated under different
+    harnesses based on player count:
+    - 2-player: Minimax (alpha-beta with NNUE evaluation)
+    - 3-4 player: MaxN or BRS with NNUE evaluation
+
+    Attributes:
+        board_type: Board type string (e.g., "hex8", "square8")
+        num_players: Number of players (2, 3, or 4)
+        minimax_depth: Search depth for minimax (2-player)
+        maxn_depth: Search depth for MaxN (3-4 player)
+        brs_depth: Search depth for BRS (3-4 player)
+        games_per_baseline: Games to play against each baseline
+        baselines: List of baseline opponent types
+        include_brs: Whether to include BRS in 3-4 player evaluation
+    """
+
+    board_type: str = "square8"
+    num_players: int = 2
+    minimax_depth: int = 4
+    maxn_depth: int = 3
+    brs_depth: int = 3
+    games_per_baseline: int = 30
+    baselines: list[str] = field(default_factory=lambda: ["random", "heuristic"])
+    include_brs: bool = True
+
+    def get_harnesses(self) -> list[HarnessType]:
+        """Get the harnesses to use for evaluation based on player count."""
+        if self.num_players == 2:
+            return [HarnessType.MINIMAX]
+        else:
+            harnesses = [HarnessType.MAXN]
+            if self.include_brs:
+                harnesses.append(HarnessType.BRS)
+            return harnesses
+
+    def get_harness_config(self, harness: HarnessType) -> HarnessConfig:
+        """Get configuration for a specific harness."""
+        if harness == HarnessType.MINIMAX:
+            return HarnessConfig(
+                harness_type=harness,
+                games_per_baseline=self.games_per_baseline,
+                baselines=self.baselines,
+                search_depth=self.minimax_depth,
+            )
+        elif harness == HarnessType.MAXN:
+            return HarnessConfig(
+                harness_type=harness,
+                games_per_baseline=self.games_per_baseline,
+                baselines=self.baselines,
+                search_depth=self.maxn_depth,
+            )
+        elif harness == HarnessType.BRS:
+            return HarnessConfig(
+                harness_type=harness,
+                games_per_baseline=self.games_per_baseline,
+                baselines=self.baselines,
+                search_depth=self.brs_depth,
+            )
+        else:
+            return HarnessConfig(
+                harness_type=harness,
+                games_per_baseline=self.games_per_baseline,
+                baselines=self.baselines,
+            )
+
+
+async def evaluate_nnue_model(
+    nnue_model_path: str | Path,
+    board_type: str = "square8",
+    num_players: int = 2,
+    profile: NNUEEvaluationProfile | None = None,
+) -> MultiHarnessResult:
+    """Evaluate an NNUE model using appropriate harnesses.
+
+    This is a convenience function that automatically selects the
+    correct harnesses for NNUE evaluation based on player count:
+    - 2-player: Minimax with alpha-beta pruning
+    - 3-4 player: MaxN and optionally BRS
+
+    Args:
+        nnue_model_path: Path to NNUE model checkpoint
+        board_type: Board type string (e.g., "hex8", "square8")
+        num_players: Number of players (2, 3, or 4)
+        profile: Optional evaluation profile (uses defaults if None)
+
+    Returns:
+        MultiHarnessResult with Elo ratings for each harness
+
+    Example:
+        # Evaluate 2-player NNUE under minimax
+        result = await evaluate_nnue_model(
+            "models/nnue/nnue_canonical_hex8_2p.pt",
+            board_type="hex8",
+            num_players=2,
+        )
+        print(f"Minimax Elo: {result.harness_results[HarnessType.MINIMAX].elo}")
+
+        # Evaluate 4-player NNUE under MaxN and BRS
+        result = await evaluate_nnue_model(
+            "models/nnue/nnue_canonical_hex8_4p.pt",
+            board_type="hex8",
+            num_players=4,
+        )
+    """
+    # Use default profile if none provided
+    if profile is None:
+        profile = NNUEEvaluationProfile(
+            board_type=board_type,
+            num_players=num_players,
+        )
+
+    # Get harnesses and configs
+    harnesses = profile.get_harnesses()
+    harness_configs = {h: profile.get_harness_config(h) for h in harnesses}
+
+    # Determine model type based on player count
+    model_type = ModelType.NNUE if num_players == 2 else ModelType.NNUE_MP
+
+    # Run evaluation
+    gauntlet = MultiHarnessGauntlet(
+        default_games_per_baseline=profile.games_per_baseline,
+        default_baselines=profile.baselines,
+    )
+
+    result = await gauntlet.evaluate_model(
+        model_path=nnue_model_path,
+        model_type=model_type,
+        board_type=board_type,
+        num_players=num_players,
+        harnesses=harnesses,
+        harness_configs=harness_configs,
+    )
+
+    logger.info(
+        f"NNUE evaluation complete: {Path(nnue_model_path).name} "
+        f"({num_players}p, {board_type}) - Best: {result.best_harness} @ {result.best_elo:.0f} Elo"
+    )
+
+    return result
+
+
+def get_nnue_evaluation_profile(
+    board_type: str,
+    num_players: int,
+    *,
+    fast: bool = False,
+) -> NNUEEvaluationProfile:
+    """Get a pre-configured NNUE evaluation profile.
+
+    Args:
+        board_type: Board type string
+        num_players: Number of players
+        fast: If True, use faster settings (fewer games, shallower search)
+
+    Returns:
+        Configured NNUEEvaluationProfile
+    """
+    if fast:
+        return NNUEEvaluationProfile(
+            board_type=board_type,
+            num_players=num_players,
+            minimax_depth=2,
+            maxn_depth=2,
+            brs_depth=2,
+            games_per_baseline=10,
+            baselines=["random", "heuristic"],
+        )
+
+    # Standard profile
+    return NNUEEvaluationProfile(
+        board_type=board_type,
+        num_players=num_players,
+        minimax_depth=4,
+        maxn_depth=3,
+        brs_depth=3,
+        games_per_baseline=30,
+        baselines=["random", "heuristic"],
+    )
