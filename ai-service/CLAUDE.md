@@ -990,3 +990,41 @@ For maximum ROI, implement in this order:
 
 **Total estimated effort**: ~144 hours
 **Expected cumulative benefit**: +37-58 Elo, ~8,000 LOC savings, 15-20% bug reduction
+
+### Consolidation Progress (Dec 30, 2025)
+
+**Event Extraction Consolidation (Priority 3) - PARTIALLY COMPLETE**
+
+Migrated 6 files to use `extract_config_key()` from `event_handler_utils`:
+
+| File                        | Occurrences Fixed | Status      |
+| --------------------------- | ----------------- | ----------- |
+| `nnue_training_daemon.py`   | 4                 | ✅ Complete |
+| `npz_combination_daemon.py` | 1                 | ✅ Complete |
+| `reactive_dispatcher.py`    | 1 (7 LOC → 2)     | ✅ Complete |
+| `curriculum_integration.py` | 10+               | ✅ Complete |
+| `training_coordinator.py`   | 3                 | ✅ Complete |
+| `selfplay_orchestrator.py`  | 2                 | ✅ Complete |
+| `auto_export_daemon.py`     | 1                 | ✅ Complete |
+
+**Remaining files** with inline config_key extraction: ~12 files
+**Estimated remaining effort**: ~8 hours
+
+**Resilience Framework Assessment - COMPLETED**
+
+Exploration found existing solid foundation:
+
+| Component                      | Location                   | Status                    |
+| ------------------------------ | -------------------------- | ------------------------- |
+| `RetryConfig`                  | `app/utils/retry.py`       | ✅ Ready to use           |
+| `RETRY_QUICK/STANDARD/PATIENT` | `app/utils/retry.py`       | ✅ Pre-configured         |
+| `CircuitBreakerDefaults`       | `coordination_defaults.py` | ✅ Per-transport/provider |
+| `RetryDefaults`                | `coordination_defaults.py` | ✅ Centralized            |
+
+**Next step**: Migrate daemons to USE existing utilities instead of custom implementations
+
+- `evaluation_daemon.py` - Custom retry queue → `RetryConfig`
+- `training_trigger_daemon.py` - Inline backoff → `RETRY_STANDARD`
+- 10+ sync daemons - Already use `sync_mixin_base._retry_with_backoff()`
+
+**Estimated migration effort**: ~16 hours (reduced from 24h due to existing foundation)
