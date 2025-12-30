@@ -59,14 +59,14 @@ python scripts/update_all_nodes.py --restart-p2p
 | `app/config/coordination_defaults.py` | Centralized timeouts, thresholds, priority weights             |
 | `app/config/thresholds.py`            | Centralized quality/training/budget thresholds (canonical)     |
 
-### Coordination Infrastructure (257 modules)
+### Coordination Infrastructure (224 modules)
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`                    | Lifecycle for 94 daemon types (~2,000 LOC)        |
+| `daemon_manager.py`                    | Lifecycle for 89 daemon types (~2,000 LOC)        |
 | `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)   |
-| `daemon_runners.py`                    | 91 async runner functions                         |
-| `event_router.py`                      | Unified event bus (202 event types, SHA256 dedup) |
+| `daemon_runners.py`                    | 89 async runner functions                         |
+| `event_router.py`                      | Unified event bus (211 event types, SHA256 dedup) |
 | `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)   |
 | `budget_calculator.py`                 | Gumbel budget tiers, target games calculation     |
 | `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation      |
@@ -339,11 +339,11 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-94 daemon types, 6 deprecated (verified Dec 30, 2025). Three-layer architecture:
+89 daemon types (verified Dec 30, 2025). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 91 async runner functions
+3. **`daemon_runners.py`** - 89 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
@@ -750,6 +750,14 @@ Comprehensive exploration verified the following are ALREADY COMPLETE:
 
 **Important for future agents**: Before implementing suggested improvements, VERIFY current state.
 Exploration agents may report stale findings. Use `grep` and code inspection to confirm.
+
+**Canonical Patterns (USE THESE, don't create new ones):**
+
+- Config parsing: `event_utils.parse_config_key()`
+- Payload extraction: `event_handler_utils.extract_*()`
+- Singleton: `SingletonMixin` from singleton_mixin.py
+- Handlers: inherit from `HandlerBase`
+- Database sync: inherit from `DatabaseSyncManager`
 
 ## Test Coverage Status (Dec 30, 2025)
 

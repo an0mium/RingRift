@@ -1,11 +1,11 @@
 # Daemon Manager Operations Runbook
 
-**Last Updated**: December 28, 2025
+**Last Updated**: December 30, 2025
 **Version**: Wave 7
 
 ## Overview
 
-The `DaemonManager` coordinates 66+ background services (daemons) in the RingRift training pipeline. It handles lifecycle management, health monitoring, and auto-restart with exponential backoff.
+The `DaemonManager` coordinates 89 daemon types (78 active, 11 deprecated) in the RingRift training pipeline. It handles lifecycle management, health monitoring, and auto-restart with exponential backoff. For the full list, see `ai-service/docs/DAEMON_REGISTRY.md`.
 
 ## Daemon Types
 
@@ -27,6 +27,7 @@ Daemons are organized by category:
 | `MODEL_DISTRIBUTION` | Model distribution to nodes | Yes          |
 | `ELO_SYNC`           | Elo rating synchronization  | Yes          |
 | `NPZ_DISTRIBUTION`   | Training data distribution  | Yes          |
+| `STALE_FALLBACK`     | Stale model fallback        | Yes          |
 
 ### Training Pipeline
 
@@ -62,6 +63,7 @@ the `RINGRIFT_TRAINING_ACTIVITY_*` env prefix (via `DaemonConfig.from_env`):
 | `IDLE_RESOURCE`    | Idle GPU detection | Yes          |
 | `NODE_RECOVERY`    | Node recovery      | Yes          |
 | `CLUSTER_WATCHDOG` | Cluster health     | Yes          |
+| `MEMORY_MONITOR`   | VRAM/RAM pressure  | Yes          |
 
 ## Daemon Lifecycle States
 
@@ -299,7 +301,7 @@ print(f"Details: {health['details']}")
 
 ## Daemon Registry
 
-All 66 daemons are defined in `app/coordination/daemon_registry.py`:
+All 89 daemon types are defined in `app/coordination/daemon_registry.py`:
 
 ```python
 from app.coordination.daemon_registry import (

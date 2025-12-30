@@ -831,7 +831,8 @@ class TrainingTriggerDaemon(HandlerBase):
             # December 30, 2025: Use extract_evaluation_data for consistency
             from app.coordination.event_utils import extract_evaluation_data
 
-            payload = event.payload if hasattr(event, "payload") else event
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
             data = extract_evaluation_data(payload)
 
             config_key = data.config_key
@@ -938,7 +939,8 @@ class TrainingTriggerDaemon(HandlerBase):
             event: Event with payload containing config_key, board_type, num_players, data_age_hours
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
             config_key = payload.get("config_key") or payload.get("config")
             if not config_key:
                 return
@@ -980,7 +982,8 @@ class TrainingTriggerDaemon(HandlerBase):
             event: Event with payload containing config_key, board_type, num_players, etc.
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
             config_key = payload.get("config_key") or payload.get("config")
             sync_type = payload.get("sync_type", "")
 
@@ -1030,7 +1033,8 @@ class TrainingTriggerDaemon(HandlerBase):
             event: Event with payload containing queue_depth, threshold, etc.
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
             queue_depth = payload.get("queue_depth", 0)
             threshold = payload.get("threshold", 40)
 
@@ -1057,7 +1061,8 @@ class TrainingTriggerDaemon(HandlerBase):
             event: Event with payload containing queue_depth, release_threshold, etc.
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
             queue_depth = payload.get("queue_depth", 0)
             release_threshold = payload.get("release_threshold", 20)
 
@@ -1095,7 +1100,8 @@ class TrainingTriggerDaemon(HandlerBase):
             event: Event with payload containing config_key, velocity, trend, etc.
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
             config_key = payload.get("config_key", "")
             velocity = payload.get("velocity", 0.0)
             trend = payload.get("trend", "stable")
@@ -1174,7 +1180,8 @@ class TrainingTriggerDaemon(HandlerBase):
             event: Event with payload containing config_key, error, job_id, etc.
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            # December 30, 2025: Use consolidated extraction from HandlerBase
+            payload = self._get_payload(event)
             config_key = payload.get("config_key", "")
             error = payload.get("error", "Unknown error")
             job_id = payload.get("job_id", "")

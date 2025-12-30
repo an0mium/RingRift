@@ -7,7 +7,7 @@ Counts are snapshots; run `find app/coordination -name "*.py" | wc -l` to refres
 
 **Last Updated**: December 30, 2025
 
-> **Architecture Status**: Production-ready. Major consolidation completed Dec 2025 - see `archive/deprecated_coordination/` for historical modules. Current architecture uses 97 daemon types (91 active, 6 deprecated) managed by `DaemonManager`.
+> **Architecture Status**: Production-ready. Major consolidation completed Dec 2025 - see `archive/deprecated_coordination/` for historical modules. Current architecture uses 89 daemon types (78 active, 11 deprecated) managed by `DaemonManager`.
 
 ## Quick Start
 
@@ -137,7 +137,7 @@ await shutdown_all_coordinators()
 
 #### Daemon Types Reference
 
-66 daemon types organized by category (all with DAEMON_DEPENDENCIES defined as of Dec 2025):
+Representative daemon types organized by category (89 total; see `docs/DAEMON_REGISTRY.md` for the full list):
 
 **Core Infrastructure:**
 | Daemon Type | Purpose | Critical | Auto-Restart | Dependencies |
@@ -156,7 +156,9 @@ await shutdown_all_coordinators()
 | `MODEL_SYNC` | Model file synchronization | | `EVENT_ROUTER` |
 | `MODEL_DISTRIBUTION` | Auto-distribute models after promotion | | `EVENT_ROUTER`, `AUTO_PROMOTION` |
 | `NPZ_DISTRIBUTION` | Sync NPZ training data after export | | `EVENT_ROUTER`, `DATA_PIPELINE` |
+| `TRAINING_DATA_SYNC` | Pre-training data sync from OWC/S3 | | `EVENT_ROUTER` |
 | `EXTERNAL_DRIVE_SYNC` | Sync to external drives | | `EVENT_ROUTER` |
+| `STALE_FALLBACK` | Fallback to stale models when sync fails | | `EVENT_ROUTER`, `AUTO_SYNC` |
 
 **Health & Monitoring:**
 | Daemon Type | Purpose | Notes |
@@ -170,6 +172,7 @@ await shutdown_all_coordinators()
 | `REPLICATION_REPAIR` | Repair under-replicated data | |
 | `QUALITY_MONITOR` | Continuous selfplay quality monitoring | |
 | `MODEL_PERFORMANCE_WATCHDOG` | Model win rate monitoring | |
+| `MEMORY_MONITOR` | GPU/VRAM/RAM pressure monitoring | Emits `MEMORY_PRESSURE`/`RESOURCE_CONSTRAINT` |
 
 **Pipeline & Training:**
 | Daemon Type | Purpose | Critical | Dependencies |
@@ -236,11 +239,16 @@ await shutdown_all_coordinators()
 | Daemon Type | Replacement | Notes |
 |-------------|-------------|-------|
 | `SYNC_COORDINATOR` | `AUTO_SYNC` | Use AutoSyncDaemon |
-| `HEALTH_CHECK` | `NODE_HEALTH_MONITOR` | Use unified health monitoring |
+| `HEALTH_CHECK` | `NODE_HEALTH_MONITOR` | Legacy health check daemon |
+| `NODE_HEALTH_MONITOR` | `health_check_orchestrator.py` | Use unified health orchestration |
+| `SYSTEM_HEALTH_MONITOR` | `unified_health_manager.py` | Use get_system_health_score() |
 | `CLUSTER_DATA_SYNC` | `AUTO_SYNC` | Use AutoSyncDaemon(strategy="broadcast") |
 | `EPHEMERAL_SYNC` | `AUTO_SYNC` | Use AutoSyncDaemon(strategy="ephemeral") |
-| `SYSTEM_HEALTH_MONITOR` | `unified_health_manager` | Use get_system_health_score() |
-| `LAMBDA_IDLE` | `VAST_IDLE` or `UNIFIED_IDLE` | Lambda Labs account terminated Dec 2025 |
+| `NPZ_DISTRIBUTION` | `unified_distribution_daemon.py` | Use DataType.NPZ routing |
+| `REPLICATION_MONITOR` | `unified_replication_daemon.py` | Unified replication |
+| `REPLICATION_REPAIR` | `unified_replication_daemon.py` | Unified replication |
+| `LAMBDA_IDLE` | `unified_idle_shutdown_daemon.py` | Dedicated training nodes (no idle shutdown) |
+| `VAST_IDLE` | `unified_idle_shutdown_daemon.py` | Provider-specific idle shutdown |
 
 ### Configuration & Persistence
 
