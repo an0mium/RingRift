@@ -998,22 +998,25 @@ Comprehensive exploration identified these TOP 5 highest-value improvements for 
 - `async_sqlite_execute()` - Replace raw `sqlite3.connect()` in async contexts
 - `async_file_io()` - For large file operations
 
-### Priority 3: Event Extraction Consolidation (P0)
+### Priority 3: Event Extraction Consolidation (P0) - MOSTLY COMPLETE
 
-**Current State**: `event_utils.py` created but not fully adopted (16 files still have inline parsing)
-**Proposed**: Complete migration to unified event extraction
+**Current State**: 12 files migrated to use `parse_config_key()` and `extract_config_from_path()`
+**Status**: ~95% complete (Dec 30, 2025)
 
-| Metric          | Current  | Target      |
-| --------------- | -------- | ----------- |
-| Elo improvement | Baseline | +12-18 Elo  |
-| LOC savings     | 0        | 2,000-2,500 |
-| Effort          | -        | ~20 hours   |
+| Metric          | Before | After |
+| --------------- | ------ | ----- |
+| Files migrated  | 7      | 12    |
+| LOC saved       | ~180   | ~250  |
+| Remaining files | 12     | ~4-5  |
 
-**Files to migrate**:
+**Recently migrated** (Dec 30, 2025):
 
-- `training_trigger_daemon.py` - Inline `config_key` parsing
-- `curriculum_feedback.py` - Inline `board_type/num_players` extraction
-- 14 other handlers with duplicate extraction logic
+- `orchestrator_registry.py` - parse_config_key()
+- `tournament_daemon.py` - parse_config_key()
+- `orphan_detection_daemon.py` - parse_config_key()
+- `training_coordinator.py` - extract_config_from_path()
+- `selfplay_orchestrator.py` - extract_config_from_path()
+- `training_trigger_daemon.py` - parse_config_key()
 
 ### Priority 4: Test Fixture Consolidation (P1)
 
