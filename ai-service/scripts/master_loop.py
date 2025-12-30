@@ -1159,6 +1159,9 @@ class MasterLoopController:
             # December 29, 2025: Proactive disk space management
             # Prevents sync/training failures due to disk full conditions
             DaemonType.DISK_SPACE_MANAGER,
+            # December 30, 2025: Vast.ai idle termination (15min threshold)
+            # Uses unified_idle_shutdown_daemon with Vast-specific config
+            DaemonType.VAST_IDLE,
         ]
 
         # S3 backup daemons - only if AWS credentials are configured (December 2025)
@@ -1182,7 +1185,7 @@ class MasterLoopController:
             DaemonType.REPLICATION_MONITOR,   # Use unified_replication_daemon
             DaemonType.REPLICATION_REPAIR,    # Use unified_replication_daemon
             DaemonType.LAMBDA_IDLE,           # GH200 nodes are dedicated (Dec 28)
-            DaemonType.VAST_IDLE,             # Use unified_idle_shutdown_daemon
+            # VAST_IDLE now runs via unified_idle_shutdown_daemon - removed from skip list Dec 30
             DaemonType.CLUSTER_DATA_SYNC,     # Use AUTO_SYNC with strategy='broadcast'
         }
         full = [daemon for daemon in DaemonType if daemon not in deprecated]

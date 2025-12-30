@@ -651,7 +651,11 @@ class SyncEphemeralMixin(SyncMixinBase):
         lock_key = f"{target_node}:{db_name}"
 
         # Acquire sync lock to prevent race conditions
-        if not acquire_sync_lock(lock_key, operation="rsync", timeout=60):
+        # Dec 30, 2025: Use asyncio.to_thread() to avoid blocking the event loop
+        lock_acquired = await asyncio.to_thread(
+            acquire_sync_lock, lock_key, "rsync", 60
+        )
+        if not lock_acquired:
             logger.debug(f"[AutoSyncDaemon] Could not acquire lock for {lock_key}, skipping")
             return False
 
@@ -666,7 +670,7 @@ class SyncEphemeralMixin(SyncMixinBase):
             cap = router.get_node_capability(target_node)
 
             if not cap:
-                release_sync_lock(lock_key)
+                await asyncio.to_thread(release_sync_lock, lock_key)
                 return False
 
             # Get SSH info for checksum verification
@@ -712,11 +716,12 @@ class SyncEphemeralMixin(SyncMixinBase):
             success = False
             # Emit sync failure event (Dec 2025)
             await self._emit_sync_failure(target_node, db_path, str(e))
-            release_sync_lock(lock_key)
+            await asyncio.to_thread(release_sync_lock, lock_key)
             return False
 
         # Always release the lock
-        release_sync_lock(lock_key)
+        # Dec 30, 2025: Use asyncio.to_thread() to avoid blocking the event loop
+        await asyncio.to_thread(release_sync_lock, lock_key)
 
         # December 2025: Checksum verification after sync
         if success and verify_checksum and ssh_info and remote_path:

@@ -207,6 +207,11 @@ DATA_STARVATION_ULTRA_MULTIPLIER = _priority_weight_defaults.DATA_STARVATION_ULT
 DATA_STARVATION_EMERGENCY_MULTIPLIER = _priority_weight_defaults.DATA_STARVATION_EMERGENCY_MULTIPLIER
 DATA_STARVATION_CRITICAL_MULTIPLIER = _priority_weight_defaults.DATA_STARVATION_CRITICAL_MULTIPLIER
 
+# Data poverty tier (Dec 30, 2025): Moderate boost for configs with <5000 games
+# Bridges gap between CRITICAL (1000 games) and no boost
+DATA_POVERTY_THRESHOLD = _priority_weight_defaults.DATA_POVERTY_THRESHOLD
+DATA_POVERTY_MULTIPLIER = _priority_weight_defaults.DATA_POVERTY_MULTIPLIER
+
 # Default training sample target per config
 DEFAULT_TRAINING_SAMPLES_TARGET = 50000
 
@@ -1089,6 +1094,15 @@ class SelfplayScheduler(HandlerBase):
                 f"{game_count} games (<{DATA_STARVATION_CRITICAL_THRESHOLD}). "
                 f"Applying {DATA_STARVATION_CRITICAL_MULTIPLIER}x priority boost."
             )
+        elif game_count < DATA_POVERTY_THRESHOLD:
+            # POVERTY tier (Dec 30, 2025): Moderate boost for configs with <5000 games
+            # PriorityCalculator doesn't handle this tier, so apply multiplier directly
+            score = score * DATA_POVERTY_MULTIPLIER
+            logger.info(
+                f"[SelfplayScheduler] POVERTY: {priority.config_key} has only "
+                f"{game_count} games (<{DATA_POVERTY_THRESHOLD}). "
+                f"Applying {DATA_POVERTY_MULTIPLIER}x priority boost."
+            )
 
         # Log momentum multiplier changes (>10% change from baseline)
         if abs(priority.momentum_multiplier - 1.0) > 0.1:
@@ -1742,6 +1756,10 @@ class SelfplayScheduler(HandlerBase):
                 # CRITICAL: <1000 games - must get 1.5x allocation
                 min_floor = int(games_per_config * 1.5)
                 level = "CRITICAL"
+            elif game_count < DATA_POVERTY_THRESHOLD:
+                # POVERTY (Dec 30, 2025): <5000 games - must get 1.25x allocation
+                min_floor = int(games_per_config * 1.25)
+                level = "POVERTY"
             else:
                 # Not starved, no floor needed
                 continue

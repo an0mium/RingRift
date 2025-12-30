@@ -1628,6 +1628,77 @@ class ClusterManifest:
                 "replication_target": REPLICATION_TARGET_COUNT,
             }
 
+    def get_games_count_by_config(self) -> dict[str, int]:
+        """Get game counts grouped by configuration.
+
+        Dec 30, 2025: Added for ClusterAwareDataCatalog integration.
+
+        Returns:
+            Dict mapping config_key (e.g., 'hex8_2p') to game count
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT board_type || '_' || num_players || 'p' as config,
+                       COUNT(DISTINCT game_id)
+                FROM game_locations
+                WHERE board_type IS NOT NULL AND num_players IS NOT NULL
+                GROUP BY board_type, num_players
+            """)
+            return {row[0]: row[1] for row in cursor.fetchall() if row[0]}
+
+    def get_games_by_node_and_config(self, config_key: str) -> dict[str, int]:
+        """Get game counts per node for a specific configuration.
+
+        Dec 30, 2025: Added for ClusterAwareDataCatalog integration.
+
+        Args:
+            config_key: Configuration key (e.g., 'hex8_2p')
+
+        Returns:
+            Dict mapping node_id to game count for this config
+        """
+        # Parse config key
+        parts = config_key.replace("_", " ").split()
+        if len(parts) < 2:
+            return {}
+        board_type = parts[0]
+        try:
+            num_players = int(parts[1].rstrip("p"))
+        except ValueError:
+            return {}
+
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT node_id, COUNT(DISTINCT game_id)
+                FROM game_locations
+                WHERE board_type = ? AND num_players = ?
+                GROUP BY node_id
+            """, (board_type, num_players))
+            return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def get_unconsolidated_count_by_config(self) -> dict[str, int]:
+        """Get count of unconsolidated games per configuration.
+
+        Dec 30, 2025: Added for data pipeline tracking.
+
+        Returns:
+            Dict mapping config_key to count of games not yet consolidated
+        """
+        with self._connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT board_type || '_' || num_players || 'p' as config,
+                       COUNT(DISTINCT game_id)
+                FROM game_locations
+                WHERE board_type IS NOT NULL
+                  AND num_players IS NOT NULL
+                  AND (is_consolidated = 0 OR is_consolidated IS NULL)
+                GROUP BY board_type, num_players
+            """)
+            return {row[0]: row[1] for row in cursor.fetchall() if row[0]}
+
     # =========================================================================
     # Disk Cleanup
     # =========================================================================

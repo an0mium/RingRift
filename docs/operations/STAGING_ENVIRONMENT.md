@@ -4,7 +4,7 @@
 >
 > **Role:** Operational guide for the staging environment configured to mirror production topology for meaningful load testing and validation.
 >
-> **Related docs:** [`docs/planning/DEPLOYMENT_REQUIREMENTS.md`](../planning/DEPLOYMENT_REQUIREMENTS.md), [`docs/runbooks/DEPLOYMENT_INITIAL.md`](../runbooks/DEPLOYMENT_INITIAL.md), [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md), [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md)
+> **Related docs:** [`../planning/DEPLOYMENT_REQUIREMENTS.md`](../planning/DEPLOYMENT_REQUIREMENTS.md), [`../runbooks/DEPLOYMENT_INITIAL.md`](../runbooks/DEPLOYMENT_INITIAL.md), [`../../PROJECT_GOALS.md`](../../PROJECT_GOALS.md), [`../planning/STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md)
 
 ## Overview
 
@@ -136,7 +136,7 @@ docker compose -f docker-compose.staging.yml ps
                                  ▼
                           ┌──────────────┐
                           │     app      │
-                          │  :3000/:3001 │
+                          │    :3000     │
                           └──────┬───────┘
                                  │
            ┌─────────────────────┼─────────────────────┐

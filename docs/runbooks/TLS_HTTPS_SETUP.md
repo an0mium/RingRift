@@ -27,7 +27,7 @@ Before starting, you need:
 2. **A server** with:
    - Docker and Docker Compose installed
    - Ports 80 and 443 open in firewall
-   - RingRift application running (default port 3001)
+   - RingRift application running on `PORT` (default 3000)
 
 3. **DNS propagation complete** (can take up to 48 hours, usually minutes)
    - Verify with: `dig ringrift.example.com` or `nslookup ringrift.example.com`
@@ -46,7 +46,7 @@ Create a file named `Caddyfile` in your deployment directory:
 # Caddyfile
 ringrift.example.com {
     # Proxy all traffic to the RingRift backend
-    reverse_proxy localhost:3001
+    reverse_proxy localhost:3000
 
     # Enable compression
     encode gzip
@@ -100,7 +100,7 @@ services:
       - REDIS_URL=${REDIS_URL}
       # Add other env vars from .env.production
     ports:
-      - '127.0.0.1:3001:3001' # Only expose to localhost
+      - '127.0.0.1:3000:3000' # Only expose to localhost
     networks:
       - ringrift
     depends_on:
@@ -235,7 +235,7 @@ server {
 
     # Proxy to RingRift backend
     location / {
-        proxy_pass http://127.0.0.1:3001;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -343,7 +343,7 @@ Update your `.env.production`:
 ```bash
 # Server
 NODE_ENV=production
-PORT=3001
+PORT=3000
 
 # URLs (use HTTPS)
 VITE_API_URL=https://ringrift.example.com

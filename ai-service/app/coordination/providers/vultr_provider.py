@@ -12,11 +12,9 @@ December 30, 2025: Added circuit breaker protection for API resilience.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import shutil
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -31,6 +29,10 @@ from app.distributed.circuit_breaker import (
     CircuitBreaker,
     CircuitOpenError,
     CircuitState,
+)
+from app.utils.async_utils import (
+    async_subprocess_run,
+    SubprocessTimeoutError,
 )
 
 logger = logging.getLogger(__name__)

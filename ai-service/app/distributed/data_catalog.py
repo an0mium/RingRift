@@ -1315,6 +1315,506 @@ def reset_data_registry() -> None:
     _registry_instance = None
 
 
+# =============================================================================
+# ClusterAwareDataCatalog - P2P cluster data visibility (Dec 30, 2025)
+# Phase 1.2: Cluster-Aware Data Discovery for Distributed Training Pipeline
+# =============================================================================
+
+
+@dataclass
+class DataSourceInfo:
+    """Information about a data source in the cluster.
+
+    Attributes:
+        node_id: Node where data is located
+        path: Path to data on that node
+        game_count: Number of games available
+        sample_count: Estimated training samples
+        is_local: Whether this is on the local node
+        is_synced: Whether data has been synced locally
+        quality_score: Data quality estimate (0-1)
+        last_updated: Timestamp of last update
+    """
+
+    node_id: str
+    path: Path | str
+    game_count: int = 0
+    sample_count: int = 0
+    is_local: bool = False
+    is_synced: bool = False
+    quality_score: float = 0.0
+    last_updated: float = 0.0
+
+    @property
+    def config_key(self) -> str | None:
+        """Extract config key from path if possible."""
+        path_str = str(self.path)
+        for board in ["hex8", "hexagonal", "square8", "square19"]:
+            for players in [2, 3, 4]:
+                key = f"{board}_{players}p"
+                if key in path_str:
+                    return key
+        return None
+
+
+class ClusterAwareDataCatalog:
+    """Data catalog with P2P cluster awareness.
+
+    Extends local data discovery with cluster-wide visibility via P2P manifest.
+    Enables training nodes to find and lazy-download data from any cluster node.
+
+    Dec 30, 2025: Phase 1.2 of Distributed Data Pipeline Architecture.
+
+    Design:
+    - Query P2P manifest for cluster-wide game counts
+    - Find best data source (local first, then remote)
+    - Lazy download pattern: local → P2P pull → sync from source
+
+    Usage:
+        from app.distributed.data_catalog import (
+            get_cluster_aware_catalog,
+            ClusterAwareDataCatalog,
+        )
+
+        catalog = get_cluster_aware_catalog()
+
+        # Get cluster-wide game counts
+        counts = catalog.get_cluster_game_counts("hex8_2p")
+
+        # Find best data source
+        source = catalog.get_best_data_source("hex8_2p")
+
+        # Ensure data is locally available
+        path = await catalog.ensure_data_available("hex8_2p", min_games=5000)
+    """
+
+    _instance: "ClusterAwareDataCatalog | None" = None
+
+    def __init__(
+        self,
+        local_catalog: DataCatalog | None = None,
+        p2p_base_url: str = "http://localhost:8770",
+    ):
+        """Initialize cluster-aware catalog.
+
+        Args:
+            local_catalog: Local DataCatalog instance (uses singleton if None)
+            p2p_base_url: Base URL for P2P orchestrator API
+        """
+        self._local_catalog = local_catalog or get_data_catalog()
+        self._p2p_base_url = p2p_base_url
+
+        # Cache for cluster data
+        self._cluster_game_counts: dict[str, dict[str, int]] = {}
+        self._cluster_npz_counts: dict[str, dict[str, int]] = {}
+        self._nodes_with_data: dict[str, list[str]] = {}
+        self._last_manifest_refresh: float = 0.0
+        self._manifest_cache_ttl: float = 60.0  # 1 minute cache
+
+        # Local node info
+        self._node_id = socket.gethostname()
+
+    @classmethod
+    def get_instance(cls) -> "ClusterAwareDataCatalog":
+        """Get singleton instance."""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton (for testing)."""
+        cls._instance = None
+
+    def get_cluster_game_counts(self, config_key: str) -> dict[str, int]:
+        """Get game counts across entire cluster via P2P manifest.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+
+        Returns:
+            Dict mapping node_id -> game count for this config
+        """
+        self._refresh_manifest_if_stale()
+
+        if config_key in self._cluster_game_counts:
+            return self._cluster_game_counts[config_key]
+
+        # Query P2P manifest directly
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+            counts = manifest.get_games_by_node_and_config(config_key)
+            self._cluster_game_counts[config_key] = counts
+            return counts
+        except Exception as e:
+            logger.debug(f"[ClusterAwareCatalog] Manifest query failed: {e}")
+            return {}
+
+    def get_cluster_total_games(self, config_key: str) -> int:
+        """Get total game count for a config across entire cluster.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+
+        Returns:
+            Total games across all nodes
+        """
+        counts = self.get_cluster_game_counts(config_key)
+        return sum(counts.values())
+
+    def get_nodes_with_data(self, config_key: str) -> list[str]:
+        """Get list of nodes that have data for this config.
+
+        Args:
+            config_key: Configuration key
+
+        Returns:
+            List of node IDs with data for this config
+        """
+        self._refresh_manifest_if_stale()
+
+        if config_key in self._nodes_with_data:
+            return self._nodes_with_data[config_key]
+
+        counts = self.get_cluster_game_counts(config_key)
+        nodes = [node_id for node_id, count in counts.items() if count > 0]
+        self._nodes_with_data[config_key] = nodes
+        return nodes
+
+    def get_best_data_source(
+        self,
+        config_key: str,
+        min_games: int = 0,
+        prefer_local: bool = True,
+    ) -> DataSourceInfo | None:
+        """Find best data source for a configuration.
+
+        Preference order:
+        1. Local data (if available and sufficient)
+        2. Synced data from other nodes
+        3. Remote data (requires P2P sync)
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            min_games: Minimum games required
+            prefer_local: Prefer local data even if remote has more
+
+        Returns:
+            Best DataSourceInfo, or None if no data available
+        """
+        # Parse config key
+        parts = config_key.replace("_", " ").split()
+        if len(parts) < 2:
+            return None
+        board_type = parts[0]
+        try:
+            num_players = int(parts[1].rstrip("p"))
+        except ValueError:
+            return None
+
+        # Check local sources first
+        local_sources = self._find_local_sources(board_type, num_players)
+        local_total = sum(s.game_count for s in local_sources)
+
+        if local_sources and (prefer_local or local_total >= min_games):
+            # Return best local source
+            best = max(local_sources, key=lambda s: s.game_count)
+            return DataSourceInfo(
+                node_id=self._node_id,
+                path=best.path,
+                game_count=best.game_count,
+                sample_count=best.game_count * 30,  # Estimate
+                is_local=True,
+                is_synced=True,
+                quality_score=best.avg_quality_score,
+                last_updated=best.last_modified,
+            )
+
+        # Check cluster for remote sources
+        cluster_counts = self.get_cluster_game_counts(config_key)
+        if not cluster_counts:
+            return None
+
+        # Find node with most data
+        best_node = max(cluster_counts.items(), key=lambda x: x[1])
+        node_id, game_count = best_node
+
+        if game_count < min_games:
+            # Not enough data anywhere
+            return None
+
+        # Return remote source info
+        return DataSourceInfo(
+            node_id=node_id,
+            path=f"data/games/selfplay_{config_key}.db",  # Typical path
+            game_count=game_count,
+            sample_count=game_count * 30,
+            is_local=node_id == self._node_id,
+            is_synced=False,
+            quality_score=0.5,  # Unknown quality for remote
+            last_updated=time.time(),
+        )
+
+    def _find_local_sources(
+        self,
+        board_type: str,
+        num_players: int,
+    ) -> list[DataSource]:
+        """Find local data sources for a config.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            List of matching local DataSource objects
+        """
+        self._local_catalog.discover_data_sources()
+        matches = []
+
+        for source in self._local_catalog._sources.values():
+            if board_type in source.board_types and num_players in source.player_counts:
+                matches.append(source)
+
+        return matches
+
+    async def ensure_data_available(
+        self,
+        config_key: str,
+        min_games: int = 1000,
+        timeout: float = 300.0,
+    ) -> Path | None:
+        """Ensure data is locally available, triggering sync if needed.
+
+        Implements lazy download pattern:
+        1. Check local data availability
+        2. If insufficient, find best remote source
+        3. Trigger P2P sync to fetch data
+        4. Return local path once available
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            min_games: Minimum games required
+            timeout: Max time to wait for sync (seconds)
+
+        Returns:
+            Path to local data, or None if unavailable
+        """
+        import asyncio
+
+        # Check local availability first
+        source = self.get_best_data_source(config_key, min_games, prefer_local=True)
+
+        if source is None:
+            logger.warning(f"[ClusterAwareCatalog] No data source for {config_key}")
+            return None
+
+        if source.is_local:
+            return Path(source.path)
+
+        # Need to sync from remote
+        logger.info(
+            f"[ClusterAwareCatalog] Syncing {config_key} from {source.node_id} "
+            f"({source.game_count} games)"
+        )
+
+        # Trigger sync via event
+        try:
+            from app.coordination.data_events import DataEventType
+            from app.coordination.event_router import get_event_router
+
+            router = get_event_router()
+            await router.emit(
+                DataEventType.DATA_SYNC_REQUESTED,
+                {
+                    "config_key": config_key,
+                    "source_node": source.node_id,
+                    "min_games": min_games,
+                    "priority": "high",
+                },
+            )
+        except ImportError:
+            logger.warning("[ClusterAwareCatalog] Event router not available for sync")
+            return None
+
+        # Wait for sync to complete
+        start_time = time.time()
+        poll_interval = 5.0
+
+        while (time.time() - start_time) < timeout:
+            await asyncio.sleep(poll_interval)
+
+            # Check if data is now available locally
+            local_source = self.get_best_data_source(
+                config_key, min_games, prefer_local=True
+            )
+            if local_source and local_source.is_local:
+                logger.info(
+                    f"[ClusterAwareCatalog] Sync complete for {config_key}, "
+                    f"{local_source.game_count} games available"
+                )
+                return Path(local_source.path)
+
+        logger.warning(f"[ClusterAwareCatalog] Sync timeout for {config_key}")
+        return None
+
+    def _refresh_manifest_if_stale(self) -> None:
+        """Refresh manifest data if cache is stale."""
+        now = time.time()
+        if (now - self._last_manifest_refresh) < self._manifest_cache_ttl:
+            return
+
+        try:
+            self._fetch_manifest_data()
+            self._last_manifest_refresh = now
+        except Exception as e:
+            logger.debug(f"[ClusterAwareCatalog] Manifest refresh failed: {e}")
+
+    def _fetch_manifest_data(self) -> None:
+        """Fetch manifest data from P2P or local manifest."""
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+
+            # Get games by config
+            games_by_config = manifest.get_games_count_by_config()
+            for config_key, count in games_by_config.items():
+                if config_key not in self._cluster_game_counts:
+                    self._cluster_game_counts[config_key] = {}
+                # Aggregate into total for now
+                self._cluster_game_counts[config_key]["_total"] = count
+
+        except Exception as e:
+            logger.debug(f"[ClusterAwareCatalog] Failed to fetch manifest: {e}")
+
+    def get_all_config_status(self) -> dict[str, dict[str, Any]]:
+        """Get status of all configurations across cluster.
+
+        Returns:
+            Dict mapping config_key -> status info including:
+                - total_games: Cluster-wide game count
+                - local_games: Local game count
+                - nodes_with_data: List of nodes
+                - has_sufficient_data: Whether min threshold met
+        """
+        self._refresh_manifest_if_stale()
+
+        status = {}
+        all_configs = set()
+
+        # Get configs from manifest
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+
+            manifest = get_cluster_manifest()
+            games_by_config = manifest.get_games_count_by_config()
+            all_configs.update(games_by_config.keys())
+        except Exception:
+            pass
+
+        # Get configs from local catalog
+        self._local_catalog.discover_data_sources()
+        for source in self._local_catalog._sources.values():
+            for bt in source.board_types:
+                for np in source.player_counts:
+                    all_configs.add(f"{bt}_{np}p")
+
+        # Build status for each config
+        for config_key in sorted(all_configs):
+            if config_key == "None_Nonep" or not config_key:
+                continue
+
+            cluster_total = self.get_cluster_total_games(config_key)
+            nodes = self.get_nodes_with_data(config_key)
+
+            # Count local games
+            local_games = 0
+            parts = config_key.split("_")
+            if len(parts) >= 2:
+                bt = parts[0]
+                try:
+                    np = int(parts[1].rstrip("p"))
+                    local_sources = self._find_local_sources(bt, np)
+                    local_games = sum(s.game_count for s in local_sources)
+                except ValueError:
+                    pass
+
+            status[config_key] = {
+                "total_games": cluster_total,
+                "local_games": local_games,
+                "nodes_with_data": nodes,
+                "has_sufficient_data": cluster_total >= 5000,
+            }
+
+        return status
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check health of cluster-aware catalog.
+
+        Returns:
+            HealthCheckResult with catalog status
+        """
+        from app.coordination.protocols import HealthCheckResult
+
+        try:
+            config_status = self.get_all_config_status()
+            total_configs = len(config_status)
+            configs_with_data = sum(
+                1 for s in config_status.values() if s["total_games"] > 0
+            )
+
+            is_healthy = configs_with_data > 0
+            message = (
+                f"{configs_with_data}/{total_configs} configs have data"
+                if is_healthy
+                else "No cluster data available"
+            )
+
+            return HealthCheckResult(
+                healthy=is_healthy,
+                message=message,
+                details={
+                    "total_configs": total_configs,
+                    "configs_with_data": configs_with_data,
+                    "manifest_age_seconds": time.time() - self._last_manifest_refresh,
+                    "node_id": self._node_id,
+                },
+            )
+        except Exception as e:
+            return HealthCheckResult(
+                healthy=False,
+                message=f"Health check failed: {e}",
+                details={"error": str(e)},
+            )
+
+
+# Singleton accessor for ClusterAwareDataCatalog
+_cluster_aware_instance: ClusterAwareDataCatalog | None = None
+
+
+def get_cluster_aware_catalog() -> ClusterAwareDataCatalog:
+    """Get the singleton ClusterAwareDataCatalog instance.
+
+    Returns:
+        ClusterAwareDataCatalog singleton instance
+    """
+    global _cluster_aware_instance
+
+    if _cluster_aware_instance is None:
+        _cluster_aware_instance = ClusterAwareDataCatalog()
+
+    return _cluster_aware_instance
+
+
+def reset_cluster_aware_catalog() -> None:
+    """Reset the cluster-aware catalog singleton (for testing)."""
+    global _cluster_aware_instance
+    _cluster_aware_instance = None
+
+
 __all__ = [
     "CatalogStats",
     "DataCatalog",
@@ -1329,4 +1829,9 @@ __all__ = [
     "get_data_registry",
     "reset_data_catalog",
     "reset_data_registry",
+    # Cluster-aware catalog (December 30, 2025)
+    "ClusterAwareDataCatalog",
+    "DataSourceInfo",
+    "get_cluster_aware_catalog",
+    "reset_cluster_aware_catalog",
 ]

@@ -113,7 +113,6 @@ docker run -d \
   --cpus=2 \
   --env-file .env \
   -p 3000:3000 \
-  -p 3001:3001 \
   ringrift/app:latest
 ```
 
@@ -275,7 +274,7 @@ For staging environments without GPU (e.g., AWS r5.xlarge), proxy AI requests to
 │                      │        │                           │
 │  ┌────────────────┐  │        │  ┌─────────────────────┐  │
 │  │  Game Server   │  │        │  │  AI Inference       │  │
-│  │  Port 3001     ├──┼──────►─┼──►  Port 8765          │  │
+│  │  Port 3000     ├──┼──────►─┼──►  Port 8765          │  │
 │  └────────────────┘  │        │  └─────────────────────┘  │
 │                      │ Tailscale│                         │
 └──────────────────────┘   VPN  └───────────────────────────┘
