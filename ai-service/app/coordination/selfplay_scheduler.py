@@ -2177,6 +2177,12 @@ class SelfplayScheduler:
             if hasattr(DataEventType, 'ELO_UPDATED'):
                 _safe_subscribe(DataEventType.ELO_UPDATED, self._on_elo_updated, "ELO_UPDATED")
 
+            # Dec 29, 2025: Subscribe to progress stall events for 48h autonomous operation
+            if hasattr(DataEventType, 'PROGRESS_STALL_DETECTED'):
+                _safe_subscribe(DataEventType.PROGRESS_STALL_DETECTED, self._on_progress_stall, "PROGRESS_STALL_DETECTED")
+            if hasattr(DataEventType, 'PROGRESS_RECOVERED'):
+                _safe_subscribe(DataEventType.PROGRESS_RECOVERED, self._on_progress_recovered, "PROGRESS_RECOVERED")
+
             self._subscribed = subscribed_count > 0
             if self._subscribed:
                 logger.info(
@@ -3388,6 +3394,71 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling Elo update: {e}")
+
+    def _on_progress_stall(self, event: Any) -> None:
+        """Handle PROGRESS_STALL_DETECTED - boost selfplay for stalled config.
+
+        Dec 29, 2025: Subscribe to progress stall events for 48h autonomous operation.
+        When a config's Elo progress stalls, boost selfplay priority to generate
+        more training data and help break through the plateau.
+
+        Args:
+            event: Event with payload containing config_key, boost_multiplier, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            boost_multiplier = payload.get("boost_multiplier", 2.0)
+            stall_duration = payload.get("stall_duration_hours", 0.0)
+
+            if not config_key or config_key not in self._config_priorities:
+                return
+
+            priority = self._config_priorities[config_key]
+
+            # Apply exploration boost to help break through plateau
+            priority.exploration_boost = max(priority.exploration_boost, boost_multiplier)
+
+            # Increase staleness to prioritize this config
+            priority.staleness_hours = max(priority.staleness_hours, stall_duration * 2.0)
+
+            logger.warning(
+                f"[SelfplayScheduler] Progress stall detected for {config_key} "
+                f"(stalled {stall_duration:.1f}h). Boosting exploration by {boost_multiplier}x"
+            )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling progress stall: {e}")
+
+    def _on_progress_recovered(self, event: Any) -> None:
+        """Handle PROGRESS_RECOVERED - reset boost for recovered config.
+
+        Dec 29, 2025: When a config recovers from a stall, reset the exploration
+        boost to normal levels to allow other configs to get resources.
+
+        Args:
+            event: Event with payload containing config_key, velocity, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            new_velocity = payload.get("current_velocity", 0.0)
+
+            if not config_key or config_key not in self._config_priorities:
+                return
+
+            priority = self._config_priorities[config_key]
+
+            # Reset exploration boost to normal
+            priority.exploration_boost = 1.0
+
+            logger.info(
+                f"[SelfplayScheduler] Progress recovered for {config_key} "
+                f"(velocity: {new_velocity:.2f} Elo/hour). Reset exploration boost."
+            )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling progress recovery: {e}")
 
     def get_elo_velocity(self, config_key: str) -> float:
         """Get computed Elo velocity for a config.

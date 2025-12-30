@@ -1660,9 +1660,10 @@ def main() -> None:
 
         try:
             from app.coordination.event_router import DataEventType
-            parity_started_event = DataEventType.PARITY_VALIDATION_STARTED.name
-            parity_completed_event = DataEventType.PARITY_VALIDATION_COMPLETED.name
-        except ImportError:
+            if DataEventType is not None:
+                parity_started_event = DataEventType.PARITY_VALIDATION_STARTED.name
+                parity_completed_event = DataEventType.PARITY_VALIDATION_COMPLETED.name
+        except (ImportError, AttributeError):
             pass
 
     if emit_sync is not None:

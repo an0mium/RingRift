@@ -59,13 +59,13 @@ python scripts/update_all_nodes.py --restart-p2p
 | `app/config/coordination_defaults.py` | Centralized timeouts, thresholds, priority weights             |
 | `app/config/thresholds.py`            | Training/selfplay budget constants                             |
 
-### Coordination Infrastructure (190+ modules)
+### Coordination Infrastructure (248 modules)
 
 | Module                          | Purpose                                           |
 | ------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`             | Lifecycle for 77 daemon types (~2,000 LOC)        |
+| `daemon_manager.py`             | Lifecycle for 90 daemon types (~2,000 LOC)        |
 | `daemon_registry.py`            | Declarative daemon specs (DaemonSpec dataclass)   |
-| `daemon_runners.py`             | 62 async runner functions                         |
+| `daemon_runners.py`             | 81 async runner functions                         |
 | `event_router.py`               | Unified event bus (118 event types, SHA256 dedup) |
 | `selfplay_scheduler.py`         | Priority-based selfplay allocation (~3,800 LOC)   |
 | `budget_calculator.py`          | Gumbel budget tiers, target games calculation     |
@@ -98,11 +98,11 @@ python scripts/update_all_nodes.py --restart-p2p
 
 ## Daemon System
 
-77 active daemon types, 6 deprecated. Three-layer architecture:
+90 active daemon types, 6 deprecated. Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 62 async runner functions
+3. **`daemon_runners.py`** - 81 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
@@ -330,6 +330,66 @@ Duplicate type definitions have been consolidated with domain-specific renames a
 
 All renamed classes have backward-compatible `ClassName = NewClassName` aliases that will be deprecated in Q2 2026.
 
+## GPU Vectorization Optimization Status (Dec 2025) - COMPLETE
+
+The GPU selfplay engine (`app/ai/gpu_parallel_games.py`) has been **extensively optimized**. No further `.item()` optimization is needed.
+
+### Current State
+
+| Metric                    | Value                                        |
+| ------------------------- | -------------------------------------------- |
+| Speedup                   | 6-57× on CUDA vs CPU (batch-dependent)       |
+| Remaining `.item()` calls | **6** (down from 80+)                        |
+| Hot path `.item()` calls  | **0**                                        |
+| Fully vectorized          | Move selection, game state updates, sampling |
+
+### Remaining `.item()` Calls (All Necessary)
+
+| File                      | Line | Purpose                                   | Hot Path? |
+| ------------------------- | ---- | ----------------------------------------- | --------- |
+| `gpu_parallel_games.py`   | 1475 | Statistics tracking (`move_count.sum()`)  | No        |
+| `gpu_move_generation.py`  | 1672 | Chain capture target (live tensor needed) | No\*      |
+| `gpu_move_application.py` | 1355 | Max distance for loop bounds              | No        |
+| `gpu_move_application.py` | 1719 | History max distance                      | No        |
+| `gpu_move_application.py` | 1777 | Max distance for loop bounds              | No        |
+| `gpu_move_application.py` | 1933 | Dynamic tensor size for `torch.ones`      | No        |
+
+\*Line 1672 is in chain capture processing, which is infrequent compared to move generation.
+
+### Why No Further Optimization
+
+1. **Statistics (line 1475)**: Only called once per batch for metrics, not per game
+2. **Chain capture (line 1672)**: Must use live tensor to correctly find targets after prior captures in chain
+3. **Max distance (lines 1355/1719/1777)**: Python loop bounds require scalar values
+4. **Dynamic sizes (line 1933)**: `torch.ones()` requires integer size parameter
+
+### Optimization History
+
+- **Dec 13, 2025**: Pre-extract numpy arrays to avoid loop `.item()` calls
+- **Dec 14, 2025**: Segment-wise softmax sampling (no per-game loops)
+- **Dec 24, 2025**: Fully vectorized move selection, pre-extract metadata batches
+- **Dec 2025**: Reduced from 80+ `.item()` calls to 6 remaining necessary calls
+
+**DO NOT** attempt further `.item()` optimization - the remaining calls are architecturally necessary.
+
+## Transfer Learning (2p → 4p)
+
+Train 4-player models using 2-player weights:
+
+```bash
+# Step 1: Resize value head from 2 outputs to 4 outputs
+python scripts/transfer_2p_to_4p.py \
+  --source models/canonical_sq8_2p.pth \
+  --output models/transfer_sq8_4p_init.pth \
+  --board-type square8
+
+# Step 2: Train with transferred weights
+python -m app.training.train \
+  --board-type square8 --num-players 4 \
+  --init-weights models/transfer_sq8_4p_init.pth \
+  --data-path data/training/sq8_4p.npz
+```
+
 ## Known Issues
 
 1. **Parity gates on cluster**: Nodes lack `npx`, so TS validation fails. Set `RINGRIFT_ALLOW_PENDING_GATE=1`.
@@ -337,6 +397,19 @@ All renamed classes have backward-compatible `ClassName = NewClassName` aliases 
 3. **GPU memory**: v2 models with batch_size=512 need ~8GB VRAM.
 4. **PYTHONPATH**: Set `PYTHONPATH=.` when running scripts from ai-service directory.
 5. **Container networking**: Vast.ai/RunPod need `container_tailscale_setup.py` for mesh connectivity.
+
+## P2P Stability Fixes (Dec 2025)
+
+Recent stability improvements to the P2P orchestrator:
+
+- Pre-flight dependency validation (aiohttp, psutil, yaml)
+- Gzip magic byte detection in gossip handler
+- 120s startup grace period for slow state loading
+- SystemExit handling in task wrapper
+- /dev/shm fallback for macOS compatibility
+- Clear port binding error messages
+- Heartbeat interval reduced: 30s → 15s (faster peer discovery)
+- Peer timeout reduced: 90s → 60s (faster dead node detection)
 
 ## See Also
 
