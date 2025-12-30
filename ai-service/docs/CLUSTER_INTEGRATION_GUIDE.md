@@ -1,6 +1,6 @@
 # Cluster Integration Guide
 
-**Last Updated:** 2025-12-27
+**Last Updated:** 2025-12-30
 **Status:** Current (reflects December 2025 consolidation)
 
 ---
@@ -20,7 +20,7 @@ This guide documents how RingRift's cluster components integrate together. After
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │ LoopManager │  │ EventRouter │  │ DaemonManager (62)      │ │
+│  │ LoopManager │  │ EventRouter │  │ DaemonManager (89)      │ │
 │  │ (6 loops)   │  │ (unified)   │  │ Lifecycle management    │ │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
 │                                                                 │
@@ -47,7 +47,7 @@ This guide documents how RingRift's cluster components integrate together. After
 │  ┌───────────────────┐  ┌─────────────────────────────────────┐│
 │  │ app/core/         │  │ app/coordination/                   ││
 │  │ - ssh.py          │  │ - event_router.py (unified events)  ││
-│  │ - node.py         │  │ - daemon_manager.py (66 daemons)    ││
+│  │ - node.py         │  │ - daemon_manager.py (89 daemons)    ││
 │  │                   │  │ - auto_sync_daemon.py               ││
 │  └───────────────────┘  │ - sync_facade.py                    ││
 │                         │ - unified_distribution_daemon.py    ││
@@ -105,7 +105,7 @@ router.publish(DataEventType.TRAINING_STARTED, payload)
 | `SELFPLAY_COMPLETE`   | GPU selfplay jobs   | AutoSyncDaemon, TrainingCoordinator     |
 | `TRAINING_COMPLETED`  | Training scripts    | AutoEvaluationDaemon, ModelDistribution |
 | `MODEL_PROMOTED`      | AutoPromotionDaemon | UnifiedDistributionDaemon               |
-| `DATA_SYNC_COMPLETED` | SyncCoordinator     | TrainingFreshness, PipelineOrchestrator |
+| `DATA_SYNC_COMPLETED` | AutoSyncDaemon      | TrainingFreshness, PipelineOrchestrator |
 
 ---
 
@@ -115,14 +115,14 @@ router.publish(DataEventType.TRAINING_STARTED, payload)
 
 ```
 ┌───────────────┐     ┌────────────────┐     ┌─────────────────┐
-│ SyncFacade    │────▶│ AutoSyncDaemon │────▶│ SyncCoordinator │
-│ (entry point) │     │ (scheduling)   │     │ (execution)     │
+│ SyncFacade    │────▶│ AutoSyncDaemon │────▶│ SyncRouter      │
+│ (entry point) │     │ (scheduling)   │     │ (routing)       │
 └───────────────┘     └────────────────┘     └─────────────────┘
                               │
                               ▼
                       ┌────────────────┐
-                      │ SyncRouter     │
-                      │ (node select)  │
+                      │ SyncCoordinator│
+                      │ (backend)      │
                       └────────────────┘
 ```
 

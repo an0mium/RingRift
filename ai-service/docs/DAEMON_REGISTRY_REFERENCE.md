@@ -1,19 +1,19 @@
 # Daemon Registry Reference
 
-> **Deprecated:** This document is a legacy snapshot and is no longer maintained. Use `DAEMON_REGISTRY.md` and `app/coordination/daemon_registry.py` for canonical daemon listings.
+> **Deprecated:** This document is a legacy snapshot (Dec 2025) and is no longer maintained. Use `DAEMON_REGISTRY.md` and `app/coordination/daemon_registry.py` for canonical daemon listings.
 
-This document provides a comprehensive reference for all daemon types in the RingRift AI service coordination infrastructure.
+This document provides a historical reference for daemon types as of the Dec 2025 snapshot. It is not comprehensive for the current codebase.
 
 **Last Updated**: December 2025
 
 ## Overview
 
-The RingRift AI service uses 73 daemon types organized into 12 categories. Daemons are managed by `DaemonManager` with declarative configuration in `daemon_registry.py`.
+Snapshot (Dec 2025): 73 daemon types organized into 12 categories. Current count is 89; see `ai-service/docs/DAEMON_REGISTRY.md` for the live inventory.
 
 ### Architecture
 
 ```
-daemon_types.py          → DaemonType enum (73 types)
+daemon_types.py          → DaemonType enum (73 types at snapshot; 89 current)
 daemon_registry.py       → DAEMON_REGISTRY (declarative specs)
 daemon_runners.py        → Runner functions (async factories)
 daemon_manager.py        → Lifecycle management
