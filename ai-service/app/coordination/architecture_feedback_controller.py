@@ -141,34 +141,23 @@ class ArchitectureFeedbackController(HandlerBase):
                 extract_architecture_from_model_path,
                 get_architecture_tracker,
             )
+            from app.coordination.event_utils import extract_evaluation_data
 
-            config_key = event.get("config_key", "")
-            model_path = event.get("model_path", "")
-            elo = event.get("elo", 1000.0)
-            games_evaluated = event.get("games", 0)
-
-            if not config_key or not model_path:
+            data = extract_evaluation_data(event)
+            if not data.is_valid or not data.model_path:
                 return
 
             # Extract architecture from model path
-            architecture = extract_architecture_from_model_path(model_path)
-
-            # Parse config key
-            parts = config_key.rsplit("_", 1)
-            if len(parts) != 2:
-                return
-
-            board_type = parts[0]
-            num_players = int(parts[1].rstrip("p"))
+            architecture = extract_architecture_from_model_path(data.model_path)
 
             # Record in tracker
             tracker = get_architecture_tracker()
             tracker.record_evaluation(
                 architecture=architecture,
-                board_type=board_type,
-                num_players=num_players,
-                elo=elo,
-                games_evaluated=games_evaluated,
+                board_type=data.board_type,
+                num_players=data.num_players,
+                elo=data.elo,
+                games_evaluated=data.games_played,
             )
 
             self._state.evaluations_processed += 1

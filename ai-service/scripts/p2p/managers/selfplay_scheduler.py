@@ -364,6 +364,11 @@ class SelfplayScheduler(EventSubscriptionMixin):
         # Configs in plateau state get 50% priority reduction to avoid wasting resources
         self._plateaued_configs: dict[str, float] = {}
 
+        # Dec 2025 Phase 5: Evaluation backpressure tracking
+        # When evaluation queue is full, pause selfplay to prevent cascading backpressure
+        self._evaluation_backpressure_active = False
+        self._evaluation_backpressure_start: float = 0.0
+
     def get_elo_based_priority_boost(self, board_type: str, num_players: int) -> int:
         """Get priority boost based on ELO performance for this config.
 
@@ -913,6 +918,53 @@ class SelfplayScheduler(EventSubscriptionMixin):
 
         return True
 
+    async def _on_evaluation_backpressure(self, event) -> None:
+        """Handle EVALUATION_BACKPRESSURE events - pause selfplay to let evaluations catch up.
+
+        Dec 2025 Phase 5: When evaluation queue exceeds threshold (typically 70 pending),
+        the evaluation daemon emits this event. Selfplay should pause to prevent
+        cascading backpressure: selfplay → training → evaluation bottleneck.
+
+        Without this handler, selfplay continues producing games even when downstream
+        pipeline is saturated, leading to training loop deadlock.
+
+        Args:
+            event: Event with payload containing queue_depth, threshold
+        """
+        payload = self._extract_event_payload(event)
+        queue_depth = payload.get("queue_depth", 0)
+        threshold = payload.get("threshold", 70)
+
+        self._evaluation_backpressure_active = True
+        self._evaluation_backpressure_start = time.time()
+
+        self._log_info(
+            f"Evaluation backpressure ACTIVATED: queue_depth={queue_depth} > threshold={threshold}, "
+            "pausing selfplay allocation until evaluation queue drains"
+        )
+
+    async def _on_evaluation_backpressure_released(self, event) -> None:
+        """Handle EVALUATION_BACKPRESSURE_RELEASED events - resume selfplay.
+
+        Dec 2025 Phase 5: When evaluation queue drops below release threshold
+        (typically 35), resume selfplay allocation.
+
+        Args:
+            event: Event with payload containing queue_depth, release_threshold
+        """
+        payload = self._extract_event_payload(event)
+        queue_depth = payload.get("queue_depth", 0)
+        release_threshold = payload.get("release_threshold", 35)
+
+        if self._evaluation_backpressure_active:
+            duration = time.time() - self._evaluation_backpressure_start
+            self._log_info(
+                f"Evaluation backpressure RELEASED: queue_depth={queue_depth} < release_threshold={release_threshold}, "
+                f"resuming selfplay allocation after {duration:.1f}s pause"
+            )
+        self._evaluation_backpressure_active = False
+        self._evaluation_backpressure_start = 0.0
+
     def _emit_selfplay_target_updated(
         self,
         config_key: str,
@@ -1418,6 +1470,13 @@ class SelfplayScheduler(EventSubscriptionMixin):
                     return 0
             except (TypeError, AttributeError, RuntimeError, KeyError):
                 pass  # Ignore errors in safeguards callback (non-critical)
+
+        # Dec 2025 Phase 5: Check evaluation backpressure - pause when eval queue full
+        if self._evaluation_backpressure_active:
+            logger.debug(
+                f"Evaluation backpressure active, halting selfplay on {node.node_id}"
+            )
+            return 0
 
         # Check backpressure - reduce production when training queue is full
         backpressure_factor = 1.0

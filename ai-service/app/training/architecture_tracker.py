@@ -593,46 +593,30 @@ async def _on_evaluation_completed(event: dict) -> None:
         event: Event payload with model_id/model_path, elo, board_type, num_players, etc.
     """
     try:
-        # Extract data from event - handle different event formats
-        model_path = event.get("model_id") or event.get("model_path") or event.get("config", "")
-        elo = event.get("elo", 1000.0)
-        games_played = event.get("games_played", 0)
+        from app.coordination.event_utils import extract_evaluation_data
 
-        # Extract board_type and num_players from event or config key
-        board_type = event.get("board_type", "")
-        num_players = event.get("num_players", 2)
+        # Use unified event extraction (December 30, 2025)
+        data = extract_evaluation_data(event)
 
-        # If not directly available, try to parse from config key
-        if not board_type:
-            config = event.get("config", "")
-            if "_" in config:
-                parts = config.rsplit("_", 1)
-                board_type = parts[0]
-                if len(parts) > 1 and parts[1].endswith("p"):
-                    try:
-                        num_players = int(parts[1].rstrip("p"))
-                    except ValueError:
-                        pass
-
-        if not board_type:
+        if not data.board_type:
             logger.debug(f"ArchitectureTracker: Could not extract board_type from event: {event}")
             return
 
         # Extract architecture from model path
-        architecture = extract_architecture_from_model_path(model_path)
+        architecture = extract_architecture_from_model_path(data.model_path)
 
         # Record the evaluation
         record_evaluation(
             architecture=architecture,
-            board_type=board_type,
-            num_players=num_players,
-            elo=elo,
-            games_evaluated=games_played,
+            board_type=data.board_type,
+            num_players=data.num_players,
+            elo=data.elo,
+            games_evaluated=data.games_played,
         )
 
         logger.info(
             f"ArchitectureTracker: Recorded {architecture} evaluation for "
-            f"{board_type}_{num_players}p: Elo={elo:.0f}, games={games_played}"
+            f"{data.board_type}_{data.num_players}p: Elo={data.elo:.0f}, games={data.games_played}"
         )
 
     except (KeyError, TypeError, ValueError) as e:

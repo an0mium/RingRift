@@ -305,26 +305,15 @@ class CascadeTrainingOrchestrator(HandlerBase):
 
     async def _on_training_completed(self, event: dict) -> None:
         """Handle training completion event."""
-        config_key = event.get("config_key", "")
-        if not config_key:
+        from app.coordination.event_utils import extract_training_data
+
+        data = extract_training_data(event)
+        if not data.is_valid or data.board_type not in self._states:
             return
 
-        # Parse config_key: "hex8_2p" -> board_type="hex8", num_players=2
-        parts = config_key.rsplit("_", 1)
-        if len(parts) != 2:
-            return
-
-        board_type = parts[0]
-        try:
-            num_players = int(parts[1].rstrip("p"))
-        except ValueError:
-            return
-
-        if board_type not in self._states:
-            return
-
+        board_type, num_players = data.board_type, data.num_players
         state = self._states[board_type]
-        model_path = event.get("model_path")
+        model_path = data.model_path
 
         if num_players == 2:
             state.model_2p = model_path
@@ -356,25 +345,14 @@ class CascadeTrainingOrchestrator(HandlerBase):
 
     async def _on_elo_updated(self, event: dict) -> None:
         """Handle Elo update - check if we can advance cascade."""
-        config_key = event.get("config_key", "")
-        elo = event.get("elo", 0.0)
+        from app.coordination.event_utils import extract_evaluation_data
 
-        if not config_key:
+        data = extract_evaluation_data(event)
+        if not data.is_valid or data.board_type not in self._states:
             return
 
-        parts = config_key.rsplit("_", 1)
-        if len(parts) != 2:
-            return
-
-        board_type = parts[0]
-        try:
-            num_players = int(parts[1].rstrip("p"))
-        except ValueError:
-            return
-
-        if board_type not in self._states:
-            return
-
+        board_type, num_players = data.board_type, data.num_players
+        elo = data.elo
         state = self._states[board_type]
 
         if num_players == 2:
@@ -392,33 +370,21 @@ class CascadeTrainingOrchestrator(HandlerBase):
 
     async def _on_model_promoted(self, event: dict) -> None:
         """Handle model promotion - update cascade state."""
-        config_key = event.get("config_key", "")
-        model_path = event.get("model_path")
+        from app.coordination.event_utils import extract_training_data
 
-        if not config_key or not model_path:
+        data = extract_training_data(event)
+        if not data.is_valid or not data.model_path or data.board_type not in self._states:
             return
 
-        parts = config_key.rsplit("_", 1)
-        if len(parts) != 2:
-            return
-
-        board_type = parts[0]
-        try:
-            num_players = int(parts[1].rstrip("p"))
-        except ValueError:
-            return
-
-        if board_type not in self._states:
-            return
-
+        board_type, num_players = data.board_type, data.num_players
         state = self._states[board_type]
 
         if num_players == 2:
-            state.model_2p = model_path
+            state.model_2p = data.model_path
         elif num_players == 3:
-            state.model_3p = model_path
+            state.model_3p = data.model_path
         elif num_players == 4:
-            state.model_4p = model_path
+            state.model_4p = data.model_path
 
         state.last_updated = datetime.now()
 
