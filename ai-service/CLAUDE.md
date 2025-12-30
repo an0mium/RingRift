@@ -187,6 +187,28 @@ score = get_system_health_score()  # 0.0-1.0
 orchestrator = get_health_orchestrator()
 ```
 
+### HTTP Health Endpoints
+
+The DaemonManager exposes HTTP health endpoints on port 8790 (configurable via `RINGRIFT_HEALTH_PORT`):
+
+| Endpoint       | Purpose                                                           |
+| -------------- | ----------------------------------------------------------------- |
+| `GET /health`  | Liveness probe - returns 200 if daemon manager is running         |
+| `GET /ready`   | Readiness probe - returns 200 if all critical daemons are healthy |
+| `GET /metrics` | Prometheus-style metrics for monitoring                           |
+| `GET /status`  | Detailed daemon status JSON                                       |
+
+```bash
+# Check if daemon manager is healthy
+curl http://localhost:8790/health
+
+# Get detailed daemon status
+curl http://localhost:8790/status | jq
+
+# P2P cluster status (port 8770)
+curl http://localhost:8770/status | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"Leader: {d.get(\"leader_id\")}, Alive: {d.get(\"alive_peers\")}")'
+```
+
 ## File Structure
 
 ```
