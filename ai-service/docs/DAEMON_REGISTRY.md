@@ -81,8 +81,8 @@ Data synchronization across the cluster.
 | `MODEL_DISTRIBUTION`    | MEDIUM       | Auto-distributes models after promotion. Subscribes to MODEL_PROMOTED events.                                              | EVENT_ROUTER               |
 | `NPZ_DISTRIBUTION`      | MEDIUM       | Syncs training data (NPZ files) after export.                                                                              | EVENT_ROUTER               |
 | `EXTERNAL_DRIVE_SYNC`   | LOW          | Backup to external drives for disaster recovery.                                                                           | None                       |
-| `CLUSTER_DATA_SYNC`     | MEDIUM       | Full cluster-wide data distribution and replication.                                                                       | EVENT_ROUTER               |
-| `TRAINING_NODE_WATCHER` | MEDIUM       | Detects active training processes and triggers priority data sync.                                                         | None                       |
+| `CLUSTER_DATA_SYNC`     | MEDIUM       | **Deprecated**: legacy cluster-wide sync; use AutoSyncDaemon(strategy="broadcast").                                        | EVENT_ROUTER               |
+| `TRAINING_NODE_WATCHER` | MEDIUM       | Detects active training processes, triggers priority sync, and tags training-active nodes for SyncRouter prioritization.   | None                       |
 | `HIGH_QUALITY_SYNC`     | MEDIUM       | Priority sync for high-quality game data (quality score > 0.7).                                                            | None                       |
 | `ELO_SYNC`              | MEDIUM       | Synchronize ELO ratings across cluster.                                                                                    | None                       |
 | `TRAINING_DATA_SYNC`    | MEDIUM       | Pre-training data sync from OWC/S3. Ensures training nodes have fresh data before training.                                | EVENT_ROUTER               |
@@ -100,7 +100,7 @@ Data synchronization across the cluster.
 - `_create_model_distribution()` → Creates `ModelDistributionDaemon`
 - `_create_npz_distribution()` → Creates `NPZDistributionDaemon`
 - `_create_external_drive_sync()` → Creates `ExternalDriveSyncDaemon`
-- `_create_cluster_data_sync()` → Creates `ClusterDataSyncDaemon`
+- `create_cluster_data_sync()` → AutoSyncDaemon(strategy="broadcast") (deprecated wrapper)
 - `create_training_node_watcher()` → Creates `TrainingActivityDaemon` (in `training_activity_daemon.py`)
 - `_create_high_quality_sync()` → Creates `HighQualitySyncDaemon`
 - `_create_elo_sync()` → Creates `EloSyncDaemon`

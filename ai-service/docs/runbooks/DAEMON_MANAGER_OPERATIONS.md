@@ -37,6 +37,16 @@ Daemons are organized by category:
 | `TRAINING_ACTIVITY`    | Training detection           | Yes          |
 | `TRAINING_TRIGGER`     | Training initiation          | Yes          |
 
+### Training Activity Config
+
+The `TRAINING_ACTIVITY` daemon is backed by `TrainingActivityDaemon` and uses
+the `RINGRIFT_TRAINING_ACTIVITY_*` env prefix (via `DaemonConfig.from_env`):
+
+- `RINGRIFT_TRAINING_ACTIVITY_ENABLED` (default: `1`)
+- `RINGRIFT_TRAINING_ACTIVITY_INTERVAL` (seconds, default: `300`)
+- `RINGRIFT_TRAINING_ACTIVITY_HANDLE_SIGNALS` (default: `0`)
+- `RINGRIFT_TRAINING_ACTIVITY_TRIGGER_SYNC` (default: `1`)
+
 ### Evaluation
 
 | Daemon           | Purpose                      | Health Check |

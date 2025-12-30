@@ -1819,6 +1819,36 @@ def main(argv: list[str] | None = None) -> int:
         error_prefix="export-replay-dataset",
     )
 
+    # Parse source filters (December 2025 - Phase 5 Unified NN/NNUE training)
+    include_sources: set[str] | None = None
+    exclude_sources: set[str] | None = None
+
+    # Build include set from convenience flags and --sources
+    if args.include_gauntlet or args.include_tournaments or args.sources:
+        include_sources = set()
+        include_sources.add("selfplay")  # Always include selfplay by default
+        if args.include_gauntlet:
+            include_sources.add("gauntlet")
+            print("[SOURCE FILTER] Including gauntlet games")
+        if args.include_tournaments:
+            include_sources.add("tournament")
+            print("[SOURCE FILTER] Including tournament games")
+        if args.sources:
+            for source in args.sources.split(","):
+                source = source.strip().lower()
+                if source:
+                    include_sources.add(source)
+            print(f"[SOURCE FILTER] Sources: {', '.join(sorted(include_sources))}")
+
+    # Build exclude set from --exclude-sources
+    if args.exclude_sources:
+        exclude_sources = set()
+        for source in args.exclude_sources.split(","):
+            source = source.strip().lower()
+            if source:
+                exclude_sources.add(source)
+        print(f"[SOURCE FILTER] Excluding: {', '.join(sorted(exclude_sources))}")
+
     # Determine parallelism: default is parallel unless --single-threaded or --workers=1
     use_parallel = not args.single_threaded and (args.workers is None or args.workers > 1)
 
@@ -1923,6 +1953,9 @@ def main(argv: list[str] | None = None) -> int:
         min_quality=args.min_quality,
         include_heuristics=args.include_heuristics,
         full_heuristics=args.full_heuristics,
+        # Source filtering (December 2025 - Phase 5 Unified NN/NNUE training)
+        include_sources=include_sources,
+        exclude_sources=exclude_sources,
     )
 
     # Update cache if enabled

@@ -297,10 +297,13 @@ class TestRunTierEvaluation:
 
         # Create a minimal config with no opponents for simple testing
         return TierEvaluationConfig(
-            name="Test Tier",
+            tier_name="Test Tier",
+            display_name="Test Tier Display",
             board_type=BoardType.SQUARE8,
             num_players=2,
+            num_games=10,
             candidate_difficulty=5,
+            time_budget_ms=None,
             opponents=[],  # No opponents for simple test
         )
 

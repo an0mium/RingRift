@@ -433,7 +433,7 @@ class SyncResponse:
 ```python
 class SyncBackend(Enum):
     AUTO_SYNC = "auto_sync"              # P2P gossip-based sync
-    CLUSTER_SYNC = "cluster_data_sync"   # Push-based cluster sync
+    CLUSTER_SYNC = "cluster_data_sync"   # Deprecated alias → AutoSyncDaemon(BROADCAST)
     DISTRIBUTED = "distributed"          # Low-level transport
     EPHEMERAL = "ephemeral_sync"         # Aggressive sync for ephemeral hosts
     ROUTER = "router"                    # Intelligent routing
@@ -444,7 +444,7 @@ class SyncBackend(Enum):
 The facade automatically selects the appropriate backend:
 
 1. **Ephemeral nodes** -> `EPHEMERAL` backend
-2. **High/critical priority** -> `CLUSTER_SYNC` (push-based)
+2. **High/critical priority** -> `CLUSTER_SYNC` (deprecated alias; broadcast AutoSync)
 3. **Specific targets** -> `ROUTER` (intelligent routing)
 4. **Default** -> `AUTO_SYNC` (P2P gossip)
 

@@ -91,17 +91,17 @@ REGRESSION_DETECTED → REGRESSION_CRITICAL → TRAINING_ROLLBACK_NEEDED
 
 These events drive the main feedback loops:
 
-| Event                   | Emitter                | Must-Have Subscriber      | Purpose              |
-| ----------------------- | ---------------------- | ------------------------- | -------------------- |
-| `TRAINING_COMPLETED`    | TrainingCoordinator    | FeedbackLoopController    | Trigger evaluation   |
-| `EVALUATION_COMPLETED`  | GameGauntlet           | CurriculumIntegration     | Update weights       |
-| `MODEL_PROMOTED`        | AutoPromotionDaemon    | UnifiedDistributionDaemon | Distribute model     |
-| `DATA_SYNC_COMPLETED`   | AutoSyncDaemon         | DataPipelineOrchestrator  | Trigger export       |
-| `ELO_UPDATED`           | EloSyncManager         | SelfplayScheduler         | Rebalance allocation |
-| `QUALITY_SCORE_UPDATED` | QualityMonitorDaemon   | FeedbackLoopController    | Adjust exploration   |
-| `REGRESSION_CRITICAL`   | RegressionDetector     | DaemonManager             | Halt training        |
-| `PLATEAU_DETECTED`      | FeedbackLoopController | ImprovementOptimizer      | Boost exploration    |
-| `ORPHAN_GAMES_DETECTED` | OrphanDetectionDaemon  | DataPipelineOrchestrator  | Priority sync        |
+| Event                   | Emitter                | Must-Have Subscriber                       | Purpose              |
+| ----------------------- | ---------------------- | ------------------------------------------ | -------------------- |
+| `TRAINING_COMPLETED`    | TrainingCoordinator    | FeedbackLoopController                     | Trigger evaluation   |
+| `EVALUATION_COMPLETED`  | GameGauntlet           | CurriculumIntegration, AutoPromotionDaemon | Update weights       |
+| `MODEL_PROMOTED`        | AutoPromotionDaemon    | UnifiedDistributionDaemon                  | Distribute model     |
+| `DATA_SYNC_COMPLETED`   | AutoSyncDaemon         | DataPipelineOrchestrator                   | Trigger export       |
+| `ELO_UPDATED`           | EloSyncManager         | SelfplayScheduler                          | Rebalance allocation |
+| `QUALITY_SCORE_UPDATED` | QualityMonitorDaemon   | FeedbackLoopController                     | Adjust exploration   |
+| `REGRESSION_CRITICAL`   | RegressionDetector     | DaemonManager                              | Halt training        |
+| `PLATEAU_DETECTED`      | FeedbackLoopController | ImprovementOptimizer                       | Boost exploration    |
+| `ORPHAN_GAMES_DETECTED` | OrphanDetectionDaemon  | DataPipelineOrchestrator                   | Priority sync        |
 
 ---
 

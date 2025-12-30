@@ -272,7 +272,7 @@ subs = bus.list_subscribers()
 
 required_wiring = {
     'training_completed': ['FeedbackLoopController'],
-    'evaluation_completed': ['PromotionController', 'CurriculumIntegration'],
+    'evaluation_completed': ['AutoPromotionDaemon', 'PromotionController', 'CurriculumIntegration'],
     'model_promoted': ['UnifiedDistributionDaemon'],
     'curriculum_rebalanced': ['SelfplayScheduler'],
     'quality_feedback_adjusted': ['DataPipelineOrchestrator'],

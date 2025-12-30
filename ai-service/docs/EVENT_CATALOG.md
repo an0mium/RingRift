@@ -96,16 +96,16 @@ These events form the main training pipeline:
 
 ## Promotion Events
 
-| Event                   | Emitter                   | Subscribers                             | Purpose                              |
-| ----------------------- | ------------------------- | --------------------------------------- | ------------------------------------ |
-| `PROMOTION_CANDIDATE`   | EvaluationDaemon          | AutoPromotionDaemon                     | Model is promotion candidate         |
-| `PROMOTION_STARTED`     | AutoPromotionDaemon       | DataPipeline                            | Promotion process started            |
-| `MODEL_PROMOTED`        | AutoPromotionDaemon       | UnifiedDistributionDaemon, FeedbackLoop | Distribute model to cluster          |
-| `PROMOTION_FAILED`      | AutoPromotionDaemon       | ModelLifecycleCoordinator, DataPipeline | Track failed promotions              |
-| `PROMOTION_COMPLETED`   | AutoPromotionDaemon       | CurriculumIntegration                   | Promotion attempt finalized          |
-| `PROMOTION_REJECTED`    | AutoPromotionDaemon       | FeedbackLoop, CurriculumFeedback        | Promotion rejected (below threshold) |
-| `PROMOTION_ROLLED_BACK` | ModelLifecycleCoordinator | FeedbackLoop                            | Promotion rolled back                |
-| `MODEL_UPDATED`         | ModelRegistry             | UnifiedDistributionDaemon               | Sync model metadata to nodes         |
+| Event                   | Emitter                           | Subscribers                             | Purpose                              |
+| ----------------------- | --------------------------------- | --------------------------------------- | ------------------------------------ |
+| `PROMOTION_CANDIDATE`   | PromotionController               | DataPipelineOrchestrator                | Model is promotion candidate         |
+| `PROMOTION_STARTED`     | Reserved (not emitted by default) | DataPipeline                            | Promotion process started            |
+| `MODEL_PROMOTED`        | AutoPromotionDaemon               | UnifiedDistributionDaemon, FeedbackLoop | Distribute model to cluster          |
+| `PROMOTION_FAILED`      | AutoPromotionDaemon               | ModelLifecycleCoordinator, DataPipeline | Track failed promotions              |
+| `PROMOTION_COMPLETED`   | AutoPromotionDaemon               | CurriculumIntegration                   | Promotion attempt finalized          |
+| `PROMOTION_REJECTED`    | Reserved (not emitted by default) | FeedbackLoop, CurriculumFeedback        | Promotion rejected (below threshold) |
+| `PROMOTION_ROLLED_BACK` | ModelLifecycleCoordinator         | FeedbackLoop                            | Promotion rolled back                |
+| `MODEL_UPDATED`         | ModelRegistry                     | UnifiedDistributionDaemon               | Sync model metadata to nodes         |
 
 ---
 

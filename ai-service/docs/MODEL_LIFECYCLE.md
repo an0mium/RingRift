@@ -14,11 +14,12 @@ Training → Evaluation → Promotion → Deployment → Monitoring → Archival
 
 Models are trained on data from canonical selfplay databases.
 
-**Location**: `data/games/canonical_*.db`
+**Location**: canonical DBs are typically under `data/games/` or `data/selfplay/`
+(use `GameDiscovery` or `TRAINING_DATA_REGISTRY.md` for the current sources).
 
 **Required volume**: 200+ games per board/player configuration
 
-**Current status** (Dec 2025):
+**Current status** (Dec 2025 snapshot; refresh from `TRAINING_DATA_REGISTRY.md`):
 | Config | Games | Status |
 |--------|-------|--------|
 | square8_2p | 1,152 | ✅ Ready |

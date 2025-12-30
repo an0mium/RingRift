@@ -519,3 +519,245 @@ class TestPipelineControllerIntegration:
             # Validation results should be empty since we haven't validated
             cached = controller.get_validation_results()
             assert len(cached) == 0
+
+
+class TestNPZHeaderValidation:
+    """Tests for NPZHeaderValidation dataclass."""
+
+    def test_valid_result_summary(self):
+        """Valid result should produce success summary."""
+        from app.training.data_validation import NPZHeaderValidation
+
+        result = NPZHeaderValidation(
+            valid=True,
+            file_path="/path/to/file.npz",
+            file_size_bytes=1024,
+            array_info={
+                "features": {"shape": "(100, 8, 8, 5)"},
+                "values": {"shape": "(100,)"},
+            },
+        )
+
+        summary = result.summary()
+        assert "Valid NPZ" in summary
+        assert "1,024 bytes" in summary
+        assert "features=(100, 8, 8, 5)" in summary
+        assert "values=(100,)" in summary
+
+    def test_invalid_result_summary(self):
+        """Invalid result should show error message."""
+        from app.training.data_validation import NPZHeaderValidation
+
+        result = NPZHeaderValidation(
+            valid=False,
+            file_path="/path/to/corrupt.npz",
+            error="File is corrupted",
+        )
+
+        summary = result.summary()
+        assert "Invalid NPZ" in summary
+        assert "File is corrupted" in summary
+
+    def test_default_values(self):
+        """Should have sensible defaults."""
+        from app.training.data_validation import NPZHeaderValidation
+
+        result = NPZHeaderValidation(valid=False, file_path="/test.npz")
+
+        assert result.file_size_bytes == 0
+        assert result.error is None
+        assert result.array_info == {}
+
+
+class TestValidateNPZHeader:
+    """Tests for validate_npz_header function."""
+
+    def test_valid_npz_file(self):
+        """Should validate a properly formatted NPZ file."""
+        from app.training.data_validation import validate_npz_header
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "valid.npz"
+            np.savez_compressed(
+                path,
+                features=np.random.randn(100, 8, 8, 5).astype(np.float32),
+                values=np.random.uniform(-1, 1, 100).astype(np.float32),
+            )
+
+            result = validate_npz_header(path)
+
+            assert result.valid is True
+            assert result.error is None
+            assert result.file_size_bytes > 0
+            assert "features" in result.array_info
+            assert "values" in result.array_info
+
+    def test_missing_file(self):
+        """Should return invalid for non-existent file."""
+        from app.training.data_validation import validate_npz_header
+
+        result = validate_npz_header("/nonexistent/path/file.npz")
+
+        assert result.valid is False
+        assert "does not exist" in result.error
+
+    def test_empty_file(self):
+        """Should return invalid for empty file."""
+        from app.training.data_validation import validate_npz_header
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "empty.npz"
+            path.touch()  # Create empty file
+
+            result = validate_npz_header(path)
+
+            assert result.valid is False
+            assert "empty" in result.error.lower()
+
+    def test_not_a_zip_file(self):
+        """Should return invalid for non-ZIP file."""
+        from app.training.data_validation import validate_npz_header
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "not_zip.npz"
+            path.write_bytes(b"this is not a zip file content")
+
+            result = validate_npz_header(path)
+
+            assert result.valid is False
+            assert "ZIP" in result.error
+
+    def test_missing_required_arrays(self):
+        """Should return invalid when required arrays are missing."""
+        from app.training.data_validation import validate_npz_header
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "missing_arrays.npz"
+            np.savez_compressed(
+                path,
+                features=np.random.randn(10, 8, 8, 5).astype(np.float32),
+            )
+
+            result = validate_npz_header(
+                path,
+                required_arrays=["features", "values", "policy"],
+            )
+
+            assert result.valid is False
+            assert "Missing required arrays" in result.error
+            assert "values" in result.error or "policy" in result.error
+
+    def test_array_size_limit(self):
+        """Should return invalid when array exceeds size limit."""
+        from app.training.data_validation import validate_npz_header
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "large_array.npz"
+            # Create a modestly sized array
+            np.savez_compressed(
+                path,
+                values=np.random.randn(1000).astype(np.float32),
+            )
+
+            # Use a very small limit to trigger the check
+            result = validate_npz_header(path, max_array_size_bytes=100)
+
+            assert result.valid is False
+            assert "exceeds" in result.error
+
+    def test_array_info_populated(self):
+        """Should populate array metadata."""
+        from app.training.data_validation import validate_npz_header
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "with_info.npz"
+            np.savez_compressed(
+                path,
+                data=np.random.randn(50, 10).astype(np.float32),
+            )
+
+            result = validate_npz_header(path)
+
+            assert result.valid is True
+            assert "data" in result.array_info
+            assert "compressed_size" in result.array_info["data"]
+            assert "uncompressed_size" in result.array_info["data"]
+            assert "numpy_version" in result.array_info["data"]
+
+    def test_corrupted_zip(self):
+        """Should handle corrupted ZIP archives."""
+        from app.training.data_validation import validate_npz_header
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "corrupt.npz"
+            # Create a file that looks like a ZIP but has corrupted internals
+            # ZIP files start with PK (0x50 0x4B) but have invalid structure
+            path.write_bytes(b"PK\x03\x04" + b"\x00" * 100 + b"CORRUPTED_CENTRAL_DIR")
+
+            result = validate_npz_header(path)
+
+            # Should fail at some validation step
+            assert result.valid is False
+
+
+class TestIsNPZValid:
+    """Tests for is_npz_valid helper function."""
+
+    def test_returns_true_for_valid_file(self):
+        """Should return True for valid NPZ file."""
+        from app.training.data_validation import is_npz_valid
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "valid.npz"
+            np.savez_compressed(
+                path,
+                data=np.random.randn(10).astype(np.float32),
+            )
+
+            assert is_npz_valid(path) is True
+
+    def test_returns_false_for_invalid_file(self):
+        """Should return False for invalid file."""
+        from app.training.data_validation import is_npz_valid
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "invalid.npz"
+            path.write_bytes(b"not a valid npz")
+
+            assert is_npz_valid(path) is False
+
+    def test_returns_false_for_missing_file(self):
+        """Should return False for non-existent file."""
+        from app.training.data_validation import is_npz_valid
+
+        assert is_npz_valid("/nonexistent/file.npz") is False
+
+    def test_logs_errors_when_enabled(self, caplog):
+        """Should log warnings when log_errors=True."""
+        from app.training.data_validation import is_npz_valid
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "invalid.npz"
+            path.write_bytes(b"invalid content")
+
+            with caplog.at_level(logging.WARNING):
+                is_npz_valid(path, log_errors=True)
+
+            # Should have logged a warning
+            assert any("NPZ validation failed" in r.message for r in caplog.records)
+
+    def test_no_log_when_disabled(self, caplog):
+        """Should not log when log_errors=False."""
+        from app.training.data_validation import is_npz_valid
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "invalid.npz"
+            path.write_bytes(b"invalid content")
+
+            with caplog.at_level(logging.WARNING):
+                is_npz_valid(path, log_errors=False)
+
+            # Should NOT have logged about NPZ validation
+            assert not any("NPZ validation failed" in r.message for r in caplog.records)

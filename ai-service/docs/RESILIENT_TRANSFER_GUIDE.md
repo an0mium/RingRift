@@ -216,6 +216,8 @@ The AutoSyncDaemon broadcast strategy (`auto_sync_daemon.py` + `sync_push_mixin.
 from app.coordination.auto_sync_daemon import get_cluster_data_sync_daemon
 
 # Broadcast strategy daemon exposes get_bandwidth_for_node()
+# Note: get_cluster_data_sync_daemon() is deprecated; it returns AutoSyncDaemon
+# with strategy="broadcast".
 daemon = get_cluster_data_sync_daemon()
 bandwidth = daemon.get_bandwidth_for_node("nebius-h100-1", provider="nebius")  # 50000 for Nebius
 ```
