@@ -60,10 +60,10 @@ These daemons form the foundation of the cluster coordination system.
 
 **Factory Methods:**
 
-- `_create_event_router()` → Uses `event_router.get_router()`
-- `_create_cross_process_poller()` → Creates `CrossProcessEventPoller`
-- `_create_daemon_watchdog()` → Uses `daemon_watchdog.start_watchdog()`
-- `_create_dlq_retry()` → Creates `DLQRetryDaemon`
+- `create_event_router()` → Uses `event_router.get_router()`
+- `create_cross_process_poller()` → Creates `CrossProcessEventPoller`
+- `create_daemon_watchdog()` → Uses `daemon_watchdog.start_watchdog()`
+- `create_dlq_retry()` → Creates `DLQRetryDaemon`
 
 ---
 
@@ -329,19 +329,23 @@ Automated pipeline stage triggering.
 
 System-level maintenance and monitoring.
 
-| Daemon Type             | Priority | Description                                           | Dependencies                      |
-| ----------------------- | -------- | ----------------------------------------------------- | --------------------------------- |
-| `MAINTENANCE`           | LOW      | Log rotation, database vacuum, cleanup tasks.         | None                              |
-| `METRICS_ANALYSIS`      | MEDIUM   | Continuous metrics monitoring and plateau detection.  | EVENT_ROUTER                      |
-| `CACHE_COORDINATION`    | MEDIUM   | Coordinates model caching across the cluster.         | EVENT_ROUTER, CLUSTER_MONITOR     |
-| `RECOVERY_ORCHESTRATOR` | HIGH     | Handles model/training state recovery after failures. | EVENT_ROUTER, NODE_HEALTH_MONITOR |
+| Daemon Type                    | Priority | Description                                             | Dependencies                            |
+| ------------------------------ | -------- | ------------------------------------------------------- | --------------------------------------- |
+| `MAINTENANCE`                  | LOW      | Log rotation, database vacuum, cleanup tasks.           | EVENT_ROUTER                            |
+| `METRICS_ANALYSIS`             | MEDIUM   | Continuous metrics monitoring and plateau detection.    | EVENT_ROUTER                            |
+| `CACHE_COORDINATION`           | MEDIUM   | Coordinates model caching across the cluster.           | EVENT_ROUTER, CLUSTER_MONITOR           |
+| `RECOVERY_ORCHESTRATOR`        | HIGH     | Handles model/training state recovery after failures.   | EVENT_ROUTER, NODE_HEALTH_MONITOR       |
+| `AVAILABILITY_RECOVERY_ENGINE` | MEDIUM   | Escalating recovery strategies for availability issues. | EVENT_ROUTER, AVAILABILITY_NODE_MONITOR |
+| `CONNECTIVITY_RECOVERY`        | MEDIUM   | Unified event-driven connectivity recovery coordinator. | EVENT_ROUTER, TAILSCALE_HEALTH          |
 
 **Factory Methods:**
 
-- `_create_maintenance()` → Creates `MaintenanceDaemon`
-- `_create_metrics_analysis()` → Creates `MetricsAnalysisDaemon` (not implemented yet)
-- `_create_cache_coordination()` → Creates `CacheCoordinationDaemon` (not implemented yet)
-- `_create_recovery_orchestrator()` → Creates `RecoveryOrchestrator` (not implemented yet)
+- `create_maintenance()` → Creates `MaintenanceDaemon`
+- `create_metrics_analysis()` → Creates `MetricsAnalysisDaemon` (not implemented yet)
+- `create_cache_coordination()` → Creates `CacheCoordinationDaemon` (not implemented yet)
+- `create_recovery_orchestrator()` → Creates `RecoveryOrchestrator` (not implemented yet)
+- `create_availability_recovery_engine()` → Creates `RecoveryEngine`
+- `create_connectivity_recovery()` → Creates `ConnectivityRecoveryCoordinator`
 
 ---
 
@@ -349,15 +353,15 @@ System-level maintenance and monitoring.
 
 Cloud provider cost management.
 
-| Daemon Type   | Priority | Description                                                                                                              | Dependencies                  |
-| ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
-| `LAMBDA_IDLE` | LOW      | Auto-terminates idle Lambda nodes to save costs. (NOTE: Lambda account terminated; code kept for historical restoration) | EVENT_ROUTER, CLUSTER_MONITOR |
-| `VAST_IDLE`   | MEDIUM   | Auto-terminates idle Vast.ai nodes to save costs. Important for ephemeral marketplace instances.                         | EVENT_ROUTER, CLUSTER_MONITOR |
+| Daemon Type   | Priority   | Description                                                                        | Dependencies                  |
+| ------------- | ---------- | ---------------------------------------------------------------------------------- | ----------------------------- |
+| `LAMBDA_IDLE` | DEPRECATED | Lambda idle shutdown (legacy). Dedicated GH200 nodes no longer need idle shutdown. | EVENT_ROUTER, CLUSTER_MONITOR |
+| `VAST_IDLE`   | DEPRECATED | Vast idle shutdown (legacy). Use unified_idle_shutdown_daemon.                     | EVENT_ROUTER, CLUSTER_MONITOR |
 
 **Factory Methods:**
 
-- `_create_lambda_idle()` → Creates `LambdaIdleDaemon`
-- `_create_vast_idle()` → Creates `VastIdleDaemon`
+- `create_lambda_idle()` → Creates `LambdaIdleDaemon` (deprecated)
+- `create_vast_idle()` → Creates `VastIdleDaemon` (deprecated)
 
 ---
 
@@ -372,8 +376,8 @@ Training feedback and curriculum learning.
 
 **Factory Methods:**
 
-- `_create_feedback_loop()` → Creates `FeedbackLoopController`
-- `_create_curriculum_integration()` → Creates `CurriculumIntegrationDaemon`
+- `create_feedback_loop()` → Creates `FeedbackLoopController`
+- `create_curriculum_integration()` → Creates `CurriculumIntegrationDaemon`
 
 ---
 
@@ -381,10 +385,10 @@ Training feedback and curriculum learning.
 
 Disk space monitoring and cleanup for coordinator nodes.
 
-| Daemon Type                | Priority | Description                                                                                    | Dependencies       |
-| -------------------------- | -------- | ---------------------------------------------------------------------------------------------- | ------------------ |
-| `DISK_SPACE_MANAGER`       | MEDIUM   | Proactive disk space monitoring. Cleanup at 60% usage (before 70% threshold).                  | EVENT_ROUTER       |
-| `COORDINATOR_DISK_MANAGER` | HIGH     | Specialized disk manager for coordinator nodes. Auto-syncs to external storage before cleanup. | DISK_SPACE_MANAGER |
+| Daemon Type                | Priority | Description                                                                                    | Dependencies                     |
+| -------------------------- | -------- | ---------------------------------------------------------------------------------------------- | -------------------------------- |
+| `DISK_SPACE_MANAGER`       | MEDIUM   | Proactive disk space monitoring. Cleanup at 60% usage (before 70% threshold).                  | EVENT_ROUTER                     |
+| `COORDINATOR_DISK_MANAGER` | HIGH     | Specialized disk manager for coordinator nodes. Auto-syncs to external storage before cleanup. | EVENT_ROUTER, DISK_SPACE_MANAGER |
 
 **COORDINATOR_DISK_MANAGER Details:**
 

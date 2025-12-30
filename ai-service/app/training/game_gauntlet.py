@@ -1447,6 +1447,7 @@ def run_baseline_gauntlet(
     recording_config: Any | None = None,
     save_games_for_training: bool = True,
     confidence_weighted_games: bool = False,
+    harness_type: str = "",  # Dec 29: Harness type for unified evaluation
 ) -> GauntletResult:
     """Run a gauntlet evaluation against baseline opponents.
 
@@ -1480,9 +1481,12 @@ def run_baseline_gauntlet(
         confidence_weighted_games: Whether to adjust games based on model confidence (default: False).
             December 2025: New models (low games played) get up to 2x more evaluation games
             for better rating accuracy. Established models get the base game count.
+        harness_type: AI harness type for unified evaluation (e.g., "gumbel_mcts", "minimax").
+            December 2025: Enables tracking of model performance under different harnesses.
+            Sets harness metadata on result for Elo composite participant IDs.
 
     Returns:
-        GauntletResult with aggregated statistics
+        GauntletResult with aggregated statistics and harness metadata
     """
     if model_path is None and model_getter is None:
         raise ValueError("Must provide either model_path or model_getter")
@@ -1518,6 +1522,28 @@ def run_baseline_gauntlet(
         ]
 
     result = GauntletResult()
+
+    # Dec 29: Set harness metadata on result
+    result.harness_type = harness_type
+    if harness_type and model_path:
+        # Generate composite model ID for Elo tracking
+        path_stem = Path(model_path).stem.replace("canonical_", "ringrift_")
+        result.model_id = f"{path_stem}:{harness_type}" if harness_type else path_stem
+        # Generate config hash if harness abstraction available
+        try:
+            from app.ai.harness import HarnessType as HT, create_harness
+            from app.models import BoardType as BT
+            if board_type:
+                harness = create_harness(
+                    harness_type=HT(harness_type),
+                    model_path=model_path,
+                    board_type=board_type if isinstance(board_type, BT) else BT(board_type),
+                    num_players=num_players,
+                )
+                result.harness_config_hash = harness.config.get_config_hash()
+        except (ImportError, ValueError, KeyError):
+            # Harness abstraction not available, use empty hash
+            result.harness_config_hash = ""
 
     # Evaluate opponents (parallel or sequential)
     # Phase 5: Parallel evaluation for ~2x speedup with multiple opponents
