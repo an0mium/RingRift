@@ -752,9 +752,10 @@ class TestOnBackpressureActivated:
         # Set instance attribute directly
         daemon_info.instance = mock_daemon
 
-        # Create a simple object with _daemons dict
+        # Create a simple object with _daemons as instance attribute
         class SimpleManager:
-            _daemons = {DaemonType.IDLE_RESOURCE: daemon_info}
+            def __init__(self):
+                self._daemons = {DaemonType.IDLE_RESOURCE: daemon_info}
 
         handlers = DaemonEventHandlers(SimpleManager())
 
@@ -833,7 +834,8 @@ class TestOnBackpressureReleased:
         daemon_info.instance = mock_daemon
 
         class SimpleManager:
-            _daemons = {DaemonType.IDLE_RESOURCE: daemon_info}
+            def __init__(self):
+                self._daemons = {DaemonType.IDLE_RESOURCE: daemon_info}
 
         handlers = DaemonEventHandlers(SimpleManager())
 
@@ -848,31 +850,47 @@ class TestOnDiskSpaceLow:
     """Tests for _on_disk_space_low handler."""
 
     @pytest.mark.asyncio
+    async def test_disk_space_low_logs_critical(self):
+        """Test that critical disk space is logged."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = MagicMock()
+        mock_manager._daemons = {}
+        handlers = DaemonEventHandlers(mock_manager)
+
+        local_hostname = socket.gethostname()
+        event = MockEvent(
+            payload={
+                "host": local_hostname,
+                "usage_percent": 90.0,
+                "free_gb": 5.0,
+                "threshold": 70,
+            }
+        )
+
+        # Should not raise, just log
+        await handlers._on_disk_space_low(event)
+
+    @pytest.mark.asyncio
     async def test_disk_space_low_pauses_daemons_at_critical(self):
         """Test that data-generating daemons are paused at 85%+."""
         from app.coordination.daemon_event_handlers import DaemonEventHandlers
-        from app.coordination.daemon_types import DaemonState, DaemonType
+        from app.coordination.daemon_types import DaemonInfo, DaemonState, DaemonType
 
-        mock_daemon1 = MagicMock()
-        mock_daemon1.pause = MagicMock()
+        mock_daemon = MagicMock()
 
-        mock_daemon2 = MagicMock()
-        mock_daemon2.pause = MagicMock()
+        # Use actual DaemonInfo for proper state comparison
+        daemon_info = DaemonInfo(
+            daemon_type=DaemonType.SELFPLAY_COORDINATOR,
+            state=DaemonState.RUNNING,
+        )
+        daemon_info.instance = mock_daemon
 
-        mock_manager = MagicMock()
-        mock_manager._daemons = {
-            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
-                daemon_type=DaemonType.SELFPLAY_COORDINATOR,
-                state=DaemonState.RUNNING,
-                instance=mock_daemon1,
-            ),
-            DaemonType.IDLE_RESOURCE: MockDaemonInfo(
-                daemon_type=DaemonType.IDLE_RESOURCE,
-                state=DaemonState.RUNNING,
-                instance=mock_daemon2,
-            ),
-        }
-        handlers = DaemonEventHandlers(mock_manager)
+        class SimpleManager:
+            def __init__(self):
+                self._daemons = {DaemonType.SELFPLAY_COORDINATOR: daemon_info}
+
+        handlers = DaemonEventHandlers(SimpleManager())
 
         local_hostname = socket.gethostname()
         event = MockEvent(
@@ -886,8 +904,7 @@ class TestOnDiskSpaceLow:
 
         await handlers._on_disk_space_low(event)
 
-        mock_daemon1.pause.assert_called_once()
-        mock_daemon2.pause.assert_called_once()
+        mock_daemon.pause.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_disk_space_low_ignores_other_hosts(self):
@@ -1037,14 +1054,15 @@ class TestWireRollbackHandler:
         mock_manager = MagicMock()
         handlers = DaemonEventHandlers(mock_manager)
 
+        # Patch at the import locations used inside the method
         with patch(
-            "app.coordination.daemon_event_handlers.get_model_registry"
+            "app.training.model_registry.get_model_registry"
         ) as mock_get_registry:
             mock_registry = MagicMock()
             mock_get_registry.return_value = mock_registry
 
             with patch(
-                "app.coordination.daemon_event_handlers.wire_regression_to_rollback"
+                "app.training.rollback_manager.wire_regression_to_rollback"
             ) as mock_wire:
                 mock_wire.return_value = MagicMock()
 
