@@ -1031,7 +1031,7 @@ Automated verification confirmed the following architecture is properly configur
 
 | Metric                         | Value | Status          |
 | ------------------------------ | ----- | --------------- |
-| Total DaemonType values        | 89    | ✓ All accounted |
+| Total DaemonType values        | 95    | ✓ All accounted |
 | Runners in `daemon_runners.py` | 89    | ✓ Complete      |
 | Inline runners                 | 0     | ✓ None          |
 | Missing runners                | 0     | ✓ None          |

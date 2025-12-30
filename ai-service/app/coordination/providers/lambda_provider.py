@@ -150,9 +150,29 @@ class LambdaProvider(CloudProvider):
         endpoint: str,
         json: dict | None = None,
     ) -> dict[str, Any]:
-        """Make an authenticated API request."""
+        """Make an authenticated API request with circuit breaker protection.
+
+        December 30, 2025: Added circuit breaker to prevent cascading failures
+        when Lambda Labs API is experiencing issues.
+
+        Raises:
+            ValueError: If API key not configured
+            CircuitOpenError: If circuit is open due to recent failures
+        """
         if not self.config.api_key:
             raise ValueError("Lambda API key not configured")
+
+        breaker = get_lambda_circuit_breaker()
+        target = "lambda_api"
+
+        # Check circuit state before attempting call
+        if not breaker.can_execute(target):
+            state = breaker.get_status(target)
+            logger.warning(
+                f"Lambda Labs circuit breaker is {state.state.value}, "
+                f"skipping API call (failures={state.failure_count})"
+            )
+            raise CircuitOpenError(f"Lambda Labs API circuit is {state.state.value}")
 
         url = f"{self.config.api_base}{endpoint}"
         headers = {
@@ -173,11 +193,24 @@ class LambdaProvider(CloudProvider):
 
                 if resp.status >= 400:
                     error_msg = data.get("error", {}).get("message", str(data))
+                    # Record failure for API errors
+                    breaker.record_failure(target)
                     raise Exception(f"Lambda API error ({resp.status}): {error_msg}")
 
+                # Success - record it
+                breaker.record_success(target)
                 return data
 
+        except asyncio.TimeoutError as e:
+            logger.warning(f"Lambda API timeout: {e}")
+            breaker.record_failure(target)
+            raise
+        except (ConnectionError, OSError) as e:
+            logger.warning(f"Lambda API connection error: {e}")
+            breaker.record_failure(target)
+            raise
         except aiohttp.ClientError as e:
+            breaker.record_failure(target)
             raise Exception(f"Lambda API request failed: {e}")
 
     def _parse_instance_status(self, status: str) -> InstanceStatus:
@@ -445,6 +478,56 @@ class LambdaProvider(CloudProvider):
         """Close the HTTP session."""
         if self._session and not self._session.closed:
             await self._session.close()
+
+    def health_check(self) -> "HealthCheckResult":
+        """Check provider health for CoordinatorProtocol compliance.
+
+        December 30, 2025: Added for daemon health monitoring integration.
+        """
+        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+
+        configured = self.is_configured()
+
+        # Get circuit breaker status
+        breaker = get_lambda_circuit_breaker()
+        circuit_status = breaker.get_status("lambda_api")
+        circuit_state = circuit_status.state
+
+        if not configured:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message="LambdaProvider: API key not configured",
+                details={
+                    "configured": False,
+                    "circuit_state": circuit_state.value,
+                },
+            )
+
+        # Check if circuit breaker is open
+        if circuit_state == CircuitState.OPEN:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"LambdaProvider: API circuit open (failures={circuit_status.failure_count})",
+                details={
+                    "configured": True,
+                    "circuit_state": circuit_state.value,
+                    "circuit_failures": circuit_status.failure_count,
+                    "circuit_opened_at": circuit_status.opened_at,
+                },
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message="LambdaProvider: API configured and operational",
+            details={
+                "configured": True,
+                "circuit_state": circuit_state.value,
+                "circuit_failures": circuit_status.failure_count,
+            },
+        )
 
 
 # Singleton instance
