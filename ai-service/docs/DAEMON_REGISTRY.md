@@ -995,17 +995,21 @@ class MyHandler(HandlerBase):
 
 ## Deprecation Notices
 
-### SYNC_COORDINATOR (Q2 2026)
+### Deprecated Daemons (Q2 2026 Removal)
 
-**Replacement:** `AUTO_SYNC`
-**Status:** Deprecated December 2025, removal Q2 2026
-**Migration:** Replace all references to `DaemonType.SYNC_COORDINATOR` with `DaemonType.AUTO_SYNC`
-
-### HEALTH_CHECK (Q2 2026)
-
-**Replacement:** `NODE_HEALTH_MONITOR`
-**Status:** Deprecated December 2025, removal Q2 2026
-**Migration:** Replace all references to `DaemonType.HEALTH_CHECK` with `DaemonType.NODE_HEALTH_MONITOR`
+| Daemon Type             | Replacement / Guidance                                             | Notes               |
+| ----------------------- | ------------------------------------------------------------------ | ------------------- |
+| `SYNC_COORDINATOR`      | Use `AUTO_SYNC`.                                                   | Deprecated Dec 2025 |
+| `EPHEMERAL_SYNC`        | Use AutoSyncDaemon(strategy="ephemeral").                          | Deprecated Dec 2025 |
+| `CLUSTER_DATA_SYNC`     | Use AutoSyncDaemon(strategy="broadcast").                          | Deprecated Dec 2025 |
+| `HEALTH_CHECK`          | Use `NODE_HEALTH_MONITOR` (or unified health orchestrator).        | Deprecated Dec 2025 |
+| `NODE_HEALTH_MONITOR`   | Use `health_check_orchestrator.py`.                                | Deprecated Dec 2025 |
+| `SYSTEM_HEALTH_MONITOR` | Use `unified_health_manager.py`.                                   | Deprecated Dec 2025 |
+| `NPZ_DISTRIBUTION`      | Use `unified_distribution_daemon.py` with `DataType.NPZ`.          | Deprecated Dec 2025 |
+| `REPLICATION_MONITOR`   | Use `unified_replication_daemon.py`.                               | Deprecated Dec 2025 |
+| `REPLICATION_REPAIR`    | Use `unified_replication_daemon.py`.                               | Deprecated Dec 2025 |
+| `LAMBDA_IDLE`           | Dedicated GH200 nodes no longer need idle shutdown.                | Deprecated Dec 2025 |
+| `VAST_IDLE`             | Use unified idle shutdown daemon (`unified_idle_shutdown_daemon`). | Deprecated Dec 2025 |
 
 ---
 
@@ -1015,19 +1019,19 @@ Automated verification confirmed the following architecture is properly configur
 
 ### Daemon Coverage
 
-| Metric                         | Value | Status                |
-| ------------------------------ | ----- | --------------------- |
-| Total DaemonType values        | 66    | ✓ All accounted       |
-| Runners in `daemon_runners.py` | 65    | ✓ Complete            |
-| Inline runners (HEALTH_SERVER) | 1     | ✓ Needs `self` access |
-| Missing runners                | 0     | ✓ None                |
+| Metric                         | Value | Status          |
+| ------------------------------ | ----- | --------------- |
+| Total DaemonType values        | 85    | ✓ All accounted |
+| Runners in `daemon_runners.py` | 85    | ✓ Complete      |
+| Inline runners                 | 0     | ✓ None          |
+| Missing runners                | 0     | ✓ None          |
 
 ### Startup Order
 
 | Metric                             | Value  | Notes                                  |
 | ---------------------------------- | ------ | -------------------------------------- |
-| Daemons in `DAEMON_STARTUP_ORDER`  | 18     | Critical path daemons                  |
-| Daemons with `DAEMON_DEPENDENCIES` | 66     | All have deps defined                  |
+| Daemons in `DAEMON_STARTUP_ORDER`  | 21     | Critical path daemons                  |
+| Daemons with `DAEMON_DEPENDENCIES` | 79     | Legacy dependency map                  |
 | Order/Dependency consistency       | Passes | `validate_startup_order_consistency()` |
 
 ### P2P Event Subscriptions
