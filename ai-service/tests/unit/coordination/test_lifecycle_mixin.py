@@ -581,9 +581,13 @@ class TestLifecycleMixinEdgeCases:
             async def _on_cycle(self) -> None:
                 pass
 
+            async def _run_loop(self) -> None:
+                """Enable the default loop."""
+                await self._default_loop()
+
         component = MetricsComponent(name="metrics", cycle_interval=0.05)
         await component.start()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.25)
         await component.stop()
 
         assert component._cycle_count >= 2

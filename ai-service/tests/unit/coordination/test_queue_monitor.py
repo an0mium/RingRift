@@ -53,8 +53,11 @@ class TestBackpressureLevel:
         assert BackpressureLevel.STOP.value == "stop"
 
     def test_level_count(self):
-        """Should have exactly 4 levels."""
-        assert len(BackpressureLevel) == 4
+        """Should have exactly 8 levels (unified queue + resource levels)."""
+        # BackpressureLevel was expanded in Dec 2025 to support both
+        # queue-based (NONE, SOFT, HARD, STOP) and resource-based
+        # (NONE, LOW, MEDIUM, HIGH, CRITICAL) levels
+        assert len(BackpressureLevel) == 8
 
 
 class TestQueueStatus:
