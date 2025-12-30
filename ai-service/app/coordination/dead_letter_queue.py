@@ -308,18 +308,22 @@ class DeadLetterQueue:
         Returns:
             True if retry succeeded
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            row = conn.execute(
-                "SELECT * FROM dead_letter WHERE event_id = ?",
-                (event_id,),
-            ).fetchone()
+        def _fetch_event() -> dict[str, Any] | None:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    "SELECT * FROM dead_letter WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                return dict(row) if row else None
 
-        if not row:
+        row_dict = await asyncio.to_thread(_fetch_event)
+
+        if not row_dict:
             logger.warning(f"[DLQ] Event {event_id} not found")
             return False
 
-        event = FailedEvent.from_dict(dict(row))
+        event = FailedEvent.from_dict(row_dict)
 
         # Check if handlers registered
         handlers = self._handlers.get(event.event_type, [])
@@ -338,44 +342,54 @@ class DeadLetterQueue:
                 logger.warning(f"[DLQ] Retry failed for {event_id}: {e}")
 
         now = datetime.now().isoformat()
+        new_count = event.retry_count + 1
 
-        with sqlite3.connect(self.db_path) as conn:
-            if success:
-                conn.execute(
-                    """
-                    UPDATE dead_letter
-                    SET status = 'recovered', last_retry_at = ?
-                    WHERE event_id = ?
-                    """,
-                    (now, event_id),
-                )
-                self._events_recovered += 1
-                logger.info(f"[DLQ] Event {event_id} recovered successfully")
-            else:
-                new_count = event.retry_count + 1
-                if new_count >= self.max_retries:
+        def _update_event_status() -> str:
+            """Update event status in database. Returns: 'recovered', 'abandoned', or 'retrying'."""
+            with sqlite3.connect(self.db_path) as conn:
+                if success:
                     conn.execute(
                         """
                         UPDATE dead_letter
-                        SET status = 'abandoned', retry_count = ?, last_retry_at = ?
+                        SET status = 'recovered', last_retry_at = ?
                         WHERE event_id = ?
                         """,
-                        (new_count, now, event_id),
+                        (now, event_id),
                     )
-                    self._events_abandoned += 1
-                    logger.error(
-                        f"[DLQ] Event {event_id} abandoned after {new_count} retries"
-                    )
+                    conn.commit()
+                    return "recovered"
                 else:
-                    conn.execute(
-                        """
-                        UPDATE dead_letter
-                        SET retry_count = ?, last_retry_at = ?
-                        WHERE event_id = ?
-                        """,
-                        (new_count, now, event_id),
-                    )
-            conn.commit()
+                    if new_count >= self.max_retries:
+                        conn.execute(
+                            """
+                            UPDATE dead_letter
+                            SET status = 'abandoned', retry_count = ?, last_retry_at = ?
+                            WHERE event_id = ?
+                            """,
+                            (new_count, now, event_id),
+                        )
+                        conn.commit()
+                        return "abandoned"
+                    else:
+                        conn.execute(
+                            """
+                            UPDATE dead_letter
+                            SET retry_count = ?, last_retry_at = ?
+                            WHERE event_id = ?
+                            """,
+                            (new_count, now, event_id),
+                        )
+                        conn.commit()
+                        return "retrying"
+
+        result_status = await asyncio.to_thread(_update_event_status)
+
+        if result_status == "recovered":
+            self._events_recovered += 1
+            logger.info(f"[DLQ] Event {event_id} recovered successfully")
+        elif result_status == "abandoned":
+            self._events_abandoned += 1
+            logger.error(f"[DLQ] Event {event_id} abandoned after {new_count} retries")
 
         self._events_retried += 1
         return success
@@ -708,19 +722,22 @@ class DLQRetryDaemon:
         self._metrics["cycles"] += 1
 
         # First, abandon events that have exceeded max_attempts
-        abandoned = self._abandon_exhausted_events()
+        # Wrap sync SQLite operations in asyncio.to_thread to avoid blocking event loop
+        abandoned = await asyncio.to_thread(self._abandon_exhausted_events)
         if abandoned > 0:
             self._metrics["total_abandoned"] += abandoned
             logger.info(f"[DLQRetryDaemon] Abandoned {abandoned} exhausted events")
 
         # Also abandon very old events (stale cleanup)
-        stale_abandoned = self._abandon_stale_events(max_age_hours=self.max_stale_hours)
+        stale_abandoned = await asyncio.to_thread(
+            self._abandon_stale_events, max_age_hours=self.max_stale_hours
+        )
         if stale_abandoned > 0:
             self._metrics["total_stale_abandoned"] += stale_abandoned
 
         # Check for stale events and emit alert if many are pending
         # December 29, 2025: Added DLQ_STALE_EVENTS emission
-        pending = self.dlq.get_pending_events(limit=100)
+        pending = await asyncio.to_thread(self.dlq.get_pending_events, limit=100)
         if len(pending) >= 50:
             event_types = list({e.event_type for e in pending})
             self._emit_stale_events(len(pending), event_types)
@@ -734,7 +751,9 @@ class DLQRetryDaemon:
         # December 29, 2025: Emit DLQ_EVENTS_REPLAYED when events are recovered
         if stats["recovered"] > 0:
             # Get event types that were just recovered for the event payload
-            recovered_types = self._get_recent_recovered_types(limit=stats["recovered"])
+            recovered_types = await asyncio.to_thread(
+                self._get_recent_recovered_types, limit=stats["recovered"]
+            )
             self._emit_replayed_events(stats["recovered"], recovered_types)
 
         if stats["recovered"] or stats["failed"]:

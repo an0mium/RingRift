@@ -96,8 +96,13 @@ class LeafRequest:
 
 
 @dataclass
-class GameResult:
-    """Result of a completed game."""
+class GumbelGameResult:
+    """Result of a completed multi-game Gumbel MCTS game.
+
+    December 2025: Renamed from GameResult to avoid collision with
+    app.training.selfplay_runner.GameResult (canonical for selfplay) and
+    app.execution.game_executor.GameResult (canonical for execution).
+    """
     game_idx: int
     winner: int | None
     status: str
@@ -105,6 +110,10 @@ class GameResult:
     moves: list[dict]
     duration_ms: float
     initial_state: dict | None = None  # Serialized initial state for training
+
+
+# Backward-compat alias (deprecated Dec 2025)
+GameResult = GumbelGameResult
 
 
 class MultiGameGumbelRunner:

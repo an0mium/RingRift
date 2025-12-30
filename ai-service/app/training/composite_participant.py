@@ -553,12 +553,15 @@ def extract_ai_type(participant_id: str) -> str:
         return "mcts"
 
 
-# Baseline participant IDs (pinned ratings)
+# Baseline participant IDs
+# NOTE: Only Random is PINNED at 400 Elo (see elo_service.py:815-822).
+# Other baselines have dynamic Elo that changes based on game results.
+# The values below are EXPECTED approximate Elo, not enforced ratings.
 BASELINE_PARTICIPANTS = {
-    "none:random:d1": 400.0,         # Random baseline - PINNED
-    "none:heuristic:d2": 1000.0,     # Heuristic baseline
-    "none:heuristic:d3": 1200.0,     # Heuristic medium
-    "none:heuristic:d4": 1400.0,     # Heuristic hard
+    "none:random:d1": 400.0,         # PINNED at 400 (anchor point)
+    "none:heuristic:d2": 1000.0,     # Expected ~1000 (dynamic)
+    "none:heuristic:d3": 1200.0,     # Expected ~1200 (dynamic)
+    "none:heuristic:d4": 1400.0,     # Expected ~1400 (dynamic)
 }
 
 
@@ -568,13 +571,16 @@ def get_baseline_participant_ids() -> list[str]:
 
 
 def get_baseline_rating(participant_id: str) -> float | None:
-    """Get the pinned rating for a baseline participant.
+    """Get the expected rating for a baseline participant.
 
-    Returns None if not a pinned baseline.
+    Returns None if not a known baseline.
+
+    NOTE: Only Random (none:random:*) is actually pinned at 400 Elo.
+    Other baselines have dynamic Elo; these are just expected values.
     """
     return BASELINE_PARTICIPANTS.get(participant_id)
 
 
 def is_baseline_participant(participant_id: str) -> bool:
-    """Check if a participant ID is a pinned baseline."""
+    """Check if a participant ID is a known baseline."""
     return participant_id in BASELINE_PARTICIPANTS

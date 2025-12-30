@@ -69,14 +69,13 @@ class FeedbackSignal:
 
 
 @dataclass
-class FeedbackState:
-    """Persistent state for feedback system.
+class PipelineFeedbackState:
+    """Persistent state for feedback system (global, not per-config).
 
-    NOTE (December 28, 2025):
-    This class is distinct from per-config FeedbackState classes. It holds
-    global/persistent state for the entire feedback system, not per-config state.
-    Consider renaming to PipelineFeedbackState for clarity in Q1 2026.
+    December 2025: Renamed from FeedbackState to avoid collision with
+    app.coordination.feedback_state.CanonicalFeedbackState (per-config).
 
+    This class holds global/persistent state for the entire feedback system.
     For per-config feedback state, use:
         from app.coordination.feedback_state import CanonicalFeedbackState
     """
@@ -115,6 +114,10 @@ class FeedbackState:
     consecutive_promotion_failures: int = 0
     last_promotion_success: float = 0.0
     promotion_failure_configs: dict[str, int] = field(default_factory=dict)  # config -> failure count
+
+
+# Backward-compat alias (deprecated Dec 2025)
+FeedbackState = PipelineFeedbackState
 
 
 class EvaluationAnalyzer:

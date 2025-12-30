@@ -374,13 +374,22 @@ MIN_WIN_RATES = {
 
 
 @dataclass
-class GameResult:
-    """Result of a single game."""
+class GauntletGameResult:
+    """Result of a single gauntlet game.
+
+    December 2025: Renamed from GameResult to avoid collision with
+    app.training.selfplay_runner.GameResult (canonical for selfplay) and
+    app.execution.game_executor.GameResult (canonical for execution).
+    """
     winner: int | None  # Player number who won, or None for draw
     move_count: int
     victory_reason: str
     candidate_player: int  # Which player was the candidate
     candidate_won: bool
+
+
+# Backward-compat alias (deprecated Dec 2025)
+GameResult = GauntletGameResult
 
 
 @dataclass

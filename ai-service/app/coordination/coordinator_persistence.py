@@ -526,6 +526,41 @@ class StatePersistenceMixin(SQLitePersistenceMixin):
             logger.error(f"[{name}] Failed to save snapshot: {e}")
             raise
 
+    def _load_latest_snapshot_sync(self, name: str) -> StateSnapshot | None:
+        """Synchronous helper to load latest snapshot from database.
+
+        Args:
+            name: Coordinator name
+
+        Returns:
+            Latest snapshot or None if none exists
+        """
+        conn = self._get_connection()
+        row = conn.execute(
+            """
+            SELECT coordinator_name, timestamp, state_data, checksum, metadata
+            FROM coordinator_snapshots
+            WHERE coordinator_name = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """,
+            (name,),
+        ).fetchone()
+
+        if not row:
+            return None
+
+        state = StateSerializer.deserialize(row[2])
+        metadata = json.loads(row[4]) if row[4] else {}
+
+        return StateSnapshot(
+            coordinator_name=row[0],
+            timestamp=row[1],
+            state=state,
+            checksum=row[3],
+            metadata=metadata,
+        )
+
     async def load_latest_snapshot(self) -> StateSnapshot | None:
         """Load the most recent snapshot.
 
@@ -536,34 +571,9 @@ class StatePersistenceMixin(SQLitePersistenceMixin):
             return None
 
         name = getattr(self, "_name", self.__class__.__name__)
-        conn = self._get_connection()
 
         try:
-            row = conn.execute(
-                """
-                SELECT coordinator_name, timestamp, state_data, checksum, metadata
-                FROM coordinator_snapshots
-                WHERE coordinator_name = ?
-                ORDER BY timestamp DESC
-                LIMIT 1
-                """,
-                (name,),
-            ).fetchone()
-
-            if not row:
-                return None
-
-            state = StateSerializer.deserialize(row[2])
-            metadata = json.loads(row[4]) if row[4] else {}
-
-            return StateSnapshot(
-                coordinator_name=row[0],
-                timestamp=row[1],
-                state=state,
-                checksum=row[3],
-                metadata=metadata,
-            )
-
+            return await asyncio.to_thread(self._load_latest_snapshot_sync, name)
         except Exception as e:
             logger.error(f"[{name}] Failed to load snapshot: {e}")
             return None
@@ -839,6 +849,58 @@ class SnapshotCoordinator:
         """
         self._coordinators.pop(name, None)
 
+    def _snapshot_all_db_sync(
+        self,
+        timestamp: float,
+        description: str,
+        snapshots: dict[str, StateSnapshot],
+        system_checksum: str,
+        metadata: dict,
+    ) -> int | None:
+        """Synchronous helper to persist system snapshot to database.
+
+        Args:
+            timestamp: Snapshot timestamp
+            description: Snapshot description
+            snapshots: Dict of coordinator snapshots
+            system_checksum: Combined checksum
+            metadata: Additional metadata
+
+        Returns:
+            System snapshot ID or None if failed
+        """
+        conn = self._get_connection()
+        cursor = conn.execute(
+            """
+            INSERT INTO system_snapshots
+            (timestamp, description, coordinator_count, checksum, metadata)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                description,
+                len(snapshots),
+                system_checksum,
+                json.dumps(metadata),
+            ),
+        )
+        system_id = cursor.lastrowid
+
+        # Persist individual coordinator snapshots
+        for name, snapshot in snapshots.items():
+            serialized = StateSerializer.serialize(snapshot.state)
+            conn.execute(
+                """
+                INSERT INTO snapshot_members
+                (system_snapshot_id, coordinator_name, coordinator_snapshot_checksum, state_data)
+                VALUES (?, ?, ?, ?)
+                """,
+                (system_id, name, snapshot.checksum, serialized),
+            )
+
+        conn.commit()
+        return system_id
+
     async def snapshot_all(
         self,
         description: str = "",
@@ -880,38 +942,16 @@ class SnapshotCoordinator:
         combined = "".join(s.checksum for s in sorted(snapshots.values(), key=lambda x: x.coordinator_name))
         system_checksum = hashlib.sha256(combined.encode()).hexdigest()[:16]
 
-        # Persist system snapshot
-        conn = self._get_connection()
+        # Persist system snapshot via thread pool (non-blocking)
         try:
-            cursor = conn.execute(
-                """
-                INSERT INTO system_snapshots
-                (timestamp, description, coordinator_count, checksum, metadata)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp,
-                    description,
-                    len(snapshots),
-                    system_checksum,
-                    json.dumps(metadata),
-                ),
+            system_id = await asyncio.to_thread(
+                self._snapshot_all_db_sync,
+                timestamp,
+                description,
+                snapshots,
+                system_checksum,
+                metadata,
             )
-            system_id = cursor.lastrowid
-
-            # Persist individual coordinator snapshots
-            for name, snapshot in snapshots.items():
-                serialized = StateSerializer.serialize(snapshot.state)
-                conn.execute(
-                    """
-                    INSERT INTO snapshot_members
-                    (system_snapshot_id, coordinator_name, coordinator_snapshot_checksum, state_data)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (system_id, name, snapshot.checksum, serialized),
-                )
-
-            conn.commit()
 
             logger.info(
                 f"[SnapshotCoordinator] System snapshot created "
@@ -920,9 +960,43 @@ class SnapshotCoordinator:
             return system_id
 
         except Exception as e:
-            conn.rollback()
             logger.error(f"[SnapshotCoordinator] Failed to save system snapshot: {e}")
             return None
+
+    def _load_snapshot_members_sync(
+        self,
+        snapshot_id: int | None,
+    ) -> tuple[int | None, list[tuple]]:
+        """Synchronous helper to load snapshot members from database.
+
+        Args:
+            snapshot_id: Specific snapshot to load (latest if None)
+
+        Returns:
+            Tuple of (resolved_snapshot_id, list of member tuples)
+        """
+        conn = self._get_connection()
+
+        # Get snapshot ID if not specified
+        if snapshot_id is None:
+            row = conn.execute(
+                "SELECT id FROM system_snapshots ORDER BY timestamp DESC LIMIT 1"
+            ).fetchone()
+            if not row:
+                return None, []
+            snapshot_id = row[0]
+
+        # Load snapshot members
+        rows = conn.execute(
+            """
+            SELECT coordinator_name, coordinator_snapshot_checksum, state_data
+            FROM snapshot_members
+            WHERE system_snapshot_id = ?
+            """,
+            (snapshot_id,),
+        ).fetchall()
+
+        return snapshot_id, rows
 
     async def restore_all(
         self,
@@ -936,27 +1010,14 @@ class SnapshotCoordinator:
         Returns:
             Dict mapping coordinator names to restore success
         """
-        conn = self._get_connection()
+        # Load snapshot data via thread pool (non-blocking)
+        resolved_id, rows = await asyncio.to_thread(
+            self._load_snapshot_members_sync, snapshot_id
+        )
 
-        # Get snapshot ID if not specified
-        if snapshot_id is None:
-            row = conn.execute(
-                "SELECT id FROM system_snapshots ORDER BY timestamp DESC LIMIT 1"
-            ).fetchone()
-            if not row:
-                logger.warning("[SnapshotCoordinator] No system snapshots available")
-                return {}
-            snapshot_id = row[0]
-
-        # Load snapshot members
-        rows = conn.execute(
-            """
-            SELECT coordinator_name, coordinator_snapshot_checksum, state_data
-            FROM snapshot_members
-            WHERE system_snapshot_id = ?
-            """,
-            (snapshot_id,),
-        ).fetchall()
+        if resolved_id is None:
+            logger.warning("[SnapshotCoordinator] No system snapshots available")
+            return {}
 
         results: dict[str, bool] = {}
 

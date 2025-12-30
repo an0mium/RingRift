@@ -99,8 +99,13 @@ class GameTask:
 
 
 @dataclass
-class GameResult:
-    """Result of a single gauntlet game."""
+class DistributedGameResult:
+    """Result of a single distributed gauntlet game.
+
+    December 2025: Renamed from GameResult to avoid collision with
+    app.training.selfplay_runner.GameResult (canonical for selfplay) and
+    app.execution.game_executor.GameResult (canonical for execution).
+    """
 
     task_id: str
     model_id: str
@@ -110,6 +115,10 @@ class GameResult:
     draw: bool
     game_length: int
     duration_sec: float
+
+
+# Backward-compat alias (deprecated Dec 2025)
+GameResult = DistributedGameResult
 
 
 class DistributedNNGauntlet:
