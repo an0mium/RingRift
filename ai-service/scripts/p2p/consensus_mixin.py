@@ -479,6 +479,9 @@ class ConsensusMixin(P2PMixinBase):
     def _get_raft_partners(self) -> list[str]:
         """Get Raft partner addresses from voter nodes.
 
+        Dec 30, 2025: Fixed to use peer.host instead of peer.endpoint which
+        doesn't exist on NodeInfo dataclass.
+
         Returns:
             List of partner addresses in format "host:port"
         """
@@ -493,12 +496,57 @@ class ConsensusMixin(P2PMixinBase):
             with self.peers_lock:
                 peer = self.peers.get(voter_id)
 
-            if peer and hasattr(peer, "endpoint") and peer.endpoint:
-                # Extract host from endpoint, use Raft port
-                host = peer.endpoint.split(":")[0]
-                partners.append(f"{host}:{RAFT_BIND_PORT}")
+            if peer:
+                # Use host attribute from NodeInfo
+                # Prefer tailscale_ip for mesh connectivity if available
+                host = getattr(peer, "tailscale_ip", None) or getattr(peer, "host", None)
+                if host and host not in ("", "unknown"):
+                    partners.append(f"{host}:{RAFT_BIND_PORT}")
 
         return partners
+
+    def try_deferred_raft_init(self) -> bool:
+        """Attempt deferred Raft initialization after peers are discovered.
+
+        Dec 30, 2025: Added to enable Raft initialization after SWIM discovers
+        peer nodes. Should be called periodically from the SWIM membership loop.
+
+        Returns:
+            True if Raft is now initialized (or was already), False otherwise
+        """
+        # Already initialized
+        if getattr(self, "_raft_initialized", False):
+            return True
+
+        # Not enabled
+        if not RAFT_ENABLED:
+            return False
+
+        # pysyncobj not available
+        if not PYSYNCOBJ_AVAILABLE:
+            return False
+
+        # Check if we have enough partners now
+        partners = self._get_raft_partners()
+        if not partners:
+            # Still no partners - Raft needs at least 1 partner (2-node cluster minimum)
+            return False
+
+        # We have partners now - try to initialize
+        logger.info(
+            f"Deferred Raft init: found {len(partners)} partners, attempting initialization"
+        )
+
+        try:
+            success = self._init_raft_consensus()
+            if success:
+                logger.info(
+                    f"Deferred Raft initialization succeeded with partners: {partners}"
+                )
+            return success
+        except Exception as e:
+            logger.warning(f"Deferred Raft initialization failed: {e}")
+            return False
 
     def _should_use_raft(self) -> bool:
         """Check if Raft should be used for consensus operations.

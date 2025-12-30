@@ -8976,6 +8976,19 @@ class P2POrchestrator(
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"SWIM sync error: {e}")
 
+                # Dec 30, 2025: Try deferred Raft initialization after peers discovered
+                # Raft needs peer addresses which aren't available at startup
+                try:
+                    from scripts.p2p.constants import RAFT_ENABLED
+                    if (
+                        RAFT_ENABLED
+                        and not getattr(self, "_raft_initialized", False)
+                        and hasattr(self, "try_deferred_raft_init")
+                    ):
+                        self.try_deferred_raft_init()
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"Deferred Raft init attempt: {e}")
+
                 await asyncio.sleep(10)  # Sync every 10 seconds
 
         except asyncio.CancelledError:
