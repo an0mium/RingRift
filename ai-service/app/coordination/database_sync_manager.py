@@ -59,6 +59,33 @@ from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
+
+def _get_ssh_user_for_host(host: str) -> str:
+    """Look up SSH user for a target host from cluster config.
+
+    Args:
+        host: Target hostname or IP address
+
+    Returns:
+        SSH user from cluster config, or 'ubuntu' as default (most common).
+        Only returns 'root' if explicitly configured.
+    """
+    try:
+        from app.config.cluster_config import get_cluster_nodes
+
+        for node in get_cluster_nodes():
+            # Match by Tailscale IP, SSH host, or name
+            if host in (node.tailscale_ip, node.ssh_host, node.name):
+                return node.ssh_user
+
+        # Not found in cluster config - default to 'ubuntu' (most common)
+        # Lambda, Nebius, RunPod all use ubuntu
+        return "ubuntu"
+    except Exception:
+        # Fallback if cluster config unavailable
+        return "ubuntu"
+
+
 # Retry configuration for network operations
 # December 30, 2025: Migrated to centralized RetryConfig for consistency
 # HTTP sync retry configuration
@@ -453,7 +480,7 @@ class DatabaseSyncManager(SyncManagerBase):
                                 delay = attempt.delay
                                 logger.warning(
                                     f"[{self.db_type}] HTTP {resp.status} from {node.name}, "
-                                    f"retry {attempt.attempt}/{HTTP_RETRY_CONFIG.max_attempts} in {delay:.1f}s"
+                                    f"retry {attempt.number}/{HTTP_RETRY_CONFIG.max_attempts} in {delay:.1f}s"
                                 )
                                 await attempt.wait_async()
                                 continue
@@ -488,7 +515,7 @@ class DatabaseSyncManager(SyncManagerBase):
                     delay = attempt.delay
                     logger.warning(
                         f"[{self.db_type}] HTTP sync to {node.name} failed: {e}. "
-                        f"Retry {attempt.attempt}/{HTTP_RETRY_CONFIG.max_attempts} in {delay:.1f}s"
+                        f"Retry {attempt.number}/{HTTP_RETRY_CONFIG.max_attempts} in {delay:.1f}s"
                     )
                     await attempt.wait_async()
 
@@ -523,7 +550,8 @@ class DatabaseSyncManager(SyncManagerBase):
             # Build rsync command (Dec 2025: use centralized timeout)
             from app.config.thresholds import RSYNC_TIMEOUT
             from app.utils.env_config import get_str
-            ssh_user = get_str("RINGRIFT_SSH_USER", "root")
+            # Dec 30, 2025: Look up SSH user from cluster config instead of global default
+            ssh_user = _get_ssh_user_for_host(host)
             ssh_key = get_str("RINGRIFT_SSH_KEY", "")
             ssh_cmd = f"ssh -p {ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10"
             if ssh_key:
@@ -634,7 +662,8 @@ class DatabaseSyncManager(SyncManagerBase):
             # Build rsync command (Dec 2025: use centralized timeout)
             from app.config.thresholds import RSYNC_TIMEOUT
             from app.utils.env_config import get_str
-            ssh_user = get_str("RINGRIFT_SSH_USER", "root")
+            # Dec 30, 2025: Look up SSH user from cluster config instead of global default
+            ssh_user = _get_ssh_user_for_host(host)
             ssh_key = get_str("RINGRIFT_SSH_KEY", "")
             ssh_cmd = f"ssh -p {ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10"
             if ssh_key:
@@ -713,7 +742,7 @@ class DatabaseSyncManager(SyncManagerBase):
         """
         try:
             from app.utils.env_config import get_str
-            ssh_user = get_str("RINGRIFT_SSH_USER", "root")
+            ssh_user = _get_ssh_user_for_host(host)
             ssh_key = get_str("RINGRIFT_SSH_KEY", "")
 
             ssh_args = [
@@ -865,22 +894,22 @@ class DatabaseSyncManager(SyncManagerBase):
                         if not verified:
                             logger.warning(
                                 f"[{self.db_type}] Push to {host} succeeded but verification failed, "
-                                f"attempt {attempt.attempt}/{retry_config.max_attempts}"
+                                f"attempt {attempt.number}/{retry_config.max_attempts}"
                             )
                             # Don't count verification failure as success
                             success = False
 
                 if success:
-                    if attempt.attempt > 1:
+                    if attempt.number > 1:
                         logger.info(
-                            f"[{self.db_type}] Push to {host} succeeded on attempt {attempt.attempt}"
+                            f"[{self.db_type}] Push to {host} succeeded on attempt {attempt.number}"
                         )
                     return True
 
             except (OSError, asyncio.TimeoutError) as e:
                 logger.warning(
                     f"[{self.db_type}] Push to {host} failed "
-                    f"(attempt {attempt.attempt}/{retry_config.max_attempts}): {e}"
+                    f"(attempt {attempt.number}/{retry_config.max_attempts}): {e}"
                 )
 
             # Wait before retry using centralized backoff calculation
