@@ -540,7 +540,7 @@ def load_checkpoint(
                         if key == "num_filters":
                             tier_map = {
                                 128: "v4", 192: "v3-high", 96: "v3-low",
-                                160: "v5", 256: "v6", 320: "v6-xl",
+                                160: "v5", 256: "v5-heavy-large", 320: "v5-heavy-xl",
                             }
                             memory_tier = tier_map.get(checkpoint_val)
                         raise ArchitectureMismatchError(

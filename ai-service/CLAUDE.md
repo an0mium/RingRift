@@ -347,9 +347,47 @@ for harness, rating in results.ratings.items():
 
 **Model Types:**
 
-- `nn`: Full neural network (v2-v6), compatible with policy-based harnesses
+- `nn`: Full neural network (v2, v4, v5-heavy, v5-heavy-large), compatible with policy-based harnesses
 - `nnue`: NNUE (2-player), uses minimax
 - `nnue_mp`: Multi-player NNUE, uses MaxN/BRS
+
+### Neural Network Architecture Naming (Dec 2025)
+
+RingRift uses several neural network architectures. The naming convention was cleaned up in Dec 2025:
+
+**Canonical Architectures:**
+
+| Version          | Class Name            | Parameters | Description                        |
+| ---------------- | --------------------- | ---------- | ---------------------------------- |
+| `v2`             | HexNeuralNet_v2       | ~2-4M      | Standard architecture (default)    |
+| `v4`             | RingRiftCNN_v4        | ~3-5M      | Improved residual blocks           |
+| `v5-heavy`       | HexNeuralNet_v5_Heavy | ~8-12M     | Wider with heuristic features      |
+| `v5-heavy-large` | HexNeuralNet_v5_Heavy | ~25-35M    | Scaled v5-heavy (256 filters)      |
+| `v5-heavy-xl`    | HexNeuralNet_v5_Heavy | ~40-50M    | Extra-large v5-heavy (320 filters) |
+
+**Deprecated Aliases (Q2 2026 removal):**
+
+| Deprecated | Canonical Name   | Notes                                |
+| ---------- | ---------------- | ------------------------------------ |
+| `v6`       | `v5-heavy-large` | v6 was never a distinct architecture |
+| `v6-xl`    | `v5-heavy-xl`    | Same as v5-heavy-xl                  |
+
+**CLI Usage:**
+
+```bash
+# Use canonical names
+python -m app.training.train --model-version v5-heavy-large
+
+# Deprecated aliases still work but emit warnings
+python -m app.training.train --model-version v6  # DeprecationWarning emitted
+```
+
+**Model File Naming (Dec 2025 Cleanup):**
+
+59 model files were renamed to match their actual architecture (verified via metadata inspection):
+
+- Files claiming v3/v4/v5/v6 but containing v2 architecture → renamed to v2
+- Script: `scripts/fix_model_naming.py` can scan and rename misnamed models
 
 ### Architecture Tracker (Dec 2025)
 

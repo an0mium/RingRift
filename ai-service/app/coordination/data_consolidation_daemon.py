@@ -25,10 +25,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.event_utils import parse_config_key
 from app.coordination.health_check_helper import HealthCheckHelper
-from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+from app.coordination.contracts import CoordinatorStatus
 
 logger = logging.getLogger(__name__)
 
@@ -40,19 +40,13 @@ __all__ = [
     "reset_consolidation_daemon",
 ]
 
-# Singleton instance
-_consolidation_daemon: "DataConsolidationDaemon | None" = None
-
-
 @dataclass
-class ConsolidationConfig(DaemonConfig):
-    """Configuration for the consolidation daemon.
+class ConsolidationConfig:
+    """Configuration for the consolidation daemon."""
 
-    Inherits from DaemonConfig:
-    - enabled: Whether the daemon should run
-    - check_interval_seconds: How often to run consolidation cycle (default: 300s)
-    - handle_signals: Whether to register SIGTERM/SIGINT handlers
-    """
+    # Daemon control
+    enabled: bool = True
+    check_interval_seconds: int = 300
 
     # Base paths
     data_dir: Path = field(default_factory=lambda: Path("data/games"))
@@ -78,9 +72,8 @@ class ConsolidationConfig(DaemonConfig):
         import os
 
         return cls(
-            # DaemonConfig fields
+            enabled=os.getenv("RINGRIFT_CONSOLIDATION_ENABLED", "true").lower() == "true",
             check_interval_seconds=int(os.getenv("RINGRIFT_CONSOLIDATION_INTERVAL", "300")),
-            # ConsolidationConfig fields
             data_dir=Path(os.getenv("RINGRIFT_DATA_DIR", "data/games")),
             canonical_dir=Path(os.getenv("RINGRIFT_CANONICAL_DIR", "data/games")),
             min_games_for_consolidation=int(os.getenv("RINGRIFT_CONSOLIDATION_MIN_GAMES", "50")),
@@ -119,7 +112,7 @@ ALL_CONFIGS = [
 ]
 
 
-class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
+class DataConsolidationDaemon(HandlerBase):
     """Daemon that consolidates scattered selfplay games into canonical databases.
 
     Subscribes to:
@@ -137,8 +130,12 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
         Args:
             config: Configuration for consolidation behavior
         """
-        # Pass config to BaseDaemon (will use _get_default_config if None)
-        super().__init__(config=config)
+        self._daemon_config = config or ConsolidationConfig.from_env()
+        super().__init__(
+            name="DataConsolidationDaemon",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
 
         # State tracking
         self._pending_configs: set[str] = set()  # Configs needing consolidation
@@ -151,13 +148,13 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
 
         # Concurrency control (December 2025: Parallelization optimization)
         self._consolidation_semaphore = asyncio.Semaphore(
-            self.config.max_concurrent_consolidations
+            self._daemon_config.max_concurrent_consolidations
         )
 
-    @staticmethod
-    def _get_default_config() -> ConsolidationConfig:
-        """Return default configuration from environment."""
-        return ConsolidationConfig.from_env()
+    @property
+    def config(self) -> ConsolidationConfig:
+        """Return daemon configuration."""
+        return self._daemon_config
 
     async def _on_start(self) -> None:
         """Called after daemon starts - subscribe to events and trigger initial scan.
@@ -1043,7 +1040,7 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
     def health_check(self) -> HealthCheckResult:
         """Return health check result for DaemonManager integration.
 
-        December 2025: Updated to use CoordinatorStatus enum.
+        December 2025: Updated to use CoordinatorStatus enum and HandlerStats.
         """
         details = {
             "running": self._running,
@@ -1052,6 +1049,8 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
             "recent_consolidations": len(self._stats_history),
             "files_consolidated": sum(s.games_merged for s in self._stats_history),
             "last_consolidation": self._last_consolidation,
+            "cycles_completed": self._stats.cycles_completed,
+            "errors_count": self._stats.errors_count,
         }
 
         if not self._running:
@@ -1097,13 +1096,9 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
 
 def get_consolidation_daemon() -> DataConsolidationDaemon:
     """Get the singleton DataConsolidationDaemon instance."""
-    global _consolidation_daemon
-    if _consolidation_daemon is None:
-        _consolidation_daemon = DataConsolidationDaemon()
-    return _consolidation_daemon
+    return DataConsolidationDaemon.get_instance()
 
 
 def reset_consolidation_daemon() -> None:
     """Reset the singleton instance (for testing)."""
-    global _consolidation_daemon
-    _consolidation_daemon = None
+    DataConsolidationDaemon.reset_instance()

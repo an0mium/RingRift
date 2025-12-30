@@ -193,10 +193,10 @@ class TestRecoveryEngine:
 
         assert engine.config.max_attempts_per_action == 5
 
-    def test_daemon_name(self) -> None:
-        """Test daemon name."""
+    def test_name_attribute(self) -> None:
+        """Test daemon name attribute (HandlerBase pattern)."""
         engine = RecoveryEngine()
-        assert engine._get_daemon_name() == "RecoveryEngine"
+        assert engine.name == "RecoveryEngine"
 
     def test_event_subscriptions(self) -> None:
         """Test event subscriptions."""
@@ -255,26 +255,26 @@ class TestRecoveryEngine:
         assert cooldown.total_seconds() == 3600.0
 
     def test_health_check(self) -> None:
-        """Test health check returns proper status."""
+        """Test health check returns proper status (HealthCheckResult dataclass)."""
         engine = RecoveryEngine()
 
         # Empty state
         health = engine.health_check()
 
-        assert health["healthy"] is True
-        assert "Recovery engine:" in health["message"]
-        assert health["details"]["nodes_in_recovery"] == 0
-        assert health["details"]["queue_size"] == 0
+        assert health.healthy is True
+        assert "Recovery engine:" in health.message
+        assert health.details["nodes_in_recovery"] == 0
+        assert health.details["queue_size"] == 0
 
     def test_health_check_with_state(self) -> None:
-        """Test health check with recovery state."""
+        """Test health check with recovery state (HealthCheckResult dataclass)."""
         engine = RecoveryEngine()
 
         # Add a node in recovery (not at index 0)
         engine._recovery_states["node-1"] = RecoveryState(current_action_index=1)
 
         health = engine.health_check()
-        assert health["details"]["nodes_in_recovery"] == 1
+        assert health.details["nodes_in_recovery"] == 1
 
     def test_get_recovery_state_unknown(self) -> None:
         """Test getting state for unknown node."""
@@ -599,7 +599,7 @@ class TestEventEmission:
             duration_seconds=5.0,
         )
 
-        with patch.object(engine, "_safe_emit_event") as mock_emit:
+        with patch.object(engine, "_safe_emit_event_async", new_callable=AsyncMock) as mock_emit:
             await engine._emit_recovery_success(result)
 
         mock_emit.assert_called_once()
@@ -618,7 +618,7 @@ class TestEventEmission:
             error="SSH failed",
         )
 
-        with patch.object(engine, "_safe_emit_event") as mock_emit:
+        with patch.object(engine, "_safe_emit_event_async", new_callable=AsyncMock) as mock_emit:
             await engine._emit_recovery_failed(result)
 
         mock_emit.assert_called_once()
@@ -626,7 +626,7 @@ class TestEventEmission:
     @pytest.mark.asyncio
     async def test_emit_node_failed_permanently(self, engine: RecoveryEngine) -> None:
         """Test emitting NODE_FAILED_PERMANENTLY event."""
-        with patch.object(engine, "_safe_emit_event") as mock_emit:
+        with patch.object(engine, "_safe_emit_event_async", new_callable=AsyncMock) as mock_emit:
             await engine._emit_node_failed_permanently("node-1")
 
         mock_emit.assert_called_once()

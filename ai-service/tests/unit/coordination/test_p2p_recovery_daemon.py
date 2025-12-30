@@ -90,9 +90,9 @@ class TestP2PRecoveryDaemon:
         assert d1 is d2
         P2PRecoveryDaemon.reset_instance()
 
-    def test_daemon_name(self, daemon):
+    def test_name_attribute(self, daemon):
         """Test daemon name."""
-        assert daemon._get_daemon_name() == "P2PRecovery"
+        assert daemon.name == "P2PRecovery"
 
     def test_health_check_not_running(self, daemon):
         """Test health check when not running."""

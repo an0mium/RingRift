@@ -38,9 +38,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.event_utils import parse_config_key
-from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus
 
 logger = logging.getLogger(__name__)
 
@@ -174,8 +174,11 @@ def allow_disk_writes() -> None:
 
 
 @dataclass
-class DiskSpaceConfig(DaemonConfig):
+class DiskSpaceConfig:
     """Configuration for disk space management."""
+
+    # Daemon control
+    enabled: bool = True
 
     # P1.3 Dec 2025: Reduced from 30 minutes to 5 minutes
     # 30-minute interval allowed disk to fill silently during active selfplay
@@ -237,7 +240,14 @@ class DiskSpaceConfig(DaemonConfig):
     @classmethod
     def from_env(cls, prefix: str = "RINGRIFT_DISK_SPACE") -> "DiskSpaceConfig":
         """Load configuration from environment variables."""
-        config = super().from_env(prefix)
+        # Start with defaults
+        config = cls()
+
+        # Base config env vars
+        if os.environ.get(f"{prefix}_ENABLED"):
+            config.enabled = os.environ[f"{prefix}_ENABLED"].lower() == "true"
+        if os.environ.get(f"{prefix}_CHECK_INTERVAL"):
+            config.check_interval_seconds = int(os.environ[f"{prefix}_CHECK_INTERVAL"])
 
         # Disk-specific env vars
         env_vars = {
@@ -322,7 +332,7 @@ class DiskStatus:
 # =============================================================================
 
 
-class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
+class DiskSpaceManagerDaemon(HandlerBase):
     """Proactive disk space management daemon.
 
     Monitors disk usage and automatically cleans up when thresholds are exceeded.
@@ -330,7 +340,12 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
     """
 
     def __init__(self, config: DiskSpaceConfig | None = None):
-        super().__init__(config)
+        self._daemon_config = config or DiskSpaceConfig.from_env()
+        super().__init__(
+            name="DiskSpaceManagerDaemon",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
         self._root_path = self._find_ai_service_root()
         self._last_cleanup_time: float = 0.0
         self._bytes_cleaned: int = 0
@@ -345,6 +360,11 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
             "files_skipped_protected": 0,
         }
 
+    @property
+    def config(self) -> DiskSpaceConfig:
+        """Return daemon configuration."""
+        return self._daemon_config
+
     def _get_manifest(self) -> "ClusterManifest | None":
         """Lazy-load ClusterManifest for sync-aware cleanup."""
         if self._manifest_initialized:
@@ -355,29 +375,23 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
 
             self._manifest = ClusterManifest.get_instance()
             self._manifest_initialized = True
-            logger.info(f"[{self._get_daemon_name()}] ClusterManifest initialized for sync-aware cleanup")
+            logger.info(f"[{self.name}] ClusterManifest initialized for sync-aware cleanup")
         except ImportError:
             logger.warning(
-                f"[{self._get_daemon_name()}] ClusterManifest not available - "
+                f"[{self.name}] ClusterManifest not available - "
                 "sync-aware cleanup disabled"
             )
             self._manifest = None
             self._manifest_initialized = True
         except Exception as e:
             logger.warning(
-                f"[{self._get_daemon_name()}] Failed to initialize ClusterManifest: {e} - "
+                f"[{self.name}] Failed to initialize ClusterManifest: {e} - "
                 "sync-aware cleanup disabled"
             )
             self._manifest = None
             self._manifest_initialized = True
 
         return self._manifest
-
-    def _get_default_config(self) -> DiskSpaceConfig:
-        return DiskSpaceConfig.from_env()
-
-    def _get_daemon_name(self) -> str:
-        return "DiskSpaceManagerDaemon"
 
     def _find_ai_service_root(self) -> Path:
         """Find ai-service root directory."""
@@ -400,7 +414,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
         self._current_status = DiskStatus.from_path(str(self._root_path), self.config)
 
         logger.info(
-            f"[{self._get_daemon_name()}] Disk status: "
+            f"[{self.name}] Disk status: "
             f"{self._current_status.usage_percent:.1f}% used "
             f"({self._current_status.free_gb:.1f}GB free)"
         )
@@ -430,7 +444,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
                     usage_percent=status.usage_percent,
                     free_gb=status.free_gb,
                     threshold=self.config.critical_threshold,
-                    source=self._get_daemon_name(),
+                    source=self.name,
                 )
         except ImportError:
             logger.debug("data_events module not available for event emission")
@@ -439,7 +453,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
 
     async def _perform_cleanup(self, status: DiskStatus) -> None:
         """Perform cleanup operations based on priority."""
-        logger.info(f"[{self._get_daemon_name()}] Starting cleanup (target: {self.config.target_disk_usage}%)")
+        logger.info(f"[{self.name}] Starting cleanup (target: {self.config.target_disk_usage}%)")
 
         # Phase 2.3 Dec 29, 2025: Block writes if disk usage exceeds critical threshold
         # This prevents new writes from competing with cleanup operations
@@ -479,7 +493,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
 
         freed_mb = bytes_freed / (1024 * 1024)
         logger.info(
-            f"[{self._get_daemon_name()}] Cleanup complete: "
+            f"[{self.name}] Cleanup complete: "
             f"freed {freed_mb:.1f}MB, now at {status.usage_percent:.1f}%"
         )
 
@@ -504,7 +518,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
                     "host": self.node_id,
                     "bytes_freed": bytes_freed,
                     "cleanups_performed": self._cleanups_performed,
-                    "source": self._get_daemon_name(),
+                    "source": self.name,
                 },
             )
         except Exception as e:
@@ -562,7 +576,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
                         if checkpoint_database(db_file, truncate=True):
                             checkpointed += 1
                             logger.debug(
-                                f"[{self._get_daemon_name()}] Checkpointed {db_file.name} "
+                                f"[{self.name}] Checkpointed {db_file.name} "
                                 f"(WAL was {wal_size / 1024:.0f}KB)"
                             )
                     except Exception as e:
@@ -571,7 +585,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
 
             if checkpointed > 0:
                 logger.info(
-                    f"[{self._get_daemon_name()}] WAL checkpoint complete: "
+                    f"[{self.name}] WAL checkpoint complete: "
                     f"{checkpointed} databases checkpointed"
                     + (f", {errors} errors" if errors > 0 else "")
                 )
@@ -762,7 +776,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
         manifest = self._get_manifest()
         if manifest is None:
             logger.debug(
-                f"[{self._get_daemon_name()}] Skipping sync-aware cleanup - "
+                f"[{self.name}] Skipping sync-aware cleanup - "
                 "ClusterManifest not available"
             )
             return 0
@@ -775,7 +789,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
             return 0
 
         logger.info(
-            f"[{self._get_daemon_name()}] Starting sync-aware cleanup "
+            f"[{self.name}] Starting sync-aware cleanup "
             f"(require {min_copies}+ verified copies before delete)"
         )
 
@@ -803,7 +817,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
                         bytes_freed += size
                         self._sync_cleanup_stats["files_deleted"] += 1
                         logger.info(
-                            f"[{self._get_daemon_name()}] Safe delete: {db_file.name} "
+                            f"[{self.name}] Safe delete: {db_file.name} "
                             f"(verified {min_copies}+ copies, freed {size / 1024 / 1024:.1f}MB)"
                         )
                     except (OSError, PermissionError) as e:
@@ -813,7 +827,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
                     self._sync_cleanup_stats["files_skipped_no_sync"] += 1
                     replication_count = manifest.get_verified_replication_count(str(relative_path))
                     logger.debug(
-                        f"[{self._get_daemon_name()}] Skipping {db_file.name}: "
+                        f"[{self.name}] Skipping {db_file.name}: "
                         f"only {replication_count} verified copies (need {min_copies})"
                     )
             except Exception as e:
@@ -823,7 +837,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
         # Log cleanup summary
         stats = self._sync_cleanup_stats
         logger.info(
-            f"[{self._get_daemon_name()}] Sync-aware cleanup complete: "
+            f"[{self.name}] Sync-aware cleanup complete: "
             f"checked={stats['files_checked']}, deleted={stats['files_deleted']}, "
             f"skipped_no_sync={stats['files_skipped_no_sync']}, "
             f"skipped_protected={stats['files_skipped_protected']}"
@@ -848,8 +862,8 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
             "cleanups_performed": self._cleanups_performed,
             "last_cleanup_time": self._last_cleanup_time,
             "uptime_seconds": self.uptime_seconds,
-            "cycles_completed": self._cycles_completed,
-            "errors_count": self._errors_count,
+            "cycles_completed": self._stats.cycles_completed,
+            "errors_count": self._stats.errors_count,
             "sync_cleanup_stats": self._sync_cleanup_stats,
             "sync_aware_cleanup_enabled": self.config.enable_sync_aware_cleanup,
             "min_copies_before_delete": self.config.min_copies_before_delete,
@@ -859,7 +873,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.STOPPED,
-                message=f"{self._get_daemon_name()} is not running",
+                message=f"{self.name} is not running",
                 details=details,
             )
 
@@ -875,7 +889,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
         return HealthCheckResult(
             healthy=True,
             status=CoordinatorStatus.RUNNING,
-            message=f"{self._get_daemon_name()} healthy, disk at {status.usage_percent:.1f}%" if status else "Running",
+            message=f"{self.name} healthy, disk at {status.usage_percent:.1f}%" if status else "Running",
             details=details,
         )
 
@@ -884,7 +898,7 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
         health = self.health_check()
         status = self.get_disk_status()
         return {
-            "name": self._get_daemon_name(),
+            "name": self.name,
             "running": self._running,
             "uptime_seconds": self.uptime_seconds,
             "config": {
@@ -911,21 +925,15 @@ class DiskSpaceManagerDaemon(BaseDaemon[DiskSpaceConfig]):
 # Singleton Access
 # =============================================================================
 
-_daemon_instance: DiskSpaceManagerDaemon | None = None
-
 
 def get_disk_space_daemon() -> DiskSpaceManagerDaemon:
     """Get the singleton DiskSpaceManagerDaemon instance."""
-    global _daemon_instance
-    if _daemon_instance is None:
-        _daemon_instance = DiskSpaceManagerDaemon()
-    return _daemon_instance
+    return DiskSpaceManagerDaemon.get_instance()
 
 
 def reset_disk_space_daemon() -> None:
     """Reset the singleton (for testing)."""
-    global _daemon_instance
-    _daemon_instance = None
+    DiskSpaceManagerDaemon.reset_instance()
 
 
 # =============================================================================
@@ -996,20 +1004,38 @@ class CoordinatorDiskManager(DiskSpaceManagerDaemon):
     """
 
     def __init__(self, config: CoordinatorDiskConfig | None = None):
-        if config is None:
-            config = CoordinatorDiskConfig.for_coordinator()
-        super().__init__(config)
+        self._daemon_config = config or CoordinatorDiskConfig.for_coordinator()
+        # Directly call HandlerBase.__init__ to set correct name
+        HandlerBase.__init__(
+            self,
+            name="CoordinatorDiskManager",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
+        # Initialize base class state (without calling parent __init__ again)
+        self._root_path = self._find_ai_service_root()
+        self._last_cleanup_time = 0.0
+        self._bytes_cleaned = 0
+        self._cleanups_performed = 0
+        self._current_status = None
+        self._manifest = None
+        self._manifest_initialized = False
+        self._sync_cleanup_stats = {
+            "files_checked": 0,
+            "files_deleted": 0,
+            "files_skipped_no_sync": 0,
+            "files_skipped_protected": 0,
+        }
         self._sync_stats: dict[str, int] = {
             "files_synced": 0,
             "bytes_synced": 0,
             "sync_errors": 0,
         }
 
-    def _get_default_config(self) -> DiskSpaceConfig:
-        return CoordinatorDiskConfig.for_coordinator()
-
-    def _get_daemon_name(self) -> str:
-        return "CoordinatorDiskManager"
+    @property
+    def config(self) -> CoordinatorDiskConfig:
+        """Return coordinator daemon configuration."""
+        return self._daemon_config  # type: ignore
 
     async def _perform_cleanup(self, status: DiskStatus) -> None:
         """Perform cleanup with remote sync first."""
@@ -1019,7 +1045,7 @@ class CoordinatorDiskManager(DiskSpaceManagerDaemon):
 
         # Step 1: Sync valuable data to remote before cleanup
         if config.sync_before_cleanup and config.remote_sync_enabled:
-            logger.info(f"[{self._get_daemon_name()}] Syncing data to {config.remote_host} before cleanup")
+            logger.info(f"[{self.name}] Syncing data to {config.remote_host} before cleanup")
             await self._sync_to_remote()
 
         # Step 2: Perform regular cleanup
@@ -1196,18 +1222,13 @@ class CoordinatorDiskManager(DiskSpaceManagerDaemon):
 
 
 # Coordinator daemon singleton
-_coordinator_daemon_instance: CoordinatorDiskManager | None = None
 
 
 def get_coordinator_disk_daemon() -> CoordinatorDiskManager:
     """Get the singleton CoordinatorDiskManager instance."""
-    global _coordinator_daemon_instance
-    if _coordinator_daemon_instance is None:
-        _coordinator_daemon_instance = CoordinatorDiskManager()
-    return _coordinator_daemon_instance
+    return CoordinatorDiskManager.get_instance()
 
 
 def reset_coordinator_disk_daemon() -> None:
     """Reset the coordinator singleton (for testing)."""
-    global _coordinator_daemon_instance
-    _coordinator_daemon_instance = None
+    CoordinatorDiskManager.reset_instance()

@@ -45,11 +45,11 @@ from .v5_heavy import (
     RingRiftCNN_v5_Heavy,
     HexNeuralNet_v5_Heavy,
 )
-from .v6_large import (
-    create_v6_model,
+from .v5_heavy_large import (
+    create_v5_heavy_large,
     V5_1_CONFIG,
-    V6_LARGE_CONFIG,
-    V6_XL_CONFIG,
+    V5_HEAVY_LARGE_CONFIG,
+    V5_HEAVY_XL_CONFIG,
 )
 
 # GNN imports (optional - requires PyTorch Geometric)
@@ -70,17 +70,18 @@ __all__ = [
     "get_model_config_for_board",
 ]
 
-# Valid memory tier options (v6 added December 2025, v5.1 added for 256ch/20 blocks)
-VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "v5.1", "v6", "v6-xl", "gnn", "hybrid")
+# Valid memory tier options (v5-heavy-large added December 2025, v5.1 added for 256ch/20 blocks)
+# Note: "v6" and "v6-xl" are deprecated aliases for "v5-heavy-large" and "v5-heavy-xl"
+VALID_MEMORY_TIERS = ("high", "low", "v3-high", "v3-low", "v4", "v5", "v5-gnn", "v5.1", "v5-heavy-large", "v5-heavy-xl", "v6", "v6-xl", "gnn", "hybrid")
 
 # ============================================================================
 # Memory Tier Quick Reference (December 2025)
 # ============================================================================
 #
-# | Tier     | Model Class          | Params  | Features              | Use Case                    |
-# |----------|----------------------|---------|------------------------|----------------------------|
-# | v6       | V5 Heavy (scaled)    | ~25M    | 256 filters, 10 SE, 8 attn| 1800+ Elo target (NEW)   |
-# | v6-xl    | V5 Heavy (max)       | ~35M    | 320 filters + GNN      | 2000+ Elo target (NEW)     |
+# | Tier           | Model Class          | Params  | Features              | Use Case                    |
+# |----------------|----------------------|---------|------------------------|----------------------------|
+# | v5-heavy-large | V5 Heavy (scaled)    | ~25M    | 256 filters, 10 SE, 8 attn| 1800+ Elo target        |
+# | v5-heavy-xl    | V5 Heavy (max)       | ~35M    | 320 filters + GNN      | 2000+ Elo target          |
 # | v5.1     | V5 Heavy (256/20)    | ~22M    | 256 filters, 10 SE, 10 attn| Balanced 1800+ Elo       |
 # | v5       | RingRiftCNN_v5_Heavy | ~6.2M   | SE+Attn+FiLM, heuristics| Max strength (21 heuristics)|
 # | v5-gnn   | RingRiftCNN_v5_Heavy | ~6.3M   | v5 + GNN refinement    | Max strength + connectivity|
@@ -244,7 +245,7 @@ def _create_hex_model(
     """Create a hexagonal board model based on memory tier.
 
     Args:
-        tier: Memory tier (v6, v6-xl, v5, v5-gnn, v4, v3-high, v3-low, high, low)
+        tier: Memory tier (v5-heavy-large, v5-heavy-xl, v5, v5-gnn, v4, v3-high, v3-low, high, low)
         in_channels: Number of input channels
         global_features: Number of global feature dimensions
         num_res_blocks: Number of residual blocks (or None for default)
@@ -254,16 +255,17 @@ def _create_hex_model(
         policy_size: Size of the policy output
         num_players: Number of players
     """
-    # V6 models (December 2025 - scaled for 2000+ Elo)
-    if tier in ("v6", "v6-xl", "v5.1"):
+    # V5 Heavy Large models (December 2025 - scaled for 2000+ Elo)
+    # Note: "v6" and "v6-xl" are deprecated aliases
+    if tier in ("v5-heavy-large", "v5-heavy-xl", "v6", "v6-xl", "v5.1"):
         board_type = "hex8" if board_size == 9 else "hexagonal"
-        if tier == "v6-xl":
+        if tier in ("v6-xl", "v5-heavy-xl"):
             variant = "xl"
         elif tier == "v5.1":
             variant = "v5.1"
         else:
             variant = "large"
-        return create_v6_model(
+        return create_v5_heavy_large(
             board_type=board_type,
             num_players=num_players,
             variant=variant,
@@ -411,16 +413,17 @@ def _create_square_model(
     num_players: int = 4,
 ) -> nn.Module:
     """Create a square board model based on memory tier."""
-    # V6 models (December 2025 - scaled for 2000+ Elo)
-    if tier in ("v6", "v6-xl", "v5.1"):
+    # V5 Heavy Large models (December 2025 - scaled for 2000+ Elo)
+    # Note: "v6" and "v6-xl" are deprecated aliases
+    if tier in ("v5-heavy-large", "v5-heavy-xl", "v6", "v6-xl", "v5.1"):
         board_type = "square8" if board_size == 8 else "square19"
-        if tier == "v6-xl":
+        if tier in ("v6-xl", "v5-heavy-xl"):
             variant = "xl"
         elif tier == "v5.1":
             variant = "v5.1"
         else:
             variant = "large"
-        return create_v6_model(
+        return create_v5_heavy_large(
             board_type=board_type,
             num_players=num_players,
             variant=variant,
@@ -604,20 +607,36 @@ def _get_tier_config(board_type: BoardType, tier: str) -> dict[str, Any]:
             "recommended_model": "HexNeuralNet_v5_Heavy (v5.1 config)" if is_hex else "RingRiftCNN_v5_Heavy (v5.1 config)",
             "description": "V5.1: Balanced 256 filters, 20 blocks for 1800+ Elo (~22M params)",
         },
-        # V6 models - December 2025 ML acceleration for 2000+ Elo
-        "v6": {
+        # V5 Heavy Large - December 2025 ML acceleration for 2000+ Elo
+        "v5-heavy-large": {
             "num_res_blocks": 18,  # 10 SE + 8 attention
             "num_filters": 256,
             "estimated_params_m": 25.0 if is_hex8 else 28.0 if is_hex else 25.0,
-            "recommended_model": "HexNeuralNet_v5_Heavy (v6 config)" if is_hex else "RingRiftCNN_v5_Heavy (v6 config)",
-            "description": "V6 Large: Scaled for 1800+ Elo (~25M params, 256 filters, 49 heuristics)",
+            "recommended_model": "HexNeuralNet_v5_Heavy (large config)" if is_hex else "RingRiftCNN_v5_Heavy (large config)",
+            "description": "V5 Heavy Large: Scaled for 1800+ Elo (~25M params, 256 filters, 49 heuristics)",
         },
-        "v6-xl": {
+        "v5-heavy-xl": {
             "num_res_blocks": 22,  # 12 SE + 10 attention
             "num_filters": 320,
             "estimated_params_m": 35.0 if is_hex8 else 38.0 if is_hex else 35.0,
-            "recommended_model": "HexNeuralNet_v5_Heavy (v6-xl config)" if is_hex else "RingRiftCNN_v5_Heavy (v6-xl config)",
-            "description": "V6 XL: Maximum capacity for 2000+ Elo (~35M params, 320 filters, GNN)",
+            "recommended_model": "HexNeuralNet_v5_Heavy (xl config)" if is_hex else "RingRiftCNN_v5_Heavy (xl config)",
+            "description": "V5 Heavy XL: Maximum capacity for 2000+ Elo (~35M params, 320 filters, GNN)",
+            "requires_pyg": True,
+        },
+        # Deprecated aliases for backward compatibility
+        "v6": {
+            "num_res_blocks": 18,
+            "num_filters": 256,
+            "estimated_params_m": 25.0 if is_hex8 else 28.0 if is_hex else 25.0,
+            "recommended_model": "HexNeuralNet_v5_Heavy (large config)" if is_hex else "RingRiftCNN_v5_Heavy (large config)",
+            "description": "DEPRECATED: Use v5-heavy-large instead. Alias for V5 Heavy Large.",
+        },
+        "v6-xl": {
+            "num_res_blocks": 22,
+            "num_filters": 320,
+            "estimated_params_m": 35.0 if is_hex8 else 38.0 if is_hex else 35.0,
+            "recommended_model": "HexNeuralNet_v5_Heavy (xl config)" if is_hex else "RingRiftCNN_v5_Heavy (xl config)",
+            "description": "DEPRECATED: Use v5-heavy-xl instead. Alias for V5 Heavy XL.",
             "requires_pyg": True,
         },
         "gnn": {

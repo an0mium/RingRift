@@ -445,7 +445,7 @@ class ModelInitializer:
                     if max_idx >= 0:
                         metadata.inferred_policy_size = max_idx + 1
 
-                # Heuristics count (for v5/v6 models)
+                # Heuristics count (for v5-heavy and v5-heavy-large/xl models)
                 if "heuristics" in d:
                     heur_shape = d["heuristics"].shape
                     if len(heur_shape) >= 2:
@@ -751,24 +751,29 @@ class ModelInitializer:
         """Create square board model."""
         model_num_players = MAX_PLAYERS if self.config.multi_player else num_players
 
-        if version in ("v6", "v6-xl"):
-            from app.ai.neural_net.v6_large import create_v6_model
+        if version in ("v5-heavy-large", "v5-heavy-xl", "v6", "v6-xl"):
+            # V5 Heavy Large: scaled-up v5-heavy for 2000+ Elo
+            # Note: "v6" and "v6-xl" are deprecated aliases for backward compatibility
+            from app.ai.neural_net.v5_heavy_large import create_v5_heavy_large
 
-            v6_variant = "xl" if version == "v6-xl" else "large"
+            # Map version to variant
+            variant_map = {"v5-heavy-xl": "xl", "v6-xl": "xl"}
+            large_variant = variant_map.get(version, "large")
             num_heuristics = detected_num_heuristics or 49
 
-            model = create_v6_model(
+            model = create_v5_heavy_large(
                 board_type=self.config.board_type.name.lower(),
                 num_players=model_num_players,
-                variant=v6_variant,
+                variant=large_variant,
                 num_heuristics=num_heuristics,
                 dropout=dropout,
             )
 
             if self.is_main_process:
                 param_count = sum(p.numel() for p in model.parameters())
+                display_name = f"V5-Heavy-{large_variant.upper()}"
                 logger.info(
-                    f"Initializing V6 {v6_variant} model: {param_count:,} parameters"
+                    f"Initializing {display_name} model: {param_count:,} parameters"
                 )
 
             return model

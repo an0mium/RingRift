@@ -88,6 +88,16 @@ MODEL_CHANNELS = {
         "per_player_channels": 4,
         "heuristic_mode": "full",
     },
+    # Canonical names for scaled-up v5-heavy
+    "v5-heavy-large": {
+        "base_channels": 21,
+        "per_player_channels": 4,
+    },
+    "v5-heavy-xl": {
+        "base_channels": 21,
+        "per_player_channels": 4,
+    },
+    # Deprecated aliases (will be removed Q2 2026)
     "v6": {
         "base_channels": 21,
         "per_player_channels": 4,
@@ -138,7 +148,7 @@ def get_expected_dimensions(
     Args:
         board_type: Board type (hex8, square8, square19, hexagonal)
         num_players: Number of players (2, 3, 4)
-        model_version: Model version (v2, v3, v4, v5, v5-heavy, v6, v6-xl)
+        model_version: Model version (v2, v3, v4, v5, v5-heavy, v5-heavy-large, v5-heavy-xl)
 
     Returns:
         ExpectedDimensions dataclass
@@ -155,7 +165,13 @@ def get_expected_dimensions(
         if model_version.startswith("v5") and "heavy" in model_version:
             model_version = "v5-heavy"
         elif model_version.startswith("v6") and "xl" in model_version:
-            model_version = "v6-xl"
+            model_version = "v5-heavy-xl"  # v6-xl is deprecated alias
+        elif model_version.startswith("v6"):
+            model_version = "v5-heavy-large"  # v6 is deprecated alias
+        elif model_version.startswith("v5-heavy") and "xl" in model_version:
+            model_version = "v5-heavy-xl"
+        elif model_version.startswith("v5-heavy") and "large" in model_version:
+            model_version = "v5-heavy-large"
         elif model_version.startswith("v"):
             # Default to base version
             base = model_version.split("-")[0]

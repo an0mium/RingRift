@@ -792,7 +792,13 @@ class TestExtractArchitectureFromModelPath:
 
     def test_versioned_models(self):
         """Test versioned model detection."""
-        assert extract_architecture_from_model_path("models/hex8_2p_v6.pth") == "v6"
+        # v6 is deprecated alias for v5_heavy_large
+        assert extract_architecture_from_model_path("models/hex8_2p_v6.pth") == "v5_heavy_large"
+        assert extract_architecture_from_model_path("models/hex8_2p_v6_xl.pth") == "v5_heavy_xl"
+        # Canonical names
+        assert extract_architecture_from_model_path("models/hex8_2p_v5_heavy_large.pth") == "v5_heavy_large"
+        assert extract_architecture_from_model_path("models/hex8_2p_v5_heavy_xl.pth") == "v5_heavy_xl"
+        # Other versions
         assert extract_architecture_from_model_path("models/hex8_2p_v5.pth") == "v5"
         assert extract_architecture_from_model_path("models/hex8_2p_v4.pth") == "v4"
         assert extract_architecture_from_model_path("models/hex8_2p_v3.pth") == "v3"

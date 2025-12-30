@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
+from app.coordination.safe_event_emitter import SafeEventEmitterMixin
 from .node_monitor import NodeHealthResult
 
 if TYPE_CHECKING:
@@ -95,12 +96,13 @@ class RecoveryEngineConfig:
     )
 
 
-class RecoveryEngine(HandlerBase):
+class RecoveryEngine(HandlerBase, SafeEventEmitterMixin):
     """Escalating node recovery engine.
 
     December 2025: Migrated to HandlerBase pattern.
     - Uses HandlerBase singleton (get_instance/reset_instance)
     - Uses _stats for metrics tracking
+    - Uses SafeEventEmitterMixin for event emission
 
     Subscribes to NODE_UNHEALTHY events and attempts recovery using
     escalating strategies. Tracks attempts per-node to avoid repeated
@@ -112,6 +114,7 @@ class RecoveryEngine(HandlerBase):
         # Will listen for NODE_UNHEALTHY events and attempt recovery
     """
 
+    # For SafeEventEmitterMixin
     _event_source = "RecoveryEngine"
 
     # Escalation order

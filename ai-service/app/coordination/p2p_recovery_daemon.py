@@ -23,8 +23,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from app.coordination.base_daemon import BaseDaemon, DaemonConfig
-from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-@dataclass(kw_only=True)
-class P2PRecoveryConfig(DaemonConfig):
+@dataclass
+class P2PRecoveryConfig:
     """Configuration for P2P Recovery daemon.
 
     Attributes:
@@ -58,6 +58,7 @@ class P2PRecoveryConfig(DaemonConfig):
         max_cooldown_seconds: Maximum cooldown between restarts (default: 30 min)
     """
 
+    enabled: bool = True  # Whether daemon should run
     check_interval_seconds: int = 60
     health_endpoint: str = "http://localhost:8770/status"
     max_consecutive_failures: int = 3
@@ -151,7 +152,7 @@ class P2PRecoveryConfig(DaemonConfig):
 # =============================================================================
 
 
-class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
+class P2PRecoveryDaemon(HandlerBase):
     """Daemon that monitors P2P cluster health and triggers auto-recovery.
 
     Workflow:
@@ -165,10 +166,13 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
     - P2P_HEALTH_RECOVERED: When P2P becomes healthy after being unhealthy
     """
 
-    _instance: "P2PRecoveryDaemon | None" = None
-
     def __init__(self, config: P2PRecoveryConfig | None = None):
-        super().__init__(config)
+        self._daemon_config = config or P2PRecoveryConfig.from_env()
+        super().__init__(
+            name="P2PRecovery",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
         self._consecutive_failures = 0
         self._last_restart_time = 0.0
         self._total_restarts = 0
@@ -187,26 +191,10 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
         # Dec 30, 2025: Exponential backoff for restarts
         self._restart_attempt_count = 0  # Consecutive restart attempts without recovery
 
-    @staticmethod
-    def _get_default_config() -> P2PRecoveryConfig:
-        """Return default config."""
-        return P2PRecoveryConfig.from_env()
-
-    def _get_daemon_name(self) -> str:
-        """Return daemon name."""
-        return "P2PRecovery"
-
-    @classmethod
-    def get_instance(cls) -> "P2PRecoveryDaemon":
-        """Get singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton (for testing)."""
-        cls._instance = None
+    @property
+    def config(self) -> P2PRecoveryConfig:
+        """Return daemon configuration."""
+        return self._daemon_config
 
     # =========================================================================
     # Main Cycle
@@ -533,7 +521,7 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
 
         except Exception as e:
             logger.error(f"Error restarting P2P: {e}")
-            self._errors_count += 1
+            self._stats.errors_count += 1
             self._last_error = str(e)
 
     async def _trigger_leader_election(self) -> bool:
@@ -705,7 +693,7 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
             details={
                 "p2p_healthy": True,
                 "consecutive_failures": self._consecutive_failures,
-                "cycles_completed": self._cycles_completed,
+                "cycles_completed": self._stats.cycles_completed,
                 "total_restarts": self._total_restarts,
                 "isolation_triggered_restarts": self._isolation_triggered_restarts,
                 "leader_gap_elections_triggered": self._leader_gap_elections_triggered,
@@ -765,3 +753,8 @@ class P2PRecoveryDaemon(BaseDaemon[P2PRecoveryConfig]):
 def get_p2p_recovery_daemon() -> P2PRecoveryDaemon:
     """Get the singleton P2PRecovery instance."""
     return P2PRecoveryDaemon.get_instance()
+
+
+def reset_p2p_recovery_daemon() -> None:
+    """Reset the singleton (for testing)."""
+    P2PRecoveryDaemon.reset_instance()

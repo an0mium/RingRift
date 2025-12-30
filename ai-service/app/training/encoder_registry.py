@@ -187,10 +187,11 @@ def _build_registry():
         encoder_version="5.0",
     )
 
-    # Hex V6 encoder (16 base channels + 49 full heuristic features required)
-    hex_v6_config = EncoderConfig(
-        encoder_type="hex_v6",
-        encoder_class_name="HexNeuralNet_v5_Heavy",  # V6 uses same architecture as V5
+    # Hex V5 Heavy Large encoder (16 base channels + 49 full heuristic features required)
+    # Note: "v6" is a deprecated alias for v5-heavy-large
+    hex_v5_heavy_large_config = EncoderConfig(
+        encoder_type="hex_v5_heavy_large",
+        encoder_class_name="HexNeuralNet_v5_Heavy",  # Uses same architecture as V5 Heavy
         base_channels=16,
         history_length=3,
         in_channels=64,  # 16 × 4
@@ -199,11 +200,11 @@ def _build_registry():
         board_types=["HEXAGONAL"],
         requires_heuristics=True,
         min_heuristic_features=49,  # Full heuristics required
-        encoder_version="6.0",
+        encoder_version="5.2",
     )
 
-    hex8_v6_config = EncoderConfig(
-        encoder_type="hex_v6",
+    hex8_v5_heavy_large_config = EncoderConfig(
+        encoder_type="hex_v5_heavy_large",
         encoder_class_name="HexNeuralNet_v5_Heavy",
         base_channels=16,
         history_length=3,
@@ -213,7 +214,7 @@ def _build_registry():
         board_types=["HEX8"],
         requires_heuristics=True,
         min_heuristic_features=49,
-        encoder_version="6.0",
+        encoder_version="5.2",
     )
 
     # Square V5-Heavy encoder (14 base channels + 21 heuristic features required)
@@ -236,12 +237,18 @@ def _build_registry():
     _ENCODER_REGISTRY[("HEXAGONAL", "v3")] = hex_v3_config
     _ENCODER_REGISTRY[("HEXAGONAL", "v4")] = hex_v3_config  # v4 uses same encoding as v3
     _ENCODER_REGISTRY[("HEXAGONAL", "v5-heavy")] = hex_v5_heavy_config
-    _ENCODER_REGISTRY[("HEXAGONAL", "v6")] = hex_v6_config
+    _ENCODER_REGISTRY[("HEXAGONAL", "v5-heavy-large")] = hex_v5_heavy_large_config
+    _ENCODER_REGISTRY[("HEXAGONAL", "v5-heavy-xl")] = hex_v5_heavy_large_config  # Same encoder
+    _ENCODER_REGISTRY[("HEXAGONAL", "v6")] = hex_v5_heavy_large_config  # Deprecated alias
+    _ENCODER_REGISTRY[("HEXAGONAL", "v6-xl")] = hex_v5_heavy_large_config  # Deprecated alias
     _ENCODER_REGISTRY[("HEX8", "v2")] = hex8_v2_config
     _ENCODER_REGISTRY[("HEX8", "v3")] = hex8_v3_config
     _ENCODER_REGISTRY[("HEX8", "v4")] = hex8_v3_config  # v4 uses same encoding as v3
     _ENCODER_REGISTRY[("HEX8", "v5-heavy")] = hex8_v5_heavy_config
-    _ENCODER_REGISTRY[("HEX8", "v6")] = hex8_v6_config
+    _ENCODER_REGISTRY[("HEX8", "v5-heavy-large")] = hex8_v5_heavy_large_config
+    _ENCODER_REGISTRY[("HEX8", "v5-heavy-xl")] = hex8_v5_heavy_large_config  # Same encoder
+    _ENCODER_REGISTRY[("HEX8", "v6")] = hex8_v5_heavy_large_config  # Deprecated alias
+    _ENCODER_REGISTRY[("HEX8", "v6-xl")] = hex8_v5_heavy_large_config  # Deprecated alias
     _ENCODER_REGISTRY[("SQUARE8", "v2")] = square8_config
     _ENCODER_REGISTRY[("SQUARE8", "v3")] = square8_config  # Same encoding for square
     _ENCODER_REGISTRY[("SQUARE8", "v5-heavy")] = square8_v5_heavy_config
@@ -258,7 +265,7 @@ def get_encoder_config(
 
     Args:
         board_type: Board type (enum or string name)
-        model_version: Model version ("v2", "v3", "v4", "v5-heavy", "v6")
+        model_version: Model version ("v2", "v3", "v4", "v5-heavy", "v5-heavy-large", "v5-heavy-xl")
         history_length: Number of history frames (adjusts in_channels if non-default)
 
     Returns:

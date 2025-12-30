@@ -195,15 +195,15 @@ class TestNodeMonitorInit:
         monitor = NodeMonitor()
         assert monitor._health_history == {}
 
-    def test_get_daemon_name(self):
-        """Should return correct daemon name."""
+    def test_name_attribute(self):
+        """Test daemon name attribute (HandlerBase pattern)."""
         monitor = NodeMonitor()
-        assert monitor._get_daemon_name() == "NodeMonitor"
+        assert monitor.name == "NodeMonitor"
 
-    def test_get_default_config(self):
-        """Should return NodeMonitorConfig."""
+    def test_config_property(self):
+        """Test config property returns NodeMonitorConfig (HandlerBase pattern)."""
         monitor = NodeMonitor()
-        config = monitor._get_default_config()
+        config = monitor.config
         assert isinstance(config, NodeMonitorConfig)
 
 

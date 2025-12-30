@@ -309,10 +309,10 @@ def validate_architecture_data_compatibility(
 
     This catches errors early before expensive model initialization:
     - V5-heavy requires at least 21 heuristic features (fast heuristics)
-    - V6 requires all 49 heuristic features (full heuristics)
+    - V5-heavy-large/xl require all 49 heuristic features (full heuristics)
 
     Args:
-        model_version: Model version string (e.g., 'v5-heavy', 'v6')
+        model_version: Model version string (e.g., 'v5-heavy', 'v5-heavy-large')
         detected_num_heuristics: Number of heuristic features in dataset
         board_type: Board type name (e.g., 'hex8', 'square8')
         data_path: Path to training data (for error messages)
@@ -321,7 +321,7 @@ def validate_architecture_data_compatibility(
         ValueError: If data is incompatible with selected architecture
     """
     # Only validate for architectures that require heuristics
-    requires_heuristics_versions = ("v5", "v5-gnn", "v5-heavy", "v6")
+    requires_heuristics_versions = ("v5", "v5-gnn", "v5-heavy", "v5-heavy-large", "v5-heavy-xl", "v6", "v6-xl")
     if model_version not in requires_heuristics_versions:
         return
 
@@ -329,7 +329,11 @@ def validate_architecture_data_compatibility(
     try:
         from app.training.encoder_registry import get_encoder_config
 
-        version_key = "v6" if model_version == "v6" else "v5-heavy"
+        # Map to encoder key (v6/v6-xl are deprecated aliases)
+        if model_version in ("v6", "v6-xl", "v5-heavy-large", "v5-heavy-xl"):
+            version_key = "v5-heavy-large"
+        else:
+            version_key = "v5-heavy"
         encoder_config = get_encoder_config(board_type, version_key)
     except (ValueError, ImportError):
         # Registry doesn't have this config, skip validation
@@ -343,7 +347,14 @@ def validate_architecture_data_compatibility(
     actual_heuristics = detected_num_heuristics or 0
 
     if actual_heuristics < min_required:
-        version_name = "V6" if model_version == "v6" else "V5-Heavy"
+        # Map model version to human-readable name
+        version_names = {
+            "v6": "V5-Heavy-Large (deprecated alias)",
+            "v6-xl": "V5-Heavy-XL (deprecated alias)",
+            "v5-heavy-large": "V5-Heavy-Large",
+            "v5-heavy-xl": "V5-Heavy-XL",
+        }
+        version_name = version_names.get(model_version, "V5-Heavy")
         data_path_str = data_path or "unknown"
         raise ValueError(
             f"\n{'='*70}\n"

@@ -172,7 +172,9 @@ class ModelType(Enum):
     NN_V4 = "nn_v4"              # v4 architecture
     NN_V5 = "nn_v5"              # v5 standard
     NN_V5_HEAVY = "nn_v5_heavy"  # v5.1 with full heuristics
-    NN_V6 = "nn_v6"              # v6 latest
+    NN_V5_HEAVY_LARGE = "nn_v5_heavy_large"  # v5-heavy-large (scaled up)
+    NN_V5_HEAVY_XL = "nn_v5_heavy_xl"        # v5-heavy-xl (maximum capacity)
+    NN_V6 = "nn_v6"              # Deprecated alias for v5-heavy-large
 
     # NNUE (scalar value output, 2p zero-sum)
     NNUE_V1 = "nnue_v1"          # NNUE v1
@@ -207,10 +209,14 @@ class ModelType(Enum):
             return cls.NNUE_V1
 
         # Check for specific NN versions
+        if "v5_heavy_large" in path_lower or "v5-heavy-large" in path_lower:
+            return cls.NN_V5_HEAVY_LARGE
+        if "v5_heavy_xl" in path_lower or "v5-heavy-xl" in path_lower:
+            return cls.NN_V5_HEAVY_XL
         if "v5heavy" in path_lower or "v5_heavy" in path_lower:
             return cls.NN_V5_HEAVY
         if "v6" in path_lower:
-            return cls.NN_V6
+            return cls.NN_V6  # Deprecated, maps to v5-heavy-large
         if "v5" in path_lower:
             return cls.NN_V5
         if "v4" in path_lower:

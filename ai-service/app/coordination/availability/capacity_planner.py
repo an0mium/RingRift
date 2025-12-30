@@ -18,8 +18,8 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from app.coordination.base_daemon import BaseDaemon, DaemonConfig
-from app.coordination.safe_event_emitter import SafeEventEmitterMixin
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus
 
 if TYPE_CHECKING:
     from app.coordination.providers.base import Instance
@@ -130,10 +130,10 @@ class ScaleRecommendation:
         }
 
 
-@dataclass(kw_only=True)
-class CapacityPlannerConfig(DaemonConfig):
+@dataclass
+class CapacityPlannerConfig:
     """Configuration for CapacityPlanner."""
-    check_interval_seconds: int = 60  # 1 minute (overrides DaemonConfig default)
+    check_interval_seconds: int = 60  # 1 minute
 
     # Utilization thresholds
     scale_up_utilization_threshold: float = 0.85  # Scale up at 85% utilization
@@ -214,7 +214,7 @@ class UtilizationMetrics:
         )
 
 
-class CapacityPlanner(BaseDaemon, SafeEventEmitterMixin):
+class CapacityPlanner(HandlerBase):
     """Budget-aware capacity planner for cluster management.
 
     Monitors cluster utilization and spending, providing scaling
@@ -239,11 +239,16 @@ class CapacityPlanner(BaseDaemon, SafeEventEmitterMixin):
     _event_source = "CapacityPlanner"
 
     def __init__(self, config: CapacityPlannerConfig | None = None):
-        super().__init__(config)
+        self._daemon_config = config or CapacityPlannerConfig()
+        super().__init__(
+            name="CapacityPlanner",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
 
         self.budget = CapacityBudget(
-            hourly_limit_usd=self.config.hourly_budget_usd,
-            daily_limit_usd=self.config.daily_budget_usd,
+            hourly_limit_usd=self._daemon_config.hourly_budget_usd,
+            daily_limit_usd=self._daemon_config.daily_budget_usd,
         )
 
         self._last_scale_up_time: float = 0.0
@@ -251,13 +256,10 @@ class CapacityPlanner(BaseDaemon, SafeEventEmitterMixin):
         self._utilization_history: list[UtilizationMetrics] = []
         self._cost_history: list[tuple[datetime, float]] = []
 
-    def _get_default_config(self) -> CapacityPlannerConfig:
-        """Return default configuration."""
-        return CapacityPlannerConfig()
-
-    def _get_daemon_name(self) -> str:
-        """Return daemon name for logging."""
-        return "CapacityPlanner"
+    @property
+    def config(self) -> CapacityPlannerConfig:
+        """Return daemon configuration."""
+        return self._daemon_config
 
     def _get_event_subscriptions(self) -> dict:
         """Subscribe to cost-related events."""
@@ -554,14 +556,12 @@ class CapacityPlanner(BaseDaemon, SafeEventEmitterMixin):
             for m in self._utilization_history[-limit:]
         ]
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Return health status for DaemonManager integration.
 
         Returns:
             HealthCheckResult with status based on budget thresholds.
         """
-        from app.coordination.protocols import HealthCheckResult
-
         budget_ok = not self.budget.is_over_alert_threshold()
 
         recent_metrics = (
@@ -570,6 +570,7 @@ class CapacityPlanner(BaseDaemon, SafeEventEmitterMixin):
 
         return HealthCheckResult(
             healthy=budget_ok,
+            status=CoordinatorStatus.RUNNING if self._running else CoordinatorStatus.STOPPED,
             message=(
                 "CapacityPlanner: Budget within limits"
                 if budget_ok
@@ -585,23 +586,17 @@ class CapacityPlanner(BaseDaemon, SafeEventEmitterMixin):
                 "overall_utilization": (
                     recent_metrics.overall_utilization if recent_metrics else 0.0
                 ),
+                "cycles_completed": self._stats.cycles_completed,
+                "errors_count": self._stats.errors_count,
             },
         )
 
 
-# Singleton instance
-_capacity_planner: CapacityPlanner | None = None
-
-
 def get_capacity_planner() -> CapacityPlanner:
     """Get the singleton CapacityPlanner instance."""
-    global _capacity_planner
-    if _capacity_planner is None:
-        _capacity_planner = CapacityPlanner()
-    return _capacity_planner
+    return CapacityPlanner.get_instance()
 
 
 def reset_capacity_planner() -> None:
     """Reset the singleton (for testing)."""
-    global _capacity_planner
-    _capacity_planner = None
+    CapacityPlanner.reset_instance()

@@ -273,10 +273,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         '--model-version', type=str, default=None,
-        choices=['v2', 'v2_lite', 'v3', 'v3_lite', 'v3-flat', 'v4', 'v5', 'v5-gnn', 'v5-heavy', 'v6', 'v6-xl'],
+        choices=['v2', 'v2_lite', 'v3', 'v3_lite', 'v3-flat', 'v4', 'v5', 'v5-gnn', 'v5-heavy',
+                 'v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'],
         help='Model architecture version (for CNN models). v3 uses spatial policy heads (default), '
              'v3-flat uses flat policy heads (fallback). v5/v5-heavy use heuristic features. '
-             'v6/v6-xl are scaled up for 2000+ Elo (~25-35M parameters).'
+             'v5-heavy-large/v5-heavy-xl are scaled up for 2000+ Elo (~25-35M params). '
+             'Note: v6/v6-xl are deprecated aliases for v5-heavy-large/v5-heavy-xl.'
     )
     parser.add_argument(
         '--model-type', type=str, default='cnn',
@@ -294,11 +296,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         '--memory-tier', type=str, default=None,
-        choices=['v4', 'v3-high', 'v3-low', 'v5', 'v5.1', 'v6', 'v6-xl'],
+        choices=['v4', 'v3-high', 'v3-low', 'v5', 'v5.1', 'v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'],
         help='Memory tier for model architecture. Determines num_filters and num_res_blocks. '
              'When resuming training, tier is auto-detected from checkpoint if not specified. '
              'Tiers: v4=128ch/13blocks, v3-high=192ch/12blocks, v3-low=96ch/6blocks, '
-             'v5=160ch/11blocks, v6=256ch/18blocks, v6-xl=320ch/20blocks.'
+             'v5=160ch/11blocks, v5-heavy-large=256ch/18blocks, v5-heavy-xl=320ch/20blocks. '
+             'Note: v6/v6-xl are deprecated aliases for v5-heavy-large/v5-heavy-xl.'
     )
 
     # Multi-player support
@@ -942,6 +945,10 @@ def main() -> None:
             "v3-low": (96, 6),
             "v5": (160, 11),
             "v5.1": (160, 11),
+            # Canonical names for scaled-up v5-heavy
+            "v5-heavy-large": (256, 18),
+            "v5-heavy-xl": (320, 20),
+            # Deprecated aliases (will be removed Q2 2026)
             "v6": (256, 18),
             "v6-xl": (320, 20),
         }

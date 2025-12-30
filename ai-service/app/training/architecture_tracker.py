@@ -639,10 +639,16 @@ def extract_architecture_from_model_path(model_path: str) -> str:
         return "nnue_v1"
 
     # Check for specific version tags in filename
+    if "_v5_heavy_large" in filename or "_v5-heavy-large" in filename:
+        return "v5_heavy_large"
+    if "_v5_heavy_xl" in filename or "_v5-heavy-xl" in filename:
+        return "v5_heavy_xl"
     if "_v5heavy" in filename or "_v5_heavy" in filename:
         return "v5_heavy"
+    if "_v6_xl" in filename or "_v6-xl" in filename:
+        return "v5_heavy_xl"  # v6-xl is deprecated alias
     if "_v6" in filename:
-        return "v6"
+        return "v5_heavy_large"  # v6 is deprecated alias
     if "_v5" in filename:
         return "v5"
     if "_v4" in filename:

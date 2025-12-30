@@ -423,11 +423,12 @@ TIER_SIGNATURES: dict[tuple[str, int, int], str] = {
     # V5 variants
     ("HexNeuralNet_v5_Heavy", 160, 11): "v5",
     ("RingRiftCNN_v5", 160, 11): "v5",
-    # V6 large models
-    ("HexNeuralNet_v5_Heavy", 256, 18): "v6",
-    ("RingRiftCNN_v6", 256, 18): "v6",
-    # V6-xl extra large
-    ("HexNeuralNet_v5_Heavy", 320, 20): "v6-xl",
+    # V5-heavy-large models (256 filters, 18 blocks)
+    ("HexNeuralNet_v5_Heavy", 256, 18): "v5-heavy-large",
+    ("RingRiftCNN_v5_Heavy", 256, 18): "v5-heavy-large",
+    # V5-heavy-xl extra large (320 filters, 20 blocks)
+    ("HexNeuralNet_v5_Heavy", 320, 20): "v5-heavy-xl",
+    ("RingRiftCNN_v5_Heavy", 320, 20): "v5-heavy-xl",
     # GNN models
     ("GNNPolicyNet", 128, 6): "gnn",
     # V2 legacy models
@@ -444,8 +445,8 @@ TIER_FROM_FILTERS: dict[int, str] = {
     128: "v4",
     160: "v5",
     192: "v3-high",
-    256: "v6",
-    320: "v6-xl",
+    256: "v5-heavy-large",  # Canonical name (v6 was deprecated alias)
+    320: "v5-heavy-xl",     # Canonical name (v6-xl was deprecated alias)
 }
 
 

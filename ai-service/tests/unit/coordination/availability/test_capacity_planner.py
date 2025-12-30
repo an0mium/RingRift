@@ -345,10 +345,10 @@ class TestCapacityPlannerInit:
         assert planner.budget.hourly_limit_usd == 100.0
         assert planner.budget.daily_limit_usd == 1000.0
 
-    def test_daemon_name(self) -> None:
+    def test_name_attribute(self) -> None:
         """Test daemon name."""
         planner = CapacityPlanner()
-        assert planner._get_daemon_name() == "CapacityPlanner"
+        assert planner.name == "CapacityPlanner"
 
 
 class TestCapacityPlannerEventHandlers:

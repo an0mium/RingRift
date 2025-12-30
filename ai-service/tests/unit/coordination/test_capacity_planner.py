@@ -357,15 +357,15 @@ class TestCapacityPlanner:
         assert planner.budget.hourly_limit_usd == 100.0
         assert planner.budget.daily_limit_usd == 1000.0
 
-    def test_get_daemon_name(self) -> None:
-        """Test daemon name."""
+    def test_name_attribute(self) -> None:
+        """Test daemon name attribute (HandlerBase pattern)."""
         planner = CapacityPlanner()
-        assert planner._get_daemon_name() == "CapacityPlanner"
+        assert planner.name == "CapacityPlanner"
 
-    def test_get_default_config(self) -> None:
-        """Test default config creation."""
+    def test_config_property(self) -> None:
+        """Test config property returns CapacityPlannerConfig (HandlerBase pattern)."""
         planner = CapacityPlanner()
-        config = planner._get_default_config()
+        config = planner.config
         assert isinstance(config, CapacityPlannerConfig)
 
     def test_get_event_subscriptions(self) -> None:

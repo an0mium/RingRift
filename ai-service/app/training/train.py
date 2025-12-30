@@ -717,6 +717,9 @@ def detect_tier_from_checkpoint(
         "v3-low": "v3",
         "v5": "v5",
         "v5.1": "v5-heavy",
+        "v5-heavy-large": "v5-heavy",
+        "v5-heavy-xl": "v5-heavy",
+        # Deprecated aliases (use v5-heavy-large, v5-heavy-xl instead)
         "v6": "v5-heavy",
         "v6-xl": "v5-heavy",
         "v2": "v2",
@@ -735,6 +738,9 @@ def detect_tier_from_checkpoint(
             "v3-low": (96, 6),
             "v5": (160, 11),
             "v5.1": (160, 11),
+            "v5-heavy-large": (256, 18),
+            "v5-heavy-xl": (320, 20),
+            # Deprecated aliases
             "v6": (256, 18),
             "v6-xl": (320, 20),
             "v2": (96, 6),
@@ -2086,10 +2092,10 @@ def train_model(
     use_hex_v4 = bool(use_hex_model and model_version == 'v4')
     use_hex_v3 = bool(use_hex_model and model_version in ('v3', 'v3-flat'))
 
-    # December 2025: Detect heuristic feature count from NPZ for v5_heavy/v6 models
+    # December 2025: Detect heuristic feature count from NPZ for v5_heavy models
     # This enables automatic switching between fast (21) and full (49) modes
     detected_num_heuristics: int | None = None
-    if model_version in ('v5', 'v5-gnn', 'v5-heavy', 'v6', 'v6-xl'):
+    if model_version in ('v5', 'v5-gnn', 'v5-heavy', 'v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'):
         if isinstance(data_path, list):
             heuristic_check_path = data_path[0] if data_path else ""
         else:
@@ -2199,7 +2205,7 @@ def train_model(
 
         This catches errors early before expensive model initialization:
         - V5-heavy requires at least 21 heuristic features (fast heuristics)
-        - V6 requires all 49 heuristic features (full heuristics)
+        - V5-heavy-large/xl require all 49 heuristic features (full heuristics)
 
         Raises:
             ValueError: If data is incompatible with selected architecture
@@ -2207,14 +2213,19 @@ def train_model(
         nonlocal detected_num_heuristics
 
         # Only validate for architectures that require heuristics
-        if not (use_hex_v5 or model_version in ('v5', 'v5-gnn', 'v5-heavy', 'v6')):
+        v5_heavy_versions = ('v5', 'v5-gnn', 'v5-heavy', 'v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl')
+        if not (use_hex_v5 or model_version in v5_heavy_versions):
             return
 
         # Import encoder registry to get requirements
         try:
             from app.training.encoder_registry import get_encoder_config
             board_type_name = config.board_type.name if hasattr(config.board_type, 'name') else str(config.board_type)
-            version_key = "v6" if model_version == "v6" else "v5-heavy"
+            # Map to encoder registry key
+            if model_version in ('v5-heavy-large', 'v6'):
+                version_key = "v5-heavy"  # Uses same encoder as v5-heavy
+            else:
+                version_key = "v5-heavy"
             encoder_config = get_encoder_config(board_type_name, version_key)
         except (ValueError, ImportError):
             # Registry doesn't have this config, skip validation
@@ -2228,7 +2239,14 @@ def train_model(
         actual_heuristics = detected_num_heuristics or 0
 
         if actual_heuristics < min_required:
-            version_name = "V6" if model_version == "v6" else "V5-Heavy"
+            # Map model version to human-readable name
+            version_names = {
+                "v6": "V5-Heavy-Large (deprecated alias)",
+                "v6-xl": "V5-Heavy-XL (deprecated alias)",
+                "v5-heavy-large": "V5-Heavy-Large",
+                "v5-heavy-xl": "V5-Heavy-XL",
+            }
+            version_name = version_names.get(model_version, "V5-Heavy")
             raise ValueError(
                 f"\n{'='*70}\n"
                 f"ARCHITECTURE-DATA COMPATIBILITY ERROR\n"
@@ -2252,7 +2270,7 @@ def train_model(
             )
 
     # Run architecture-data compatibility check
-    if use_hex_model or use_hex_v5 or model_version in ('v5', 'v5-gnn', 'v5-heavy', 'v6'):
+    if use_hex_model or use_hex_v5 or model_version in ('v5', 'v5-gnn', 'v5-heavy', 'v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'):
         _validate_architecture_data_compatibility()
 
     if not distributed or is_main_process():
@@ -2282,9 +2300,15 @@ def train_model(
     # Determine model architecture size (allow CLI override for scaling up)
     # Default: 11 blocks / 160 filters for v5, 13 blocks / 128 filters for v4,
     # 12 blocks / 192 filters for v3/hex, 6 blocks / 96 filters for v2
+    # Note: v5-heavy-large/xl use factory defaults from v5_heavy_large.py
     if use_hex_v5 or model_version in ('v5', 'v5-gnn', 'v5-heavy'):
         effective_blocks = num_res_blocks if num_res_blocks is not None else 11  # 6 SE + 5 attention
         effective_filters = num_filters if num_filters is not None else 160  # v5 default
+    elif model_version in ('v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'):
+        # v5-heavy-large/xl use configs from v5_heavy_large.py (256-320 filters)
+        # Don't override effective_blocks/filters - factory handles defaults
+        effective_blocks = num_res_blocks if num_res_blocks is not None else 20  # 10 SE + 10 attention
+        effective_filters = num_filters if num_filters is not None else 256  # Large default
     elif use_hex_v4 or model_version == 'v4':
         effective_blocks = num_res_blocks if num_res_blocks is not None else 13  # NAS optimal
         effective_filters = num_filters if num_filters is not None else 128  # NAS optimal
@@ -2567,31 +2591,36 @@ def train_model(
                 f"policy_size={policy_size}, num_players={v5_num_players}, "
                 f"filters={v5_filters}, use_gnn={use_gnn}, heuristics={heuristic_mode_str}"
             )
-    elif model_version in ('v6', 'v6-xl'):
-        # V6 Large architecture: Scaled-up model for 2000+ Elo (December 2025)
+    elif model_version in ('v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'):
+        # V5 Heavy Large architecture: Scaled-up model for 2000+ Elo (December 2025)
         # Uses same architecture as V5 Heavy but with increased capacity:
-        # - num_filters: 256 (v6) or 320 (v6-xl) vs 160 in v5
+        # - num_filters: 256 (large) or 320 (xl) vs 160 in v5
         # - num_se_blocks: 10-12 vs 6 in v5
         # - num_attention_blocks: 8-10 vs 5 in v5
         # - Full 49 heuristic features
-        from app.ai.neural_net.v6_large import create_v6_model
-        v6_num_players = MAX_PLAYERS if multi_player else num_players
-        v6_variant = "xl" if model_version == "v6-xl" else "large"
+        # Note: "v6" and "v6-xl" are deprecated aliases for backward compatibility
+        from app.ai.neural_net.v5_heavy_large import create_v5_heavy_large
+        large_num_players = MAX_PLAYERS if multi_player else num_players
+        # Map version to variant
+        variant_map = {"v5-heavy-xl": "xl", "v6-xl": "xl"}
+        large_variant = variant_map.get(model_version, "large")
         # Use detected heuristic count from NPZ, or default to full features (49)
-        v6_num_heuristics = detected_num_heuristics if detected_num_heuristics else 49
-        model = create_v6_model(
+        large_num_heuristics = detected_num_heuristics if detected_num_heuristics else 49
+        model = create_v5_heavy_large(
             board_type=config.board_type.name.lower(),
-            num_players=v6_num_players,
-            variant=v6_variant,
-            num_heuristics=v6_num_heuristics,
+            num_players=large_num_players,
+            variant=large_variant,
+            num_heuristics=large_num_heuristics,
             dropout=dropout,
         )
         if not distributed or is_main_process():
             param_count = sum(p.numel() for p in model.parameters())
+            # Use canonical name in logs
+            display_name = f"V5-Heavy-{large_variant.upper()}"
             logger.info(
-                f"Initializing V6 {v6_variant} model for {config.board_type.name}: "
-                f"{param_count:,} parameters, num_players={v6_num_players}, "
-                f"heuristics={v6_num_heuristics}"
+                f"Initializing {display_name} model for {config.board_type.name}: "
+                f"{param_count:,} parameters, num_players={large_num_players}, "
+                f"heuristics={large_num_heuristics}"
             )
     elif multi_player:
         # Multi-player mode: RingRiftCNN_v2 with per-player value head + multi_player_value_loss

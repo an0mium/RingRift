@@ -197,6 +197,17 @@ python scripts/update_all_nodes.py --dry-run
 
 See `ai-service/config/distributed_hosts.yaml` for full cluster configuration.
 
+## Neural Network Architectures
+
+| Version          | Parameters | Description                               |
+| ---------------- | ---------- | ----------------------------------------- |
+| `v2`             | ~2-4M      | Standard architecture (default for most)  |
+| `v4`             | ~3-5M      | Improved residual blocks                  |
+| `v5-heavy`       | ~8-12M     | Wider with heuristic features (49 inputs) |
+| `v5-heavy-large` | ~25-35M    | Scaled v5-heavy for complex boards        |
+
+**Note**: "v6" was a deprecated alias for v5-heavy-large and has been removed (Dec 2025).
+
 ## Key Features
 
 - **GPU Selfplay**: Vectorized game simulation on CUDA (`app/ai/gpu_parallel_games.py`)

@@ -374,10 +374,12 @@ class TestDataConsolidationDaemon:
     @pytest.mark.asyncio
     async def test_health_check_not_running(self, daemon):
         """Test health check when daemon is not running."""
+        from app.coordination.contracts import CoordinatorStatus
+
         health = daemon.health_check()
 
         assert health.healthy is False
-        assert health.status == "degraded"
+        assert health.status == CoordinatorStatus.STOPPED
         assert health.details["running"] is False
 
     @pytest.mark.asyncio
