@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.core.async_context import safe_create_task
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
@@ -405,7 +406,7 @@ class AutoExportDaemon(HandlerBase):
 
         try:
             payload = getattr(event, "payload", {}) or {}
-            config_key = payload.get("config_key") or payload.get("config")
+            config_key = extract_config_key(payload)
             games_generated = payload.get("games_played", payload.get("games_generated", 0))
             if not config_key or not games_generated:
                 return
