@@ -2416,6 +2416,9 @@ class SelfplayScheduler:
         Phase 4A.1 (December 2025): Updates priority weights when curriculum
         feedback adjusts config priorities based on training progress.
 
+        December 30, 2025: Enhanced to handle regression-triggered curriculum
+        updates with factor-based allocation reduction.
+
         December 2025 Guard: Skip events originated by SelfplayScheduler itself
         to prevent echo loops in the event system.
         """
@@ -2428,9 +2431,32 @@ class SelfplayScheduler:
                 logger.debug("[SelfplayScheduler] Skipping self-originated CURRICULUM_REBALANCED")
                 return
 
+            trigger = payload.get("trigger", "")
             config_key = payload.get("config_key", "")
             new_weight = payload.get("weight", 1.0)
             reason = payload.get("reason", "")
+
+            # December 30, 2025: Handle regression-triggered curriculum emergency updates
+            if trigger == "regression_detected":
+                changed_configs = payload.get("changed_configs", [])
+                factor = payload.get("factor", 0.5)
+                elo_loss = payload.get("elo_loss", 0.0)
+
+                for cfg in changed_configs:
+                    if cfg in self._config_priorities:
+                        old_weight = self._config_priorities[cfg].curriculum_weight
+                        new_wt = old_weight * factor
+                        self._config_priorities[cfg].curriculum_weight = new_wt
+                        # Also boost exploration to encourage diversity
+                        self._config_priorities[cfg].exploration_boost = min(
+                            2.0, self._config_priorities[cfg].exploration_boost * 1.5
+                        )
+                        logger.warning(
+                            f"[SelfplayScheduler] Regression-triggered curriculum reduction: "
+                            f"{cfg} weight {old_weight:.2f} → {new_wt:.2f} (factor={factor}, "
+                            f"elo_loss={elo_loss:.0f}), exploration boosted"
+                        )
+                return  # Handled regression case
 
             if config_key in self._config_priorities:
                 old_weight = self._config_priorities[config_key].curriculum_weight
