@@ -382,7 +382,7 @@ class TestEventEmission:
         # Set up voter state for the emit method to access
         daemon._voter_states = {"voter-1": VoterHealthState("voter-1")}
 
-        with patch("app.coordination.voter_health_daemon.emit_data_event") as mock_emit:
+        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
             await daemon._emit_voter_offline("voter-1", "Connection refused")
 
             mock_emit.assert_called_once()
@@ -397,7 +397,7 @@ class TestEventEmission:
         # Set up voter state for the emit method to access
         daemon._voter_states = {"voter-1": VoterHealthState("voter-1")}
 
-        with patch("app.coordination.voter_health_daemon.emit_data_event") as mock_emit:
+        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
             await daemon._emit_voter_online("voter-1", "p2p_http")
 
             mock_emit.assert_called_once()
@@ -416,7 +416,7 @@ class TestEventEmission:
             "v3": VoterHealthState("v3", is_online=False),
         }
 
-        with patch("app.coordination.voter_health_daemon.emit_data_event") as mock_emit:
+        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
             daemon._emit_quorum_lost(online_voters=1, total_voters=3)
 
             mock_emit.assert_called_once()
@@ -428,7 +428,7 @@ class TestEventEmission:
     @pytest.mark.asyncio
     async def test_emit_quorum_restored(self, daemon):
         """Test QUORUM_RESTORED event emission."""
-        with patch("app.coordination.voter_health_daemon.emit_data_event") as mock_emit:
+        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
             daemon._emit_quorum_restored(online_voters=5, total_voters=6)
 
             mock_emit.assert_called_once()
@@ -440,7 +440,7 @@ class TestEventEmission:
     @pytest.mark.asyncio
     async def test_emit_quorum_at_risk(self, daemon):
         """Test QUORUM_AT_RISK event emission."""
-        with patch("app.coordination.voter_health_daemon.emit_data_event") as mock_emit:
+        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
             daemon._emit_quorum_at_risk(online_voters=4, total_voters=5)
 
             mock_emit.assert_called_once()

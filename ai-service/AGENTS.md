@@ -482,3 +482,395 @@ DaemonType.MY_DAEMON: DaemonSpec(
 - **Specifications**: `app/coordination/daemon_registry.py`
 - **Factory runners**: `app/coordination/daemon_runners.py`
 - **Base classes**: `app/coordination/handler_base.py` (550 LOC, 45 tests)
+
+---
+
+## 12. Board Geometry Conventions
+
+RingRift supports multiple board geometries. This section documents the conventions for board types, config keys, and data paths.
+
+### 12.1 Board Type Reference
+
+| Config Key  | Board Type      | Grid Size              | Cell Count | Coordinate System |
+| ----------- | --------------- | ---------------------- | ---------- | ----------------- |
+| `hex8`      | Hexagonal small | Radius 4 (9×9 grid)    | 61         | Axial (q, r)      |
+| `hexagonal` | Hexagonal large | Radius 12 (25×25 grid) | 469        | Axial (q, r)      |
+| `square8`   | Square small    | 8×8                    | 64         | Cartesian (x, y)  |
+| `square19`  | Square large    | 19×19                  | 361        | Cartesian (x, y)  |
+
+All board types support 2, 3, or 4 players. The **config key** format is `{board_type}_{num_players}p`, e.g., `hex8_2p`, `square19_4p`.
+
+### 12.2 Config Key Parsing Utilities
+
+Use the canonical utilities in `app/coordination/event_utils.py`:
+
+```python
+from app.coordination.event_utils import (
+    parse_config_key,
+    make_config_key,
+    ParsedConfigKey,
+)
+
+# Parse config key to components
+parsed = parse_config_key("hex8_2p")
+# -> ParsedConfigKey(board_type='hex8', num_players=2)
+
+# Create config key from components
+key = make_config_key("hex8", 2)
+# -> "hex8_2p"
+
+# Safe parsing with validation
+parsed = parse_config_key("invalid")
+# -> None (returns None on invalid input)
+```
+
+**DO NOT** use inline regex or string splitting to parse config keys. Always use these utilities for:
+
+- Consistent error handling
+- Type-safe return values
+- Centralized validation logic
+
+### 12.3 Hex Coordinate System
+
+Hex boards use **axial coordinates** (q, r):
+
+```
+        (-2, 0)  (-1, 0)  (0, 0)  (1, 0)  (2, 0)
+           (-2, 1)  (-1, 1)  (0, 1)  (1, 1)
+              (-2, 2)  (-1, 2)  (0, 2)
+```
+
+**Key properties:**
+
+- Center cell is always `(0, 0)`
+- `q` increases to the right, `r` increases down-right
+- Neighbors differ by at most ±1 in each coordinate
+- Cell validity: `|q| + |r| + |q+r|/2 <= radius`
+
+**Conversion utilities** in `app/rules/hex_utils.py`:
+
+- `axial_to_cube(q, r)` → (x, y, z) cube coordinates
+- `cube_to_axial(x, y, z)` → (q, r) axial coordinates
+- `axial_distance(q1, r1, q2, r2)` → number of steps between cells
+- `get_hex_neighbors(q, r)` → list of 6 neighbor coordinates
+
+### 12.4 Data Path Conventions
+
+Training data and models follow consistent naming conventions:
+
+**Canonical Databases** (`data/games/`):
+
+```
+canonical_{board_type}.db           # All players for a board type
+canonical_{board_type}_{n}p.db      # Specific player count
+```
+
+Examples: `canonical_hex8.db`, `canonical_square8_2p.db`
+
+**Training NPZ Files** (`data/training/`):
+
+```
+{board_type}_{n}p.npz               # Standard training data
+{board_type}_{n}p_quality.npz       # Quality-filtered data
+{board_type}_{n}p_v{version}.npz    # Versioned training data
+```
+
+**Model Checkpoints** (`models/`):
+
+```
+canonical_{board_type}_{n}p.pth     # Production canonical model
+ringrift_best_{board_type}_{n}p.pth # Symlink to canonical (backward compat)
+{board_type}_{n}p_v{version}.pth    # Versioned model
+```
+
+**Discovery Utilities**:
+
+```python
+from app.utils.game_discovery import GameDiscovery
+
+discovery = GameDiscovery()
+dbs = discovery.find_databases_for_config("hex8", 2)
+# Returns list of DatabaseInfo objects for hex8_2p databases
+```
+
+### 12.5 Board-Specific Constraints
+
+| Board Type  | Max Stack Height | Line Length | Recovery Threshold |
+| ----------- | ---------------- | ----------- | ------------------ |
+| `hex8`      | 4                | 4           | 3 buried pieces    |
+| `hexagonal` | 4                | 4           | 3 buried pieces    |
+| `square8`   | 4                | 4           | 3 buried pieces    |
+| `square19`  | 4                | 5           | 4 buried pieces    |
+
+These are defined in `src/shared/engine/rules/constants.ts` (TypeScript) and mirrored in `app/rules/constants.py` (Python).
+
+---
+
+## 13. Daemon Dependencies
+
+The daemon system has 89+ daemons with complex interdependencies. This section documents the dependency rules and startup ordering.
+
+### 13.1 Startup Order Rules
+
+Daemons must start in dependency order. The key rules are:
+
+1. **EVENT_ROUTER first**: All event-driven daemons depend on the event router
+2. **Subscribers before emitters**: Event subscribers must be running before emitters start
+3. **Infrastructure before application**: Core daemons (health, config) before feature daemons
+
+The canonical startup order in `master_loop.py`:
+
+```python
+DAEMON_STARTUP_ORDER = [
+    DaemonType.EVENT_ROUTER,           # 1. Event infrastructure
+    DaemonType.HEALTH_SERVER,          # 2. Health monitoring
+    DaemonType.FEEDBACK_LOOP,          # 3. Event subscribers
+    DaemonType.DATA_PIPELINE,          # 4. Pipeline orchestration
+    DaemonType.SELFPLAY_COORDINATOR,   # 5. Work coordination
+    DaemonType.AUTO_SYNC,              # 6. Data sync (emits events)
+    DaemonType.MODEL_DISTRIBUTION,     # 7. Model distribution
+    # ... remaining daemons
+]
+```
+
+### 13.2 Declaring Dependencies
+
+Dependencies are declared in `DaemonSpec` via the `depends_on` field:
+
+```python
+from app.coordination.daemon_registry import DaemonSpec
+from app.coordination.daemon_types import DaemonType
+
+# In daemon_registry.py
+DaemonType.MY_DAEMON: DaemonSpec(
+    runner_name="create_my_daemon",
+    depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE),
+    category="my_category",
+),
+```
+
+The `DaemonManager` will:
+
+1. Validate all dependencies exist
+2. Start dependencies before dependents
+3. Block startup if circular dependencies detected
+
+### 13.3 Common Dependency Patterns
+
+| Daemon Category   | Typical Dependencies                    | Purpose                  |
+| ----------------- | --------------------------------------- | ------------------------ |
+| Event emitters    | `EVENT_ROUTER`                          | Emit events to bus       |
+| Event subscribers | `EVENT_ROUTER`, emitters                | React to events          |
+| Training daemons  | `DATA_PIPELINE`, `SELFPLAY_COORDINATOR` | Access training data     |
+| Sync daemons      | `EVENT_ROUTER`, `DATA_PIPELINE`         | Coordinate data movement |
+| Health monitors   | `HEALTH_SERVER`                         | Report health status     |
+| Resource managers | `NODE_AVAILABILITY`, `CLUSTER_MONITOR`  | Manage cluster resources |
+
+### 13.4 Critical Daemons
+
+Some daemons are marked as **critical** in `daemon_types.py`. Critical daemons:
+
+- Have faster health checks (15s vs 60s)
+- Trigger alerts when unhealthy
+- Block cluster operation if not running
+
+```python
+CRITICAL_DAEMONS = {
+    DaemonType.EVENT_ROUTER,
+    DaemonType.DATA_PIPELINE,
+    DaemonType.SELFPLAY_COORDINATOR,
+    DaemonType.AUTO_SYNC,
+    DaemonType.FEEDBACK_LOOP,
+}
+```
+
+### 13.5 Debugging Dependency Issues
+
+Common symptoms and solutions:
+
+| Symptom                        | Likely Cause                     | Solution                      |
+| ------------------------------ | -------------------------------- | ----------------------------- |
+| "Event not delivered"          | Subscriber started after emitter | Check startup order           |
+| "Daemon timeout waiting for X" | Circular dependency              | Review `depends_on` chain     |
+| "Health check failed"          | Dependency daemon crashed        | Check dependency health first |
+| "Pipeline stuck at stage X"    | Missing stage handler            | Verify handler subscription   |
+
+**Debug commands:**
+
+```bash
+# Check daemon startup order
+python -c "from app.coordination.daemon_registry import get_startup_order; print(get_startup_order())"
+
+# Check specific daemon dependencies
+python -c "from app.coordination.daemon_registry import DAEMON_REGISTRY; print(DAEMON_REGISTRY[DaemonType.MY_DAEMON].depends_on)"
+
+# Verify event subscriptions
+curl -s http://localhost:8790/status | jq '.event_subscriptions'
+```
+
+### 13.6 Adding New Dependencies
+
+When adding a new daemon with dependencies:
+
+1. Add the dependency to `DaemonSpec.depends_on`
+2. Test startup with `python scripts/master_loop.py --dry-run`
+3. Verify no circular dependencies via `scripts/audit_circular_deps.py`
+4. Update `DAEMON_STARTUP_ORDER` if manual ordering needed
+5. Document the dependency reason in comments
+
+---
+
+## 14. Training Feedback Loop Reference
+
+The training pipeline uses event-driven feedback loops to optimize model quality. This section documents the key event chains and configuration.
+
+### 14.1 Feedback Loop Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        Training Feedback Loop                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Selfplay ──► NEW_GAMES_AVAILABLE ──► DataPipeline                  │
+│                                            │                         │
+│                                            ▼                         │
+│                                   TRAINING_THRESHOLD_REACHED         │
+│                                            │                         │
+│                                            ▼                         │
+│                                      Training                        │
+│                                            │                         │
+│                                            ▼                         │
+│                               TRAINING_COMPLETED                     │
+│                                            │                         │
+│                                            ▼                         │
+│                                      Evaluation                      │
+│                                            │                         │
+│                              ┌─────────────┴─────────────┐          │
+│                              ▼                           ▼          │
+│                    EVALUATION_COMPLETED         REGRESSION_DETECTED │
+│                              │                           │          │
+│                              ▼                           ▼          │
+│                       MODEL_PROMOTED          Curriculum Adjustment │
+│                              │                                      │
+│                              ▼                                      │
+│                        Distribution                                 │
+│                              │                                      │
+│                              ▼                                      │
+│                   Curriculum Rebalance ──► Back to Selfplay        │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 14.2 Key Event Chains
+
+| Event                        | Emitter             | Subscribers                      | Purpose                  |
+| ---------------------------- | ------------------- | -------------------------------- | ------------------------ |
+| `NEW_GAMES_AVAILABLE`        | AutoExportDaemon    | DataPipeline, TrainingTrigger    | New selfplay data ready  |
+| `TRAINING_THRESHOLD_REACHED` | TrainingTrigger     | TrainingCoordinator              | Enough data for training |
+| `TRAINING_COMPLETED`         | TrainingCoordinator | FeedbackLoop, Evaluation         | Training finished        |
+| `EVALUATION_COMPLETED`       | EvaluationDaemon    | CurriculumIntegration, Scheduler | Model evaluated          |
+| `MODEL_PROMOTED`             | PromotionController | Distribution, Curriculum         | Model passed gauntlet    |
+| `REGRESSION_DETECTED`        | RegressionDetector  | Curriculum, TrainingCoordinator  | Model regressed          |
+| `REGRESSION_CRITICAL`        | RegressionDetector  | DaemonManager, Alert             | Severe regression        |
+| `PROGRESS_STALL_DETECTED`    | ProgressWatchdog    | Scheduler, Recovery              | Elo stalled >24h         |
+| `QUALITY_PENALTY`            | QualityMonitor      | CurriculumIntegration            | Low quality selfplay     |
+
+### 14.3 Threshold Configuration
+
+Training thresholds are centralized in `app/config/thresholds.py`:
+
+```python
+from app.config.thresholds import (
+    TrainingThresholds,
+    QualityThresholds,
+    EvaluationThresholds,
+)
+
+# Training triggers
+TrainingThresholds.MIN_SAMPLES = 5000          # Minimum samples for training
+TrainingThresholds.CONFIDENCE_MIN_SAMPLES = 1000  # Early trigger with high confidence
+TrainingThresholds.CONFIDENCE_TARGET = 0.95    # 95% confidence interval
+
+# Quality gates
+QualityThresholds.MIN_GAME_LENGTH = 10         # Games shorter than this are suspect
+QualityThresholds.HIGH_QUALITY_SCORE = 0.8     # High quality threshold
+QualityThresholds.BLOCKED_QUALITY_SCORE = 0.3  # Quality below this blocks training
+
+# Evaluation
+EvaluationThresholds.MIN_WIN_RATE_VS_RANDOM = 0.85   # Must beat random 85%
+EvaluationThresholds.MIN_WIN_RATE_VS_HEURISTIC = 0.60  # Must beat heuristic 60%
+```
+
+### 14.4 Regression Handling
+
+Regression detection has severity levels:
+
+| Severity   | Elo Drop | Response                             |
+| ---------- | -------- | ------------------------------------ |
+| `MINOR`    | 10-25    | Log warning, continue                |
+| `MODERATE` | 25-50    | Increase selfplay for config         |
+| `SEVERE`   | 50-100   | Block promotion, boost exploration   |
+| `CRITICAL` | >100     | Rollback model, emergency curriculum |
+
+**Configuration in `coordination_defaults.py`:**
+
+```python
+from app.config.coordination_defaults import RegressionConfig
+
+RegressionConfig.MINOR_THRESHOLD = 25
+RegressionConfig.MODERATE_THRESHOLD = 50
+RegressionConfig.SEVERE_THRESHOLD = 100
+RegressionConfig.CRITICAL_THRESHOLD = 150
+RegressionConfig.ROLLBACK_ON_CRITICAL = True
+```
+
+### 14.5 Curriculum Feedback
+
+When events indicate problems, curriculum weights adjust automatically:
+
+| Event                             | Weight Adjustment | Effect                               |
+| --------------------------------- | ----------------- | ------------------------------------ |
+| `REGRESSION_DETECTED`             | +50% to config    | More selfplay for regressed config   |
+| `QUALITY_PENALTY`                 | -30% to config    | Less selfplay until quality improves |
+| `PROGRESS_STALL_DETECTED`         | +100% to config   | Double allocation for stalled config |
+| `EVALUATION_COMPLETED` (high Elo) | -20% to config    | Reduce allocation for strong configs |
+
+**Subscribing to curriculum events:**
+
+```python
+from app.coordination.curriculum_integration import CurriculumSignalBridge
+
+# The bridge listens to events and adjusts weights
+bridge = CurriculumSignalBridge.get_instance()
+bridge.wire_to_event_router()  # Called during bootstrap
+
+# Manual weight adjustment (usually not needed)
+from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+scheduler = get_selfplay_scheduler()
+scheduler.boost_config_priority("hex8_2p", multiplier=1.5, duration_hours=4)
+```
+
+### 14.6 Monitoring Feedback Loops
+
+**Health endpoint:**
+
+```bash
+curl -s http://localhost:8790/status | jq '.feedback_loop'
+# Returns: last_event, pending_actions, backpressure_active, etc.
+```
+
+**Key metrics:**
+
+- `feedback_loop.events_processed` - Total events handled
+- `feedback_loop.curriculum_adjustments` - Weight changes made
+- `feedback_loop.regressions_detected` - Regression count
+- `pipeline.stage_latencies` - Time per pipeline stage
+
+**Troubleshooting:**
+
+| Issue                    | Check                         | Solution                             |
+| ------------------------ | ----------------------------- | ------------------------------------ |
+| No training triggers     | `training_trigger` events     | Verify NEW_GAMES_AVAILABLE emitted   |
+| Evaluation stuck         | `evaluation_daemon` queue     | Check backpressure, GPU availability |
+| Curriculum not adjusting | `curriculum_integration` logs | Verify event subscriptions wired     |
+| Model not promoted       | Gauntlet win rates            | Check evaluation thresholds          |

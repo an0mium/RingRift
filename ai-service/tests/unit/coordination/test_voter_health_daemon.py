@@ -56,8 +56,8 @@ def daemon(config: VoterHealthConfig) -> VoterHealthMonitorDaemon:
 @pytest.fixture
 def mock_cluster_config():
     """Mock the cluster config module."""
-    with patch("app.coordination.voter_health_daemon.get_p2p_voters") as mock_voters, \
-         patch("app.coordination.voter_health_daemon.load_cluster_config") as mock_config:
+    with patch("app.config.cluster_config.get_p2p_voters") as mock_voters, \
+         patch("app.config.cluster_config.load_cluster_config") as mock_config:
         # Set up voter list
         mock_voters.return_value = [
             "voter1",
@@ -294,7 +294,7 @@ class TestVoterLoading:
     def test_load_voters_error_handling(self, daemon: VoterHealthMonitorDaemon):
         """Test error handling when loading voters fails."""
         with patch(
-            "app.coordination.voter_health_daemon.get_p2p_voters",
+            "app.config.cluster_config.get_p2p_voters",
             side_effect=ImportError("Module not found"),
         ):
             daemon._load_voters()
@@ -647,7 +647,7 @@ class TestEventEmission:
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "VOTER_OFFLINE"
+            assert call_args[0][0].value == "voter_offline"
             assert call_args[1]["voter_id"] == "voter1"
             assert call_args[1]["reason"] == "connection_failed"
 
@@ -661,7 +661,7 @@ class TestEventEmission:
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "VOTER_ONLINE"
+            assert call_args[0][0].value == "voter_online"
             assert call_args[1]["voter_id"] == "voter1"
             assert call_args[1]["transport"] == "p2p_http"
 
@@ -675,7 +675,7 @@ class TestEventEmission:
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "QUORUM_LOST"
+            assert call_args[0][0].value == "quorum_lost"
             assert call_args[1]["online_voters"] == 3
             assert call_args[1]["total_voters"] == 5
 
@@ -688,18 +688,18 @@ class TestEventEmission:
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "QUORUM_RESTORED"
+            assert call_args[0][0].value == "quorum_restored"
 
     def test_emit_quorum_at_risk(self, daemon: VoterHealthMonitorDaemon, mock_cluster_config):
         """Test QUORUM_AT_RISK event emission."""
         daemon._load_voters()
 
-        with patch("app.coordination.voter_health_daemon.emit_data_event") as mock_emit:
+        with patch("app.distributed.data_events.emit_data_event") as mock_emit:
             daemon._emit_quorum_at_risk(4, 5)
 
             mock_emit.assert_called_once()
             call_args = mock_emit.call_args
-            assert call_args[0][0].value == "QUORUM_AT_RISK"
+            assert call_args[0][0].value == "quorum_at_risk"
             assert call_args[1]["margin"] == 0  # 4 - 4 (quorum_size)
 
     @pytest.mark.asyncio
@@ -708,7 +708,7 @@ class TestEventEmission:
         daemon._load_voters()
 
         with patch(
-            "app.coordination.voter_health_daemon.emit_data_event",
+            "app.distributed.data_events.emit_data_event",
             side_effect=ImportError("Module not found"),
         ):
             # Should not raise
