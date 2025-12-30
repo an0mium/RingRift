@@ -878,9 +878,10 @@ class AutoExportDaemon(HandlerBase):
             from app.coordination.event_router import get_event_bus
 
             state = self._export_states.get(config_key)
-            parts = config_key.rsplit("_", 1)
-            board_type = parts[0] if len(parts) == 2 else config_key
-            num_players = int(parts[1].replace("p", "")) if len(parts) == 2 else 2
+            # Dec 30, 2025: Use consolidated parse_config_key utility
+            parsed = parse_config_key(config_key)
+            board_type = parsed.board_type if parsed else config_key
+            num_players = parsed.num_players if parsed else 2
 
             event = DataEvent(
                 event_type=DataEventType.NEW_GAMES_AVAILABLE,

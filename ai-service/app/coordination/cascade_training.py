@@ -29,6 +29,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.coordination.event_utils import parse_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 if TYPE_CHECKING:
@@ -530,15 +531,13 @@ class CascadeTrainingOrchestrator(HandlerBase):
         Returns a multiplier (1.0 = normal, >1.0 = boosted).
         Configs that are blocking cascade advancement get boosted.
         """
-        parts = config_key.rsplit("_", 1)
-        if len(parts) != 2:
+        # Dec 30, 2025: Use consolidated parse_config_key utility
+        parsed = parse_config_key(config_key)
+        if not parsed:
             return 1.0
 
-        board_type = parts[0]
-        try:
-            num_players = int(parts[1].rstrip("p"))
-        except ValueError:
-            return 1.0
+        board_type = parsed.board_type
+        num_players = parsed.num_players
 
         if board_type not in self._states:
             return 1.0

@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from app.coordination.event_utils import parse_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
@@ -244,13 +245,13 @@ class ArchitectureFeedbackController(HandlerBase):
         try:
             from app.training.architecture_tracker import get_allocation_weights
 
-            # Parse config key
-            parts = config_key.rsplit("_", 1)
-            if len(parts) != 2:
+            # Dec 30, 2025: Use consolidated parse_config_key utility
+            parsed = parse_config_key(config_key)
+            if not parsed:
                 return
 
-            board_type = parts[0]
-            num_players = int(parts[1].rstrip("p"))
+            board_type = parsed.board_type
+            num_players = parsed.num_players
 
             # Get raw weights from tracker
             raw_weights = get_allocation_weights(
