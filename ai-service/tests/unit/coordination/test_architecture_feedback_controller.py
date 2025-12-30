@@ -199,9 +199,9 @@ class TestOnEvaluationCompleted:
         controller = ArchitectureFeedbackController()
 
         with patch(
-            "app.coordination.architecture_feedback_controller.get_architecture_tracker"
+            "app.training.architecture_tracker.get_architecture_tracker"
         ) as mock_get_tracker, patch(
-            "app.coordination.architecture_feedback_controller.extract_architecture_from_model_path",
+            "app.training.architecture_tracker.extract_architecture_from_model_path",
             return_value="v5",
         ):
             mock_tracker = MagicMock()

@@ -42,6 +42,7 @@ __all__ = [
     "QualityMonitorDaemon",
     "create_quality_monitor",
     "get_quality_monitor",
+    "get_quality_daemon",  # Alias for selfplay_scheduler.py compatibility
     "reset_quality_monitor",
 ]
 
@@ -558,6 +559,22 @@ class QualityMonitorDaemon(HandlerBase):
             details=self.get_status(),
         )
 
+    def get_quality_for_config(self, config_key: str) -> float | None:
+        """Get quality score for a specific config.
+
+        Used by SelfplayScheduler to weight allocation by quality.
+        Returns cached per-config quality if available, otherwise None.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+
+        Returns:
+            Quality score (0.0-1.0) or None if not available
+
+        December 29, 2025: Added for quality-weighted selfplay allocation.
+        """
+        return self._config_quality.get(config_key)
+
 
 async def create_quality_monitor() -> None:
     """Factory function for DaemonManager integration.
@@ -591,6 +608,10 @@ def get_quality_monitor() -> QualityMonitorDaemon:
     December 2025: Added for consistency with other daemon accessors.
     """
     return QualityMonitorDaemon.get_instance()
+
+
+# Alias for backward compatibility with selfplay_scheduler.py
+get_quality_daemon = get_quality_monitor
 
 
 def reset_quality_monitor() -> None:

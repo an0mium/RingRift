@@ -636,7 +636,35 @@ class EvaluationDaemon(BaseEventHandler):
         board_type: str,
         num_players: int,
     ) -> dict[str, Any]:
-        """Run baseline gauntlet with optional early stopping."""
+        """Run baseline gauntlet with optional early stopping.
+
+        December 30, 2025: Added multi-harness evaluation support.
+        When config.enable_multi_harness is True, uses MultiHarnessGauntlet
+        to evaluate under multiple algorithms (GUMBEL_MCTS, MINIMAX, etc.)
+        and produces composite participant IDs for per-(model, harness) Elo tracking.
+        """
+        # December 30, 2025: Use multi-harness evaluation if enabled
+        if self.config.enable_multi_harness:
+            return await self._run_multi_harness_gauntlet(
+                model_path=model_path,
+                board_type=board_type,
+                num_players=num_players,
+            )
+
+        # Fallback to baseline-only gauntlet
+        return await self._run_baseline_only_gauntlet(
+            model_path=model_path,
+            board_type=board_type,
+            num_players=num_players,
+        )
+
+    async def _run_baseline_only_gauntlet(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, Any]:
+        """Run baseline-only gauntlet (original behavior)."""
         # Map baseline names to enum values
         baseline_map = {
             "random": BaselineOpponent.RANDOM,
@@ -680,6 +708,86 @@ class EvaluationDaemon(BaseEventHandler):
         else:
             return {"overall_win_rate": 0.0, "opponent_results": {}}
 
+    async def _run_multi_harness_gauntlet(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, Any]:
+        """Run multi-harness gauntlet for richer evaluation.
+
+        December 30, 2025: Evaluates model under multiple harnesses to:
+        1. Find best (model, harness) combination
+        2. Track composite participant Elos
+        3. Inform architecture allocation decisions
+        """
+        try:
+            from app.training.multi_harness_gauntlet import MultiHarnessGauntlet
+            from app.training.composite_participant import make_composite_participant_id
+            from pathlib import Path
+
+            gauntlet = MultiHarnessGauntlet(
+                default_games_per_baseline=self.config.games_per_baseline,
+                default_baselines=self.config.baselines,
+            )
+
+            # Run multi-harness evaluation
+            result = await asyncio.wait_for(
+                gauntlet.evaluate_model(
+                    model_path=model_path,
+                    board_type=board_type,
+                    num_players=num_players,
+                ),
+                timeout=self.config.evaluation_timeout_seconds * 2,  # Extra time for multiple harnesses
+            )
+
+            # Convert to dict format expected by event emission
+            harness_results = {}
+            composite_ids = []
+            best_elo = 0.0
+            best_harness = None
+
+            for harness, rating in result.harness_results.items():
+                harness_name = harness.value if hasattr(harness, "value") else str(harness)
+
+                # Create composite participant ID for this (model, harness) combination
+                model_name = Path(model_path).stem
+                composite_id = make_composite_participant_id(
+                    nn_id=model_name,
+                    ai_type=harness_name,
+                    config={"games": rating.games_played},
+                )
+                composite_ids.append(composite_id)
+
+                harness_results[harness_name] = {
+                    "elo": rating.elo,
+                    "win_rate": rating.win_rate,
+                    "games_played": rating.games_played,
+                    "composite_participant_id": composite_id,
+                }
+
+                if rating.elo > best_elo:
+                    best_elo = rating.elo
+                    best_harness = harness_name
+
+            return {
+                "overall_win_rate": result.harness_results[result.best_harness].win_rate if result.best_harness else 0.0,
+                "opponent_results": {},  # Not applicable for multi-harness
+                "harness_results": harness_results,
+                "best_harness": best_harness,
+                "best_elo": best_elo,
+                "composite_participant_ids": composite_ids,
+                "is_multi_harness": True,
+                "total_games": result.total_games,
+            }
+
+        except ImportError as e:
+            logger.warning(f"[EvaluationDaemon] Multi-harness not available: {e}, falling back to baseline")
+            return await self._run_baseline_only_gauntlet(model_path, board_type, num_players)
+        except (TimeoutError, asyncio.TimeoutError):
+            logger.warning("[EvaluationDaemon] Multi-harness timed out, falling back to baseline")
+            return await self._run_baseline_only_gauntlet(model_path, board_type, num_players)
+
     async def _emit_evaluation_completed(
         self,
         model_path: str,
@@ -687,9 +795,22 @@ class EvaluationDaemon(BaseEventHandler):
         num_players: int,
         result: dict,
     ) -> None:
-        """Emit EVALUATION_COMPLETED event."""
+        """Emit EVALUATION_COMPLETED event.
+
+        December 30, 2025: Extended to include composite_participant_ids and
+        harness_results for multi-harness evaluation support.
+        """
         try:
             from app.coordination.event_emitters import emit_evaluation_completed
+
+            # Calculate total games played
+            if result.get("is_multi_harness"):
+                games_played = result.get("total_games", 0)
+            else:
+                games_played = sum(
+                    opp.get("games_played", 0)
+                    for opp in result.get("opponent_results", {}).values()
+                )
 
             await emit_evaluation_completed(
                 model_path=model_path,
@@ -697,10 +818,13 @@ class EvaluationDaemon(BaseEventHandler):
                 num_players=num_players,
                 win_rate=result.get("overall_win_rate", 0.0),
                 opponent_results=result.get("opponent_results", {}),
-                games_played=sum(
-                    opp.get("games_played", 0)
-                    for opp in result.get("opponent_results", {}).values()
-                ),
+                games_played=games_played,
+                # December 30, 2025: Multi-harness extensions
+                harness_results=result.get("harness_results"),
+                best_harness=result.get("best_harness"),
+                best_elo=result.get("best_elo"),
+                composite_participant_ids=result.get("composite_participant_ids"),
+                is_multi_harness=result.get("is_multi_harness", False),
             )
         except ImportError:
             logger.debug("[EvaluationDaemon] Event emitters not available")
