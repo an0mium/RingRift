@@ -89,6 +89,17 @@ hosts:
     status: ready
 ```
 
+### cloudflared-config.yaml
+
+**Purpose**: Cloudflare Tunnel ingress rules for public entrypoints (`dashboard.ringrift.ai`, `p2p.ringrift.ai`, `queue.ringrift.ai`).
+
+**Location**: `config/cloudflared-config.yaml` (deploy to `/etc/cloudflared/config.yaml` on tunnel nodes)
+
+**Notes**:
+
+- Token-based service install via `scripts/setup_cloudflare_tunnel.sh`.
+- This file is consumed by `cloudflared` (not by the Python app).
+
 ### unified_loop.yaml
 
 **Purpose**: Master configuration for the automated training loop.

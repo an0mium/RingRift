@@ -66,6 +66,11 @@ tailscale --socket=/var/run/tailscale/tailscaled.sock up \
 
 **How it works:** Each node runs `cloudflared` tunnel, exposing P2P API via Cloudflare's edge network.
 
+**Production note:** The current cluster entrypoint uses a named tunnel (`ringrift-cluster`)
+on backbone nodes, configured via `ai-service/config/cloudflared-config.yaml` and deployed
+with `ai-service/scripts/setup_cloudflare_tunnel.sh`. The steps below apply to per-node
+or experimental tunnels.
+
 **Pros:**
 
 - No firewall changes needed
@@ -89,7 +94,7 @@ cloudflared tunnel login
 cloudflared tunnel create ringrift-p2p
 ```
 
-2. **Configure tunnel** (`~/.cloudflared/config.yml`):
+2. **Configure tunnel** (`~/.cloudflared/config.yml` for per-node tunnels):
 
 ```yaml
 tunnel: <TUNNEL_UUID>
@@ -114,13 +119,11 @@ cloudflared tunnel run ringrift-p2p
 cloudflared tunnel run ringrift-p2p
 ```
 
-4. **Update P2P config** to use Cloudflare hostnames:
+4. **Update P2P clients** to use Cloudflare hostnames:
 
-```yaml
-# distributed_hosts.yaml
-runpod-h100:
-  p2p_url: https://runpod-h100.ringrift.example.com
-  # or use Cloudflare Access with WARP
+```bash
+export RINGRIFT_P2P_URL="https://p2p.ringrift.ai"
+export RINGRIFT_P2P_SEEDS="https://p2p.ringrift.ai,http://<coordinator_ip>:8770"
 ```
 
 **Estimated Latency:** 50-150ms (through Cloudflare edge)
@@ -297,27 +300,23 @@ tailscale:
     - tag:vast-nodes
 ```
 
-### 2. Cloudflare Tunnel Config
+### 2. Cloudflare Tunnel Config (Entry Point)
 
 ```yaml
-# config/cloudflare-tunnel.yaml
-tunnel: <uuid>
-credentials-file: /etc/cloudflared/<uuid>.json
+# ai-service/config/cloudflared-config.yaml (deploy to /etc/cloudflared/config.yaml)
 ingress:
-  - hostname: p2p.ringrift.example.com
-    service: http://localhost:8770
+  - hostname: p2p.ringrift.ai
+    service: http://127.0.0.1:8770
   - service: http_status:404
 ```
 
-### 3. P2P Discovery Update
+Token is provided via the Cloudflare service install (see `scripts/setup_cloudflare_tunnel.sh`).
 
-```yaml
-# config/distributed_hosts.yaml additions
-p2p_discovery:
-  methods:
-    - tailscale # Primary
-    - cloudflare # Fallback
-  cloudflare_endpoint: https://p2p.ringrift.example.com
+### 3. P2P Seed Configuration
+
+```bash
+export RINGRIFT_P2P_SEEDS="https://p2p.ringrift.ai,http://<coordinator_ip>:8770"
+python scripts/p2p_orchestrator.py --node-id <node-name> --peers "$RINGRIFT_P2P_SEEDS"
 ```
 
 ---
