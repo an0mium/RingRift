@@ -349,8 +349,8 @@ class PeerCleanupLoop(BaseLoop):
         """Check if peer is considered alive."""
         if hasattr(peer, "is_alive"):
             return bool(peer.is_alive)
-        if isinstance(peer, dict):
-            return bool(peer.get("is_alive", False))
+        if isinstance(peer, dict) and "is_alive" in peer:
+            return bool(peer["is_alive"])
         # Fallback: check last_heartbeat recency
         last_heartbeat = self._get_peer_heartbeat(peer)
         if last_heartbeat > 0:
