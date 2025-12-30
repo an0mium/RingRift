@@ -460,9 +460,12 @@ class MaintenanceDaemon:
                 # Get size before
                 size_before = db_path.stat().st_size
 
-                # Use context manager to ensure connection is always closed
-                with sqlite3.connect(str(db_path)) as conn:
-                    conn.execute("VACUUM")
+                # December 2025: Run blocking VACUUM in thread pool to avoid blocking event loop
+                def _vacuum_sync(path: str) -> None:
+                    with sqlite3.connect(path) as conn:
+                        conn.execute("VACUUM")
+
+                await asyncio.to_thread(_vacuum_sync, str(db_path))
 
                 # Get size after
                 size_after = db_path.stat().st_size

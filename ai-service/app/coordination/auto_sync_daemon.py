@@ -1414,20 +1414,23 @@ class AutoSyncDaemon(
                 continue
 
             try:
-                with sqlite3.connect(db_path, timeout=5) as conn:
-                    cursor = conn.cursor()
+                # December 2025: Run blocking SQLite operations in thread pool
+                def _query_games_sync(path: str) -> tuple:
+                    with sqlite3.connect(path, timeout=5) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "SELECT board_type, num_players FROM games LIMIT 1"
+                        )
+                        row = cursor.fetchone()
+                        board_type = row[0] if row else None
+                        num_players = row[1] if row else None
+                        cursor.execute("SELECT game_id FROM games")
+                        game_ids = [r[0] for r in cursor.fetchall()]
+                    return board_type, num_players, game_ids
 
-                    # Get board type and num_players
-                    cursor.execute(
-                        "SELECT board_type, num_players FROM games LIMIT 1"
-                    )
-                    row = cursor.fetchone()
-                    board_type = row[0] if row else None
-                    num_players = row[1] if row else None
-
-                    # Get game IDs
-                    cursor.execute("SELECT game_id FROM games")
-                    game_ids = [r[0] for r in cursor.fetchall()]
+                board_type, num_players, game_ids = await asyncio.to_thread(
+                    _query_games_sync, str(db_path)
+                )
 
                 if game_ids:
                     # Register games in batch
@@ -1480,10 +1483,13 @@ class AutoSyncDaemon(
                 continue
 
             try:
-                # Dec 2025: Use context manager to ensure connection is closed
-                with sqlite3.connect(db_path) as conn:
-                    cursor = conn.execute("SELECT COUNT(*) FROM games")
-                    total_games += cursor.fetchone()[0]
+                # Dec 2025: Run blocking count query in thread pool
+                def _count_games_sync(path: str) -> int:
+                    with sqlite3.connect(path) as conn:
+                        cursor = conn.execute("SELECT COUNT(*) FROM games")
+                        return cursor.fetchone()[0]
+
+                total_games += await asyncio.to_thread(_count_games_sync, str(db_path))
             except (OSError, RuntimeError) as e:
                 logger.debug(f"Failed to count games in {db_path}: {e}")
 
