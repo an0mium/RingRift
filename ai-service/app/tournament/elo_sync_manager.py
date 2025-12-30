@@ -615,11 +615,21 @@ print(f'Inserted {len(new_matches)} matches')
         """Get current sync status."""
         base_status = super().get_status()
         base_status.update({
+            "initialized": getattr(self, "_initialized", False),
             "local_matches": self._elo_state.local_record_count,
             "last_sync": self._elo_state.last_sync_timestamp,
             "synced_from": self._elo_state.synced_from,
             "db_hash": self._elo_state.local_hash,
             "nodes_known": len(self.nodes),
+            "nodes_list": list(self.nodes.keys()),
+            "nodes_details": {
+                name: {
+                    "tailscale_ip": node.tailscale_ip,
+                    "ssh_host": node.ssh_host,
+                    "http_url": node.http_url,
+                }
+                for name, node in list(self.nodes.items())[:10]  # Limit output
+            },
             "coordinator": self.coordinator_host,
             "recent_errors": self._elo_state.sync_errors[-5:],
             "total_syncs": self._elo_state.total_syncs,

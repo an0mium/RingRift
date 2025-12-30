@@ -421,6 +421,23 @@ class P2PFallbackSync:
         self._p2p_capable_hosts[host] = is_available
         return is_available
 
+    def _count_games_in_dir(self, local_dir: Path) -> int:
+        """Count games in all database files in directory (blocking).
+
+        Called via asyncio.to_thread() to avoid blocking the event loop.
+        """
+        games = 0
+        for db_file in local_dir.glob("*.db"):
+            try:
+                conn = sqlite3.connect(db_file)
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM games")
+                games += cursor.fetchone()[0]
+                conn.close()
+            except (sqlite3.Error, OSError):
+                pass
+        return games
+
     async def sync_with_fallback(
         self,
         host: str,
@@ -460,17 +477,8 @@ class P2PFallbackSync:
             )
 
             if process.returncode == 0:
-                # Count synced games
-                games = 0
-                for db_file in local_dir.glob("*.db"):
-                    try:
-                        conn = sqlite3.connect(db_file)
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT COUNT(*) FROM games")
-                        games += cursor.fetchone()[0]
-                        conn.close()
-                    except (sqlite3.Error, OSError):
-                        pass
+                # Count synced games (run blocking SQLite in thread)
+                games = await asyncio.to_thread(self._count_games_in_dir, local_dir)
                 return True, games, "ssh"
 
         except asyncio.TimeoutError:
@@ -490,17 +498,8 @@ class P2PFallbackSync:
             )
 
             if result.success:
-                # Count synced games
-                games = 0
-                for db_file in local_dir.glob("*.db"):
-                    try:
-                        conn = sqlite3.connect(db_file)
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT COUNT(*) FROM games")
-                        games += cursor.fetchone()[0]
-                        conn.close()
-                    except (sqlite3.Error, OSError):
-                        pass
+                # Count synced games (run blocking SQLite in thread)
+                games = await asyncio.to_thread(self._count_games_in_dir, local_dir)
                 return True, games, "p2p_http"
             else:
                 logger.error(f"P2P fallback failed for {host}: {result.errors}")
