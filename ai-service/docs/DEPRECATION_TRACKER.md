@@ -292,7 +292,7 @@ When deprecating a module:
 
 ## See Also
 
-- `docs/DEPRECATION_ROADMAP.md` - Detailed roadmap with migration guides
-- `docs/DEPRECATION_TIMELINE.md` - Timeline with phase planning
+- `DEPRECATION_ROADMAP.md` - Detailed roadmap with migration guides
+- `DEPRECATION_TIMELINE.md` - Timeline with phase planning
 - `archive/deprecated_coordination/README.md` - Archive documentation
 - `CLAUDE.md` - Main documentation with deprecation notes

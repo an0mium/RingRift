@@ -312,5 +312,5 @@ If loss spikes or diverges:
 ## See Also
 
 - `CLAUDE.md` - Main documentation
-- `docs/TRAINING_GUIDE.md` - Full training documentation
+- `../../docs/ai/AI_TRAINING_AND_DATASETS.md` - Full training documentation
 - `app/training/train.py` - Training implementation

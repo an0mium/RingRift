@@ -2,15 +2,15 @@
 
 ## Quick Reference
 
-| Use Case              | Script                       | When to Use                                          |
-| --------------------- | ---------------------------- | ---------------------------------------------------- |
-| **Full AI Loop**      | `master_loop.py`             | Production deployment, continuous improvement        |
-| **P2P Cluster**       | `p2p_orchestrator.py`        | Multi-node P2P coordination, distributed selfplay    |
-| **Slurm HPC**         | `master_loop.py`             | Stable Slurm cluster with shared filesystem          |
-| **Sync Operations**   | `unified_data_sync.py`       | CLI entry point for data/model sync                  |
-| **Multi-Board Train** | `master_loop.py`             | Multi-board training via unified loop config         |
-| **Elo Tournament**    | `run_model_elo_tournament.py`| Scheduled Elo evaluation and leaderboard updates     |
-| **Model Promotion**   | `model_promotion_manager.py` | Manual promotion, Elo testing, rollback              |
+| Use Case              | Script                        | When to Use                                       |
+| --------------------- | ----------------------------- | ------------------------------------------------- |
+| **Full AI Loop**      | `master_loop.py`              | Production deployment, continuous improvement     |
+| **P2P Cluster**       | `p2p_orchestrator.py`         | Multi-node P2P coordination, distributed selfplay |
+| **Slurm HPC**         | `master_loop.py`              | Stable Slurm cluster with shared filesystem       |
+| **Sync Operations**   | `unified_data_sync.py`        | CLI entry point for data/model sync               |
+| **Multi-Board Train** | `master_loop.py`              | Multi-board training via unified loop config      |
+| **Elo Tournament**    | `run_model_elo_tournament.py` | Scheduled Elo evaluation and leaderboard updates  |
+| **Model Promotion**   | `model_promotion_manager.py`  | Manual promotion, Elo testing, rollback           |
 
 ---
 
@@ -94,7 +94,7 @@ curl http://localhost:8770/status
 **Notes**:
 
 - Use `master_loop.py` with `execution_backend: "slurm"` (or `auto` + `slurm.enabled: true`).
-- See `docs/infrastructure/SLURM_BACKEND_DESIGN.md` for details.
+- See `SLURM_BACKEND_DESIGN.md` for details.
 
 ---
 

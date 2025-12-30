@@ -155,7 +155,7 @@ python scripts/generate_gumbel_selfplay.py \
 - `app/ai/gpu_canonical_export.py` - GPU parity validation
 - `app/utils/debug_utils.py` - Debug utilities
 - `tests/parity/test_fsm_parity.py` - FSM parity tests
-- `docs/infrastructure/GPU_RULES_PARITY_AUDIT.md` (local-only, gitignored) - Parity audit notes
+- `../infrastructure/GPU_RULES_PARITY_AUDIT.md` (local-only, gitignored) - Parity audit notes
 
 ## References
 

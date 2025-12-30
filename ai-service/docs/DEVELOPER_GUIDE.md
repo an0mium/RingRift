@@ -487,7 +487,7 @@ print(f"AI type: {profile['ai_type']}, simulations: {profile.get('simulations', 
 | ----- | ------- | ----------------------------- |
 | 4-5   | Descent | Descent+NN (Minimax too slow) |
 
-> **Note:** Tiers 12-16 are experimental. See `docs/EXPERIMENTAL_AI.md` for details.
+> **Note:** Tiers 12-16 are experimental. See `EXPERIMENTAL_AI.md` for details.
 
 **Current Status:**
 

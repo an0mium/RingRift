@@ -230,4 +230,4 @@ For questions about deprecations or migrations, see:
 
 - `CLAUDE.md` - Main AI service documentation
 - `archive/deprecated_coordination/README.md` - Archive documentation
-- `docs/CLUSTER_INTEGRATION_GUIDE.md` - Integration patterns
+- `CLUSTER_INTEGRATION_GUIDE.md` - Integration patterns

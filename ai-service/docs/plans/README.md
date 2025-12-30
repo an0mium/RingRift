@@ -11,5 +11,5 @@ Technical plans and design documents for feature development.
 
 ## See Also
 
-- `docs/planning/` - Roadmaps and execution plans
-- `docs/architecture/` - Architecture documentation
+- `../planning/` - Roadmaps and execution plans
+- `../architecture/` - Architecture documentation

@@ -167,6 +167,6 @@ pytest tests/unit/training/test_freshness_check_mandatory.py -v
 
 ## See Also
 
-- `docs/DATA_FRESHNESS_CHECK.md` - Full documentation
+- `DATA_FRESHNESS_CHECK.md` - Full documentation
 - `app/coordination/training_freshness.py` - Implementation
 - `app/training/train.py` - Integration point

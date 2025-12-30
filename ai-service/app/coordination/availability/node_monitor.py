@@ -20,8 +20,8 @@ from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from app.coordination.base_daemon import BaseDaemon, DaemonConfig
-from app.coordination.safe_event_emitter import SafeEventEmitterMixin
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus
 from app.config.ports import P2P_DEFAULT_PORT
 
 if TYPE_CHECKING:
@@ -63,10 +63,14 @@ class NodeHealthResult:
         }
 
 
-@dataclass(kw_only=True)
-class NodeMonitorConfig(DaemonConfig):
-    """Configuration for NodeMonitor."""
-    check_interval_seconds: int = 30  # Overrides DaemonConfig default
+@dataclass
+class NodeMonitorConfig:
+    """Configuration for NodeMonitor.
+
+    December 2025: Simplified - no longer inherits from DaemonConfig.
+    HandlerBase uses cycle_interval directly.
+    """
+    check_interval_seconds: int = 30
     p2p_timeout_seconds: float = 15.0
     ssh_timeout_seconds: float = 30.0
     gpu_check_enabled: bool = True
@@ -76,8 +80,12 @@ class NodeMonitorConfig(DaemonConfig):
     p2p_port: int = P2P_DEFAULT_PORT
 
 
-class NodeMonitor(BaseDaemon, SafeEventEmitterMixin):
+class NodeMonitor(HandlerBase):
     """Multi-layer node health monitoring daemon.
+
+    December 2025: Migrated to HandlerBase pattern.
+    - Uses HandlerBase singleton (get_instance/reset_instance)
+    - Uses _stats for metrics tracking
 
     Monitors all cluster nodes at regular intervals using multiple health
     check layers. Emits NODE_UNHEALTHY events when nodes fail consistently.
@@ -94,7 +102,14 @@ class NodeMonitor(BaseDaemon, SafeEventEmitterMixin):
         config: NodeMonitorConfig | None = None,
         nodes: list[ClusterNode] | None = None,
     ):
-        super().__init__(config)
+        self._daemon_config = config or NodeMonitorConfig()
+
+        super().__init__(
+            name="NodeMonitor",
+            config=self._daemon_config,
+            cycle_interval=float(self._daemon_config.check_interval_seconds),
+        )
+
         self._nodes: list[ClusterNode] = nodes or []
         self._failure_counts: dict[str, int] = {}
         self._last_healthy: dict[str, datetime] = {}
@@ -105,13 +120,10 @@ class NodeMonitor(BaseDaemon, SafeEventEmitterMixin):
         self._ssh_consecutive_failures_threshold: int = 3  # Mark unresponsive after N failures
         self._health_history: dict[str, list[NodeHealthResult]] = {}
 
-    def _get_default_config(self) -> NodeMonitorConfig:
-        """Return default configuration."""
-        return NodeMonitorConfig()
-
-    def _get_daemon_name(self) -> str:
-        """Return daemon name for logging."""
-        return "NodeMonitor"
+    @property
+    def config(self) -> NodeMonitorConfig:
+        """Get daemon configuration."""
+        return self._daemon_config
 
     def set_nodes(self, nodes: list[ClusterNode]) -> None:
         """Update the list of nodes to monitor."""
@@ -782,14 +794,12 @@ class NodeMonitor(BaseDaemon, SafeEventEmitterMixin):
             "ssh_responsive_nodes": responsive,
         }
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Return health status for DaemonManager integration.
 
         Returns:
             HealthCheckResult with status based on monitored node health.
         """
-        from app.coordination.protocols import HealthCheckResult
-
         unhealthy_count = sum(
             1 for node in self._nodes
             if self._failure_counts.get(node.name, 0) >= self.config.consecutive_failures_before_unhealthy
@@ -798,6 +808,7 @@ class NodeMonitor(BaseDaemon, SafeEventEmitterMixin):
 
         return HealthCheckResult(
             healthy=unhealthy_count == 0,
+            status=CoordinatorStatus.RUNNING if self._running else CoordinatorStatus.STOPPED,
             message=(
                 f"Monitoring {len(self._nodes)} nodes, "
                 f"{unhealthy_count} unhealthy, "
@@ -808,24 +819,28 @@ class NodeMonitor(BaseDaemon, SafeEventEmitterMixin):
                 "unhealthy_count": unhealthy_count,
                 "ssh_unresponsive_count": ssh_unresponsive_count,
                 "ssh_unresponsive_nodes": list(self._ssh_unresponsive),
-                "cycles_completed": self._cycles_completed,
+                "cycles_completed": self._stats.cycles_completed,
+                "errors_count": self._stats.errors_count,
             },
         )
 
 
-# Singleton instance
-_node_monitor: NodeMonitor | None = None
+# =============================================================================
+# Singleton Access (using HandlerBase class methods)
+# =============================================================================
 
 
 def get_node_monitor() -> NodeMonitor:
-    """Get the singleton NodeMonitor instance."""
-    global _node_monitor
-    if _node_monitor is None:
-        _node_monitor = NodeMonitor()
-    return _node_monitor
+    """Get or create the singleton NodeMonitor instance.
+
+    Uses HandlerBase.get_instance() for thread-safe singleton access.
+    """
+    return NodeMonitor.get_instance()
 
 
 def reset_node_monitor() -> None:
-    """Reset the singleton (for testing)."""
-    global _node_monitor
-    _node_monitor = None
+    """Reset the singleton instance (for testing).
+
+    Uses HandlerBase.reset_instance() for thread-safe cleanup.
+    """
+    NodeMonitor.reset_instance()

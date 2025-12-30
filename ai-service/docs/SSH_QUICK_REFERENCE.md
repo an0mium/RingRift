@@ -276,7 +276,7 @@ cloudflared access ssh --hostname ssh.example.com
 
 ## See Also
 
-- **Full Documentation**: `docs/SSH_CONSOLIDATION_PHASE1.md`
-- **Transport Chain**: `docs/SSH_TRANSPORT_CHAIN.md`
+- **Full Documentation**: `SSH_CONSOLIDATION_PHASE1.md`
+- **Transport Chain**: `SSH_TRANSPORT_CHAIN.md`
 - **Implementation**: `app/core/ssh.py`
 - **Examples**: `PHASE1_SUMMARY.md`

@@ -597,7 +597,7 @@ Entry points:
 | `app/ai/gmo_ai.py`           | ~400   | Main implementation     |
 | `app/training/train_gmo.py`  | ~350   | Training script         |
 | `tests/test_gmo_ai.py`       | ~620   | Unit tests (28 tests)   |
-| `docs/GMO_ALGORITHM.md`      | This   | Documentation           |
+| `GMO_ALGORITHM.md`           | This   | Documentation           |
 | `models/gmo/gmo_best.pt`     | ~1.5MB | Best trained checkpoint |
 | `scripts/gmo_integration.py` | ~500   | Integration utilities   |
 

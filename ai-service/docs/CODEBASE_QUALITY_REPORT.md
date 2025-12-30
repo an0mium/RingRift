@@ -312,11 +312,11 @@ scripts/unified_loop/README.md    - MISSING
 scripts/p2p/README.md             - ✅ Already exists
 scripts/automation/README.md      - ✅ Created (Dec 26)
 scripts/dashboard_assets/README.md - ✅ Created (Dec 26)
-docs/archive/README.md            - ✅ Created (Dec 26)
-docs/plans/README.md              - ✅ Created (Dec 26)
-docs/planning/README.md           - ✅ Created (Dec 26)
-docs/ai/README.md                 - ✅ Created (Dec 26)
-docs/issues/README.md             - (empty directory)
+archive/README.md                 - ✅ Created (Dec 26)
+plans/README.md                   - ✅ Created (Dec 26)
+planning/README.md                - ✅ Created (Dec 26)
+ai/README.md                      - ✅ Created (Dec 26)
+issues/README.md                  - (empty directory)
 ```
 
 ### CLAUDE.md Accuracy

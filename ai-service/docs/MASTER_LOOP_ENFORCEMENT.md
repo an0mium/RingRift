@@ -319,4 +319,4 @@ except RuntimeError as e:
 - `scripts/master_loop.py` - Main automation controller
 - `app/coordination/master_loop_guard.py` - Guard implementation
 - `app/coordination/coordination_bootstrap.py` - Bootstrap integration
-- `docs/MASTER_LOOP_GUARD.md` - User guide
+- `MASTER_LOOP_GUARD.md` - User guide

@@ -511,6 +511,6 @@ scripts/p2p/
 ## See Also
 
 - `scripts/p2p/managers/README.md` - Manager module documentation
-- `docs/SYNC_STRATEGY_GUIDE.md` - Data sync strategies
+- `../SYNC_STRATEGY_GUIDE.md` - Data sync strategies
 - `../runbooks/DAEMON_FAILURE_RECOVERY.md` - P2P troubleshooting
-- `docs/CLUSTER_INTEGRATION_GUIDE.md` - Cluster architecture
+- `../CLUSTER_INTEGRATION_GUIDE.md` - Cluster architecture

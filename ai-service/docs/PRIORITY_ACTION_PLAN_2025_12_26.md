@@ -112,7 +112,7 @@
 ### P3.4: Add Daemon Lifecycle Documentation
 
 **Missing**: Guide for daemon patterns
-**Deliverable**: `docs/architecture/DAEMON_LIFECYCLE.md`
+**Deliverable**: `architecture/DAEMON_LIFECYCLE.md`
 
 ---
 

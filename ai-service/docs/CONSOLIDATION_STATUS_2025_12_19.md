@@ -346,7 +346,7 @@ Added Information-Gain GMO (IG-GMO) research module:
 | `app/training/model_state_machine.py` | Model lifecycle state machine |
 | `app/training/train_gmo.py`           | GMO training script           |
 | `tests/test_gmo_ai.py`                | GMO tests                     |
-| `docs/GMO_ALGORITHM.md`               | GMO algorithm reference       |
+| `GMO_ALGORITHM.md`                    | GMO algorithm reference       |
 
 ### Removed Files
 
@@ -389,13 +389,13 @@ Added Information-Gain GMO (IG-GMO) research module:
 
 New documentation files created:
 
-- **`docs/GPU_VECTORIZATION.md`** - GPU module architecture and known limitations
+- **`GPU_VECTORIZATION.md`** - GPU module architecture and known limitations
   - Module structure overview
   - Performance characteristics (CUDA vs CPU vs MPS)
   - Known limitations (recovery gate, chain captures)
   - Shadow validation and parity testing
 
-- **`docs/COORDINATION_ARCHITECTURE.md`** - Event system and coordination
+- **`COORDINATION_ARCHITECTURE.md`** - Event system and coordination
   - EventBus, DataEventBus, StageEventBus overview
   - CrossProcessEventQueue for daemon communication
   - Unified EventRouter consolidation

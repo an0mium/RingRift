@@ -341,4 +341,4 @@ Gossip interval is configured in `config/distributed_hosts.yaml` via
 
 - `scripts/p2p/managers/` - Domain logic managers
 - `EVENT_CATALOG.md` - Event types reference
-- `docs/COORDINATION_ARCHITECTURE.md` - Overall architecture
+- `COORDINATION_ARCHITECTURE.md` - Overall architecture

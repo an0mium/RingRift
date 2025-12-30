@@ -15,6 +15,6 @@ Roadmaps, execution plans, and strategic planning documents.
 
 ## See Also
 
-- `docs/plans/` - Feature design documents
-- `docs/architecture/` - Architecture documentation
-- `docs/CODEBASE_QUALITY_REPORT.md` - Quality assessment
+- `../plans/` - Feature design documents
+- `../architecture/` - Architecture documentation
+- `../CODEBASE_QUALITY_REPORT.md` - Quality assessment

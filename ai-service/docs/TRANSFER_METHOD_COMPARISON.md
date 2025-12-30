@@ -437,4 +437,4 @@ AWS S3 (ringrift-models-20251214)
 - `app/coordination/unified_distribution_daemon.py` - Model distribution
 - `app/coordination/maintenance_daemon.py` - S3 archival implementation
 - `config/data_aggregator.yaml` - S3 configuration
-- `docs/architecture/SYNC_INFRASTRUCTURE_ARCHITECTURE.md` - Sync layer design
+- `architecture/SYNC_INFRASTRUCTURE_ARCHITECTURE.md` - Sync layer design

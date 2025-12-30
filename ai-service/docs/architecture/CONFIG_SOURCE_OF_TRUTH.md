@@ -199,5 +199,5 @@ This checks:
 ## See Also
 
 - `config/distributed_hosts.template.yaml` - Template for new installations
-- `docs/architecture/SYNC_ARCHITECTURE.md` - How sync uses config
+- `SYNC_ARCHITECTURE.md` - How sync uses config
 - `app/config/loader.py` - Configuration loading implementation

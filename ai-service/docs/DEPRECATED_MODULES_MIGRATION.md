@@ -407,7 +407,7 @@ python -c "import warnings; warnings.filterwarnings('error'); from app.coordinat
 
 - `archive/deprecated_coordination/README.md` - Detailed archive documentation
 - `archive/deprecated_coordination/MIGRATION_GUIDE.md` - Step-by-step migration
-- `docs/archive/coordination_consolidation_2025_12/DEPRECATED_MODULE_USAGE.md` - Import tracking
+- `archive/coordination_consolidation_2025_12/DEPRECATED_MODULE_USAGE.md` - Import tracking
 - `scripts/DEPRECATED.md` - Scripts deprecation manifest
 - `app/DEPRECATION_AUDIT.md` - Migration status tracking
 

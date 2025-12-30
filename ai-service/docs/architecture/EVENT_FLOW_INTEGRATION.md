@@ -391,7 +391,7 @@ await replay_dlq_events(max_age_hours=24)
 
 ## See Also
 
-- `docs/architecture/EVENT_SUBSCRIPTION_MATRIX.md` - Complete event list
-- `docs/architecture/DAEMON_LIFECYCLE.md` - Daemon state machines
+- `EVENT_SUBSCRIPTION_MATRIX.md` - Complete event list
+- `DAEMON_LIFECYCLE.md` - Daemon state machines
 - `app/coordination/event_router.py` - Event bus implementation
 - `app/coordination/data_events.py` - Event type definitions

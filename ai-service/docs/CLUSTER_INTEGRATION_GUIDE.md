@@ -271,7 +271,7 @@ These legacy modules have been superseded (some removed during consolidation):
 
 ## See Also
 
-- `docs/CLUSTER_TRAINING_GUIDE.md` - Training workflows
-- `docs/COORDINATION_ARCHITECTURE.md` - Event system details
+- `CLUSTER_TRAINING_GUIDE.md` - Training workflows
+- `COORDINATION_ARCHITECTURE.md` - Event system details
 - `DAEMON_REGISTRY.md` - Full daemon catalog
 - `scripts/p2p/managers/README.md` - Manager architecture

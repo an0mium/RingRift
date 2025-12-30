@@ -828,6 +828,6 @@ timeout = get_timeout("http")  # Returns 30
 
 ## See Also
 
-- `docs/CONFIG_REFERENCE.md` - Quick reference for common settings
+- `CONFIG_REFERENCE.md` - Quick reference for common settings
 - `CLAUDE.md` - Project context and common commands
 - `ai-service/CLAUDE.md` - AI service specific documentation

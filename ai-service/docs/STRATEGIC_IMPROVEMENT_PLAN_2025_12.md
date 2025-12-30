@@ -282,7 +282,7 @@ Selfplay → GameDB → SELFPLAY_COMPLETE → auto_export_daemon
 
 ### Phase 2: Consolidation (Completed Dec 25, 2025)
 
-- [x] Document 19 orphaned daemons (see docs/ORPHANED_DAEMONS.md)
+- [x] Document 19 orphaned daemons (see ORPHANED_DAEMONS.md)
 - [x] AUTO_PROMOTION superseded by UNIFIED_PROMOTION (documented as archived)
 - [x] NPZ tracking already implemented in ClusterManifest (first-class citizen)
 - [x] Added SyncRouter capacity refresh mechanism (5-min interval)
@@ -337,7 +337,7 @@ Selfplay → GameDB → SELFPLAY_COMPLETE → auto_export_daemon
 
 ### Phase 2 Consolidation Completed (Dec 25, 2025)
 
-- [x] Documented 19 orphaned daemons in `docs/ORPHANED_DAEMONS.md`
+- [x] Documented 19 orphaned daemons in `ORPHANED_DAEMONS.md`
 - [x] Verified NPZ tracking already first-class citizen in ClusterManifest
 - [x] Added SyncRouter capacity refresh mechanism (5-min interval with event emission)
 - [x] Documented AUTO_PROMOTION superseded by UNIFIED_PROMOTION
@@ -368,4 +368,4 @@ Selfplay → GameDB → SELFPLAY_COMPLETE → auto_export_daemon
 | Daemon Registry    | `daemon_manager.py:58-195` (types), `2906-2985` (profiles)   |
 | Sync Architecture  | `sync_router.py`, `cluster_manifest.py`, `ephemeral_sync.py` |
 | Exceptions         | `app/core/exceptions.py`                                     |
-| Consolidation Plan | `docs/CONSOLIDATION_PLAN_2025_12.md`                         |
+| Consolidation Plan | `CONSOLIDATION_PLAN_2025_12.md`                              |

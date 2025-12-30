@@ -139,7 +139,7 @@ Preflight and smoke test helpers:
 
 Legacy Lambda cluster playbook (archived):
 
-- `docs/archive/lambda/LAMBDA_SLURM_SETUP.md`
+- `../archive/lambda/LAMBDA_SLURM_SETUP.md`
 
 ### Job Wrapper Template (Draft)
 
