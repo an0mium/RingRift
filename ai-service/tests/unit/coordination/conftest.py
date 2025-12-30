@@ -339,6 +339,307 @@ def cluster_state_factory(node_resources_factory):
 
 
 # =============================================================================
+# DAEMON MANAGER FIXTURES
+# =============================================================================
+
+
+class MockDaemonState:
+    """Enum-like class for mock daemon states."""
+    STOPPED = "stopped"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    FAILED = "failed"
+    IMPORT_FAILED = "import_failed"
+
+
+@dataclass
+class MockDaemonInfo:
+    """Mock daemon info for testing."""
+    daemon_type: str
+    state: str = MockDaemonState.STOPPED
+    start_time: Optional[float] = None
+    error: Optional[str] = None
+    import_error: Optional[str] = None
+    restart_count: int = 0
+    max_restarts: int = 5
+    auto_restart: bool = True
+    last_health_check: Optional[float] = None
+    health_status: str = "unknown"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "daemon_type": self.daemon_type,
+            "state": self.state,
+            "start_time": self.start_time,
+            "error": self.error,
+            "import_error": self.import_error,
+            "restart_count": self.restart_count,
+            "max_restarts": self.max_restarts,
+            "auto_restart": self.auto_restart,
+            "last_health_check": self.last_health_check,
+            "health_status": self.health_status,
+        }
+
+
+class MockDaemonManager:
+    """Comprehensive mock daemon manager for testing.
+
+    Provides a realistic mock of DaemonManager that:
+    - Tracks daemon lifecycle (start/stop/restart)
+    - Maintains daemon state
+    - Records method calls for verification
+    - Supports customizable health checks
+    - Emulates async behavior
+
+    Usage in tests:
+        @pytest.fixture
+        def manager():
+            return MockDaemonManager()
+
+        async def test_daemon_start(manager):
+            await manager.start("AUTO_SYNC")
+            assert manager.is_running("AUTO_SYNC")
+            assert "AUTO_SYNC" in manager.started_daemons
+    """
+
+    def __init__(self):
+        self._daemons: dict[str, MockDaemonInfo] = {}
+        self._call_history: list[tuple[str, Any]] = []
+        self._health_overrides: dict[str, dict] = {}
+        self._start_should_fail: set[str] = set()
+        self._stop_should_fail: set[str] = set()
+
+    # =============================================================================
+    # LIFECYCLE METHODS
+    # =============================================================================
+
+    async def start(self, daemon_type: str) -> bool:
+        """Start a daemon."""
+        self._call_history.append(("start", daemon_type))
+
+        if daemon_type in self._start_should_fail:
+            info = self._get_or_create_info(daemon_type)
+            info.state = MockDaemonState.FAILED
+            info.error = "Simulated start failure"
+            return False
+
+        info = self._get_or_create_info(daemon_type)
+        info.state = MockDaemonState.RUNNING
+        info.start_time = time.time()
+        info.error = None
+        info.health_status = "healthy"
+        return True
+
+    async def stop(self, daemon_type: str) -> bool:
+        """Stop a daemon."""
+        self._call_history.append(("stop", daemon_type))
+
+        if daemon_type in self._stop_should_fail:
+            return False
+
+        info = self._get_or_create_info(daemon_type)
+        info.state = MockDaemonState.STOPPED
+        info.start_time = None
+        return True
+
+    async def restart(self, daemon_type: str) -> bool:
+        """Restart a daemon."""
+        self._call_history.append(("restart", daemon_type))
+        await self.stop(daemon_type)
+        return await self.start(daemon_type)
+
+    async def start_all(self, daemon_types: Optional[list[str]] = None) -> dict[str, bool]:
+        """Start multiple daemons."""
+        self._call_history.append(("start_all", daemon_types))
+        results = {}
+        types_to_start = daemon_types or list(self._daemons.keys())
+        for dt in types_to_start:
+            results[dt] = await self.start(dt)
+        return results
+
+    async def stop_all(self) -> dict[str, bool]:
+        """Stop all daemons."""
+        self._call_history.append(("stop_all", None))
+        results = {}
+        for daemon_type in list(self._daemons.keys()):
+            results[daemon_type] = await self.stop(daemon_type)
+        return results
+
+    async def restart_failed_daemon(self, daemon_type: str) -> bool:
+        """Restart a failed daemon."""
+        self._call_history.append(("restart_failed_daemon", daemon_type))
+        info = self._get_or_create_info(daemon_type)
+        info.restart_count += 1
+        return await self.start(daemon_type)
+
+    # =============================================================================
+    # STATUS METHODS
+    # =============================================================================
+
+    def is_running(self, daemon_type: str) -> bool:
+        """Check if a daemon is running."""
+        info = self._daemons.get(daemon_type)
+        return info is not None and info.state == MockDaemonState.RUNNING
+
+    def get_daemon_info(self, daemon_type: str) -> Optional[MockDaemonInfo]:
+        """Get daemon info."""
+        return self._daemons.get(daemon_type)
+
+    def get_daemon_health(self, daemon_type: str) -> dict[str, Any]:
+        """Get daemon health."""
+        self._call_history.append(("get_daemon_health", daemon_type))
+
+        # Check for health overrides
+        if daemon_type in self._health_overrides:
+            return self._health_overrides[daemon_type]
+
+        info = self._daemons.get(daemon_type)
+        if info is None:
+            return {"status": "not_found", "running": False}
+
+        return {
+            "status": info.health_status,
+            "running": info.state == MockDaemonState.RUNNING,
+            "start_time": info.start_time,
+            "restart_count": info.restart_count,
+            "error": info.error,
+        }
+
+    def get_all_daemon_health(self) -> dict[str, dict]:
+        """Get health for all daemons."""
+        self._call_history.append(("get_all_daemon_health", None))
+        return {dt: self.get_daemon_health(dt) for dt in self._daemons}
+
+    def get_status(self) -> dict[str, Any]:
+        """Get overall status."""
+        self._call_history.append(("get_status", None))
+        running = sum(1 for info in self._daemons.values() if info.state == MockDaemonState.RUNNING)
+        failed = sum(1 for info in self._daemons.values() if info.state == MockDaemonState.FAILED)
+        return {
+            "total_daemons": len(self._daemons),
+            "running": running,
+            "failed": failed,
+            "stopped": len(self._daemons) - running - failed,
+            "daemons": {dt: info.to_dict() for dt, info in self._daemons.items()},
+        }
+
+    # =============================================================================
+    # TEST HELPERS
+    # =============================================================================
+
+    @property
+    def started_daemons(self) -> list[str]:
+        """Get list of daemon types that were started."""
+        return [dt for method, dt in self._call_history if method == "start"]
+
+    @property
+    def stopped_daemons(self) -> list[str]:
+        """Get list of daemon types that were stopped."""
+        return [dt for method, dt in self._call_history if method == "stop"]
+
+    def get_calls(self, method: Optional[str] = None) -> list[tuple[str, Any]]:
+        """Get method call history."""
+        if method is None:
+            return self._call_history.copy()
+        return [(m, arg) for m, arg in self._call_history if m == method]
+
+    def clear_history(self) -> None:
+        """Clear call history."""
+        self._call_history.clear()
+
+    def set_health_override(self, daemon_type: str, health: dict) -> None:
+        """Override health response for a daemon."""
+        self._health_overrides[daemon_type] = health
+
+    def set_start_should_fail(self, daemon_type: str, should_fail: bool = True) -> None:
+        """Configure a daemon to fail on start."""
+        if should_fail:
+            self._start_should_fail.add(daemon_type)
+        else:
+            self._start_should_fail.discard(daemon_type)
+
+    def set_stop_should_fail(self, daemon_type: str, should_fail: bool = True) -> None:
+        """Configure a daemon to fail on stop."""
+        if should_fail:
+            self._stop_should_fail.add(daemon_type)
+        else:
+            self._stop_should_fail.discard(daemon_type)
+
+    def register_daemon(self, daemon_type: str, **kwargs) -> MockDaemonInfo:
+        """Pre-register a daemon with specific state."""
+        info = MockDaemonInfo(daemon_type=daemon_type, **kwargs)
+        self._daemons[daemon_type] = info
+        return info
+
+    def _get_or_create_info(self, daemon_type: str) -> MockDaemonInfo:
+        """Get or create daemon info."""
+        if daemon_type not in self._daemons:
+            self._daemons[daemon_type] = MockDaemonInfo(daemon_type=daemon_type)
+        return self._daemons[daemon_type]
+
+
+@pytest.fixture
+def mock_daemon_manager():
+    """Provide a MockDaemonManager for testing.
+
+    Usage:
+        async def test_daemon_lifecycle(mock_daemon_manager):
+            manager = mock_daemon_manager
+            await manager.start("AUTO_SYNC")
+            assert manager.is_running("AUTO_SYNC")
+    """
+    return MockDaemonManager()
+
+
+@pytest.fixture
+def mock_daemon_manager_factory():
+    """Factory for creating MockDaemonManager instances with pre-configured state.
+
+    Usage:
+        def test_with_running_daemons(mock_daemon_manager_factory):
+            manager = mock_daemon_manager_factory(
+                running=["AUTO_SYNC", "DATA_PIPELINE"],
+                failed=["MODEL_SYNC"],
+            )
+            assert manager.is_running("AUTO_SYNC")
+    """
+    def _create(
+        running: Optional[list[str]] = None,
+        stopped: Optional[list[str]] = None,
+        failed: Optional[list[str]] = None,
+        **kwargs,
+    ) -> MockDaemonManager:
+        manager = MockDaemonManager()
+
+        for dt in (running or []):
+            manager.register_daemon(
+                dt,
+                state=MockDaemonState.RUNNING,
+                start_time=time.time(),
+                health_status="healthy",
+            )
+
+        for dt in (stopped or []):
+            manager.register_daemon(
+                dt,
+                state=MockDaemonState.STOPPED,
+            )
+
+        for dt in (failed or []):
+            manager.register_daemon(
+                dt,
+                state=MockDaemonState.FAILED,
+                error="Test failure",
+                health_status="failed",
+            )
+
+        return manager
+
+    return _create
+
+
+# =============================================================================
 # COORDINATOR FIXTURES
 # =============================================================================
 
