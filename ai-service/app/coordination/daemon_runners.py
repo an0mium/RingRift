@@ -2408,6 +2408,38 @@ async def create_p2p_recovery() -> None:
         raise
 
 
+async def create_voter_health_monitor() -> None:
+    """Create and run VoterHealthMonitor daemon.
+
+    December 30, 2025: Part of 48-hour autonomous operation enablement.
+    Monitors individual voter health with multi-transport probing.
+
+    Probing order:
+    - P2P HTTP /health endpoint (5s timeout)
+    - Tailscale ping (10s timeout)
+    - SSH connectivity check (15s timeout)
+
+    Key events:
+    - VOTER_OFFLINE: Individual voter became unreachable (after 2 consecutive failures)
+    - VOTER_ONLINE: Individual voter recovered
+    - QUORUM_LOST: Online voters dropped below quorum threshold
+    - QUORUM_RESTORED: Quorum regained
+    - QUORUM_AT_RISK: Exactly at quorum threshold (marginal)
+
+    Subscribes to: None (cycle-based, 30s interval)
+    Emits: VOTER_OFFLINE, VOTER_ONLINE, QUORUM_LOST, QUORUM_RESTORED, QUORUM_AT_RISK
+    """
+    try:
+        from app.coordination.voter_health_daemon import get_voter_health_daemon
+
+        daemon = get_voter_health_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"VoterHealthMonitor not available: {e}")
+        raise
+
+
 async def create_memory_monitor() -> None:
     """Create and run MemoryMonitor daemon.
 
@@ -2630,6 +2662,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         # 48-Hour Autonomous Operation (December 29-30, 2025)
         DaemonType.PROGRESS_WATCHDOG.name: create_progress_watchdog,
         DaemonType.P2P_RECOVERY.name: create_p2p_recovery,
+        DaemonType.VOTER_HEALTH_MONITOR.name: create_voter_health_monitor,
         DaemonType.MEMORY_MONITOR.name: create_memory_monitor,
         DaemonType.STALE_FALLBACK.name: create_stale_fallback,
         # Tailscale health monitoring (December 29, 2025)

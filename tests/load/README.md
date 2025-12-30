@@ -76,7 +76,7 @@ Load tests require a running RingRift instance:
 docker-compose up -d
 
 # Verify services are healthy
-curl http://localhost:3001/health
+curl http://localhost:3000/health
 ```
 
 ## Quick Start
@@ -194,7 +194,7 @@ AI load overrides (optional):
 **Run:**
 
 ```bash
-k6 run --env BASE_URL=http://localhost:3001 scenarios/game-creation.js
+k6 run --env BASE_URL=http://localhost:3000 scenarios/game-creation.js
 ```
 
 **Expected Output:**
@@ -229,7 +229,7 @@ game_creation_success_rate.....: 99.80%
 **Run:**
 
 ```bash
-k6 run --env BASE_URL=http://localhost:3001 scenarios/concurrent-games.js
+k6 run --env BASE_URL=http://localhost:3000 scenarios/concurrent-games.js
 ```
 
 **Monitor:**
@@ -257,7 +257,7 @@ k6 run --env BASE_URL=http://localhost:3001 scenarios/concurrent-games.js
 **Run:**
 
 ```bash
-k6 run --env BASE_URL=http://localhost:3001 scenarios/player-moves.js
+k6 run --env BASE_URL=http://localhost:3000 scenarios/player-moves.js
 ```
 
 **Notes:**
@@ -328,8 +328,8 @@ This protocol-correct implementation eliminates the "message parse error" failur
 
 ```bash
 k6 run \
-  --env BASE_URL=http://localhost:3001 \
-  --env WS_URL=ws://localhost:3001 \
+  --env BASE_URL=http://localhost:3000 \
+  --env WS_URL=ws://localhost:3000 \
   scenarios/websocket-stress.js
 ```
 
@@ -409,7 +409,7 @@ This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-ga
 
 This scenario uses the same base variables as other WebSocket tests plus a few gameplay tunables:
 
-- `BASE_URL` – HTTP base URL for API calls (for example `http://localhost:3000` or `http://localhost:3001` depending on how you run dev / Docker).
+- `BASE_URL` – HTTP base URL for API calls (for example `http://localhost:3000` for dev, or `http://localhost:3001` if your app runs on port 3001).
 - `WS_URL` – WebSocket base URL used to derive the `/socket.io` endpoint. When omitted, [`websocket-gameplay.js`](scenarios/websocket-gameplay.js) derives this from `BASE_URL` by swapping `http` → `ws` and `https` → `wss` (for example `ws://localhost:3000`).
 - `WS_GAMEPLAY_MODE` – Explicit mode selector: one of `smoke`, `baseline`, `throughput`, or `target`. When not set, the scenario defaults to `smoke`, unless `ENABLE_WS_GAMEPLAY_THROUGHPUT` is truthy (in which case it falls back to `throughput` for legacy flows).
 - Optional tuning:
@@ -471,10 +471,10 @@ The concrete URLs and TLS configuration depend on your deployment topology (for 
 
 All scenarios support these environment variables:
 
-| Variable   | Default                 | Description          |
-| :--------- | :---------------------- | :------------------- |
-| `BASE_URL` | `http://localhost:3001` | HTTP API base URL    |
-| `WS_URL`   | `ws://localhost:3001`   | WebSocket server URL |
+| Variable   | Default                                  | Description                                     |
+| :--------- | :--------------------------------------- | :---------------------------------------------- |
+| `BASE_URL` | `http://localhost:3001` (script default) | HTTP API base URL (override to match `PORT`)    |
+| `WS_URL`   | `ws://localhost:3001` (script default)   | WebSocket server URL (override to match `PORT`) |
 
 **Examples:**
 
@@ -625,7 +625,7 @@ docker-compose ps
 docker-compose up -d
 
 # Check health
-curl http://localhost:3001/health
+curl http://localhost:3000/health
 ```
 
 ### Issue: High error rates (>5%)
