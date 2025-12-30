@@ -1,8 +1,10 @@
 # RingRift Rules / FAQ → Test Scenario Matrix
 
-> **Doc Status (2025-12-13): Active**
+> **Doc Status (2025-12-29): Active - Verified Complete**
 >
-> - This file is the **canonical map** from RingRift’s rules/FAQ documents to concrete Jest test suites and parity harnesses.
+> **Last Verification:** December 29, 2025 - All major scenario axes (Movement, Chain, Lines, Territory, Victory) have COVERED status. Multi-phase turn scenarios including chain→line→territory sequences with multiple choices are fully covered for square8, square19, and hex boards. Only 2 PARTIAL items remain (sandbox mixed players, extra seed parity), which are exercised indirectly.
+>
+> - This file is the **canonical map** from RingRift's rules/FAQ documents to concrete Jest test suites and parity harnesses.
 > - It intentionally focuses on **which tests cover which rules/FAQ scenarios**; it does **not** redefine rules semantics or engine APIs.
 > - For rules semantics SSoT, see:
 >   - [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md) (RR-CANON-RXXX invariants and formal rules).

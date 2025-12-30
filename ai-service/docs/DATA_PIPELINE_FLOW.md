@@ -319,7 +319,7 @@ Unified event system that:
 
 ### DaemonManager
 
-Lifecycle management for 85 daemon types:
+Lifecycle management for 87 daemon types:
 
 - Start/stop coordination
 - Health monitoring

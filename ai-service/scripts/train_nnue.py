@@ -2021,7 +2021,12 @@ class BoardSpecificNAS:
         }
         model_kwargs.update(kwargs)
 
-        from app.ai.nnue import RingRiftNNUE
+        # December 2025: Use MultiPlayerNNUE for 3+ player games
+        from app.ai.nnue import MultiPlayerNNUE, RingRiftNNUE
+
+        if num_players >= 3:
+            model_kwargs["num_players"] = num_players
+            return MultiPlayerNNUE(**model_kwargs)
         return RingRiftNNUE(**model_kwargs)
 
 
@@ -4123,15 +4128,31 @@ def train_nnue(
         )
         logger.info("Board-Specific NAS enabled - architecture auto-selected")
     else:
-        model = RingRiftNNUE(
-            board_type=board_type,
-            hidden_dim=hidden_dim,
-            num_hidden_layers=num_hidden_layers,
-            use_spectral_norm=spectral_norm,
-            use_batch_norm=batch_norm,
-            num_heads=num_heads,
-            stochastic_depth_prob=stochastic_depth_prob if stochastic_depth else 0.0,
-        )
+        # December 2025: Use MultiPlayerNNUE for 3+ player games
+        # MultiPlayerNNUE outputs (batch, num_players) instead of (batch, 1)
+        # enabling proper MaxN/BRS evaluation with true per-player scores
+        if num_players >= 3:
+            model = MultiPlayerNNUE(
+                num_players=num_players,
+                board_type=board_type,
+                hidden_dim=hidden_dim,
+                num_hidden_layers=num_hidden_layers,
+                use_spectral_norm=spectral_norm,
+                use_batch_norm=batch_norm,
+                num_heads=num_heads,
+                stochastic_depth_prob=stochastic_depth_prob if stochastic_depth else 0.0,
+            )
+            logger.info(f"Using MultiPlayerNNUE for {num_players}-player game")
+        else:
+            model = RingRiftNNUE(
+                board_type=board_type,
+                hidden_dim=hidden_dim,
+                num_hidden_layers=num_hidden_layers,
+                use_spectral_norm=spectral_norm,
+                use_batch_norm=batch_norm,
+                num_heads=num_heads,
+                stochastic_depth_prob=stochastic_depth_prob if stochastic_depth else 0.0,
+            )
     if spectral_norm:
         logger.info("Spectral normalization enabled for gradient stability")
     if batch_norm:
@@ -4244,11 +4265,20 @@ def train_nnue(
                 teacher_checkpoint = safe_load_checkpoint(teacher_model, map_location=device)
                 teacher_hidden_dim = teacher_checkpoint.get("hidden_dim", hidden_dim)
                 teacher_num_layers = teacher_checkpoint.get("num_hidden_layers", num_hidden_layers)
-                teacher_model_loaded = RingRiftNNUE(
-                    board_type=board_type,
-                    hidden_dim=teacher_hidden_dim,
-                    num_hidden_layers=teacher_num_layers,
-                )
+                # December 2025: Use MultiPlayerNNUE for 3+ player teacher models
+                if num_players >= 3:
+                    teacher_model_loaded = MultiPlayerNNUE(
+                        num_players=num_players,
+                        board_type=board_type,
+                        hidden_dim=teacher_hidden_dim,
+                        num_hidden_layers=teacher_num_layers,
+                    )
+                else:
+                    teacher_model_loaded = RingRiftNNUE(
+                        board_type=board_type,
+                        hidden_dim=teacher_hidden_dim,
+                        num_hidden_layers=teacher_num_layers,
+                    )
                 teacher_model_loaded.load_state_dict(teacher_checkpoint["model_state_dict"])
                 teacher_model_loaded = teacher_model_loaded.to(device)
                 teacher_model_loaded.eval()

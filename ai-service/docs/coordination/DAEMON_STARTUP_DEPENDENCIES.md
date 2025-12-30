@@ -6,7 +6,7 @@ This document explains how daemon startup ordering and dependencies work in the 
 
 ## Overview
 
-The daemon manager starts 85 daemon types with specific dependencies. Incorrect startup order can cause race conditions where daemons try to use resources that aren't ready.
+The daemon manager starts 87 daemon types with specific dependencies. Incorrect startup order can cause race conditions where daemons try to use resources that aren't ready.
 
 There are two canonical dependency layers:
 
@@ -40,11 +40,13 @@ Position | Daemon Type                | Dependencies                            
 14       | CLUSTER_WATCHDOG           | EVENT_ROUTER, CLUSTER_MONITOR            | Cluster watchdog depends on monitor
 15       | NODE_RECOVERY              | EVENT_ROUTER                             | Node recovery actions
 16       | QUALITY_MONITOR            | EVENT_ROUTER                             | Quality monitoring before evaluation
-17       | DISTILLATION               | EVENT_ROUTER                             | Distillation readiness
-18       | EVALUATION                 | EVENT_ROUTER                             | Model evaluation
-19       | UNIFIED_PROMOTION          | EVENT_ROUTER                             | Promotion controller wiring
-20       | AUTO_PROMOTION             | EVENT_ROUTER, EVALUATION                 | Auto-promotion after evaluation
-21       | MODEL_DISTRIBUTION         | EVENT_ROUTER, EVALUATION, AUTO_PROMOTION | Distribute promoted models
+17       | NNUE_TRAINING              | EVENT_ROUTER, DATA_PIPELINE              | NNUE training readiness
+18       | ARCHITECTURE_FEEDBACK      | EVENT_ROUTER                             | Architecture feedback weights
+19       | DISTILLATION               | EVENT_ROUTER                             | Distillation readiness
+20       | EVALUATION                 | EVENT_ROUTER                             | Model evaluation
+21       | UNIFIED_PROMOTION          | EVENT_ROUTER                             | Promotion controller wiring
+22       | AUTO_PROMOTION             | EVENT_ROUTER, EVALUATION                 | Auto-promotion after evaluation
+23       | MODEL_DISTRIBUTION         | EVENT_ROUTER, EVALUATION, AUTO_PROMOTION | Distribute promoted models
 ```
 
 **Critical Ordering Rule**: Event _subscribers_ (DATA*PIPELINE, FEEDBACK_LOOP) must start
@@ -69,7 +71,7 @@ DAEMON_REGISTRY = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AUTO_EXPORT),
         category="pipeline",
     ),
-    # ... 85 entries
+    # ... 87 entries
 }
 ```
 

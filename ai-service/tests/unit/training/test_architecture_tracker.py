@@ -817,6 +817,8 @@ class TestOnEvaluationCompleted:
         # Use temp directory to avoid loading real state
         self.temp_dir = tempfile.mkdtemp()
         self.tracker = ArchitectureTracker(state_path=Path(self.temp_dir) / "test.json")
+        # Set as singleton so get_architecture_tracker() returns our instance
+        ArchitectureTracker._instance = self.tracker
 
     def teardown_method(self):
         ArchitectureTracker.reset_instance()

@@ -6,7 +6,7 @@ This document catalogs all daemons managed by the `DaemonManager` in the RingRif
 
 ## Overview
 
-The `DaemonManager` (`app/coordination/daemon_manager.py`) provides lifecycle management for 85 background daemons. Daemons are organized by function and can declare dependencies on other daemons.
+The `DaemonManager` (`app/coordination/daemon_manager.py`) provides lifecycle management for 87 background daemons. Daemons are organized by function and can declare dependencies on other daemons.
 
 ## Daemon Categories
 
@@ -219,7 +219,7 @@ async def _create_my_daemon(self) -> None:
 | File                                            | Purpose                                                         |
 | ----------------------------------------------- | --------------------------------------------------------------- |
 | `app/coordination/daemon_manager.py`            | Main DaemonManager implementation (~2,000 LOC)                  |
-| `app/coordination/daemon_runners.py`            | 85 async runner functions for each daemon type (Dec 2025)       |
+| `app/coordination/daemon_runners.py`            | 87 async runner functions for each daemon type (Dec 2025)       |
 | `app/coordination/daemon_registry.py`           | Declarative DaemonSpec registry for all daemon types (Dec 2025) |
 | `app/coordination/daemon_adapters.py`           | Adapters for existing daemons                                   |
 | `app/coordination/data_consolidation_daemon.py` | Consolidates scattered games into canonical DBs                 |

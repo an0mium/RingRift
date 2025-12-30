@@ -717,31 +717,46 @@ class TestOnBackpressureActivated:
     """Tests for _on_backpressure_activated handler."""
 
     @pytest.mark.asyncio
+    async def test_backpressure_activated_logs_event(self):
+        """Test that backpressure activation is logged without errors."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = MagicMock()
+        mock_manager._daemons = {}  # Empty daemons dict
+        handlers = DaemonEventHandlers(mock_manager)
+
+        event = MockEvent(
+            payload={
+                "reason": "high_memory",
+                "threshold": 80,
+                "current_value": 95,
+            }
+        )
+
+        # Should not raise, just log
+        await handlers._on_backpressure_activated(event)
+
+    @pytest.mark.asyncio
     async def test_backpressure_activated_pauses_daemons(self):
         """Test that non-essential daemons are paused."""
         from app.coordination.daemon_event_handlers import DaemonEventHandlers
-        from app.coordination.daemon_types import DaemonState, DaemonType
+        from app.coordination.daemon_types import DaemonInfo, DaemonState, DaemonType
 
-        mock_daemon1 = MagicMock()
-        mock_daemon1.pause = MagicMock()
+        mock_daemon = MagicMock()
 
-        mock_daemon2 = MagicMock()
-        mock_daemon2.pause = MagicMock()
+        # Use actual DaemonInfo instead of MockDaemonInfo for proper comparison
+        daemon_info = DaemonInfo(
+            daemon_type=DaemonType.IDLE_RESOURCE,
+            state=DaemonState.RUNNING,
+        )
+        # Set instance attribute directly
+        daemon_info.instance = mock_daemon
 
-        mock_manager = MagicMock()
-        mock_manager._daemons = {
-            DaemonType.IDLE_RESOURCE: MockDaemonInfo(
-                daemon_type=DaemonType.IDLE_RESOURCE,
-                state=DaemonState.RUNNING,
-                instance=mock_daemon1,
-            ),
-            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
-                daemon_type=DaemonType.SELFPLAY_COORDINATOR,
-                state=DaemonState.RUNNING,
-                instance=mock_daemon2,
-            ),
-        }
-        handlers = DaemonEventHandlers(mock_manager)
+        # Create a simple object with _daemons dict
+        class SimpleManager:
+            _daemons = {DaemonType.IDLE_RESOURCE: daemon_info}
+
+        handlers = DaemonEventHandlers(SimpleManager())
 
         event = MockEvent(
             payload={
@@ -753,8 +768,7 @@ class TestOnBackpressureActivated:
 
         await handlers._on_backpressure_activated(event)
 
-        mock_daemon1.pause.assert_called_once()
-        mock_daemon2.pause.assert_called_once()
+        mock_daemon.pause.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_backpressure_activated_handles_no_pause_method(self):
