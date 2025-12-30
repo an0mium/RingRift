@@ -6,6 +6,8 @@ Uses hcloud CLI or REST API for instance management.
 Configuration:
     Environment variable: HCLOUD_TOKEN
     Or config file: ~/.config/hcloud/cli.toml
+
+December 30, 2025: Added circuit breaker protection for API resilience.
 """
 
 from __future__ import annotations
@@ -25,8 +27,40 @@ from app.coordination.providers.base import (
     InstanceStatus,
     ProviderType,
 )
+from app.distributed.circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+)
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Hetzner API calls (December 30, 2025)
+# Hetzner has 3 CPU-only nodes for P2P voting, lower priority
+_hetzner_circuit_breaker: CircuitBreaker | None = None
+
+
+def get_hetzner_circuit_breaker() -> CircuitBreaker:
+    """Get the Hetzner API circuit breaker singleton."""
+    global _hetzner_circuit_breaker
+    if _hetzner_circuit_breaker is None:
+        _hetzner_circuit_breaker = CircuitBreaker(
+            failure_threshold=3,  # Open after 3 consecutive failures
+            recovery_timeout=45.0,  # Wait 45s before testing recovery
+            half_open_max_calls=1,  # Single test call in half-open
+            success_threshold=1,
+            operation_type="hetzner_api",
+            max_backoff=300.0,  # Cap at 5 minutes
+        )
+    return _hetzner_circuit_breaker
+
+
+def reset_hetzner_circuit_breaker() -> None:
+    """Reset the circuit breaker (for testing)."""
+    global _hetzner_circuit_breaker
+    if _hetzner_circuit_breaker is not None:
+        _hetzner_circuit_breaker.reset_all()
+    _hetzner_circuit_breaker = None
 
 # Hetzner server types (CPU only)
 HETZNER_PLANS = {
@@ -69,9 +103,32 @@ class HetznerProvider(CloudProvider):
         return bool(self._token) or bool(self._cli_path)
 
     async def _run_cli(self, *args: str) -> tuple[str, str, int]:
-        """Run hcloud CLI command."""
+        """Run hcloud CLI command with circuit breaker protection.
+
+        December 30, 2025: Added circuit breaker to prevent cascading failures
+        when Hetzner API is experiencing issues.
+
+        Returns:
+            Tuple of (stdout, stderr, returncode)
+
+        Raises:
+            RuntimeError: If CLI not found
+            CircuitOpenError: If circuit is open due to recent failures
+        """
         if not self._cli_path:
             raise RuntimeError("hcloud CLI not found")
+
+        breaker = get_hetzner_circuit_breaker()
+        target = "hetzner_api"
+
+        # Check circuit state before attempting call
+        if not breaker.can_execute(target):
+            state = breaker.get_status(target)
+            logger.warning(
+                f"Hetzner circuit breaker is {state.state.value}, "
+                f"skipping CLI call (failures={state.failure_count})"
+            )
+            raise CircuitOpenError(f"Hetzner API circuit is {state.state.value}")
 
         cmd = [self._cli_path] + list(args) + ["-o", "json"]
 
@@ -79,14 +136,38 @@ class HetznerProvider(CloudProvider):
         if self._token:
             env["HCLOUD_TOKEN"] = self._token
 
-        result = await asyncio.get_running_loop().run_in_executor(
-            None,
-            lambda: subprocess.run(
-                cmd, capture_output=True, text=True, timeout=60, env=env
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=60, env=env
+                )
             )
-        )
 
-        return result.stdout, result.stderr, result.returncode
+            # Check for API-level errors (non-zero exit code)
+            if result.returncode != 0:
+                # Some errors are expected (e.g., server not found) - don't trip circuit
+                stderr_lower = result.stderr.lower()
+                if "not found" in stderr_lower or "no servers" in stderr_lower:
+                    # Expected condition, still success for circuit purposes
+                    breaker.record_success(target)
+                else:
+                    # Actual API failure - record but don't raise
+                    logger.debug(f"Hetzner CLI returned {result.returncode}: {result.stderr}")
+                    breaker.record_failure(target)
+            else:
+                breaker.record_success(target)
+
+            return result.stdout, result.stderr, result.returncode
+
+        except subprocess.TimeoutExpired as e:
+            logger.warning(f"Hetzner CLI timeout: {e}")
+            breaker.record_failure(target)
+            raise
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.warning(f"Hetzner CLI error: {e}")
+            breaker.record_failure(target)
+            raise
 
     def _parse_instance(self, data: dict) -> Instance:
         """Parse Hetzner server JSON into Instance object."""
