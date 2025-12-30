@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.config.thresholds import AUTO_PROMOTION_MIN_QUALITY
 from app.coordination.event_utils import parse_config_key
 
 logger = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ class AutoPromotionConfig:
     # Dec 29: Reduced from 1000 to 500 for faster iteration
     min_training_games: int = 500
     # Dec 29: Reduced from 0.6 to 0.5 for less strict quality gate
-    min_quality_score: float = 0.5
+    min_quality_score: float = AUTO_PROMOTION_MIN_QUALITY  # From thresholds.py
     require_parity_validation: bool = True  # Require TS parity validation passed
     # December 2025: Stability gate to prevent promoting volatile models
     stability_gate_enabled: bool = True

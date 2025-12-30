@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.config.thresholds import NPZ_COMBINATION_MIN_QUALITY
 from app.coordination.contracts import HealthCheckResult
 from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.handler_base import HandlerBase, HandlerStats
@@ -59,7 +60,7 @@ class NPZCombinationConfig:
     # Combination settings
     freshness_weight: float = 1.5  # Weight for fresh data (1.0 = no weighting)
     freshness_half_life_hours: float = 24.0  # Half-life for freshness decay
-    min_quality_score: float = 0.2  # Minimum quality score threshold
+    min_quality_score: float = NPZ_COMBINATION_MIN_QUALITY  # From thresholds.py
     deduplicate: bool = True  # Deduplicate samples by game_id
     dedup_threshold: float = 0.98  # Cosine similarity threshold for deduplication
 

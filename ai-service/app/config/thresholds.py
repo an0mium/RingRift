@@ -881,6 +881,14 @@ QUALITY_GOOD_THRESHOLD = 0.80
 # Excellent quality threshold - hot path for fast promotion
 QUALITY_EXCELLENT_THRESHOLD = 0.90
 
+# NPZ combination minimum quality (allow lower quality for combination)
+# December 30, 2025: Added for centralized threshold reference
+NPZ_COMBINATION_MIN_QUALITY = 0.2
+
+# Auto-promotion minimum quality score
+# December 30, 2025: Added for centralized threshold reference
+AUTO_PROMOTION_MIN_QUALITY = 0.5
+
 # Overfit detection threshold (train-val gap)
 OVERFIT_THRESHOLD = 0.15
 

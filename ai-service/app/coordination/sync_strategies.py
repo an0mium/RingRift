@@ -41,10 +41,12 @@ logger = logging.getLogger(__name__)
 # Import centralized thresholds for quality filtering
 try:
     from app.config.thresholds import (
+        HIGH_QUALITY_THRESHOLD,
         SYNC_MIN_QUALITY,
         SYNC_QUALITY_SAMPLE_SIZE,
     )
 except ImportError:
+    HIGH_QUALITY_THRESHOLD = 0.7
     SYNC_MIN_QUALITY = 0.5
     SYNC_QUALITY_SAMPLE_SIZE = 20
 
@@ -113,7 +115,7 @@ class AutoSyncConfig:
     quality_sample_size: int = SYNC_QUALITY_SAMPLE_SIZE
     # Quality extraction for priority-based training
     enable_quality_extraction: bool = True
-    min_quality_score_for_priority: float = 0.7  # Only queue high-quality games
+    min_quality_score_for_priority: float = HIGH_QUALITY_THRESHOLD  # From thresholds.py
     # Ephemeral-specific settings (December 2025 consolidation)
     ephemeral_poll_seconds: int = 5  # Aggressive polling for ephemeral hosts
     ephemeral_write_through: bool = True  # Wait for push confirmation
