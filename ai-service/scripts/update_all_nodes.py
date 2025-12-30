@@ -76,31 +76,56 @@ async def update_node(
     node_config: dict,
     commit_hash: str,
     restart_p2p: bool,
-    dry_run: bool
+    dry_run: bool,
+    include_coordinators: bool = False
 ) -> Tuple[str, bool, str]:
     """
     Update a single node to the latest code.
+
+    Args:
+        node_name: Name of the node
+        node_config: Node configuration dictionary
+        commit_hash: Target git commit
+        restart_p2p: Whether to restart P2P orchestrator
+        dry_run: Preview mode without making changes
+        include_coordinators: Include coordinator nodes in updates (default: False for local-mac only)
 
     Returns:
         (node_name, success, message)
     """
     try:
-        # Skip coordinator nodes (local-mac, mac-studio)
-        if node_config.get('role') == 'coordinator' and node_name in ['local-mac', 'mac-studio']:
-            return (node_name, True, "SKIPPED: Coordinator node")
+        # Skip local-mac (this machine) unless explicitly included
+        # Note: mac-studio IS updated since it's a separate machine
+        if node_name == 'local-mac' and not include_coordinators:
+            return (node_name, True, "SKIPPED: Local machine (use --include-coordinators)")
 
         # Skip if node is not ready
         if node_config.get('status') != 'ready':
             return (node_name, False, f"SKIPPED: Status is {node_config.get('status')}")
 
         # Create SSH client from config
-        logger.info(f"[{node_name}] Connecting...")
+        # Prefer Tailscale IP over SSH proxy hosts (more reliable)
+        tailscale_ip = node_config.get('tailscale_ip')
+        ssh_host = node_config.get('ssh_host', '')
+        ssh_port = node_config.get('ssh_port', 22)
+
+        # If we have a Tailscale IP, use it as the primary host (port 22)
+        # SSH proxy hosts like ssh2.vast.ai:12345 are unreliable
+        if tailscale_ip:
+            primary_host = tailscale_ip
+            primary_port = 22
+            logger.info(f"[{node_name}] Using Tailscale IP: {tailscale_ip}")
+        else:
+            primary_host = ssh_host
+            primary_port = ssh_port
+            logger.info(f"[{node_name}] Using SSH host: {ssh_host}:{ssh_port}")
+
         ssh_config = SSHConfig(
-            host=node_config.get('ssh_host', ''),
-            port=node_config.get('ssh_port', 22),
+            host=primary_host,
+            port=primary_port,
             user=node_config.get('ssh_user', 'root'),
             key_path=node_config.get('ssh_key'),
-            tailscale_ip=node_config.get('tailscale_ip'),
+            tailscale_ip=tailscale_ip,  # Keep for fallback
             work_dir=node_config.get('ringrift_path', '~/ringrift/ai-service'),
         )
         client = SSHClient(ssh_config)
@@ -218,10 +243,18 @@ async def update_all_nodes(
     commit_hash: str,
     restart_p2p: bool,
     dry_run: bool,
-    max_parallel: int = 10
+    max_parallel: int = 10,
+    include_coordinators: bool = False
 ) -> Dict[str, Tuple[bool, str]]:
     """
     Update all cluster nodes in parallel.
+
+    Args:
+        commit_hash: Target git commit hash
+        restart_p2p: Whether to restart P2P orchestrator
+        dry_run: Preview mode without making changes
+        max_parallel: Maximum concurrent updates
+        include_coordinators: Include coordinator nodes (local-mac)
 
     Returns:
         Dict mapping node_name -> (success, message)
@@ -242,7 +275,10 @@ async def update_all_nodes(
     # Create update tasks
     tasks = []
     for node_name, node_config in hosts.items():
-        task = update_node(node_name, node_config, commit_hash, restart_p2p, dry_run)
+        task = update_node(
+            node_name, node_config, commit_hash, restart_p2p, dry_run,
+            include_coordinators=include_coordinators
+        )
         tasks.append(task)
 
     # Run updates in parallel with concurrency limit
@@ -329,6 +365,11 @@ def main():
         default=10,
         help='Maximum number of parallel updates (default: 10)'
     )
+    parser.add_argument(
+        '--include-coordinators',
+        action='store_true',
+        help='Include coordinator nodes (local-mac) in updates'
+    )
 
     args = parser.parse_args()
 
@@ -337,13 +378,15 @@ def main():
 
     logger.info(f"Target commit: {args.commit}")
     logger.info(f"Restart P2P: {args.restart_p2p}")
+    logger.info(f"Include coordinators: {args.include_coordinators}")
 
     # Run updates
     results = asyncio.run(update_all_nodes(
         args.commit,
         args.restart_p2p,
         args.dry_run,
-        args.max_parallel
+        args.max_parallel,
+        args.include_coordinators
     ))
 
     # Print summary
