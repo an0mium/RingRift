@@ -337,22 +337,10 @@ class EvaluationDaemon(BaseEventHandler):
     async def _on_training_complete(self, event: Any) -> None:
         """Handle TRAINING_COMPLETE event."""
         try:
-            # Extract metadata from event
-            if hasattr(event, "payload"):
-                metadata = event.payload
-            elif hasattr(event, "metadata"):
-                metadata = event.metadata
-            else:
-                metadata = event if isinstance(event, dict) else {}
-
-            # train.py emits "checkpoint_path", but also support "model_path" for backwards compatibility
-            model_path = (
-                metadata.get("checkpoint_path")
-                or metadata.get("model_path")
-                or metadata.get("model_id")
-            )
-            board_type = metadata.get("board_type")
-            num_players = metadata.get("num_players", 2)
+            # December 30, 2025: Use consolidated extraction helpers from HandlerBase
+            metadata = self._get_payload(event)
+            model_path = self._extract_model_path(metadata)
+            board_type, num_players = self._extract_board_config(metadata)
 
             if not model_path:
                 logger.warning("[EvaluationDaemon] No checkpoint_path/model_path in TRAINING_COMPLETE event")

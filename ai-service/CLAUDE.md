@@ -407,6 +407,18 @@ from app.coordination.event_emitters import emit_training_complete
 emit_training_complete(config_key="hex8_2p", model_path="models/canonical_hex8_2p.pth")
 ```
 
+**Subscription Timing Requirement:**
+
+Subscribers must be started BEFORE emitters to ensure no events are missed during initialization.
+The `master_loop.py` and `coordination_bootstrap.py` enforce this order:
+
+1. EVENT_ROUTER starts first (receives all events)
+2. FEEDBACK_LOOP and DATA_PIPELINE start (subscribers)
+3. AUTO_SYNC and other daemons start (emitters)
+
+Events emitted during early initialization (before subscribers are ready) go to the dead-letter queue
+and are retried by the DLQ_RETRY daemon. This ensures eventual consistency.
+
 ## Common Patterns
 
 ### Singleton
@@ -686,3 +698,18 @@ All training loop feedback mechanisms are fully implemented:
 | Exploration boost emission              | `feedback_loop_controller.py:1048`   | ✅ Complete |
 
 Expected Elo improvement: **+28-45 Elo** across all configs from these feedback loops.
+
+## Infrastructure Verification (Dec 30, 2025)
+
+Comprehensive exploration verified the following are ALREADY COMPLETE:
+
+| Category               | Verified Items                                                  | Status                                                             |
+| ---------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Event Emitters**     | PROGRESS_STALL_DETECTED, PROGRESS_RECOVERED, REGRESSION_CLEARED | ✅ progress_watchdog_daemon.py:394,414, regression_detector.py:508 |
+| **Pipeline Stages**    | SELFPLAY → SYNC → NPZ_EXPORT → TRAINING                         | ✅ data_pipeline_orchestrator.py:756-900                           |
+| **Code Consolidation** | Event patterns (16 files)                                       | ✅ event_utils.py, event_handler_utils.py                          |
+| **Daemon Counts**      | 89 types (82 active, 7 deprecated)                              | ✅ Verified via DaemonType enum                                    |
+| **Event Types**        | 207 DataEventType members                                       | ✅ Verified via DataEventType enum                                 |
+
+**Important for future agents**: Before implementing suggested improvements, VERIFY current state.
+Exploration agents may report stale findings. Use `grep` and code inspection to confirm.
