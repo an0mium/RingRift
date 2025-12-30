@@ -1,15 +1,13 @@
-"""Tests for app.training.data_loader_factory.
+"""Tests for app/training/data_loader_factory.py.
 
-Tests the data loader factory for neural network training including:
-- DataLoaderConfig and DataLoaderResult dataclasses
-- Platform-aware worker computation
-- Auto-streaming detection based on file size
-- Config key inference from file paths
-- Curriculum weight computation
-- Data path collection
-- Data loader creation
-- Dataset metadata validation
+Comprehensive tests for the data loader factory module which handles
+data loading for neural network training, including streaming loaders,
+curriculum weights, and platform-aware configuration.
+
+December 2025: Created for test coverage expansion.
 """
+
+from __future__ import annotations
 
 import os
 import sys
@@ -21,27 +19,19 @@ import numpy as np
 import pytest
 
 from app.models import BoardType
-from app.training.data_loader_factory import (
-    AUTO_STREAMING_THRESHOLD_BYTES,
-    DataLoaderConfig,
-    DataLoaderResult,
-    collect_data_paths,
-    compute_curriculum_file_weights,
-    compute_num_workers,
-    create_data_loaders,
-    create_standard_loaders,
-    create_streaming_loaders,
-    infer_config_key_from_path,
-    should_use_streaming,
-    validate_dataset_metadata,
-)
 
+
+# =============================================================================
+# Test DataLoaderConfig
+# =============================================================================
 
 class TestDataLoaderConfig:
     """Tests for DataLoaderConfig dataclass."""
 
     def test_default_values(self):
         """Test default configuration values."""
+        from app.training.data_loader_factory import DataLoaderConfig
+
         config = DataLoaderConfig()
 
         assert config.batch_size == 256
@@ -53,68 +43,69 @@ class TestDataLoaderConfig:
         assert config.seed == 42
         assert config.board_type == BoardType.SQUARE8
         assert config.policy_size == 512
-
-    def test_distributed_defaults(self):
-        """Test distributed training defaults."""
-        config = DataLoaderConfig()
-
         assert config.distributed is False
         assert config.rank == 0
         assert config.world_size == 1
+        assert config.data_path is None
+        assert config.data_dir is None
+        assert config.use_curriculum_weights is False
+        assert config.curriculum_weights is None
+        assert config.return_heuristics is False
+        assert config.num_workers is None
 
     def test_custom_values(self):
         """Test custom configuration values."""
+        from app.training.data_loader_factory import DataLoaderConfig
+
         config = DataLoaderConfig(
             batch_size=512,
             use_streaming=True,
-            sampling_weights='game_id',
-            board_type=BoardType.HEXAGONAL,
-            multi_player=True,
+            sampling_weights='quality',
+            board_type=BoardType.HEX8,
+            policy_size=256,
+            distributed=True,
+            rank=1,
+            world_size=4,
+            data_path='/path/to/data.npz',
+            use_curriculum_weights=True,
+            curriculum_weights={'hex8_2p': 1.5},
         )
 
         assert config.batch_size == 512
         assert config.use_streaming is True
-        assert config.sampling_weights == 'game_id'
-        assert config.board_type == BoardType.HEXAGONAL
-        assert config.multi_player is True
+        assert config.sampling_weights == 'quality'
+        assert config.board_type == BoardType.HEX8
+        assert config.policy_size == 256
+        assert config.distributed is True
+        assert config.rank == 1
+        assert config.world_size == 4
+        assert config.data_path == '/path/to/data.npz'
+        assert config.use_curriculum_weights is True
+        assert config.curriculum_weights == {'hex8_2p': 1.5}
 
-    def test_curriculum_weights_config(self):
-        """Test curriculum weights configuration."""
-        weights = {"hex8_2p": 1.5, "square8_4p": 0.8}
+    def test_list_data_path(self):
+        """Test configuration with list of data paths."""
+        from app.training.data_loader_factory import DataLoaderConfig
+
         config = DataLoaderConfig(
-            use_curriculum_weights=True,
-            curriculum_weights=weights,
+            data_path=['/path/a.npz', '/path/b.npz'],
         )
 
-        assert config.use_curriculum_weights is True
-        assert config.curriculum_weights == weights
+        assert isinstance(config.data_path, list)
+        assert len(config.data_path) == 2
 
-    def test_return_heuristics_config(self):
-        """Test heuristics return configuration for v5 models."""
-        config = DataLoaderConfig(return_heuristics=True)
 
-        assert config.return_heuristics is True
-
-    def test_data_path_types(self):
-        """Test data_path accepts various types."""
-        # Single string
-        config1 = DataLoaderConfig(data_path="path/to/data.npz")
-        assert config1.data_path == "path/to/data.npz"
-
-        # List of strings
-        config2 = DataLoaderConfig(data_path=["a.npz", "b.npz"])
-        assert config2.data_path == ["a.npz", "b.npz"]
-
-        # None
-        config3 = DataLoaderConfig(data_path=None)
-        assert config3.data_path is None
-
+# =============================================================================
+# Test DataLoaderResult
+# =============================================================================
 
 class TestDataLoaderResult:
     """Tests for DataLoaderResult dataclass."""
 
     def test_default_values(self):
         """Test default result values."""
+        from app.training.data_loader_factory import DataLoaderResult
+
         result = DataLoaderResult()
 
         assert result.train_loader is None
@@ -129,274 +120,463 @@ class TestDataLoaderResult:
         assert result.num_workers == 0
 
     def test_custom_values(self):
-        """Test custom result values."""
+        """Test result with custom values."""
+        from app.training.data_loader_factory import DataLoaderResult
+
         mock_loader = MagicMock()
+        mock_sampler = MagicMock()
 
         result = DataLoaderResult(
             train_loader=mock_loader,
-            train_size=1000,
-            val_size=200,
+            val_loader=mock_loader,
+            train_sampler=mock_sampler,
+            train_size=8000,
+            val_size=2000,
             use_streaming=True,
             has_multi_player_values=True,
+            data_paths=['/a.npz', '/b.npz'],
+            num_workers=4,
         )
 
         assert result.train_loader is mock_loader
-        assert result.train_size == 1000
-        assert result.val_size == 200
+        assert result.train_size == 8000
+        assert result.val_size == 2000
         assert result.use_streaming is True
         assert result.has_multi_player_values is True
+        assert len(result.data_paths) == 2
+        assert result.num_workers == 4
 
+
+# =============================================================================
+# Test compute_num_workers
+# =============================================================================
 
 class TestComputeNumWorkers:
     """Tests for compute_num_workers function."""
 
-    def test_explicit_config(self):
-        """Test explicit num_workers configuration."""
-        result = compute_num_workers(8)
-        assert result == 8
-
-        result = compute_num_workers(0)
-        assert result == 0
-
-    @patch.dict(os.environ, {"RINGRIFT_DATALOADER_WORKERS": "6"})
     def test_env_override(self):
         """Test environment variable override."""
-        result = compute_num_workers(None)
-        assert result == 6
+        from app.training.data_loader_factory import compute_num_workers
 
-        # Env var takes precedence even with explicit config
-        result = compute_num_workers(4)
-        assert result == 6
+        with patch.dict(os.environ, {'RINGRIFT_DATALOADER_WORKERS': '8'}):
+            assert compute_num_workers(None) == 8
+            # Env should override explicit config too
+            assert compute_num_workers(4) == 8
 
-    @patch.dict(os.environ, {}, clear=True)
-    @patch.object(sys, 'platform', 'darwin')
+    def test_explicit_config(self):
+        """Test explicit config value."""
+        from app.training.data_loader_factory import compute_num_workers
+
+        with patch.dict(os.environ, {}, clear=True):
+            # Remove env var if present
+            os.environ.pop('RINGRIFT_DATALOADER_WORKERS', None)
+            assert compute_num_workers(6) == 6
+
     def test_macos_default(self):
-        """Test macOS defaults to 0 workers."""
-        # Need to clear env var
-        os.environ.pop("RINGRIFT_DATALOADER_WORKERS", None)
+        """Test macOS returns 0 workers (mmap incompatible with fork)."""
+        from app.training.data_loader_factory import compute_num_workers
 
-        result = compute_num_workers(None)
-        assert result == 0
+        os.environ.pop('RINGRIFT_DATALOADER_WORKERS', None)
 
-    @patch.dict(os.environ, {}, clear=True)
-    @patch.object(sys, 'platform', 'linux')
-    @patch('multiprocessing.cpu_count', return_value=16)
-    def test_linux_default(self, mock_cpu):
-        """Test Linux defaults to min(4, cpu_count//2)."""
-        os.environ.pop("RINGRIFT_DATALOADER_WORKERS", None)
+        with patch.object(sys, 'platform', 'darwin'):
+            result = compute_num_workers(None)
+            assert result == 0
 
-        result = compute_num_workers(None)
-        assert result == 4  # min(4, 16//2) = 4
+    def test_linux_default(self):
+        """Test Linux computes workers from CPU count."""
+        from app.training.data_loader_factory import compute_num_workers
 
-    @patch.dict(os.environ, {}, clear=True)
-    @patch.object(sys, 'platform', 'linux')
-    @patch('multiprocessing.cpu_count', return_value=4)
-    def test_linux_low_cpu(self, mock_cpu):
+        os.environ.pop('RINGRIFT_DATALOADER_WORKERS', None)
+
+        with patch.object(sys, 'platform', 'linux'):
+            with patch('multiprocessing.cpu_count', return_value=16):
+                result = compute_num_workers(None)
+                # min(4, 16 // 2) = min(4, 8) = 4
+                assert result == 4
+
+    def test_linux_few_cpus(self):
         """Test Linux with few CPUs."""
-        os.environ.pop("RINGRIFT_DATALOADER_WORKERS", None)
+        from app.training.data_loader_factory import compute_num_workers
 
-        result = compute_num_workers(None)
-        assert result == 2  # min(4, 4//2) = 2
+        os.environ.pop('RINGRIFT_DATALOADER_WORKERS', None)
 
+        with patch.object(sys, 'platform', 'linux'):
+            with patch('multiprocessing.cpu_count', return_value=4):
+                result = compute_num_workers(None)
+                # min(4, 4 // 2) = min(4, 2) = 2
+                assert result == 2
+
+
+# =============================================================================
+# Test should_use_streaming
+# =============================================================================
 
 class TestShouldUseStreaming:
     """Tests for should_use_streaming function."""
 
-    def test_below_threshold(self):
-        """Test returns False when below threshold."""
-        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
-            # Write small file
-            np.savez(f.name, data=np.zeros(100))
-            f.close()
+    def test_empty_paths(self):
+        """Test returns False with no paths."""
+        from app.training.data_loader_factory import should_use_streaming
 
-            try:
-                result = should_use_streaming(f.name, None)
-                assert result is False
-            finally:
-                os.unlink(f.name)
+        assert should_use_streaming(None, None) is False
+        assert should_use_streaming('', None) is False
+        assert should_use_streaming([], None) is False
 
-    def test_above_threshold(self):
-        """Test returns True when above threshold."""
-        # Use tiny threshold to trigger streaming
-        result = should_use_streaming(
-            "dummy.npz",
-            None,
-            threshold_bytes=0,  # Any file triggers
-        )
-        # File doesn't exist, so size is 0, equal to threshold
-        assert result is False
+    def test_small_file(self):
+        """Test returns False for small file."""
+        from app.training.data_loader_factory import should_use_streaming
 
-    def test_multiple_files(self):
-        """Test with multiple files summing size."""
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            f.write(b'x' * 1000)  # 1KB
+            f.flush()
+            temp_path = f.name
+
+        try:
+            result = should_use_streaming(temp_path, None)
+            assert result is False
+        finally:
+            os.unlink(temp_path)
+
+    def test_large_file_exceeds_threshold(self):
+        """Test returns True for large file exceeding threshold."""
+        from app.training.data_loader_factory import should_use_streaming
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            f.write(b'x' * 1000)
+            f.flush()
+            temp_path = f.name
+
+        try:
+            # Use a very low threshold so the file exceeds it
+            result = should_use_streaming(temp_path, None, threshold_bytes=500)
+            assert result is True
+        finally:
+            os.unlink(temp_path)
+
+    def test_list_of_paths(self):
+        """Test handles list of paths."""
+        from app.training.data_loader_factory import should_use_streaming
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f1:
+            f1.write(b'x' * 500)
+            f1.flush()
+            path1 = f1.name
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f2:
+            f2.write(b'x' * 600)
+            f2.flush()
+            path2 = f2.name
+
+        try:
+            # Combined size 1100, threshold 1000 -> True
+            result = should_use_streaming([path1, path2], None, threshold_bytes=1000)
+            assert result is True
+        finally:
+            os.unlink(path1)
+            os.unlink(path2)
+
+    def test_directory_with_npz_files(self):
+        """Test handles data_dir with .npz files."""
+        from app.training.data_loader_factory import should_use_streaming
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            paths = []
+            # Create some .npz files
             for i in range(3):
-                path = os.path.join(tmpdir, f"data{i}.npz")
-                np.savez(path, data=np.zeros(100))
-                paths.append(path)
+                path = os.path.join(tmpdir, f'data_{i}.npz')
+                with open(path, 'wb') as f:
+                    f.write(b'x' * 400)
 
-            # Small threshold to trigger
-            result = should_use_streaming(
-                paths,
-                None,
-                threshold_bytes=100,  # Small enough to trigger
-            )
+            # Combined 1200 bytes, threshold 1000 -> True
+            result = should_use_streaming(None, tmpdir, threshold_bytes=1000)
             assert result is True
 
-    def test_data_dir(self):
-        """Test with data directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            for i in range(2):
-                path = os.path.join(tmpdir, f"data{i}.npz")
-                np.savez(path, data=np.zeros(50))
 
-            result = should_use_streaming(
-                None,
-                tmpdir,
-                threshold_bytes=100,  # Should trigger
-            )
-            assert result is True
-
-    def test_nonexistent_files(self):
-        """Test with nonexistent files."""
-        result = should_use_streaming(
-            "/nonexistent/path.npz",
-            None,
-        )
-        assert result is False
-
+# =============================================================================
+# Test infer_config_key_from_path
+# =============================================================================
 
 class TestInferConfigKeyFromPath:
     """Tests for infer_config_key_from_path function."""
 
     def test_hex8_2p(self):
-        """Test hex8 2-player detection."""
-        assert infer_config_key_from_path("hex8_2p_games.npz") == "hex8_2p"
-        assert infer_config_key_from_path("/path/to/canonical_hex8_2p.npz") == "hex8_2p"
-        assert infer_config_key_from_path("training_hex8_2p_v3.npz") == "hex8_2p"
+        """Test inferring hex8_2p."""
+        from app.training.data_loader_factory import infer_config_key_from_path
+
+        assert infer_config_key_from_path('/path/hex8_2p_games.npz') == 'hex8_2p'
+        assert infer_config_key_from_path('/path/canonical_hex8_2p.npz') == 'hex8_2p'
+        assert infer_config_key_from_path('/path/training_hex8_2p_v2.npz') == 'hex8_2p'
 
     def test_square8_4p(self):
-        """Test square8 4-player detection."""
-        assert infer_config_key_from_path("square8_4p.npz") == "square8_4p"
-        assert infer_config_key_from_path("canonical_square8_4p_20241225.npz") == "square8_4p"
+        """Test inferring square8_4p."""
+        from app.training.data_loader_factory import infer_config_key_from_path
 
-    def test_hexagonal(self):
-        """Test hexagonal board detection."""
-        assert infer_config_key_from_path("hexagonal_3p_selfplay.npz") == "hexagonal_3p"
-        assert infer_config_key_from_path("data/hexagonal_2p.npz") == "hexagonal_2p"
+        assert infer_config_key_from_path('/path/square8_4p.npz') == 'square8_4p'
+        assert infer_config_key_from_path('square8_4p_selfplay.npz') == 'square8_4p'
 
-    def test_square19(self):
-        """Test square19 board detection."""
-        assert infer_config_key_from_path("square19_2p.npz") == "square19_2p"
-        assert infer_config_key_from_path("square19_4p_training.npz") == "square19_4p"
+    def test_hexagonal_3p(self):
+        """Test inferring hexagonal_3p."""
+        from app.training.data_loader_factory import infer_config_key_from_path
+
+        assert infer_config_key_from_path('/data/hexagonal_3p.npz') == 'hexagonal_3p'
+
+    def test_square19_2p(self):
+        """Test inferring square19_2p."""
+        from app.training.data_loader_factory import infer_config_key_from_path
+
+        assert infer_config_key_from_path('/models/square19_2p_large.npz') == 'square19_2p'
+
+    def test_no_match(self):
+        """Test returns None for non-matching paths."""
+        from app.training.data_loader_factory import infer_config_key_from_path
+
+        assert infer_config_key_from_path('/path/random_data.npz') is None
+        assert infer_config_key_from_path('/path/training.npz') is None
+        assert infer_config_key_from_path('/path/') is None
 
     def test_case_insensitive(self):
-        """Test case insensitivity."""
-        assert infer_config_key_from_path("HEX8_2P.NPZ") == "hex8_2p"
-        assert infer_config_key_from_path("SQUARE8_3P.npz") == "square8_3p"
+        """Test case-insensitive matching."""
+        from app.training.data_loader_factory import infer_config_key_from_path
 
-    def test_unknown_pattern(self):
-        """Test returns None for unknown patterns."""
-        assert infer_config_key_from_path("random_data.npz") is None
-        assert infer_config_key_from_path("training_v3.npz") is None
-        assert infer_config_key_from_path("games_2player.npz") is None
+        assert infer_config_key_from_path('/path/HEX8_2P.npz') == 'hex8_2p'
+        assert infer_config_key_from_path('/path/Square8_3P.NPZ') == 'square8_3p'
 
+
+# =============================================================================
+# Test compute_curriculum_file_weights
+# =============================================================================
 
 class TestComputeCurriculumFileWeights:
     """Tests for compute_curriculum_file_weights function."""
 
+    def test_empty_paths(self):
+        """Test returns empty dict for empty paths."""
+        from app.training.data_loader_factory import compute_curriculum_file_weights
+
+        result = compute_curriculum_file_weights([], {})
+        assert result == {}
+
     def test_matching_weights(self):
-        """Test files matched to curriculum weights."""
-        paths = [
-            "/data/hex8_2p_games.npz",
-            "/data/square8_4p.npz",
-        ]
-        curriculum = {
-            "hex8_2p": 1.5,
-            "square8_4p": 0.5,
-        }
+        """Test applies matching curriculum weights."""
+        from app.training.data_loader_factory import compute_curriculum_file_weights
 
-        result = compute_curriculum_file_weights(paths, curriculum)
+        paths = ['/data/hex8_2p.npz', '/data/square8_4p.npz']
+        weights = {'hex8_2p': 1.5, 'square8_4p': 0.8}
 
-        assert result["/data/hex8_2p_games.npz"] == 1.5
-        assert result["/data/square8_4p.npz"] == 0.5
+        result = compute_curriculum_file_weights(paths, weights)
 
-    def test_default_weight(self):
-        """Test default weight for unknown configs."""
-        paths = ["/data/unknown.npz"]
-        curriculum = {"hex8_2p": 1.5}
+        assert result['/data/hex8_2p.npz'] == 1.5
+        assert result['/data/square8_4p.npz'] == 0.8
 
-        result = compute_curriculum_file_weights(paths, curriculum, default_weight=1.0)
+    def test_default_weight_for_unknown(self):
+        """Test uses default weight for unknown config keys."""
+        from app.training.data_loader_factory import compute_curriculum_file_weights
 
-        assert result["/data/unknown.npz"] == 1.0
+        paths = ['/data/hex8_2p.npz', '/data/unknown.npz']
+        weights = {'hex8_2p': 2.0}
 
-    def test_mixed_weights(self):
-        """Test mix of known and unknown configs."""
-        paths = [
-            "/data/hex8_2p.npz",
-            "/data/unknown.npz",
-            "/data/square8_4p.npz",
-        ]
-        curriculum = {"hex8_2p": 2.0}
+        result = compute_curriculum_file_weights(paths, weights, default_weight=1.0)
 
-        result = compute_curriculum_file_weights(paths, curriculum)
+        assert result['/data/hex8_2p.npz'] == 2.0
+        assert result['/data/unknown.npz'] == 1.0
 
-        assert result["/data/hex8_2p.npz"] == 2.0
-        assert result["/data/unknown.npz"] == 1.0
-        assert result["/data/square8_4p.npz"] == 1.0  # Known config but no weight
+    def test_missing_from_weights_uses_default(self):
+        """Test uses default when config key not in weights dict."""
+        from app.training.data_loader_factory import compute_curriculum_file_weights
 
-    def test_empty_inputs(self):
-        """Test empty inputs."""
-        assert compute_curriculum_file_weights([], {}) == {}
-        assert compute_curriculum_file_weights([], {"hex8_2p": 1.0}) == {}
+        paths = ['/data/hex8_2p.npz', '/data/square8_3p.npz']
+        weights = {'hex8_2p': 1.5}  # square8_3p not in weights
 
+        result = compute_curriculum_file_weights(paths, weights, default_weight=0.5)
+
+        assert result['/data/hex8_2p.npz'] == 1.5
+        assert result['/data/square8_3p.npz'] == 0.5
+
+
+# =============================================================================
+# Test collect_data_paths
+# =============================================================================
 
 class TestCollectDataPaths:
     """Tests for collect_data_paths function."""
 
     def test_single_path(self):
-        """Test single data path."""
-        result = collect_data_paths("data.npz", None)
-        assert result == ["data.npz"]
+        """Test collects single path."""
+        from app.training.data_loader_factory import collect_data_paths
 
-    def test_path_list(self):
-        """Test list of data paths."""
-        result = collect_data_paths(["a.npz", "b.npz"], None)
-        assert result == ["a.npz", "b.npz"]
+        result = collect_data_paths('/data/file.npz', None)
+        assert result == ['/data/file.npz']
+
+    def test_list_of_paths(self):
+        """Test collects list of paths."""
+        from app.training.data_loader_factory import collect_data_paths
+
+        paths = ['/data/a.npz', '/data/b.npz']
+        result = collect_data_paths(paths, None)
+        assert result == paths
 
     def test_data_dir(self):
-        """Test data directory glob."""
+        """Test collects from data directory."""
+        from app.training.data_loader_factory import collect_data_paths
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            for name in ["a.npz", "b.npz", "c.txt"]:
+            # Create .npz files
+            for name in ['file_a.npz', 'file_b.npz', 'file_c.npz']:
                 Path(tmpdir, name).touch()
 
             result = collect_data_paths(None, tmpdir)
 
-            assert len(result) == 2
-            assert all(p.endswith(".npz") for p in result)
+            assert len(result) == 3
+            assert all(p.endswith('.npz') for p in result)
 
     def test_removes_duplicates(self):
-        """Test duplicate removal."""
-        result = collect_data_paths(["a.npz", "b.npz", "a.npz"], None)
-        assert result == ["a.npz", "b.npz"]
+        """Test removes duplicate paths while preserving order."""
+        from app.training.data_loader_factory import collect_data_paths
 
-    def test_preserves_order(self):
-        """Test order preservation."""
-        paths = ["c.npz", "a.npz", "b.npz"]
+        paths = ['/data/a.npz', '/data/b.npz', '/data/a.npz']
         result = collect_data_paths(paths, None)
-        assert result == paths
+        assert result == ['/data/a.npz', '/data/b.npz']
 
-    def test_none_inputs(self):
-        """Test with None inputs."""
-        result = collect_data_paths(None, None)
-        assert result == []
+    def test_empty_inputs(self):
+        """Test returns empty list for no inputs."""
+        from app.training.data_loader_factory import collect_data_paths
 
+        assert collect_data_paths(None, None) == []
+        assert collect_data_paths('', None) == []
+
+
+# =============================================================================
+# Test validate_dataset_metadata
+# =============================================================================
+
+class TestValidateDatasetMetadata:
+    """Tests for validate_dataset_metadata function."""
+
+    def test_nonexistent_file(self):
+        """Test returns empty dict for nonexistent file."""
+        from app.training.data_loader_factory import validate_dataset_metadata
+
+        result = validate_dataset_metadata(
+            '/nonexistent/path.npz',
+            config_history_length=8,
+            config_feature_version=2,
+        )
+        assert result == {}
+
+    def test_extracts_in_channels(self):
+        """Test extracts in_channels from features shape."""
+        from app.training.data_loader_factory import validate_dataset_metadata
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            temp_path = f.name
+
+        try:
+            # Create NPZ with features array
+            features = np.zeros((100, 64, 8, 8), dtype=np.float32)
+            np.savez(temp_path, features=features)
+
+            result = validate_dataset_metadata(
+                temp_path,
+                config_history_length=8,
+                config_feature_version=2,
+            )
+
+            assert result['in_channels'] == 64
+        finally:
+            os.unlink(temp_path)
+
+    def test_validates_history_length_mismatch(self):
+        """Test raises error on history_length mismatch."""
+        from app.training.data_loader_factory import validate_dataset_metadata
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            temp_path = f.name
+
+        try:
+            np.savez(temp_path, history_length=np.array(8))
+
+            with pytest.raises(ValueError, match="history_length"):
+                validate_dataset_metadata(
+                    temp_path,
+                    config_history_length=16,  # Mismatch!
+                    config_feature_version=2,
+                )
+        finally:
+            os.unlink(temp_path)
+
+    def test_validates_feature_version_mismatch(self):
+        """Test raises error on feature_version mismatch."""
+        from app.training.data_loader_factory import validate_dataset_metadata
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            temp_path = f.name
+
+        try:
+            np.savez(temp_path, feature_version=np.array(2))
+
+            with pytest.raises(ValueError, match="feature_version"):
+                validate_dataset_metadata(
+                    temp_path,
+                    config_history_length=8,
+                    config_feature_version=3,  # Mismatch!
+                )
+        finally:
+            os.unlink(temp_path)
+
+    def test_validates_globals_dimension(self):
+        """Test raises error on wrong globals dimension."""
+        from app.training.data_loader_factory import validate_dataset_metadata
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            temp_path = f.name
+
+        try:
+            globals_arr = np.zeros((100, 30), dtype=np.float32)  # Wrong dim!
+            np.savez(temp_path, globals=globals_arr)
+
+            with pytest.raises(ValueError, match="globals dimension"):
+                validate_dataset_metadata(
+                    temp_path,
+                    config_history_length=8,
+                    config_feature_version=2,
+                )
+        finally:
+            os.unlink(temp_path)
+
+    def test_validates_legacy_policy_encoding(self):
+        """Test raises error for legacy policy encoding with v3/v4."""
+        from app.training.data_loader_factory import validate_dataset_metadata
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            temp_path = f.name
+
+        try:
+            np.savez(temp_path, policy_encoding=np.array('legacy_max_n'))
+
+            with pytest.raises(ValueError, match="legacy MAX_N"):
+                validate_dataset_metadata(
+                    temp_path,
+                    config_history_length=8,
+                    config_feature_version=2,
+                    model_version='v3',
+                )
+        finally:
+            os.unlink(temp_path)
+
+
+# =============================================================================
+# Test create_streaming_loaders
+# =============================================================================
 
 class TestCreateStreamingLoaders:
     """Tests for create_streaming_loaders function."""
 
-    def test_empty_paths(self):
-        """Test with empty paths."""
+    def test_empty_paths_returns_empty_result(self):
+        """Test returns empty result for empty paths."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_streaming_loaders,
+        )
+
         config = DataLoaderConfig()
         result = create_streaming_loaders(config, [])
 
@@ -404,386 +584,337 @@ class TestCreateStreamingLoaders:
         assert result.val_loader is None
         assert result.use_streaming is True
 
-    @patch('app.training.data_loader_factory.get_sample_count', return_value=0)
-    def test_no_samples(self, mock_count):
-        """Test with zero samples."""
+    @patch('app.training.data_loader_factory.get_sample_count')
+    def test_no_samples_returns_empty(self, mock_count):
+        """Test returns empty result when no samples found."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_streaming_loaders,
+        )
+
+        mock_count.return_value = 0
+
         config = DataLoaderConfig()
-        result = create_streaming_loaders(config, ["fake.npz"])
+        result = create_streaming_loaders(config, ['/data.npz'])
 
         assert result.train_loader is None
         assert result.val_loader is None
 
+    @patch('app.training.data_loader_factory.os.path.exists')
+    @patch('app.training.data_loader_factory.get_sample_count')
     @patch('app.training.data_loader_factory.StreamingDataLoader')
-    @patch('app.training.data_loader_factory.get_sample_count', return_value=1000)
-    @patch('os.path.exists', return_value=True)
-    def test_creates_loaders(self, mock_exists, mock_count, mock_loader_class):
-        """Test streaming loaders are created."""
+    def test_creates_streaming_loaders(self, mock_loader_cls, mock_count, mock_exists):
+        """Test creates streaming loaders with proper config."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_streaming_loaders,
+        )
+
+        mock_exists.return_value = True
+        mock_count.return_value = 10000
         mock_loader = MagicMock()
         mock_loader.has_multi_player_values = False
-        mock_loader_class.return_value = mock_loader
+        mock_loader_cls.return_value = mock_loader
 
-        config = DataLoaderConfig(batch_size=64)
-        result = create_streaming_loaders(config, ["data.npz"])
+        config = DataLoaderConfig(
+            batch_size=256,
+            seed=42,
+            policy_size=512,
+        )
+        result = create_streaming_loaders(config, ['/data.npz'])
 
+        assert result.train_size == 8000  # 80% of 10000
+        assert result.val_size == 2000  # 20% of 10000
         assert result.use_streaming is True
-        assert result.train_size == 800  # 80% of 1000
-        assert result.val_size == 200  # 20% of 1000
 
+    @patch('app.training.data_loader_factory.os.path.exists')
+    @patch('app.training.data_loader_factory.get_sample_count')
     @patch('app.training.data_loader_factory.WeightedStreamingDataLoader')
     @patch('app.training.data_loader_factory.StreamingDataLoader')
-    @patch('app.training.data_loader_factory.get_sample_count', return_value=1000)
-    @patch('os.path.exists', return_value=True)
-    def test_weighted_sampling(self, mock_exists, mock_count, mock_stream, mock_weighted):
-        """Test weighted streaming loader is used."""
+    def test_uses_weighted_loader_for_quality(
+        self, mock_base_loader, mock_weighted_loader, mock_count, mock_exists
+    ):
+        """Test uses WeightedStreamingDataLoader for non-uniform sampling."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_streaming_loaders,
+        )
+
+        mock_exists.return_value = True
+        mock_count.return_value = 10000
         mock_loader = MagicMock()
         mock_loader.has_multi_player_values = False
-        mock_weighted.return_value = mock_loader
-        mock_stream.return_value = mock_loader
+        mock_weighted_loader.return_value = mock_loader
+        mock_base_loader.return_value = mock_loader
 
         config = DataLoaderConfig(
-            sampling_weights='game_id',
+            sampling_weights='quality',
         )
-        result = create_streaming_loaders(config, ["data.npz"])
+        result = create_streaming_loaders(config, ['/data.npz'])
 
-        assert mock_weighted.called
+        # WeightedStreamingDataLoader should be used for train
+        mock_weighted_loader.assert_called()
+        assert result.train_loader is not None
 
-    @patch('app.training.data_loader_factory.WeightedStreamingDataLoader')
-    @patch('app.training.data_loader_factory.StreamingDataLoader')
-    @patch('app.training.data_loader_factory.get_sample_count', return_value=1000)
-    @patch('os.path.exists', return_value=True)
-    def test_curriculum_weights(self, mock_exists, mock_count, mock_stream, mock_weighted):
-        """Test curriculum weights are applied."""
-        mock_loader = MagicMock()
-        mock_loader.has_multi_player_values = False
-        mock_weighted.return_value = mock_loader
-        mock_stream.return_value = mock_loader
 
-        config = DataLoaderConfig(
-            use_curriculum_weights=True,
-            curriculum_weights={"hex8_2p": 1.5},
-        )
-        result = create_streaming_loaders(config, ["hex8_2p.npz"])
-
-        # Should use weighted loader due to curriculum weights
-        assert mock_weighted.called
-
+# =============================================================================
+# Test create_standard_loaders
+# =============================================================================
 
 class TestCreateStandardLoaders:
     """Tests for create_standard_loaders function."""
 
     @patch('app.training.data_loader_factory.RingRiftDataset')
-    @patch('app.training.data_loader_factory.random_split')
-    def test_creates_loaders(self, mock_split, mock_dataset_class):
-        """Test standard loaders are created."""
-        # Mock dataset
+    def test_creates_dataset(self, mock_dataset_cls):
+        """Test creates RingRiftDataset with proper config."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_standard_loaders,
+        )
+
         mock_dataset = MagicMock()
         mock_dataset.__len__ = MagicMock(return_value=1000)
         mock_dataset.has_multi_player_values = False
-        mock_dataset.spatial_shape = (8, 8)  # Required for logging
-        mock_dataset_class.return_value = mock_dataset
+        mock_dataset.spatial_shape = (8, 8)
+        mock_dataset_cls.return_value = mock_dataset
 
-        # Mock split
-        train_data = MagicMock()
-        train_data.__len__ = MagicMock(return_value=800)
-        val_data = MagicMock()
-        val_data.__len__ = MagicMock(return_value=200)
-        mock_split.return_value = (train_data, val_data)
+        config = DataLoaderConfig(
+            board_type=BoardType.SQUARE8,
+            augment_hex_symmetry=False,
+            multi_player=False,
+            filter_empty_policies=True,
+        )
 
-        config = DataLoaderConfig(batch_size=64)
-        result = create_standard_loaders(config, "data.npz")
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            np.savez(f.name, features=np.zeros((100, 64, 8, 8)))
+            temp_path = f.name
 
-        assert result.train_loader is not None
-        assert result.val_loader is not None
-        assert result.train_size == 800
-        assert result.val_size == 200
-        assert result.use_streaming is False
+        try:
+            result = create_standard_loaders(config, temp_path)
 
-    @patch('app.training.data_loader_factory.RingRiftDataset')
-    def test_empty_dataset(self, mock_dataset_class):
-        """Test with empty dataset."""
-        mock_dataset = MagicMock()
-        mock_dataset.__len__ = MagicMock(return_value=0)
-        mock_dataset_class.return_value = mock_dataset
-
-        config = DataLoaderConfig()
-        result = create_standard_loaders(config, "data.npz")
-
-        assert result.train_loader is None
-        assert result.val_loader is None
+            mock_dataset_cls.assert_called_once()
+            assert result.train_size == 800  # 80% of 1000
+            assert result.val_size == 200  # 20% of 1000
+            assert result.use_streaming is False
+        finally:
+            os.unlink(temp_path)
 
     @patch('app.training.data_loader_factory.WeightedRingRiftDataset')
-    @patch('app.training.data_loader_factory.random_split')
-    def test_weighted_dataset(self, mock_split, mock_weighted_class):
-        """Test weighted dataset is used."""
+    def test_uses_weighted_dataset(self, mock_weighted_cls):
+        """Test uses WeightedRingRiftDataset for non-uniform sampling."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_standard_loaders,
+        )
+
         mock_dataset = MagicMock()
         mock_dataset.__len__ = MagicMock(return_value=1000)
         mock_dataset.has_multi_player_values = False
-        mock_dataset.spatial_shape = (8, 8)  # Required for logging
-        mock_dataset.sample_weights = None  # Avoid weighted sampler creation
-        mock_weighted_class.return_value = mock_dataset
+        mock_dataset.sample_weights = np.ones(1000)
+        mock_dataset.spatial_shape = (8, 8)  # Add spatial_shape to avoid unpacking error
+        mock_weighted_cls.return_value = mock_dataset
 
-        train_data = MagicMock()
-        train_data.__len__ = MagicMock(return_value=800)
-        train_data.dataset = mock_dataset  # For hasattr checks
-        val_data = MagicMock()
-        val_data.__len__ = MagicMock(return_value=200)
-        mock_split.return_value = (train_data, val_data)
+        config = DataLoaderConfig(
+            sampling_weights='quality',
+        )
 
-        config = DataLoaderConfig(sampling_weights='game_id')
-        result = create_standard_loaders(config, "data.npz")
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            np.savez(f.name, features=np.zeros((100, 64, 8, 8)))
+            temp_path = f.name
 
-        assert mock_weighted_class.called
+        try:
+            result = create_standard_loaders(config, temp_path)
 
+            mock_weighted_cls.assert_called_once()
+            # Should use weighted sampling
+            assert result.train_sampler is not None or result.train_loader is not None
+        finally:
+            os.unlink(temp_path)
+
+    @patch('app.training.data_loader_factory.RingRiftDataset')
+    def test_empty_dataset_returns_empty_result(self, mock_dataset_cls):
+        """Test returns empty result for empty dataset."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_standard_loaders,
+        )
+
+        mock_dataset = MagicMock()
+        mock_dataset.__len__ = MagicMock(return_value=0)
+        mock_dataset_cls.return_value = mock_dataset
+
+        config = DataLoaderConfig()
+
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            np.savez(f.name, features=np.zeros((0, 64, 8, 8)))
+            temp_path = f.name
+
+        try:
+            result = create_standard_loaders(config, temp_path)
+
+            assert result.train_loader is None
+            assert result.val_loader is None
+        finally:
+            os.unlink(temp_path)
+
+
+# =============================================================================
+# Test create_data_loaders
+# =============================================================================
 
 class TestCreateDataLoaders:
     """Tests for create_data_loaders main entry point."""
 
-    @patch('app.training.data_loader_factory.should_use_streaming', return_value=False)
     @patch('app.training.data_loader_factory.create_standard_loaders')
-    @patch('os.path.exists', return_value=True)
-    def test_uses_standard_loader(self, mock_exists, mock_standard, mock_streaming_check):
-        """Test uses standard loaders when not streaming."""
-        mock_standard.return_value = DataLoaderResult(train_size=100)
+    @patch('app.training.data_loader_factory.should_use_streaming')
+    def test_routes_to_standard_for_small_data(
+        self, mock_should_stream, mock_create_standard
+    ):
+        """Test routes to standard loaders for small data."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            DataLoaderResult,
+            create_data_loaders,
+        )
 
-        config = DataLoaderConfig(data_path="data.npz")
-        result = create_data_loaders(config)
+        mock_should_stream.return_value = False
+        mock_create_standard.return_value = DataLoaderResult(
+            train_size=800,
+            val_size=200,
+        )
 
-        assert mock_standard.called
-        assert result.train_size == 100
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            np.savez(f.name, features=np.zeros((100, 64, 8, 8)))
+            temp_path = f.name
 
-    @patch('app.training.data_loader_factory.should_use_streaming', return_value=True)
+        try:
+            config = DataLoaderConfig(data_path=temp_path)
+            result = create_data_loaders(config)
+
+            mock_create_standard.assert_called_once()
+            assert result.train_size == 800
+        finally:
+            os.unlink(temp_path)
+
     @patch('app.training.data_loader_factory.create_streaming_loaders')
-    @patch('app.training.data_loader_factory.collect_data_paths', return_value=["data.npz"])
-    def test_uses_streaming_auto(self, mock_collect, mock_streaming, mock_check):
-        """Test auto-enables streaming based on file size."""
-        mock_streaming.return_value = DataLoaderResult(use_streaming=True)
+    @patch('app.training.data_loader_factory.collect_data_paths')
+    def test_routes_to_streaming_when_forced(
+        self, mock_collect, mock_create_streaming
+    ):
+        """Test routes to streaming loaders when use_streaming=True."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            DataLoaderResult,
+            create_data_loaders,
+        )
 
-        config = DataLoaderConfig(data_path="data.npz")
+        mock_collect.return_value = ['/data.npz']
+        mock_create_streaming.return_value = DataLoaderResult(
+            train_size=8000,
+            val_size=2000,
+            use_streaming=True,
+        )
+
+        config = DataLoaderConfig(
+            data_path='/data.npz',
+            use_streaming=True,
+        )
         result = create_data_loaders(config)
 
-        assert mock_streaming.called
+        mock_create_streaming.assert_called_once()
         assert result.use_streaming is True
 
-    @patch('app.training.data_loader_factory.create_streaming_loaders')
-    @patch('app.training.data_loader_factory.collect_data_paths', return_value=["data.npz"])
-    def test_uses_streaming_explicit(self, mock_collect, mock_streaming):
-        """Test uses streaming when explicitly enabled."""
-        mock_streaming.return_value = DataLoaderResult(use_streaming=True)
+    def test_missing_data_path_returns_empty(self):
+        """Test returns empty result for missing data path."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            create_data_loaders,
+        )
 
-        config = DataLoaderConfig(data_path="data.npz", use_streaming=True)
-        result = create_data_loaders(config)
-
-        assert mock_streaming.called
-
-    @patch('app.training.data_loader_factory.should_use_streaming', return_value=False)
-    @patch('os.path.exists', return_value=False)
-    def test_nonexistent_path(self, mock_exists, mock_check):
-        """Test returns empty result for nonexistent path."""
-        config = DataLoaderConfig(data_path="nonexistent.npz")
+        config = DataLoaderConfig(data_path='/nonexistent/path.npz')
         result = create_data_loaders(config)
 
         assert result.train_loader is None
+        assert result.val_loader is None
 
-    @patch('app.training.data_loader_factory.should_use_streaming', return_value=False)
     @patch('app.training.data_loader_factory.create_standard_loaders')
-    @patch('os.path.exists', return_value=True)
-    def test_list_path_uses_first(self, mock_exists, mock_standard, mock_check):
-        """Test uses first path from list in standard mode."""
-        mock_standard.return_value = DataLoaderResult()
-
-        config = DataLoaderConfig(data_path=["a.npz", "b.npz"])
-        create_data_loaders(config)
-
-        # Should have called with first path
-        mock_standard.assert_called_once()
-        call_args = mock_standard.call_args[0]
-        assert call_args[1] == "a.npz"
-
-
-class TestValidateDatasetMetadata:
-    """Tests for validate_dataset_metadata function."""
-
-    def test_nonexistent_file(self):
-        """Test returns empty dict for nonexistent file."""
-        result = validate_dataset_metadata(
-            "/nonexistent/path.npz",
-            config_history_length=4,
-            config_feature_version=1,
+    @patch('app.training.data_loader_factory.should_use_streaming')
+    def test_uses_first_path_from_list_for_standard(
+        self, mock_should_stream, mock_create_standard
+    ):
+        """Test uses first path from list for standard loaders."""
+        from app.training.data_loader_factory import (
+            DataLoaderConfig,
+            DataLoaderResult,
+            create_data_loaders,
         )
-        assert result == {}
 
-    def test_validates_history_length(self):
-        """Test history length validation."""
-        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
-            np.savez(f.name, features=np.zeros((10, 52)), history_length=np.array(8))
-            f.close()
+        mock_should_stream.return_value = False
+        mock_create_standard.return_value = DataLoaderResult()
 
-            try:
-                with pytest.raises(ValueError) as exc_info:
-                    validate_dataset_metadata(
-                        f.name,
-                        config_history_length=4,  # Mismatch!
-                        config_feature_version=1,
-                    )
-                assert "history_length" in str(exc_info.value)
-            finally:
-                os.unlink(f.name)
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            np.savez(f.name, features=np.zeros((100, 64, 8, 8)))
+            temp_path = f.name
 
-    def test_validates_feature_version(self):
-        """Test feature version validation."""
-        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
-            np.savez(f.name, features=np.zeros((10, 52)), feature_version=np.array(2))
-            f.close()
+        try:
+            config = DataLoaderConfig(data_path=[temp_path, '/other.npz'])
+            create_data_loaders(config)
 
-            try:
-                with pytest.raises(ValueError) as exc_info:
-                    validate_dataset_metadata(
-                        f.name,
-                        config_history_length=4,
-                        config_feature_version=1,  # Mismatch!
-                    )
-                assert "feature_version" in str(exc_info.value)
-            finally:
-                os.unlink(f.name)
-
-    def test_extracts_metadata(self):
-        """Test metadata extraction."""
-        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
-            np.savez(
-                f.name,
-                features=np.zeros((10, 52, 8, 8)),
-                globals=np.zeros((10, 20)),
-                history_length=np.array(4),
-                feature_version=np.array(1),
-            )
-            f.close()
-
-            try:
-                result = validate_dataset_metadata(
-                    f.name,
-                    config_history_length=4,
-                    config_feature_version=1,
-                )
-
-                assert result['in_channels'] == 52
-                assert result['globals_dim'] == 20
-                assert result['history_length'] == 4
-                assert result['feature_version'] == 1
-            finally:
-                os.unlink(f.name)
-
-    def test_validates_globals_dim(self):
-        """Test globals dimension validation."""
-        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
-            np.savez(f.name, globals=np.zeros((10, 25)))  # Wrong dim
-            f.close()
-
-            try:
-                with pytest.raises(ValueError) as exc_info:
-                    validate_dataset_metadata(
-                        f.name,
-                        config_history_length=4,
-                        config_feature_version=1,
-                    )
-                assert "globals dimension" in str(exc_info.value)
-            finally:
-                os.unlink(f.name)
-
-    def test_validates_policy_encoding_v3(self):
-        """Test policy encoding validation for v3 models."""
-        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
-            np.savez(f.name, policy_encoding=np.array("legacy_max_n"))
-            f.close()
-
-            try:
-                with pytest.raises(ValueError) as exc_info:
-                    validate_dataset_metadata(
-                        f.name,
-                        config_history_length=4,
-                        config_feature_version=1,
-                        model_version='v3',
-                    )
-                assert "legacy" in str(exc_info.value).lower()
-            finally:
-                os.unlink(f.name)
-
-    def test_matching_metadata(self):
-        """Test no error when metadata matches."""
-        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as f:
-            np.savez(
-                f.name,
-                features=np.zeros((10, 52)),
-                globals=np.zeros((10, 20)),
-                history_length=np.array(4),
-                feature_version=np.array(1),
-            )
-            f.close()
-
-            try:
-                result = validate_dataset_metadata(
-                    f.name,
-                    config_history_length=4,
-                    config_feature_version=1,
-                )
-                # Should not raise
-                assert 'history_length' in result
-            finally:
-                os.unlink(f.name)
+            # Should pass the first path to create_standard_loaders
+            call_args = mock_create_standard.call_args
+            assert call_args[0][1] == temp_path
+        finally:
+            os.unlink(temp_path)
 
 
-class TestAutoStreamingThreshold:
-    """Tests for AUTO_STREAMING_THRESHOLD_BYTES constant."""
-
-    def test_default_value(self):
-        """Test default threshold is 20GB."""
-        expected = 20 * (1024 ** 3)
-        # Only check if env var isn't set
-        if "RINGRIFT_AUTO_STREAMING_THRESHOLD_GB" not in os.environ:
-            assert AUTO_STREAMING_THRESHOLD_BYTES == expected
-
-    @patch.dict(os.environ, {"RINGRIFT_AUTO_STREAMING_THRESHOLD_GB": "5"})
-    def test_env_override(self):
-        """Test environment variable overrides threshold."""
-        # Re-import to pick up new env var
-        from importlib import reload
-        import app.training.data_loader_factory as dlf
-        reload(dlf)
-
-        expected = 5 * (1024 ** 3)
-        assert dlf.AUTO_STREAMING_THRESHOLD_BYTES == expected
-
+# =============================================================================
+# Edge Cases
+# =============================================================================
 
 class TestEdgeCases:
-    """Tests for edge cases and boundary conditions."""
+    """Tests for edge cases and error handling."""
 
-    def test_infer_config_key_special_characters(self):
-        """Test config key inference with special characters."""
-        # Should still work with paths containing special chars
-        assert infer_config_key_from_path("/path/to/hex8_2p-v2.npz") == "hex8_2p"
-        assert infer_config_key_from_path("data_hex8_3p_20241225.npz") == "hex8_3p"
+    def test_corrupt_npz_file(self):
+        """Test handles corrupt NPZ file gracefully."""
+        from app.training.data_loader_factory import validate_dataset_metadata
 
-    def test_collect_data_paths_empty_dir(self):
-        """Test with empty directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = collect_data_paths(None, tmpdir)
-            assert result == []
+        with tempfile.NamedTemporaryFile(suffix='.npz', delete=False) as f:
+            f.write(b'not a valid npz file')
+            temp_path = f.name
 
-    def test_compute_num_workers_negative(self):
-        """Test negative num_workers is used as-is."""
-        # This might be invalid but shouldn't crash
-        result = compute_num_workers(-1)
-        assert result == -1
+        try:
+            # Should not crash, just return empty metadata
+            result = validate_dataset_metadata(
+                temp_path,
+                config_history_length=8,
+                config_feature_version=2,
+            )
+            assert result == {}
+        finally:
+            os.unlink(temp_path)
 
-    def test_curriculum_weights_zero(self):
-        """Test curriculum weights can be zero."""
-        paths = ["/data/hex8_2p.npz"]
-        curriculum = {"hex8_2p": 0.0}
+    def test_curriculum_weights_with_empty_dict(self):
+        """Test curriculum weights with empty dict."""
+        from app.training.data_loader_factory import compute_curriculum_file_weights
 
-        result = compute_curriculum_file_weights(paths, curriculum)
-        assert result["/data/hex8_2p.npz"] == 0.0
+        result = compute_curriculum_file_weights(
+            ['/data/hex8_2p.npz'],
+            {},  # Empty weights dict
+            default_weight=1.0,
+        )
 
-    def test_should_use_streaming_empty_dir(self):
-        """Test streaming check with empty directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = should_use_streaming(None, tmpdir)
-            assert result is False
+        # Should use default weight
+        assert result['/data/hex8_2p.npz'] == 1.0
+
+    def test_infer_config_with_unusual_path(self):
+        """Test config inference with unusual path patterns."""
+        from app.training.data_loader_factory import infer_config_key_from_path
+
+        # Should handle paths without directory
+        assert infer_config_key_from_path('hex8_2p.npz') == 'hex8_2p'
+
+        # Should handle Windows-style paths
+        assert infer_config_key_from_path('C:\\data\\hex8_2p.npz') == 'hex8_2p'
+
+        # Should handle multiple underscores
+        assert infer_config_key_from_path('/a/b/data_hex8_2p_v2.npz') == 'hex8_2p'

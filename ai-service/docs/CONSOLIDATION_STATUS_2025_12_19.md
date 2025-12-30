@@ -650,7 +650,7 @@ Added deprecation notices to superseded modules:
 
 ### 42. Hexagonal Parity Bug Documented ✓
 
-Created `docs/runbooks/HEXAGONAL_PARITY_BUG.md`:
+Created `runbooks/HEXAGONAL_PARITY_BUG.md`:
 
 - Phase divergence at ~k=989 in hexagonal games
 - Python: `territory_processing` vs TypeScript: `forced_elimination`

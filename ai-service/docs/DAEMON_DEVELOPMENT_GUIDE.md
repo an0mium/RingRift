@@ -594,4 +594,4 @@ Before submitting your daemon:
 - `app/coordination/daemon_runners.py` - Runner functions
 - `app/coordination/base_daemon.py` - Base class
 - `app/coordination/protocols.py` - HealthCheckResult and protocols
-- `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Troubleshooting guide
+- `runbooks/DAEMON_FAILURE_RECOVERY.md` - Troubleshooting guide

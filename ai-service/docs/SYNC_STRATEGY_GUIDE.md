@@ -416,4 +416,4 @@ bus.publish(DataEventType.BACKPRESSURE_RELEASED, {"source": "manual"})
 - `app/coordination/sync_strategies.py` - Strategy definitions
 - `app/coordination/transport_base.py` - Transport infrastructure
 - `scripts/p2p/managers/sync_planner.py` - P2P sync planning
-- `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Daemon troubleshooting
+- `runbooks/DAEMON_FAILURE_RECOVERY.md` - Daemon troubleshooting

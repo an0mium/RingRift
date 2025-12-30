@@ -562,4 +562,4 @@ emit_training_complete(
 - `app/coordination/event_emitters.py` - Typed event emitters
 - `app/coordination/event_subscription_registry.py` - Delegated event wiring registry
 - `app/coordination/coordination_bootstrap.py` - Event wiring glue + coordinator init
-- `docs/runbooks/EVENT_WIRING_VERIFICATION.md` - Verification procedures
+- `runbooks/EVENT_WIRING_VERIFICATION.md` - Verification procedures

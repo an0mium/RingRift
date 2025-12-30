@@ -486,6 +486,6 @@ def health_check(self) -> HealthCheckResult:
 
 ## See Also
 
-- `docs/DAEMON_REGISTRY.md` - Full daemon reference
+- `DAEMON_REGISTRY.md` - Full daemon reference
 - `EVENT_SYSTEM_REFERENCE.md` - Event system documentation
 - `app/coordination/monitor_base.py` - Extended monitoring base class

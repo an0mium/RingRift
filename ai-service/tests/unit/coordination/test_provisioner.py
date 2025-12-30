@@ -88,7 +88,7 @@ class TestProvisionerConfig:
     def test_default_values(self):
         """Test default configuration values."""
         config = ProvisionerConfig()
-        assert config.cycle_interval_seconds == 300.0
+        assert config.check_interval_seconds == 300
         assert config.min_gpu_capacity == 4
         assert config.target_gpu_capacity == 10
         assert config.max_provision_per_cycle == 2
@@ -286,7 +286,7 @@ class TestProvisioner:
         provisioner = Provisioner()
 
         with patch(
-            "app.coordination.availability.provisioner.get_provider",
+            "app.coordination.providers.registry.get_provider",
             return_value=None,
         ):
             result = await provisioner._provision_from_provider("fake_provider", 1)
@@ -328,6 +328,7 @@ class TestProvisioner:
     def test_health_check_healthy(self):
         """Test health check when healthy."""
         provisioner = Provisioner()
+        provisioner._running = True  # Mark as running for health check
         # Add some successful provisions
         for _ in range(3):
             provisioner._provision_history.append(
@@ -335,12 +336,13 @@ class TestProvisioner:
             )
 
         health = provisioner.health_check()
-        assert health["healthy"] is True
-        assert "pending" in health["message"].lower()
+        assert health.healthy is True
+        assert "pending" in health.message.lower()
 
     def test_health_check_unhealthy(self):
-        """Test health check when unhealthy."""
+        """Test health check when unhealthy (too many failures)."""
         provisioner = Provisioner()
+        provisioner._running = True  # Mark as running for health check
         # Add many failures
         for _ in range(6):
             provisioner._provision_history.append(
@@ -348,8 +350,8 @@ class TestProvisioner:
             )
 
         health = provisioner.health_check()
-        assert health["healthy"] is False
-        assert health["details"]["recent_failures"] == 6
+        assert health.healthy is False
+        assert health.details["recent_failures"] == 6
 
     def test_get_provision_history(self):
         """Test getting provision history."""

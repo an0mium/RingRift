@@ -1033,7 +1033,7 @@ done
 
 **Questions or Issues?**
 
-See [docs/runbooks/TROUBLESHOOTING.md](TROUBLESHOOTING.md) or check the health status:
+See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) or check the health status:
 
 ```bash
 python3 -c "

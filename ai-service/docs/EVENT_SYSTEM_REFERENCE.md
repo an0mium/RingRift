@@ -729,4 +729,4 @@ async def my_handler(event):
 - `app/coordination/event_router.py` - Unified router implementation
 - `app/coordination/handler_base.py` - Canonical base class for handlers
 - `app/coordination/event_emitters.py` - Typed emitter functions
-- `docs/DAEMON_REGISTRY.md` - Daemon lifecycle documentation
+- `DAEMON_REGISTRY.md` - Daemon lifecycle documentation

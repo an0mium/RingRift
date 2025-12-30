@@ -181,7 +181,7 @@ router = get_router()
 await router.publish(DataEventType.DATA_SYNC_COMPLETED, {...})
 ```
 
-See `docs/coordination/EVENT_CATALOG.md` for the complete list of event types.
+See `../EVENT_CATALOG.md` for the complete list of event types.
 
 ## Adding New Daemons
 
@@ -227,8 +227,8 @@ async def _create_my_daemon(self) -> None:
 | `app/coordination/pipeline_triggers.py`         | Pipeline stage triggers with NPZ validation                     |
 | `scripts/launch_daemons.py`                     | CLI for daemon management                                       |
 | `scripts/master_loop.py`                        | Full automation controller with daemon orchestration            |
-| `docs/coordination/EVENT_CATALOG.md`            | Event types reference                                           |
-| `docs/coordination/RESILIENT_TRANSFER_GUIDE.md` | Transfer daemon guide                                           |
+| `../EVENT_CATALOG.md`                           | Event types reference                                           |
+| `RESILIENT_TRANSFER_GUIDE.md`                   | Transfer daemon guide                                           |
 
 ## December 2025 Improvements
 

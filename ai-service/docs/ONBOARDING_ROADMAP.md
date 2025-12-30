@@ -155,8 +155,8 @@ python scripts/check_ts_python_replay_parity.py \
 
 Read these docs to understand parity debugging:
 
-1. `docs/runbooks/PARITY_MISMATCH_DEBUG.md` - Step-by-step debugging
-2. `docs/runbooks/HEXAGONAL_PARITY_BUG.md` - Example of a real parity bug fix
+1. `runbooks/PARITY_MISMATCH_DEBUG.md` - Step-by-step debugging
+2. `runbooks/HEXAGONAL_PARITY_BUG.md` - Example of a real parity bug fix
 
 ### Step 3: Add a Unit Test (45 min)
 
@@ -304,7 +304,7 @@ curl -X POST http://localhost:8770/dispatch_selfplay \
 **Read key architecture docs:**
 
 1. `CLAUDE.md` - Full AI service context
-2. `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Daemon operations
+2. `runbooks/DAEMON_FAILURE_RECOVERY.md` - Daemon operations
 3. `app/coordination/daemon_registry.py` - All 89 daemon types
 
 **Key daemon concepts:**
@@ -539,7 +539,7 @@ See `ENV_REFERENCE.md` and `ENV_REFERENCE_COMPREHENSIVE.md` for complete referen
 ## Getting Help
 
 1. **Documentation**: Start with `CLAUDE.md` for full context
-2. **Runbooks**: See `docs/runbooks/MASTER_RUNBOOK_INDEX.md` for operational guides
+2. **Runbooks**: See `runbooks/MASTER_RUNBOOK_INDEX.md` for operational guides
 3. **Tests**: Look at existing tests for usage examples
 4. **Code Comments**: Most modules have detailed docstrings
 

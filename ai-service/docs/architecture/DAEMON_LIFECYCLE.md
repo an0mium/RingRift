@@ -416,7 +416,7 @@ async def _emit_my_event(self, payload: dict) -> None:
 
 ## See Also
 
-- `docs/DAEMON_REGISTRY.md` - Full daemon type reference
-- `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Recovery procedures
+- `../DAEMON_REGISTRY.md` - Full daemon type reference
+- `../runbooks/DAEMON_FAILURE_RECOVERY.md` - Recovery procedures
 - `../EVENT_SYSTEM_REFERENCE.md` - Event wiring details
 - `app/coordination/base_daemon.py` - Base class implementation

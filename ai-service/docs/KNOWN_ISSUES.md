@@ -351,5 +351,5 @@ Modules without test coverage identified Dec 28, 2025:
 
 - `CLAUDE.local.md` - Additional operational context
 - `TRAINING_DATA_REGISTRY.md` - Data quality tracking
-- `docs/DAEMON_REGISTRY.md` - Daemon configuration reference
+- `DAEMON_REGISTRY.md` - Daemon configuration reference
 - `docs/CONSOLIDATION_STATUS_2025_12_28.md` - Consolidation progress

@@ -1,7 +1,7 @@
 """Tests for streaming_pipeline module.
 
 Tests the real-time training data streaming infrastructure including:
-- PrioritizedBuffer circular buffer with priority sampling
+- CircularBuffer circular buffer with priority sampling
 - DatabaseStreamReader for incremental game polling
 - StreamingDataPipeline with async polling and deduplication
 - GameSample priority calculation with quality scores
@@ -141,19 +141,19 @@ class TestGameSample:
 
 
 # =============================================================================
-# CircularBuffer Tests (renamed from PrioritizedBuffer in test discovery)
+# CircularBuffer Tests (renamed from CircularBuffer in test discovery)
 # =============================================================================
 
 
 class TestCircularBuffer:
-    """Tests for CircularBuffer (PrioritizedBuffer) class."""
+    """Tests for CircularBuffer (CircularBuffer) class."""
 
     def test_append_single(self):
         """Test appending single items."""
         # CircularBuffer is actually named in the module - let's import it properly
-        from app.training.streaming_pipeline import PrioritizedBuffer
+        from app.training.streaming_pipeline import CircularBuffer
 
-        buffer = PrioritizedBuffer(capacity=5)
+        buffer = CircularBuffer(capacity=5)
         buffer.append("item1")
         buffer.append("item2")
 
@@ -164,9 +164,9 @@ class TestCircularBuffer:
 
     def test_capacity_limit(self):
         """Test that buffer respects capacity limit."""
-        from app.training.streaming_pipeline import PrioritizedBuffer
+        from app.training.streaming_pipeline import CircularBuffer
 
-        buffer = PrioritizedBuffer(capacity=3)
+        buffer = CircularBuffer(capacity=3)
         for i in range(5):
             buffer.append(f"item{i}")
 
@@ -175,9 +175,9 @@ class TestCircularBuffer:
 
     def test_extend(self):
         """Test extending with multiple items."""
-        from app.training.streaming_pipeline import PrioritizedBuffer
+        from app.training.streaming_pipeline import CircularBuffer
 
-        buffer = PrioritizedBuffer(capacity=10)
+        buffer = CircularBuffer(capacity=10)
         buffer.extend(["a", "b", "c"])
 
         assert len(buffer) == 3
@@ -186,9 +186,9 @@ class TestCircularBuffer:
 
     def test_sample_without_weights(self):
         """Test uniform sampling without weights."""
-        from app.training.streaming_pipeline import PrioritizedBuffer
+        from app.training.streaming_pipeline import CircularBuffer
 
-        buffer = PrioritizedBuffer(capacity=100)
+        buffer = CircularBuffer(capacity=100)
         buffer.extend([f"item{i}" for i in range(50)])
 
         samples = buffer.sample(10)
@@ -197,9 +197,9 @@ class TestCircularBuffer:
 
     def test_sample_with_weights(self):
         """Test weighted sampling."""
-        from app.training.streaming_pipeline import PrioritizedBuffer
+        from app.training.streaming_pipeline import CircularBuffer
 
-        buffer = PrioritizedBuffer(capacity=100)
+        buffer = CircularBuffer(capacity=100)
         buffer.extend(["low", "high"])
 
         # Sample with weights heavily favoring second item
@@ -212,9 +212,9 @@ class TestCircularBuffer:
 
     def test_sample_more_than_available(self):
         """Test sampling more items than available."""
-        from app.training.streaming_pipeline import PrioritizedBuffer
+        from app.training.streaming_pipeline import CircularBuffer
 
-        buffer = PrioritizedBuffer(capacity=10)
+        buffer = CircularBuffer(capacity=10)
         buffer.extend(["a", "b", "c"])
 
         # Requesting more than available should return all
@@ -223,9 +223,9 @@ class TestCircularBuffer:
 
     def test_clear(self):
         """Test clearing buffer."""
-        from app.training.streaming_pipeline import PrioritizedBuffer
+        from app.training.streaming_pipeline import CircularBuffer
 
-        buffer = PrioritizedBuffer(capacity=10)
+        buffer = CircularBuffer(capacity=10)
         buffer.extend(["a", "b", "c"])
         buffer.clear()
 
@@ -384,7 +384,7 @@ class TestDatabasePoller:
         db_path = tmp_path / "test_games.db"
         conn = sqlite3.connect(str(db_path))
 
-        # Create games table
+        # Create games table with all required columns
         conn.execute("""
             CREATE TABLE IF NOT EXISTS games (
                 game_id TEXT PRIMARY KEY,
@@ -392,6 +392,8 @@ class TestDatabasePoller:
                 num_players INTEGER NOT NULL,
                 winner INTEGER,
                 move_history TEXT,
+                status TEXT DEFAULT 'completed',
+                created_at TEXT,
                 completed_at TEXT,
                 parity_gate TEXT DEFAULT 'passed'
             )
@@ -399,12 +401,12 @@ class TestDatabasePoller:
 
         # Insert test games
         games = [
-            ("game1", "hex8", 2, 0, '[{"type":"move"}]', "2025-01-01T10:00:00Z"),
-            ("game2", "hex8", 2, 1, '[{"type":"move"},{"type":"move"}]', "2025-01-01T11:00:00Z"),
-            ("game3", "square8", 4, 2, '[{"type":"move"}]', "2025-01-01T12:00:00Z"),
+            ("game1", "hex8", 2, 0, '[{"type":"move"}]', "completed", "2025-01-01T09:00:00Z", "2025-01-01T10:00:00Z"),
+            ("game2", "hex8", 2, 1, '[{"type":"move"},{"type":"move"}]', "completed", "2025-01-01T10:00:00Z", "2025-01-01T11:00:00Z"),
+            ("game3", "square8", 4, 2, '[{"type":"move"}]', "completed", "2025-01-01T11:00:00Z", "2025-01-01T12:00:00Z"),
         ]
         conn.executemany(
-            "INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, 'passed')",
+            "INSERT INTO games (game_id, board_type, num_players, winner, move_history, status, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             games,
         )
         conn.commit()

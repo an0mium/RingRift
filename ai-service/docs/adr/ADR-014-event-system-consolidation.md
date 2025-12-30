@@ -175,5 +175,5 @@ router.subscribe(DataEventType.STAGE_EXPORT_STARTED, handler2)
 ## References
 
 - ADR-001: Event-Driven Architecture (original design)
-- `docs/EVENT_SYSTEM_REFERENCE.md`: Current event catalog
+- `../EVENT_SYSTEM_REFERENCE.md`: Current event catalog
 - `app/coordination/event_router.py`: Primary implementation

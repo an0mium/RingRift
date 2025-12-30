@@ -347,7 +347,7 @@ pytest tests/parity/ -v
 
 ### Open
 
-See `docs/runbooks/HEXAGONAL_PARITY_BUG.md` for any open parity investigations.
+See `HEXAGONAL_PARITY_BUG.md` for any open parity investigations.
 
 ---
 

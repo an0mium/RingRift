@@ -6,10 +6,10 @@ RingRift is almost certainly extraordinarily difficult for AI—and is very plau
 
 This analysis references the following rules documents:
 
-- **Compact Engine Spec**: `docs/rules/compact-engine-spec.md`
-- **Simplified Rules Summary**: `docs/rules/ringrift-rules-summary.md`
-- **Complete Rules**: `docs/rules/ringrift-rules-complete.md`
-- **Canonical Rules Spec (RR-CANON)**: `docs/rules/ringrift-rules-canonical.md`
+- **Compact Rules**: `docs/rules/COMPACT_RULES.md`
+- **Human Rules Summary**: `docs/rules/HUMAN_RULES.md`
+- **Complete Rules**: `docs/rules/COMPLETE_RULES.md`
+- **Canonical Rules Spec (RR-CANON)**: `RULES_CANONICAL_SPEC.md`
 
 ## Evaluation Framework
 

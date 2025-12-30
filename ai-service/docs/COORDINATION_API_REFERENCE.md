@@ -173,7 +173,7 @@ The system supports 89 daemon types organized by category:
 | **Health**     | `NODE_HEALTH_MONITOR`, `QUALITY_MONITOR`, `CLUSTER_WATCHDOG` | Cluster health               |
 | **Resources**  | `IDLE_RESOURCE`, `NODE_RECOVERY`, `UTILIZATION_OPTIMIZER`    | GPU utilization              |
 
-See `docs/DAEMON_REGISTRY.md` for the complete daemon reference.
+See `DAEMON_REGISTRY.md` for the complete daemon reference.
 
 ---
 
@@ -788,11 +788,11 @@ Key configuration via environment variables:
 
 ## 8. See Also
 
-- `docs/DAEMON_REGISTRY.md` - Complete daemon type reference
+- `DAEMON_REGISTRY.md` - Complete daemon type reference
 - `EVENT_SYSTEM_REFERENCE.md` - Full event catalog (211 types)
-- `docs/CLUSTER_INTEGRATION_GUIDE.md` - Cluster architecture integration
-- `docs/runbooks/DAEMON_FAILURE_RECOVERY.md` - Troubleshooting guide
-- `docs/runbooks/EVENT_WIRING_VERIFICATION.md` - Event wiring verification
+- `CLUSTER_INTEGRATION_GUIDE.md` - Cluster architecture integration
+- `runbooks/DAEMON_FAILURE_RECOVERY.md` - Troubleshooting guide
+- `runbooks/EVENT_WIRING_VERIFICATION.md` - Event wiring verification
 
 ---
 

@@ -452,7 +452,7 @@ os.environ["RINGRIFT_LOG_LEVEL"] = "DEBUG"
 - `DAEMON_REGISTRY.md` - Daemon specifications and dependencies
 - `event_subscription_registry.py` - Delegated event wiring registry
 - `coordination_bootstrap.py` - Coordinator initialization
-- `docs/runbooks/EVENT_WIRING_VERIFICATION.md` - Verification procedures
+- `runbooks/EVENT_WIRING_VERIFICATION.md` - Verification procedures
 
 ---
 

@@ -397,12 +397,12 @@ async def test_event_flow():
 
 ### Files to Update
 
-| Document                  | Update Required          |
-| ------------------------- | ------------------------ |
-| `docs/DAEMON_REGISTRY.md` | Add new daemon entry     |
-| `EVENT_REFERENCE.md`      | Add new events           |
-| `ai-service/CLAUDE.md`    | Add to relevant sections |
-| Module docstring          | Describe purpose, events |
+| Document               | Update Required          |
+| ---------------------- | ------------------------ |
+| `DAEMON_REGISTRY.md`   | Add new daemon entry     |
+| `EVENT_REFERENCE.md`   | Add new events           |
+| `ai-service/CLAUDE.md` | Add to relevant sections |
+| Module docstring       | Describe purpose, events |
 
 ### Module Docstring Template
 
@@ -430,7 +430,7 @@ Configuration:
         - RINGRIFT_MY_SETTING: Description (default: value)
 
 See Also:
-    - docs/DAEMON_REGISTRY.md
+    - DAEMON_REGISTRY.md
     - EVENT_REFERENCE.md
 """
 ```
