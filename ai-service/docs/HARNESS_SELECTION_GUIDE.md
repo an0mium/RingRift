@@ -17,6 +17,36 @@ This guide helps you choose the right AI harness for your use case. A harness wr
 
 \*NNUE with policy head only
 
+## Quality / Speed / Memory Matrix
+
+| Harness       | Quality  | Speed     | Memory  | Typical Elo Range |
+| ------------- | -------- | --------- | ------- | ----------------- |
+| `GUMBEL_MCTS` | HIGHEST  | SLOW      | HIGH    | 1500-2000+        |
+| `GPU_GUMBEL`  | HIGH     | FAST      | HIGH    | 1500-2000+        |
+| `MINIMAX`     | GOOD     | FAST      | LOW     | 1300-1600         |
+| `MAXN`        | GOOD     | MEDIUM    | MEDIUM  | 1300-1600         |
+| `BRS`         | FAIR     | FAST      | LOW     | 1200-1500         |
+| `POLICY_ONLY` | POOR     | VERY FAST | MINIMAL | 500-800           |
+| `DESCENT`     | MEDIUM   | SLOW      | HIGH    | 1000-1400         |
+| `HEURISTIC`   | BASELINE | FASTEST   | MINIMAL | 1200-1350         |
+
+**Notes:**
+
+- Elo ranges assume properly trained models with sufficient training data
+- POLICY_ONLY strength depends entirely on policy head quality
+- HEURISTIC provides consistent baseline regardless of model
+
+## Hardware Selection Guide
+
+| Hardware Available   | Recommended Harness     | Alternative          |
+| -------------------- | ----------------------- | -------------------- |
+| GPU (8GB+ VRAM)      | GPU_GUMBEL              | GUMBEL_MCTS          |
+| GPU (4-8GB VRAM)     | GUMBEL_MCTS             | MINIMAX, POLICY_ONLY |
+| CPU only             | MINIMAX (2p) / BRS (4p) | HEURISTIC            |
+| CPU, no model        | HEURISTIC               | -                    |
+| Edge/mobile          | POLICY_ONLY             | HEURISTIC            |
+| Cluster (batch jobs) | GPU_GUMBEL              | GUMBEL_MCTS          |
+
 ## Decision Tree
 
 ### For 2-Player Games
@@ -77,12 +107,29 @@ harness = create_harness(
 - `difficulty`: Maps to simulation budget tiers
 
 **Budget tiers** (from `gumbel_common.py`):
-| Tier | Budget | Use Case |
-|------|--------|----------|
-| THROUGHPUT | 64 | Fast bootstrap |
-| STANDARD | 150 | Balanced |
-| QUALITY | 800 | High quality training |
-| ULTIMATE | 1600 | Maximum quality |
+| Tier | Budget | Difficulty | Use Case |
+|------|--------|------------|----------|
+| THROUGHPUT | 64 | 1-3 | Fast bootstrap, weak models |
+| STANDARD | 150-200 | 4-6 | Balanced, default tier |
+| QUALITY | 800 | 7-9 | High quality training (AlphaZero uses 800) |
+| ULTIMATE | 1600 | 10 | Maximum quality |
+| MASTER | 3200 | 11+ | Expert training, 2000+ Elo models |
+
+**Difficulty-to-budget mapping:**
+
+```python
+def get_budget_for_difficulty(difficulty: int) -> int:
+    if difficulty <= 6: return 200
+    if difficulty <= 9: return 800
+    if difficulty == 10: return 1600
+    if difficulty >= 11: return 3200
+```
+
+**When NOT to use GUMBEL_MCTS:**
+
+- Speed is critical (use GPU_GUMBEL or MINIMAX instead)
+- No neural network available (use HEURISTIC)
+- Real-time play with strict time limits (use POLICY_ONLY)
 
 ---
 
@@ -109,6 +156,12 @@ harness = create_harness(
 ```
 
 **Performance**: 6-57x speedup vs CPU depending on GPU and batch size.
+
+**When NOT to use GPU_GUMBEL:**
+
+- No GPU available (falls back to CPU, negating benefits)
+- Single game evaluation (batch overhead makes it slower than CPU)
+- Less than 10 games (batch overhead dominates)
 
 ---
 
@@ -141,6 +194,12 @@ harness = create_harness(
 - `depth`: Search depth (3-6 typical)
 - Higher depth = better play, slower
 
+**When NOT to use MINIMAX:**
+
+- 3-4 player games (alpha-beta pruning is invalid)
+- Need policy visit distributions (use GUMBEL_MCTS)
+- Training data generation (doesn't produce soft targets)
+
 ---
 
 ### MAXN
@@ -166,6 +225,12 @@ harness = create_harness(
     depth=3,
 )
 ```
+
+**When NOT to use MAXN:**
+
+- 2-player games (use MINIMAX for better pruning)
+- Speed critical (use BRS instead, 2-3x faster)
+- Training data generation (use GUMBEL_MCTS)
 
 ---
 
@@ -198,6 +263,13 @@ harness = create_harness(
 - BRS: Faster, assumes opponents cooperate against you
 - MAXN: Slower, models each player independently
 
+**When NOT to use BRS:**
+
+- 2-player games (use MINIMAX)
+- Competitive evaluation (greedy assumption is unrealistic)
+- Strong opponents (BRS underestimates coordinated play)
+- Training data generation (use GUMBEL_MCTS)
+
 ---
 
 ### POLICY_ONLY
@@ -222,6 +294,13 @@ harness = create_harness(
 ```
 
 **Note**: Requires a model with policy head. NNUE without policy won't work.
+
+**When NOT to use POLICY_ONLY:**
+
+- Serious evaluation (will underestimate model strength by 500+ Elo)
+- Competitive play (no lookahead means poor decisions)
+- Elo tracking (not representative of true model quality)
+- Untrained policy heads (garbage-in-garbage-out)
 
 ---
 
@@ -248,6 +327,12 @@ harness = create_harness(
 
 **Note**: Requires full neural network (not NNUE).
 
+**When NOT to use DESCENT:**
+
+- Production training (GUMBEL_MCTS is proven, DESCENT is experimental)
+- Competitive evaluation (unpredictable quality)
+- Time-constrained play (slow termination)
+
 ---
 
 ### HEURISTIC
@@ -271,6 +356,12 @@ harness = create_harness(
     # No model_path needed
 )
 ```
+
+**When NOT to use HEURISTIC:**
+
+- Training data generation (no learning signal)
+- Serious competitive play (capped at ~1300 Elo)
+- When you have a trained model (NN beats heuristic significantly)
 
 ---
 
@@ -455,3 +546,12 @@ else:
 - `app/ai/harness/implementations.py` - Harness implementations
 - `app/training/multi_harness_gauntlet.py` - Multi-harness evaluation
 - `ai-service/CLAUDE.md` - Section on Harness Abstraction Layer
+
+---
+
+**Last Updated**: December 30, 2025
+
+- Added Quality/Speed/Memory matrix with Elo expectations
+- Added Hardware Selection Guide
+- Added MASTER budget tier (3200 simulations)
+- Added "When NOT to use" sections for all harness types

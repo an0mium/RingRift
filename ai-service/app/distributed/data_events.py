@@ -301,6 +301,13 @@ class DataEventType(Enum):
     NODE_TERMINATED = "node_terminated"  # Node terminated/deprovisioned
     NODE_INCOMPATIBLE_WITH_WORKLOAD = "node_incompatible_with_workload"  # Dec 2025: Node has no compatible selfplay configs
 
+    # SSH Liveness events (December 30, 2025)
+    SSH_LIVENESS_CHECK_STARTED = "ssh_liveness_check_started"  # SSH liveness check initiated
+    SSH_LIVENESS_CHECK_SUCCEEDED = "ssh_liveness_check_succeeded"  # Node responded via SSH
+    SSH_LIVENESS_CHECK_FAILED = "ssh_liveness_check_failed"  # SSH check failed (timeout/refused/auth)
+    SSH_NODE_UNRESPONSIVE = "ssh_node_unresponsive"  # Node unresponsive via SSH after retries
+    SSH_NODE_RECOVERED = "ssh_node_recovered"  # Previously unresponsive node now responds via SSH
+
     # Lock/Synchronization events (December 2025)
     LOCK_TIMEOUT = "lock_timeout"
     DEADLOCK_DETECTED = "deadlock_detected"

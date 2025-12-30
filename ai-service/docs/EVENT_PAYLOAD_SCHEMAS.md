@@ -444,6 +444,158 @@ Emitted when model performance regression is detected.
 
 ---
 
+### REGRESSION_CRITICAL
+
+Emitted when consecutive or severe regressions require immediate model rollback.
+
+| Field                     | Type    | Required | Description                                   |
+| ------------------------- | ------- | -------- | --------------------------------------------- |
+| `config_key`              | `str`   | Yes      | Config identifier                             |
+| `config`                  | `str`   | No       | Alias for config_key (backward compatibility) |
+| `board_type`              | `str`   | Yes      | Board type                                    |
+| `num_players`             | `int`   | Yes      | Player count                                  |
+| `current_elo`             | `float` | Yes      | Current model Elo                             |
+| `elo_drop`                | `float` | Yes      | Total Elo drop                                |
+| `severity`                | `str`   | Yes      | `"severe"` or `"consecutive"`                 |
+| `consecutive_regressions` | `int`   | Yes      | Count of consecutive regression events        |
+| `recommendation`          | `str`   | Yes      | Action: `"rollback"`                          |
+| `reason`                  | `str`   | Yes      | Detailed reason string                        |
+| `source`                  | `str`   | No       | Emitting component                            |
+
+**Subscribers:**
+
+- `DaemonManager` - Triggers daemon recovery procedures
+- `TrainingCoordinator` - Pauses training for config
+- `CurriculumIntegration` - Boosts config curriculum weight
+- `UnifiedHealthManager` - Triggers immediate rollback
+
+**Example:**
+
+```python
+{
+    "config_key": "hex8_2p",
+    "config": "hex8_2p",
+    "board_type": "hex8",
+    "num_players": 2,
+    "current_elo": 1520.0,
+    "elo_drop": -130.0,
+    "severity": "consecutive",
+    "consecutive_regressions": 3,
+    "recommendation": "rollback",
+    "reason": "consecutive_regressions_3",
+    "source": "GauntletFeedbackController",
+}
+```
+
+---
+
+### TRAINING_BLOCKED_BY_QUALITY
+
+Emitted when data quality gate blocks training from proceeding.
+
+| Field             | Type          | Required | Description                         |
+| ----------------- | ------------- | -------- | ----------------------------------- |
+| `config_key`      | `str`         | Yes      | Config identifier                   |
+| `board_type`      | `str`         | Yes      | Board type                          |
+| `num_players`     | `int`         | Yes      | Player count                        |
+| `iteration`       | `int`         | Yes      | Pipeline iteration number           |
+| `npz_path`        | `str`         | Yes      | Path to blocked NPZ file            |
+| `quality_score`   | `float`       | Yes      | Quality score that failed (0.0-1.0) |
+| `threshold`       | `float`       | Yes      | Required threshold                  |
+| `quality_history` | `list[float]` | No       | Recent quality scores (last 5)      |
+| `recommendation`  | `str`         | No       | `"trigger_data_regeneration"`       |
+| `reason`          | `str`         | No       | `"quality_gate_failed"`             |
+
+**Subscribers:**
+
+- `SelfplayScheduler` - Accelerates selfplay for config
+- `TrainingCoordinator` - Halts training for config
+- `TrainingTriggerDaemon` - Pauses training intensity
+- `UnifiedQueuePopulator` - Queues extra selfplay
+
+**Example:**
+
+```python
+{
+    "config_key": "hex8_2p",
+    "board_type": "hex8",
+    "num_players": 2,
+    "iteration": 5,
+    "npz_path": "/data/training/hex8_2p_combined.npz",
+    "quality_score": 0.42,
+    "threshold": 0.60,
+    "quality_history": [0.55, 0.50, 0.48, 0.44, 0.42],
+    "recommendation": "trigger_data_regeneration",
+    "reason": "quality_gate_failed",
+}
+```
+
+---
+
+### EVALUATION_BACKPRESSURE
+
+Emitted when evaluation queue fills up and training should pause.
+
+| Field                 | Type    | Required | Description                       |
+| --------------------- | ------- | -------- | --------------------------------- |
+| `queue_depth`         | `int`   | Yes      | Current evaluation queue size     |
+| `backpressure_active` | `bool`  | Yes      | Always `true` for this event      |
+| `threshold`           | `int`   | Yes      | Threshold that triggered emission |
+| `release_threshold`   | `int`   | Yes      | Queue depth to release            |
+| `source`              | `str`   | Yes      | `"EvaluationDaemon"`              |
+| `timestamp`           | `float` | Yes      | Unix timestamp                    |
+
+**Subscribers:**
+
+- `TrainingTriggerDaemon` - Pauses training triggers
+
+**Example:**
+
+```python
+{
+    "queue_depth": 75,
+    "backpressure_active": true,
+    "threshold": 70,
+    "release_threshold": 35,
+    "source": "EvaluationDaemon",
+    "timestamp": 1735546800.0,
+}
+```
+
+---
+
+### EVALUATION_BACKPRESSURE_RELEASED
+
+Emitted when evaluation queue drains and training can resume.
+
+| Field                 | Type    | Required | Description                   |
+| --------------------- | ------- | -------- | ----------------------------- |
+| `queue_depth`         | `int`   | Yes      | Current evaluation queue size |
+| `backpressure_active` | `bool`  | Yes      | Always `false` for this event |
+| `threshold`           | `int`   | Yes      | Activation threshold          |
+| `release_threshold`   | `int`   | Yes      | Threshold that was cleared    |
+| `source`              | `str`   | Yes      | `"EvaluationDaemon"`          |
+| `timestamp`           | `float` | Yes      | Unix timestamp                |
+
+**Subscribers:**
+
+- `TrainingTriggerDaemon` - Resumes training triggers
+
+**Example:**
+
+```python
+{
+    "queue_depth": 30,
+    "backpressure_active": false,
+    "threshold": 70,
+    "release_threshold": 35,
+    "source": "EvaluationDaemon",
+    "timestamp": 1735548000.0,
+}
+```
+
+---
+
 ## Work Queue Events
 
 ### WORK_QUEUED

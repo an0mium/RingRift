@@ -11147,6 +11147,205 @@ print(json.dumps(result))
     # Use self.training_coordinator._schedule_model_comparison_tournament() directly.
 
     # =========================================================================
+    # TRAINING TRIGGER RPC (December 30, 2025)
+    # =========================================================================
+
+    async def handle_training_trigger(self, request: web.Request) -> web.Response:
+        """Handle request to trigger training for a config (December 30, 2025).
+
+        Endpoint: POST /training/trigger
+
+        This provides programmatic control over training triggers, allowing
+        operators to bypass the daemon's automatic trigger logic when needed.
+
+        Request body:
+            {
+                "config_key": "hex8_2p",
+                "priority": "normal",  // "low", "normal", "high", "urgent"
+                "force": false,        // Skip freshness/cooldown checks
+                "data_path": null      // Optional: override NPZ path
+            }
+
+        Returns:
+            Success: job_id, worker_node, trigger_reason, data_info
+            Failure: success=false with reason
+        """
+        try:
+            data = await request.json()
+            config_key = data.get("config_key")
+            priority = data.get("priority", "normal")
+            force = data.get("force", False)
+            data_path = data.get("data_path")
+
+            # Validate config_key format
+            if not config_key or "_" not in config_key:
+                return web.json_response({
+                    "success": False,
+                    "error": "Invalid config_key format (expected: board_Np, e.g., hex8_2p)"
+                }, status=400)
+
+            # Only leader can trigger training
+            if self.role != NodeRole.LEADER:
+                return web.json_response({
+                    "success": False,
+                    "error": "Only leader can trigger training"
+                }, status=403)
+
+            # Get training trigger daemon for decision checking
+            try:
+                from app.coordination.training_trigger_daemon import (
+                    get_training_trigger_daemon,
+                    TrainingDecision,
+                )
+                daemon = get_training_trigger_daemon()
+            except ImportError:
+                daemon = None
+
+            trigger_reason = "force=true" if force else "conditions met"
+            decision_info = None
+
+            # If not forcing, check conditions via daemon
+            if not force and daemon:
+                decision = await daemon.get_training_decision(config_key)
+                decision_info = decision.to_dict()
+
+                if not decision.can_trigger:
+                    return web.json_response({
+                        "success": False,
+                        "triggered": False,
+                        "reason": decision.reason,
+                        "decision": decision_info,
+                    })
+
+                trigger_reason = decision.reason
+
+            # Parse config_key to get board_type and num_players
+            parts = config_key.rsplit("_", 1)
+            if len(parts) != 2:
+                return web.json_response({
+                    "success": False,
+                    "error": f"Cannot parse config_key: {config_key}"
+                }, status=400)
+
+            board_type = parts[0]
+            try:
+                num_players = int(parts[1].rstrip("p"))
+            except ValueError:
+                return web.json_response({
+                    "success": False,
+                    "error": f"Invalid player count in config_key: {config_key}"
+                }, status=400)
+
+            # Dispatch training job
+            job_config = {
+                "job_type": "nnue",
+                "board_type": board_type,
+                "num_players": num_players,
+                "config_key": config_key,
+                "priority": priority,
+                "data_path": data_path,
+                "triggered_by": "rpc",
+            }
+
+            job = await self.training_coordinator.dispatch_training_job(job_config)
+
+            if job:
+                return web.json_response({
+                    "success": True,
+                    "triggered": True,
+                    "job_id": job.job_id,
+                    "worker_node": job.worker_node,
+                    "trigger_reason": trigger_reason,
+                    "decision": decision_info,
+                })
+            else:
+                return web.json_response({
+                    "success": False,
+                    "triggered": False,
+                    "error": "No suitable worker available",
+                    "decision": decision_info,
+                })
+
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"[P2POrchestrator] Training trigger failed: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e)
+            }, status=500)
+
+    async def handle_training_trigger_decision(self, request: web.Request) -> web.Response:
+        """Get training trigger decision for a config (December 30, 2025).
+
+        Endpoint: GET /training/trigger-decision/{config_key}
+
+        Returns full condition details explaining why training would or
+        wouldn't trigger for the specified config.
+        """
+        try:
+            config_key = request.match_info.get("config_key", "")
+
+            if not config_key or "_" not in config_key:
+                return web.json_response({
+                    "success": False,
+                    "error": "Invalid config_key format"
+                }, status=400)
+
+            # Get training trigger daemon
+            try:
+                from app.coordination.training_trigger_daemon import (
+                    get_training_trigger_daemon,
+                )
+                daemon = get_training_trigger_daemon()
+            except ImportError:
+                return web.json_response({
+                    "success": False,
+                    "error": "TrainingTriggerDaemon not available"
+                }, status=503)
+
+            decision = await daemon.get_training_decision(config_key)
+
+            return web.json_response({
+                "success": True,
+                **decision.to_dict(),
+            })
+
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"[P2POrchestrator] Training trigger decision failed: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e)
+            }, status=500)
+
+    async def handle_training_trigger_configs(self, request: web.Request) -> web.Response:
+        """Get list of all tracked training configs (December 30, 2025).
+
+        Endpoint: GET /training/trigger-configs
+
+        Returns list of all config keys that the training trigger daemon is tracking.
+        """
+        try:
+            from app.coordination.training_trigger_daemon import get_training_trigger_daemon
+            daemon = get_training_trigger_daemon()
+            configs = daemon.get_tracked_configs()
+
+            return web.json_response({
+                "success": True,
+                "configs": configs,
+                "count": len(configs),
+            })
+
+        except ImportError:
+            return web.json_response({
+                "success": False,
+                "error": "TrainingTriggerDaemon not available"
+            }, status=503)
+        except Exception as e:  # noqa: BLE001
+            return web.json_response({
+                "success": False,
+                "error": str(e)
+            }, status=500)
+
+    # =========================================================================
     # POST-TRAINING GAUNTLET: Immediate evaluation after training
     # =========================================================================
 
@@ -25373,6 +25572,11 @@ print(json.dumps({{
             app.router.add_post('/training/update', self.handle_training_update)
             app.router.add_post('/training/nnue/start', self.handle_nnue_start)
             app.router.add_post('/training/cmaes/start', self.handle_cmaes_start_auto)
+
+            # December 30, 2025: Training trigger RPC endpoints
+            app.router.add_post('/training/trigger', self.handle_training_trigger)
+            app.router.add_get('/training/trigger-decision/{config_key}', self.handle_training_trigger_decision)
+            app.router.add_get('/training/trigger-configs', self.handle_training_trigger_configs)
 
             # Phase 5: Improvement cycle routes
             app.router.add_get('/improvement_cycles/status', self.handle_improvement_cycles_status)
