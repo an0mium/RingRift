@@ -3,7 +3,7 @@
 **Date:** December 2025
 **Status:** Production
 
-This document catalogs all events in the RingRift AI training coordination system.
+This document summarizes the most common events in the RingRift AI training coordination system. For the full list, see `EVENT_REFERENCE_AUTO.md` and `EVENT_CATALOG.md`.
 
 ---
 
@@ -136,13 +136,16 @@ router.subscribe(DataEventType.MODEL_PROMOTED, on_model_promoted)
 
 ### Resource Events
 
-| Event                      | Value                      | Description        | Payload                |
-| -------------------------- | -------------------------- | ------------------ | ---------------------- |
-| `CLUSTER_CAPACITY_CHANGED` | `cluster_capacity_changed` | Total capacity     | `{old, new, reason}`   |
-| `BACKPRESSURE_ACTIVATED`   | `backpressure_activated`   | Throttling started | `{queue_depth}`        |
-| `BACKPRESSURE_RELEASED`    | `backpressure_released`    | Throttling stopped | `{queue_depth}`        |
-| `IDLE_RESOURCE_DETECTED`   | `idle_resource_detected`   | Idle GPU/CPU       | `{host_id, idle_time}` |
-| `DISK_SPACE_LOW`           | `disk_space_low`           | Disk usage high    | `{host_id, usage_pct}` |
+| Event                          | Value                          | Description        | Payload                                      |
+| ------------------------------ | ------------------------------ | ------------------ | -------------------------------------------- |
+| `CLUSTER_CAPACITY_CHANGED`     | `cluster_capacity_changed`     | Total capacity     | `{old, new, reason}`                         |
+| `BACKPRESSURE_ACTIVATED`       | `backpressure_activated`       | Throttling started | `{queue_depth}`                              |
+| `BACKPRESSURE_RELEASED`        | `backpressure_released`        | Throttling stopped | `{queue_depth}`                              |
+| `IDLE_RESOURCE_DETECTED`       | `idle_resource_detected`       | Idle GPU/CPU       | `{host_id, idle_time}`                       |
+| `DISK_SPACE_LOW`               | `disk_space_low`               | Disk usage high    | `{host_id, usage_pct}`                       |
+| `RESOURCE_CONSTRAINT`          | `resource_constraint`          | Resource pressure  | `{source, resource_type, ram_utilization}`   |
+| `MEMORY_PRESSURE`              | `memory_pressure`              | VRAM/RAM pressure  | `{source, gpu_utilization, ram_utilization}` |
+| `RESOURCE_CONSTRAINT_DETECTED` | `resource_constraint_detected` | Resource limit hit | `{node_id, resource_type, threshold}`        |
 
 ### Leader Election Events
 
