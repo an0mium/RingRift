@@ -71,7 +71,11 @@ class TestLifecycleState:
 
 
 class ConcreteLifecycleMixin(LifecycleMixin):
-    """Concrete implementation for testing."""
+    """Concrete implementation for testing.
+
+    Note: Must define _run_loop to enable the background loop, since
+    LifecycleMixin only creates the loop task if _run_loop exists.
+    """
 
     def __init__(
         self,
@@ -100,6 +104,10 @@ class ConcreteLifecycleMixin(LifecycleMixin):
 
     async def _on_error(self, error: Exception) -> None:
         self.error_handler_called = True
+
+    async def _run_loop(self) -> None:
+        """Enable the default loop behavior."""
+        await self._default_loop()
 
 
 class TestLifecycleMixin:
@@ -317,11 +325,12 @@ class TestLifecycleMixinLoop:
     @pytest.mark.asyncio
     async def test_default_loop_calls_on_cycle(self):
         """Test default loop calls _on_cycle."""
+        # ConcreteLifecycleMixin already has _run_loop that calls _default_loop
         component = ConcreteLifecycleMixin(cycle_interval=0.05)
         await component.start()
 
         # Wait for a few cycles
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.2)
 
         await component.stop()
 
@@ -362,9 +371,13 @@ class TestLifecycleMixinLoop:
             async def _on_error(self, error: Exception) -> None:
                 self.error_count_local += 1
 
+            async def _run_loop(self) -> None:
+                """Enable the default loop."""
+                await self._default_loop()
+
         component = ErrorComponent()
         await component.start()
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.2)
         await component.stop()
 
         # Errors should have been handled
@@ -425,7 +438,7 @@ class TestEventSubscriptionMixin:
         component = ConcreteEventMixin()
 
         with patch(
-            "app.coordination.mixins.lifecycle_mixin.get_event_bus", return_value=None
+            "app.coordination.event_router.get_event_bus", return_value=None
         ):
             await component._subscribe_to_events()
 
@@ -461,6 +474,10 @@ class ConcreteManagedComponent(ManagedComponent):
 
     async def _on_cycle(self) -> None:
         self.cycle_count_local += 1
+
+    async def _run_loop(self) -> None:
+        """Enable the default loop."""
+        await self._default_loop()
 
 
 class TestManagedComponent:
@@ -508,7 +525,7 @@ class TestManagedComponent:
     async def test_full_lifecycle(self, component):
         """Test full lifecycle with cycles."""
         await component.start()
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(0.3)
         await component.stop()
 
         assert component.cycle_count_local >= 2

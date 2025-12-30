@@ -442,8 +442,9 @@ class StateMachineBase(ABC, Generic[S]):
                         "timestamp": time.time(),
                     },
                 )
-        except Exception:
-            pass  # Event emission is optional
+        except Exception as e:
+            # Event emission is optional - log at debug level for visibility
+            logger.debug(f"State change event emission failed: {e}")
 
     def lock(self) -> None:
         """Lock state machine to prevent transitions."""
