@@ -50,7 +50,8 @@ logger = logging.getLogger(__name__)
 # - v13: Added parity_status, parity_checked_at, parity_divergence_move for TS/Python parity tracking
 # - v14: Added orphaned_games table and triggers for move data integrity enforcement
 # - v15: Added performance indexes (idx_games_config, idx_games_orphans, idx_moves_lookup)
-SCHEMA_VERSION = 15
+# - v16: Added opponent_type and opponent_model_id for training data diversity tracking
+SCHEMA_VERSION = 16
 
 # Default snapshot interval (every N moves)
 DEFAULT_SNAPSHOT_INTERVAL = 20
@@ -100,7 +101,10 @@ CREATE TABLE IF NOT EXISTS games (
     -- v13 additions: parity validation tracking (TS/Python replay verification)
     parity_status TEXT DEFAULT 'pending',  -- 'passed', 'failed', 'error', 'pending', 'skipped'
     parity_checked_at TEXT,
-    parity_divergence_move INTEGER
+    parity_divergence_move INTEGER,
+    -- v16 additions: opponent tracking for training data diversity
+    opponent_type TEXT,           -- random, heuristic, mcts, nn_v2, nn_v3, etc.
+    opponent_model_id TEXT        -- For NN opponents: model identifier/version
 );
 
 -- Indexes on games
@@ -126,6 +130,9 @@ CREATE INDEX IF NOT EXISTS idx_games_board_parity ON games(board_type, parity_st
 CREATE INDEX IF NOT EXISTS idx_games_parity_created ON games(parity_status, created_at);
 -- Performance indexes for common query patterns (v15)
 CREATE INDEX IF NOT EXISTS idx_games_config ON games(board_type, num_players, game_status);
+-- Opponent type indexes for training data diversity queries (v16)
+CREATE INDEX IF NOT EXISTS idx_games_opponent_type ON games(opponent_type);
+CREATE INDEX IF NOT EXISTS idx_games_board_opponent ON games(board_type, opponent_type);
 
 -- Per-player metadata
 CREATE TABLE IF NOT EXISTS game_players (
@@ -1486,6 +1493,54 @@ class GameReplayDB:
 
         self._set_schema_version(conn, 15)
         logger.info("Migration to v15 complete - performance indexes added")
+
+    def _migrate_v15_to_v16(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v15 to v16.
+
+        Adds opponent tracking columns for training data diversity analysis (December 2025):
+        - opponent_type: Identifies the type of AI opponent (random, heuristic, mcts, nn_v2, etc.)
+        - opponent_model_id: For neural network opponents, the specific model identifier
+
+        These columns enable:
+        1. Diversity-weighted training (oversample games vs diverse opponent types)
+        2. Training data analysis by opponent strength category
+        3. Cross-AI matchup tracking for Elo calibration
+        """
+        logger.info("Migrating schema from v15 to v16")
+
+        # Add opponent_type column
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN opponent_type TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                logger.warning(f"Could not add opponent_type column: {e}")
+
+        # Add opponent_model_id column
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN opponent_model_id TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                logger.warning(f"Could not add opponent_model_id column: {e}")
+
+        # Create indexes for opponent type queries
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_games_opponent_type ON games(opponent_type)"
+            )
+        except sqlite3.OperationalError as e:
+            if "already exists" not in str(e).lower():
+                logger.warning(f"Could not create idx_games_opponent_type: {e}")
+
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_games_board_opponent ON games(board_type, opponent_type)"
+            )
+        except sqlite3.OperationalError as e:
+            if "already exists" not in str(e).lower():
+                logger.warning(f"Could not create idx_games_board_opponent: {e}")
+
+        self._set_schema_version(conn, 16)
+        logger.info("Migration to v16 complete - opponent tracking columns added")
 
     # =========================================================================
     # Write Operations

@@ -981,13 +981,21 @@ python3 scripts/start_p2p_cluster.py
 #### Backup Game Databases
 
 ```bash
-# Backup from all nodes
-python3 scripts/aggregate_cluster_dbs.py --output backup_$(date +%Y%m%d).tar.gz
+# Aggregate DBs into a single legacy-compatible DB (for analysis/export)
+python3 scripts/aggregate_cluster_dbs.py \
+  --input-dir backup/games \
+  --output data/games/cluster_aggregated_$(date +%Y%m%d).db
 
-# Or manual backup
+This aggregated DB uses a minimal legacy schema; do not mark it as canonical
+training data without re-running the canonical gates.
+
+# Or manual backup (raw DBs)
 for node in worker-1 worker-2 worker-3; do
     rsync -avz $node:~/ringrift/ai-service/data/games/*.db backup/$node/
 done
+
+# Optional: tar up raw DB backups
+tar -czf backup_$(date +%Y%m%d).tar.gz backup/
 ```
 
 #### Restore Models

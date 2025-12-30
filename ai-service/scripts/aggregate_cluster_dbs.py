@@ -6,8 +6,10 @@ This script aggregates SQLite game databases from multiple cluster nodes into
 a single unified database for training. It handles deduplication, validation,
 and parity checking.
 
-IMPORTANT: This script creates GameReplayDB-compatible output with the
-standard `game_moves` table and `move_json` format. It can read from:
+IMPORTANT: This script creates a minimal, legacy-compatible GameReplayDB
+output (games + game_moves + game_initial_state) for export/analysis.
+It is not a full canonical schema and should not be treated as canonical
+training data. It can read from:
 - Old format: `moves` table with action_type, action_data columns
 - New format: `game_moves` table with move_json column
 
@@ -36,6 +38,10 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# Legacy schema marker for aggregated outputs. Keep aligned with the
+# minimal schema emitted by create_output_schema().
+OUTPUT_SCHEMA_VERSION = 9
 
 
 def get_db_schema_version(conn: sqlite3.Connection) -> Optional[str]:
@@ -183,10 +189,11 @@ def validate_game(game_row: tuple, moves: List[tuple]) -> Tuple[bool, str]:
 
 
 def create_output_schema(conn: sqlite3.Connection):
-    """Create the output database schema (GameReplayDB-compatible).
+    """Create the output database schema (legacy GameReplayDB-compatible).
 
-    Uses the standard `game_moves` table with `move_json` column for
-    compatibility with GameReplayDB.iterate_games() and export_replay_dataset.
+    Uses the standard `game_moves` table with `move_json` for compatibility
+    with GameReplayDB.iterate_games() and export_replay_dataset, but omits
+    newer canonical tables (snapshots/history/choices).
     """
     conn.executescript("""
         -- Schema metadata table
@@ -542,10 +549,10 @@ def main():
     for db_path in input_dbs:
         stats = aggregate_database(db_path, output_conn, seen_hashes, stats)
 
-    # Add schema metadata (GameReplayDB-compatible)
+    # Add schema metadata (legacy compatibility marker).
     output_conn.execute("""
         INSERT OR REPLACE INTO schema_metadata (key, value) VALUES
-        ('schema_version', '9'),
+        ('schema_version', ?),
         ('aggregator_version', '2.0'),
         ('created_at', ?),
         ('source_dir', ?),
@@ -553,6 +560,7 @@ def main():
         ('games_total', ?),
         ('games_deduped', ?)
     """, (
+        str(OUTPUT_SCHEMA_VERSION),
         datetime.now().isoformat(),
         str(input_dir),
         str(stats["dbs_processed"]),

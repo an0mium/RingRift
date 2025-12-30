@@ -469,8 +469,12 @@ class EventSubscriptionMixin:
         for sub_id in self._subscription_ids:
             try:
                 self._event_bus.unsubscribe(sub_id)
-            except Exception:
-                pass
+            except (KeyError, ValueError, AttributeError) as e:
+                # Dec 29, 2025: Narrowed from bare Exception
+                # KeyError: subscription ID not found (already unsubscribed)
+                # ValueError: invalid subscription ID format
+                # AttributeError: event_bus is None
+                logger.debug(f"Unsubscribe warning for {sub_id}: {e}")
 
         self._subscription_ids.clear()
 

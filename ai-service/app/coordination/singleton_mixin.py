@@ -695,8 +695,12 @@ class ResilientSingletonMixin(SingletonMixin[T]):
                                 # No running loop - use asyncio.run
                                 try:
                                     asyncio.run(method())
-                                except Exception:
-                                    pass  # Best effort
+                                except (RuntimeError, asyncio.CancelledError, OSError) as e:
+                                    # Dec 29, 2025: Narrowed from bare Exception
+                                    # RuntimeError: event loop issues
+                                    # CancelledError: task cancelled during cleanup
+                                    # OSError: resource cleanup failures
+                                    logger.debug(f"[{cls.__name__}] Async cleanup error: {e}")
                         else:
                             method()
 

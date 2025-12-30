@@ -713,8 +713,13 @@ async def _default_publish_handler(event_type: str, payload: dict[str, Any]) -> 
         bus = get_event_bus()
         if bus:
             bus.publish(event_type, payload)
-    except Exception:
-        pass
+    except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+        # Dec 29, 2025: Narrowed from bare Exception
+        # ImportError: event_router not available
+        # AttributeError: bus is None or missing publish method
+        # TypeError: invalid event_type or payload
+        # RuntimeError: event system shutdown
+        logger.debug(f"Batch publish to event router failed: {e}")
 
 
 # =============================================================================

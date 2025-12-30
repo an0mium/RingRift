@@ -901,6 +901,11 @@ class RecordingConfig:
     candidate_id: str | None = None
     tags: list[str] = field(default_factory=list)
 
+    # Opponent tracking for training data diversity (Dec 2025)
+    opponent_type: str | None = None  # random, heuristic, mcts, nn_v2, nn_v3, etc.
+    opponent_model_id: str | None = None  # For NN opponents: model identifier/version
+    opponent_elo: float | None = None  # Opponent's Elo rating at game time
+
     # Database configuration
     db_path: str | None = None  # If None, auto-generated from board_type/num_players
     db_prefix: str = "selfplay"
@@ -964,6 +969,14 @@ class RecordingConfig:
             metadata["candidate_id"] = self.candidate_id
         if self.tags:
             metadata["tags"] = self.tags
+
+        # Add opponent tracking fields (Dec 2025)
+        if self.opponent_type:
+            metadata["opponent_type"] = self.opponent_type
+        if self.opponent_model_id:
+            metadata["opponent_model_id"] = self.opponent_model_id
+        if self.opponent_elo is not None:
+            metadata["opponent_elo"] = self.opponent_elo
 
         # Merge extra metadata
         if extra:

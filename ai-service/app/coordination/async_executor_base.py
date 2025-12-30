@@ -382,8 +382,14 @@ class AsyncExecutor:
                 if on_error:
                     try:
                         on_error(e)
-                    except Exception:
-                        pass
+                    except (TypeError, ValueError, AttributeError, RuntimeError) as cb_err:
+                        # Dec 29, 2025: Narrowed from bare Exception
+                        # User's error callback can raise any exception - we catch common ones
+                        # TypeError: wrong arg count
+                        # ValueError: invalid error value
+                        # AttributeError: callback object issues
+                        # RuntimeError: callback internal errors
+                        logger.debug(f"[{self.name}] Error callback failed: {cb_err}")
 
         try:
             loop = asyncio.get_running_loop()

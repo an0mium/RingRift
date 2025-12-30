@@ -11,6 +11,7 @@ These documents are preserved for historical reference:
 - Superseded plans and roadmaps
 - Point-in-time assessments
 - Migrated root-level reports and summaries from `ai-service/`
+- `OWC_DATA_VALUE_ASSESSMENT.md` - Dec 2025 data valuation snapshot (superseded)
 
 ## Note
 

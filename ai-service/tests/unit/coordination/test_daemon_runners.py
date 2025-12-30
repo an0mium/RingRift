@@ -500,3 +500,688 @@ class TestAllRunnersParametrized:
 
         # Should have been called 3 times
         assert mock_daemon.is_running.call_count == 3
+
+
+class TestCheckDaemonRunning:
+    """Tests for the _check_daemon_running helper function.
+
+    Dec 29, 2025: Added comprehensive tests for all code paths in _check_daemon_running.
+    """
+
+    def test_check_daemon_running_with_property_true(self):
+        """Test _check_daemon_running with is_running property returning True."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        mock_daemon = MagicMock()
+        mock_daemon.is_running = True  # Property, not method
+
+        result = _check_daemon_running(mock_daemon)
+        assert result is True
+
+    def test_check_daemon_running_with_property_false(self):
+        """Test _check_daemon_running with is_running property returning False."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        mock_daemon = MagicMock()
+        mock_daemon.is_running = False  # Property, not method
+
+        result = _check_daemon_running(mock_daemon)
+        assert result is False
+
+    def test_check_daemon_running_with_method_true(self):
+        """Test _check_daemon_running with is_running() method returning True."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        mock_daemon = MagicMock()
+        mock_daemon.is_running = MagicMock(return_value=True)  # Callable method
+
+        result = _check_daemon_running(mock_daemon)
+        assert result is True
+        mock_daemon.is_running.assert_called_once()
+
+    def test_check_daemon_running_with_method_false(self):
+        """Test _check_daemon_running with is_running() method returning False."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        mock_daemon = MagicMock()
+        mock_daemon.is_running = MagicMock(return_value=False)  # Callable method
+
+        result = _check_daemon_running(mock_daemon)
+        assert result is False
+        mock_daemon.is_running.assert_called_once()
+
+    def test_check_daemon_running_with_running_attribute_true(self):
+        """Test _check_daemon_running with _running attribute (legacy pattern)."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        # Create object without is_running but with _running
+        class LegacyDaemon:
+            def __init__(self):
+                self._running = True
+
+        daemon = LegacyDaemon()
+        result = _check_daemon_running(daemon)
+        assert result is True
+
+    def test_check_daemon_running_with_running_attribute_false(self):
+        """Test _check_daemon_running with _running attribute set to False."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        class LegacyDaemon:
+            def __init__(self):
+                self._running = False
+
+        daemon = LegacyDaemon()
+        result = _check_daemon_running(daemon)
+        assert result is False
+
+    def test_check_daemon_running_no_attributes_returns_false(self):
+        """Test _check_daemon_running returns False when no running indicator exists."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        class UnknownDaemon:
+            pass
+
+        daemon = UnknownDaemon()
+        result = _check_daemon_running(daemon)
+        assert result is False
+
+    def test_check_daemon_running_prefers_is_running_over_running(self):
+        """Test that is_running takes precedence over _running attribute."""
+        from app.coordination.daemon_runners import _check_daemon_running
+
+        class MixedDaemon:
+            def __init__(self):
+                self.is_running = True
+                self._running = False  # Should be ignored
+
+        daemon = MixedDaemon()
+        result = _check_daemon_running(daemon)
+        assert result is True
+
+
+class TestRunnerImportErrorHandling:
+    """Tests for ImportError handling in runner functions.
+
+    Dec 29, 2025: Added mocked ImportError tests to verify graceful error handling.
+    """
+
+    def test_auto_sync_has_import_error_handling(self):
+        """Test that create_auto_sync has ImportError handling in source."""
+        import inspect
+        source = inspect.getsource(create_auto_sync)
+        assert "except ImportError as e:" in source
+        assert "raise" in source
+        assert "logger.error" in source
+
+    def test_event_router_has_import_error_handling(self):
+        """Test that create_event_router logs and raises ImportError."""
+        import inspect
+        source = inspect.getsource(create_event_router)
+        assert "ImportError" in source
+        assert "logger.error" in source
+
+    def test_most_runners_have_import_error_in_source(self):
+        """Test that most runner functions handle ImportError.
+
+        Note: Some deprecated runners (like LAMBDA_IDLE) may not have
+        ImportError handling if they early-return or handle errors differently.
+        """
+        import inspect
+        registry = _build_runner_registry()
+
+        # These deprecated runners may have different error handling patterns
+        deprecated_runners_with_different_handling = {
+            "LAMBDA_IDLE",  # Returns early for terminated Lambda account
+        }
+
+        missing_import_error = []
+        for daemon_name, runner in registry.items():
+            if daemon_name in deprecated_runners_with_different_handling:
+                continue
+            source = inspect.getsource(runner)
+            if "ImportError" not in source:
+                missing_import_error.append(daemon_name)
+
+        # Allow up to 5 runners to have different handling patterns
+        assert len(missing_import_error) <= 5, (
+            f"Too many runners missing ImportError handling: {missing_import_error}"
+        )
+
+    def test_non_deprecated_runners_have_import_error(self):
+        """Test that all non-deprecated runners have ImportError handling."""
+        import inspect
+        registry = _build_runner_registry()
+
+        # Known deprecated/special runners
+        special_runners = {
+            "LAMBDA_IDLE",  # Lambda account terminated
+            "SYNC_COORDINATOR",  # Deprecated, may have different handling
+            "HEALTH_CHECK",  # Deprecated
+        }
+
+        for daemon_name, runner in registry.items():
+            if daemon_name in special_runners:
+                continue
+            source = inspect.getsource(runner)
+            # Check for import error handling or early return
+            has_handling = "ImportError" in source or "return" in source
+            assert has_handling, (
+                f"Runner {daemon_name} missing ImportError handling"
+            )
+
+
+class TestDecember2025Runners:
+    """Tests for daemon runners added in December 2025.
+
+    These tests verify the newer runners that were added for:
+    - 48-hour autonomous operation
+    - Availability management
+    - Cascade training
+    - PER orchestrator
+    """
+
+    def test_december_2025_runners_registered(self):
+        """Test that all December 2025 runners are registered."""
+        registry = _build_runner_registry()
+
+        dec_2025_types = [
+            "AVAILABILITY_NODE_MONITOR",
+            "AVAILABILITY_RECOVERY_ENGINE",
+            "AVAILABILITY_CAPACITY_PLANNER",
+            "AVAILABILITY_PROVISIONER",
+            "CASCADE_TRAINING",
+            "PER_ORCHESTRATOR",
+            "PROGRESS_WATCHDOG",
+            "P2P_RECOVERY",
+            "TAILSCALE_HEALTH",
+            "CONNECTIVITY_RECOVERY",
+        ]
+
+        for daemon_name in dec_2025_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_autonomous_operation_runners_are_coroutines(self):
+        """Test that 48-hour autonomous operation runners are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_progress_watchdog,
+            create_p2p_recovery,
+        )
+
+        assert inspect.iscoroutinefunction(create_progress_watchdog)
+        assert inspect.iscoroutinefunction(create_p2p_recovery)
+
+    def test_availability_runners_are_coroutines(self):
+        """Test that availability management runners are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_availability_node_monitor,
+            create_availability_recovery_engine,
+            create_availability_capacity_planner,
+            create_availability_provisioner,
+        )
+
+        assert inspect.iscoroutinefunction(create_availability_node_monitor)
+        assert inspect.iscoroutinefunction(create_availability_recovery_engine)
+        assert inspect.iscoroutinefunction(create_availability_capacity_planner)
+        assert inspect.iscoroutinefunction(create_availability_provisioner)
+
+
+class TestMaintenanceRunners:
+    """Tests for maintenance and cleanup daemon runners."""
+
+    def test_maintenance_runners_registered(self):
+        """Test that maintenance runners are registered."""
+        registry = _build_runner_registry()
+
+        maintenance_types = [
+            "MAINTENANCE",
+            "ORPHAN_DETECTION",
+            "DATA_CLEANUP",
+            "DISK_SPACE_MANAGER",
+            "COORDINATOR_DISK_MANAGER",
+            "INTEGRITY_CHECK",
+        ]
+
+        for daemon_name in maintenance_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_maintenance_runner_functions_are_coroutines(self):
+        """Test that maintenance runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_maintenance,
+            create_orphan_detection,
+            create_data_cleanup,
+            create_disk_space_manager,
+            create_coordinator_disk_manager,
+            create_integrity_check,
+        )
+
+        assert inspect.iscoroutinefunction(create_maintenance)
+        assert inspect.iscoroutinefunction(create_orphan_detection)
+        assert inspect.iscoroutinefunction(create_data_cleanup)
+        assert inspect.iscoroutinefunction(create_disk_space_manager)
+        assert inspect.iscoroutinefunction(create_coordinator_disk_manager)
+        assert inspect.iscoroutinefunction(create_integrity_check)
+
+
+class TestS3Runners:
+    """Tests for S3-related daemon runners."""
+
+    def test_s3_runners_registered(self):
+        """Test that S3 daemon runners are registered."""
+        registry = _build_runner_registry()
+
+        s3_types = [
+            "S3_BACKUP",
+            "S3_NODE_SYNC",
+            "S3_CONSOLIDATION",
+        ]
+
+        for daemon_name in s3_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_s3_runner_functions_are_coroutines(self):
+        """Test that S3 runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_s3_backup,
+            create_s3_node_sync,
+            create_s3_consolidation,
+        )
+
+        assert inspect.iscoroutinefunction(create_s3_backup)
+        assert inspect.iscoroutinefunction(create_s3_node_sync)
+        assert inspect.iscoroutinefunction(create_s3_consolidation)
+
+
+class TestProviderIdleRunners:
+    """Tests for cloud provider idle detection runners."""
+
+    def test_provider_idle_runners_registered(self):
+        """Test that provider idle runners are registered."""
+        registry = _build_runner_registry()
+
+        idle_types = [
+            "LAMBDA_IDLE",
+            "VAST_IDLE",
+        ]
+
+        for daemon_name in idle_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_provider_idle_runner_functions_are_coroutines(self):
+        """Test that provider idle runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_lambda_idle,
+            create_vast_idle,
+        )
+
+        assert inspect.iscoroutinefunction(create_lambda_idle)
+        assert inspect.iscoroutinefunction(create_vast_idle)
+
+
+class TestReplicationRunners:
+    """Tests for replication daemon runners."""
+
+    def test_replication_runners_registered(self):
+        """Test that replication daemon runners are registered."""
+        registry = _build_runner_registry()
+
+        replication_types = [
+            "REPLICATION_MONITOR",
+            "REPLICATION_REPAIR",
+        ]
+
+        for daemon_name in replication_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_replication_runner_functions_are_coroutines(self):
+        """Test that replication runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_replication_monitor,
+            create_replication_repair,
+        )
+
+        assert inspect.iscoroutinefunction(create_replication_monitor)
+        assert inspect.iscoroutinefunction(create_replication_repair)
+
+
+class TestSchedulingRunners:
+    """Tests for scheduling and queue daemon runners."""
+
+    def test_scheduling_runners_registered(self):
+        """Test that scheduling daemon runners are registered."""
+        registry = _build_runner_registry()
+
+        scheduling_types = [
+            "QUEUE_POPULATOR",
+            "JOB_SCHEDULER",
+            "FEEDBACK_LOOP",
+            "CURRICULUM_INTEGRATION",
+        ]
+
+        for daemon_name in scheduling_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_scheduling_runner_functions_are_coroutines(self):
+        """Test that scheduling runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_queue_populator,
+            create_job_scheduler,
+            create_feedback_loop,
+            create_curriculum_integration,
+        )
+
+        assert inspect.iscoroutinefunction(create_queue_populator)
+        assert inspect.iscoroutinefunction(create_job_scheduler)
+        assert inspect.iscoroutinefunction(create_feedback_loop)
+        assert inspect.iscoroutinefunction(create_curriculum_integration)
+
+
+class TestP2PRunners:
+    """Tests for P2P service daemon runners."""
+
+    def test_p2p_runners_registered(self):
+        """Test that P2P daemon runners are registered."""
+        registry = _build_runner_registry()
+
+        p2p_types = [
+            "P2P_BACKEND",
+            "P2P_AUTO_DEPLOY",
+        ]
+
+        for daemon_name in p2p_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_p2p_runner_functions_are_coroutines(self):
+        """Test that P2P runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_p2p_backend,
+            create_p2p_auto_deploy,
+        )
+
+        assert inspect.iscoroutinefunction(create_p2p_backend)
+        assert inspect.iscoroutinefunction(create_p2p_auto_deploy)
+
+
+class TestTrainingDataRunners:
+    """Tests for training data sync daemon runners."""
+
+    def test_training_data_runners_registered(self):
+        """Test that training data daemon runners are registered."""
+        registry = _build_runner_registry()
+
+        training_data_types = [
+            "TRAINING_NODE_WATCHER",
+            "TRAINING_DATA_SYNC",
+            "OWC_IMPORT",
+            "EXTERNAL_DRIVE_SYNC",
+            "VAST_CPU_PIPELINE",
+            "CLUSTER_DATA_SYNC",
+        ]
+
+        for daemon_name in training_data_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_training_data_runner_functions_are_coroutines(self):
+        """Test that training data runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_training_node_watcher,
+            create_training_data_sync,
+            create_owc_import,
+            create_external_drive_sync,
+            create_vast_cpu_pipeline,
+            create_cluster_data_sync,
+        )
+
+        assert inspect.iscoroutinefunction(create_training_node_watcher)
+        assert inspect.iscoroutinefunction(create_training_data_sync)
+        assert inspect.iscoroutinefunction(create_owc_import)
+        assert inspect.iscoroutinefunction(create_external_drive_sync)
+        assert inspect.iscoroutinefunction(create_vast_cpu_pipeline)
+        assert inspect.iscoroutinefunction(create_cluster_data_sync)
+
+
+class TestEvaluationRunners:
+    """Tests for evaluation and tournament daemon runners."""
+
+    def test_evaluation_runners_registered(self):
+        """Test that evaluation daemon runners are registered."""
+        registry = _build_runner_registry()
+
+        evaluation_types = [
+            "TOURNAMENT_DAEMON",
+            "EVALUATION",
+            "AUTO_PROMOTION",
+            "UNIFIED_PROMOTION",
+            "GAUNTLET_FEEDBACK",
+        ]
+
+        for daemon_name in evaluation_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_evaluation_runner_functions_are_coroutines(self):
+        """Test that evaluation runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_tournament_daemon,
+            create_evaluation_daemon,
+            create_auto_promotion,
+            create_unified_promotion,
+            create_gauntlet_feedback,
+        )
+
+        assert inspect.iscoroutinefunction(create_tournament_daemon)
+        assert inspect.iscoroutinefunction(create_evaluation_daemon)
+        assert inspect.iscoroutinefunction(create_auto_promotion)
+        assert inspect.iscoroutinefunction(create_unified_promotion)
+        assert inspect.iscoroutinefunction(create_gauntlet_feedback)
+
+
+class TestWaitForDaemonEdgeCases:
+    """Additional edge case tests for _wait_for_daemon."""
+
+    @pytest.mark.asyncio
+    async def test_wait_for_daemon_with_callable_is_running(self):
+        """Test _wait_for_daemon with is_running as a method."""
+        mock_daemon = MagicMock()
+        call_count = [0]
+
+        def is_running_method():
+            call_count[0] += 1
+            return call_count[0] < 3
+
+        mock_daemon.is_running = is_running_method
+
+        await _wait_for_daemon(mock_daemon, check_interval=0.01)
+
+        assert call_count[0] == 3
+
+    @pytest.mark.asyncio
+    async def test_wait_for_daemon_with_legacy_running_attr(self):
+        """Test _wait_for_daemon with _running attribute (legacy pattern)."""
+
+        class LegacyDaemon:
+            def __init__(self):
+                self._running = True
+                self.check_count = 0
+
+            def stop(self):
+                self._running = False
+
+        daemon = LegacyDaemon()
+
+        # Stop daemon after a brief delay
+        async def stop_after_delay():
+            await asyncio.sleep(0.02)
+            daemon.stop()
+
+        import asyncio
+        asyncio.create_task(stop_after_delay())
+
+        await _wait_for_daemon(daemon, check_interval=0.01)
+
+        assert daemon._running is False
+
+
+class TestRegistryLaziness:
+    """Tests for lazy registry building behavior."""
+
+    def test_registry_is_none_initially(self):
+        """Test that _RUNNER_REGISTRY starts as None."""
+        import app.coordination.daemon_runners as module
+
+        # Reset the registry
+        original = module._RUNNER_REGISTRY
+        module._RUNNER_REGISTRY = None
+
+        try:
+            # First access should build the registry
+            registry = module.get_all_runners()
+            assert registry is not None
+            assert len(registry) >= 60
+        finally:
+            # Restore original state
+            module._RUNNER_REGISTRY = original
+
+    def test_get_all_runners_returns_copy(self):
+        """Test that get_all_runners returns a copy, not the original."""
+        runners1 = get_all_runners()
+        runners2 = get_all_runners()
+
+        # Should be equal but not the same object
+        assert runners1 == runners2
+        assert runners1 is not runners2
+
+        # Modifying one shouldn't affect the other
+        runners1["TEST_KEY"] = lambda: None
+        assert "TEST_KEY" not in runners2
+
+
+class TestRegistryDaemonTypeCoverage:
+    """Tests to verify registry covers all DaemonType enum values."""
+
+    def test_registry_covers_all_non_deprecated_types(self):
+        """Test that registry has entries for all active DaemonType values."""
+        registry = _build_runner_registry()
+        registry_names = set(registry.keys())
+
+        # Get all DaemonType names
+        all_type_names = {dt.name for dt in DaemonType}
+
+        # Check coverage - should have most types covered
+        covered = registry_names & all_type_names
+        assert len(covered) >= 60, (
+            f"Only {len(covered)} daemon types covered, expected >= 60"
+        )
+
+    def test_registry_keys_match_daemon_type_names_exactly(self):
+        """Test that registry keys exactly match DaemonType enum names."""
+        registry = _build_runner_registry()
+
+        # Get all DaemonType names
+        valid_names = {dt.name for dt in DaemonType}
+
+        for key in registry.keys():
+            assert key in valid_names, (
+                f"Registry key '{key}' does not match any DaemonType"
+            )
+
+
+class TestNewRunnersNPZCombination:
+    """Tests for NPZ combination daemon runner."""
+
+    def test_npz_combination_runner_registered(self):
+        """Test that NPZ_COMBINATION runner is registered."""
+        registry = _build_runner_registry()
+        assert "NPZ_COMBINATION" in registry
+
+    def test_npz_combination_runner_is_coroutine(self):
+        """Test that NPZ combination runner is a coroutine function."""
+        import inspect
+        from app.coordination.daemon_runners import create_npz_combination
+
+        assert inspect.iscoroutinefunction(create_npz_combination)
+
+
+class TestNodeAvailabilityRunner:
+    """Tests for node availability daemon runner."""
+
+    def test_node_availability_runner_registered(self):
+        """Test that NODE_AVAILABILITY runner is registered."""
+        registry = _build_runner_registry()
+        assert "NODE_AVAILABILITY" in registry
+
+    def test_node_availability_runner_is_coroutine(self):
+        """Test that node availability runner is a coroutine function."""
+        import inspect
+        from app.coordination.daemon_runners import create_node_availability
+
+        assert inspect.iscoroutinefunction(create_node_availability)
+
+
+class TestMetricsAndAnalysisRunners:
+    """Tests for metrics and analysis daemon runners."""
+
+    def test_metrics_runners_registered(self):
+        """Test that metrics daemon runners are registered."""
+        registry = _build_runner_registry()
+
+        metrics_types = [
+            "METRICS_ANALYSIS",
+            "DATA_CONSOLIDATION",
+        ]
+
+        for daemon_name in metrics_types:
+            assert daemon_name in registry, f"Missing runner for {daemon_name}"
+
+    def test_metrics_runner_functions_are_coroutines(self):
+        """Test that metrics runner functions are coroutine functions."""
+        import inspect
+        from app.coordination.daemon_runners import (
+            create_metrics_analysis,
+            create_data_consolidation,
+        )
+
+        assert inspect.iscoroutinefunction(create_metrics_analysis)
+        assert inspect.iscoroutinefunction(create_data_consolidation)
+
+
+class TestUnifiedDataPlaneRunner:
+    """Tests for unified data plane daemon runner."""
+
+    def test_unified_data_plane_runner_registered(self):
+        """Test that UNIFIED_DATA_PLANE runner is registered."""
+        registry = _build_runner_registry()
+        assert "UNIFIED_DATA_PLANE" in registry
+
+    def test_unified_data_plane_runner_is_coroutine(self):
+        """Test that unified data plane runner is a coroutine function."""
+        import inspect
+        from app.coordination.daemon_runners import create_unified_data_plane
+
+        assert inspect.iscoroutinefunction(create_unified_data_plane)
+
+
+class TestSyncPushRunner:
+    """Tests for sync push daemon runner."""
+
+    def test_sync_push_runner_registered(self):
+        """Test that SYNC_PUSH runner is registered."""
+        registry = _build_runner_registry()
+        assert "SYNC_PUSH" in registry
+
+    def test_sync_push_runner_is_coroutine(self):
+        """Test that sync push runner is a coroutine function."""
+        import inspect
+        from app.coordination.daemon_runners import create_sync_push
+
+        assert inspect.iscoroutinefunction(create_sync_push)

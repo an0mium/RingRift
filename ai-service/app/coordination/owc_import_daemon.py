@@ -312,7 +312,12 @@ class OWCImportDaemon(BaseDaemon[OWCImportConfig]):
             with sqlite3.connect(str(canonical_path)) as conn:
                 cursor = conn.execute("SELECT COUNT(*) FROM games WHERE winner IS NOT NULL")
                 return cursor.fetchone()[0]
-        except Exception:
+        except (sqlite3.Error, OSError, TypeError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # sqlite3.Error: database errors (locked, corrupted, missing table)
+            # OSError: file system errors (permissions, disk full)
+            # TypeError: fetchone returns None (schema mismatch)
+            logger.debug(f"[OWCImport] Error reading game count: {e}")
             return 0
 
     def _get_underserved_configs(self) -> list[str]:

@@ -128,21 +128,22 @@ class TestWatchdogLifecycle:
     @pytest.mark.asyncio
     async def test_start_sets_running(self, watchdog):
         """Start sets running flag."""
-        with patch.object(watchdog, "_subscribe_to_events", new_callable=AsyncMock):
+        with patch.object(watchdog, "_subscribe_all_events", return_value=True):
             await watchdog.start()
             assert watchdog._running is True
-            assert watchdog.is_running() is True
+            assert watchdog.is_running is True  # is_running is a property, not a method
 
     @pytest.mark.asyncio
     async def test_start_is_idempotent(self, watchdog):
         """Multiple starts don't cause issues."""
         call_count = 0
 
-        async def mock_subscribe():
+        def mock_subscribe():
             nonlocal call_count
             call_count += 1
+            return True
 
-        with patch.object(watchdog, "_subscribe_to_events", side_effect=mock_subscribe):
+        with patch.object(watchdog, "_subscribe_all_events", side_effect=mock_subscribe):
             await watchdog.start()
             await watchdog.start()
             assert call_count == 1
@@ -153,7 +154,7 @@ class TestWatchdogLifecycle:
         watchdog._running = True
         await watchdog.stop()
         assert watchdog._running is False
-        assert watchdog.is_running() is False
+        assert watchdog.is_running is False  # is_running is a property, not a method
 
 
 # =============================================================================
