@@ -75,7 +75,7 @@ python scripts/master_loop.py --dry-run
 This orchestrates:
 
 - **SelfplayScheduler**: Priority-based selfplay allocation (staleness, Elo velocity, curriculum weights)
-- **DaemonManager**: 82 background daemons for sync, training, evaluation (6 deprecated)
+- **DaemonManager**: 77 background daemons for sync, training, evaluation (6 deprecated, archived)
 - **FeedbackLoopController**: Training feedback signals and curriculum adjustments
 - **DataPipelineOrchestrator**: Export → training → evaluation → promotion
 
@@ -203,6 +203,25 @@ See `ai-service/config/distributed_hosts.yaml` for full cluster configuration.
 - **Gumbel MCTS**: Quality-focused tree search for training data
 - **Transfer Learning**: Train 4-player models from 2-player checkpoints
 - **Parity Testing**: Verify Python engine matches TypeScript rules
+- **48-Hour Autonomous Operation**: Cluster runs unattended with automatic recovery
+
+## 48-Hour Autonomous Operation (Dec 2025)
+
+The cluster can run 48+ hours unattended with these daemons:
+
+| Daemon              | Purpose                                      |
+| ------------------- | -------------------------------------------- |
+| `PROGRESS_WATCHDOG` | Detects Elo stalls, triggers recovery        |
+| `P2P_RECOVERY`      | Restarts unhealthy P2P orchestrator          |
+| `STALE_FALLBACK`    | Uses older models when sync fails            |
+| `MEMORY_MONITOR`    | Prevents OOM via proactive GPU VRAM tracking |
+
+Key resilience features:
+
+- Adaptive circuit breaker cascade prevention
+- Graceful degradation with stale training data after sync failures
+- Multi-transport failover (Tailscale → SSH → Base64 → HTTP)
+- Automatic parity gate bypass on cluster nodes without Node.js
 
 ## Known Issues
 

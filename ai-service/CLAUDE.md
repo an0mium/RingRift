@@ -118,7 +118,7 @@ health = dm.get_all_daemon_health()
 | Pipeline | DATA_PIPELINE, SELFPLAY_COORDINATOR |
 | Health | NODE_HEALTH_MONITOR, QUALITY_MONITOR, NODE_AVAILABILITY |
 | Resources | IDLE_RESOURCE, NODE_RECOVERY |
-| Autonomous | PROGRESS_WATCHDOG, P2P_RECOVERY, STALE_FALLBACK |
+| Autonomous | PROGRESS_WATCHDOG, P2P_RECOVERY, STALE_FALLBACK, MEMORY_MONITOR |
 
 **Health Monitoring (85%+ coverage):**
 
@@ -280,11 +280,20 @@ ai-service/
 
 The cluster can run unattended for 48+ hours with these daemons:
 
-| Daemon              | Purpose                               |
-| ------------------- | ------------------------------------- |
-| `PROGRESS_WATCHDOG` | Detects Elo stalls, triggers recovery |
-| `P2P_RECOVERY`      | Restarts unhealthy P2P orchestrator   |
-| `STALE_FALLBACK`    | Uses older models when data is stale  |
+| Daemon              | Purpose                                  |
+| ------------------- | ---------------------------------------- |
+| `PROGRESS_WATCHDOG` | Detects Elo stalls, triggers recovery    |
+| `P2P_RECOVERY`      | Restarts unhealthy P2P orchestrator      |
+| `STALE_FALLBACK`    | Uses older models when sync fails        |
+| `MEMORY_MONITOR`    | Prevents OOM via proactive VRAM tracking |
+
+**Resilience Features:**
+
+- Adaptive circuit breaker cascade prevention (dynamic thresholds 10-20 based on health)
+- Multi-transport failover: Tailscale → SSH → Base64 → HTTP
+- Stale training fallback after 5 sync failures or 45min timeout
+- Automatic parity gate bypass on cluster nodes without Node.js
+- Handler timeout protection (600s default, configurable)
 
 **Key Events:**
 
