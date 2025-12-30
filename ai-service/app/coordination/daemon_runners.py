@@ -381,6 +381,12 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         module="app.coordination.idle_resource_daemon",
         class_name="IdleResourceDaemon",
     ),
+    "cluster_utilization_watchdog": RunnerSpec(
+        module="app.coordination.cluster_utilization_watchdog",
+        class_name="ClusterUtilizationWatchdog",
+        style=InstantiationStyle.SINGLETON,
+        notes="Monitors GPU utilization across cluster, emits CLUSTER_UNDERUTILIZED events",
+    ),
     "node_recovery": RunnerSpec(
         module="app.coordination.node_recovery_daemon",
         class_name="NodeRecoveryDaemon",
@@ -1561,6 +1567,25 @@ async def create_idle_resource() -> None:
         raise
 
 
+async def create_cluster_utilization_watchdog() -> None:
+    """Create and run cluster utilization watchdog (Dec 30, 2025).
+
+    Monitors GPU utilization across cluster and emits CLUSTER_UNDERUTILIZED
+    events when too many GPUs are idle, enabling proactive remediation.
+    """
+    try:
+        from app.coordination.cluster_utilization_watchdog import (
+            ClusterUtilizationWatchdog,
+        )
+
+        daemon = ClusterUtilizationWatchdog.get_instance()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"ClusterUtilizationWatchdog not available: {e}")
+        raise
+
+
 async def create_node_recovery() -> None:
     """Create and run node recovery daemon (Phase 21)."""
     try:
@@ -2552,6 +2577,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.REPLICATION_MONITOR.name: create_replication_monitor,
         DaemonType.REPLICATION_REPAIR.name: create_replication_repair,
         DaemonType.IDLE_RESOURCE.name: create_idle_resource,
+        DaemonType.CLUSTER_UTILIZATION_WATCHDOG.name: create_cluster_utilization_watchdog,
         DaemonType.NODE_RECOVERY.name: create_node_recovery,
         DaemonType.RESOURCE_OPTIMIZER.name: create_resource_optimizer,
         DaemonType.UTILIZATION_OPTIMIZER.name: create_utilization_optimizer,

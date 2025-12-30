@@ -586,6 +586,10 @@ class WorkQueue:
                     self.stats[row["key"]] = row["value"]
 
             logger.info(f"Loaded {len(self._items)} work items from database")
+
+            # Dec 30, 2025: Load backpressure state after items loaded
+            # This validates state against current queue depth
+            self._load_backpressure_state()
         except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
             logger.error(f"Database error loading work items: {e}")
         except (sqlite3.Error, OSError) as e:
@@ -1481,6 +1485,9 @@ class WorkQueue:
             f"(trigger: {trigger}). New job submissions may be delayed."
         )
 
+        # Dec 30, 2025: Persist state for crash recovery
+        self._persist_backpressure_state()
+
         # Emit event for coordination layer
         try:
             from app.coordination.event_router import get_event_bus
@@ -1508,6 +1515,9 @@ class WorkQueue:
             f"[BACKPRESSURE RELEASED] Queue at {pending_count}/{BACKPRESSURE_HARD_LIMIT} items. "
             f"Normal job submission resumed."
         )
+
+        # Dec 30, 2025: Persist state for crash recovery
+        self._persist_backpressure_state()
 
         # Emit event for coordination layer
         try:

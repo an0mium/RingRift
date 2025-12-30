@@ -245,6 +245,10 @@ class DaemonType(Enum):
     # Stops CPU selfplay on GPU nodes, spawns appropriate workloads by provider
     UTILIZATION_OPTIMIZER = "utilization_optimizer"
 
+    # Cluster utilization watchdog (December 30, 2025) - monitors GPU utilization
+    # Emits CLUSTER_UNDERUTILIZED when too many GPUs are idle, triggers remediation
+    CLUSTER_UTILIZATION_WATCHDOG = "cluster_utilization_watchdog"
+
     # Lambda idle shutdown (December 2025) - terminates idle Lambda nodes to save costs
     # DEPRECATED: Lambda Labs GH200 nodes are now dedicated training infrastructure (restored Dec 28, 2025).
     # Dedicated GPU nodes don't need idle shutdown - they run continuous training workloads.

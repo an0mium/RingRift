@@ -64,6 +64,7 @@ __all__ = [
     "emit_health_check_failed",
     "emit_p2p_cluster_healthy",
     "emit_p2p_cluster_unhealthy",
+    "emit_p2p_restarted",  # Dec 30, 2025: P2P restart completed
     # Task lifecycle emitters (December 2025 Wave 2)
     "emit_task_abandoned",
     # Disk space management emitters (December 2025)
@@ -239,8 +240,10 @@ class DataEventType(Enum):
     P2P_NODES_DEAD = "p2p_nodes_dead"
     P2P_SELFPLAY_SCALED = "p2p_selfplay_scaled"
     P2P_RESTART_TRIGGERED = "p2p_restart_triggered"  # Dec 2025: P2P orchestrator restart initiated
+    P2P_RESTARTED = "p2p_restarted"  # Dec 30, 2025: P2P orchestrator successfully restarted
     P2P_HEALTH_RECOVERED = "p2p_health_recovered"  # Dec 2025: P2P cluster recovered from unhealthy
     NETWORK_ISOLATION_DETECTED = "network_isolation_detected"  # Dec 2025: P2P sees fewer peers than Tailscale
+    QUORUM_PRIORITY_RECONNECT = "quorum_priority_reconnect"  # Dec 30, 2025: Priority reconnection order for quorum
 
     # Progress monitoring events (December 2025 - 48h autonomous operation)
     PROGRESS_STALL_DETECTED = "progress_stall_detected"  # Config Elo stalled, recovery triggered
@@ -337,6 +340,8 @@ class DataEventType(Enum):
     BACKPRESSURE_ACTIVATED = "backpressure_activated"
     BACKPRESSURE_RELEASED = "backpressure_released"
     IDLE_RESOURCE_DETECTED = "idle_resource_detected"  # Phase 21.2: Idle GPU/CPU detected
+    CLUSTER_UNDERUTILIZED = "cluster_underutilized"  # Dec 30, 2025: Many GPUs idle, needs remediation
+    CLUSTER_UTILIZATION_RECOVERED = "cluster_utilization_recovered"  # Dec 30, 2025: Utilization back to healthy
 
     # Availability/Provisioning events (December 28, 2025)
     CAPACITY_LOW = "capacity_low"  # Cluster GPU capacity below threshold
@@ -3337,6 +3342,36 @@ async def emit_p2p_cluster_unhealthy(
             "healthy_nodes": healthy_nodes,
             "node_count": node_count,
             "alerts": alerts or [],
+        },
+        source=source,
+    ))
+
+
+async def emit_p2p_restarted(
+    *,
+    trigger: str = "recovery_daemon",
+    restart_count: int = 0,
+    previous_state: str = "",
+    source: str = "",
+) -> None:
+    """Emit P2P_RESTARTED event when P2P orchestrator successfully restarts.
+
+    Dec 30, 2025: Added for event subscription resilience. Subscribers can
+    use this to ensure they resubscribe after P2P mesh recovery.
+
+    Args:
+        trigger: What triggered the restart (recovery_daemon, manual, etc.)
+        restart_count: Total number of restarts since daemon start
+        previous_state: State before restart (healthy, unhealthy, partitioned)
+        source: Component emitting this event
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.P2P_RESTARTED,
+        payload={
+            "trigger": trigger,
+            "restart_count": restart_count,
+            "previous_state": previous_state,
+            "timestamp": time.time(),
         },
         source=source,
     ))

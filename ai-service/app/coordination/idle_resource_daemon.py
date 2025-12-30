@@ -873,13 +873,53 @@ class IdleResourceDaemon:
             if hasattr(DataEventType, 'P2P_CLUSTER_HEALTHY'):
                 router.subscribe(DataEventType.P2P_CLUSTER_HEALTHY.value, _on_cluster_healthy)
 
+            # Dec 30, 2025: Subscribe to utilization watchdog events for proactive remediation
+            def _on_cluster_underutilized(event: Any) -> None:
+                """Handle CLUSTER_UNDERUTILIZED - boost spawn rate to fill idle GPUs."""
+                payload = event if isinstance(event, dict) else getattr(event, "payload", {})
+                level = payload.get("level", "warning")
+                idle_fraction = payload.get("idle_fraction", 0.0)
+
+                logger.warning(
+                    f"[IdleResourceDaemon] Cluster underutilized: level={level}, "
+                    f"idle_fraction={idle_fraction:.1%}. Boosting spawn rate."
+                )
+
+                # Boost max concurrent spawns based on severity
+                if level == "critical":
+                    # Critical: double max spawns temporarily
+                    if hasattr(self, "config") and hasattr(self.config, "max_concurrent_spawns"):
+                        original = self.config.max_concurrent_spawns
+                        self.config.max_concurrent_spawns = min(original * 2, 20)
+                        logger.info(
+                            f"[IdleResourceDaemon] Boosted max_concurrent_spawns: "
+                            f"{original} -> {self.config.max_concurrent_spawns}"
+                        )
+
+                # Force immediate spawn cycle
+                if hasattr(self, "_force_spawn_cycle"):
+                    self._force_spawn_cycle = True
+
+            def _on_cluster_utilization_recovered(event: Any) -> None:
+                """Handle CLUSTER_UTILIZATION_RECOVERED - restore normal spawn rate."""
+                logger.info("[IdleResourceDaemon] Cluster utilization recovered. Restoring normal spawn rate.")
+
+                # Restore default max spawns
+                if hasattr(self, "config") and hasattr(self.config, "max_concurrent_spawns"):
+                    self.config.max_concurrent_spawns = 5  # Default value
+
+            if hasattr(DataEventType, 'CLUSTER_UNDERUTILIZED'):
+                router.subscribe(DataEventType.CLUSTER_UNDERUTILIZED.value, _on_cluster_underutilized)
+            if hasattr(DataEventType, 'CLUSTER_UTILIZATION_RECOVERED'):
+                router.subscribe(DataEventType.CLUSTER_UTILIZATION_RECOVERED.value, _on_cluster_utilization_recovered)
+
             # Initialize health tracking
             self._unhealthy_nodes: set[str] = set()
             self._cluster_health_reduction: float = 1.0
 
             logger.info(
                 "[IdleResourceDaemon] Subscribed to P2P health events "
-                "(NODE_UNHEALTHY, NODE_RECOVERED, P2P_CLUSTER_UNHEALTHY, P2P_CLUSTER_HEALTHY)"
+                "(NODE_UNHEALTHY, NODE_RECOVERED, P2P_CLUSTER_*, CLUSTER_UNDERUTILIZED)"
             )
 
         except ImportError:

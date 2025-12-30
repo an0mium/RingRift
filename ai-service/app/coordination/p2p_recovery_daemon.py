@@ -514,6 +514,12 @@ class P2PRecoveryDaemon(HandlerBase):
 
                 process = await asyncio.to_thread(_start_p2p)
                 logger.info(f"Started new P2P process (PID {process.pid})")
+
+                # Dec 30, 2025: Emit P2P_RESTARTED event for subscription resilience
+                await self._emit_p2p_restarted_event()
+
+                # Dec 30, 2025: Trigger quorum-aware reconnection prioritization
+                await self._prioritize_quorum_reconnections()
             else:
                 logger.warning(
                     "P2P script not found, relying on master_loop to restart"
@@ -523,6 +529,85 @@ class P2PRecoveryDaemon(HandlerBase):
             logger.error(f"Error restarting P2P: {e}")
             self._stats.errors_count += 1
             self._last_error = str(e)
+
+    async def _prioritize_quorum_reconnections(self) -> None:
+        """Prioritize reconnection to voter nodes after P2P restart.
+
+        Dec 30, 2025: Added for faster quorum restoration during 48h autonomous ops.
+        Uses QuorumRecoveryManager to prioritize voter nodes when quorum is at risk.
+        """
+        try:
+            from app.coordination.quorum_recovery import get_quorum_manager
+
+            manager = get_quorum_manager()
+
+            # Wait for P2P to start accepting connections
+            await asyncio.sleep(5)
+
+            # Get current P2P status to find offline voters
+            is_healthy, status = await self._check_p2p_health()
+            if not is_healthy:
+                logger.debug("P2P not yet healthy, skipping quorum prioritization")
+                return
+
+            # Get list of known voters from config
+            from app.config.cluster_config import get_p2p_voters
+
+            all_voters = set(get_p2p_voters())
+            alive_peers = status.get("alive_peers_list", [])
+
+            if isinstance(alive_peers, int):
+                # Only count, not list - can't determine offline voters
+                logger.debug("P2P status doesn't include peer list, skipping prioritization")
+                return
+
+            online_voters = all_voters & set(alive_peers)
+            offline_voters = all_voters - online_voters
+
+            manager.update_online_voters(online_voters)
+
+            if manager.needs_more_voters() and offline_voters:
+                logger.info(
+                    f"QuorumRecovery: Need {manager.voters_needed_for_quorum()} more voters, "
+                    f"{len(offline_voters)} voters offline"
+                )
+
+                # Log prioritization (actual reconnection handled by gossip protocol)
+                prioritized = manager.get_prioritized_reconnection_order(list(offline_voters))
+                if prioritized:
+                    logger.info(
+                        f"QuorumRecovery: Prioritized voter reconnection order: {prioritized}"
+                    )
+                    self._quorum_recovery_attempts += 1
+
+                    # Emit event to notify P2P of prioritized reconnection order
+                    await self._emit_quorum_priority_event(prioritized)
+            else:
+                logger.debug(
+                    f"QuorumRecovery: Quorum met ({len(online_voters)}/{manager._config.quorum_size})"
+                )
+
+        except ImportError:
+            logger.debug("QuorumRecoveryManager not available, skipping prioritization")
+        except Exception as e:
+            logger.warning(f"Error in quorum prioritization: {e}")
+
+    async def _emit_quorum_priority_event(self, prioritized_nodes: list[str]) -> None:
+        """Emit event with prioritized reconnection order.
+
+        Dec 30, 2025: Notifies P2P orchestrator of priority reconnection order.
+        """
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                DataEventType.QUORUM_PRIORITY_RECONNECT,
+                prioritized_nodes=prioritized_nodes,
+                voters_needed=len(prioritized_nodes),
+                source="P2PRecoveryDaemon",
+            )
+        except Exception as e:
+            logger.debug(f"Failed to emit QUORUM_PRIORITY_RECONNECT: {e}")
 
     async def _trigger_leader_election(self) -> bool:
         """Trigger a leader election via the P2P orchestrator API.
@@ -597,6 +682,26 @@ class P2PRecoveryDaemon(HandlerBase):
             )
         except Exception as e:
             logger.debug(f"Failed to emit P2P_HEALTH_RECOVERED: {e}")
+
+    async def _emit_p2p_restarted_event(self) -> None:
+        """Emit event when P2P orchestrator successfully restarts.
+
+        Dec 30, 2025: Added for event subscription resilience. This allows
+        subscribers like SelfplayScheduler to verify their subscriptions
+        are still active after a P2P mesh recovery.
+        """
+        try:
+            from app.distributed.data_events import emit_p2p_restarted
+
+            await emit_p2p_restarted(
+                trigger="recovery_daemon",
+                restart_count=self._total_restarts,
+                previous_state=self._last_status or "unknown",
+                source="P2PRecoveryDaemon",
+            )
+            logger.info(f"Emitted P2P_RESTARTED event (restart #{self._total_restarts})")
+        except Exception as e:
+            logger.debug(f"Failed to emit P2P_RESTARTED: {e}")
 
     async def _emit_isolation_event(self, isolation_details: dict[str, Any]) -> None:
         """Emit event when network isolation is detected.

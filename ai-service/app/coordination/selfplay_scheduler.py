@@ -2243,6 +2243,8 @@ class SelfplayScheduler(HandlerBase):
             ("ARCHITECTURE_WEIGHTS_UPDATED", self._on_architecture_weights_updated),
             # Quality feedback
             ("QUALITY_FEEDBACK_ADJUSTED", self._on_quality_feedback_adjusted),
+            # Dec 30, 2025: P2P restart resilience
+            ("P2P_RESTARTED", self._on_p2p_restarted),
         ]
 
         for event_name, handler in optional_events:
@@ -3486,6 +3488,60 @@ class SelfplayScheduler(HandlerBase):
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling cluster healthy: {e}")
+
+    def _on_p2p_restarted(self, event: Any) -> None:
+        """Handle P2P_RESTARTED - ensure subscriptions are valid.
+
+        Dec 30, 2025: After a P2P restart, event subscriptions may be lost if
+        the event bus was reinitialized. This handler verifies and re-establishes
+        subscriptions to maintain pipeline resilience.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            restart_count = payload.get("restart_count", 0)
+            trigger = payload.get("trigger", "unknown")
+
+            logger.info(
+                f"[SelfplayScheduler] P2P restarted (count={restart_count}, trigger={trigger}). "
+                f"Verifying subscriptions..."
+            )
+
+            # Ensure subscriptions are still active
+            self.ensure_subscribed()
+
+            # Trigger a priority update to refresh state from recovered P2P
+            if hasattr(self, "_priority_update_pending"):
+                self._priority_update_pending = True
+
+            logger.info("[SelfplayScheduler] Subscription verification complete after P2P restart")
+
+        except Exception as e:
+            logger.error(f"[SelfplayScheduler] Error handling P2P restart: {e}")
+
+    def ensure_subscribed(self) -> None:
+        """Verify and re-establish event subscriptions if needed.
+
+        Dec 30, 2025: Added for P2P restart resilience. Called by:
+        - _on_p2p_restarted() handler after mesh recovery
+        - health_check() for periodic verification
+
+        This method is idempotent - safe to call multiple times.
+        """
+        if not self._subscribed:
+            logger.info("[SelfplayScheduler] Resubscribing to events after P2P restart")
+            self.subscribe_to_events()
+        else:
+            # Verify router is still valid
+            try:
+                from app.coordination.event_router import get_router
+
+                router = get_router()
+                if router is None:
+                    logger.warning("[SelfplayScheduler] Event router unavailable, attempting resubscribe")
+                    self._subscribed = False
+                    self.subscribe_to_events()
+            except Exception as e:
+                logger.debug(f"[SelfplayScheduler] Subscription check error: {e}")
 
     # =========================================================================
     # Backpressure Event Handlers (Dec 29, 2025)

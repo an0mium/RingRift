@@ -121,8 +121,8 @@ class QueuePopulatorConfig:
     max_batch_per_cycle: int = 100
 
     # Check/scan interval (reduced from 60s for faster job allocation)
-    # December 29, 2025: Reduced from 15s to 10s for faster response to events
-    check_interval_seconds: int = 10
+    # Dec 30, 2025: Reduced from 10s to 5s for faster queue recovery after P2P restarts
+    check_interval_seconds: int = 5
 
     # === Elo Targets ===
     target_elo: float = 2000.0
