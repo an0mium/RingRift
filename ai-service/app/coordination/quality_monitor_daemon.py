@@ -320,6 +320,9 @@ class QualityMonitorDaemon(HandlerBase):
     async def _get_current_quality(self) -> float:
         """Get current quality score from recent selfplay data using UnifiedQualityScorer.
 
+        Dec 29, 2025: Wrapped SQLite operations in asyncio.to_thread() to avoid
+        blocking the event loop.
+
         Returns:
             Quality score between 0.0 and 1.0
         """
@@ -344,7 +347,9 @@ class QualityMonitorDaemon(HandlerBase):
                 return 1.0
 
             recent_db = db_files[0]
-            try:
+
+            def _fetch_games() -> list[dict[str, Any]]:
+                """Sync helper to fetch games from database."""
                 with sqlite3.connect(str(recent_db)) as conn:
                     conn.row_factory = sqlite3.Row
                     cursor = conn.execute("""
@@ -354,7 +359,11 @@ class QualityMonitorDaemon(HandlerBase):
                         ORDER BY created_at DESC
                         LIMIT 30
                     """)
-                    games = cursor.fetchall()
+                    # Convert Row objects to dicts to avoid sqlite3 threading issues
+                    return [dict(row) for row in cursor.fetchall()]
+
+            try:
+                games = await asyncio.to_thread(_fetch_games)
 
                 if not games:
                     logger.debug(f"No completed games in {recent_db.name}")

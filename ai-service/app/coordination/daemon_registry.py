@@ -79,6 +79,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_auto_sync",
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE, DaemonType.FEEDBACK_LOOP),
         category="sync",
+        health_check_interval=60.0,  # Dec 2025: Critical for data movement
     ),
     # Training node watcher (Phase 6)
     DaemonType.TRAINING_NODE_WATCHER: DaemonSpec(
@@ -148,6 +149,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_daemon_watchdog",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="health",
+        health_check_interval=30.0,  # Dec 2025: Monitors other daemons - fast checks
     ),
     DaemonType.NODE_HEALTH_MONITOR: DaemonSpec(
         runner_name="create_node_health_monitor",
@@ -182,6 +184,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_cluster_watchdog",
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.CLUSTER_MONITOR),
         category="health",
+        health_check_interval=60.0,  # Dec 2025: Cluster health monitoring
     ),
     DaemonType.COORDINATOR_HEALTH_MONITOR: DaemonSpec(
         runner_name="create_coordinator_health_monitor",
@@ -209,6 +212,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_data_pipeline",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="pipeline",
+        health_check_interval=30.0,  # Dec 2025: Critical for data flow
     ),
     DaemonType.CONTINUOUS_TRAINING_LOOP: DaemonSpec(
         runner_name="create_continuous_training_loop",
@@ -219,11 +223,13 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_selfplay_coordinator",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="pipeline",
+        health_check_interval=60.0,  # Dec 2025: Coordinates selfplay jobs
     ),
     DaemonType.TRAINING_TRIGGER: DaemonSpec(
         runner_name="create_training_trigger",
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AUTO_EXPORT),
         category="pipeline",
+        health_check_interval=120.0,  # Dec 2025: Training jobs are long-running
     ),
     DaemonType.AUTO_EXPORT: DaemonSpec(
         runner_name="create_auto_export",
@@ -242,6 +248,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_evaluation_daemon",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="evaluation",
+        health_check_interval=120.0,  # Dec 2025: Gauntlet evaluations are slow
     ),
     DaemonType.AUTO_PROMOTION: DaemonSpec(
         runner_name="create_auto_promotion",
@@ -311,11 +318,13 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_idle_resource",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="resource",
+        health_check_interval=120.0,  # Dec 2025: Resource management
     ),
     DaemonType.NODE_RECOVERY: DaemonSpec(
         runner_name="create_node_recovery",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="resource",
+        health_check_interval=120.0,  # Dec 2025: Recovery takes time
     ),
     DaemonType.RESOURCE_OPTIMIZER: DaemonSpec(
         runner_name="create_resource_optimizer",
@@ -361,6 +370,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_queue_populator",
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.SELFPLAY_COORDINATOR),
         category="queue",
+        health_check_interval=120.0,  # Dec 2025: Moderate priority
     ),
     DaemonType.JOB_SCHEDULER: DaemonSpec(
         runner_name="create_job_scheduler",
@@ -374,6 +384,7 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         runner_name="create_feedback_loop",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="feedback",
+        health_check_interval=60.0,  # Dec 2025: Critical for training signals
     ),
     DaemonType.CURRICULUM_INTEGRATION: DaemonSpec(
         runner_name="create_curriculum_integration",

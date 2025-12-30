@@ -278,31 +278,37 @@ class ProgressWatchdogDaemon(BaseDaemon[ProgressWatchdogConfig]):
             return 0.0
 
     async def _calculate_elo_velocity_from_db(self, config_key: str) -> float:
-        """Calculate Elo velocity from rating history in database."""
+        """Calculate Elo velocity from rating history in database.
+
+        Dec 29, 2025: Wrapped SQLite operations in asyncio.to_thread() to avoid
+        blocking the event loop.
+        """
         try:
-            import sqlite3
             from pathlib import Path
 
             db_path = Path("data/elo_ratings.db")
             if not db_path.exists():
                 return 0.0
 
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
+            def _fetch_ratings() -> list[tuple[float, str]]:
+                """Sync helper to fetch ratings from database."""
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT rating, timestamp
+                    FROM rating_history
+                    WHERE config_key = ?
+                    AND timestamp > datetime('now', '-6 hours')
+                    ORDER BY timestamp
+                    """,
+                    (config_key,),
+                )
+                rows = cursor.fetchall()
+                conn.close()
+                return rows
 
-            # Get ratings from last 6 hours
-            cursor.execute(
-                """
-                SELECT rating, timestamp
-                FROM rating_history
-                WHERE config_key = ?
-                AND timestamp > datetime('now', '-6 hours')
-                ORDER BY timestamp
-                """,
-                (config_key,),
-            )
-            rows = cursor.fetchall()
-            conn.close()
+            rows = await asyncio.to_thread(_fetch_ratings)
 
             if len(rows) < 2:
                 return 0.0
@@ -326,25 +332,31 @@ class ProgressWatchdogDaemon(BaseDaemon[ProgressWatchdogConfig]):
             return 0.0
 
     async def _get_current_elo(self, config_key: str) -> float | None:
-        """Get current Elo for a config."""
+        """Get current Elo for a config.
+
+        Dec 29, 2025: Wrapped SQLite operations in asyncio.to_thread() to avoid
+        blocking the event loop.
+        """
         try:
-            import sqlite3
             from pathlib import Path
 
             db_path = Path("data/elo_ratings.db")
             if not db_path.exists():
                 return None
 
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT rating FROM ratings WHERE config_key = ?",
-                (config_key,),
-            )
-            row = cursor.fetchone()
-            conn.close()
+            def _fetch_elo() -> float | None:
+                """Sync helper to fetch Elo from database."""
+                conn = sqlite3.connect(str(db_path))
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT rating FROM ratings WHERE config_key = ?",
+                    (config_key,),
+                )
+                row = cursor.fetchone()
+                conn.close()
+                return row[0] if row else None
 
-            return row[0] if row else None
+            return await asyncio.to_thread(_fetch_elo)
         except (sqlite3.Error, OSError):
             # Database access or file system errors
             return None

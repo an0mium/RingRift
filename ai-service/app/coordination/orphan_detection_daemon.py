@@ -369,19 +369,29 @@ class OrphanDetectionDaemon:
             return set()
 
     async def _analyze_database(self, db_path: Path) -> OrphanInfo | None:
-        """Analyze a database file to get orphan info."""
+        """Analyze a database file to get orphan info.
+
+        Dec 29, 2025: Wrapped SQLite operations in asyncio.to_thread() to avoid
+        blocking the event loop.
+        """
         try:
             # Get file stats
             stat = db_path.stat()
 
-            # Try to get game count
-            game_count = 0
-            try:
-                with sqlite3.connect(str(db_path)) as conn:
-                    cursor = conn.execute("SELECT COUNT(*) FROM games")
-                    game_count = cursor.fetchone()[0]
-            except (sqlite3.Error, TypeError):
-                # Not a valid game database (sqlite3.Error for DB issues, TypeError if fetchone() is None)
+            # Try to get game count (blocking SQLite wrapped in thread)
+            def _get_game_count() -> int | None:
+                """Sync helper to fetch game count from database."""
+                try:
+                    with sqlite3.connect(str(db_path)) as conn:
+                        cursor = conn.execute("SELECT COUNT(*) FROM games")
+                        result = cursor.fetchone()
+                        return result[0] if result else None
+                except (sqlite3.Error, TypeError):
+                    # Not a valid game database
+                    return None
+
+            game_count = await asyncio.to_thread(_get_game_count)
+            if game_count is None:
                 return None
 
             # Parse board type and num_players from filename

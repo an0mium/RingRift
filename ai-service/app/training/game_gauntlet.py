@@ -70,7 +70,11 @@ def _create_gauntlet_recording_config(
         )
     except ImportError:
         return None
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError, OSError) as e:
+        # AttributeError: board_type has no .value attribute
+        # TypeError: RecordingConfig constructor type mismatch
+        # ValueError: Config validation failed
+        # OSError: Database path issues
         logger.debug(f"[gauntlet] Could not create recording config: {e}")
         return None
 
@@ -588,7 +592,12 @@ def create_neural_ai(
                 f"GNN model load returned None (checkpoint may be CNN format), "
                 f"falling back to UniversalAI for {model_path}"
             )
-        except Exception as e:
+        except (RuntimeError, ValueError, KeyError, TypeError, FileNotFoundError, OSError) as e:
+            # RuntimeError: Model state_dict mismatch, CUDA errors
+            # ValueError: Bad model architecture parameters
+            # KeyError: Missing keys in checkpoint
+            # TypeError: Wrong types in model creation
+            # FileNotFoundError/OSError: Checkpoint file not found
             logger.warning(f"GNN AI creation failed: {e}, falling back to UniversalAI")
         # Fall through to CNN path below
 
@@ -1296,7 +1305,11 @@ def get_confidence_weighted_games(
             )
         return adaptive_games
 
-    except Exception as e:
+    except (ImportError, KeyError, AttributeError, ValueError, TypeError) as e:
+        # ImportError: elo_service module not available
+        # KeyError: Model not found in Elo database
+        # AttributeError: Missing games_played attribute on rating
+        # ValueError/TypeError: Invalid parameters or return values
         logger.debug(f"[gauntlet] Could not get rating for confidence weighting: {e}")
         return games_per_opponent
 

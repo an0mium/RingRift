@@ -1,6 +1,6 @@
 # Model Promotion Workflow Runbook
 
-**Last Updated**: December 28, 2025
+**Last Updated**: December 29, 2025
 **Version**: Wave 7
 
 ## Overview
@@ -25,15 +25,17 @@ GameGauntlet runs evaluation
 EVALUATION_COMPLETED event emitted
         |
         v
-PromotionController evaluates results
+AutoPromotionDaemon evaluates thresholds + gates
         |
-  [Pass thresholds?]
+  [Pass thresholds + gates?]
    /          \
  Yes           No
   |             |
   v             v
-MODEL_PROMOTED   Continue training
-event emitted    (no promotion)
+PromotionController executes promotion   PROMOTION_FAILED
+  |
+  v
+MODEL_PROMOTED + PROMOTION_COMPLETED
   |
   v
 UnifiedDistributionDaemon distributes model
@@ -44,46 +46,65 @@ Model available cluster-wide
 
 ## Key Components
 
-| Component                   | Location                                          | Purpose                             |
-| --------------------------- | ------------------------------------------------- | ----------------------------------- |
-| `PromotionController`       | `app/training/promotion_controller.py`            | Evaluates models against thresholds |
-| `GameGauntlet`              | `app/training/game_gauntlet.py`                   | Runs evaluation games vs baselines  |
-| `UnifiedDistributionDaemon` | `app/coordination/unified_distribution_daemon.py` | Distributes promoted models         |
-| `FeedbackLoopController`    | `app/coordination/feedback_loop_controller.py`    | Triggers gauntlet after training    |
+| Component                   | Location                                          | Purpose                                  |
+| --------------------------- | ------------------------------------------------- | ---------------------------------------- |
+| `AutoPromotionDaemon`       | `app/coordination/auto_promotion_daemon.py`       | Event-driven promotion decisions + gates |
+| `PromotionController`       | `app/training/promotion_controller.py`            | Executes promotions + bookkeeping        |
+| `GameGauntlet`              | `app/training/game_gauntlet.py`                   | Runs evaluation games vs baselines       |
+| `UnifiedDistributionDaemon` | `app/coordination/unified_distribution_daemon.py` | Distributes promoted models              |
+| `FeedbackLoopController`    | `app/coordination/feedback_loop_controller.py`    | Triggers gauntlet after training         |
 
 ## Promotion Thresholds
 
-Default thresholds (from `app/config/thresholds.py`):
+Auto-promotion uses the two-tier thresholds in `app/config/thresholds.py` via
+`should_promote_model()`:
 
-| Baseline       | Win Rate Required |
-| -------------- | ----------------- |
-| Random         | 85%               |
-| Heuristic      | 60%               |
-| Previous Model | 50% (optional)    |
+- **Aspirational thresholds** (per config): `PROMOTION_THRESHOLDS_BY_CONFIG`
+- **Minimum floor thresholds** (per config): `PROMOTION_MINIMUM_THRESHOLDS`
+- **Relative promotion**: if `PROMOTION_RELATIVE_ENABLED` and the candidate beats
+  the current best model, promotion can proceed if it clears the minimum floor.
 
-Environment variable overrides:
+Use the values in `app/config/thresholds.py` as the source of truth; legacy
+environment overrides are no longer wired for auto-promotion decisions.
 
-- `RINGRIFT_PROMOTION_RANDOM_WIN_RATE=0.85`
-- `RINGRIFT_PROMOTION_HEURISTIC_WIN_RATE=0.60`
-- `RINGRIFT_PROMOTION_VS_PREVIOUS_WIN_RATE=0.50`
+## Promotion Gates (AutoPromotionDaemon)
+
+Auto-promotion includes additional gates beyond win rates:
+
+- **Minimum evaluation games**: `min_games_vs_random`, `min_games_vs_heuristic`
+- **Parity gate** (optional): requires `parity_gate` in canonical DB to be mostly
+  `passed`; if pending, the daemon may run live TS↔Python parity validation.
+- **Quality gate**: requires `min_training_games` and `min_quality_score`
+  (uses `app/training/data_quality.get_database_quality_score` when available).
+- **Stability gate**: blocks volatile/declining models using
+  `app/coordination/stability_heuristic.py` (`max_volatility_score`).
+- **Elo improvement**: requires `min_elo_improvement` unless the model beat the
+  current best (relative promotion).
+- **Cooldown + streak**: `promotion_cooldown_seconds` and
+  `consecutive_passes_required`.
+
+**Canonical DB location for gates:** `data/games/canonical_<board>_<players>p.db`.
+If canonical DBs live under `data/selfplay/`, ensure a copy or symlink exists at
+`data/games/` for parity/quality checks.
 
 ## Events
 
 ### Emitters
 
-| Event                    | Emitter             | When                         |
-| ------------------------ | ------------------- | ---------------------------- |
-| `TRAINING_COMPLETED`     | TrainingCoordinator | Training run finishes        |
-| `EVALUATION_COMPLETED`   | GameGauntlet        | Gauntlet evaluation finishes |
-| `MODEL_PROMOTED`         | PromotionController | Model passes all thresholds  |
-| `MODEL_PROMOTION_FAILED` | PromotionController | Model fails thresholds       |
+| Event                  | Emitter             | When                         |
+| ---------------------- | ------------------- | ---------------------------- |
+| `TRAINING_COMPLETED`   | TrainingCoordinator | Training run finishes        |
+| `EVALUATION_COMPLETED` | GameGauntlet        | Gauntlet evaluation finishes |
+| `MODEL_PROMOTED`       | AutoPromotionDaemon | Model promoted successfully  |
+| `PROMOTION_FAILED`     | AutoPromotionDaemon | Promotion blocked or failed  |
+| `PROMOTION_COMPLETED`  | AutoPromotionDaemon | Promotion attempt finalized  |
 
 ### Subscribers
 
 | Event                  | Subscriber                | Action                     |
 | ---------------------- | ------------------------- | -------------------------- |
 | `TRAINING_COMPLETED`   | FeedbackLoopController    | Triggers gauntlet          |
-| `EVALUATION_COMPLETED` | PromotionController       | Evaluates results          |
+| `EVALUATION_COMPLETED` | AutoPromotionDaemon       | Evaluates results + gates  |
 | `MODEL_PROMOTED`       | UnifiedDistributionDaemon | Distributes to cluster     |
 | `MODEL_PROMOTED`       | CurriculumIntegration     | Updates curriculum weights |
 
@@ -108,6 +129,9 @@ python scripts/auto_promote.py --gauntlet \
 python scripts/auto_promote.py --force \
   --model models/my_model.pth \
   --board-type hex8 --num-players 2
+
+Manual promotion bypasses AutoPromotionDaemon gates; run parity/quality checks
+explicitly when promoting this way.
 ```
 
 ### Via P2P Admin Endpoint
@@ -295,16 +319,14 @@ nvidia-smi --query-gpu=memory.used,memory.free --format=csv
 2. Missing model file - verify path exists
 3. Import errors - check module dependencies
 
-## Environment Variables
+## Configuration Knobs
 
-| Variable                                | Default | Description                      |
-| --------------------------------------- | ------- | -------------------------------- |
-| `RINGRIFT_AUTO_PROMOTE`                 | true    | Enable automatic promotion       |
-| `RINGRIFT_GAUNTLET_GAMES`               | 50      | Games per opponent in gauntlet   |
-| `RINGRIFT_PROMOTION_RANDOM_WIN_RATE`    | 0.85    | Required win rate vs random      |
-| `RINGRIFT_PROMOTION_HEURISTIC_WIN_RATE` | 0.60    | Required win rate vs heuristic   |
-| `RINGRIFT_DISTRIBUTION_TIMEOUT`         | 300     | Seconds to wait for distribution |
-| `RINGRIFT_SKIP_GAUNTLET`                | false   | Skip gauntlet (force promote)    |
+Promotion behavior is controlled in code/config rather than environment variables:
+
+- `app/config/thresholds.py`: promotion thresholds and relative promotion toggle.
+- `app/coordination/auto_promotion_daemon.py`: `AutoPromotionConfig` defaults for
+  games-per-baseline, quality/stability gates, cooldowns, and parity requirements.
+- `app/training/game_gauntlet.py`: gauntlet game counts per opponent.
 
 ## See Also
 

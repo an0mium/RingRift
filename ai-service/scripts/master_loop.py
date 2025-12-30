@@ -447,7 +447,8 @@ class MasterLoopController:
                 self._last_state_save = now
                 logger.debug(f"[MasterLoop] Persisted state for {len(self._states)} configs")
 
-            except Exception as e:
+            except (sqlite3.Error, OSError) as e:
+                # Dec 29, 2025: Narrowed from bare Exception
                 logger.warning(f"[MasterLoop] Failed to save persisted state: {e}")
 
     def _maybe_save_state(self) -> None:
@@ -491,7 +492,8 @@ class MasterLoopController:
                     if config.get(section, "aws_access_key_id", fallback=None):
                         logger.debug(f"[MasterLoop] AWS credentials found in {credentials_file} [{section}]")
                         return True
-            except Exception as e:
+            except (configparser.Error, OSError, KeyError) as e:
+                # Dec 29, 2025: Narrowed from bare Exception
                 logger.debug(f"[MasterLoop] Failed to parse AWS credentials file: {e}")
 
         # Method 3: Use boto3 credential chain (most comprehensive but requires import)
@@ -504,7 +506,8 @@ class MasterLoopController:
                 return True
         except ImportError:
             logger.debug("[MasterLoop] boto3 not installed, skipping credential chain check")
-        except Exception as e:
+        except (OSError, ValueError, AttributeError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception - boto3 can raise these
             logger.debug(f"[MasterLoop] boto3 credential check failed: {e}")
 
         logger.info("[MasterLoop] No AWS credentials found - S3 daemons will be disabled")
@@ -526,7 +529,8 @@ class MasterLoopController:
             """, (time.time(), self._loop_iteration, len(self.active_configs), status))
             conn.commit()
             conn.close()
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
             logger.debug(f"[MasterLoop] Failed to update heartbeat: {e}")
 
     def _acquire_singleton_lock(self) -> bool:
