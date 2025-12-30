@@ -39,8 +39,8 @@ class TestTrainingTriggerConfig:
         assert config.min_samples_threshold == 5000
         # December 29, 2025: Reduced from 1.0 to 0.083 (5 min) for faster iteration
         assert config.training_cooldown_hours == 0.083
-        # December 29, 2025: Increased from 2 to 10 for better cluster utilization
-        assert config.max_concurrent_training == 10
+        # December 30, 2025: Increased from 10 to 20 for larger cluster capacity
+        assert config.max_concurrent_training == 20
         assert config.gpu_idle_threshold_percent == 20.0
         # December 29, 2025: Reduced from 120s to 30s for faster detection
         assert config.scan_interval_seconds == 30

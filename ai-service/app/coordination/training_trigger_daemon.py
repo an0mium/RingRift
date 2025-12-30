@@ -460,7 +460,8 @@ class TrainingTriggerDaemon(HandlerBase):
         when the daemon restarts.
         """
         # Load persisted state before starting
-        self._load_state()
+        # December 30, 2025: Wrap blocking SQLite I/O with asyncio.to_thread()
+        await asyncio.to_thread(self._load_state)
 
         # Call parent start() which will run _run_cycle() periodically
         await super().start()
@@ -472,7 +473,8 @@ class TrainingTriggerDaemon(HandlerBase):
         before shutdown. This ensures no state loss on graceful shutdown.
         """
         # Save state before stopping
-        self._save_state()
+        # December 30, 2025: Wrap blocking SQLite I/O with asyncio.to_thread()
+        await asyncio.to_thread(self._save_state)
         logger.info("[TrainingTriggerDaemon] Saved state on shutdown")
 
         # Call parent stop()
