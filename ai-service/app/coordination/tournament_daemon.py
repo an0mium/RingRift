@@ -634,7 +634,7 @@ class TournamentDaemon:
         Returns:
             Tournament results dict
         """
-        self._stats.tournaments_completed += 1
+        self._stats.evaluations_completed += 1  # Fixed: use base class field, not property
         start_time = time.time()
 
         results = {
