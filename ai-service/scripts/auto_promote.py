@@ -29,12 +29,22 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Process management for singleton lock and signal handling
+try:
+    from scripts.lib.process import SingletonLock, SignalHandler
+    HAS_PROCESS_UTILS = True
+except ImportError:
+    HAS_PROCESS_UTILS = False
+    SingletonLock = None
+    SignalHandler = None
 
 SCRIPT_DIR = Path(__file__).parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
@@ -96,6 +106,39 @@ except ImportError:
 DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 PRODUCTION_DIR = AI_SERVICE_ROOT / "models" / "production"
 PROMOTION_LOG = AI_SERVICE_ROOT / "data" / ".promotion_history.json"
+
+# Gauntlet timeout protection (Dec 2025)
+# Prevents indefinitely hanging evaluations
+GAUNTLET_TIMEOUT_SECONDS = int(os.environ.get("RINGRIFT_GAUNTLET_TIMEOUT", "1800"))  # 30 min default
+
+# Track child processes for cleanup on signal (Dec 2025)
+_active_child_processes: list = []
+
+
+def _cleanup_child_processes():
+    """Clean up any active child processes on shutdown.
+
+    Called by SignalHandler when receiving SIGTERM/SIGINT.
+    Prevents zombie processes from accumulating on cluster nodes.
+    """
+    global _active_child_processes
+
+    for proc in _active_child_processes:
+        try:
+            if proc.poll() is None:  # Still running
+                print(f"  Terminating child process {proc.pid}")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    print(f"  Force-killing process {proc.pid}")
+                    proc.kill()
+                    proc.wait(timeout=2)
+        except (ProcessLookupError, OSError) as e:
+            print(f"  Process {getattr(proc, 'pid', 'unknown')} cleanup error: {e}")
+
+    _active_child_processes.clear()
+    print("  Child process cleanup complete")
 
 
 def get_slack_webhook():
@@ -824,6 +867,61 @@ def check_gauntlet_resources(skip_check: bool = False) -> tuple[bool, str]:
     return True, "OK"
 
 
+class GauntletTimeoutError(Exception):
+    """Raised when gauntlet evaluation exceeds timeout."""
+    pass
+
+
+def _run_gauntlet_with_timeout(
+    model_path: Path,
+    board_type: str,
+    num_players: int,
+    games_per_opponent: int,
+    model_type: str | None = None,
+    timeout_seconds: int | None = None,
+) -> dict | None:
+    """Run gauntlet evaluation with timeout protection.
+
+    Uses SIGALRM on Unix systems to enforce timeout.
+
+    Args:
+        model_path: Path to model file
+        board_type: Board type
+        num_players: Number of players
+        games_per_opponent: Games per baseline opponent
+        model_type: Model type or None to auto-detect
+        timeout_seconds: Timeout in seconds (default: GAUNTLET_TIMEOUT_SECONDS)
+
+    Returns:
+        Gauntlet results dict
+
+    Raises:
+        GauntletTimeoutError: If evaluation exceeds timeout
+    """
+    timeout = timeout_seconds or GAUNTLET_TIMEOUT_SECONDS
+
+    def _timeout_handler(signum, frame):
+        raise GauntletTimeoutError(f"Gauntlet evaluation timed out after {timeout}s")
+
+    # Set up alarm on Unix systems
+    old_handler = None
+    if hasattr(signal, 'SIGALRM'):
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(timeout)
+
+    try:
+        return run_gauntlet_evaluation(
+            model_path, board_type, num_players, games_per_opponent,
+            model_type=model_type,
+        )
+    finally:
+        # Cancel alarm and restore handler
+        if hasattr(signal, 'SIGALRM'):
+            signal.alarm(0)
+            if old_handler:
+                signal.signal(signal.SIGALRM, old_handler)
+
+
 def run_gauntlet_with_retry(
     model_path: Path,
     board_type: str,
@@ -832,8 +930,9 @@ def run_gauntlet_with_retry(
     model_type: str | None = None,
     max_retries: int = 3,
     retry_delay: float = 5.0,
+    timeout_seconds: int | None = None,
 ) -> dict | None:
-    """Run gauntlet evaluation with retry logic.
+    """Run gauntlet evaluation with retry and timeout logic.
 
     On failure, retries with increased game count to reduce variance.
     This helps overcome transient failures and statistical variance.
@@ -846,11 +945,13 @@ def run_gauntlet_with_retry(
         model_type: Model type or None to auto-detect
         max_retries: Maximum retry attempts (default: 3)
         retry_delay: Delay between retries in seconds
+        timeout_seconds: Timeout per attempt in seconds (default: GAUNTLET_TIMEOUT_SECONDS)
 
     Returns:
         Gauntlet results dict or None if all attempts failed
     """
     last_error = None
+    timeout = timeout_seconds or GAUNTLET_TIMEOUT_SECONDS
 
     for attempt in range(max_retries):
         # Increase games on retry to reduce variance
@@ -862,9 +963,10 @@ def run_gauntlet_with_retry(
             time.sleep(retry_delay)
 
         try:
-            results = run_gauntlet_evaluation(
+            results = _run_gauntlet_with_timeout(
                 model_path, board_type, num_players, retry_games,
                 model_type=model_type,
+                timeout_seconds=timeout,
             )
 
             # If we got valid results (even if gauntlet failed), return them
@@ -872,6 +974,12 @@ def run_gauntlet_with_retry(
                 if attempt > 0:
                     print(f"  Evaluation completed on attempt {attempt + 1}")
                 return results
+
+        except GauntletTimeoutError as e:
+            last_error = e
+            print(f"  Attempt {attempt + 1} timed out after {timeout}s")
+            # Timeout is retriable - evaluation may have hung due to transient issue
+            continue
 
         except Exception as e:
             last_error = e
@@ -1081,18 +1189,50 @@ Examples:
 
     # Branch between gauntlet mode and ELO mode
     if args.gauntlet:
-        # Gauntlet-based promotion with retry logic (Dec 2025)
-        success = run_gauntlet_promotion(
-            model_path=args.model,
-            board_type=args.board_type,
-            num_players=args.num_players,
-            games_per_opponent=args.games,
-            sync_to_cluster=args.sync_to_cluster,
-            dry_run=args.dry_run,
-            model_type=getattr(args, 'model_type', None),
-            skip_resource_check=args.skip_resource_check,
-            max_retries=args.max_retries,
-        )
+        # December 2025: SingletonLock prevents concurrent gauntlet invocations
+        # This avoids 65+ zombie processes accumulating on cluster nodes
+        lock = None
+        signal_handler = None
+
+        if HAS_PROCESS_UTILS and SingletonLock:
+            config_key = f"{args.board_type}_{args.num_players}p"
+            lock = SingletonLock(
+                f"auto_promote_gauntlet_{config_key}",
+                auto_cleanup_stale=True,
+            )
+
+            if not lock.acquire():
+                holder_pid = lock.get_holder_pid()
+                print(f"Error: Another gauntlet for {config_key} is already running (PID {holder_pid})")
+                print("  Use 'ps aux | grep auto_promote' to see running processes")
+                print("  Or wait for the existing gauntlet to complete")
+                sys.exit(1)
+
+            print(f"Acquired singleton lock for gauntlet: {config_key}")
+
+            # SignalHandler ensures child processes are cleaned up on SIGTERM/SIGINT
+            signal_handler = SignalHandler(on_shutdown=_cleanup_child_processes)
+
+        try:
+            # Gauntlet-based promotion with retry logic (Dec 2025)
+            success = run_gauntlet_promotion(
+                model_path=args.model,
+                board_type=args.board_type,
+                num_players=args.num_players,
+                games_per_opponent=args.games,
+                sync_to_cluster=args.sync_to_cluster,
+                dry_run=args.dry_run,
+                model_type=getattr(args, 'model_type', None),
+                skip_resource_check=args.skip_resource_check,
+                max_retries=args.max_retries,
+            )
+        finally:
+            # Ensure lock is released and processes cleaned up
+            if lock:
+                lock.release()
+            if signal_handler:
+                _cleanup_child_processes()
+
         sys.exit(0 if success else 1)
 
     # ELO-based promotion (original behavior)
