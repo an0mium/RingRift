@@ -122,6 +122,10 @@ from app.coordination.budget_calculator import (
 )
 from app.coordination.protocols import HealthCheckResult
 
+# December 30, 2025: Extracted cache and metrics classes
+from app.coordination.config_state_cache import ConfigStateCache
+from app.coordination.scheduler_metrics import SchedulerMetricsCollector
+
 # Import interfaces for type hints (no circular dependency)
 from app.coordination.interfaces import IBackpressureMonitor
 
@@ -519,10 +523,13 @@ class SelfplayScheduler:
         self._elo_history: dict[str, list[tuple[float, float]]] = {}
         self._elo_velocity: dict[str, float] = {}  # Computed Elo change per hour
 
-        # Dec 30, 2025: Quality score cache with TTL to reduce DB queries
-        # Cache format: {config_key: (quality_score, timestamp)}
-        self._quality_cache: dict[str, tuple[float, float]] = {}
-        self._quality_cache_ttl = 30.0  # 30 second TTL
+        # Dec 30, 2025: Extracted quality cache class (reduces code, enables testing)
+        # ConfigStateCache handles TTL, invalidation, and daemon integration
+        self._quality_cache = ConfigStateCache(
+            ttl_seconds=30.0,
+            default_quality=0.7,
+            quality_provider=self._fetch_quality_from_daemon,
+        )
 
         # Lazy dependencies
         self._training_freshness = None
@@ -533,10 +540,9 @@ class SelfplayScheduler:
         # Load priority overrides from config (Dec 2025)
         self._load_priority_overrides()
 
-        # Allocation metrics (rolling 1h window)
-        self._allocation_window_seconds = 3600
-        self._allocation_history: deque[tuple[float, int]] = deque()
-        self._games_allocated_total = 0
+        # Dec 30, 2025: Extracted metrics collector class (reduces code, enables testing)
+        # SchedulerMetricsCollector handles rolling window, throughput calculation
+        self._metrics_collector = SchedulerMetricsCollector(window_seconds=3600.0)
 
         # December 29, 2025: PriorityCalculator for delegated score computation
         # Callbacks are bound methods so PriorityCalculator can access scheduler state
@@ -1325,6 +1331,29 @@ class SelfplayScheduler:
 
         return result
 
+    def _fetch_quality_from_daemon(self, config: str) -> Optional[float]:
+        """Fetch quality score from QualityMonitorDaemon.
+
+        Dec 30, 2025: Extracted as provider for ConfigStateCache.
+
+        Args:
+            config: Config key like "hex8_2p"
+
+        Returns:
+            Quality score 0.0-1.0, or None if unavailable
+        """
+        try:
+            from app.coordination.quality_monitor_daemon import get_quality_daemon
+
+            daemon = get_quality_daemon()
+            if daemon:
+                return daemon.get_config_quality(config)
+        except ImportError:
+            logger.debug("[SelfplayScheduler] quality_monitor_daemon not available")
+        except (AttributeError, KeyError) as e:
+            logger.debug(f"[SelfplayScheduler] Error getting quality for {config}: {e}")
+        return None
+
     def _get_config_data_quality(self, config: str) -> float:
         """Get data quality score for a config from QualityMonitorDaemon.
 
@@ -1332,8 +1361,7 @@ class SelfplayScheduler:
         Higher quality score = better training data (Gumbel MCTS, passed parity).
         Lower quality = heuristic-only games, parity failures.
 
-        Dec 30, 2025: Added TTL cache to reduce DB queries (90% improvement).
-        Cache hit = O(1), cache miss = O(DB query).
+        Dec 30, 2025: Refactored to use ConfigStateCache for TTL caching.
 
         Args:
             config: Config key like "hex8_2p"
@@ -1341,60 +1369,33 @@ class SelfplayScheduler:
         Returns:
             Quality score 0.0-1.0 (default 0.7 if unavailable)
         """
-        # Check cache first
-        now = time.time()
-        if config in self._quality_cache:
-            cached_quality, cached_time = self._quality_cache[config]
-            if now - cached_time < self._quality_cache_ttl:
-                return cached_quality
-
-        # Cache miss or expired - query the daemon
-        quality = 0.7  # Default medium quality
-        try:
-            from app.coordination.quality_monitor_daemon import get_quality_daemon
-
-            daemon = get_quality_daemon()
-            if daemon:
-                result = daemon.get_config_quality(config)
-                if result is not None:
-                    quality = result
-        except ImportError:
-            logger.debug("[SelfplayScheduler] quality_monitor_daemon not available")
-        except (AttributeError, KeyError) as e:
-            logger.debug(f"[SelfplayScheduler] Error getting quality for {config}: {e}")
-
-        # Update cache
-        self._quality_cache[config] = (quality, now)
-        return quality
+        return self._quality_cache.get_quality_or_fetch(config)
 
     async def _get_all_config_qualities(self) -> dict[str, float]:
         """Get data quality scores for all configs.
 
         Dec 29, 2025 - Phase 1: Batch quality lookup for priority calculation.
+        Dec 30, 2025: Refactored to use ConfigStateCache.
 
         Returns:
             Dict mapping config_key to quality score (0.0-1.0)
         """
-        result = {}
-        for config in ALL_CONFIGS:
-            result[config] = self._get_config_data_quality(config)
-        return result
+        return self._quality_cache.get_all_qualities(list(ALL_CONFIGS))
 
-    def invalidate_quality_cache(self, config: str | None = None) -> None:
+    def invalidate_quality_cache(self, config: str | None = None) -> int:
         """Invalidate quality cache for a config or all configs.
 
-        Dec 30, 2025: Call this when quality data changes externally
+        Dec 30, 2025: Refactored to use ConfigStateCache.
+        Call this when quality data changes externally
         (e.g., after evaluation completes, after parity gate updates).
 
         Args:
             config: Specific config to invalidate, or None to clear all
+
+        Returns:
+            Number of entries invalidated
         """
-        if config is None:
-            self._quality_cache.clear()
-            logger.debug("[SelfplayScheduler] Cleared all quality cache entries")
-        elif config in self._quality_cache:
-            del self._quality_cache[config]
-            logger.debug(f"[SelfplayScheduler] Invalidated quality cache for {config}")
+        return self._quality_cache.invalidate(config)
 
     def _get_cascade_priority(self, config_key: str) -> float:
         """Get cascade training priority boost for a config.
@@ -3618,16 +3619,11 @@ class SelfplayScheduler:
     # =========================================================================
 
     def _record_allocation(self, games_allocated: int) -> None:
-        """Record allocation metrics for rolling throughput tracking."""
-        if games_allocated <= 0:
-            return
-        now = time.time()
-        self._games_allocated_total += games_allocated
-        self._allocation_history.append((now, games_allocated))
+        """Record allocation metrics for rolling throughput tracking.
 
-        cutoff = now - self._allocation_window_seconds
-        while self._allocation_history and self._allocation_history[0][0] < cutoff:
-            self._allocation_history.popleft()
+        Dec 30, 2025: Refactored to use SchedulerMetricsCollector.
+        """
+        self._metrics_collector.record_allocation(games_allocated)
 
     def _emit_allocation_updated(
         self,
@@ -3901,17 +3897,11 @@ class SelfplayScheduler:
             return min(int(cpu_count * 0.3), 32) if cpu_count > 0 else 8
 
     def get_metrics(self) -> dict[str, Any]:
-        """Get throughput metrics for monitoring."""
-        recent_games = sum(games for _, games in self._allocation_history)
-        window_hours = self._allocation_window_seconds / 3600.0
-        games_per_hour = recent_games / window_hours if window_hours > 0 else 0.0
+        """Get throughput metrics for monitoring.
 
-        return {
-            "games_allocated_total": self._games_allocated_total,
-            "games_allocated_last_hour": recent_games,
-            "games_per_hour": games_per_hour,
-            "allocation_window_seconds": self._allocation_window_seconds,
-        }
+        Dec 30, 2025: Refactored to use SchedulerMetricsCollector.
+        """
+        return self._metrics_collector.get_metrics()
 
     def is_node_under_backoff(self, node_id: str) -> bool:
         """Check if a node is under backoff due to overload.
