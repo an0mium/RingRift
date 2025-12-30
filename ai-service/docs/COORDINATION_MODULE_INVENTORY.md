@@ -1,6 +1,6 @@
 # Coordination Module Inventory
 
-**Last Updated:** December 29, 2025
+**Last Updated:** December 30, 2025
 **Total Modules:** 219 Python modules in `app/coordination/`
 **Status:** Active
 
@@ -16,7 +16,7 @@ This document is a curated inventory of primary modules in `app/coordination/` (
 | Category            | Count | Description                                  |
 | ------------------- | ----- | -------------------------------------------- |
 | Core Infrastructure | ~16   | Event system, types, enums, protocols        |
-| Daemons             | 30+   | Background services (see DAEMON_REGISTRY.md) |
+| Daemons             | 85    | Background services (see DAEMON_REGISTRY.md) |
 | Sync                | ~18   | Data synchronization modules                 |
 | Health & Monitoring | ~14   | Health checks, status, metrics               |
 | Coordination        | ~15   | Orchestrators, coordinators, bridges         |
@@ -56,7 +56,7 @@ Daemon lifecycle and factory modules.
 | Module                              | LOC    | Status | Purpose                                                |
 | ----------------------------------- | ------ | ------ | ------------------------------------------------------ |
 | `daemon_manager.py`                 | ~2,000 | Active | Main DaemonManager class, lifecycle, health monitoring |
-| `daemon_runners.py`                 | ~1,100 | Active | 62 async runner functions for all daemon types         |
+| `daemon_runners.py`                 | ~1,100 | Active | 85 async runner functions for all daemon types         |
 | `daemon_registry.py`                | ~150   | Active | Declarative DaemonSpec registry                        |
 | `daemon_factory.py`                 | ~300   | Active | Factory pattern for daemon creation                    |
 | `daemon_factory_implementations.py` | ~200   | Active | Factory method implementations                         |
