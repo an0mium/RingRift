@@ -2377,7 +2377,7 @@ class P2POrchestrator(
                 )
                 manager.register(peer_cleanup)
                 logger.info("[LoopManager] PeerCleanupLoop registered")
-            except (ImportError, TypeError) as e:
+            except (ImportError, TypeError, AttributeError) as e:
                 logger.warning(f"[LoopManager] PeerCleanupLoop: not available: {e}")
 
             # WorkerPullLoop - December 27, 2025

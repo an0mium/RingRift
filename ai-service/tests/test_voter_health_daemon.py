@@ -470,7 +470,7 @@ class TestQuorumState:
 
     def test_initial_quorum_state(self, daemon):
         """Test initial quorum state is True (assume healthy)."""
-        assert daemon._quorum_met is True
+        assert daemon._had_quorum is True
 
     def test_check_quorum_status_lost(self, daemon):
         """Test quorum lost detection."""
@@ -482,12 +482,12 @@ class TestQuorumState:
             "v4": VoterHealthState("v4", is_online=False),
             "v5": VoterHealthState("v5", is_online=False),
         }
-        daemon._quorum_met = True  # Previously had quorum
+        daemon._had_quorum = True  # Previously had quorum
 
         with patch.object(daemon, "_emit_quorum_lost") as mock_emit:
             daemon._check_quorum_status()
 
-            assert daemon._quorum_met is False
+            assert daemon._had_quorum is False
             mock_emit.assert_called_once()
 
     def test_check_quorum_status_restored(self, daemon):
@@ -500,12 +500,12 @@ class TestQuorumState:
             "v4": VoterHealthState("v4", is_online=True),
             "v5": VoterHealthState("v5", is_online=False),
         }
-        daemon._quorum_met = False  # Previously lost quorum
+        daemon._had_quorum = False  # Previously lost quorum
 
         with patch.object(daemon, "_emit_quorum_restored") as mock_emit:
             daemon._check_quorum_status()
 
-            assert daemon._quorum_met is True
+            assert daemon._had_quorum is True
             mock_emit.assert_called_once()
 
     def test_check_quorum_status_at_risk(self, daemon):
