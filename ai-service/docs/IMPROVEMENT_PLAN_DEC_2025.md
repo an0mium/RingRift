@@ -72,7 +72,7 @@ Fix: Batch CPU transfer before loop (pattern exists at line 1061)
 
 Issues:
 
-- 118 event types across 15 files
+- 207 event types across 15 files
 - Inconsistent naming: `TRAINING_COMPLETED` vs `sync_completed`
 - Missing subscriber wiring discovered Dec 27
 
@@ -156,7 +156,7 @@ Target: 8 modules with Pydantic validation
 
 - Modules: 248 coordination, 187 training, 95 P2P
 - Daemon types: 77 active, 6 deprecated
-- Event types: 118
+- Event types: 207
 - Base classes: HandlerBase (53 handlers), MonitorBase (15 monitors)
 
 ### Test Coverage
