@@ -49,6 +49,7 @@ from app.config.env import env
 from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_utils import parse_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,70 @@ class ConfigTrainingState:
     _pending_model_path: str = ""  # Path where current training will save model
 
 
+@dataclass
+class TrainingDecision:
+    """Result of training trigger decision check.
+
+    December 30, 2025: Added for RPC API to expose training decision logic.
+    Provides full condition details for debugging and monitoring.
+    """
+
+    config_key: str
+    can_trigger: bool
+    reason: str
+    # Detailed condition states
+    training_in_progress: bool = False
+    intensity_paused: bool = False
+    evaluation_backpressure: bool = False
+    circuit_breaker_open: bool = False
+    cooldown_remaining_hours: float = 0.0
+    data_age_hours: float = 0.0
+    max_data_age_hours: float = 4.0
+    sample_count: int = 0
+    sample_threshold: int = 5000
+    gpu_available: bool = True
+    concurrent_training_count: int = 0
+    max_concurrent_training: int = 20
+    # Data info
+    npz_path: str = ""
+    # Elo tracking
+    current_elo: float = 1500.0
+    elo_velocity: float = 0.0
+    elo_velocity_trend: str = "stable"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "config_key": self.config_key,
+            "can_trigger": self.can_trigger,
+            "reason": self.reason,
+            "conditions": {
+                "training_in_progress": self.training_in_progress,
+                "intensity_paused": self.intensity_paused,
+                "evaluation_backpressure": self.evaluation_backpressure,
+                "circuit_breaker_open": self.circuit_breaker_open,
+                "cooldown_remaining_hours": round(self.cooldown_remaining_hours, 2),
+                "data_age_hours": round(self.data_age_hours, 2),
+                "max_data_age_hours": self.max_data_age_hours,
+                "sample_count": self.sample_count,
+                "sample_threshold": self.sample_threshold,
+                "gpu_available": self.gpu_available,
+                "concurrent_training_count": self.concurrent_training_count,
+                "max_concurrent_training": self.max_concurrent_training,
+            },
+            "data_info": {
+                "npz_path": self.npz_path,
+                "samples": self.sample_count,
+                "age_hours": round(self.data_age_hours, 2),
+            },
+            "elo_info": {
+                "current_elo": round(self.current_elo, 1),
+                "elo_velocity": round(self.elo_velocity, 3),
+                "elo_velocity_trend": self.elo_velocity_trend,
+            },
+        }
+
+
 class TrainingTriggerDaemon(HandlerBase):
     """Daemon that automatically triggers training when conditions are met.
 
@@ -195,8 +260,13 @@ class TrainingTriggerDaemon(HandlerBase):
         # December 29, 2025 (Phase 3): Training retry queue for failed jobs
         # Tuple: (config_key, board_type, num_players, attempts, next_retry_time, error)
         self._training_retry_queue: deque[tuple[str, str, int, int, float, str]] = deque()
-        self._max_training_retries = 3
-        self._base_training_retry_delay = 300.0  # 5 minutes, exponential backoff
+        # December 30, 2025: Use centralized RetryConfig for consistent retry behavior
+        self._retry_config = RetryConfig(
+            max_attempts=3,
+            base_delay=300.0,  # 5 minutes
+            max_delay=1200.0,  # 20 minutes
+            jitter=0.1,  # Add slight jitter to avoid thundering herd
+        )
         self._retry_stats = {
             "retries_queued": 0,
             "retries_succeeded": 0,
@@ -1308,16 +1378,16 @@ class TrainingTriggerDaemon(HandlerBase):
 
         attempts = max(current_attempts, existing_attempts) + 1
 
-        if attempts > self._max_training_retries:
+        if attempts > self._retry_config.max_attempts:
             self._retry_stats["retries_exhausted"] += 1
             logger.error(
-                f"[TrainingTriggerDaemon] Max retries ({self._max_training_retries}) exceeded "
+                f"[TrainingTriggerDaemon] Max retries ({self._retry_config.max_attempts}) exceeded "
                 f"for {config_key}: {error[:100]}"
             )
             return False
 
-        # Exponential backoff: 5min, 10min, 20min
-        delay = self._base_training_retry_delay * (2 ** (attempts - 1))
+        # December 30, 2025: Use RetryConfig for consistent delay calculation
+        delay = self._retry_config.get_delay(attempts)
         next_retry = time.time() + delay
 
         self._training_retry_queue.append(
@@ -1393,7 +1463,8 @@ class TrainingTriggerDaemon(HandlerBase):
                     )
             else:
                 # Re-queue for later (conditions not met yet)
-                delay = self._base_training_retry_delay / 2  # Shorter delay for condition check
+                # December 30, 2025: Use RetryConfig base_delay for consistency
+                delay = self._retry_config.base_delay / 2  # Shorter delay for condition check
                 self._training_retry_queue.append(
                     (config_key, board_type, num_players, attempts, now + delay, error)
                 )
@@ -1730,6 +1801,83 @@ class TrainingTriggerDaemon(HandlerBase):
                 )
 
         return True, "all conditions met"
+
+    async def get_training_decision(self, config_key: str) -> TrainingDecision:
+        """Get detailed training decision for a config (December 30, 2025 - RPC API).
+
+        This method exposes the full training decision logic for external callers,
+        including the P2P orchestrator's /training/trigger-decision endpoint.
+
+        Args:
+            config_key: Config key like "hex8_2p"
+
+        Returns:
+            TrainingDecision with full condition details
+        """
+        state = self._training_states.get(config_key)
+        if not state:
+            return TrainingDecision(
+                config_key=config_key,
+                can_trigger=False,
+                reason="config not tracked",
+            )
+
+        # Calculate all condition values
+        time_since_training = time.time() - state.last_training_time
+        cooldown_seconds = self._get_velocity_adjusted_cooldown(state)
+        cooldown_remaining = max(0, cooldown_seconds - time_since_training) / 3600
+
+        data_age_hours = (time.time() - state.last_npz_update) / 3600
+
+        min_samples = self._get_dynamic_sample_threshold(config_key)
+
+        active_count = sum(
+            1 for s in self._training_states.values() if s.training_in_progress
+        )
+
+        # Check circuit breaker
+        circuit_breaker_open = False
+        if HAS_CIRCUIT_BREAKER and get_training_breaker:
+            breaker = get_training_breaker()
+            circuit_breaker_open = not breaker.can_execute(config_key)
+
+        # GPU availability (quick check, don't block)
+        gpu_available = True
+        try:
+            gpu_available = await asyncio.wait_for(
+                self._check_gpu_availability(), timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            pass
+
+        # Get the actual decision
+        can_trigger, reason = await self._check_training_conditions(config_key)
+
+        return TrainingDecision(
+            config_key=config_key,
+            can_trigger=can_trigger,
+            reason=reason,
+            training_in_progress=state.training_in_progress,
+            intensity_paused=state.training_intensity == "paused",
+            evaluation_backpressure=self._evaluation_backpressure,
+            circuit_breaker_open=circuit_breaker_open,
+            cooldown_remaining_hours=cooldown_remaining,
+            data_age_hours=data_age_hours,
+            max_data_age_hours=self.config.max_data_age_hours,
+            sample_count=state.npz_sample_count,
+            sample_threshold=min_samples,
+            gpu_available=gpu_available,
+            concurrent_training_count=active_count,
+            max_concurrent_training=self.config.max_concurrent_training,
+            npz_path=state.npz_path,
+            current_elo=state.last_elo,
+            elo_velocity=state.elo_velocity,
+            elo_velocity_trend=state.elo_velocity_trend,
+        )
+
+    def get_tracked_configs(self) -> list[str]:
+        """Get list of all tracked config keys (December 30, 2025 - RPC API)."""
+        return list(self._training_states.keys())
 
     async def _check_gpu_availability(self) -> bool:
         """Check if any GPU is available for training."""
