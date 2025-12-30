@@ -1123,13 +1123,28 @@ Comprehensive analysis revealed **training data volume** as the primary factor i
 | 5,000-20,000 | NN reliably beats heuristic             |
 | 20,000+      | NN significantly outperforms heuristic  |
 
+### Current Data Status (Dec 30, 2025)
+
+**Canonical Database Game Counts:**
+
+| Config       | Canonical DB | P2P Manifest | Status                          |
+| ------------ | ------------ | ------------ | ------------------------------- |
+| square8_4p   | 16 games     | 15,295       | ⚠️ CRITICAL - needs sync/export |
+| hexagonal_3p | 300 games    | 8            | ⚠️ LOW                          |
+| hexagonal_4p | 30,360 games | 2            | ✅ OK (manifest stale)          |
+| square8_3p   | 37,777 games | 9,770        | ✅ OK                           |
+
+**Key Insight**: Games exist in P2P manifest (distributed selfplay) but haven't been synced to canonical databases.
+The sync/export pipeline needs to run to consolidate games from cluster nodes.
+
 ### Remediation Actions (Dec 30, 2025)
 
-Dispatched targeted selfplay via P2P cluster:
+1. Updated `config/distributed_hosts.yaml` underserved_configs:
+   - Added `square8_4p` at top priority (only 16 canonical games)
+   - Reordered to prioritize: square8_4p > hexagonal_3p > hexagonal_4p
 
-- **hex8_2p**: 5,000 additional games (vultr-a100-20gb, runpod-a100-1, lambda-gh200-2)
-- **hex8_4p**: 3,000 additional games (vultr-a100-20gb, vast-29118472)
+2. P2P cluster status: 20 alive nodes, work queue at capacity (1080/1000 items)
+   - Queue backpressure indicates active game generation
+   - Selfplay scheduler will now prioritize underserved configs
 
-Updated `config/distributed_hosts.yaml` underserved_configs to include hex8_2p.
-
-**Expected completion**: 4-8 hours for game generation, then export + retrain
+**Next steps**: Wait for queue to drain, then trigger sync/export to canonical databases
