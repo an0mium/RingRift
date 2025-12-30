@@ -610,6 +610,13 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         style=InstantiationStyle.FACTORY,
         factory_func="get_p2p_recovery_daemon",
     ),
+    "voter_health_monitor": RunnerSpec(
+        module="app.coordination.voter_health_daemon",
+        class_name="VoterHealthMonitorDaemon",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_voter_health_daemon",
+        notes="Dec 30, 2025: Multi-transport voter health probing for quorum protection",
+    ),
     "memory_monitor": RunnerSpec(
         module="app.coordination.memory_monitor_daemon",
         class_name="MemoryMonitorDaemon",

@@ -236,7 +236,45 @@ class DataConsolidationDaemon(HandlerBase):
             self._subscribed = False
 
         except Exception as e:
-            logger.debug(f"[DataConsolidationDaemon] Error unsubscribing: {e}")
+            logger.warning(f"[DataConsolidationDaemon] Error unsubscribing from events: {e}")
+
+    async def _check_node_eligibility(self) -> bool:
+        """Check if this node is eligible to run consolidation.
+
+        Dec 30, 2025: Phase 3.5 of distributed data pipeline architecture.
+
+        Eligibility is based on:
+        - Node role (coordinator, gpu_training, backbone, etc.)
+        - Available disk space
+        - Node-specific consolidation_enabled setting
+
+        Returns:
+            True if this node should run consolidation, False otherwise
+        """
+        try:
+            from app.coordination.consolidation_eligibility import get_eligibility_manager
+            from app.config.env import env
+
+            manager = get_eligibility_manager()
+            node_id = env.node_id
+
+            is_eligible, reason = manager.is_node_eligible(node_id)
+
+            if is_eligible:
+                logger.info(f"[DataConsolidationDaemon] Node {node_id} eligible: {reason}")
+            else:
+                logger.info(f"[DataConsolidationDaemon] Node {node_id} not eligible: {reason}")
+
+            return is_eligible
+
+        except ImportError as e:
+            # ConsolidationEligibilityManager not available - allow consolidation
+            logger.debug(f"[DataConsolidationDaemon] Eligibility check unavailable: {e}")
+            return True
+        except Exception as e:
+            # Error checking eligibility - allow consolidation as fallback
+            logger.warning(f"[DataConsolidationDaemon] Eligibility check error: {e}")
+            return True
 
     def _on_new_games_available(self, event: Any) -> None:
         """Handle NEW_GAMES_AVAILABLE event.

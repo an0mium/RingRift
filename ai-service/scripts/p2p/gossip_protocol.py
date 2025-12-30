@@ -1019,9 +1019,9 @@ class GossipProtocolMixin(P2PMixinBase):
 
         now = time.time()
 
-        # Rate limit: gossip every 30 seconds
+        # Rate limit: gossip interval configurable via RINGRIFT_GOSSIP_INTERVAL
         last_gossip = getattr(self, "_last_gossip_time", 0)
-        if now - last_gossip < 30:
+        if now - last_gossip < self.GOSSIP_INTERVAL_SECONDS:
             return
         self._last_gossip_time = now
 
