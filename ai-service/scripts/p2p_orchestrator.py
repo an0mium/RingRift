@@ -260,7 +260,8 @@ def _load_loop_classes():
         _loop_classes_loaded = True
         return True
     except ImportError as e:
-        logger.warning(f"Extracted loops not available: {e}")
+        logger.error(f"[LoopManager] CRITICAL: Extracted loops import failed: {e}")
+        logger.error("[LoopManager] WorkerPullLoop will NOT start - workers won't claim work!")
         return False
 
 
@@ -2342,8 +2343,9 @@ class P2POrchestrator(
                     probe_and_connect=_probe_and_connect_peer,
                 )
                 manager.register(ts_peer_discovery)
+                logger.info("[LoopManager] TailscalePeerDiscoveryLoop registered")
             except (ImportError, TypeError) as e:
-                logger.debug(f"TailscalePeerDiscoveryLoop: not available: {e}")
+                logger.warning(f"[LoopManager] TailscalePeerDiscoveryLoop: not available: {e}")
 
             # WorkerPullLoop - December 27, 2025
             # Workers poll leader for work (pull model instead of push)
@@ -2368,8 +2370,10 @@ class P2POrchestrator(
                     report_work_result=self._report_work_result,
                 )
                 manager.register(worker_pull)
+                logger.info("[LoopManager] WorkerPullLoop registered successfully")
             except (ImportError, TypeError) as e:
-                logger.debug(f"WorkerPullLoop: not available: {e}")
+                logger.error(f"[LoopManager] WorkerPullLoop registration FAILED: {e}")
+                logger.error("[LoopManager] This node will NOT claim work from leader!")
 
             # FollowerDiscoveryLoop - December 27, 2025
             # Simple peer list discovery for followers
@@ -2434,7 +2438,7 @@ class P2POrchestrator(
                 )
                 manager.register(follower_discovery)
             except (ImportError, TypeError) as e:
-                logger.debug(f"FollowerDiscoveryLoop: not available: {e}")
+                logger.warning(f"[LoopManager] FollowerDiscoveryLoop: not available: {e}")
 
             # SelfHealingLoop - December 28, 2025
             # Migrated from inline _self_healing_loop (~71 LOC removed)
@@ -2551,7 +2555,7 @@ class P2POrchestrator(
                 manager.register(data_aggregation)
                 logger.info("[P2P] DataAggregationLoop registered (important for training data)")
             except (ImportError, TypeError) as e:
-                logger.debug(f"DataAggregationLoop: not available: {e}")
+                logger.warning(f"[LoopManager] DataAggregationLoop: not available (training sync affected): {e}")
 
             # HealthAggregationLoop - December 28, 2025
             # IMPORTANT for scheduling: Aggregates health metrics from all nodes
@@ -2601,7 +2605,7 @@ class P2POrchestrator(
                 manager.register(health_aggregation)
                 logger.info("[P2P] HealthAggregationLoop registered (important for scheduling)")
             except (ImportError, TypeError) as e:
-                logger.debug(f"HealthAggregationLoop: not available: {e}")
+                logger.warning(f"[LoopManager] HealthAggregationLoop: not available: {e}")
 
             # IpDiscoveryLoop - December 28, 2025
             # Discovers and updates node IP addresses for dynamic cloud instances
