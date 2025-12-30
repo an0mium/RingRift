@@ -500,6 +500,7 @@ from scripts.p2p.membership_mixin import MembershipMixin
 from scripts.p2p.consensus_mixin import ConsensusMixin
 from scripts.p2p.handlers.swim import SwimHandlersMixin
 from scripts.p2p.handlers.raft import RaftHandlersMixin
+from scripts.p2p.handlers.network_health import NetworkHealthMixin, setup_network_health_routes
 
 # Import constants from the refactored module (Phase 2 refactoring - consolidated)
 from scripts.p2p.constants import (
@@ -1265,6 +1266,7 @@ class P2POrchestrator(
     ImprovementHandlersMixin,  # Phase 8: Improvement loop handlers extraction (Dec 28, 2025)
     CanonicalGateHandlersMixin,  # Phase 8: Canonical gate handlers extraction (Dec 28, 2025)
     JobsApiHandlersMixin,        # Phase 8: Jobs API handlers extraction (Dec 28, 2025)
+    NetworkHealthMixin,          # Network health endpoints (Dec 30, 2025)
     NetworkUtilsMixin,
     PeerManagerMixin,
     LeaderElectionMixin,
@@ -1442,6 +1444,10 @@ class P2POrchestrator(
         self.peers: dict[str, NodeInfo] = {}
         self.local_jobs: dict[str, ClusterJob] = {}
         self.active_jobs: dict[str, dict[str, Any]] = {}  # Track running jobs by type (selfplay, training, etc.)
+
+        # Network health tracking (December 30, 2025)
+        # Reference to TailscalePeerDiscoveryLoop for stats reporting in /network/health
+        self._tailscale_discovery_loop: Any = None
 
         # Distributed job state tracking (leader-only)
         self.distributed_cmaes_state: dict[str, DistributedCMAESState] = {}
@@ -5683,6 +5689,166 @@ class P2POrchestrator(
             self._tailscale_priority = False
 
     # =========================================================================
+    # Network Health Methods (December 30, 2025)
+    # Required by NetworkHealthMixin for cross-verification of P2P vs Tailscale
+    # =========================================================================
+
+    async def _get_tailscale_status(self) -> dict[str, bool]:
+        """Query Tailscale status and return peer online status.
+
+        Returns:
+            Dict mapping Tailscale IP to online status {ip: is_online}
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "tailscale",
+                "status",
+                "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=10.0,
+            )
+
+            if proc.returncode != 0:
+                logger.debug(f"Tailscale status failed: {stderr.decode()[:100]}")
+                return {}
+
+            data = json.loads(stdout.decode())
+
+            # Extract peer IPs and online status
+            result: dict[str, bool] = {}
+            for peer_key, peer_data in data.get("Peer", {}).items():
+                is_online = peer_data.get("Online", False)
+                # Extract Tailscale IPs
+                for ip in peer_data.get("TailscaleIPs", []):
+                    result[ip] = is_online
+
+            return result
+
+        except asyncio.TimeoutError:
+            logger.debug("Tailscale status timed out")
+            return {}
+        except json.JSONDecodeError as e:
+            logger.debug(f"Failed to parse Tailscale status JSON: {e}")
+            return {}
+        except FileNotFoundError:
+            logger.debug("Tailscale command not found")
+            return {}
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Error querying Tailscale status: {e}")
+            return {}
+
+    async def _reconnect_discovered_peer(
+        self, node_id: str, host: str, port: int
+    ) -> bool:
+        """Attempt to reconnect to a peer discovered via Tailscale.
+
+        Probes the peer's health endpoint and sends a heartbeat to establish
+        P2P connection.
+
+        Args:
+            node_id: Peer node identifier
+            host: Tailscale IP address
+            port: P2P port (usually 8770)
+
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        try:
+            # Probe health endpoint
+            url = f"http://{host}:{port}/health"
+            timeout = ClientTimeout(total=5)
+            async with get_client_session(timeout) as session:
+                async with session.get(url) as resp:
+                    if resp.status != 200:
+                        return False
+                    data, error = await safe_json_response(resp, default={}, log_errors=False)
+                    if error:
+                        return False
+
+            # Extract node_id from response if available
+            actual_node_id = data.get("node_id", node_id)
+
+            # Send heartbeat to establish connection
+            await self._send_heartbeat_to_peer(host, port)
+
+            # Check if peer is now in our peers dict
+            async with AsyncLockWrapper(self.peers_lock):
+                if actual_node_id not in self.peers or not self.peers[actual_node_id].is_alive():
+                    # Register the peer
+                    self.peers[actual_node_id] = PeerInfo(
+                        node_id=actual_node_id,
+                        host=host,
+                        port=port,
+                        last_heartbeat=time.time(),
+                        state="alive",
+                    )
+                    logger.info(f"Reconnected peer via network health: {actual_node_id} ({host}:{port})")
+                    await self._emit_host_online(actual_node_id)
+                    return True
+
+            return True  # Already connected
+
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to reconnect {node_id}: {e}")
+            return False
+
+    async def reconnect_missing_peers(self) -> list[str]:
+        """Reconnect to all peers that are online in Tailscale but not in P2P.
+
+        Returns:
+            List of node IDs that were successfully reconnected
+        """
+        ts_peers = await self._get_tailscale_status()
+        config_hosts = self._load_distributed_hosts().get("hosts", {})
+
+        # Build IP to node mapping
+        ip_to_node: dict[str, tuple[str, dict]] = {}
+        for name, h in config_hosts.items():
+            ts_ip = h.get("tailscale_ip")
+            if ts_ip and h.get("p2p_enabled", True):
+                ip_to_node[ts_ip] = (name, h)
+
+        # Get current alive peer IDs
+        current_ids: set[str] = set()
+        with self.peers_lock:
+            for peer in self.peers.values():
+                if peer.is_alive():
+                    current_ids.add(peer.node_id)
+
+        # Find and reconnect missing peers
+        reconnected: list[str] = []
+        for ts_ip, is_online in ts_peers.items():
+            if not is_online:
+                continue
+
+            if ts_ip not in ip_to_node:
+                continue
+
+            node_id, node_config = ip_to_node[ts_ip]
+
+            # Skip if already connected
+            if node_id in current_ids:
+                continue
+
+            # Skip self
+            if node_id == self.node_id:
+                continue
+
+            # Attempt reconnection
+            port = node_config.get("p2p_port", DEFAULT_PORT)
+            if await self._reconnect_discovered_peer(node_id, ts_ip, port):
+                reconnected.append(node_id)
+
+        if reconnected:
+            logger.info(f"Reconnected {len(reconnected)} missing peers: {reconnected}")
+
+        return reconnected
+
+    # =========================================================================
     # Partition Read-Only Mode (Phase 2.4 - Dec 29, 2025)
     # =========================================================================
 
@@ -8084,21 +8250,25 @@ class P2POrchestrator(
         include_stale_jobs = request.query.get("include_stale_jobs", "false").lower() == "true"
 
         # Non-blocking peers lock acquisition (December 30, 2025)
-        # Use threading lock with timeout via asyncio.to_thread to avoid blocking event loop
-        peers_snapshot = None
-        peers_lock_acquired = False
+        # CRITICAL: threading.RLock must be acquired AND released in the same thread
+        # Wrap the entire lock-protected operation in asyncio.to_thread
+        def _get_peers_snapshot_with_lock() -> list | None:
+            """Get peers snapshot with lock - runs in thread pool."""
+            if self.peers_lock.acquire(True, 2.0):  # blocking=True, timeout=2.0
+                try:
+                    return list(self.peers.values())
+                finally:
+                    self.peers_lock.release()
+            return None
+
+        peers_snapshot: list | None = None
         try:
-            peers_lock_acquired = await asyncio.wait_for(
-                asyncio.to_thread(self.peers_lock.acquire, True, 2.0),  # blocking=True, timeout=2.0
-                timeout=2.5
+            peers_snapshot = await asyncio.wait_for(
+                asyncio.to_thread(_get_peers_snapshot_with_lock),
+                timeout=3.0
             )
-            if peers_lock_acquired:
-                peers_snapshot = list(self.peers.values())
         except asyncio.TimeoutError:
             logger.warning("handle_status: peers_lock acquisition timed out")
-        finally:
-            if peers_lock_acquired:
-                self.peers_lock.release()
 
         # Handle case when peers lock acquisition failed
         if peers_snapshot is None:
@@ -8146,21 +8316,25 @@ class P2POrchestrator(
         )
 
         # Non-blocking jobs lock acquisition (December 30, 2025)
-        jobs = {}
-        jobs_lock_acquired = False
+        # CRITICAL: threading.RLock must be acquired AND released in the same thread
+        def _get_jobs_snapshot_with_lock() -> dict:
+            """Get jobs snapshot with lock - runs in thread pool."""
+            if self.jobs_lock.acquire(True, 2.0):  # blocking=True, timeout=2.0
+                try:
+                    return {k: v.to_dict() for k, v in self.local_jobs.items()}
+                finally:
+                    self.jobs_lock.release()
+            return {"error": "lock_timeout"}
+
+        jobs: dict = {}
         try:
-            jobs_lock_acquired = await asyncio.wait_for(
-                asyncio.to_thread(self.jobs_lock.acquire, True, 2.0),
-                timeout=2.5
+            jobs = await asyncio.wait_for(
+                asyncio.to_thread(_get_jobs_snapshot_with_lock),
+                timeout=3.0
             )
-            if jobs_lock_acquired:
-                jobs = {k: v.to_dict() for k, v in self.local_jobs.items()}
         except asyncio.TimeoutError:
             logger.warning("handle_status: jobs_lock acquisition timed out")
             jobs = {"error": "lock_timeout"}
-        finally:
-            if jobs_lock_acquired:
-                self.jobs_lock.release()
 
         # Get improvement cycle manager status
         improvement_status = None
@@ -8290,8 +8464,8 @@ class P2POrchestrator(
             "background_loops": background_loops,
             # December 30, 2025: Lock acquisition status for debugging
             "_lock_status": {
-                "peers_lock_acquired": peers_lock_acquired,
-                "jobs_lock_acquired": jobs_lock_acquired,
+                "peers_lock_acquired": peers_snapshot is not None,
+                "jobs_lock_acquired": "error" not in jobs,
             },
         })
 
@@ -25609,6 +25783,13 @@ print(json.dumps({{
             logger.info(f"Registered {file_routes} file download routes for HTTP-based sync")
         except ImportError as e:
             logger.debug(f"File download handler not available: {e}")
+
+        # Register network health routes (December 30, 2025)
+        # Cross-verification between P2P mesh and Tailscale connectivity
+        try:
+            setup_network_health_routes(app, self)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Network health routes not registered: {e}")
 
         # Skip legacy route registrations if registry succeeded
         # These are kept as fallback and will be removed in a future cleanup
