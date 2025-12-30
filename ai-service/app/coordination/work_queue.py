@@ -395,6 +395,26 @@ class WorkQueue:
                             (key,)
                         )
 
+                    # Dec 30, 2025: Backpressure state persistence table
+                    # Ensures backpressure state survives restarts
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS backpressure_state (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            active INTEGER NOT NULL DEFAULT 0,
+                            activations INTEGER NOT NULL DEFAULT 0,
+                            rejections INTEGER NOT NULL DEFAULT 0,
+                            last_activation_at REAL NOT NULL DEFAULT 0.0,
+                            last_rejection_at REAL NOT NULL DEFAULT 0.0,
+                            updated_at REAL NOT NULL DEFAULT 0.0
+                        )
+                    """)
+                    # Insert default row if not exists
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO backpressure_state
+                        (id, active, activations, rejections, last_activation_at, last_rejection_at, updated_at)
+                        VALUES (1, 0, 0, 0, 0.0, 0.0, 0.0)
+                    """)
+
                     # Create indexes for common queries
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_status ON work_items(status)")
                     cursor.execute("CREATE INDEX IF NOT EXISTS idx_priority ON work_items(priority DESC)")
@@ -1505,6 +1525,152 @@ class WorkQueue:
                 coro.close()  # Event loop not available
         except ImportError:
             pass  # Event system not available
+
+    def _persist_backpressure_state(self) -> None:
+        """Persist backpressure state to database for crash recovery.
+
+        Dec 30, 2025: Ensures backpressure state survives restarts.
+        """
+        if not self._db_initialized or self._readonly_mode:
+            return
+
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE backpressure_state SET
+                        active = ?,
+                        activations = ?,
+                        rejections = ?,
+                        last_activation_at = ?,
+                        last_rejection_at = ?,
+                        updated_at = ?
+                    WHERE id = 1
+                """, (
+                    1 if self._backpressure_active else 0,
+                    self._backpressure_stats.get("activations", 0),
+                    self._backpressure_stats.get("rejections", 0),
+                    self._backpressure_stats.get("last_activation_at", 0.0),
+                    self._backpressure_stats.get("last_rejection_at", 0.0),
+                    time.time(),
+                ))
+                conn.commit()
+        except sqlite3.Error as e:
+            logger.warning(f"[WorkQueue] Failed to persist backpressure state: {e}")
+
+    def _load_backpressure_state(self) -> None:
+        """Load backpressure state from database on startup.
+
+        Dec 30, 2025: Restores backpressure state after restart.
+        Validates state against current queue depth to avoid stale state.
+        """
+        if not self._db_initialized or self._readonly_mode:
+            return
+
+        try:
+            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT active, activations, rejections, last_activation_at, last_rejection_at
+                    FROM backpressure_state WHERE id = 1
+                """)
+                row = cursor.fetchone()
+                if row:
+                    was_active = bool(row[0])
+                    self._backpressure_stats["activations"] = row[1]
+                    self._backpressure_stats["rejections"] = row[2]
+                    self._backpressure_stats["last_activation_at"] = row[3]
+                    self._backpressure_stats["last_rejection_at"] = row[4]
+
+                    # Validate state against current queue depth
+                    pending = sum(1 for i in self.items.values() if i.status == WorkStatus.PENDING)
+
+                    if was_active and pending <= BACKPRESSURE_RECOVERY_THRESHOLD:
+                        # Stale state - queue has drained, deactivate
+                        logger.info(
+                            f"[WorkQueue] Backpressure state was active but queue is below threshold "
+                            f"({pending}/{BACKPRESSURE_RECOVERY_THRESHOLD}). Deactivating."
+                        )
+                        self._backpressure_active = False
+                        self._persist_backpressure_state()
+                    elif was_active:
+                        logger.info(
+                            f"[WorkQueue] Restored backpressure active state from DB "
+                            f"(pending={pending})"
+                        )
+                        self._backpressure_active = True
+        except sqlite3.Error as e:
+            logger.warning(f"[WorkQueue] Failed to load backpressure state: {e}")
+
+    def validate_startup_state(self) -> dict[str, Any]:
+        """Validate queue state after startup and fix inconsistencies.
+
+        Dec 30, 2025: Detects and fixes common startup issues:
+        - Empty queue after restart (logs warning)
+        - Stale claimed items from crashed workers
+        - Backpressure active but queue empty
+
+        Returns:
+            Dict with validation results and any fixes applied
+        """
+        results: dict[str, Any] = {
+            "issues_found": [],
+            "fixes_applied": [],
+            "pending_count": 0,
+            "claimed_count": 0,
+            "stale_claimed_count": 0,
+        }
+
+        with self.lock:
+            pending = [i for i in self.items.values() if i.status == WorkStatus.PENDING]
+            claimed = [i for i in self.items.values() if i.status == WorkStatus.CLAIMED]
+
+            results["pending_count"] = len(pending)
+            results["claimed_count"] = len(claimed)
+
+            # Check for empty queue
+            if len(pending) == 0 and len(claimed) == 0:
+                results["issues_found"].append("queue_empty")
+                logger.warning(
+                    "[WorkQueue] Queue is empty after startup. "
+                    "Selfplay jobs may need to be dispatched."
+                )
+
+            # Check for stale claimed items (claimed > 30 min ago)
+            stale_threshold = time.time() - 1800  # 30 minutes
+            stale_claimed = [
+                i for i in claimed
+                if i.claimed_at and i.claimed_at < stale_threshold
+            ]
+            results["stale_claimed_count"] = len(stale_claimed)
+
+            if stale_claimed:
+                results["issues_found"].append("stale_claimed_items")
+                for item in stale_claimed:
+                    # Reset stale items to pending for retry
+                    item.status = WorkStatus.PENDING
+                    item.claimed_by = None
+                    item.claimed_at = None
+                    item.retry_count += 1
+                    results["fixes_applied"].append(f"reset_stale_{item.work_id}")
+
+                logger.warning(
+                    f"[WorkQueue] Reset {len(stale_claimed)} stale claimed items to pending. "
+                    f"These were claimed >30 min ago and likely from crashed workers."
+                )
+
+            # Check for backpressure inconsistency
+            if self._backpressure_active and len(pending) <= BACKPRESSURE_RECOVERY_THRESHOLD:
+                results["issues_found"].append("stale_backpressure")
+                self._backpressure_active = False
+                self._persist_backpressure_state()
+                results["fixes_applied"].append("deactivated_stale_backpressure")
+                logger.info(
+                    f"[WorkQueue] Deactivated stale backpressure state "
+                    f"(pending={len(pending)} <= threshold={BACKPRESSURE_RECOVERY_THRESHOLD})"
+                )
+
+        return results
 
     # =========================================================================
     # Job Reaper Support Methods

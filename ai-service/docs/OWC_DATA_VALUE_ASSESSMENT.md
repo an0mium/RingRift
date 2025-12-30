@@ -7,9 +7,9 @@ not treat this as current training guidance.
 Current guidance:
 
 - Canonical data must pass parity + canonical history validation.
-- See `ai-service/TRAINING_DATA_REGISTRY.md`.
-- See `ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`.
+- See `../TRAINING_DATA_REGISTRY.md`.
+- See `specs/GAME_REPLAY_DATABASE_SPEC.md`.
 
 Archived copy:
 
-- `ai-service/docs/archive/historical/OWC_DATA_VALUE_ASSESSMENT.md`
+- `archive/historical/OWC_DATA_VALUE_ASSESSMENT.md`

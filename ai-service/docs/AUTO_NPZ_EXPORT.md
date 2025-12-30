@@ -283,4 +283,4 @@ Test coverage includes:
 - `ai-service/app/coordination/auto_export_daemon.py` - Implementation
 - `ai-service/app/coordination/daemon_manager.py` - Daemon lifecycle
 - `ai-service/scripts/export_replay_dataset.py` - Export script
-- `ai-service/docs/EVENT_CATALOG.md` - Event types reference
+- `EVENT_CATALOG.md` - Event types reference

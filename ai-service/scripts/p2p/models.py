@@ -89,6 +89,10 @@ class NodeInfo:
     errors_last_hour: int = 0  # Error count for anomaly detection
     disk_free_gb: float = 0.0  # Absolute free disk space
     active_job_count: int = 0  # Total active jobs (selfplay + training + external)
+    # Dec 30, 2025: Endpoint validation tracking for stale IP detection
+    # Prevents partition isolation from stale private IPs persisting after network changes
+    endpoint_last_validated: float = 0.0  # Unix timestamp of last successful heartbeat
+    endpoint_ttl_seconds: int = 300  # 5 min TTL before endpoint considered stale
 
     def get_health_state(self) -> NodeHealthState:
         """Get detailed health state based on heartbeat timing.
@@ -144,6 +148,31 @@ class NodeInfo:
         if self.memory_percent >= MEMORY_WARNING_THRESHOLD:
             return False
         return not self.get_load_score() >= LOAD_MAX_FOR_NEW_JOBS
+
+    def is_endpoint_stale(self) -> bool:
+        """Check if this node's endpoint needs revalidation.
+
+        Dec 30, 2025: Added for P2P partition recovery. When a node's endpoint
+        hasn't been validated for endpoint_ttl_seconds, we should probe alternate
+        IPs (Tailscale, public IP) to check if the primary IP is stale.
+
+        A stale endpoint may be:
+        - A private IP from a previous network that's no longer routable
+        - An IP that changed after container restart or VPN reconnection
+
+        Returns:
+            True if endpoint_last_validated is older than endpoint_ttl_seconds
+        """
+        if self.endpoint_last_validated <= 0:
+            return True  # Never validated
+        return time.time() - self.endpoint_last_validated > self.endpoint_ttl_seconds
+
+    def mark_endpoint_validated(self) -> None:
+        """Mark this node's endpoint as freshly validated.
+
+        Called after successful heartbeat or gossip exchange.
+        """
+        self.endpoint_last_validated = time.time()
 
     def get_load_score(self) -> float:
         """Calculate a load score for load balancing (lower = less loaded).
@@ -498,6 +527,9 @@ class NodeInfo:
         d.setdefault('errors_last_hour', 0)
         d.setdefault('disk_free_gb', 0.0)
         d.setdefault('active_job_count', 0)
+        # Dec 30, 2025: Endpoint validation fields
+        d.setdefault('endpoint_last_validated', 0.0)
+        d.setdefault('endpoint_ttl_seconds', 300)
         # Ignore unknown keys for rolling upgrades.
         allowed = {f.name for f in dataclass_fields(cls)}
         d = {k: v for k, v in d.items() if k in allowed}

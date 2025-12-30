@@ -67,8 +67,10 @@ class PeerRecoveryConfig:
     max_backoff_interval: float = 600.0  # 10 minutes max
 
     # Backoff multiplier for repeated failures
-    # Dec 2025: Reduced from 2.0 to 1.5 for gentler backoff progression
-    backoff_multiplier: float = 1.5
+    # Dec 2025: Reduced from 2.0 to 1.5, then to 1.2 for even gentler backoff.
+    # With 1.2x: 120s → 144s → 173s → 207s → 249s → 299s → 358s → 430s → 516s → 600s (cap)
+    # Reaches cap in ~9 iterations vs 4 with 1.5x, enabling faster peer recovery.
+    backoff_multiplier: float = 1.2
 
     # Number of failures before applying backoff
     backoff_threshold: int = 3

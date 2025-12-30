@@ -62,8 +62,9 @@ PEER_TIMEOUT_FAST = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_FAST", "60") o
 SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "30") or 30)
 # Election timeout configurable for aggressive failover mode
 # Dec 29, 2025: Increased from 10 to 30 to reduce leader thrashing (5 changes/6h → 1/6h)
-# Still fast enough for failover but reduces spurious elections from network hiccups
-ELECTION_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_ELECTION_TIMEOUT", "30") or 30)
+# Dec 30, 2025: Reduced from 30 to 15 - faster failover after mesh stabilization,
+# combined with increased PEER_RETIRE_AFTER_SECONDS to prevent false elections during restarts
+ELECTION_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_ELECTION_TIMEOUT", "15") or 15)
 
 # Leader lease must be comfortably larger than the heartbeat cadence
 # LEARNED LESSONS: Increased from 90s to 180s - network latency between cloud providers
@@ -181,11 +182,11 @@ GOSSIP_MAX_PEER_ENDPOINTS = int(
 )
 
 # Peer lifecycle
-# Dec 30, 2025: CRITICAL FIX - Reduced from 3600 (1 hour) to 300 (5 minutes).
-# The 1-hour retirement window was causing nodes to stay "retired" after cluster restart,
-# preventing them from being discovered. 5 minutes is enough to detect truly dead nodes
-# while allowing recovery during coordinated restarts.
-PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "300") or 300)
+# Dec 30, 2025: Increased from 300 (5 min) to 900 (15 min) for cloud maintenance tolerance.
+# 5 minutes was too aggressive - cloud providers may have 10+ minute maintenance windows.
+# 15 minutes balances quick detection with tolerance for transient network issues.
+# Use RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS=300 for faster detection if needed.
+PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "900") or 900)
 # Renamed from RETRY_RETIRED_NODE_INTERVAL to PEER_RECOVERY_RETRY_INTERVAL for clarity
 PEER_RECOVERY_RETRY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "120") or 120)
 # Backward compat alias (deprecated - use PEER_RECOVERY_RETRY_INTERVAL)
@@ -232,10 +233,10 @@ PEER_BOOTSTRAP_INTERVAL = 60
 PEER_BOOTSTRAP_MIN_PEERS = 3
 
 # Dec 30, 2025: Startup grace period before continuous bootstrap loop starts.
-# Increased from 60s to 180s to give time for all nodes to start during mass restart.
-# During `update_all_nodes.py --restart-p2p`, all nodes restart simultaneously and need
-# time to initialize before they can respond to bootstrap requests.
-STARTUP_GRACE_PERIOD = int(os.environ.get("RINGRIFT_P2P_STARTUP_GRACE_PERIOD", "180") or 180)
+# Reduced from 180s to 30s - nodes initialize in 10-20s, 30s provides sufficient buffer.
+# 180s was too long, delaying mesh formation after cluster restart.
+# Use RINGRIFT_P2P_STARTUP_GRACE_PERIOD=180 for coordinated restarts if needed.
+STARTUP_GRACE_PERIOD = int(os.environ.get("RINGRIFT_P2P_STARTUP_GRACE_PERIOD", "30") or 30)
 VOTER_MIN_QUORUM = int(os.environ.get("RINGRIFT_P2P_VOTER_MIN_QUORUM", "3") or 3)
 
 # Bootstrap seeds - initial peers to contact for mesh join
@@ -530,6 +531,28 @@ AUTO_WORK_BATCH_SIZE = int(os.environ.get("RINGRIFT_P2P_AUTO_WORK_BATCH_SIZE", "
 # ============================================
 
 UNIFIED_DISCOVERY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_UNIFIED_DISCOVERY_INTERVAL", "60") or 60)
+
+# ============================================
+# Tailscale Peer Discovery (December 30, 2025)
+# ============================================
+# Enable discovery on ALL nodes (not just leader) with adaptive intervals:
+# - Bootstrap mode: 60s interval when < MIN_PEERS connected (aggressive)
+# - Maintenance mode: 120s interval when >= MIN_PEERS connected (conservative)
+# Jitter prevents discovery storms when multiple nodes probe simultaneously.
+
+TAILSCALE_DISCOVERY_BOOTSTRAP_INTERVAL = int(
+    os.environ.get("RINGRIFT_P2P_TAILSCALE_DISCOVERY_BOOTSTRAP_INTERVAL", "60") or 60
+)
+TAILSCALE_DISCOVERY_MAINTENANCE_INTERVAL = int(
+    os.environ.get("RINGRIFT_P2P_TAILSCALE_DISCOVERY_MAINTENANCE_INTERVAL", "120") or 120
+)
+TAILSCALE_DISCOVERY_MIN_PEERS_FOR_MAINTENANCE = int(
+    os.environ.get("RINGRIFT_P2P_TAILSCALE_DISCOVERY_MIN_PEERS", "5") or 5
+)
+# Jitter factor: actual interval = base_interval * (1 ± jitter)
+TAILSCALE_DISCOVERY_JITTER = float(
+    os.environ.get("RINGRIFT_P2P_TAILSCALE_DISCOVERY_JITTER", "0.1") or 0.1
+)
 
 # ============================================
 # Selfplay Scheduler (December 2025)

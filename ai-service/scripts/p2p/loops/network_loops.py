@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Coroutine
@@ -42,6 +43,21 @@ try:
     from ..constants import DEFAULT_PORT
 except ImportError:
     DEFAULT_PORT = 8770  # Fallback if constants unavailable
+
+# Import Tailscale discovery constants (Dec 30, 2025)
+try:
+    from app.p2p.constants import (
+        TAILSCALE_DISCOVERY_BOOTSTRAP_INTERVAL,
+        TAILSCALE_DISCOVERY_MAINTENANCE_INTERVAL,
+        TAILSCALE_DISCOVERY_MIN_PEERS_FOR_MAINTENANCE,
+        TAILSCALE_DISCOVERY_JITTER,
+    )
+except ImportError:
+    # Fallback defaults if constants unavailable
+    TAILSCALE_DISCOVERY_BOOTSTRAP_INTERVAL = 60
+    TAILSCALE_DISCOVERY_MAINTENANCE_INTERVAL = 120
+    TAILSCALE_DISCOVERY_MIN_PEERS_FOR_MAINTENANCE = 5
+    TAILSCALE_DISCOVERY_JITTER = 0.1
 
 logger = logging.getLogger(__name__)
 
@@ -428,14 +444,35 @@ class TailscalePeerDiscoveryConfig:
     """Configuration for Tailscale peer discovery loop.
 
     December 2025: Extracted from p2p_orchestrator._tailscale_peer_recovery_loop
+    December 30, 2025: MAJOR UPDATE - Enable discovery on ALL nodes with adaptive intervals.
+
+    Previous behavior (REMOVED):
+    - Leaders ran discovery every 2 minutes
+    - Non-leaders ran every 6 minutes (skip_count=3)
+    - Isolated nodes (<3 peers) ran at leader frequency
+
+    New behavior:
+    - ALL nodes run discovery unconditionally
+    - Bootstrap mode: 60s interval when < min_peers_for_maintenance
+    - Maintenance mode: 120s interval when >= min_peers_for_maintenance
+    - ±10% jitter prevents simultaneous discovery storms
     """
 
-    discovery_interval_seconds: float = 120.0  # 2 minutes for leaders
-    non_leader_skip_count: int = 3  # Non-leaders run every 3rd iteration (6 min)
-    min_connected_peers: int = 3  # If fewer peers, always run discovery
+    # Adaptive intervals (Dec 30, 2025)
+    bootstrap_interval_seconds: float = float(TAILSCALE_DISCOVERY_BOOTSTRAP_INTERVAL)
+    maintenance_interval_seconds: float = float(TAILSCALE_DISCOVERY_MAINTENANCE_INTERVAL)
+    min_peers_for_maintenance: int = TAILSCALE_DISCOVERY_MIN_PEERS_FOR_MAINTENANCE
+    interval_jitter: float = TAILSCALE_DISCOVERY_JITTER
+
+    # Legacy field for backward compat (now ignored)
+    discovery_interval_seconds: float = 120.0  # DEPRECATED: Use bootstrap/maintenance intervals
+    non_leader_skip_count: int = 3  # DEPRECATED: No longer used (all nodes run discovery)
+
+    # Connection settings
     connect_timeout_seconds: float = 10.0
     max_nodes_per_cycle: int = 10
     p2p_port: int = DEFAULT_PORT
+
     # Hostname patterns for compute nodes we want in the P2P network
     compute_patterns: tuple[str, ...] = (
         "lambda-", "vast-", "gh200", "h100", "a100", "a10",
@@ -444,12 +481,14 @@ class TailscalePeerDiscoveryConfig:
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
-        if self.discovery_interval_seconds <= 0:
-            raise ValueError("discovery_interval_seconds must be > 0")
-        if self.non_leader_skip_count <= 0:
-            raise ValueError("non_leader_skip_count must be > 0")
-        if self.min_connected_peers < 0:
-            raise ValueError("min_connected_peers must be >= 0")
+        if self.bootstrap_interval_seconds <= 0:
+            raise ValueError("bootstrap_interval_seconds must be > 0")
+        if self.maintenance_interval_seconds <= 0:
+            raise ValueError("maintenance_interval_seconds must be > 0")
+        if self.min_peers_for_maintenance < 0:
+            raise ValueError("min_peers_for_maintenance must be >= 0")
+        if self.interval_jitter < 0 or self.interval_jitter > 1:
+            raise ValueError("interval_jitter must be between 0 and 1")
         if self.connect_timeout_seconds <= 0:
             raise ValueError("connect_timeout_seconds must be > 0")
         if self.max_nodes_per_cycle <= 0:
@@ -464,13 +503,24 @@ class TailscalePeerDiscoveryLoop(BaseLoop):
     Proactively finds compute nodes in the Tailscale mesh that are not yet
     in the P2P network and attempts to establish connections.
 
-    Key behaviors:
-    - Leaders run discovery every 2 minutes
-    - Non-leaders run every 6 minutes (unless isolated)
-    - Isolated nodes (few peers) run at leader frequency
-    - Connects via HTTP health check + heartbeat
+    December 30, 2025 - MAJOR CHANGE: All-Node Discovery
 
-    December 2025: Extracted from p2p_orchestrator._tailscale_peer_recovery_loop
+    Previous behavior (REMOVED):
+    - Leaders ran discovery every 2 minutes
+    - Non-leaders ran every 6 minutes (unless isolated)
+    - Bootstrap problem: isolated nodes couldn't discover peers
+
+    New behavior:
+    - ALL nodes run discovery unconditionally (no leader check)
+    - Adaptive intervals based on peer count:
+        - Bootstrap mode (<5 peers): 60s interval (aggressive)
+        - Maintenance mode (>=5 peers): 120s interval (conservative)
+    - ±10% jitter prevents simultaneous discovery storms
+
+    This enables isolated nodes to bootstrap independently even when:
+    - Leader is down or electing
+    - Gossip chain is broken
+    - Node restarted and lost peer list
     """
 
     def __init__(
@@ -484,7 +534,8 @@ class TailscalePeerDiscoveryLoop(BaseLoop):
         """Initialize Tailscale peer discovery loop.
 
         Args:
-            is_leader: Callback returning True if this node is the cluster leader
+            is_leader: Callback returning True if this node is cluster leader
+                       (DEPRECATED: No longer used for gating, kept for compatibility)
             get_current_peers: Callback returning set of current peer node_ids
             get_alive_peer_count: Callback returning count of alive peers
             probe_and_connect: Async callback (ip, hostname) -> success to probe
@@ -494,9 +545,9 @@ class TailscalePeerDiscoveryLoop(BaseLoop):
         self.config = config or TailscalePeerDiscoveryConfig()
         super().__init__(
             name="tailscale_peer_discovery",
-            interval=self.config.discovery_interval_seconds,
+            interval=self.config.bootstrap_interval_seconds,  # Start with bootstrap interval
         )
-        self._is_leader = is_leader
+        self._is_leader = is_leader  # Kept for backward compat but no longer used
         self._get_current_peers = get_current_peers
         self._get_alive_peer_count = get_alive_peer_count
         self._probe_and_connect = probe_and_connect
@@ -507,24 +558,63 @@ class TailscalePeerDiscoveryLoop(BaseLoop):
         self._connections_attempted = 0
         self._connections_succeeded = 0
 
+        # Adaptive interval tracking (Dec 30, 2025)
+        self._current_mode: str = "bootstrap"  # "bootstrap" or "maintenance"
+        self._last_interval_adjustment = 0.0
+
     async def _on_start(self) -> None:
         """Log startup."""
         logger.info(
-            f"[TailscalePeerDiscovery] Starting peer discovery loop "
-            f"(interval={self.config.discovery_interval_seconds}s)"
+            f"[TailscalePeerDiscovery] Starting ALL-NODE peer discovery loop "
+            f"(bootstrap={self.config.bootstrap_interval_seconds}s, "
+            f"maintenance={self.config.maintenance_interval_seconds}s, "
+            f"min_peers={self.config.min_peers_for_maintenance})"
         )
 
+    def _get_jittered_interval(self, base_interval: float) -> float:
+        """Apply jitter to prevent discovery storms.
+
+        Returns interval ± jitter% (e.g., 120s ± 10% = 108-132s).
+        """
+        jitter_range = base_interval * self.config.interval_jitter
+        return base_interval + random.uniform(-jitter_range, jitter_range)
+
+    def _update_interval_mode(self, alive_count: int) -> None:
+        """Update discovery interval based on current peer count.
+
+        Bootstrap mode (<5 peers): Aggressive 60s interval
+        Maintenance mode (>=5 peers): Conservative 120s interval
+        """
+        min_peers = self.config.min_peers_for_maintenance
+
+        if alive_count < min_peers:
+            new_mode = "bootstrap"
+            base_interval = self.config.bootstrap_interval_seconds
+        else:
+            new_mode = "maintenance"
+            base_interval = self.config.maintenance_interval_seconds
+
+        # Log mode transition
+        if new_mode != self._current_mode:
+            logger.info(
+                f"[TailscalePeerDiscovery] Mode transition: {self._current_mode} -> {new_mode} "
+                f"(peers={alive_count}, threshold={min_peers})"
+            )
+            self._current_mode = new_mode
+
+        # Update loop interval with jitter
+        self._interval = self._get_jittered_interval(base_interval)
+
     async def _run_once(self) -> None:
-        """Discover and connect to Tailscale peers not in P2P network."""
+        """Discover and connect to Tailscale peers not in P2P network.
+
+        December 30, 2025: Runs on ALL nodes (leader check removed).
+        """
         self._loop_count += 1
 
-        # Non-leaders run less frequently (unless isolated)
-        if not self._is_leader():
-            if self._loop_count % self.config.non_leader_skip_count != 0:
-                # Check if we're isolated (few peers)
-                alive_count = self._get_alive_peer_count()
-                if alive_count >= self.config.min_connected_peers:
-                    return  # Skip this iteration
+        # Get alive peer count and update interval mode
+        alive_count = self._get_alive_peer_count()
+        self._update_interval_mode(alive_count)
 
         # Get current peers
         current_peers = self._get_current_peers()

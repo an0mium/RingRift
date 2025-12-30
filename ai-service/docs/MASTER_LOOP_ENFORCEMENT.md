@@ -80,8 +80,8 @@ bootstrap_coordination(
 
 **Files Created**:
 
-- `ai-service/docs/MASTER_LOOP_GUARD.md` - User guide
-- `ai-service/docs/MASTER_LOOP_ENFORCEMENT.md` - This file
+- `MASTER_LOOP_GUARD.md` - User guide
+- `MASTER_LOOP_ENFORCEMENT.md` - This file
 
 **Files Updated**:
 
@@ -89,7 +89,7 @@ bootstrap_coordination(
 
 ### 6. Tests
 
-**File**: `ai-service/tests/test_master_loop_guard.py`
+**File**: `../tests/test_master_loop_guard.py`
 
 **Test Coverage**:
 

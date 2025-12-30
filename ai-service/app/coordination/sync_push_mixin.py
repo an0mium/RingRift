@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.core.async_context import fire_and_forget
 from app.coordination.sync_mixin_base import SyncMixinBase
+from app.config.coordination_defaults import build_ssh_options
 
 if TYPE_CHECKING:
     from app.coordination.sync_strategies import AutoSyncConfig, SyncStats
@@ -298,13 +299,12 @@ class SyncPushMixin(SyncMixinBase):
         # Build rsync command
         ssh_user = node_config.ssh_user if node_config else "ubuntu"
         target_path = f"{ssh_user}@{target['host']}:{games_path}/synced/"
-        ssh_opts = (
-            "ssh -i ~/.ssh/id_cluster "
-            "-o StrictHostKeyChecking=no "
-            "-o ConnectTimeout=10 "
-            "-o TCPKeepAlive=yes "
-            "-o ServerAliveInterval=30 "
-            "-o ServerAliveCountMax=3"
+        # December 30, 2025: Use centralized SSH config for consistent timeouts
+        # and per-provider adjustments (Vast/Hetzner get 15s, others 10s)
+        ssh_opts = build_ssh_options(
+            key_path="~/.ssh/id_cluster",
+            node_id=target.get("node_id"),  # Auto-detects provider from node ID
+            include_keepalive=True,  # Long-running transfers need keepalive
         )
         # December 2025: Removed --partial to prevent corruption from stitched segments
         # on connection resets. Fresh transfers are safer than resumed partial ones.

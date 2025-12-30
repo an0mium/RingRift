@@ -1014,6 +1014,41 @@ def get_p2p_port() -> int:
 
 
 # =============================================================================
+# Endpoint Validation Defaults (December 30, 2025)
+# =============================================================================
+
+@dataclass(frozen=True)
+class EndpointValidationDefaults:
+    """Default values for P2P endpoint validation.
+
+    Used by: scripts/p2p/gossip_protocol.py, scripts/p2p_orchestrator.py
+
+    December 30, 2025: Added to prevent P2P partitions from stale IPs.
+    When nodes change networks or containers restart, their IPs may change.
+    Proactive endpoint validation detects stale IPs and tries alternates.
+
+    Key insight: 5-node isolation was caused by nodes advertising private IPs
+    that became unreachable after network changes. This validation catches
+    those stale endpoints and triggers alternate IP probing.
+    """
+    # How long before an endpoint is considered stale (seconds)
+    # After this time without successful heartbeat, we probe alternates
+    ENDPOINT_TTL: int = _env_int("RINGRIFT_ENDPOINT_TTL", 300)  # 5 minutes
+
+    # How often to run stale endpoint validation (seconds)
+    VALIDATION_INTERVAL: int = _env_int("RINGRIFT_ENDPOINT_VALIDATION_INTERVAL", 60)
+
+    # Maximum peers to validate per cycle (avoid thundering herd)
+    MAX_VALIDATIONS_PER_CYCLE: int = _env_int("RINGRIFT_MAX_VALIDATIONS_PER_CYCLE", 5)
+
+    # Timeout for endpoint probe (seconds)
+    PROBE_TIMEOUT: float = _env_float("RINGRIFT_ENDPOINT_PROBE_TIMEOUT", 5.0)
+
+    # Enable/disable endpoint validation
+    ENABLED: bool = _env_bool("RINGRIFT_ENDPOINT_VALIDATION_ENABLED", True)
+
+
+# =============================================================================
 # P2P Protocol Defaults - SWIM/Raft (December 2025)
 # =============================================================================
 
@@ -2169,7 +2204,21 @@ class SSHDefaults:
              app/core/ssh.py, scripts/p2p/managers/*.py
 
     Consolidates 40+ scattered SSH timeout values across the codebase.
+
+    December 30, 2025: Extended with per-provider timeouts and connection
+    stability settings. Cloud providers have different network characteristics:
+    - Vast.ai: Higher latency, needs longer timeouts
+    - Lambda: Generally reliable, standard timeouts
+    - Nebius: Very reliable, standard timeouts
+    - Hetzner: CPU-only, can be slow to respond
+
+    Use build_ssh_options() or build_ssh_options_list() to construct SSH
+    command options with appropriate per-provider settings.
     """
+    # ==========================================================================
+    # Core Timeouts
+    # ==========================================================================
+
     # Command execution timeout (seconds) - for quick commands like nvidia-smi
     COMMAND_TIMEOUT: float = _env_float("RINGRIFT_SSH_COMMAND_TIMEOUT", 30.0)
 
@@ -2179,7 +2228,7 @@ class SSHDefaults:
     # SCP file transfer timeout (seconds) - for model/data transfers
     SCP_TIMEOUT: float = _env_float("RINGRIFT_SCP_TIMEOUT", 60.0)
 
-    # Connection timeout (seconds) - initial SSH handshake
+    # Connection timeout (seconds) - initial SSH handshake (default)
     CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_CONNECT_TIMEOUT", 10.0)
 
     # Rsync timeout (seconds) - for rsync operations
@@ -2190,6 +2239,39 @@ class SSHDefaults:
 
     # Maximum retries for SSH operations
     MAX_RETRIES: int = _env_int("RINGRIFT_SSH_MAX_RETRIES", 3)
+
+    # ==========================================================================
+    # Connection Stability Settings (December 30, 2025)
+    # ==========================================================================
+
+    # TCP KeepAlive - send TCP keepalive probes to detect broken connections
+    TCP_KEEPALIVE: bool = _env_bool("RINGRIFT_SSH_TCP_KEEPALIVE", True)
+
+    # ServerAliveInterval (seconds) - send null packet to keep connection alive
+    SERVER_ALIVE_INTERVAL: int = _env_int("RINGRIFT_SSH_SERVER_ALIVE_INTERVAL", 30)
+
+    # ServerAliveCountMax - max failed keepalives before disconnect
+    SERVER_ALIVE_COUNT_MAX: int = _env_int("RINGRIFT_SSH_SERVER_ALIVE_COUNT_MAX", 3)
+
+    # StrictHostKeyChecking - disabled for dynamic cloud instances
+    STRICT_HOST_KEY_CHECKING: bool = _env_bool("RINGRIFT_SSH_STRICT_HOST_KEY", False)
+
+    # BatchMode - no interactive prompts (required for automated operations)
+    BATCH_MODE: bool = _env_bool("RINGRIFT_SSH_BATCH_MODE", True)
+
+    # ==========================================================================
+    # Per-Provider Connect Timeout Overrides (December 30, 2025)
+    # ==========================================================================
+    # Cloud providers have different network characteristics. Vast.ai instances
+    # often have higher latency and need longer connection timeouts.
+
+    VAST_CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_VAST_CONNECT_TIMEOUT", 15.0)
+    RUNPOD_CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_RUNPOD_CONNECT_TIMEOUT", 10.0)
+    LAMBDA_CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_LAMBDA_CONNECT_TIMEOUT", 10.0)
+    NEBIUS_CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_NEBIUS_CONNECT_TIMEOUT", 10.0)
+    VULTR_CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_VULTR_CONNECT_TIMEOUT", 10.0)
+    HETZNER_CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_HETZNER_CONNECT_TIMEOUT", 15.0)
+    LOCAL_CONNECT_TIMEOUT: float = _env_float("RINGRIFT_SSH_LOCAL_CONNECT_TIMEOUT", 5.0)
 
 
 # =============================================================================
@@ -2289,6 +2371,197 @@ def get_ssh_timeout(operation: str = "command") -> float:
         "health": SSHDefaults.HEALTH_CHECK_TIMEOUT,
     }
     return timeouts.get(operation, SSHDefaults.COMMAND_TIMEOUT)
+
+
+def get_ssh_connect_timeout(provider: str = "default") -> float:
+    """Get SSH connect timeout for a specific cloud provider.
+
+    Different providers have different network characteristics. This function
+    returns the appropriate connect timeout based on the provider name.
+
+    Args:
+        provider: Provider name (vast, runpod, lambda, nebius, vultr, hetzner, local)
+                  Case-insensitive. Defaults to SSHDefaults.CONNECT_TIMEOUT.
+
+    Returns:
+        Connect timeout in seconds
+
+    Example:
+        timeout = get_ssh_connect_timeout("vast")  # Returns 15.0
+        timeout = get_ssh_connect_timeout()  # Returns 10.0 (default)
+
+    December 30, 2025: Added to support per-provider SSH configuration.
+    """
+    provider = provider.lower()
+    timeouts = {
+        "vast": SSHDefaults.VAST_CONNECT_TIMEOUT,
+        "runpod": SSHDefaults.RUNPOD_CONNECT_TIMEOUT,
+        "lambda": SSHDefaults.LAMBDA_CONNECT_TIMEOUT,
+        "nebius": SSHDefaults.NEBIUS_CONNECT_TIMEOUT,
+        "vultr": SSHDefaults.VULTR_CONNECT_TIMEOUT,
+        "hetzner": SSHDefaults.HETZNER_CONNECT_TIMEOUT,
+        "local": SSHDefaults.LOCAL_CONNECT_TIMEOUT,
+    }
+    return timeouts.get(provider, SSHDefaults.CONNECT_TIMEOUT)
+
+
+def get_provider_from_node_id(node_id: str) -> str:
+    """Infer cloud provider from node ID naming convention.
+
+    Node IDs follow the pattern: {provider}-{identifier}
+    Examples: vast-28889766, lambda-gh200-1, nebius-h100-3
+
+    Args:
+        node_id: Node identifier string
+
+    Returns:
+        Provider name (vast, runpod, lambda, nebius, vultr, hetzner, local, or default)
+
+    December 30, 2025: Added to support automatic provider detection for SSH config.
+    """
+    node_id_lower = node_id.lower()
+
+    if node_id_lower.startswith("vast-"):
+        return "vast"
+    elif node_id_lower.startswith("runpod-"):
+        return "runpod"
+    elif node_id_lower.startswith("lambda-"):
+        return "lambda"
+    elif node_id_lower.startswith("nebius-"):
+        return "nebius"
+    elif node_id_lower.startswith("vultr-"):
+        return "vultr"
+    elif node_id_lower.startswith("hetzner-"):
+        return "hetzner"
+    elif node_id_lower.startswith("local-") or node_id_lower.startswith("mac-"):
+        return "local"
+    else:
+        return "default"
+
+
+def build_ssh_options(
+    key_path: str | None = None,
+    provider: str = "default",
+    include_keepalive: bool = True,
+    port: int | None = None,
+    node_id: str | None = None,
+) -> str:
+    """Build SSH options string for subprocess/rsync commands.
+
+    Replaces scattered hardcoded SSH options across 100+ files with a single
+    source of truth. All settings are configurable via environment variables.
+
+    Args:
+        key_path: Path to SSH key (optional, uses -i flag if provided)
+        provider: Provider name for per-provider timeout adjustment
+        include_keepalive: Include ServerAlive settings for long connections
+        port: SSH port (optional, uses -p flag if provided)
+        node_id: Node ID to auto-detect provider (overrides provider if set)
+
+    Returns:
+        SSH options string suitable for -e flag in rsync or direct ssh command
+
+    Example:
+        # Before (hardcoded in 100+ files):
+        ssh_opts = "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"
+
+        # After:
+        from app.config.coordination_defaults import build_ssh_options
+        ssh_opts = build_ssh_options(key_path="~/.ssh/id_cluster", provider="vast")
+        # Returns: "ssh -i ~/.ssh/id_cluster -o StrictHostKeyChecking=no ..."
+
+        # Or with auto-detection:
+        ssh_opts = build_ssh_options(key_path="~/.ssh/id_cluster", node_id="vast-28889766")
+
+    December 30, 2025: Added to centralize SSH configuration across codebase.
+    """
+    # Auto-detect provider from node_id if provided
+    if node_id:
+        provider = get_provider_from_node_id(node_id)
+
+    parts = ["ssh"]
+
+    if key_path:
+        parts.extend(["-i", key_path])
+
+    if port:
+        parts.extend(["-p", str(port)])
+
+    if not SSHDefaults.STRICT_HOST_KEY_CHECKING:
+        parts.extend(["-o", "StrictHostKeyChecking=no"])
+
+    if SSHDefaults.BATCH_MODE:
+        parts.extend(["-o", "BatchMode=yes"])
+
+    connect_timeout = get_ssh_connect_timeout(provider)
+    parts.extend(["-o", f"ConnectTimeout={int(connect_timeout)}"])
+
+    if include_keepalive:
+        if SSHDefaults.TCP_KEEPALIVE:
+            parts.extend(["-o", "TCPKeepAlive=yes"])
+        parts.extend(["-o", f"ServerAliveInterval={SSHDefaults.SERVER_ALIVE_INTERVAL}"])
+        parts.extend(["-o", f"ServerAliveCountMax={SSHDefaults.SERVER_ALIVE_COUNT_MAX}"])
+
+    return " ".join(parts)
+
+
+def build_ssh_options_list(
+    key_path: str | None = None,
+    provider: str = "default",
+    include_keepalive: bool = True,
+    port: int | None = None,
+    node_id: str | None = None,
+) -> list[str]:
+    """Build SSH options as a list for subprocess.run() commands.
+
+    Same as build_ssh_options() but returns a list instead of string.
+    Use this for subprocess.run() with shell=False (safer).
+
+    Args:
+        key_path: Path to SSH key (optional)
+        provider: Provider name for per-provider timeout adjustment
+        include_keepalive: Include ServerAlive settings
+        port: SSH port (optional)
+        node_id: Node ID to auto-detect provider
+
+    Returns:
+        List of SSH command parts for subprocess.run()
+
+    Example:
+        cmd = build_ssh_options_list(key_path="~/.ssh/id_cluster", node_id="vast-123")
+        cmd.extend(["user@host", "nvidia-smi"])
+        subprocess.run(cmd, ...)
+
+    December 30, 2025: Added for safer subprocess usage with shell=False.
+    """
+    # Auto-detect provider from node_id if provided
+    if node_id:
+        provider = get_provider_from_node_id(node_id)
+
+    parts: list[str] = ["ssh"]
+
+    if key_path:
+        parts.extend(["-i", key_path])
+
+    if port:
+        parts.extend(["-p", str(port)])
+
+    if not SSHDefaults.STRICT_HOST_KEY_CHECKING:
+        parts.extend(["-o", "StrictHostKeyChecking=no"])
+
+    if SSHDefaults.BATCH_MODE:
+        parts.extend(["-o", "BatchMode=yes"])
+
+    connect_timeout = get_ssh_connect_timeout(provider)
+    parts.extend(["-o", f"ConnectTimeout={int(connect_timeout)}"])
+
+    if include_keepalive:
+        if SSHDefaults.TCP_KEEPALIVE:
+            parts.extend(["-o", "TCPKeepAlive=yes"])
+        parts.extend(["-o", f"ServerAliveInterval={SSHDefaults.SERVER_ALIVE_INTERVAL}"])
+        parts.extend(["-o", f"ServerAliveCountMax={SSHDefaults.SERVER_ALIVE_COUNT_MAX}"])
+
+    return parts
 
 
 def get_peer_timeout(timeout_type: str = "peer") -> float:

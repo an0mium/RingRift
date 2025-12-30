@@ -8,7 +8,7 @@
 > **Notation:** `MoveRecord.rrn` (RingRift Notation) is defined in
 > `src/shared/types/gameRecord.ts` (`moveRecordToRRN`, `legacyGameRecordToRRN`).
 > This is separate from the ai-service algebraic notation in
-> `ai-service/docs/specs/GAME_NOTATION_SPEC.md`.
+> `GAME_NOTATION_SPEC.md`.
 
 ## 1. Overview
 
@@ -108,7 +108,7 @@ manual_import
 
 Note: `RecordSource` here applies to GameRecord JSON/JSONL exports. The
 `games.source` field in GameReplayDB uses its own canonical values (see
-`ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`) and may be normalized or
+`GAME_REPLAY_DATABASE_SPEC.md`) and may be normalized or
 mapped when exporting GameRecords.
 
 ## 4. MoveRecord
@@ -150,5 +150,5 @@ Python-specific extension:
 
 - GameRecord is for **completed** games; in-progress states belong in
   GameReplayDB or GameState snapshots.
-- For replay DB schema, see `ai-service/docs/specs/GAME_REPLAY_DATABASE_SPEC.md`.
+- For replay DB schema, see `GAME_REPLAY_DATABASE_SPEC.md`.
 - For RRN encoding, see `src/shared/types/gameRecord.ts`.

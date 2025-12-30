@@ -94,10 +94,10 @@ in `main.py` unless `include_all_routes(app)` is wired manually:
 - `training.py` -> `/api/training/*`
 
 If you expose these endpoints, document the deployment in
-`ai-service/docs/README.md` and keep this reference in sync.
+`README.md` and keep this reference in sync.
 
 ## Related Services (Separate Processes)
 
 The P2P orchestrator is a standalone service started via
 `scripts/p2p_orchestrator.py` (default port 8770). Its API surface is documented
-in `ai-service/app/p2p/README.md` and `ai-service/docs/infrastructure/`.
+in `../app/p2p/README.md` and `infrastructure/`.

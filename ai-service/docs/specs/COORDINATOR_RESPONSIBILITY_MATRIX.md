@@ -199,6 +199,6 @@ Before creating a new coordinator:
 
 ## References
 
-- `ai-service/docs/CONSOLIDATION_ROADMAP.md` - Overall consolidation plan
+- `../CONSOLIDATION_ROADMAP.md` - Overall consolidation plan
 - `app/coordination/coordinator_base.py` - Base class implementation
 - `app/coordination/event_mappings.py` - Event type mappings

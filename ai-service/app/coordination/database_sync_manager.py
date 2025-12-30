@@ -56,6 +56,7 @@ from app.coordination.wal_sync_utils import (
     validate_synced_database,
 )
 from app.utils.retry import RetryConfig
+from app.config.coordination_defaults import build_ssh_options, build_ssh_options_list
 
 logger = logging.getLogger(__name__)
 
@@ -552,10 +553,13 @@ class DatabaseSyncManager(SyncManagerBase):
             from app.utils.env_config import get_str
             # Dec 30, 2025: Look up SSH user from cluster config instead of global default
             ssh_user = _get_ssh_user_for_host(host)
-            ssh_key = get_str("RINGRIFT_SSH_KEY", "")
-            ssh_cmd = f"ssh -p {ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-            if ssh_key:
-                ssh_cmd += f" -i {ssh_key}"
+            ssh_key = get_str("RINGRIFT_SSH_KEY", "") or "~/.ssh/id_cluster"
+            # Dec 30, 2025: Use centralized SSH config for consistent timeouts
+            ssh_cmd = build_ssh_options(
+                key_path=ssh_key,
+                port=ssh_port,
+                include_keepalive=True,  # Rsync transfers may be long
+            )
 
             # Dec 2025: Include WAL files (.db-wal, .db-shm) to prevent data loss
             # Remote path might be /path/to/file.db, we need to sync from directory
@@ -664,10 +668,13 @@ class DatabaseSyncManager(SyncManagerBase):
             from app.utils.env_config import get_str
             # Dec 30, 2025: Look up SSH user from cluster config instead of global default
             ssh_user = _get_ssh_user_for_host(host)
-            ssh_key = get_str("RINGRIFT_SSH_KEY", "")
-            ssh_cmd = f"ssh -p {ssh_port} -o StrictHostKeyChecking=no -o ConnectTimeout=10"
-            if ssh_key:
-                ssh_cmd += f" -i {ssh_key}"
+            ssh_key = get_str("RINGRIFT_SSH_KEY", "") or "~/.ssh/id_cluster"
+            # Dec 30, 2025: Use centralized SSH config for consistent timeouts
+            ssh_cmd = build_ssh_options(
+                key_path=ssh_key,
+                port=ssh_port,
+                include_keepalive=True,  # Rsync pushes may be long
+            )
 
             # Dec 2025: Include WAL files (.db-wal, .db-shm) to prevent data loss
             db_name = self.db_path.name
@@ -743,16 +750,14 @@ class DatabaseSyncManager(SyncManagerBase):
         try:
             from app.utils.env_config import get_str
             ssh_user = _get_ssh_user_for_host(host)
-            ssh_key = get_str("RINGRIFT_SSH_KEY", "")
+            ssh_key = get_str("RINGRIFT_SSH_KEY", "") or "~/.ssh/id_cluster"
 
-            ssh_args = [
-                "ssh",
-                "-p", str(ssh_port),
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "ConnectTimeout=10",
-            ]
-            if ssh_key:
-                ssh_args.extend(["-i", ssh_key])
+            # Dec 30, 2025: Use centralized SSH config for consistent timeouts
+            ssh_args = build_ssh_options_list(
+                key_path=ssh_key,
+                port=ssh_port,
+                include_keepalive=False,  # Quick checksum command, no keepalive needed
+            )
             ssh_args.append(f"{ssh_user}@{host}")
 
             # Use sha256sum on Linux, shasum on macOS (detected remotely)
@@ -946,9 +951,14 @@ class DatabaseSyncManager(SyncManagerBase):
                         # Dec 30, 2025: peers is a dict {node_id: peer_info}
                         # Iterate over values (peer_info dicts), not keys (strings)
                         peer_list = peers.values() if isinstance(peers, dict) else peers
+                        skipped_count = 0
                         for peer in peer_list:
                             if isinstance(peer, str):
                                 # Skip if peer is just a string (old format)
+                                logger.debug(
+                                    f"[{self.db_type}] Skipping string-format peer: {peer}"
+                                )
+                                skipped_count += 1
                                 continue
                             name = peer.get("node_id", peer.get("host", "unknown"))
                             self.nodes[name] = SyncNodeInfo(
@@ -962,6 +972,7 @@ class DatabaseSyncManager(SyncManagerBase):
                             )
                         logger.info(
                             f"[{self.db_type}] Discovered {len(self.nodes)} nodes from P2P"
+                            + (f" (skipped {skipped_count} string-format)" if skipped_count else "")
                         )
                         return
 

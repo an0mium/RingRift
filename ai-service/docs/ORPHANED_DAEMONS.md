@@ -3,11 +3,11 @@
 **Created**: December 25, 2025
 **Purpose**: Document daemons defined in DaemonType but not in production profiles
 
-> **Deprecated:** This list is a December 2025 snapshot and is not maintained. For current profiles, see `ai-service/docs/DAEMON_REGISTRY.md` and `app/coordination/daemon_manager.py:DAEMON_PROFILES`.
+> **Deprecated:** This list is a December 2025 snapshot and is not maintained. For current profiles, see `DAEMON_REGISTRY.md` and `app/coordination/daemon_manager.py:DAEMON_PROFILES`.
 
 ## Summary
 
-Snapshot (Dec 2025): out of 53 daemon types defined in `daemon_manager.py`, 19 are "orphaned" - meaning they are not included in any production profile (coordinator, training_node, ephemeral, selfplay, minimal). Current registry count is 89; see `ai-service/docs/DAEMON_REGISTRY.md` for the live inventory.
+Snapshot (Dec 2025): out of 53 daemon types defined in `daemon_manager.py`, 19 are "orphaned" - meaning they are not included in any production profile (coordinator, training_node, ephemeral, selfplay, minimal). Current registry count is 89; see `DAEMON_REGISTRY.md` for the live inventory.
 
 ## Daemon Categories
 

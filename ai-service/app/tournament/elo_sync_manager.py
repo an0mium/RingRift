@@ -161,6 +161,7 @@ class EloSyncManager(DatabaseSyncManager):
 
         # Elo-specific state
         self._elo_state = EloManagerSyncState()
+        self._initialized = False
         if SYNC_STATE_PATH.exists():
             self._load_elo_state()
 
@@ -310,6 +311,14 @@ class EloSyncManager(DatabaseSyncManager):
     async def initialize(self) -> None:
         """Initialize the sync manager."""
         self._load_elo_state()
+
+        # Checkpoint WAL before discovery to ensure database consistency
+        # WAL files may contain uncommitted changes that affect node stats
+        from app.coordination.wal_sync_utils import checkpoint_database
+
+        if self.db_path.exists():
+            checkpoint_database(str(self.db_path))
+
         await self.discover_nodes()
         if not ENABLE_VAST_ELO_SYNC:
             self.nodes = {
@@ -330,6 +339,7 @@ class EloSyncManager(DatabaseSyncManager):
         else:
             logger.debug("VAST ELO sync disabled; skipping VAST instance discovery")
         self._update_local_stats()
+        self._initialized = True
         logger.info(f"EloSyncManager initialized: {self._elo_state.local_record_count} local matches")
 
     @staticmethod

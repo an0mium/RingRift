@@ -8,7 +8,7 @@ This document provides a historical reference for daemon types as of the Dec 202
 
 ## Overview
 
-Snapshot (Dec 2025): 73 daemon types organized into 12 categories. Current count is 89; see `ai-service/docs/DAEMON_REGISTRY.md` for the live inventory.
+Snapshot (Dec 2025): 73 daemon types organized into 12 categories. Current count is 89; see `DAEMON_REGISTRY.md` for the live inventory.
 
 ### Architecture
 
