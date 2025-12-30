@@ -354,6 +354,95 @@ class TrainingFallbackController:
             "uptime_seconds": time.time() - self._start_time,
         }
 
+    def health_check(self) -> "HealthCheckResult":
+        """Perform health check for DaemonManager integration.
+
+        December 29, 2025: Added to enable health monitoring.
+
+        Returns:
+            HealthCheckResult indicating controller health:
+            - HEALTHY: Fallback rarely used, sync working normally
+            - DEGRADED: Fallback being used frequently, sync may have issues
+            - UNHEALTHY: Fallback disabled when needed (shouldn't happen)
+        """
+        try:
+            from app.coordination.contracts import HealthCheckResult, CoordinatorStatus
+
+            # Calculate health metrics
+            total_fallbacks = sum(s.fallback_count for s in self._states.values())
+            recent_failures = sum(s.sync_failures for s in self._states.values())
+            configs_in_fallback = sum(
+                1 for s in self._states.values()
+                if s.sync_failures >= StaleFallbackDefaults.MAX_SYNC_FAILURES
+            )
+            uptime = time.time() - self._start_time
+
+            # Determine health status
+            if not StaleFallbackDefaults.ENABLE_STALE_FALLBACK:
+                # Fallback disabled - check if it would be needed
+                if recent_failures > 0:
+                    return HealthCheckResult(
+                        healthy=False,
+                        status=CoordinatorStatus.DEGRADED,
+                        message=f"Stale fallback disabled but {recent_failures} sync failures detected",
+                        details={
+                            "fallback_enabled": False,
+                            "configs_needing_fallback": configs_in_fallback,
+                            "total_recent_failures": recent_failures,
+                            "uptime_seconds": uptime,
+                        },
+                    )
+
+            # Healthy if fallback rarely used (< 1 per 10 min average)
+            fallback_rate = total_fallbacks / max(uptime / 600, 1)  # Per 10 min
+
+            if fallback_rate < 0.1:
+                return HealthCheckResult(
+                    healthy=True,
+                    status=CoordinatorStatus.RUNNING,
+                    message="Stale fallback controller healthy",
+                    details={
+                        "fallback_enabled": StaleFallbackDefaults.ENABLE_STALE_FALLBACK,
+                        "total_fallbacks": total_fallbacks,
+                        "configs_tracked": len(self._states),
+                        "uptime_seconds": uptime,
+                    },
+                )
+            elif fallback_rate < 0.5:
+                return HealthCheckResult(
+                    healthy=True,
+                    status=CoordinatorStatus.DEGRADED,
+                    message=f"Elevated fallback usage: {total_fallbacks} total, {configs_in_fallback} configs affected",
+                    details={
+                        "fallback_enabled": StaleFallbackDefaults.ENABLE_STALE_FALLBACK,
+                        "total_fallbacks": total_fallbacks,
+                        "fallback_rate_per_10min": fallback_rate,
+                        "configs_in_fallback": configs_in_fallback,
+                        "uptime_seconds": uptime,
+                    },
+                )
+            else:
+                return HealthCheckResult(
+                    healthy=False,
+                    status=CoordinatorStatus.DEGRADED,
+                    message=f"High fallback usage indicates sync issues: {total_fallbacks} total",
+                    details={
+                        "fallback_enabled": StaleFallbackDefaults.ENABLE_STALE_FALLBACK,
+                        "total_fallbacks": total_fallbacks,
+                        "fallback_rate_per_10min": fallback_rate,
+                        "configs_in_fallback": configs_in_fallback,
+                        "uptime_seconds": uptime,
+                    },
+                )
+
+        except ImportError:
+            # Fallback if contracts not available
+            return {  # type: ignore
+                "healthy": True,
+                "message": "Stale fallback controller running",
+                "uptime_seconds": time.time() - self._start_time,
+            }
+
 
 # Module-level singleton
 _fallback_controller: TrainingFallbackController | None = None
