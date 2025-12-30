@@ -775,8 +775,15 @@ class TrainingCoordinator:
 
         except ImportError:
             logger.debug("[TrainingCoordinator] RollbackManager not available for import")
-        except Exception as e:
-            logger.error(f"[TrainingCoordinator] Error triggering rollback: {e}")
+        except (AttributeError, TypeError, ValueError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # - AttributeError: RollbackManager missing required methods
+            # - TypeError: rollback() called with wrong argument types
+            # - ValueError: Invalid model_id format
+            logger.error(f"[TrainingCoordinator] Invalid rollback parameters: {e}")
+        except (RuntimeError, OSError) as e:
+            # Runtime/system errors during rollback execution
+            logger.error(f"[TrainingCoordinator] Rollback execution failed: {e}")
 
     def _on_training_rollback_needed(self, event: Any) -> None:
         """Handle TRAINING_ROLLBACK_NEEDED event - execute model rollback (P0.4).
