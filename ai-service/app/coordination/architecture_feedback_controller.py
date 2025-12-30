@@ -76,9 +76,10 @@ class ArchitectureFeedbackState:
     # Cached weights per config_key
     cached_weights: dict[str, dict[str, float]] = field(default_factory=dict)
 
-    # Evaluation event count for tracking
+    # Event counts for tracking
     evaluations_processed: int = 0
     trainings_processed: int = 0
+    comparisons_processed: int = 0
 
 
 class ArchitectureFeedbackController(HandlerBase):
@@ -127,6 +128,7 @@ class ArchitectureFeedbackController(HandlerBase):
         return {
             "EVALUATION_COMPLETED": self._on_evaluation_completed,
             "TRAINING_COMPLETED": self._on_training_completed,
+            "ARCHITECTURE_COMPARISON_COMPLETED": self._on_architecture_comparison_completed,
         }
 
     async def _on_evaluation_completed(self, event: dict[str, Any]) -> None:
@@ -220,6 +222,79 @@ class ArchitectureFeedbackController(HandlerBase):
 
         except (ImportError, ValueError, KeyError) as e:
             logger.debug(f"ArchitectureFeedback: Error handling training: {e}")
+
+    async def _on_architecture_comparison_completed(self, event: dict[str, Any]) -> None:
+        """Handle architecture comparison completed event.
+
+        Updates architecture tracker with comparison results and emits weight
+        updates based on the new Elo rankings.
+
+        Args:
+            event: Event data with elo_ratings, matchups, config, etc.
+        """
+        try:
+            from app.training.architecture_tracker import get_architecture_tracker
+
+            elo_ratings = event.get("elo_ratings", {})
+            config_data = event.get("config", {})
+            matchups = event.get("matchups", [])
+
+            board_type = config_data.get("board_type", "")
+            num_players = config_data.get("num_players", 2)
+            harness = config_data.get("harness", "policy_only")
+
+            if not elo_ratings or not board_type:
+                logger.debug(
+                    "ArchitectureFeedback: Missing elo_ratings or board_type in comparison"
+                )
+                return
+
+            # Calculate total games per architecture from matchups
+            games_per_arch: dict[str, int] = {}
+            for matchup in matchups:
+                arch_a = matchup.get("arch_a", "")
+                arch_b = matchup.get("arch_b", "")
+                games = matchup.get("games_played", 0)
+                games_per_arch[arch_a] = games_per_arch.get(arch_a, 0) + games
+                games_per_arch[arch_b] = games_per_arch.get(arch_b, 0) + games
+
+            tracker = get_architecture_tracker()
+
+            # Record each architecture's Elo from comparison
+            for architecture, elo in elo_ratings.items():
+                games = games_per_arch.get(architecture, 0)
+
+                # Record in tracker with harness-specific Elo
+                tracker.record_evaluation(
+                    architecture=architecture,
+                    board_type=board_type,
+                    num_players=num_players,
+                    elo=elo,
+                    games_evaluated=games,
+                )
+
+                # Also record harness-specific Elo
+                stats = tracker.get_stats(architecture, board_type, num_players)
+                if stats:
+                    stats.record_harness_evaluation(
+                        harness=harness,
+                        elo=elo,
+                        games=games,
+                    )
+
+                logger.info(
+                    f"ArchitectureFeedback: Recorded comparison for {architecture}/{board_type}_{num_players}p "
+                    f"(Elo: {elo:.0f}, harness: {harness})"
+                )
+
+            self._state.comparisons_processed += 1
+
+            # Emit weight update immediately after comparison
+            config_key = f"{board_type}_{num_players}p"
+            await self._emit_architecture_weights_updated(config_key)
+
+        except (ImportError, ValueError, KeyError) as e:
+            logger.debug(f"ArchitectureFeedback: Error handling comparison: {e}")
 
     async def _maybe_emit_weight_update(self, config_key: str) -> None:
         """Emit weight update if enough time has passed.
@@ -354,6 +429,7 @@ class ArchitectureFeedbackController(HandlerBase):
         details = {
             "evaluations_processed": self._state.evaluations_processed,
             "trainings_processed": self._state.trainings_processed,
+            "comparisons_processed": self._state.comparisons_processed,
             "cached_configs": len(self._state.cached_weights),
             "version": self.CONTROLLER_VERSION,
         }
