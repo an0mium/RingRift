@@ -965,8 +965,12 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                 # <40% healthy - trip early to stabilize
                 return 10
 
-        except Exception:
-            # Any error - use default threshold
+        except (KeyError, AttributeError, TypeError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # KeyError: daemon not in _daemons dict
+            # AttributeError: missing state attribute
+            # TypeError: invalid comparison
+            logger.debug(f"Error computing adaptive threshold: {e}")
             return CASCADE_RESTART_THRESHOLD
 
     def _check_cascade_circuit_breaker(self) -> bool:
