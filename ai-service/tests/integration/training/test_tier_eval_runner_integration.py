@@ -344,19 +344,20 @@ class TestMetricsComputation:
         """Should be able to import wilson_score_interval."""
         from app.training.significance import wilson_score_interval
 
-        # Test basic calculation - wilson_score_interval(n, k, confidence)
-        # n = total trials, k = successes
-        # k must be <= n
-        lower, upper = wilson_score_interval(10, 5, 0.95)
+        # wilson_score_interval(wins, total, confidence)
+        # wins must be <= total
+        lower, upper = wilson_score_interval(5, 10, 0.95)
         assert 0.0 <= lower <= upper <= 1.0
+        # 50% win rate should give interval around 0.5
+        assert lower < 0.5 < upper
 
     def test_wilson_score_with_zero_games(self):
         """Wilson score should handle zero games gracefully."""
         from app.training.significance import wilson_score_interval
 
-        # Zero trials should return (0.0, 0.0) or handle gracefully
+        # Zero games: wins=0, total=0
         lower, upper = wilson_score_interval(0, 0, 0.95)
-        # The function should not raise an error
+        # The function should return valid interval
         assert lower >= 0.0
         assert upper <= 1.0
 
@@ -364,14 +365,16 @@ class TestMetricsComputation:
         """Wilson score should handle 100% win rate."""
         from app.training.significance import wilson_score_interval
 
+        # 10 wins out of 10 games
         lower, upper = wilson_score_interval(10, 10, 0.95)
         assert lower >= 0.5  # High win rate
-        assert upper == 1.0 or upper <= 1.0
+        assert upper <= 1.0
 
     def test_wilson_score_all_losses(self):
         """Wilson score should handle 0% win rate."""
         from app.training.significance import wilson_score_interval
 
-        lower, upper = wilson_score_interval(10, 0, 0.95)
-        assert lower == 0.0 or lower >= 0.0
+        # 0 wins out of 10 games
+        lower, upper = wilson_score_interval(0, 10, 0.95)
+        assert lower >= 0.0
         assert upper <= 0.5  # Low win rate

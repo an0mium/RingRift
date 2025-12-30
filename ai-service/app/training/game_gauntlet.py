@@ -770,6 +770,17 @@ def play_single_game(
         move = ai.select_move(state)
 
         if move:
+            # Extract visit distribution from AI if available (Dec 2025 - Phase 1)
+            # Used for richer training signal from MCTS/Gumbel/Descent games
+            move_probs: dict[str, float] | None = None
+            if hasattr(ai, 'get_visit_distribution'):
+                try:
+                    moves, probs = ai.get_visit_distribution()
+                    if moves and probs:
+                        move_probs = {str(m): p for m, p in zip(moves, probs)}
+                except (RuntimeError, ValueError, TypeError, AttributeError):
+                    pass  # Don't fail on visit distribution extraction error
+
             state_before = state
             state = engine.apply_move(state, move)
 
@@ -781,6 +792,7 @@ def play_single_game(
                         state_after=state,
                         state_before=state_before,
                         available_moves_count=0,  # Not tracking for gauntlet
+                        move_probs=move_probs,  # Dec 2025: Visit distribution
                     )
                 except (RuntimeError, sqlite3.Error, OSError, ValueError):
                     pass  # Don't fail game on recording error

@@ -487,6 +487,9 @@ def export_replay_dataset_multi(
     min_quality: float | None = None,  # December 2025: Quality filtering
     include_heuristics: bool = False,  # December 2025: Extract heuristic features for v5
     full_heuristics: bool = False,  # December 2025: Use full 49-feature extraction
+    # Source filtering (December 2025 - Phase 5 Unified NN/NNUE training)
+    include_sources: set[str] | None = None,  # Source types to include (None=selfplay only)
+    exclude_sources: set[str] | None = None,  # Source types to exclude
 ) -> None:
     """
     Export training samples from multiple GameReplayDB files into an NPZ dataset
@@ -646,6 +649,31 @@ def export_replay_dataset_multi(
                 games_deduplicated += 1
                 continue
             seen_game_ids.add(game_id)
+
+            # Source filtering (December 2025 - Phase 5 Unified NN/NNUE training)
+            # Filter games by source type (selfplay, gauntlet, tournament, etc.)
+            if include_sources is not None or exclude_sources is not None:
+                source_raw = str(meta.get("source", "") or "").lower()
+                # Categorize source
+                if "gauntlet" in source_raw:
+                    game_source = "gauntlet"
+                elif "tournament" in source_raw:
+                    game_source = "tournament"
+                elif "human" in source_raw:
+                    game_source = "human"
+                else:
+                    game_source = "selfplay"  # Default category
+
+                # Apply inclusion filter
+                if include_sources is not None and "all" not in include_sources:
+                    if game_source not in include_sources:
+                        games_skipped += 1
+                        continue
+
+                # Apply exclusion filter
+                if exclude_sources is not None and game_source in exclude_sources:
+                    games_skipped += 1
+                    continue
 
             if require_completed:
                 status = str(meta.get("game_status", ""))
@@ -1641,6 +1669,48 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "High-quality engines (gumbel, mcts) get 3x weight, recent games get "
             "higher weight via exponential decay (half-life=3 days). "
             "December 2025: Improves training convergence by 15-25%%."
+        ),
+    )
+    # Source filtering flags (December 2025 - Phase 5 Unified NN/NNUE training)
+    parser.add_argument(
+        "--include-gauntlet",
+        action="store_true",
+        help=(
+            "Include games from gauntlet evaluations in addition to selfplay. "
+            "Gauntlet games have higher search quality (longer time controls) "
+            "and diverse opponents. Adds ~5-20%% more training data per config. "
+            "December 2025: Enables training from evaluation games."
+        ),
+    )
+    parser.add_argument(
+        "--include-tournaments",
+        action="store_true",
+        help=(
+            "Include games from tournament play in addition to selfplay. "
+            "Tournament games feature strong opponents and varied playstyles. "
+            "Use for training robust models that generalize well. "
+            "December 2025: Part of unified NN/NNUE training pipeline."
+        ),
+    )
+    parser.add_argument(
+        "--sources",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated list of source types to include. "
+            "Options: selfplay, gauntlet, tournament, human, all. "
+            "Default (None) includes only selfplay. "
+            "Example: --sources selfplay,gauntlet,tournament"
+        ),
+    )
+    parser.add_argument(
+        "--exclude-sources",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated list of source types to exclude. "
+            "Applied after --sources filtering. "
+            "Example: --exclude-sources human"
         ),
     )
     return parser.parse_args(argv)
