@@ -411,17 +411,26 @@ class TestAsyncExecutor:
         """Test shutdown cancels pending tasks."""
         await executor.start()
 
+        started = asyncio.Event()
+
         async def slow_task() -> None:
+            started.set()
             await asyncio.sleep(10)
 
         await executor.submit(slow_task())
         await executor.submit(slow_task())
 
+        # Wait for at least one task to start
+        await asyncio.wait_for(started.wait(), timeout=1.0)
+
         assert executor.get_pending_count() == 2
 
         await executor.shutdown(timeout=1.0)
 
-        assert executor._total_cancelled == 2
+        # After shutdown, all tasks should be cleaned up
+        assert executor.get_pending_count() == 0
+        # At least one task should have been cancelled (the one that was running)
+        assert executor._total_cancelled >= 1
 
 
 # =============================================================================

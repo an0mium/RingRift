@@ -572,10 +572,16 @@ class UnifiedHealthManager(CoordinatorBase):
             return True
 
         except ImportError:
-            logger.warning("[UnifiedHealthManager] data_events not available")
+            logger.debug("[UnifiedHealthManager] data_events not available")
             return False
-        except Exception as e:
-            logger.error(f"[UnifiedHealthManager] Failed to subscribe: {e}")
+        except (ValueError, TypeError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # Event registration signature/type errors
+            logger.error(f"[UnifiedHealthManager] Event registration error: {e}")
+            return False
+        except RuntimeError as e:
+            # Async/event loop errors
+            logger.warning(f"[UnifiedHealthManager] Runtime error during subscribe: {e}")
             return False
 
     # =========================================================================

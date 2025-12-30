@@ -3069,8 +3069,16 @@ class FeedbackLoopController:
                         ),
                         "selfplay_target_emit"
                     )
-                except Exception as e:
-                    logger.debug(f"Failed to emit selfplay target: {e}")
+                except (ImportError, AttributeError) as e:
+                    # Dec 29, 2025: Narrowed from bare Exception
+                    # Emitter not available or wrong signature
+                    logger.debug(f"[FeedbackLoop] Emitter not available: {e}")
+                except (TypeError, ValueError) as e:
+                    # Invalid parameter types/values
+                    logger.error(f"[FeedbackLoop] Invalid selfplay target parameters: {e}")
+                except RuntimeError as e:
+                    # Event bus errors
+                    logger.warning(f"[FeedbackLoop] Failed to emit selfplay target: {e}")
 
     def _on_quality_feedback_adjusted(self, event) -> None:
         """Handle QUALITY_FEEDBACK_ADJUSTED - quality assessment triggered adjustments.

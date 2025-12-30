@@ -138,8 +138,13 @@ class OrphanDetectionDaemon:
                     )
                 """)
                 conn.commit()
-        except Exception as e:
-            logger.warning(f"Failed to initialize failed_orphans DB: {e}")
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # Database file corrupted or schema error
+            logger.error(f"[OrphanDetection] Database corrupted or schema error: {e}")
+        except (OSError, PermissionError) as e:
+            # Disk full, permission denied, or I/O error
+            logger.error(f"[OrphanDetection] Storage error initializing DB: {e}")
 
     def _persist_failed_orphan(self, orphan: OrphanInfo, error: str) -> None:
         """Persist a failed orphan registration for later retry.

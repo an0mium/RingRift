@@ -68,8 +68,12 @@ SYNC_TIMEOUT = int(os.environ.get("RINGRIFT_DATA_SYNC_TIMEOUT", "1800"))  # 30 m
 
 
 @dataclass
-class SyncResult:
-    """Result of a sync operation."""
+class TrainingDataSyncResult:
+    """Result of a training data sync operation.
+
+    December 2025: Renamed from SyncResult to avoid collision with
+    app.coordination.sync_constants.SyncResult (canonical).
+    """
 
     config_key: str
     success: bool
@@ -94,6 +98,10 @@ class SyncResult:
             "error": self.error,
             "skipped_reason": self.skipped_reason,
         }
+
+
+# Backward compatibility alias
+SyncResult = TrainingDataSyncResult
 
 
 @dataclass

@@ -137,8 +137,12 @@ class S3NodeSyncConfig:
 
 
 @dataclass
-class SyncResult:
-    """Result of a sync operation."""
+class S3SyncResult:
+    """Result of an S3 sync operation.
+
+    December 2025: Renamed from SyncResult to avoid collision with
+    app.coordination.sync_constants.SyncResult (canonical).
+    """
 
     success: bool
     uploaded_files: list[str] = field(default_factory=list)
@@ -146,6 +150,10 @@ class SyncResult:
     errors: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
     bytes_transferred: int = 0
+
+
+# Backward compatibility alias
+SyncResult = S3SyncResult
 
 
 @dataclass

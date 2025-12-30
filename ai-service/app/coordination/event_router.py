@@ -882,7 +882,27 @@ class UnifiedEventRouter:
                 callback_name = getattr(callback, "__name__", str(callback))
                 logger.critical(f"[EventRouter] Recursion in handler {callback_name}: {e}")
                 raise
-            except Exception as e:  # noqa: BLE001 - only runtime errors reach here
+            except (NameError, AttributeError, TypeError) as e:
+                # Dec 29, 2025: Programming errors - log CRITICAL for visibility
+                callback_name = getattr(callback, "__name__", str(callback))
+                logger.critical(
+                    f"[EventRouter] Handler bug in {callback_name} for "
+                    f"{event.event_type}: {type(e).__name__}: {e}"
+                )
+                # Still capture to DLQ for analysis with elevated severity
+                if HAS_DLQ and get_dead_letter_queue:
+                    try:
+                        dlq = get_dead_letter_queue()
+                        dlq.capture(
+                            event_type=str(event.event_type),
+                            payload=event.payload,
+                            handler_name=callback_name,
+                            error=f"BUG: {type(e).__name__}: {e}",
+                            source="EventRouter.programming_error",
+                        )
+                    except (RuntimeError, AttributeError, ImportError):
+                        pass  # DLQ capture is best-effort
+            except Exception as e:  # noqa: BLE001 - expected runtime/data errors
                 callback_name = getattr(callback, "__name__", str(callback))
                 logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
                 # Capture to DLQ for retry/analysis (December 2025)

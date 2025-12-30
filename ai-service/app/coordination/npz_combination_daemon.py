@@ -268,7 +268,14 @@ class NPZCombinationDaemon(HandlerBase):
                 samples_by_source=result.samples_by_source,
                 source="NPZCombinationDaemon",
             )
-        except Exception as e:
+        except ImportError:
+            # Dec 29, 2025: DataEventType not available (optional subsystem)
+            logger.debug("[NPZCombinationDaemon] data_events module not available")
+        except (AttributeError, TypeError, ValueError) as e:
+            # Emit function signature/parameter errors
+            logger.error(f"[NPZCombinationDaemon] Emit function error: {e}")
+        except RuntimeError as e:
+            # Event bus errors
             logger.warning(f"Failed to emit NPZ_COMBINATION_COMPLETE: {e}")
 
     def _emit_combination_failed(self, config_key: str, error: str) -> None:
@@ -282,7 +289,14 @@ class NPZCombinationDaemon(HandlerBase):
                 error=error,
                 source="NPZCombinationDaemon",
             )
-        except Exception as e:
+        except ImportError:
+            # Dec 29, 2025: DataEventType not available (optional subsystem)
+            logger.debug("[NPZCombinationDaemon] data_events module not available")
+        except (AttributeError, TypeError, ValueError) as e:
+            # Emit function signature/parameter errors
+            logger.error(f"[NPZCombinationDaemon] Emit function error: {e}")
+        except RuntimeError as e:
+            # Event bus errors
             logger.warning(f"Failed to emit NPZ_COMBINATION_FAILED: {e}")
 
     def _emit_combination_started(self, config_key: str) -> None:

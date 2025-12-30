@@ -1608,8 +1608,20 @@ class TrainingCoordinator:
                 lock.release()
                 return None
 
-        except Exception as e:
-            logger.error(f"Error starting training: {e}")
+        except (sqlite3.DatabaseError, sqlite3.OperationalError) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # Database errors (connection, corruption, etc.)
+            logger.error(f"Database error starting training: {e}")
+            lock.release()
+            return None
+        except (AttributeError, TypeError) as e:
+            # Programming errors - log critically
+            logger.critical(f"Training coordinator bug: {e}")
+            lock.release()
+            raise
+        except (OSError, RuntimeError) as e:
+            # System/runtime errors
+            logger.error(f"System error starting training: {e}")
             lock.release()
             return None
 

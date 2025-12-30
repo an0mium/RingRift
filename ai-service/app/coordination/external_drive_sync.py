@@ -165,8 +165,18 @@ class ExternalDriveSyncDaemon:
             )
             return None
 
-        except Exception as e:
-            logger.warning(f"[ExternalDriveSync] Failed to detect external storage: {e}")
+        except (socket.error, socket.gaierror) as e:
+            # Dec 29, 2025: Narrowed from bare Exception
+            # Network/DNS resolution errors
+            logger.warning(f"[ExternalDriveSync] Network error detecting storage: {e}")
+            return None
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            # Config file not found, can't read, or I/O error
+            logger.warning(f"[ExternalDriveSync] Config access error: {e}")
+            return None
+        except (KeyError, AttributeError, TypeError) as e:
+            # Config structure errors
+            logger.error(f"[ExternalDriveSync] Invalid config structure: {e}")
             return None
 
     @property

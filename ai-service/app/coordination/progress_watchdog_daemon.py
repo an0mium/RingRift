@@ -194,9 +194,21 @@ class ProgressWatchdogDaemon(BaseDaemon[ProgressWatchdogConfig]):
         for config_key in CANONICAL_CONFIGS:
             try:
                 await self._check_config_progress(config_key)
+            except asyncio.CancelledError:
+                # Dec 29, 2025: Task cancellation must always propagate
+                raise
+            except asyncio.TimeoutError as e:
+                # Timeout on database/P2P queries - expected in distributed context
+                logger.warning(f"Timeout checking progress for {config_key}: {e}")
+                self._errors_count += 1
+                self._last_error = f"timeout: {e}"
+            except (KeyError, ValueError) as e:
+                # Invalid config_key or data validation errors
+                logger.error(f"Invalid config or data for {config_key}: {e}")
+                self._errors_count += 1
+                self._last_error = str(e)
             except Exception as e:
-                # Intentionally broad: daemon loop must continue even if one config
-                # fails. Errors are logged and tracked for monitoring.
+                # Other errors - daemon loop must continue
                 logger.error(f"Error checking progress for {config_key}: {e}")
                 self._errors_count += 1
                 self._last_error = str(e)
