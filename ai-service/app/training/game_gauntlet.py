@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import random
+import sqlite3
 import sys
 import uuid
 from collections.abc import Callable
@@ -781,7 +782,7 @@ def play_single_game(
                         state_before=state_before,
                         available_moves_count=0,  # Not tracking for gauntlet
                     )
-                except Exception:
+                except (RuntimeError, sqlite3.Error, OSError, ValueError):
                     pass  # Don't fail game on recording error
         else:
             # No valid move available - this shouldn't happen in normal games
@@ -807,10 +808,10 @@ def play_single_game(
                 "victory_reason": str(victory_reason) if victory_reason else "max_moves",
             })
             recorder.__exit__(None, None, None)
-        except Exception:
+        except (RuntimeError, sqlite3.Error, OSError, ValueError):
             try:
                 recorder.__exit__(None, None, None)
-            except Exception:
+            except (RuntimeError, sqlite3.Error, OSError, ValueError):
                 pass
 
     return GameResult(

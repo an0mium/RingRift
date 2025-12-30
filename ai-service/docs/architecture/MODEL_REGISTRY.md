@@ -139,12 +139,9 @@ print(f"Active model: {model.path}")
 
 ## Promotion Criteria
 
-Default thresholds (configurable):
-
-| Opponent  | Required Win Rate |
-| --------- | ----------------- |
-| RANDOM    | 85%               |
-| HEURISTIC | 60%               |
+Default thresholds are per-config (board + players). See
+`app/config/thresholds.py` (`PROMOTION_THRESHOLDS_BY_CONFIG` and
+`PROMOTION_MINIMUM_THRESHOLDS`).
 
 ## Cluster Sync
 

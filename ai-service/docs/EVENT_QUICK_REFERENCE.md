@@ -94,8 +94,8 @@ These events drive the main feedback loops:
 | Event                   | Emitter                | Must-Have Subscriber      | Purpose              |
 | ----------------------- | ---------------------- | ------------------------- | -------------------- |
 | `TRAINING_COMPLETED`    | TrainingCoordinator    | FeedbackLoopController    | Trigger evaluation   |
-| `EVALUATION_COMPLETED`  | EvaluationDaemon       | CurriculumIntegration     | Update weights       |
-| `MODEL_PROMOTED`        | PromotionController    | UnifiedDistributionDaemon | Distribute model     |
+| `EVALUATION_COMPLETED`  | GameGauntlet           | CurriculumIntegration     | Update weights       |
+| `MODEL_PROMOTED`        | AutoPromotionDaemon    | UnifiedDistributionDaemon | Distribute model     |
 | `DATA_SYNC_COMPLETED`   | AutoSyncDaemon         | DataPipelineOrchestrator  | Trigger export       |
 | `ELO_UPDATED`           | EloSyncManager         | SelfplayScheduler         | Rebalance allocation |
 | `QUALITY_SCORE_UPDATED` | QualityMonitorDaemon   | FeedbackLoopController    | Adjust exploration   |

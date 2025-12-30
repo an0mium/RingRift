@@ -173,7 +173,7 @@ If combination fails, the pipeline falls back to training on the latest export.
 **Events**:
 
 - Triggered by: `TRAINING_COMPLETED`
-- Emits: `EVALUATION_COMPLETED`, `PROMOTION_CANDIDATE`
+- Emits: `EVALUATION_COMPLETED` (primary), `PROMOTION_CANDIDATE` (legacy/optional)
 
 ### Stage 6: PROMOTION
 
@@ -197,8 +197,8 @@ If combination fails, the pipeline falls back to training on the latest export.
 
 **Events**:
 
-- Triggered by: `PROMOTION_CANDIDATE`
-- Emits: `MODEL_PROMOTED`, `PROMOTION_FAILED`
+- Triggered by: `EVALUATION_COMPLETED` (AutoPromotionDaemon) or `PROMOTION_CANDIDATE` (legacy)
+- Emits: `MODEL_PROMOTED`, `PROMOTION_FAILED`, `PROMOTION_COMPLETED`
 
 ---
 
@@ -334,12 +334,11 @@ Lifecycle management for 73 daemon types:
 
 ### Pipeline Thresholds
 
-| Threshold                       | Default | Description                                                     |
-| ------------------------------- | ------- | --------------------------------------------------------------- |
-| `TRAINING_GAME_THRESHOLD`       | 1000    | Min games before training triggers                              |
-| `EVALUATION_WIN_RATE_RANDOM`    | 85%     | Required vs Random for promotion                                |
-| `EVALUATION_WIN_RATE_HEURISTIC` | 60%     | Required vs Heuristic for promotion                             |
-| `SYNC_INTERVAL_SECONDS`         | 60      | AutoSyncDaemon cycle interval (AutoSyncConfig.interval_seconds) |
+| Threshold                 | Default    | Description                                                     |
+| ------------------------- | ---------- | --------------------------------------------------------------- |
+| `TRAINING_GAME_THRESHOLD` | 1000       | Min games before training triggers                              |
+| `PROMOTION_THRESHOLDS`    | per-config | See `app/config/thresholds.py` (`should_promote_model`)         |
+| `SYNC_INTERVAL_SECONDS`   | 60         | AutoSyncDaemon cycle interval (AutoSyncConfig.interval_seconds) |
 
 ### Environment Variables
 

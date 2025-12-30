@@ -220,27 +220,28 @@ To bridge a new event type:
 
 ### Evaluation Events
 
-| Event                    | Value                    | Emitters       | Subscribers                         | Purpose              |
-| ------------------------ | ------------------------ | -------------- | ----------------------------------- | -------------------- |
-| `EVALUATION_STARTED`     | `evaluation_started`     | GameGauntlet   | ProgressMonitor                     | Track evaluation     |
-| `EVALUATION_PROGRESS`    | `evaluation_progress`    | GameGauntlet   | MetricsAnalysis                     | Real-time tracking   |
-| `EVALUATION_COMPLETED`   | `evaluation_completed`   | GameGauntlet   | FeedbackLoop, CurriculumIntegration | Adjust curriculum    |
-| `EVALUATION_FAILED`      | `evaluation_failed`      | GameGauntlet   | RecoveryOrchestrator                | Retry evaluation     |
-| `ELO_UPDATED`            | `elo_updated`            | EloService     | EloSyncManager                      | Sync Elo ratings     |
-| `ELO_SIGNIFICANT_CHANGE` | `elo_significant_change` | EloSyncManager | CurriculumIntegration               | Rebalance curriculum |
-| `ELO_VELOCITY_CHANGED`   | `elo_velocity_changed`   | QueuePopulator | SelfplayScheduler, UnifiedFeedback  | Adjust selfplay rate |
+| Event                    | Value                    | Emitters       | Subscribers                                              | Purpose              |
+| ------------------------ | ------------------------ | -------------- | -------------------------------------------------------- | -------------------- |
+| `EVALUATION_STARTED`     | `evaluation_started`     | GameGauntlet   | ProgressMonitor                                          | Track evaluation     |
+| `EVALUATION_PROGRESS`    | `evaluation_progress`    | GameGauntlet   | MetricsAnalysis                                          | Real-time tracking   |
+| `EVALUATION_COMPLETED`   | `evaluation_completed`   | GameGauntlet   | FeedbackLoop, CurriculumIntegration, AutoPromotionDaemon | Adjust curriculum    |
+| `EVALUATION_FAILED`      | `evaluation_failed`      | GameGauntlet   | RecoveryOrchestrator                                     | Retry evaluation     |
+| `ELO_UPDATED`            | `elo_updated`            | EloService     | EloSyncManager                                           | Sync Elo ratings     |
+| `ELO_SIGNIFICANT_CHANGE` | `elo_significant_change` | EloSyncManager | CurriculumIntegration                                    | Rebalance curriculum |
+| `ELO_VELOCITY_CHANGED`   | `elo_velocity_changed`   | QueuePopulator | SelfplayScheduler, UnifiedFeedback                       | Adjust selfplay rate |
 
 ### Promotion Events
 
-| Event                   | Value                   | Emitters             | Subscribers                             | Purpose                |
-| ----------------------- | ----------------------- | -------------------- | --------------------------------------- | ---------------------- |
-| `PROMOTION_CANDIDATE`   | `promotion_candidate`   | GameGauntlet         | PromotionController                     | Evaluate for promotion |
-| `PROMOTION_STARTED`     | `promotion_started`     | PromotionController  | ProgressMonitor                         | Track promotion        |
-| `MODEL_PROMOTED`        | `model_promoted`        | PromotionController  | ModelDistribution, FeedbackLoop         | Distribute new model   |
-| `PROMOTION_FAILED`      | `promotion_failed`      | PromotionController  | ModelLifecycleCoordinator, DataPipeline | Track failures         |
-| `PROMOTION_REJECTED`    | `promotion_rejected`    | PromotionController  | FeedbackLoop, CurriculumFeedback        | Adjust training        |
-| `PROMOTION_ROLLED_BACK` | `promotion_rolled_back` | RecoveryOrchestrator | ModelLifecycleCoordinator               | Restore previous model |
-| `MODEL_UPDATED`         | `model_updated`         | ModelRegistry        | UnifiedDistributionDaemon               | Sync model metadata    |
+| Event                   | Value                   | Emitters                                 | Subscribers                             | Purpose                     |
+| ----------------------- | ----------------------- | ---------------------------------------- | --------------------------------------- | --------------------------- |
+| `PROMOTION_CANDIDATE`   | `promotion_candidate`   | PromotionController                      | DataPipelineOrchestrator                | Evaluate for promotion      |
+| `PROMOTION_STARTED`     | `promotion_started`     | Reserved (not emitted by default)        | ProgressMonitor                         | Track promotion             |
+| `MODEL_PROMOTED`        | `model_promoted`        | AutoPromotionDaemon, PromotionController | ModelDistribution, FeedbackLoop         | Distribute new model        |
+| `PROMOTION_FAILED`      | `promotion_failed`      | AutoPromotionDaemon                      | ModelLifecycleCoordinator, DataPipeline | Track failures              |
+| `PROMOTION_COMPLETED`   | `promotion_completed`   | AutoPromotionDaemon                      | CurriculumIntegration                   | Promotion attempt finalized |
+| `PROMOTION_REJECTED`    | `promotion_rejected`    | Reserved (not emitted by default)        | FeedbackLoop, CurriculumFeedback        | Adjust training             |
+| `PROMOTION_ROLLED_BACK` | `promotion_rolled_back` | RecoveryOrchestrator                     | ModelLifecycleCoordinator               | Restore previous model      |
+| `MODEL_UPDATED`         | `model_updated`         | ModelRegistry                            | UnifiedDistributionDaemon               | Sync model metadata         |
 
 ### Curriculum Events
 

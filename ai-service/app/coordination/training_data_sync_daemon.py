@@ -673,9 +673,10 @@ class TrainingDataSyncDaemon:
         """
         configs = set()
 
-        # Check for local training processes
+        # Check for local training processes (via thread pool to avoid blocking)
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ["pgrep", "-af", "python.*train"],
                 capture_output=True,
                 text=True,

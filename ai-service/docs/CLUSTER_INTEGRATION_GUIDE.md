@@ -104,7 +104,7 @@ router.publish(DataEventType.TRAINING_STARTED, payload)
 | --------------------- | ------------------- | --------------------------------------- |
 | `SELFPLAY_COMPLETE`   | GPU selfplay jobs   | AutoSyncDaemon, TrainingCoordinator     |
 | `TRAINING_COMPLETED`  | Training scripts    | AutoEvaluationDaemon, ModelDistribution |
-| `MODEL_PROMOTED`      | PromotionController | UnifiedDistributionDaemon               |
+| `MODEL_PROMOTED`      | AutoPromotionDaemon | UnifiedDistributionDaemon               |
 | `DATA_SYNC_COMPLETED` | SyncCoordinator     | TrainingFreshness, PipelineOrchestrator |
 
 ---

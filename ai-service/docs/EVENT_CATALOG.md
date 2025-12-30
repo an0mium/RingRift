@@ -18,8 +18,8 @@ These events form the main training pipeline:
 | `SELFPLAY_COMPLETE`    | P2P orchestrator, SelfplayRunner | SelfplayScheduler, QueuePopulator            | Updates game counts, triggers sync        |
 | `DATA_SYNC_COMPLETED`  | AutoSyncDaemon, P2P orchestrator | TrainingCoordinator, PipelineOrchestrator    | Enables training on fresh data            |
 | `TRAINING_COMPLETED`   | TrainingCoordinator              | SelfplayScheduler, EvaluationDaemon          | Triggers model evaluation                 |
-| `EVALUATION_COMPLETED` | GauntletRunner, EvaluationDaemon | PromotionController, CurriculumIntegration   | Enables model promotion                   |
-| `MODEL_PROMOTED`       | PromotionController              | UnifiedDistributionDaemon, SelfplayScheduler | Distributes new model, updates curriculum |
+| `EVALUATION_COMPLETED` | GameGauntlet, EvaluationDaemon   | AutoPromotionDaemon, CurriculumIntegration   | Enables model promotion                   |
+| `MODEL_PROMOTED`       | AutoPromotionDaemon              | UnifiedDistributionDaemon, SelfplayScheduler | Distributes new model, updates curriculum |
 
 ---
 

@@ -71,8 +71,8 @@ python scripts/baseline_gauntlet.py models/hex8_2p_new.pt \
 
 **Baselines**:
 
-- Random AI (target: ≥85% win rate)
-- Heuristic AI (target: ≥60% win rate)
+- Random AI (targets are per-config; see `app/config/thresholds.py`)
+- Heuristic AI (targets are per-config; see `app/config/thresholds.py`)
 
 ### 2.2 ELO Tournament
 
@@ -87,12 +87,12 @@ python -m app.tournament.distributed_gauntlet \
 
 ### 3.1 Stage Transitions
 
-| Transition            | Required Criteria                                                |
-| --------------------- | ---------------------------------------------------------------- |
-| DEVELOPMENT → STAGING | 50+ games, positive ELO delta                                    |
-| STAGING → PRODUCTION  | 100+ games, ELO ≥1650, WR vs Random ≥90%, WR vs Heuristic ≥60%   |
-| Any → ARCHIVED        | Superseded by higher ELO model, or age >7 days without promotion |
-| Any → REJECTED        | ELO <1400 after 100+ games                                       |
+| Transition            | Required Criteria                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| DEVELOPMENT → STAGING | 50+ games, positive ELO delta (guideline)                                                                                                  |
+| STAGING → PRODUCTION  | Promotion thresholds per config + quality/stability gates (see `app/config/thresholds.py` and `app/coordination/auto_promotion_daemon.py`) |
+| Any → ARCHIVED        | Superseded by higher ELO model, or age >7 days without promotion                                                                           |
+| Any → REJECTED        | ELO <1400 after 100+ games (guideline)                                                                                                     |
 
 ### 3.2 Promotion Command
 
@@ -103,7 +103,7 @@ python scripts/auto_promote.py --gauntlet \
   --games 50
 ```
 
-**Key file**: `app/training/promotion_controller.py`
+**Key files**: `app/training/promotion_controller.py`, `app/coordination/auto_promotion_daemon.py`
 
 ## 4. Production Deployment
 

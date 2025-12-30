@@ -258,12 +258,16 @@ from app.config.thresholds import (
 | `MIN_WIN_RATE_PROMOTE`       | 0.45  | Minimum win rate for promotion     |
 | `PROMOTION_COOLDOWN_SECONDS` | 900   | 15 min cooldown between promotions |
 
+Auto-promotion uses per-config thresholds in `PROMOTION_THRESHOLDS_BY_CONFIG`
+and `PROMOTION_MINIMUM_THRESHOLDS` via `should_promote_model()` (see
+`app/config/thresholds.py`).
+
 **Baseline Gating Thresholds**:
 
 | Constant                    | 2-Player | 3-Player | 4-Player |
 | --------------------------- | -------- | -------- | -------- |
-| `MIN_WIN_RATE_VS_RANDOM`    | 0.70     | 0.40     | 0.50     |
-| `MIN_WIN_RATE_VS_HEURISTIC` | 0.50     | 0.25     | 0.20     |
+| `MIN_WIN_RATE_VS_RANDOM`    | 0.85     | 0.55     | 0.45     |
+| `MIN_WIN_RATE_VS_HEURISTIC` | 0.85     | 0.45     | 0.35     |
 
 **Elo Targets**:
 

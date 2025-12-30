@@ -1,6 +1,6 @@
 # Coordination Event System Runbook
 
-**Last Updated**: December 28, 2025
+**Last Updated**: December 29, 2025
 **Version**: Wave 7
 
 ## Overview
@@ -13,13 +13,13 @@ The RingRift coordination event system provides an event-driven architecture for
 
 ### Training Pipeline Events
 
-| Event                  | Emitter             | Subscribers                | Purpose              |
-| ---------------------- | ------------------- | -------------------------- | -------------------- |
-| `TRAINING_STARTED`     | TrainingCoordinator | SyncRouter, IdleShutdown   | Pause idle detection |
-| `TRAINING_COMPLETED`   | TrainingCoordinator | FeedbackLoop, DataPipeline | Trigger evaluation   |
-| `TRAINING_FAILED`      | TrainingCoordinator | AlertManager               | Handle failures      |
-| `EVALUATION_COMPLETED` | GameGauntlet        | CurriculumIntegration      | Update curriculum    |
-| `MODEL_PROMOTED`       | PromotionController | UnifiedDistributionDaemon  | Distribute model     |
+| Event                  | Emitter             | Subscribers                                | Purpose              |
+| ---------------------- | ------------------- | ------------------------------------------ | -------------------- |
+| `TRAINING_STARTED`     | TrainingCoordinator | SyncRouter, IdleShutdown                   | Pause idle detection |
+| `TRAINING_COMPLETED`   | TrainingCoordinator | FeedbackLoop, DataPipeline                 | Trigger evaluation   |
+| `TRAINING_FAILED`      | TrainingCoordinator | AlertManager                               | Handle failures      |
+| `EVALUATION_COMPLETED` | GameGauntlet        | CurriculumIntegration, AutoPromotionDaemon | Update curriculum    |
+| `MODEL_PROMOTED`       | AutoPromotionDaemon | UnifiedDistributionDaemon                  | Distribute model     |
 
 ### Data Flow Events
 

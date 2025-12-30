@@ -206,6 +206,7 @@ Small utility modules.
 | `distributed_lock.py`      | ~200 | Active     | Distributed locking                                |
 | `tracing.py`               | ~150 | Active     | Distributed tracing context                        |
 | `npz_validation.py`        | ~100 | Active     | NPZ file validation                                |
+| `stability_heuristic.py`   | ~360 | Active     | Rating volatility + stability assessment           |
 | `async_training_bridge.py` | ~150 | Active     | Async/sync training bridge                         |
 | `async_bridge_manager.py`  | ~200 | Active     | Async bridge lifecycle                             |
 | `task_decorators.py`       | ~100 | Active     | Task-related decorators                            |

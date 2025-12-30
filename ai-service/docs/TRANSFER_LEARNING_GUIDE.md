@@ -269,8 +269,8 @@ python -m app.gauntlet.runner \
 
 **Promotion Thresholds:**
 
-- vs Random: 85%+ win rate
-- vs Heuristic: 60%+ win rate
+Thresholds are per-config (board + players). See `app/config/thresholds.py`
+(`PROMOTION_THRESHOLDS_BY_CONFIG` and `PROMOTION_MINIMUM_THRESHOLDS`).
 
 ## Troubleshooting
 

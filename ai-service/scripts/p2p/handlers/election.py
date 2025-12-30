@@ -32,6 +32,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
@@ -485,7 +486,12 @@ class ElectionHandlersMixin(BaseP2PHandler):
                                 ) as resp:
                                     if resp.status == 200:
                                         forwarded_to.append(voter_id)
-                        except Exception:
+                        except (
+                            aiohttp.ClientError,
+                            asyncio.TimeoutError,
+                            OSError,
+                        ):
+                            # Network/connection errors expected during election forwarding
                             pass
 
                 if forwarded_to:

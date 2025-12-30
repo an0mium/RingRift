@@ -847,10 +847,10 @@ Notes:
   - `data/games/tournament_<board>_<players>p.db`
   - `data/games/gauntlet_<board>_<players>p.db`
   - `data/games/baseline_calibration_<board>_<players>p.db`
-- Canonical DBs typically live under `data/selfplay/`:
+- Canonical DBs can live under `data/selfplay/` or `data/games/`:
   - `data/selfplay/canonical_<board>_<players>p.db`
   - `data/selfplay/canonical_<board>.db` (multi-player)
-  - Legacy canonical DBs may still appear under `data/games/canonical_*.db`
+  - `data/games/canonical_<board>_<players>p.db` (still used by some tooling)
 - Session DBs:
   - `data/selfplay/unified_*/games.db`
   - `data/selfplay/p2p/**/games.db`

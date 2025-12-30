@@ -148,17 +148,17 @@ grep -rn 'emit.*"[A-Z_]*"' ai-service/app/coordination/ | grep -v "DataEventType
 
 ## Critical Event Wiring Matrix
 
-| Event                    | Primary Emitter              | Required Subscribers                          |
-| ------------------------ | ---------------------------- | --------------------------------------------- |
-| `TRAINING_STARTED`       | TrainingCoordinator          | SyncRouter, IdleShutdown, DataPipeline        |
-| `TRAINING_COMPLETED`     | TrainingCoordinator          | FeedbackLoop, DataPipeline, ModelDistribution |
-| `EVALUATION_COMPLETED`   | GameGauntlet                 | FeedbackLoop, CurriculumIntegration           |
-| `MODEL_PROMOTED`         | PromotionController          | ModelDistribution, FeedbackLoop               |
-| `DATA_SYNC_COMPLETED`    | SyncPlanner, P2POrchestrator | DataPipelineOrchestrator                      |
-| `NEW_GAMES_AVAILABLE`    | DataPipelineOrchestrator     | SelfplayScheduler, ExportScheduler            |
-| `REGRESSION_DETECTED`    | ModelPerformanceWatchdog     | ModelLifecycleCoordinator, DataPipeline       |
-| `ORPHAN_GAMES_DETECTED`  | OrphanDetectionDaemon        | DataPipelineOrchestrator                      |
-| `BACKPRESSURE_ACTIVATED` | BackpressureMonitor          | SyncRouter, DataPipeline                      |
+| Event                    | Primary Emitter              | Required Subscribers                                     |
+| ------------------------ | ---------------------------- | -------------------------------------------------------- |
+| `TRAINING_STARTED`       | TrainingCoordinator          | SyncRouter, IdleShutdown, DataPipeline                   |
+| `TRAINING_COMPLETED`     | TrainingCoordinator          | FeedbackLoop, DataPipeline, ModelDistribution            |
+| `EVALUATION_COMPLETED`   | GameGauntlet                 | FeedbackLoop, CurriculumIntegration, AutoPromotionDaemon |
+| `MODEL_PROMOTED`         | AutoPromotionDaemon          | ModelDistribution, FeedbackLoop                          |
+| `DATA_SYNC_COMPLETED`    | SyncPlanner, P2POrchestrator | DataPipelineOrchestrator                                 |
+| `NEW_GAMES_AVAILABLE`    | DataPipelineOrchestrator     | SelfplayScheduler, ExportScheduler                       |
+| `REGRESSION_DETECTED`    | ModelPerformanceWatchdog     | ModelLifecycleCoordinator, DataPipeline                  |
+| `ORPHAN_GAMES_DETECTED`  | OrphanDetectionDaemon        | DataPipelineOrchestrator                                 |
+| `BACKPRESSURE_ACTIVATED` | BackpressureMonitor          | SyncRouter, DataPipeline                                 |
 
 ---
 
