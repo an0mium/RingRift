@@ -856,7 +856,7 @@ Always verify with `grep` before implementing. The above were all verified as AL
 | tournament_daemon.py       | 29.2% coverage                | MEDIUM   |
 | training_trigger_daemon.py | 47.8% coverage                | MEDIUM   |
 
-**Next action**: Create tests for `app/coordination/node_availability/` (7 modules, ~50 tests needed)
+**Note**: The exploration agent reported stale findings. Node availability tests already exist (31 tests, all passing).
 
 ### Documentation Gaps (5 critical)
 
