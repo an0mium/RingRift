@@ -552,7 +552,7 @@ Runs on selfplay-only nodes (generates training data).
 
 All daemons (for testing/development).
 
-**Daemon Count:** 87
+**Daemon Count:** 89
 
 **Use Case:** Complete daemon suite for integration testing.
 
@@ -682,7 +682,7 @@ This ensures daemons start in dependency-safe order.
 
 ```
 ============================================================================
-DAEMON_STARTUP_ORDER (23 daemons) - December 27, 2025 fix
+DAEMON_STARTUP_ORDER (24 daemons) - December 30, 2025 update
 ============================================================================
 
 Core Infrastructure (positions 1-4)
@@ -699,24 +699,25 @@ Sync and Queue Management (positions 5-10)
  9. IDLE_RESOURCE       # GPU utilization
 10. TRAINING_TRIGGER    # Training trigger (after pipeline)
 
-Monitoring Daemons (positions 11-15)
+Monitoring Daemons (positions 11-17)
 11. CLUSTER_MONITOR     # Cluster monitoring (depends on EVENT_ROUTER)
 12. NODE_HEALTH_MONITOR # Node health (depends on EVENT_ROUTER)
 13. HEALTH_SERVER       # Health endpoints (depends on EVENT_ROUTER)
 14. CLUSTER_WATCHDOG    # Cluster watchdog (depends on CLUSTER_MONITOR)
 15. NODE_RECOVERY       # Node recovery (depends on NODE_HEALTH_MONITOR)
+16. MEMORY_MONITOR      # Memory/VRAM monitor (depends on EVENT_ROUTER)
+17. QUALITY_MONITOR     # Quality monitoring (depends on DATA_PIPELINE)
 
-Quality + Training Enhancement (positions 16-19)
-16. QUALITY_MONITOR     # Quality monitoring (depends on DATA_PIPELINE)
-17. NNUE_TRAINING       # NNUE training (depends on DATA_PIPELINE)
-18. ARCHITECTURE_FEEDBACK # Architecture feedback (depends on EVENT_ROUTER)
-19. DISTILLATION        # Distillation (depends on TRAINING_TRIGGER)
+Training Enhancement (positions 18-20)
+18. NNUE_TRAINING       # NNUE training (depends on DATA_PIPELINE)
+19. ARCHITECTURE_FEEDBACK # Architecture feedback (depends on EVENT_ROUTER)
+20. DISTILLATION        # Distillation (depends on TRAINING_TRIGGER)
 
-Evaluation and Promotion Chain (positions 20-23)
-20. EVALUATION          # Model evaluation (depends on TRAINING_TRIGGER)
-21. UNIFIED_PROMOTION   # Unified promotion (depends on EVALUATION)
-22. AUTO_PROMOTION      # Auto-promotion (depends on EVALUATION)
-23. MODEL_DISTRIBUTION  # Model distribution (depends on AUTO_PROMOTION)
+Evaluation and Promotion Chain (positions 21-24)
+21. EVALUATION          # Model evaluation (depends on TRAINING_TRIGGER)
+22. UNIFIED_PROMOTION   # Unified promotion (depends on EVALUATION)
+23. AUTO_PROMOTION      # Auto-promotion (depends on EVALUATION)
+24. MODEL_DISTRIBUTION  # Model distribution (depends on AUTO_PROMOTION)
 ```
 
 **Validation:** The startup order is validated against `DAEMON_DEPENDENCIES` at startup
@@ -1030,8 +1031,8 @@ Automated verification confirmed the following architecture is properly configur
 
 | Metric                         | Value | Status          |
 | ------------------------------ | ----- | --------------- |
-| Total DaemonType values        | 87    | ✓ All accounted |
-| Runners in `daemon_runners.py` | 87    | ✓ Complete      |
+| Total DaemonType values        | 89    | ✓ All accounted |
+| Runners in `daemon_runners.py` | 89    | ✓ Complete      |
 | Inline runners                 | 0     | ✓ None          |
 | Missing runners                | 0     | ✓ None          |
 
@@ -1039,8 +1040,8 @@ Automated verification confirmed the following architecture is properly configur
 
 | Metric                             | Value  | Notes                                  |
 | ---------------------------------- | ------ | -------------------------------------- |
-| Daemons in `DAEMON_STARTUP_ORDER`  | 23     | Critical path daemons                  |
-| Daemons with `DAEMON_DEPENDENCIES` | 81     | Legacy dependency map                  |
+| Daemons in `DAEMON_STARTUP_ORDER`  | 24     | Critical path daemons                  |
+| Daemons with `DAEMON_DEPENDENCIES` | 85     | Legacy dependency map                  |
 | Order/Dependency consistency       | Passes | `validate_startup_order_consistency()` |
 
 ### P2P Event Subscriptions
@@ -1082,7 +1083,7 @@ print('✓ Valid' if valid else f'✗ Errors: {errors}')
 ## See Also
 
 - `daemon_manager.py` - Main daemon lifecycle management
-- `daemon_runners.py` - 87 async runner functions for daemon types
+- `daemon_runners.py` - 89 async runner functions for daemon types
 - `daemon_types.py` - Type definitions and enums
 - `daemon_factory.py` - Centralized daemon creation factory
 - `daemon_adapters.py` - Daemon wrappers for legacy code

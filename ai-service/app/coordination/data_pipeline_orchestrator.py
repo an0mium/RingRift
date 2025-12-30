@@ -1309,6 +1309,8 @@ class DataPipelineOrchestrator(
             router = get_router()
             if router:
                 board_type, num_players = self._get_board_config()
+                # December 30, 2025: Include config_key for SelfplayScheduler integration
+                config_key = f"{board_type}_{num_players}p" if board_type and num_players else ""
                 await router.publish(
                     event_type="TRAINING_BLOCKED_BY_QUALITY",
                     payload={
@@ -1316,10 +1318,12 @@ class DataPipelineOrchestrator(
                         "npz_path": npz_path,
                         "board_type": board_type,
                         "num_players": num_players,
+                        "config_key": config_key,  # Added for SelfplayScheduler
                         "quality_score": self._last_quality_score,
                         "threshold": self.quality_gate_threshold,
                         "quality_history": self._quality_check_history[-5:],
                         "recommendation": "trigger_data_regeneration",
+                        "reason": "quality_gate_failed",
                     },
                     source="DataPipelineOrchestrator",
                 )
@@ -1334,8 +1338,49 @@ class DataPipelineOrchestrator(
         except (RuntimeError, ValueError, TypeError, AttributeError, KeyError, ImportError) as e:
             logger.warning(f"[QualityGate] Failed to emit quality block event: {e}")
 
+    async def _trigger_data_regeneration(
+        self, board_type: str, num_players: int, iteration: int
+    ) -> None:
+        """Request more selfplay data when quality gate blocks training.
 
+        December 30, 2025: Implements Gap #6 from integration analysis.
+        Emits SELFPLAY_TARGET_UPDATED to boost data generation for blocked configs.
+        """
+        try:
+            from app.coordination.event_router import get_router
 
+            router = get_router()
+            if not router:
+                return
+
+            config_key = f"{board_type}_{num_players}p"
+
+            # Calculate additional games needed based on quality score
+            quality_score = getattr(self, "_last_quality_score", 0.5)
+            # Lower quality = more games needed
+            additional_games = int(200 * (1.0 - quality_score))
+            additional_games = max(100, min(500, additional_games))
+
+            await router.publish(
+                event_type="SELFPLAY_TARGET_UPDATED",
+                payload={
+                    "config_key": config_key,
+                    "target_games": additional_games,
+                    "priority": "high",
+                    "reason": "quality_gate_blocked",
+                    "quality_score": quality_score,
+                    "iteration": iteration,
+                    "exploration_boost": 1.5,  # Encourage diverse data
+                },
+                source="DataPipelineOrchestrator",
+            )
+            logger.info(
+                f"[DataPipelineOrchestrator] Requested {additional_games} additional games "
+                f"for {config_key} (quality={quality_score:.2f})"
+            )
+
+        except (ImportError, RuntimeError, AttributeError) as e:
+            logger.debug(f"[DataPipelineOrchestrator] Could not trigger regeneration: {e}")
 
 
 
