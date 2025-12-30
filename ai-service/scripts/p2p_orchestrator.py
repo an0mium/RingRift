@@ -1398,6 +1398,11 @@ class P2POrchestrator(
             # view of peer endpoints.
             ts_ip = self._get_tailscale_ip()
             self.advertise_host = ts_ip or self._get_local_ip()
+
+        # Dec 30, 2025: Validate advertise_host to prevent private IP issues
+        # that cause P2P quorum loss when nodes can't reach each other
+        self._validate_and_fix_advertise_host()
+
         self.advertise_port = advertise_port if advertise_port is not None else self._infer_advertise_port()
 
         # Optional auth token used to protect mutating endpoints and cluster control.
@@ -4215,6 +4220,59 @@ class P2POrchestrator(
                 pass
 
         return int(self.port)
+
+    def _validate_and_fix_advertise_host(self) -> None:
+        """Validate advertise_host and fix private IP issues.
+
+        December 30, 2025: Added to prevent P2P quorum loss caused by nodes
+        advertising private LAN IPs (10.x, 192.168.x, 172.16-31.x) that other
+        nodes in the mesh cannot reach.
+
+        This method:
+        1. Detects if advertise_host is a private IP
+        2. If private and Tailscale is available, switches to Tailscale IP
+        3. Emits warnings/errors for operator awareness
+        """
+        import ipaddress
+
+        if not self.advertise_host:
+            return
+
+        try:
+            ip = ipaddress.ip_address(self.advertise_host)
+        except ValueError:
+            # Not an IP address (maybe hostname), skip validation
+            return
+
+        is_private = ip.is_private and not ip.is_loopback
+
+        if not is_private:
+            # Public IP or loopback - no issue
+            return
+
+        # Private IP detected - try to get Tailscale IP
+        ts_ip = self._get_tailscale_ip()
+
+        if ts_ip and ts_ip != self.advertise_host:
+            old_host = self.advertise_host
+            self.advertise_host = ts_ip
+            print(
+                f"[P2P] WARNING: advertise_host was private IP {old_host}, "
+                f"auto-switched to Tailscale IP {ts_ip} for mesh reachability"
+            )
+            logger.warning(
+                f"P2P advertise_host auto-fixed: {old_host} -> {ts_ip} (private IP unreachable by peers)"
+            )
+        else:
+            # No Tailscale available - emit warning
+            print(
+                f"[P2P] ERROR: advertise_host {self.advertise_host} is a private IP! "
+                f"Other nodes in the mesh cannot reach this address. "
+                f"Set RINGRIFT_P2P_ADVERTISE_HOST to your public/Tailscale IP."
+            )
+            logger.error(
+                f"P2P advertise_host {self.advertise_host} is private - mesh connectivity will fail!"
+            )
 
     def _load_voter_node_ids(self) -> list[str]:
         """Load the set of P2P voter node_ids (for quorum-based leadership).

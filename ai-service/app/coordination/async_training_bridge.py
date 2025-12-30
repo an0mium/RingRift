@@ -249,17 +249,28 @@ class AsyncTrainingBridge:
         return success
 
     async def get_job_by_id(self, job_id: str) -> TrainingJob | None:
-        """Get training job by ID."""
-        # Parse board_type and num_players from job_id using canonical utility
-        # Format: {board_type}_{num_players}p_{timestamp}_{pid}
+        """Get training job by ID.
+
+        Args:
+            job_id: Job ID in format {board_type}_{num_players}p_{timestamp}_{pid}
+                   e.g., "square8_2p_12345_678"
+
+        Returns:
+            TrainingJob if found, None otherwise.
+        """
+        # Extract config_key from job_id format: {board_type}_{num_players}p_{timestamp}_{pid}
         try:
-            parsed = parse_config_key(job_id)
-            if parsed:
-                return await self._run_sync(
-                    self._coordinator.get_job,
-                    parsed.board_type,
-                    parsed.num_players
-                )
+            parts = job_id.split("_")
+            if len(parts) >= 2:
+                # First two parts form the config key (e.g., "square8_2p")
+                config_key = f"{parts[0]}_{parts[1]}"
+                parsed = parse_config_key(config_key)
+                if parsed:
+                    return await self._run_sync(
+                        self._coordinator.get_job,
+                        parsed.board_type,
+                        parsed.num_players
+                    )
         except Exception as e:
             logger.warning(f"Could not parse job_id {job_id}: {e}")
         return None

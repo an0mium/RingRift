@@ -62,6 +62,10 @@ class AutoExportConfig:
     # Quality filtering options
     require_completed_games: bool = True
     min_moves: int = 10
+    # Data source options (December 30, 2025)
+    # Include gauntlet/tournament games by default for higher quality training data
+    include_gauntlet: bool = True  # Include evaluation gauntlet games
+    include_tournaments: bool = True  # Include tournament games
     # Output directory for NPZ files
     output_dir: Path = field(default_factory=lambda: Path("data/training"))
     # State persistence (Phase 8 Dec 2025)
@@ -694,6 +698,14 @@ class AutoExportDaemon(HandlerBase):
 
                 if self.config.min_moves > 0:
                     cmd.extend(["--min-moves", str(self.config.min_moves)])
+
+                # December 30, 2025: Include gauntlet/tournament games by default
+                # These games have higher quality (longer time controls, stronger opponents)
+                if self.config.include_gauntlet:
+                    cmd.append("--include-gauntlet")
+
+                if self.config.include_tournaments:
+                    cmd.append("--include-tournaments")
 
                 # Run export subprocess
                 start_time = time.time()
