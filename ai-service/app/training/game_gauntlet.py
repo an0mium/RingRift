@@ -215,6 +215,20 @@ class BaselineOpponent(Enum):
     NNUE_MAXN_D3 = "nnue_maxn_d3"            # NNUE under MaxN depth 3 (3+ players)
     NNUE_BRS_D3 = "nnue_brs_d3"              # NNUE under BRS depth 3 (3+ players)
 
+    # Dec 29: Phase 6 - Extended harness types for comprehensive evaluation
+    # PolicyOnly variants (~1100-1300 Elo depending on model quality)
+    POLICY_ONLY_NN = "policy_only_nn"        # Full NN policy head, greedy selection
+    POLICY_ONLY_NNUE = "policy_only_nnue"    # NNUE policy head, greedy selection
+
+    # Gumbel MCTS variants (~1400-1800 Elo, higher budget = stronger)
+    GUMBEL_B64 = "gumbel_b64"                # Gumbel MCTS budget 64 (~1400 Elo)
+    GUMBEL_B200 = "gumbel_b200"              # Gumbel MCTS budget 200 (~1600 Elo)
+    GUMBEL_NNUE = "gumbel_nnue"              # Gumbel with NNUE evaluation (~1500 Elo)
+
+    # Descent variants (~1300-1500 Elo, gradient-based search)
+    DESCENT_NN = "descent_nn"                # Descent with Full NN evaluation
+    DESCENT_NNUE = "descent_nnue"            # Descent with NNUE evaluation
+
 
 # ============================================
 # Early Stopping with Statistical Confidence (Dec 2025)
@@ -642,6 +656,102 @@ def create_baseline_ai(
             num_players=num_players,
         )
         return ai
+
+    # ========================================
+    # Dec 29, 2025: Phase 6 - Extended Harness Types
+    # PolicyOnly, Gumbel, and Descent variants
+    # ========================================
+
+    elif baseline == BaselineOpponent.POLICY_ONLY_NN:
+        # PolicyOnly with Full NN (~1200 Elo) - greedy policy selection
+        from app.ai.policy_only_ai import PolicyOnlyAI
+        config = AIConfig(
+            ai_type=AIType.NEURAL_NET,
+            board_type=board_type,
+            difficulty=difficulty or 5,
+            rngSeed=ai_rng_seed,
+        )
+        return PolicyOnlyAI(player, config, board_type)
+
+    elif baseline == BaselineOpponent.POLICY_ONLY_NNUE:
+        # PolicyOnly with NNUE policy (~1100 Elo) - NNUE policy head
+        from app.ai.policy_only_ai import PolicyOnlyAI
+        config = AIConfig(
+            ai_type=AIType.NEURAL_NET,
+            board_type=board_type,
+            difficulty=difficulty or 5,
+            use_nnue_policy=True,  # Enable NNUE policy
+            rngSeed=ai_rng_seed,
+        )
+        return PolicyOnlyAI(player, config, board_type)
+
+    elif baseline == BaselineOpponent.GUMBEL_B64:
+        # Gumbel MCTS budget 64 (~1400 Elo) - fast quality search
+        from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+        config = AIConfig(
+            ai_type=AIType.GUMBEL_MCTS,
+            board_type=board_type,
+            difficulty=difficulty or 5,
+            gumbel_budget=64,
+            rngSeed=ai_rng_seed,
+        )
+        return GumbelMCTSAI(player, config, board_type)
+
+    elif baseline == BaselineOpponent.GUMBEL_B200:
+        # Gumbel MCTS budget 200 (~1600 Elo) - balanced quality/speed
+        from app.ai.gumbel_mcts_ai import GumbelMCTSAI
+        config = AIConfig(
+            ai_type=AIType.GUMBEL_MCTS,
+            board_type=board_type,
+            difficulty=difficulty or 7,
+            gumbel_budget=200,
+            rngSeed=ai_rng_seed,
+        )
+        return GumbelMCTSAI(player, config, board_type)
+
+    elif baseline == BaselineOpponent.GUMBEL_NNUE:
+        # Gumbel with NNUE evaluation (~1500 Elo)
+        from app.ai.nnue_search_ai import NNUEGumbelAI
+        config = AIConfig(
+            ai_type=AIType.GUMBEL_MCTS,
+            board_type=board_type,
+            difficulty=difficulty or 6,
+            gumbel_budget=100,
+            rngSeed=ai_rng_seed,
+        )
+        return NNUEGumbelAI(
+            player_number=player,
+            config=config,
+            board_type=board_type,
+            num_players=num_players,
+        )
+
+    elif baseline == BaselineOpponent.DESCENT_NN:
+        # Descent with Full NN (~1400 Elo) - gradient-based search
+        from app.ai.descent_ai import DescentAI
+        config = AIConfig(
+            ai_type=AIType.NEURAL_NET,
+            board_type=board_type,
+            difficulty=difficulty or 6,
+            rngSeed=ai_rng_seed,
+        )
+        return DescentAI(player, config, board_type)
+
+    elif baseline == BaselineOpponent.DESCENT_NNUE:
+        # Descent with NNUE evaluation (~1350 Elo)
+        from app.ai.nnue_search_ai import NNUEDescentAI
+        config = AIConfig(
+            ai_type=AIType.NEURAL_NET,
+            board_type=board_type,
+            difficulty=difficulty or 6,
+            rngSeed=ai_rng_seed,
+        )
+        return NNUEDescentAI(
+            player_number=player,
+            config=config,
+            board_type=board_type,
+            num_players=num_players,
+        )
 
     else:
         raise ValueError(f"Unknown baseline: {baseline}")

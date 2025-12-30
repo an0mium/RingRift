@@ -2483,20 +2483,19 @@ class FeedbackLoopController:
             logger.debug(f"[FeedbackLoopController] Error emitting quality degraded: {e}")
 
     def _trigger_evaluation(self, config_key: str, model_path: str) -> None:
-        """Trigger gauntlet evaluation automatically after training.
+        """Trigger multi-harness gauntlet evaluation automatically after training.
 
         December 2025: Wires TRAINING_COMPLETED → auto-gauntlet evaluation.
         This closes the training feedback loop by automatically evaluating
-        newly trained models against baselines.
+        newly trained models against baselines under ALL compatible harnesses.
 
         The gauntlet results determine whether the model should be promoted
-        to production or if more training is needed.
+        to production or if more training is needed. Multi-harness evaluation
+        enables finding the best (model, harness) combination for deployment.
         """
-        logger.info(f"[FeedbackLoopController] Triggering gauntlet evaluation for {config_key}")
+        logger.info(f"[FeedbackLoopController] Triggering multi-harness evaluation for {config_key}")
 
         try:
-            from app.coordination.pipeline_actions import trigger_evaluation
-
             # Parse config_key into board_type and num_players
             # Format: "hex8_2p", "square8_4p", etc.
             parts = config_key.rsplit("_", 1)
@@ -2511,43 +2510,67 @@ class FeedbackLoopController:
                 logger.warning(f"[FeedbackLoopController] Cannot parse num_players from: {config_key}")
                 return
 
-            # Launch gauntlet evaluation asynchronously
-            async def run_gauntlet():
-                """Run gauntlet evaluation for the trained model.
+            # Launch multi-harness gauntlet evaluation asynchronously
+            async def run_multi_harness_gauntlet():
+                """Run multi-harness gauntlet evaluation for the trained model.
 
-                Launches model evaluation against baselines (random, heuristic AI)
-                to determine if the model is eligible for promotion. If evaluation
-                passes thresholds, triggers the promotion consideration workflow.
+                December 2025: Evaluates model under ALL compatible harnesses
+                (e.g., policy_only, mcts, gumbel_mcts, descent for NN models).
+                Registers all harness results in Elo system and uses the best
+                harness for promotion decisions.
 
-                Uses trigger_evaluation from pipeline_actions for actual evaluation.
-                Results are logged and promotion is considered if eligible.
+                Falls back to single-harness evaluation if multi-harness unavailable.
                 """
-                result = await trigger_evaluation(
-                    model_path=model_path,
-                    board_type=board_type,
-                    num_players=num_players,
-                    num_games=50,  # Standard gauntlet size
-                )
-                if result.success:
-                    logger.info(
-                        f"[FeedbackLoopController] Gauntlet passed for {config_key}: "
-                        f"eligible={result.metadata.get('promotion_eligible')}"
-                    )
-                    # Emit evaluation completed event
-                    if result.metadata.get("promotion_eligible"):
-                        self._consider_promotion(
-                            config_key,
-                            model_path,
-                            result.metadata.get("win_rates", {}).get("heuristic", 0) / 100,
-                            result.metadata.get("elo_delta", 0),
-                        )
-                else:
-                    logger.warning(
-                        f"[FeedbackLoopController] Gauntlet failed for {config_key}: "
-                        f"{result.error or 'unknown error'}"
+                try:
+                    from app.training.multi_harness_gauntlet import (
+                        MultiHarnessGauntlet,
+                        register_multi_harness_results,
                     )
 
-            _safe_create_task(run_gauntlet(), f"run_gauntlet({config_key})")
+                    gauntlet = MultiHarnessGauntlet(default_games_per_baseline=30)
+                    result = await gauntlet.evaluate_model(
+                        model_path=model_path,
+                        board_type=board_type,
+                        num_players=num_players,
+                    )
+
+                    # Register all harness results in Elo system
+                    participant_ids = register_multi_harness_results(result)
+                    logger.info(
+                        f"[FeedbackLoopController] Multi-harness evaluation complete for {config_key}: "
+                        f"best={result.best_harness} Elo={result.best_elo:.0f}, "
+                        f"harnesses={list(result.harness_results.keys())}"
+                    )
+
+                    # Use best harness result for promotion decision
+                    if result.best_elo > 0 and result.harness_results:
+                        best_rating = result.harness_results.get(result.best_harness)
+                        if best_rating:
+                            win_rate = getattr(best_rating, "win_rate", 0.0)
+                            elo_delta = result.best_elo - 1000  # Delta from baseline
+                            if win_rate >= 0.55:  # Minimum threshold for promotion consideration
+                                self._consider_promotion(
+                                    config_key,
+                                    model_path,
+                                    win_rate,
+                                    elo_delta,
+                                )
+
+                except ImportError as e:
+                    # Fall back to single-harness evaluation if multi-harness unavailable
+                    logger.debug(
+                        f"[FeedbackLoopController] MultiHarnessGauntlet not available, "
+                        f"falling back to single-harness: {e}"
+                    )
+                    await self._run_single_harness_gauntlet(
+                        config_key, model_path, board_type, num_players
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"[FeedbackLoopController] Multi-harness evaluation failed for {config_key}: {e}"
+                    )
+
+            _safe_create_task(run_multi_harness_gauntlet(), f"run_multi_harness_gauntlet({config_key})")
 
         except ImportError as e:
             logger.debug(f"[FeedbackLoopController] trigger_evaluation not available: {e}")

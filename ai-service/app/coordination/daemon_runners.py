@@ -683,6 +683,27 @@ async def create_nnue_training() -> None:
         raise
 
 
+async def create_architecture_feedback() -> None:
+    """Create and run architecture feedback controller (December 2025).
+
+    Bridges evaluation results to selfplay allocation by tracking architecture
+    performance. Enforces 10% minimum allocation per architecture.
+    Subscribes to: EVALUATION_COMPLETED, TRAINING_COMPLETED.
+    Emits: ARCHITECTURE_WEIGHTS_UPDATED.
+    """
+    try:
+        from app.coordination.architecture_feedback_controller import (
+            ArchitectureFeedbackController,
+        )
+
+        controller = ArchitectureFeedbackController.get_instance()
+        await controller.start()
+        await _wait_for_daemon(controller)
+    except ImportError as e:
+        logger.error(f"ArchitectureFeedbackController not available: {e}")
+        raise
+
+
 # =============================================================================
 # Evaluation & Promotion Daemons
 # =============================================================================
@@ -1830,6 +1851,8 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.CONNECTIVITY_RECOVERY.name: create_connectivity_recovery,
         # NNUE automatic training (December 29, 2025)
         DaemonType.NNUE_TRAINING.name: create_nnue_training,
+        # Architecture feedback controller (December 29, 2025)
+        DaemonType.ARCHITECTURE_FEEDBACK.name: create_architecture_feedback,
     }
 
 

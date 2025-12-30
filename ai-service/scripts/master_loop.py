@@ -1152,6 +1152,9 @@ class MasterLoopController:
             # December 29, 2025: Automatic NNUE training when game threshold reached
             # NNUE models are lightweight and train faster than full NN models
             DaemonType.NNUE_TRAINING,
+            # December 29, 2025: Architecture feedback controller
+            # Bridges evaluation results to selfplay allocation, enforces 10% minimum
+            DaemonType.ARCHITECTURE_FEEDBACK,
             # December 29, 2025: Proactive disk space management
             # Prevents sync/training failures due to disk full conditions
             DaemonType.DISK_SPACE_MANAGER,

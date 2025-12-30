@@ -2186,6 +2186,10 @@ class SelfplayScheduler:
             if hasattr(DataEventType, 'PROGRESS_RECOVERED'):
                 _safe_subscribe(DataEventType.PROGRESS_RECOVERED, self._on_progress_recovered, "PROGRESS_RECOVERED")
 
+            # Dec 29, 2025: Subscribe to architecture weight updates for allocation adjustment
+            if hasattr(DataEventType, 'ARCHITECTURE_WEIGHTS_UPDATED'):
+                _safe_subscribe(DataEventType.ARCHITECTURE_WEIGHTS_UPDATED, self._on_architecture_weights_updated, "ARCHITECTURE_WEIGHTS_UPDATED")
+
             self._subscribed = subscribed_count > 0
             if self._subscribed:
                 logger.info(
@@ -3462,6 +3466,38 @@ class SelfplayScheduler:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling progress recovery: {e}")
+
+    def _on_architecture_weights_updated(self, event: Any) -> None:
+        """Handle ARCHITECTURE_WEIGHTS_UPDATED - update architecture allocation weights.
+
+        Dec 29, 2025: When architecture performance changes, adjust selfplay
+        allocation to favor better-performing architectures while ensuring
+        10% minimum per architecture.
+
+        Args:
+            event: Event with payload containing config_key, weights dict, etc.
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = payload.get("config_key", "")
+            weights = payload.get("weights", {})
+
+            if not config_key or not weights:
+                return
+
+            # Store weights for use in allocation decisions
+            if not hasattr(self, "_architecture_weights"):
+                self._architecture_weights: dict[str, dict[str, float]] = {}
+
+            self._architecture_weights[config_key] = weights
+
+            logger.info(
+                f"[SelfplayScheduler] Updated architecture weights for {config_key}: "
+                f"{list(weights.items())[:3]}..."
+            )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling architecture weights: {e}")
 
     def get_elo_velocity(self, config_key: str) -> float:
         """Get computed Elo velocity for a config.

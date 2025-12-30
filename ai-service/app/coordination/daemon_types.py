@@ -332,6 +332,7 @@ class DaemonType(Enum):
     # Per-config game thresholds: hex8_2p=5000, hex8_4p=10000, square19_2p=2000
     # =========================================================================
     NNUE_TRAINING = "nnue_training"
+    ARCHITECTURE_FEEDBACK = "architecture_feedback"  # Dec 29, 2025: Architecture allocation weights
 
 
 class DaemonState(Enum):
@@ -536,16 +537,17 @@ DAEMON_STARTUP_ORDER: list[DaemonType] = [
     # =========================================================================
     DaemonType.QUALITY_MONITOR,        # 16. Quality monitoring (depends on DATA_PIPELINE)
     DaemonType.NNUE_TRAINING,          # 17. NNUE training (depends on DATA_PIPELINE)
-    DaemonType.DISTILLATION,           # 18. Distillation (depends on TRAINING_TRIGGER)
+    DaemonType.ARCHITECTURE_FEEDBACK,  # 18. Architecture allocation weights (Dec 29, 2025)
+    DaemonType.DISTILLATION,           # 19. Distillation (depends on TRAINING_TRIGGER)
 
     # =========================================================================
-    # Evaluation and promotion chain (positions 19-23)
+    # Evaluation and promotion chain (positions 20-24)
     # Must be in order: EVALUATION -> (UNIFIED_PROMOTION) -> AUTO_PROMOTION -> MODEL_DISTRIBUTION
     # =========================================================================
-    DaemonType.EVALUATION,             # 19. Model evaluation (depends on TRAINING_TRIGGER)
-    DaemonType.UNIFIED_PROMOTION,      # 20. Unified promotion (depends on EVALUATION)
-    DaemonType.AUTO_PROMOTION,         # 21. Auto-promotion (depends on EVALUATION)
-    DaemonType.MODEL_DISTRIBUTION,     # 22. Model distribution (depends on AUTO_PROMOTION)
+    DaemonType.EVALUATION,             # 20. Model evaluation (depends on TRAINING_TRIGGER)
+    DaemonType.UNIFIED_PROMOTION,      # 21. Unified promotion (depends on EVALUATION)
+    DaemonType.AUTO_PROMOTION,         # 22. Auto-promotion (depends on EVALUATION)
+    DaemonType.MODEL_DISTRIBUTION,     # 23. Model distribution (depends on AUTO_PROMOTION)
 ]
 
 
@@ -730,6 +732,7 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # NNUE automatic training (December 29, 2025)
     # Trains NNUE models when game thresholds are met
     DaemonType.NNUE_TRAINING: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
+    DaemonType.ARCHITECTURE_FEEDBACK: {DaemonType.EVENT_ROUTER},  # Dec 29, 2025
 }
 
 

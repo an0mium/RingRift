@@ -638,6 +638,21 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         auto_restart=True,
         max_restarts=5,
     ),
+    # =========================================================================
+    # Architecture Feedback Controller (Dec 29, 2025)
+    # Bridges evaluation results to selfplay allocation by tracking architecture
+    # performance. Enforces 10% minimum allocation per architecture.
+    # Subscribes to: EVALUATION_COMPLETED, TRAINING_COMPLETED
+    # Emits: ARCHITECTURE_WEIGHTS_UPDATED
+    # =========================================================================
+    DaemonType.ARCHITECTURE_FEEDBACK: DaemonSpec(
+        runner_name="create_architecture_feedback",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="feedback",
+        health_check_interval=300.0,  # 5 minutes
+        auto_restart=True,
+        max_restarts=3,
+    ),
 }
 
 

@@ -39,6 +39,7 @@ from typing import Any, Optional
 
 import psutil
 
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
@@ -193,7 +194,7 @@ class ResourceMonitor:
             }
             self._last_check_time = now
 
-        except Exception as e:
+        except (OSError, RuntimeError, psutil.Error) as e:
             logger.error(f"Resource check failed: {e}")
             self._last_check = {"error": str(e), "timestamp": now}
             self._last_check_time = now
@@ -482,9 +483,6 @@ class Safeguards(SingletonMixin):
         Returns:
             HealthCheckResult indicating safeguards health status.
         """
-        # Import from contracts (zero-dependency module)
-        from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
-
         warnings = []
 
         # Check emergency status
@@ -554,8 +552,6 @@ class Safeguards(SingletonMixin):
 
         December 2025: Added for singleton registry test cleanup.
         """
-        from app.coordination.singleton_mixin import SingletonMixin
-
         with cls._get_lock():
             if cls in SingletonMixin._instances:
                 instance = SingletonMixin._instances[cls]

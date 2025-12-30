@@ -167,6 +167,9 @@ class DataEventType(Enum):
     NAS_COMPLETED = "nas_completed"
     NAS_BEST_ARCHITECTURE = "nas_best_architecture"
 
+    # Architecture feedback events (December 29, 2025)
+    ARCHITECTURE_WEIGHTS_UPDATED = "architecture_weights_updated"  # Allocation weights recalculated
+
     # PER (Prioritized Experience Replay) events
     PER_BUFFER_REBUILT = "per_buffer_rebuilt"
     PER_PRIORITIES_UPDATED = "per_priorities_updated"

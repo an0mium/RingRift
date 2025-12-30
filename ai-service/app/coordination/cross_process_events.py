@@ -71,6 +71,7 @@ except ImportError:
 
 # Event retention/timeout (December 27, 2025: Centralized in coordination_defaults.py)
 from app.config.coordination_defaults import CrossProcessDefaults
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 
 DEFAULT_RETENTION_HOURS = CrossProcessDefaults.RETENTION_HOURS
 SUBSCRIBER_TIMEOUT_SECONDS = CrossProcessDefaults.SUBSCRIBER_TIMEOUT
