@@ -176,6 +176,17 @@ class NodeAvailabilityDaemon(BaseDaemon[NodeAvailabilityConfig]):
         # Initialize provider checkers
         self._init_checkers()
 
+        # Log startup mode prominently
+        if self.config.dry_run:
+            logger.warning(
+                "NodeAvailabilityDaemon started in DRY-RUN mode "
+                "(set RINGRIFT_NODE_AVAILABILITY_DRY_RUN=0 to enable config updates)"
+            )
+        else:
+            logger.info(
+                "NodeAvailabilityDaemon started with config updates ENABLED"
+            )
+
     @staticmethod
     def _get_default_config() -> NodeAvailabilityConfig:
         """Return default configuration."""

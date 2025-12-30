@@ -378,30 +378,44 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
             state.pending_recovery = False
 
     def _build_recovery_command(self, ssh_info: dict) -> str:
-        """Build the Tailscale recovery command."""
+        """Build the Tailscale recovery command.
+
+        Args:
+            ssh_info: SSH connection info including:
+                - is_container: Whether node is a container (uses userspace networking)
+                - hostname: Node hostname for Tailscale identification
+
+        Returns:
+            Shell command to recover Tailscale connectivity.
+        """
         is_container = ssh_info.get("is_container", False)
+        hostname = ssh_info.get("hostname", "unknown")
+
+        # Get authkey from environment for reauthorization
+        authkey = os.environ.get("TAILSCALE_AUTH_KEY", "")
+        authkey_arg = f"--authkey={authkey}" if authkey else ""
 
         if is_container:
-            # Container: Use userspace networking
-            return """
+            # Container: Use userspace networking (Vast.ai, RunPod, etc.)
+            return f"""
 pkill -9 tailscaled 2>/dev/null || true
 sleep 2
 mkdir -p /var/lib/tailscale /var/run/tailscale
 nohup tailscaled --tun=userspace-networking --statedir=/var/lib/tailscale > /tmp/tailscaled.log 2>&1 &
 sleep 5
-tailscale up --accept-routes
+tailscale up {authkey_arg} --accept-routes --hostname='{hostname}'
 tailscale ip -4
 """
         else:
-            # Regular host: Use systemctl
-            return """
-systemctl restart tailscaled 2>/dev/null || {
+            # Regular host: Use systemctl (Lambda, Nebius, etc.)
+            return f"""
+systemctl restart tailscaled 2>/dev/null || {{
     pkill -9 tailscaled
     sleep 2
     tailscaled --state=/var/lib/tailscale/tailscaled.state &
     sleep 5
-}
-tailscale up --accept-routes
+}}
+tailscale up {authkey_arg} --accept-routes --hostname='{hostname}'
 tailscale ip -4
 """
 
@@ -462,6 +476,7 @@ tailscale ip -4
                         "user": node.ssh_user or "root",
                         "key": node.ssh_key,
                         "is_container": getattr(node, "is_container", False),
+                        "hostname": node_name,  # For Tailscale --hostname arg
                     }
             return None
         except ImportError:
