@@ -3,9 +3,9 @@
 This document provides a comprehensive reference for all daemons managed by the RingRift AI service `DaemonManager`.
 
 **Last updated:** December 30, 2025 (availability + connectivity daemons)
-**Total Daemon Types:** 87 (87 in `daemon_runners.py`, 11 deprecated)
-**Startup Order:** 23 daemons in `DAEMON_STARTUP_ORDER` (see `daemon_types.py`)
-**Dependencies:** Canonical dependencies live in `DAEMON_REGISTRY` (87 entries); `DAEMON_DEPENDENCIES` covers 81 legacy entries
+**Total Daemon Types:** 89 (89 in `daemon_runners.py`, 11 deprecated)
+**Startup Order:** 24 daemons in `DAEMON_STARTUP_ORDER` (see `daemon_types.py`)
+**Dependencies:** Canonical dependencies live in `DAEMON_REGISTRY` (89 entries); `DAEMON_DEPENDENCIES` covers 85 legacy entries
 
 > **Architecture Note (December 2025):** Factory methods have been extracted from `daemon_manager.py` to `daemon_runners.py`. Factory methods named `create_*()` are in `daemon_runners.py`; methods named `_create_*()` remain in `daemon_manager.py` for legacy or special cases.
 
@@ -34,7 +34,7 @@ This document provides a comprehensive reference for all daemons managed by the 
 
 ## Overview
 
-The `DaemonManager` coordinates the lifecycle of 87 background services across the RingRift cluster. Daemons are organized into profiles based on node roles (coordinator, training_node, ephemeral, selfplay).
+The `DaemonManager` coordinates the lifecycle of 89 background services across the RingRift cluster. Daemons are organized into profiles based on node roles (coordinator, training_node, ephemeral, selfplay).
 It also listens for backpressure events (`BACKPRESSURE_ACTIVATED`/`BACKPRESSURE_RELEASED`) and
 pauses or resumes non-essential daemons when supported to reduce cluster load.
 
@@ -74,6 +74,7 @@ Data synchronization across the cluster.
 | Daemon Type             | Priority     | Description                                                                                                                | Dependencies                               |
 | ----------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | `AUTO_SYNC`             | **CRITICAL** | Primary data sync mechanism. Pulls game data to coordinator; includes min-move completeness checks to avoid mid-write DBs. | EVENT_ROUTER, DATA_PIPELINE, FEEDBACK_LOOP |
+| `STALE_FALLBACK`        | MEDIUM       | Graceful degradation when sync fails; allows training/selfplay to use older models until sync recovers.                    | EVENT_ROUTER, AUTO_SYNC                    |
 | `UNIFIED_DATA_PLANE`    | HIGH         | Unified data plane consolidating sync planners, transport, and event bridging.                                             | EVENT_ROUTER, DATA_PIPELINE, FEEDBACK_LOOP |
 | `SYNC_COORDINATOR`      | DEPRECATED   | Legacy sync coordinator. Use `AUTO_SYNC` instead. Scheduled for removal Q2 2026.                                           | EVENT_ROUTER                               |
 | `GOSSIP_SYNC`           | MEDIUM       | P2P gossip-based data synchronization for eventual consistency.                                                            | EVENT_ROUTER                               |
@@ -95,6 +96,7 @@ Data synchronization across the cluster.
 **Factory Methods:**
 
 - `create_auto_sync()` → Creates `AutoSyncDaemon`
+- `create_stale_fallback()` → Creates `TrainingFallbackController` (event-driven, sync failure fallback)
 - `create_unified_data_plane()` → Creates `UnifiedDataPlaneDaemon`
 - `create_sync_coordinator()` → Creates `SyncCoordinator` (deprecated)
 - `create_gossip_sync()` → Creates `GossipSyncDaemon`
@@ -191,6 +193,7 @@ Cluster health monitoring and alerting.
 | `WORK_QUEUE_MONITOR`         | HIGH       | Tracks work queue lifecycle (depth, latency, stuck jobs, backpressure).                                                                                        | EVENT_ROUTER, QUEUE_POPULATOR      |
 | `HEALTH_CHECK`               | DEPRECATED | Legacy health checker. Use `NODE_HEALTH_MONITOR` instead. Scheduled for removal Q2 2026.                                                                       | None                               |
 | `QUALITY_MONITOR`            | MEDIUM     | Continuous selfplay data quality monitoring. Triggers throttling feedback.                                                                                     | EVENT_ROUTER                       |
+| `MEMORY_MONITOR`             | HIGH       | Monitors GPU VRAM and process RSS. Emits MEMORY_PRESSURE/RESOURCE_CONSTRAINT events to prevent OOM crashes.                                                    | EVENT_ROUTER                       |
 | `MODEL_PERFORMANCE_WATCHDOG` | MEDIUM     | Monitors model win rates and performance metrics.                                                                                                              | EVENT_ROUTER                       |
 | `PROGRESS_WATCHDOG`          | MEDIUM     | Detects Elo velocity stalls and emits recovery signals for training plateaus.                                                                                  | EVENT_ROUTER, SELFPLAY_COORDINATOR |
 | `P2P_RECOVERY`               | MEDIUM     | Auto-restarts P2P orchestration on partition/failure to maintain cluster mesh stability.                                                                       | EVENT_ROUTER                       |
@@ -208,6 +211,7 @@ Cluster health monitoring and alerting.
 - `create_work_queue_monitor()` → Creates `WorkQueueMonitorDaemon`
 - `create_health_check()` → Creates `HealthChecker` (deprecated)
 - `create_quality_monitor()` → Uses `quality_monitor_daemon.create_quality_monitor()`
+- `create_memory_monitor()` → Creates `MemoryMonitorDaemon`
 - `create_model_performance_watchdog()` → Creates `ModelPerformanceWatchdog`
 - `create_progress_watchdog()` → Creates `ProgressWatchdogDaemon`
 - `create_p2p_recovery()` → Creates `P2PRecoveryDaemon`

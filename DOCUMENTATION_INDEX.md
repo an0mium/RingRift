@@ -379,14 +379,18 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 
 ### Core AI Service
 
-| Document                                                                                                             | Purpose                                       |
-| -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| [ai-service/README.md](ai-service/README.md)                                                                         | AI service overview, API entrypoints, scripts |
-| [ai-service/docs/README.md](ai-service/docs/README.md)                                                               | AI service documentation hub                  |
-| [ai-service/docs/API_REFERENCE.md](ai-service/docs/API_REFERENCE.md)                                                 | FastAPI + replay/admin API reference          |
-| [ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md](ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md) | Cluster monitor quick reference               |
-| [ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md)     | Neural network architecture (RingRiftCNN)     |
-| [ai-service/docs/architecture/MPS_ARCHITECTURE.md](ai-service/docs/architecture/MPS_ARCHITECTURE.md)                 | Apple Silicon MPS-compatible architecture     |
+| Document                                                                                                             | Purpose                                         |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| [ai-service/README.md](ai-service/README.md)                                                                         | AI service overview, API entrypoints, scripts   |
+| [ai-service/docs/README.md](ai-service/docs/README.md)                                                               | AI service documentation hub                    |
+| [ai-service/docs/API_REFERENCE.md](ai-service/docs/API_REFERENCE.md)                                                 | FastAPI + replay/admin API reference            |
+| [ai-service/docs/CONFIG_SOURCES.md](ai-service/docs/CONFIG_SOURCES.md)                                               | Configuration sources (YAML/env/CLI precedence) |
+| [ai-service/docs/ENV_REFERENCE.md](ai-service/docs/ENV_REFERENCE.md)                                                 | Curated AI service environment variables        |
+| [ai-service/docs/ENV_REFERENCE_COMPREHENSIVE.md](ai-service/docs/ENV_REFERENCE_COMPREHENSIVE.md)                     | Comprehensive AI service env vars               |
+| [ai-service/docs/AI_SERVICE_ENVIRONMENT_REFERENCE.md](ai-service/docs/AI_SERVICE_ENVIRONMENT_REFERENCE.md)           | Extended AI service env reference               |
+| [ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md](ai-service/app/distributed/CLUSTER_MONITOR_QUICKSTART.md) | Cluster monitor quick reference                 |
+| [ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/architecture/NEURAL_AI_ARCHITECTURE.md)     | Neural network architecture (RingRiftCNN)       |
+| [ai-service/docs/architecture/MPS_ARCHITECTURE.md](ai-service/docs/architecture/MPS_ARCHITECTURE.md)                 | Apple Silicon MPS-compatible architecture       |
 
 ### Training Pipeline (Active - Dec 2025)
 
@@ -408,6 +412,7 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 | [ai-service/docs/architecture/GPU_ARCHITECTURE_SIMPLIFICATION.md](ai-service/docs/architecture/GPU_ARCHITECTURE_SIMPLIFICATION.md)           | GPU architecture design notes                   |
 | `ai-service/docs/infrastructure/GPU_RULES_PARITY_AUDIT.md` (local-only, gitignored)                                                          | GPU vs CPU rules parity verification            |
 | [ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/infrastructure/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) | Cloud training infrastructure (Lambda, Vast.ai) |
+| [ai-service/docs/P2P_CONNECTIVITY_SOLUTIONS.md](ai-service/docs/P2P_CONNECTIVITY_SOLUTIONS.md)                                               | P2P connectivity options for cluster + Vast     |
 
 ### Data Formats & Schemas
 

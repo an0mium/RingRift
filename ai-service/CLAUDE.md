@@ -59,14 +59,14 @@ python scripts/update_all_nodes.py --restart-p2p
 | `app/config/coordination_defaults.py` | Centralized timeouts, thresholds, priority weights             |
 | `app/config/thresholds.py`            | Centralized quality/training/budget thresholds (canonical)     |
 
-### Coordination Infrastructure (255 modules)
+### Coordination Infrastructure (256 modules)
 
 | Module                                 | Purpose                                            |
 | -------------------------------------- | -------------------------------------------------- |
-| `daemon_manager.py`                    | Lifecycle for 95 daemon types (~2,000 LOC)         |
+| `daemon_manager.py`                    | Lifecycle for 99 daemon types (~2,000 LOC)         |
 | `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)    |
-| `daemon_runners.py`                    | 89 async runner functions                          |
-| `event_router.py`                      | Unified event bus (220+ event types, SHA256 dedup) |
+| `daemon_runners.py`                    | 90 async runner functions                          |
+| `event_router.py`                      | Unified event bus (200+ event types, SHA256 dedup) |
 | `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)    |
 | `budget_calculator.py`                 | Gumbel budget tiers, target games calculation      |
 | `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation       |
@@ -303,11 +303,11 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-84 active daemon types, 11 deprecated (95 total). Three-layer architecture:
+88 active daemon types, 11 deprecated (99 total). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 89 async runner functions
+3. **`daemon_runners.py`** - 90 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
