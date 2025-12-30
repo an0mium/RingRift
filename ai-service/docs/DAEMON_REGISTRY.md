@@ -673,12 +673,12 @@ Standalone (no dependencies):
 
 **Critical:** Event subscribers must start before event emitters to prevent lost events.
 
-The canonical startup order is defined in `DAEMON_STARTUP_ORDER` (daemon_types.py:367-403).
+The canonical startup order is defined in `DAEMON_STARTUP_ORDER` (see `daemon_types.py`).
 This ensures daemons start in dependency-safe order.
 
 ```
 ============================================================================
-DAEMON_STARTUP_ORDER (18 daemons) - December 27, 2025 fix
+DAEMON_STARTUP_ORDER (23 daemons) - December 27, 2025 fix
 ============================================================================
 
 Core Infrastructure (positions 1-4)
@@ -691,7 +691,7 @@ Sync and Queue Management (positions 5-10)
  5. AUTO_SYNC           # Data sync (emits events)
  6. QUEUE_POPULATOR     # Work queue maintenance
  7. WORK_QUEUE_MONITOR  # Queue visibility (after populator)
- 8. COORDINATOR_HEALTH  # Coordinator visibility
+ 8. COORDINATOR_HEALTH_MONITOR  # Coordinator visibility
  9. IDLE_RESOURCE       # GPU utilization
 10. TRAINING_TRIGGER    # Training trigger (after pipeline)
 
@@ -702,7 +702,7 @@ Monitoring Daemons (positions 11-15)
 14. CLUSTER_WATCHDOG    # Cluster watchdog (depends on CLUSTER_MONITOR)
 15. NODE_RECOVERY       # Node recovery (depends on NODE_HEALTH_MONITOR)
 
-Quality + Training Enhancement (positions 16-18)
+Quality + Training Enhancement (positions 16-19)
 16. QUALITY_MONITOR     # Quality monitoring (depends on DATA_PIPELINE)
 17. NNUE_TRAINING       # NNUE training (depends on DATA_PIPELINE)
 18. ARCHITECTURE_FEEDBACK # Architecture feedback (depends on EVENT_ROUTER)

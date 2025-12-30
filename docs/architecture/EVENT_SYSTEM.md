@@ -31,7 +31,7 @@ RingRift uses a unified event system to coordinate training pipeline components,
 
 ## Event Types
 
-Events are defined in `DataEventType` enum (252 total, ~100 actively used):
+Events are defined in `DataEventType` enum (207 total, subset actively used):
 
 ### Training Events
 

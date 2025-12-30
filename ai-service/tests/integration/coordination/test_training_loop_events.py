@@ -39,7 +39,7 @@ class TestTrainingLoopEventChain:
 
     def test_selfplay_to_new_games_event(self, mock_event_router):
         """Test that selfplay completion triggers NEW_GAMES_AVAILABLE."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Simulate selfplay completion
         asyncio.run(mock_event_router.publish(
@@ -59,7 +59,7 @@ class TestTrainingLoopEventChain:
 
     def test_training_completed_event_chain(self, mock_event_router):
         """Test that TRAINING_COMPLETED triggers downstream events."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Emit training completed
         asyncio.run(mock_event_router.publish(
@@ -81,7 +81,7 @@ class TestTrainingLoopEventChain:
 
     def test_evaluation_completed_triggers_promotion_check(self, mock_event_router):
         """Test that EVALUATION_COMPLETED can trigger MODEL_PROMOTED."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Emit evaluation completed with passing results
         asyncio.run(mock_event_router.publish(
@@ -105,7 +105,7 @@ class TestTrainingLoopEventChain:
 
     def test_regression_critical_pauses_training(self, mock_event_router):
         """Test that REGRESSION_CRITICAL triggers training pause."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Emit critical regression
         asyncio.run(mock_event_router.publish(
@@ -143,7 +143,7 @@ class TestClusterHealthEventChain:
 
     def test_host_offline_triggers_cluster_health_check(self, mock_event_bus):
         """Test that HOST_OFFLINE can trigger P2P_CLUSTER_UNHEALTHY."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Emit host offline
         asyncio.run(mock_event_bus.publish(
@@ -161,7 +161,7 @@ class TestClusterHealthEventChain:
 
     def test_host_online_triggers_recovery(self, mock_event_bus):
         """Test that HOST_ONLINE triggers recovery events."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Emit host online
         asyncio.run(mock_event_bus.publish(
@@ -195,7 +195,7 @@ class TestBackpressureEventChain:
 
     def test_evaluation_backpressure_emitted(self, mock_event_bus):
         """Test EVALUATION_BACKPRESSURE event emission."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Emit backpressure when queue depth exceeds threshold
         asyncio.run(mock_event_bus.publish(
@@ -215,7 +215,7 @@ class TestBackpressureEventChain:
 
     def test_backpressure_release_resumes_training(self, mock_event_bus):
         """Test backpressure release triggers training resume."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Emit backpressure released
         asyncio.run(mock_event_bus.publish(
@@ -238,7 +238,7 @@ class TestEventSubscriptionValidation:
 
     def test_data_event_types_exist(self):
         """Verify DataEventType enum has expected values."""
-        from app.coordination.data_events import DataEventType
+        from app.distributed.data_events import DataEventType
 
         # Training events
         assert hasattr(DataEventType, "TRAINING_COMPLETED")

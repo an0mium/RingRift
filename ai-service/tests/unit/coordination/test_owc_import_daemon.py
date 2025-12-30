@@ -317,50 +317,66 @@ class TestOWCImportDaemonAsync:
         reset_owc_import_daemon()
 
     async def test_run_ssh_command_success(self):
-        """SSH command execution success."""
+        """SSH command execution success.
+
+        Dec 29, 2025: Updated to mock SSHClient.run_async after SSH consolidation.
+        """
         daemon = OWCImportDaemon()
 
-        mock_proc = MagicMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate = AsyncMock(return_value=(b"output\n", b""))
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.stdout = "output\n"
+        mock_result.stderr = ""
+        mock_result.error = None
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch.object(daemon._ssh_client, "run_async", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = mock_result
             success, output = await daemon._run_ssh_command("ls -la")
 
         assert success is True
         assert output == "output"
 
     async def test_run_ssh_command_failure(self):
-        """SSH command execution failure."""
+        """SSH command execution failure.
+
+        Dec 29, 2025: Updated to mock SSHClient.run_async after SSH consolidation.
+        """
         daemon = OWCImportDaemon()
 
-        mock_proc = MagicMock()
-        mock_proc.returncode = 1
-        mock_proc.communicate = AsyncMock(return_value=(b"", b"error message"))
+        mock_result = MagicMock()
+        mock_result.success = False
+        mock_result.stdout = ""
+        mock_result.stderr = "error message"
+        mock_result.error = None
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch.object(daemon._ssh_client, "run_async", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = mock_result
             success, output = await daemon._run_ssh_command("bad command")
 
         assert success is False
         assert "error message" in output
 
     async def test_run_ssh_command_timeout(self):
-        """SSH command timeout."""
+        """SSH command timeout.
+
+        Dec 29, 2025: Updated to mock SSHClient.run_async after SSH consolidation.
+        """
         daemon = OWCImportDaemon()
         daemon.config.ssh_timeout = 0.1  # Very short timeout
 
-        async def slow_communicate():
-            await asyncio.sleep(10)
-            return b"", b""
+        mock_result = MagicMock()
+        mock_result.success = False
+        mock_result.stdout = ""
+        mock_result.stderr = "Command timed out after 0.1s"
+        mock_result.error = None
+        mock_result.timed_out = True
 
-        mock_proc = MagicMock()
-        mock_proc.communicate = slow_communicate
-
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+        with patch.object(daemon._ssh_client, "run_async", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = mock_result
             success, output = await daemon._run_ssh_command("slow command")
 
         assert success is False
-        assert "timed out" in output
+        assert "timed out" in output.lower()
 
     async def test_check_owc_available_true(self):
         """OWC availability check when available."""

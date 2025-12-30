@@ -301,6 +301,45 @@ their emitters, and subscribers. This is the single source of truth for event in
 - **Subscribers**:
   - `daemon_event_handlers.py` - Adjusts daemon roles
 
+### PROGRESS_STALL_DETECTED
+
+- **Emitter**: `progress_watchdog_daemon.py`
+- **Purpose**: Detects when a config's Elo progress stalls (6+ hours without positive velocity)
+- **Payload**: `config_key`, `action`, `stall_duration_hours`, `recent_elo_velocity`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Boosts selfplay priority for stalled config
+  - `daemon_event_handlers.py` - May trigger recovery actions
+- **Added**: December 2025 (48-hour autonomous operation)
+
+### PROGRESS_RECOVERED
+
+- **Emitter**: `progress_watchdog_daemon.py`
+- **Purpose**: Indicates a previously stalled config has resumed positive Elo progress
+- **Payload**: `config_key`, `recovery_duration_hours`, `current_elo`, `velocity`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Normalizes priority
+- **Added**: December 2025 (48-hour autonomous operation)
+
+### ORPHAN_GAMES_DETECTED
+
+- **Emitter**: `orphan_detection_daemon.py`
+- **Purpose**: Detects games that are orphaned (not in any database, on terminating nodes)
+- **Payload**: `node_id`, `orphan_count`, `game_ids`, `total_moves`
+- **Subscribers**:
+  - `data_pipeline_orchestrator.py` - Triggers recovery sync
+  - `unified_replication_daemon.py` - Initiates emergency replication
+- **Added**: December 2025
+
+### MEMORY_PRESSURE
+
+- **Emitter**: `memory_monitor_daemon.py`
+- **Purpose**: GPU VRAM or system memory is critically low
+- **Payload**: `node_id`, `vram_used_pct`, `system_used_pct`, `threshold`
+- **Subscribers**:
+  - `selfplay_scheduler.py` - Pauses job spawning on affected nodes
+  - `daemon_event_handlers.py` - May trigger process cleanup
+- **Added**: December 2025 (48-hour autonomous operation)
+
 ### HEALTH_ALERT
 
 - **Emitter**: `daemon_event_handlers.py`
