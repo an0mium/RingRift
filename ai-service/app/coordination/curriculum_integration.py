@@ -431,7 +431,7 @@ class MomentumToCurriculumBridge:
         try:
             payload = event.payload if hasattr(event, 'payload') else {}
 
-            config_key = payload.get("config", payload.get("config_key", ""))
+            config_key = extract_config_key(payload)
             old_tier = payload.get("old_tier", "")
             new_tier = payload.get("new_tier", "")
             elo = payload.get("elo", 0.0)
@@ -549,7 +549,7 @@ class MomentumToCurriculumBridge:
         try:
             payload = event.payload if hasattr(event, 'payload') else event if isinstance(event, dict) else {}
 
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             reason = payload.get("reason", "unknown")
             timestamp = payload.get("timestamp", 0.0)
 
@@ -1132,7 +1132,7 @@ class PromotionFailedToCurriculumWatcher:
         try:
             payload = event.payload if hasattr(event, 'payload') else event
 
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             error = payload.get("error", "unknown")
             model_id = payload.get("model_id", "")
 
@@ -1334,7 +1334,7 @@ class PromotionCompletedToCurriculumWatcher:
         try:
             payload = event.payload if hasattr(event, 'payload') else event
 
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             success = payload.get("success", False)
             elo_change = payload.get("elo_change", 0.0)
             consecutive_failures = payload.get("consecutive_failures", 0)
@@ -1592,7 +1592,7 @@ class RegressionCriticalToCurriculumWatcher:
         try:
             payload = event.payload if hasattr(event, 'payload') else event
 
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             severity = payload.get("severity", "unknown")
             elo_drop = payload.get("elo_drop", 0)
             consecutive_regressions = payload.get("consecutive_regressions", 1)
@@ -1798,7 +1798,7 @@ class QualityPenaltyToCurriculumWatcher:
         try:
             payload = event.payload if hasattr(event, 'payload') else event
 
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
             new_penalty = payload.get("new_penalty", 0.0)
             rate_multiplier = payload.get("rate_multiplier", 1.0)
             reason = payload.get("reason", "")
@@ -2018,7 +2018,7 @@ class QualityToTemperatureWatcher:
         """Handle QUALITY_FEEDBACK_ADJUSTED event."""
         payload = event.payload if hasattr(event, 'payload') else {}
 
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         avg_quality = payload.get("avg_quality", 0.5)
 
         if not config_key:
@@ -2030,7 +2030,7 @@ class QualityToTemperatureWatcher:
         """Handle QUALITY_SCORE_UPDATED event."""
         payload = event.payload if hasattr(event, 'payload') else {}
 
-        config_key = payload.get("config") or payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality = payload.get("quality_score", payload.get("new_score", 0.5))
 
         if not config_key:

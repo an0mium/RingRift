@@ -6,6 +6,8 @@ Requires vultr-cli to be installed and configured with API key.
 Configuration:
     ~/.vultr-cli.yaml:
         api-key: YOUR_API_KEY
+
+December 30, 2025: Added circuit breaker protection for API resilience.
 """
 
 from __future__ import annotations
@@ -25,8 +27,40 @@ from app.coordination.providers.base import (
     InstanceStatus,
     ProviderType,
 )
+from app.distributed.circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+)
 
 logger = logging.getLogger(__name__)
+
+# Circuit breaker for Vultr API calls (December 30, 2025)
+# Vultr has 2 A100 nodes, medium priority
+_vultr_circuit_breaker: CircuitBreaker | None = None
+
+
+def get_vultr_circuit_breaker() -> CircuitBreaker:
+    """Get the Vultr API circuit breaker singleton."""
+    global _vultr_circuit_breaker
+    if _vultr_circuit_breaker is None:
+        _vultr_circuit_breaker = CircuitBreaker(
+            failure_threshold=3,  # Open after 3 consecutive failures
+            recovery_timeout=45.0,  # Wait 45s before testing recovery
+            half_open_max_calls=1,  # Single test call in half-open
+            success_threshold=1,
+            operation_type="vultr_api",
+            max_backoff=300.0,  # Cap at 5 minutes
+        )
+    return _vultr_circuit_breaker
+
+
+def reset_vultr_circuit_breaker() -> None:
+    """Reset the circuit breaker (for testing)."""
+    global _vultr_circuit_breaker
+    if _vultr_circuit_breaker is not None:
+        _vultr_circuit_breaker.reset_all()
+    _vultr_circuit_breaker = None
 
 # Vultr GPU instance plans (as of Dec 2025)
 VULTR_GPU_PLANS = {
