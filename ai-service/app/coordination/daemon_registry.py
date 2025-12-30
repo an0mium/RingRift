@@ -92,6 +92,14 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="sync",
     ),
+    # OWC external drive import (December 29, 2025) - periodic import from OWC drive
+    # Imports training data from external archive on mac-studio for underserved configs
+    DaemonType.OWC_IMPORT: DaemonSpec(
+        runner_name="create_owc_import",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE),
+        category="sync",
+        health_check_interval=1800.0,  # 30 min - runs hourly import cycles
+    ),
     # Ephemeral sync for Vast.ai (Phase 4)
     DaemonType.EPHEMERAL_SYNC: DaemonSpec(
         runner_name="create_ephemeral_sync",

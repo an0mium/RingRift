@@ -659,6 +659,12 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
             source_conn.row_factory = sqlite3.Row
             target_conn = sqlite3.connect(str(target_db), timeout=30.0)
 
+            # December 29, 2025: Get target database columns to filter source columns
+            # This prevents INSERT errors when source has columns target doesn't have
+            target_cursor = target_conn.execute("PRAGMA table_info(games)")
+            target_columns = {row[1] for row in target_cursor.fetchall()}
+            logger.debug(f"[DataConsolidationDaemon] Target columns: {target_columns}")
+
             # Query games for this config
             cursor = source_conn.execute("""
                 SELECT * FROM games
@@ -668,7 +674,13 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
 
             # December 29, 2025: Fetch all rows first for batch move counting
             all_rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
+            source_columns = [desc[0] for desc in cursor.description]
+
+            # December 29, 2025: Filter to only columns that exist in target
+            # Build mapping from source column index to value
+            columns = [col for col in source_columns if col in target_columns]
+            column_indices = [source_columns.index(col) for col in columns]
+            logger.debug(f"[DataConsolidationDaemon] Using {len(columns)}/{len(source_columns)} columns")
 
             # December 29, 2025: Batch pre-fetch move counts to avoid N+1 queries
             # This reduces O(n) database round trips to O(1)
@@ -714,20 +726,28 @@ class DataConsolidationDaemon(BaseDaemon[ConsolidationConfig]):
 
                 # Insert game into target
                 try:
-                    # Note: columns already defined above from cursor.description
-                    values = list(row)
+                    # December 29, 2025: Create copies for each row to avoid shared list mutation
+                    # The columns list is defined once from cursor.description, but we may
+                    # need to add consolidated_at. Using copies prevents the bug where
+                    # len(cols) != len(values) on subsequent iterations.
+                    cols = columns.copy()
+
+                    # December 29, 2025: Extract only values for columns that exist in target
+                    # Use column_indices to get values in the same order as filtered columns
+                    raw_row = list(row)
+                    values = [raw_row[i] for i in column_indices]
 
                     # Add/update consolidated_at
-                    if "consolidated_at" in columns:
-                        idx = columns.index("consolidated_at")
+                    if "consolidated_at" in cols:
+                        idx = cols.index("consolidated_at")
                         values[idx] = now
                     else:
-                        columns.append("consolidated_at")
+                        cols.append("consolidated_at")
                         values.append(now)
 
-                    placeholders = ",".join("?" * len(columns))
+                    placeholders = ",".join("?" * len(cols))
                     target_conn.execute(
-                        f"INSERT OR IGNORE INTO games ({','.join(columns)}) VALUES ({placeholders})",
+                        f"INSERT OR IGNORE INTO games ({','.join(cols)}) VALUES ({placeholders})",
                         values
                     )
 

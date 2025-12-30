@@ -207,6 +207,39 @@ async def create_training_data_sync() -> None:
         raise
 
 
+async def create_owc_import() -> None:
+    """Create and run OWC import daemon (December 29, 2025).
+
+    Periodically imports training data from OWC external drive on mac-studio
+    for underserved configs (those with <500 games in canonical databases).
+
+    Features:
+    - SSH-based discovery of databases on OWC drive
+    - Automatic detection of underserved configs
+    - Rsync-based database transfer
+    - Event emission for consolidation pipeline integration
+    - Emits NEW_GAMES_AVAILABLE and DATA_SYNC_COMPLETED events
+
+    Environment variables:
+    - OWC_HOST: Remote host with OWC drive (default: mac-studio)
+    - OWC_BASE_PATH: Base path on OWC drive (default: /Volumes/RingRift-Data)
+    - OWC_SSH_KEY: SSH key for connection (default: ~/.ssh/id_ed25519)
+    """
+    try:
+        from app.coordination.owc_import_daemon import (
+            OWCImportConfig,
+            OWCImportDaemon,
+            get_owc_import_daemon,
+        )
+
+        daemon = get_owc_import_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"OWCImportDaemon not available: {e}")
+        raise
+
+
 async def create_ephemeral_sync() -> None:
     """Create and run ephemeral sync daemon (Phase 4, December 2025).
 
@@ -1665,6 +1698,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.AUTO_SYNC.name: create_auto_sync,
         DaemonType.TRAINING_NODE_WATCHER.name: create_training_node_watcher,
         DaemonType.TRAINING_DATA_SYNC.name: create_training_data_sync,
+        DaemonType.OWC_IMPORT.name: create_owc_import,
         DaemonType.EPHEMERAL_SYNC.name: create_ephemeral_sync,
         DaemonType.GOSSIP_SYNC.name: create_gossip_sync,
         DaemonType.EVENT_ROUTER.name: create_event_router,

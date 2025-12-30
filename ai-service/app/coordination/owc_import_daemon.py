@@ -1,0 +1,517 @@
+"""OWC Import Daemon - Automatic data import from external OWC drive.
+
+This daemon monitors the OWC external drive (mac-studio:/Volumes/RingRift-Data)
+for new training data and automatically imports it into the training pipeline.
+
+Workflow:
+1. Periodically scan OWC for databases with games for underserved configs
+2. Sync databases to local staging area
+3. Emit NEW_GAMES_AVAILABLE events to trigger DataConsolidationDaemon
+4. Emit DATA_SYNC_COMPLETED to trigger downstream pipeline
+
+This integrates with the existing daemon infrastructure:
+- DataConsolidationDaemon: Handles the actual merge into canonical databases
+- DataPipelineOrchestrator: Handles NPZ export and training triggers
+- AutoSyncDaemon: Handles cluster-wide data distribution
+
+Environment Variables:
+    OWC_HOST: OWC host (default: mac-studio)
+    OWC_USER: SSH user for OWC host
+    OWC_BASE_PATH: OWC mount path (default: /Volumes/RingRift-Data)
+    OWC_SSH_KEY: Path to SSH key (default: ~/.ssh/id_ed25519)
+    RINGRIFT_OWC_IMPORT_ENABLED: Enable/disable daemon (default: true)
+    RINGRIFT_OWC_IMPORT_INTERVAL: Check interval in seconds (default: 3600)
+    RINGRIFT_OWC_IMPORT_MIN_GAMES: Minimum games to trigger import (default: 50)
+
+December 2025: Created as part of the training data pipeline infrastructure.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import subprocess
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from app.coordination.base_daemon import BaseDaemon, DaemonConfig
+from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "OWCImportDaemon",
+    "OWCImportConfig",
+    "get_owc_import_daemon",
+    "reset_owc_import_daemon",
+]
+
+# Singleton
+_owc_import_daemon: "OWCImportDaemon | None" = None
+
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+OWC_HOST = os.getenv("OWC_HOST", "mac-studio")
+OWC_USER = os.getenv("OWC_USER", "armand")
+OWC_BASE_PATH = os.getenv("OWC_BASE_PATH", "/Volumes/RingRift-Data")
+OWC_SSH_KEY = os.getenv("OWC_SSH_KEY", os.path.expanduser("~/.ssh/id_ed25519"))
+
+# Critical configs that need more data
+UNDERSERVED_THRESHOLD = 500  # Configs with fewer than this are underserved
+
+# Known good OWC database paths
+OWC_SOURCE_DATABASES = [
+    "selfplay_repository/consolidated_archives/synced_20251213_182629_vast_2x5090_selfplay.db",
+    "selfplay_repository/consolidated_archives/synced_20251213_172954_vast-5090-quad_selfplay.db",
+    "selfplay_repository/consolidated_archives/synced_20251213_182629_lambda-h100_selfplay.db",
+    "training_data/coordinator_backup/sq19_4p_selfplay.db",
+    "training_data/coordinator_backup/sq19_2p_selfplay.db",
+]
+
+
+@dataclass
+class OWCImportConfig(DaemonConfig):
+    """Configuration for OWC Import daemon."""
+
+    # Check interval (default: 1 hour)
+    check_interval_seconds: int = 3600
+
+    # Minimum games on OWC to trigger import
+    min_games_for_import: int = 50
+
+    # Local staging directory
+    staging_dir: Path = field(default_factory=lambda: Path("data/games/owc_imports"))
+
+    # OWC connection
+    owc_host: str = OWC_HOST
+    owc_user: str = OWC_USER
+    owc_base_path: str = OWC_BASE_PATH
+    owc_ssh_key: str = OWC_SSH_KEY
+
+    # Timeout for OWC operations
+    ssh_timeout: int = 60
+    rsync_timeout: int = 600
+
+    @classmethod
+    def from_env(cls) -> "OWCImportConfig":
+        """Load configuration from environment."""
+        return cls(
+            enabled=os.getenv("RINGRIFT_OWC_IMPORT_ENABLED", "true").lower() == "true",
+            check_interval_seconds=int(os.getenv("RINGRIFT_OWC_IMPORT_INTERVAL", "3600")),
+            min_games_for_import=int(os.getenv("RINGRIFT_OWC_IMPORT_MIN_GAMES", "50")),
+        )
+
+
+@dataclass
+class OWCDatabaseInfo:
+    """Information about a database on OWC."""
+    path: str
+    configs: dict[str, int] = field(default_factory=dict)
+    synced: bool = False
+
+
+@dataclass
+class ImportStats:
+    """Statistics for an import cycle."""
+    cycle_start: float = 0.0
+    cycle_end: float = 0.0
+    databases_scanned: int = 0
+    databases_synced: int = 0
+    games_imported: int = 0
+    configs_updated: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def duration_seconds(self) -> float:
+        return self.cycle_end - self.cycle_start
+
+
+# ============================================================================
+# OWC Import Daemon
+# ============================================================================
+
+
+class OWCImportDaemon(BaseDaemon[OWCImportConfig]):
+    """Daemon that imports training data from OWC external drive.
+
+    This daemon runs on the coordinator and periodically checks the OWC drive
+    for databases containing games for underserved configurations.
+    """
+
+    _instance: "OWCImportDaemon | None" = None
+
+    def __init__(self, config: OWCImportConfig | None = None):
+        super().__init__(config)
+        self._last_import: dict[str, float] = {}  # config_key -> last import time
+        self._import_history: list[ImportStats] = []
+        self._total_games_imported = 0
+        self._owc_available = True
+
+    @staticmethod
+    def _get_default_config() -> OWCImportConfig:
+        return OWCImportConfig.from_env()
+
+    def _get_daemon_name(self) -> str:
+        return "OWCImport"
+
+    @classmethod
+    def get_instance(cls) -> "OWCImportDaemon":
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        cls._instance = None
+
+    # =========================================================================
+    # OWC Operations
+    # =========================================================================
+
+    async def _run_ssh_command(self, command: str) -> tuple[bool, str]:
+        """Run SSH command on OWC host."""
+        ssh_cmd = [
+            "ssh",
+            "-o", "ConnectTimeout=10",
+            "-o", "StrictHostKeyChecking=no",
+            "-i", self.config.owc_ssh_key,
+            f"{self.config.owc_user}@{self.config.owc_host}",
+            command,
+        ]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *ssh_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self.config.ssh_timeout,
+            )
+
+            if proc.returncode == 0:
+                return True, stdout.decode().strip()
+            else:
+                return False, stderr.decode().strip()
+
+        except asyncio.TimeoutError:
+            return False, "SSH command timed out"
+        except Exception as e:
+            return False, str(e)
+
+    async def _check_owc_available(self) -> bool:
+        """Check if OWC drive is accessible."""
+        success, output = await self._run_ssh_command(
+            f"ls -d '{self.config.owc_base_path}' 2>/dev/null"
+        )
+        return success
+
+    async def _scan_owc_database(self, rel_path: str) -> OWCDatabaseInfo | None:
+        """Scan a database on OWC for game counts by config."""
+        full_path = f"{self.config.owc_base_path}/{rel_path}"
+
+        query = """
+            SELECT board_type || '_' || num_players || 'p' as config, COUNT(*)
+            FROM games
+            WHERE winner IS NOT NULL
+            GROUP BY board_type, num_players
+        """
+
+        success, output = await self._run_ssh_command(
+            f"sqlite3 '{full_path}' \"{query}\""
+        )
+
+        if not success:
+            return None
+
+        info = OWCDatabaseInfo(path=rel_path)
+
+        for line in output.strip().split("\n"):
+            if "|" in line:
+                parts = line.split("|")
+                if len(parts) == 2:
+                    try:
+                        info.configs[parts[0]] = int(parts[1])
+                    except ValueError:
+                        pass
+
+        return info if info.configs else None
+
+    async def _sync_database(self, rel_path: str) -> Path | None:
+        """Sync a database from OWC to local staging."""
+        self.config.staging_dir.mkdir(parents=True, exist_ok=True)
+
+        local_name = rel_path.replace("/", "_")
+        local_path = self.config.staging_dir / local_name
+
+        remote_path = f"{self.config.owc_user}@{self.config.owc_host}:{self.config.owc_base_path}/{rel_path}"
+
+        rsync_cmd = [
+            "rsync", "-avz",
+            "-e", f"ssh -i {self.config.owc_ssh_key} -o StrictHostKeyChecking=no",
+            remote_path,
+            str(local_path),
+        ]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *rsync_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self.config.rsync_timeout,
+            )
+
+            if proc.returncode == 0 and local_path.exists():
+                logger.info(f"[OWCImport] Synced {rel_path} ({local_path.stat().st_size / 1024 / 1024:.1f} MB)")
+                return local_path
+            else:
+                return None
+
+        except asyncio.TimeoutError:
+            logger.warning(f"[OWCImport] Rsync timed out for {rel_path}")
+            return None
+        except Exception as e:
+            logger.warning(f"[OWCImport] Rsync error for {rel_path}: {e}")
+            return None
+
+    # =========================================================================
+    # Local Operations
+    # =========================================================================
+
+    def _get_local_game_count(self, config_key: str) -> int:
+        """Get current game count in local canonical database."""
+        parts = config_key.rsplit("_", 1)
+        if len(parts) != 2:
+            return 0
+
+        board_type = parts[0]
+        num_players_str = parts[1].replace("p", "")
+
+        try:
+            num_players = int(num_players_str)
+        except ValueError:
+            return 0
+
+        canonical_path = Path("data/games") / f"canonical_{board_type}_{num_players}p.db"
+
+        if not canonical_path.exists():
+            return 0
+
+        try:
+            import sqlite3
+            with sqlite3.connect(str(canonical_path)) as conn:
+                cursor = conn.execute("SELECT COUNT(*) FROM games WHERE winner IS NOT NULL")
+                return cursor.fetchone()[0]
+        except Exception:
+            return 0
+
+    def _get_underserved_configs(self) -> list[str]:
+        """Get list of configs that need more data."""
+        from app.coordination.progress_watchdog_daemon import CANONICAL_CONFIGS
+
+        underserved = []
+        for config in CANONICAL_CONFIGS:
+            local_count = self._get_local_game_count(config)
+            if local_count < UNDERSERVED_THRESHOLD:
+                underserved.append(config)
+
+        return underserved
+
+    # =========================================================================
+    # Event Emission
+    # =========================================================================
+
+    def _emit_new_games_available(self, config_key: str, games_added: int, source: str) -> None:
+        """Emit NEW_GAMES_AVAILABLE event to trigger consolidation."""
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                DataEventType.NEW_GAMES_AVAILABLE,
+                config_key=config_key,
+                new_games=games_added,
+                source=source,
+                trigger="owc_import",
+            )
+            logger.debug(f"[OWCImport] Emitted NEW_GAMES_AVAILABLE for {config_key}")
+
+        except Exception as e:
+            logger.debug(f"[OWCImport] Could not emit event: {e}")
+
+    def _emit_data_sync_completed(self, configs_updated: list[str], games_imported: int) -> None:
+        """Emit DATA_SYNC_COMPLETED event to trigger pipeline."""
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                DataEventType.DATA_SYNC_COMPLETED,
+                sync_type="owc_import",
+                configs_updated=configs_updated,
+                games_imported=games_imported,
+                source="OWCImportDaemon",
+            )
+
+        except Exception as e:
+            logger.debug(f"[OWCImport] Could not emit sync event: {e}")
+
+    # =========================================================================
+    # Main Cycle
+    # =========================================================================
+
+    async def _run_cycle(self) -> None:
+        """Main import cycle."""
+        stats = ImportStats(cycle_start=time.time())
+
+        # Check OWC availability
+        if not await self._check_owc_available():
+            if self._owc_available:  # Log only on state change
+                logger.warning(f"[OWCImport] OWC drive not available at {self.config.owc_host}:{self.config.owc_base_path}")
+            self._owc_available = False
+            return
+
+        if not self._owc_available:
+            logger.info(f"[OWCImport] OWC drive is now available")
+        self._owc_available = True
+
+        # Get underserved configs
+        underserved = self._get_underserved_configs()
+        if not underserved:
+            logger.debug("[OWCImport] All configs have sufficient data")
+            return
+
+        logger.info(f"[OWCImport] Checking OWC for underserved configs: {underserved}")
+
+        # Scan OWC databases
+        databases_to_sync: list[OWCDatabaseInfo] = []
+
+        for rel_path in OWC_SOURCE_DATABASES:
+            info = await self._scan_owc_database(rel_path)
+            if info:
+                stats.databases_scanned += 1
+
+                # Check if database has games for underserved configs
+                has_needed_games = any(
+                    config in underserved and count >= self.config.min_games_for_import
+                    for config, count in info.configs.items()
+                )
+
+                if has_needed_games:
+                    databases_to_sync.append(info)
+
+        # Sync relevant databases
+        synced_paths: list[Path] = []
+        for db_info in databases_to_sync:
+            local_path = await self._sync_database(db_info.path)
+            if local_path:
+                synced_paths.append(local_path)
+                db_info.synced = True
+                stats.databases_synced += 1
+
+        if not synced_paths:
+            logger.debug("[OWCImport] No databases needed syncing")
+            return
+
+        # Emit events for each underserved config that has new data
+        for db_info in databases_to_sync:
+            if not db_info.synced:
+                continue
+
+            for config_key, count in db_info.configs.items():
+                if config_key in underserved and count >= self.config.min_games_for_import:
+                    self._emit_new_games_available(config_key, count, f"owc:{db_info.path}")
+                    stats.games_imported += count
+
+                    if config_key not in stats.configs_updated:
+                        stats.configs_updated.append(config_key)
+
+        # Emit completion event
+        if stats.configs_updated:
+            self._emit_data_sync_completed(stats.configs_updated, stats.games_imported)
+
+        stats.cycle_end = time.time()
+        self._import_history.append(stats)
+        self._total_games_imported += stats.games_imported
+
+        # Trim history
+        if len(self._import_history) > 50:
+            self._import_history = self._import_history[-50:]
+
+        logger.info(
+            f"[OWCImport] Cycle complete: synced {stats.databases_synced} DBs, "
+            f"~{stats.games_imported} games for {stats.configs_updated}"
+        )
+
+    # =========================================================================
+    # Health & Status
+    # =========================================================================
+
+    def health_check(self) -> HealthCheckResult:
+        """Return health status."""
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="OWCImport not running",
+            )
+
+        if not self._owc_available:
+            return HealthCheckResult(
+                healthy=True,  # Still healthy, just OWC unavailable
+                status=CoordinatorStatus.RUNNING,
+                message="OWC drive not available",
+                details={"owc_host": self.config.owc_host},
+            )
+
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"OWC import active, {self._total_games_imported} games imported",
+            details={
+                "cycles_completed": self._cycles_completed,
+                "total_games_imported": self._total_games_imported,
+                "owc_available": self._owc_available,
+            },
+        )
+
+    def get_status(self) -> dict[str, Any]:
+        """Return detailed status."""
+        base = super().get_status()
+        base.update({
+            "owc_host": self.config.owc_host,
+            "owc_available": self._owc_available,
+            "total_games_imported": self._total_games_imported,
+            "recent_imports": [
+                {
+                    "configs": s.configs_updated,
+                    "games": s.games_imported,
+                    "duration_seconds": s.duration_seconds,
+                }
+                for s in self._import_history[-5:]
+            ],
+        })
+        return base
+
+
+# ============================================================================
+# Singleton Accessors
+# ============================================================================
+
+
+def get_owc_import_daemon() -> OWCImportDaemon:
+    """Get the singleton OWC import daemon."""
+    return OWCImportDaemon.get_instance()
+
+
+def reset_owc_import_daemon() -> None:
+    """Reset the singleton (for testing)."""
+    OWCImportDaemon.reset_instance()

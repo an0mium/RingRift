@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Generator
 
@@ -32,9 +34,133 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# December 29, 2025: Cache configuration
+# 5-minute TTL for manifest cache by default (configurable via env var)
+DEFAULT_CACHE_TTL_SECONDS = int(os.environ.get("RINGRIFT_MANIFEST_CACHE_TTL", "300"))
+
 __all__ = [
     "DataLocationRegistry",
+    "CacheEntry",
+    "RegistryCache",
 ]
+
+
+@dataclass
+class CacheEntry:
+    """A cached value with TTL tracking.
+
+    December 29, 2025: Added to reduce database queries for frequently
+    accessed manifest data.
+    """
+
+    value: Any
+    timestamp: float = field(default_factory=time.time)
+    ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS
+
+    def is_valid(self) -> bool:
+        """Check if cache entry is still valid."""
+        return time.time() - self.timestamp < self.ttl_seconds
+
+
+class RegistryCache:
+    """TTL-based cache for registry queries.
+
+    December 29, 2025: Implements a simple in-memory cache with:
+    - 5-minute TTL (configurable)
+    - Automatic invalidation on write operations
+    - Per-key storage for efficient lookups
+
+    Usage:
+        cache = RegistryCache(ttl_seconds=300)
+        cache.set("game:123", locations)
+        result = cache.get("game:123")  # Returns cached or None
+        cache.invalidate_prefix("game:")  # Invalidate all game entries
+    """
+
+    def __init__(self, ttl_seconds: float = DEFAULT_CACHE_TTL_SECONDS):
+        """Initialize the cache.
+
+        Args:
+            ttl_seconds: Time-to-live for cache entries (default 5 min)
+        """
+        self.ttl_seconds = ttl_seconds
+        self._cache: dict[str, CacheEntry] = {}
+        self._hit_count = 0
+        self._miss_count = 0
+
+    def get(self, key: str) -> Any | None:
+        """Get a cached value if valid.
+
+        Args:
+            key: Cache key
+
+        Returns:
+            Cached value or None if not found/expired
+        """
+        entry = self._cache.get(key)
+        if entry is not None and entry.is_valid():
+            self._hit_count += 1
+            return entry.value
+        if entry is not None:
+            # Entry expired, remove it
+            del self._cache[key]
+        self._miss_count += 1
+        return None
+
+    def set(self, key: str, value: Any) -> None:
+        """Store a value in cache.
+
+        Args:
+            key: Cache key
+            value: Value to cache
+        """
+        self._cache[key] = CacheEntry(
+            value=value,
+            ttl_seconds=self.ttl_seconds,
+        )
+
+    def invalidate(self, key: str) -> None:
+        """Invalidate a specific cache entry.
+
+        Args:
+            key: Cache key to invalidate
+        """
+        self._cache.pop(key, None)
+
+    def invalidate_prefix(self, prefix: str) -> int:
+        """Invalidate all cache entries with given prefix.
+
+        Args:
+            prefix: Key prefix to match (e.g., "game:", "model:")
+
+        Returns:
+            Number of entries invalidated
+        """
+        keys_to_remove = [k for k in self._cache if k.startswith(prefix)]
+        for key in keys_to_remove:
+            del self._cache[key]
+        return len(keys_to_remove)
+
+    def clear(self) -> None:
+        """Clear all cache entries."""
+        self._cache.clear()
+        self._hit_count = 0
+        self._miss_count = 0
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get cache statistics.
+
+        Returns:
+            Dict with hit/miss counts, entry count, hit ratio
+        """
+        total = self._hit_count + self._miss_count
+        return {
+            "entries": len(self._cache),
+            "hits": self._hit_count,
+            "misses": self._miss_count,
+            "hit_ratio": self._hit_count / max(1, total),
+            "ttl_seconds": self.ttl_seconds,
+        }
 
 
 class DataLocationRegistry:
@@ -86,6 +212,26 @@ class DataLocationRegistry:
         self._connection = connection_factory
         self.node_id = node_id
 
+        # December 29, 2025: Add caching for frequently queried data
+        # Cache TTL defaults to 5 minutes (300 seconds)
+        self._cache = RegistryCache(ttl_seconds=DEFAULT_CACHE_TTL_SECONDS)
+        logger.debug(
+            f"[DataLocationRegistry] Cache enabled with TTL={DEFAULT_CACHE_TTL_SECONDS}s"
+        )
+
+    def get_cache_stats(self) -> dict[str, Any]:
+        """Get cache statistics.
+
+        Returns:
+            Dict with cache hit/miss counts and ratio
+        """
+        return self._cache.get_stats()
+
+    def clear_cache(self) -> None:
+        """Clear all cached data."""
+        self._cache.clear()
+        logger.debug("[DataLocationRegistry] Cache cleared")
+
     # =========================================================================
     # Game Location Registry
     # =========================================================================
@@ -130,6 +276,8 @@ class DataLocationRegistry:
             """, (game_id, node_id, db_path, board_type, num_players,
                   engine_mode, game_id, node_id, now, now))
             conn.commit()
+        # Invalidate cache for this game
+        self._cache.invalidate(f"game:{game_id}")
 
     def register_games_batch(
         self,
@@ -306,7 +454,17 @@ class DataLocationRegistry:
         -------
         list[GameLocation]
             List of GameLocation objects.
+
+        Note
+        ----
+        December 29, 2025: Results are cached with 5-minute TTL.
         """
+        # Check cache first
+        cache_key = f"game:{game_id}"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         from app.distributed.cluster_manifest import GameLocation
 
         with self._connection() as conn:
@@ -335,6 +493,8 @@ class DataLocationRegistry:
                     canonical_db=row[10],
                 ))
 
+            # Cache the result
+            self._cache.set(cache_key, locations)
             return locations
 
     def get_game_replication_count(self, game_id: str) -> int:

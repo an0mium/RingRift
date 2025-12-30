@@ -37,6 +37,18 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+# December 29, 2025: Import DynamicThreshold for adaptive queue depth
+try:
+    from app.coordination.dynamic_thresholds import (
+        AdjustmentStrategy,
+        DynamicThreshold,
+    )
+    HAS_DYNAMIC_THRESHOLDS = True
+except ImportError:
+    HAS_DYNAMIC_THRESHOLDS = False
+    DynamicThreshold = None
+    AdjustmentStrategy = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -177,6 +189,29 @@ class BackpressureMonitor:
         self._last_event_time: float = 0.0
         self._event_cooldown: float = 60.0  # Min 60s between same event type
 
+        # December 29, 2025: Dynamic queue depth threshold
+        # Adjusts queue_high_threshold based on observed queue behavior
+        # - When queue overflows frequently, raise threshold (more tolerant)
+        # - When queue is consistently healthy, lower threshold (more responsive)
+        self._dynamic_queue_threshold: DynamicThreshold | None = None
+        if HAS_DYNAMIC_THRESHOLDS and DynamicThreshold is not None:
+            self._dynamic_queue_threshold = DynamicThreshold(
+                name="queue_depth_high",
+                initial_value=float(self.config.queue_high_threshold),
+                min_value=20.0,   # Don't go below 20 items
+                max_value=500.0,  # Don't exceed 500 items
+                target_success_rate=0.85,  # 85% of observations should be below threshold
+                adjustment_strategy=AdjustmentStrategy.ADAPTIVE,
+                adjustment_factor=0.05,  # 5% adjustment per cycle
+                window_size=100,
+                cooldown_seconds=120.0,  # 2 min between adjustments
+                higher_is_more_permissive=True,
+            )
+            logger.debug(
+                f"[Backpressure] Dynamic queue threshold enabled: "
+                f"initial={self.config.queue_high_threshold}"
+            )
+
     async def get_signal(self, force_refresh: bool = False) -> BackpressureSignal:
         """Get current backpressure signal.
 
@@ -291,10 +326,26 @@ class BackpressureMonitor:
             status = monitor.get_status(QueueType.TRAINING_DATA)
             if status:
                 queue_depth = status.current_depth
+
+                # December 29, 2025: Use dynamic threshold if available
+                queue_high = self.config.queue_high_threshold
+                if self._dynamic_queue_threshold is not None:
+                    queue_high = int(self._dynamic_queue_threshold.value)
+                    # Record observation: success if queue < 80% of threshold
+                    is_healthy = queue_depth < queue_high * 0.8
+                    self._dynamic_queue_threshold.record_outcome(
+                        success=is_healthy,
+                        measured_value=float(queue_depth),
+                    )
+                    details["dynamic_queue_threshold"] = queue_high
+                    details["queue_threshold_adjusted"] = (
+                        queue_high != self.config.queue_high_threshold
+                    )
+
                 signal.queue_pressure = self._normalize(
                     queue_depth,
                     self.config.queue_low_threshold,
-                    self.config.queue_high_threshold,
+                    queue_high,
                 )
                 details["queue_depth"] = queue_depth
         except (ImportError, AttributeError, RuntimeError) as e:
@@ -405,6 +456,45 @@ class BackpressureMonitor:
         """Get cached signal without refreshing."""
         return self._cached_signal
 
+    def get_dynamic_queue_threshold(self) -> int:
+        """Get current dynamic queue depth threshold.
+
+        December 29, 2025: Returns the dynamically adjusted queue threshold
+        based on observed queue behavior.
+
+        Returns:
+            Current queue_high threshold (may differ from config)
+        """
+        if self._dynamic_queue_threshold is not None:
+            return int(self._dynamic_queue_threshold.value)
+        return self.config.queue_high_threshold
+
+    def get_dynamic_queue_stats(self) -> dict[str, Any]:
+        """Get statistics about dynamic queue threshold adjustments.
+
+        Returns:
+            Dict with threshold value, adjustment history, etc.
+        """
+        if self._dynamic_queue_threshold is None:
+            return {
+                "enabled": False,
+                "current_threshold": self.config.queue_high_threshold,
+            }
+
+        threshold = self._dynamic_queue_threshold
+        return {
+            "enabled": True,
+            "current_threshold": int(threshold.value),
+            "initial_threshold": self.config.queue_high_threshold,
+            "min_threshold": int(threshold.min_value),
+            "max_threshold": int(threshold.max_value),
+            "adjustment_count": threshold._adjustment_count,
+            "last_adjusted": threshold._last_adjustment_time,
+            "observation_count": len(threshold._observations),
+            "current_success_rate": threshold.success_rate,
+            "target_success_rate": threshold.target_success_rate,
+        }
+
     def health_check(self) -> "HealthCheckResult":
         """Check monitor health for CoordinatorProtocol compliance.
 
@@ -431,6 +521,7 @@ class BackpressureMonitor:
                         "queue_low": self.config.queue_low_threshold,
                         "queue_high": self.config.queue_high_threshold,
                     },
+                    "dynamic_queue": self.get_dynamic_queue_stats(),
                 },
             )
         except Exception as e:

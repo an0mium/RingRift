@@ -125,6 +125,10 @@ class DaemonType(Enum):
     # Training data sync (December 2025) - pre-training data sync from OWC/S3
     TRAINING_DATA_SYNC = "training_data_sync"
 
+    # OWC external drive import (December 2025) - periodic import from OWC drive on mac-studio
+    # Imports training data from external archive drive for underserved configs
+    OWC_IMPORT = "owc_import"
+
     # DEPRECATED (Dec 2025): Use AutoSyncDaemon(strategy="ephemeral") - removal Q2 2026
     EPHEMERAL_SYNC = "ephemeral_sync"
 
@@ -620,6 +624,8 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # Node watching/recovery daemons
     DaemonType.TRAINING_NODE_WATCHER: {DaemonType.EVENT_ROUTER},
     DaemonType.TRAINING_DATA_SYNC: {DaemonType.EVENT_ROUTER},  # Pre-training data sync
+    # OWC import daemon (December 29, 2025) - imports from OWC external drive
+    DaemonType.OWC_IMPORT: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
     DaemonType.NODE_RECOVERY: {DaemonType.EVENT_ROUTER, DaemonType.NODE_HEALTH_MONITOR},
 
     # Replication daemons
