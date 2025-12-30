@@ -39,6 +39,22 @@ import yaml
 
 from app.config.ports import SWIM_PORT
 
+# Dec 2025: Import tuned SWIM timeouts from constants.py
+# These values are calibrated for high-latency cross-cloud networks (P99 RTT ~2.6s)
+try:
+    from app.p2p.constants import (
+        SWIM_FAILURE_TIMEOUT,
+        SWIM_SUSPICION_TIMEOUT,
+        SWIM_PING_INTERVAL,
+        SWIM_INDIRECT_PING_COUNT,
+    )
+except ImportError:
+    # Fallback to tuned defaults if constants not available
+    SWIM_FAILURE_TIMEOUT = 10.0
+    SWIM_SUSPICION_TIMEOUT = 6.0
+    SWIM_PING_INTERVAL = 1.0
+    SWIM_INDIRECT_PING_COUNT = 7
+
 # Dec 2025: Use cluster_config helpers instead of inline YAML parsing
 try:
     from app.config.cluster_config import get_cluster_nodes, get_p2p_voters
@@ -92,13 +108,14 @@ class SwimConfig:
     bind_host: str = "0.0.0.0"
     bind_port: int = SWIM_PORT  # Default SWIM port (different from aiohttp 8770)
 
-    # Failure detection tuning
-    failure_timeout: float = 5.0  # Seconds before marking node as failed
-    suspicion_timeout: float = 3.0  # Seconds in suspicion state before failed
-    ping_interval: float = 1.0  # Seconds between protocol rounds
+    # Failure detection tuning (December 30, 2025: Use tuned values from constants.py)
+    # These are calibrated for high-latency cross-cloud networks (P99 RTT ~2.6s)
+    failure_timeout: float = SWIM_FAILURE_TIMEOUT  # 10.0s default for cross-cloud
+    suspicion_timeout: float = SWIM_SUSPICION_TIMEOUT  # 6.0s default for cross-cloud
+    ping_interval: float = SWIM_PING_INTERVAL  # 1.0s between protocol rounds
 
-    # Protocol tuning
-    ping_request_group_size: int = 3  # Number of nodes to ask for indirect ping
+    # Protocol tuning (December 30, 2025: Increased indirect pings for reliability)
+    ping_request_group_size: int = SWIM_INDIRECT_PING_COUNT  # 7 nodes for indirect ping
     max_transmissions: int = 10  # Max times to transmit membership updates
 
     # Seeds (initial peers to bootstrap from)
