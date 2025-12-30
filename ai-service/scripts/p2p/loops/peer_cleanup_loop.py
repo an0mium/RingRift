@@ -176,7 +176,7 @@ class PeerCleanupLoop(BaseLoop):
         self._emit_event = emit_event
 
         # Statistics
-        self._stats = CleanupStats()
+        self._cleanup_stats = CleanupStats()
 
     async def _run_once(self) -> None:
         """Execute one cleanup cycle."""
@@ -212,7 +212,7 @@ class PeerCleanupLoop(BaseLoop):
                 tier3_to_purge.append(node_id)
 
         # Update tier1 detection stats (not purged, just tracked)
-        self._stats.tier1_detected = len(tier1_candidates)
+        self._cleanup_stats.tier1_detected = len(tier1_candidates)
 
         # Combine tier2 and tier3 for purging
         all_to_purge = tier2_to_purge + tier3_to_purge
@@ -257,13 +257,13 @@ class PeerCleanupLoop(BaseLoop):
                 logger.warning(f"[PeerCleanup] Error purging {node_id}: {e}")
 
         # Update statistics
-        self._stats.total_purged += purged_count
-        self._stats.tier2_purged += min(tier2_count, purged_count)
+        self._cleanup_stats.total_purged += purged_count
+        self._cleanup_stats.tier2_purged += min(tier2_count, purged_count)
         remaining_for_tier3 = purged_count - tier2_count
         if remaining_for_tier3 > 0:
-            self._stats.tier3_purged += min(tier3_count, remaining_for_tier3)
-        self._stats.last_cleanup_time = now
-        self._stats.cycles_run += 1
+            self._cleanup_stats.tier3_purged += min(tier3_count, remaining_for_tier3)
+        self._cleanup_stats.last_cleanup_time = now
+        self._cleanup_stats.cycles_run += 1
 
         # Calculate health ratio after cleanup
         peers_after = self._get_all_peers()
@@ -360,12 +360,12 @@ class PeerCleanupLoop(BaseLoop):
     def get_cleanup_stats(self) -> dict[str, Any]:
         """Get cleanup statistics."""
         return {
-            "total_purged": self._stats.total_purged,
-            "tier1_detected": self._stats.tier1_detected,
-            "tier2_purged": self._stats.tier2_purged,
-            "tier3_purged": self._stats.tier3_purged,
-            "last_cleanup_time": self._stats.last_cleanup_time,
-            "cycles_run": self._stats.cycles_run,
+            "total_purged": self._cleanup_stats.total_purged,
+            "tier1_detected": self._cleanup_stats.tier1_detected,
+            "tier2_purged": self._cleanup_stats.tier2_purged,
+            "tier3_purged": self._cleanup_stats.tier3_purged,
+            "last_cleanup_time": self._cleanup_stats.last_cleanup_time,
+            "cycles_run": self._cleanup_stats.cycles_run,
             "config": {
                 "interval_seconds": self.config.cleanup_interval_seconds,
                 "tier1_threshold": self.config.tier1_stale_seconds,
@@ -379,5 +379,5 @@ class PeerCleanupLoop(BaseLoop):
 
     def reset_stats(self) -> None:
         """Reset cleanup statistics."""
-        self._stats = CleanupStats()
+        self._cleanup_stats = CleanupStats()
         logger.info("[PeerCleanup] Statistics reset")
