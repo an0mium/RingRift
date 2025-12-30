@@ -39,6 +39,7 @@ Purpose: Fix P0 critical blocker - subscription persistence (Phase 1.3)
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -486,19 +487,23 @@ class SubscriptionStore:
         cutoff = datetime.now() - timedelta(seconds=min_age_seconds)
         cutoff_str = cutoff.isoformat()
 
-        with sqlite3.connect(dlq.db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        # Wrap blocking SQLite call with asyncio.to_thread to avoid event loop blocking
+        # December 30, 2025: Fixed async context blocking
+        def _fetch_stale_events() -> list[sqlite3.Row]:
+            with sqlite3.connect(dlq.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM dead_letter
+                    WHERE created_at < ?
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                    """,
+                    (cutoff_str, max_events),
+                )
+                return cursor.fetchall()
 
-            cursor = conn.execute(
-                """
-                SELECT * FROM dead_letter
-                WHERE created_at < ?
-                ORDER BY created_at ASC
-                LIMIT ?
-                """,
-                (cutoff_str, max_events),
-            )
-            events = cursor.fetchall()
+        events = await asyncio.to_thread(_fetch_stale_events)
 
         replayed = 0
         for event_row in events:
@@ -523,17 +528,21 @@ class SubscriptionStore:
                 replayed += 1
 
                 # Mark as replayed in DLQ (increment retry count)
-                with sqlite3.connect(dlq.db_path) as conn:
-                    conn.execute(
-                        """
-                        UPDATE dead_letter
-                        SET retry_count = retry_count + 1,
-                            last_retry_at = ?
-                        WHERE event_id = ?
-                        """,
-                        (datetime.now().isoformat(), event_id),
-                    )
-                    conn.commit()
+                # Wrap blocking SQLite update with asyncio.to_thread
+                def _mark_event_replayed(eid: str) -> None:
+                    with sqlite3.connect(dlq.db_path) as conn:
+                        conn.execute(
+                            """
+                            UPDATE dead_letter
+                            SET retry_count = retry_count + 1,
+                                last_retry_at = ?
+                            WHERE event_id = ?
+                            """,
+                            (datetime.now().isoformat(), eid),
+                        )
+                        conn.commit()
+
+                await asyncio.to_thread(_mark_event_replayed, event_id)
 
             except Exception as e:
                 logger.warning(
@@ -595,7 +604,9 @@ class SubscriptionStore:
         Returns:
             Number of alerts emitted
         """
-        stale_events = self.check_stale_dlq_events()
+        # Wrap blocking sync method with asyncio.to_thread
+        # December 30, 2025: Fixed async context blocking
+        stale_events = await asyncio.to_thread(self.check_stale_dlq_events)
 
         if not stale_events:
             return 0
