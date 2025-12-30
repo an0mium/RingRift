@@ -304,6 +304,134 @@ class TrainingDataManifest:
             }
         return summary
 
+    async def ensure_available(
+        self,
+        entry: TrainingDataEntry,
+        target_dir: Path | None = None,
+    ) -> Path | None:
+        """Ensure training data is available locally, downloading if needed.
+
+        December 30, 2025: Added to enable lazy download of S3/OWC data.
+        This allows training pipeline to automatically fetch the best data
+        regardless of where it's stored.
+
+        Args:
+            entry: Training data entry to make available
+            target_dir: Directory to download to (default: LOCAL_TRAINING_DIR)
+
+        Returns:
+            Path to local file, or None if download failed
+        """
+        if target_dir is None:
+            target_dir = LOCAL_TRAINING_DIR
+
+        # LOCAL source - already available
+        if entry.source == DataSource.LOCAL:
+            local_path = Path(entry.path)
+            if local_path.exists():
+                return local_path
+            logger.warning(f"Local file missing: {entry.path}")
+            return None
+
+        # Ensure target directory exists
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate local filename from config_key
+        filename = f"{entry.config_key}.npz"
+        local_path = target_dir / filename
+
+        # S3 source - download using aws s3 cp
+        if entry.source == DataSource.S3:
+            try:
+                logger.info(f"Downloading from S3: {entry.path}")
+                cmd = f"aws s3 cp '{entry.path}' '{local_path}'"
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,  # 10 minute timeout
+                )
+                if result.returncode == 0 and local_path.exists():
+                    logger.info(f"Downloaded {local_path.stat().st_size / 1024 / 1024:.1f}MB from S3")
+                    return local_path
+                else:
+                    logger.error(f"S3 download failed: {result.stderr}")
+                    return None
+            except subprocess.TimeoutExpired:
+                logger.error(f"Timeout downloading from S3: {entry.path}")
+                return None
+            except (OSError, subprocess.SubprocessError) as e:
+                logger.error(f"Error downloading from S3: {e}")
+                return None
+
+        # OWC source - rsync from external drive
+        if entry.source == DataSource.OWC:
+            try:
+                logger.info(f"Syncing from OWC: {entry.path}")
+                ssh_key = os.path.expanduser(OWC_SSH_KEY)
+                remote_path = f"{OWC_USER}@{OWC_HOST}:{entry.path}"
+                cmd = [
+                    "rsync", "-avz",
+                    "-e", f"ssh -i {ssh_key} -o StrictHostKeyChecking=no",
+                    remote_path,
+                    str(local_path),
+                ]
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+                if result.returncode == 0 and local_path.exists():
+                    logger.info(f"Synced {local_path.stat().st_size / 1024 / 1024:.1f}MB from OWC")
+                    return local_path
+                else:
+                    logger.error(f"OWC sync failed: {result.stderr}")
+                    return None
+            except subprocess.TimeoutExpired:
+                logger.error(f"Timeout syncing from OWC: {entry.path}")
+                return None
+            except (OSError, subprocess.SubprocessError) as e:
+                logger.error(f"Error syncing from OWC: {e}")
+                return None
+
+        logger.warning(f"Unknown data source: {entry.source}")
+        return None
+
+    async def get_or_download_best(
+        self,
+        config_key: str,
+        target_dir: Path | None = None,
+        prefer_source: DataSource | None = None,
+        min_size_mb: float = 0,
+    ) -> Path | None:
+        """Get the best training data for a config, downloading if needed.
+
+        December 30, 2025: High-level API for training pipeline to get data.
+
+        Args:
+            config_key: Config key (e.g., 'hex8_2p')
+            target_dir: Directory to download to (default: LOCAL_TRAINING_DIR)
+            prefer_source: Preferred data source
+            min_size_mb: Minimum file size in MB
+
+        Returns:
+            Path to local file, or None if no data available
+        """
+        best = self.get_best_data(
+            config_key,
+            prefer_source=prefer_source,
+            min_size_mb=min_size_mb,
+        )
+        if not best:
+            logger.warning(f"No training data found for {config_key}")
+            return None
+
+        return await self.ensure_available(best, target_dir)
+
     def _extract_npz_freshness(self, npz_path: Path) -> datetime | None:
         """Extract newest_game_time from NPZ metadata.
 
