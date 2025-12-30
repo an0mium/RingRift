@@ -600,22 +600,28 @@ class NodeMonitor(BaseDaemon):
         """Get status for all monitored nodes."""
         return {node.name: self.get_node_status(node.name) for node in self._nodes}
 
-    def health_check(self) -> dict:
-        """Return health status for DaemonManager integration."""
+    def health_check(self) -> "HealthCheckResult":
+        """Return health status for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult with status based on monitored node health.
+        """
+        from app.coordination.protocols import HealthCheckResult
+
         unhealthy_count = sum(
             1 for node in self._nodes
             if self._failure_counts.get(node.name, 0) >= self.config.consecutive_failures_before_unhealthy
         )
 
-        return {
-            "healthy": unhealthy_count == 0,
-            "message": f"Monitoring {len(self._nodes)} nodes, {unhealthy_count} unhealthy",
-            "details": {
+        return HealthCheckResult(
+            healthy=unhealthy_count == 0,
+            message=f"Monitoring {len(self._nodes)} nodes, {unhealthy_count} unhealthy",
+            details={
                 "nodes_monitored": len(self._nodes),
                 "unhealthy_count": unhealthy_count,
                 "cycles_completed": self._cycles_completed,
             },
-        }
+        )
 
 
 # Singleton instance

@@ -569,22 +569,28 @@ class CapacityPlanner(BaseDaemon):
             for m in self._utilization_history[-limit:]
         ]
 
-    def health_check(self) -> dict:
-        """Return health status for DaemonManager integration."""
+    def health_check(self) -> "HealthCheckResult":
+        """Return health status for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult with status based on budget thresholds.
+        """
+        from app.coordination.protocols import HealthCheckResult
+
         budget_ok = not self.budget.is_over_alert_threshold()
 
         recent_metrics = (
             self._utilization_history[-1] if self._utilization_history else None
         )
 
-        return {
-            "healthy": budget_ok,
-            "message": (
+        return HealthCheckResult(
+            healthy=budget_ok,
+            message=(
                 "CapacityPlanner: Budget within limits"
                 if budget_ok
                 else f"CapacityPlanner: Budget at {self.budget.hourly_budget_percent_used():.0f}% of limit"
             ),
-            "details": {
+            details={
                 "hourly_budget_percent": self.budget.hourly_budget_percent_used(),
                 "daily_budget_percent": self.budget.daily_budget_percent_used(),
                 "current_hourly_usd": self.budget.current_hourly_usd,
@@ -595,7 +601,7 @@ class CapacityPlanner(BaseDaemon):
                     recent_metrics.overall_utilization if recent_metrics else 0.0
                 ),
             },
-        }
+        )
 
 
 # Singleton instance

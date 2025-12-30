@@ -431,22 +431,28 @@ class Provisioner(BaseDaemon[ProvisionerConfig]):
         """Get recent provisioning history."""
         return [r.to_dict() for r in self._provision_history[-limit:]]
 
-    def health_check(self) -> dict:
-        """Return health status for DaemonManager integration."""
+    def health_check(self) -> "HealthCheckResult":
+        """Return health status for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult with status based on recent provision failures.
+        """
+        from app.coordination.protocols import HealthCheckResult
+
         recent_failures = sum(
             1 for r in self._provision_history[-10:]
             if not r.success
         )
 
-        return {
-            "healthy": recent_failures < 5,
-            "message": f"Provisioner: {self._pending_provisions} pending, {len(self._provision_history)} total attempts",
-            "details": {
+        return HealthCheckResult(
+            healthy=recent_failures < 5,
+            message=f"Provisioner: {self._pending_provisions} pending, {len(self._provision_history)} total attempts",
+            details={
                 "pending_provisions": self._pending_provisions,
                 "total_provisions": len(self._provision_history),
                 "recent_failures": recent_failures,
             },
-        }
+        )
 
 
 # Singleton instance

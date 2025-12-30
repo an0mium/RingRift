@@ -513,14 +513,19 @@ class ResilientSingletonMixin(SingletonMixin[T]):
     - Metrics tracking for failures
 
     Usage:
+        from app.coordination.protocols import HealthCheckResult
+
         class CriticalDaemon(BaseDaemon, ResilientSingletonMixin):
             def __init__(self):
                 super().__init__("critical_daemon")
                 self._healthy = True
 
-            def health_check(self) -> bool:
-                '''Return True if healthy, False if needs recreation.'''
-                return self._healthy and self._running
+            def health_check(self) -> HealthCheckResult:
+                '''Return HealthCheckResult (healthy=True if ok, False if needs recreation).'''
+                return HealthCheckResult(
+                    healthy=self._healthy and self._running,
+                    message="Critical daemon status",
+                )
 
         # Get instance with automatic health check
         daemon = CriticalDaemon.get_healthy_instance()
@@ -740,10 +745,12 @@ def with_singleton_health_check(cls: type[T]) -> type[T]:
     before returning the singleton.
 
     Example:
+        from app.coordination.protocols import HealthCheckResult
+
         @with_singleton_health_check
         class MyDaemon(BaseDaemon, SingletonMixin):
-            def health_check(self) -> bool:
-                return self._running
+            def health_check(self) -> HealthCheckResult:
+                return HealthCheckResult(healthy=self._running, message="Running status")
 
         # Now you can use:
         daemon = MyDaemon.get_healthy_instance()

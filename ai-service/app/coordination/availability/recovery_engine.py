@@ -629,23 +629,29 @@ class RecoveryEngine(BaseDaemon):
         """Get recent recovery history."""
         return [r.to_dict() for r in self._recovery_history[-limit:]]
 
-    def health_check(self) -> dict:
-        """Return health status for DaemonManager integration."""
+    def health_check(self) -> "HealthCheckResult":
+        """Return health status for DaemonManager integration.
+
+        Returns:
+            HealthCheckResult with status based on recovery queue state.
+        """
+        from app.coordination.protocols import HealthCheckResult
+
         in_recovery = sum(
             1 for state in self._recovery_states.values()
             if state.current_action_index > 0
         )
         queue_size = self._recovery_queue.qsize()
 
-        return {
-            "healthy": True,
-            "message": f"Recovery engine: {in_recovery} nodes in recovery, {queue_size} queued",
-            "details": {
+        return HealthCheckResult(
+            healthy=True,
+            message=f"Recovery engine: {in_recovery} nodes in recovery, {queue_size} queued",
+            details={
                 "nodes_in_recovery": in_recovery,
                 "queue_size": queue_size,
                 "total_recoveries": len(self._recovery_history),
             },
-        }
+        )
 
 
 # Singleton instance
