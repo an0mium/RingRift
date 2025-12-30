@@ -162,12 +162,12 @@ class ArchitectureFeedbackController(HandlerBase):
 
             self._state.evaluations_processed += 1
             logger.info(
-                f"ArchitectureFeedback: Recorded eval for {architecture}/{config_key} "
-                f"(Elo: {elo:.0f})"
+                f"ArchitectureFeedback: Recorded eval for {architecture}/{data.config_key} "
+                f"(Elo: {data.elo:.0f})"
             )
 
             # Check if we should emit weight update
-            await self._maybe_emit_weight_update(config_key)
+            await self._maybe_emit_weight_update(data.config_key)
 
         except (ImportError, ValueError, KeyError) as e:
             logger.debug(f"ArchitectureFeedback: Error handling eval: {e}")
@@ -185,24 +185,16 @@ class ArchitectureFeedbackController(HandlerBase):
                 extract_architecture_from_model_path,
                 get_architecture_tracker,
             )
+            from app.coordination.event_utils import extract_training_data
 
-            config_key = event.get("config_key", "")
-            model_path = event.get("model_path", "")
+            data = extract_training_data(event)
             duration_seconds = event.get("duration_seconds", 0.0)
 
-            if not config_key or not model_path:
+            if not data.is_valid or not data.model_path:
                 return
 
             # Extract architecture
-            architecture = extract_architecture_from_model_path(model_path)
-
-            # Parse config key
-            parts = config_key.rsplit("_", 1)
-            if len(parts) != 2:
-                return
-
-            board_type = parts[0]
-            num_players = int(parts[1].rstrip("p"))
+            architecture = extract_architecture_from_model_path(data.model_path)
 
             # Record training time (convert to hours)
             training_hours = duration_seconds / 3600.0
@@ -212,8 +204,8 @@ class ArchitectureFeedbackController(HandlerBase):
             # Elo=1000 (neutral) and games=0 to only update time
             tracker.record_evaluation(
                 architecture=architecture,
-                board_type=board_type,
-                num_players=num_players,
+                board_type=data.board_type,
+                num_players=data.num_players,
                 elo=1000.0,  # Neutral, no Elo update
                 training_hours=training_hours,
                 games_evaluated=0,
@@ -222,7 +214,7 @@ class ArchitectureFeedbackController(HandlerBase):
             self._state.trainings_processed += 1
             logger.debug(
                 f"ArchitectureFeedback: Recorded {training_hours:.2f}h for "
-                f"{architecture}/{config_key}"
+                f"{architecture}/{data.config_key}"
             )
 
         except (ImportError, ValueError, KeyError) as e:

@@ -411,6 +411,7 @@ class TrainingTriggerDaemon(HandlerBase):
 
         Subscribes to:
         - NPZ_EXPORT_COMPLETE: Immediate training trigger after export
+        - NPZ_COMBINATION_COMPLETE: Training trigger after quality-weighted combination (Dec 2025)
         - TRAINING_COMPLETED: Track state after training finishes
         - TRAINING_THRESHOLD_REACHED: Honor master_loop-triggered requests
         - QUALITY_SCORE_UPDATED: Keep intensity in sync
@@ -441,6 +442,8 @@ class TrainingTriggerDaemon(HandlerBase):
             "elo_velocity_changed": self._on_elo_velocity_changed,
             # December 29, 2025 (Phase 3): Training failure with retry
             "training_failed": self._on_training_failed,
+            # December 30, 2025: Trigger training after quality-weighted NPZ combination
+            "npz_combination_complete": self._on_npz_combination_complete,
         }
 
     async def _on_start(self) -> None:
@@ -633,6 +636,48 @@ class TrainingTriggerDaemon(HandlerBase):
 
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling NPZ export: {e}")
+
+    async def _on_npz_combination_complete(self, result: Any) -> None:
+        """Handle NPZ combination completion - trigger training on quality-weighted data.
+
+        December 30, 2025: Added to ensure training uses quality-weighted combined NPZ
+        when combination is enabled. This closes the export→combine→train flow.
+        """
+        try:
+            metadata = getattr(result, "metadata", {})
+            config_key = metadata.get("config") or metadata.get("config_key")
+            board_type = metadata.get("board_type")
+            num_players = metadata.get("num_players")
+            output_path = metadata.get("output_path", "")
+            samples = metadata.get("total_samples", 0)
+            quality_weighted = metadata.get("quality_weighted", True)
+
+            if not config_key:
+                # Try to build from board_type and num_players
+                if board_type and num_players:
+                    config_key = f"{board_type}_{num_players}p"
+                else:
+                    logger.debug(
+                        "[TrainingTriggerDaemon] Missing config info in NPZ combination result"
+                    )
+                    return
+
+            # Update state with combined NPZ
+            state = self._get_or_create_state(config_key, board_type, num_players)
+            state.last_npz_update = time.time()
+            state.npz_sample_count = samples or 0
+            state.npz_path = output_path
+
+            logger.info(
+                f"[TrainingTriggerDaemon] NPZ combination complete for {config_key}: "
+                f"{samples} samples at {output_path} (quality_weighted={quality_weighted})"
+            )
+
+            # Trigger training on combined data
+            await self._maybe_trigger_training(config_key)
+
+        except Exception as e:
+            logger.error(f"[TrainingTriggerDaemon] Error handling NPZ combination: {e}")
 
     async def _on_training_completed(self, event: Any) -> None:
         """Handle training completion to update state."""
