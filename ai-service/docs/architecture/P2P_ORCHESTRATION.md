@@ -32,7 +32,7 @@ The P2P orchestration layer coordinates a distributed mesh network of GPU nodes 
                                             │
                     ┌───────────────────────▼─────────────────────────┐
                     │           Event Router (Event Bus)              │
-                    │         118+ Event Types (DataEventType)        │
+                    │         207 Event Types (DataEventType)         │
                     └───────────────────────┬─────────────────────────┘
                                             │
           ┌─────────────────────────────────┼─────────────────────────────────┐
