@@ -21,6 +21,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_router import (
     RouterEvent,
     publish_sync,
@@ -448,7 +449,7 @@ def wire_sync_manager_events() -> None:
         if not isinstance(event.payload, dict):
             return
 
-        config = event.payload.get("config")
+        config = extract_config_key(event.payload)
         if not config:
             return
 
@@ -514,7 +515,7 @@ def wire_evaluation_curriculum_bridge() -> bool:
             if not isinstance(event.payload, dict):
                 return
 
-            config_key = event.payload.get("config_key")
+            config_key = extract_config_key(event.payload)
             metrics = event.payload.get("metrics", {})
             elo = metrics.get("elo")
             win_rate = metrics.get("win_rate")

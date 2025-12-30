@@ -39,6 +39,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.training_data_manifest import (
     DataSource,
     OWC_BASE_PATH,
@@ -583,7 +584,7 @@ class TrainingDataSyncDaemon:
         payload = event if isinstance(event, dict) else getattr(event, "payload", {})
         if not isinstance(payload, dict):
             payload = {}
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         if config_key:
             logger.info(f"NPZ export completed for {config_key}, refreshing manifest")
             try:
@@ -601,7 +602,7 @@ class TrainingDataSyncDaemon:
         payload = event if isinstance(event, dict) else getattr(event, "payload", {})
         if not isinstance(payload, dict):
             payload = {}
-        config_key = payload.get("config_key")
+        config_key = extract_config_key(payload)
         if config_key:
             logger.info(f"Training started for {config_key}, ensuring data freshness")
             result = await sync_best_fresh_data(config_key)

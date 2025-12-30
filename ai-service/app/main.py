@@ -17,7 +17,7 @@ from typing import Any, TypedDict
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, root_validator
 
 try:
     from typing import Self  # Python 3.11+
@@ -484,17 +484,19 @@ class MoveRequest(BaseModel):
         description="Optional RNG seed for deterministic AI behavior"
     )
 
-    @model_validator(mode="after")
-    def validate_player_number(self) -> Self:
+    @root_validator(skip_on_failure=True)
+    def validate_player_number(cls, values: dict) -> dict:
         """Ensure player_number is valid for the given game_state."""
-        players = getattr(self.game_state, "players", None)
+        game_state = values.get("game_state")
+        player_number = values.get("player_number")
+        players = getattr(game_state, "players", None) if game_state else None
         if not players:
             raise ValueError("game_state.players cannot be empty")
-        if self.player_number > len(players):
+        if player_number and player_number > len(players):
             raise ValueError(
-                f"player_number {self.player_number} exceeds number of players ({len(players)})"
+                f"player_number {player_number} exceeds number of players ({len(players)})"
             )
-        return self
+        return values
 
 
 class MoveResponse(BaseModel):
@@ -540,15 +542,17 @@ class BatchMoveRequest(BaseModel):
         description="Simulation budget per move"
     )
 
-    @model_validator(mode="after")
-    def validate_lengths(self) -> Self:
+    @root_validator(skip_on_failure=True)
+    def validate_lengths(cls, values: dict) -> dict:
         """Ensure game_states and player_numbers have matching lengths."""
-        if len(self.game_states) != len(self.player_numbers):
+        game_states = values.get("game_states", [])
+        player_numbers = values.get("player_numbers", [])
+        if len(game_states) != len(player_numbers):
             raise ValueError(
-                f"game_states ({len(self.game_states)}) and player_numbers "
-                f"({len(self.player_numbers)}) must have the same length"
+                f"game_states ({len(game_states)}) and player_numbers "
+                f"({len(player_numbers)}) must have the same length"
             )
-        return self
+        return values
 
 
 class BatchMoveItem(BaseModel):
@@ -572,17 +576,19 @@ class EvaluationRequest(BaseModel):
     game_state: GameState
     player_number: int = Field(ge=1, description="Player number (1-indexed)")
 
-    @model_validator(mode="after")
-    def validate_player_number(self) -> Self:
+    @root_validator(skip_on_failure=True)
+    def validate_player_number(cls, values: dict) -> dict:
         """Ensure player_number is valid for the given game_state."""
-        players = getattr(self.game_state, "players", None)
+        game_state = values.get("game_state")
+        player_number = values.get("player_number")
+        players = getattr(game_state, "players", None) if game_state else None
         if not players:
             raise ValueError("game_state.players cannot be empty")
-        if self.player_number > len(players):
+        if player_number and player_number > len(players):
             raise ValueError(
-                f"player_number {self.player_number} exceeds number of players ({len(players)})"
+                f"player_number {player_number} exceeds number of players ({len(players)})"
             )
-        return self
+        return values
 
 
 class EvaluationResponse(BaseModel):

@@ -190,7 +190,7 @@ def load_ai_for_architecture(
         AI instance ready for game play
     """
     from app.ai.policy_only_ai import PolicyOnlyAI
-    from app.models import AIConfig, AIType, BoardType
+    from app.models import AIConfig, BoardType
 
     # Convert board_type string to enum
     board_enum = BoardType(board_type) if isinstance(board_type, str) else board_type
@@ -209,11 +209,10 @@ def load_ai_for_architecture(
         model_id = model_id[:-4]
 
     # Create AIConfig for PolicyOnlyAI
+    # difficulty=5 is mid-level, but PolicyOnlyAI ignores it
     config = AIConfig(
-        aiType=AIType.POLICY_ONLY,
-        nnModelId=model_id,
-        policyTemperature=0.0,  # Greedy for evaluation
-        numPlayers=num_players,
+        difficulty=5,
+        nn_model_id=model_id,
     )
 
     # Use PolicyOnlyAI for direct neural network evaluation

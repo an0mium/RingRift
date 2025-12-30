@@ -428,7 +428,7 @@ class AutoExportDaemon(HandlerBase):
         """
         try:
             payload = getattr(event, "payload", {}) or {}
-            config_key = payload.get("config") or payload.get("config_key")
+            config_key = extract_config_key(payload)
             games_synced = payload.get("games_synced", 0) or payload.get("files_synced", 0)
             if not config_key or not games_synced:
                 return

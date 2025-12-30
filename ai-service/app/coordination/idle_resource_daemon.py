@@ -43,6 +43,7 @@ from typing import Any
 from app.config.cluster_config import get_host_provider
 from app.config.env import env
 from app.coordination.contracts import HealthCheckResult
+from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_utils import parse_config_key
 from app.coordination.protocols import (
     CoordinatorStatus,
@@ -982,7 +983,7 @@ class IdleResourceDaemon:
             def _on_selfplay_target_updated(event: Any) -> None:
                 """Handle SELFPLAY_TARGET_UPDATED - prioritize config for spawning."""
                 payload = event if isinstance(event, dict) else getattr(event, "payload", {})
-                config_key = payload.get("config_key") or payload.get("config", "")
+                config_key = extract_config_key(payload)
                 priority = payload.get("priority", "normal")
                 reason = payload.get("reason", "feedback_loop")
                 target_jobs = payload.get("target_jobs") or payload.get("target_games")
@@ -1053,7 +1054,7 @@ class IdleResourceDaemon:
             def _on_quality_degraded(event: Any) -> None:
                 """Handle QUALITY_DEGRADED - reduce spawn rate for affected config."""
                 payload = event if isinstance(event, dict) else getattr(event, "payload", {})
-                config_key = payload.get("config_key", "")
+                config_key = extract_config_key(payload)
                 quality_score = payload.get("quality_score", 0.0)
                 threshold = payload.get("threshold", 0.6)
                 previous_score = payload.get("previous_score", 1.0)
@@ -1124,7 +1125,7 @@ class IdleResourceDaemon:
             def _on_selfplay_rate_changed(event: Any) -> None:
                 """Handle SELFPLAY_RATE_CHANGED - adjust GPU allocation for affected config."""
                 payload = event if isinstance(event, dict) else getattr(event, "payload", {})
-                config_key = payload.get("config_key", "")
+                config_key = extract_config_key(payload)
                 new_rate = payload.get("new_rate", 1.0)
                 old_rate = payload.get("old_rate", 1.0)
                 reason = payload.get("reason", "unknown")
