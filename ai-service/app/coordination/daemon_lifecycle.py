@@ -264,9 +264,13 @@ class DaemonLifecycleManager:
 
             # P0.3: Create readiness event for this daemon.
             #
-            # NOTE: Most daemon factories in this codebase do not explicitly call
-            # mark_daemon_ready(). To avoid deadlocking dependency start order,
-            # we auto-set ready after a short delay for backward compatibility.
+            # December 30, 2025: CRITICAL FIX for race condition.
+            # Previously, ready_event was set 2 seconds AFTER state=RUNNING,
+            # causing dependent daemons to wait up to 30 seconds for readiness.
+            # Now we set ready_event synchronously with state=RUNNING.
+            #
+            # Daemons that need longer initialization can call mark_daemon_not_ready()
+            # during their factory and then mark_daemon_ready() when truly ready.
             info.ready_event = asyncio.Event()
 
             # Start daemon
@@ -279,21 +283,12 @@ class DaemonLifecycleManager:
                 info.start_time = time.time()
                 info.state = DaemonState.RUNNING
 
-                # Dec 2025: Auto-set readiness after delay for backward compatibility.
-                # Daemons can call mark_daemon_ready() earlier for explicit signaling.
-                # This delay allows daemons to complete critical initialization.
-                # Dec 27, 2025: Increased from 0.5s to 2s - some daemons need more time
-                # for database connections, event subscriptions, and other I/O.
-                async def _auto_set_ready():
-                    await asyncio.sleep(2.0)  # Allow initialization to complete
-                    if info.ready_event and not info.ready_event.is_set():
-                        info.ready_event.set()
-                        logger.debug(f"{daemon_type.value} auto-marked as ready")
-
-                safe_create_task(
-                    _auto_set_ready(),
-                    name=f"auto_ready_{daemon_type.value}",
-                )
+                # December 30, 2025: Set ready synchronously with state=RUNNING.
+                # This eliminates the race condition where dependent daemons
+                # would see state=RUNNING but ready_event not set, causing
+                # them to wait the full 30-second timeout.
+                info.ready_event.set()
+                logger.debug(f"{daemon_type.value} marked as ready (sync)")
 
                 logger.info(f"Started daemon: {daemon_type.value}")
                 # Emit DAEMON_STARTED event (Dec 2025)

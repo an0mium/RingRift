@@ -2301,6 +2301,24 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                         daemons_to_restart.append(daemon_type)
                     continue
 
+                # December 30, 2025: Auto-restart STOPPED daemons with auto_restart=True
+                # when their dependencies are now satisfied. This handles daemons that
+                # failed to start initially due to missing dependencies.
+                if info.state == DaemonState.STOPPED and info.auto_restart:
+                    # Check if all dependencies are now running
+                    deps = list(info.depends_on or [])
+                    all_deps_running = all(
+                        self._daemons.get(dep) is not None
+                        and self._daemons[dep].state == DaemonState.RUNNING
+                        for dep in deps
+                    )
+                    if all_deps_running:
+                        logger.info(
+                            f"Auto-restarting {daemon_type.value}: dependencies now satisfied"
+                        )
+                        daemons_to_restart.append(daemon_type)
+                    continue
+
                 if info.state != DaemonState.RUNNING:
                     continue
 

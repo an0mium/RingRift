@@ -884,8 +884,14 @@ class DatabaseSyncManager(SyncManagerBase):
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        peers = data.get("peers", [])
-                        for peer in peers:
+                        peers = data.get("peers", {})
+                        # Dec 30, 2025: peers is a dict {node_id: peer_info}
+                        # Iterate over values (peer_info dicts), not keys (strings)
+                        peer_list = peers.values() if isinstance(peers, dict) else peers
+                        for peer in peer_list:
+                            if isinstance(peer, str):
+                                # Skip if peer is just a string (old format)
+                                continue
                             name = peer.get("node_id", peer.get("host", "unknown"))
                             self.nodes[name] = SyncNodeInfo(
                                 name=name,
