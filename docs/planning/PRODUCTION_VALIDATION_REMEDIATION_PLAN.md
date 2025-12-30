@@ -61,7 +61,7 @@
 
 ```bash
 export BASE_URL=http://localhost:3000
-export WS_URL=ws://localhost:3001
+export WS_URL=ws://localhost:3000
 export AI_SERVICE_URL=http://localhost:8001
 export RATE_LIMIT_BYPASS_ENABLED=true
 export RATE_LIMIT_BYPASS_TOKEN="<staging_bypass_token>"
@@ -486,10 +486,10 @@ cp .env.staging.example .env.staging
 ./scripts/deploy-staging.sh --build
 
 # 3. Verify health
-BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 npm run load:preflight
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 npm run load:preflight
 
 # 4. Run load test (rate limit bypass enabled for staging)
-BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 tests/load/scripts/run-baseline.sh --staging
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 tests/load/scripts/run-baseline.sh --staging
 ```
 
 #### Production Validation
@@ -546,10 +546,10 @@ cp .env.staging.example .env.staging
 ./scripts/deploy-staging.sh --build
 
 # 3. Verify health
-BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 npm run load:preflight
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 npm run load:preflight
 
 # 4. Run target-scale load test (rate limit bypass enabled for staging)
-BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 tests/load/scripts/run-target-scale.sh --staging
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 tests/load/scripts/run-target-scale.sh --staging
 ```
 
 #### Production Validation
@@ -595,10 +595,10 @@ cp .env.staging.example .env.staging
 ./scripts/deploy-staging.sh --build
 
 # 3. Verify health
-BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 npm run load:preflight
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 npm run load:preflight
 
 # 4. Run AI-heavy load test (rate limit bypass enabled for staging)
-BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3001 tests/load/scripts/run-ai-heavy.sh --staging
+BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 tests/load/scripts/run-ai-heavy.sh --staging
 ```
 
 #### Production Validation

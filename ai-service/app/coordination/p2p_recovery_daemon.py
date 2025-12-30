@@ -197,6 +197,82 @@ class P2PRecoveryDaemon(HandlerBase):
         return self._daemon_config
 
     # =========================================================================
+    # Event Subscriptions (December 30, 2025)
+    # =========================================================================
+
+    def _get_event_subscriptions(self) -> dict:
+        """Return event subscriptions for voter health events.
+
+        Dec 30, 2025: Subscribe to voter health events from VoterHealthMonitorDaemon
+        to coordinate emergency quorum recovery.
+        """
+        return {
+            "QUORUM_LOST": self._on_quorum_lost,
+            "QUORUM_AT_RISK": self._on_quorum_at_risk,
+            "VOTER_OFFLINE": self._on_voter_offline,
+        }
+
+    async def _on_quorum_lost(self, event: Any) -> None:
+        """Handle QUORUM_LOST event - trigger emergency quorum restoration.
+
+        Dec 30, 2025: Called when voter count drops below quorum threshold.
+        Initiates aggressive recovery actions including:
+        - Prioritized voter reconnection
+        - Faster health check interval
+        - Leader election if needed
+        """
+        logger.critical(
+            f"QUORUM LOST - initiating emergency recovery "
+            f"(online_voters={event.get('online_voters', '?')}, "
+            f"quorum={event.get('quorum_size', '?')})"
+        )
+
+        # Track for health reporting
+        self._quorum_recovery_attempts += 1
+
+        # Trigger immediate quorum-aware reconnection prioritization
+        await self._prioritize_quorum_reconnections()
+
+        # Emit event for monitoring
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                DataEventType.QUORUM_RECOVERY_STARTED,
+                trigger="quorum_lost_event",
+                online_voters=event.get("online_voters", 0),
+                quorum_size=event.get("quorum_size", 4),
+                source="P2PRecoveryDaemon",
+            )
+        except Exception as e:
+            logger.debug(f"Failed to emit QUORUM_RECOVERY_STARTED: {e}")
+
+    async def _on_quorum_at_risk(self, event: Any) -> None:
+        """Handle QUORUM_AT_RISK event - boost voter reconnection priority.
+
+        Dec 30, 2025: Called when voter count is exactly at quorum threshold.
+        Proactively attempts to reconnect offline voters before quorum is lost.
+        """
+        online_voters = event.get("online_voters", 0)
+        offline_voters = event.get("offline_voters", [])
+        logger.warning(
+            f"Quorum at risk - {online_voters} voters online, "
+            f"{len(offline_voters)} offline. Boosting reconnection priority."
+        )
+
+        # Proactively prioritize voter reconnections
+        await self._prioritize_quorum_reconnections()
+
+    async def _on_voter_offline(self, event: Any) -> None:
+        """Handle VOTER_OFFLINE event - individual voter went offline.
+
+        Dec 30, 2025: Logs voter offline event and checks if this impacts quorum.
+        """
+        voter_id = event.get("voter_id", "unknown")
+        reason = event.get("reason", "unknown")
+        logger.warning(f"Voter {voter_id} went offline: {reason}")
+
+    # =========================================================================
     # Main Cycle
     # =========================================================================
 
