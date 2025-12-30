@@ -29,6 +29,8 @@ import logging
 import socket
 from typing import TYPE_CHECKING, Any
 
+from app.coordination.event_handler_utils import extract_config_key
+
 if TYPE_CHECKING:
     from app.coordination.daemon_manager import DaemonManager
 
@@ -176,7 +178,7 @@ class DaemonEventHandlers:
 
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", payload.get("config", "unknown"))
+            config_key = extract_config_key(payload) or "unknown"
             model_id = payload.get("model_id", "unknown")
             elo_drop = payload.get("elo_drop", 0)
             current_elo = payload.get("current_elo", 0)
@@ -227,7 +229,7 @@ class DaemonEventHandlers:
 
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "unknown")
+            config_key = extract_config_key(payload) or "unknown"
             priority = payload.get("priority", "normal")
             reason = payload.get("reason", "unknown")
             target_jobs = payload.get("target_jobs")
@@ -267,7 +269,7 @@ class DaemonEventHandlers:
 
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            config_key = payload.get("config_key", "unknown")
+            config_key = extract_config_key(payload) or "unknown"
             boost_factor = payload.get("boost_factor", 1.0)
             reason = payload.get("reason", "unknown")
             duration_seconds = payload.get("duration_seconds", 3600)

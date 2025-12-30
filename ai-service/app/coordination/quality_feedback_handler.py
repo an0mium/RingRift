@@ -37,6 +37,7 @@ from app.config.thresholds import (
 )
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
+from app.coordination.event_handler_utils import extract_config_key
 
 if TYPE_CHECKING:
     from app.coordination.feedback_loop_controller import FeedbackState
@@ -218,7 +219,7 @@ class QualityFeedbackHandler(HandlerBase):
                 logger.debug("[QualityFeedbackHandler] Skipping self-emitted QUALITY_DEGRADED event")
                 return
 
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             quality_score = payload.get("quality_score", 0.5)
             threshold = payload.get("threshold", MEDIUM_QUALITY_THRESHOLD)
 
@@ -476,7 +477,7 @@ class QualityFeedbackHandler(HandlerBase):
         """
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.5)
         budget_multiplier = payload.get("budget_multiplier", 1.0)
         adjustment_type = payload.get("adjustment_type", "unknown")
@@ -530,7 +531,7 @@ class QualityFeedbackHandler(HandlerBase):
         """
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.0)
         sample_count = payload.get("sample_count", 0)
 
@@ -564,7 +565,7 @@ class QualityFeedbackHandler(HandlerBase):
         """
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.0)
         trend = payload.get("trend", "stable")
         sample_count = payload.get("sample_count", 0)

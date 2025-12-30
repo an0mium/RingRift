@@ -37,6 +37,7 @@ from app.config.thresholds import (
 )
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
+from app.coordination.event_handler_utils import extract_config_key
 
 if TYPE_CHECKING:
     from app.coordination.feedback_loop_controller import FeedbackState
@@ -448,7 +449,7 @@ class CurriculumFeedbackHandler(HandlerBase):
         """Handle SELFPLAY_QUALITY_ASSESSED event."""
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         quality_score = payload.get("quality_score", 0.5)
 
         if config_key:

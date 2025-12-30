@@ -48,6 +48,7 @@ from enum import Enum
 from typing import Any
 
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+from app.coordination.event_handler_utils import extract_config_key
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +397,7 @@ class ModelLifecycleCoordinator:
         try:
             from app.training.improvement_optimizer import record_promotion_success
 
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             elo_gain = payload.get("elo_gain", payload.get("elo_delta", 0.0))
 
             if config_key:
@@ -462,7 +463,7 @@ class ModelLifecycleCoordinator:
         """
         payload = event.payload if hasattr(event, "payload") else event
         model_id = payload.get("model_id", "")
-        config_key = payload.get("config_key", payload.get("config", ""))
+        config_key = extract_config_key(payload)
         error = payload.get("error", "unknown")
         reason = payload.get("reason", error)
 
@@ -516,7 +517,7 @@ class ModelLifecycleCoordinator:
         try:
             from app.training.improvement_optimizer import record_training_complete
 
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             duration_seconds = payload.get("duration_seconds", 0.0)
             val_loss = payload.get("val_loss", model.val_loss)
             calibration_ece = payload.get("calibration_ece")
@@ -571,7 +572,7 @@ class ModelLifecycleCoordinator:
         node_id = payload.get("node_id", "")
 
         # Extract config key from model path or use provided
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         if not config_key and model_path:
             # Try to extract from path like "canonical_hex8_2p.pth"
             import re
@@ -674,7 +675,7 @@ class ModelLifecycleCoordinator:
         """
         payload = event.payload if hasattr(event, "payload") else event
         model_id = payload.get("model_id", "")
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         regression_type = payload.get("regression_type", "unknown")
         severity = payload.get("severity", "moderate")  # mild, moderate, severe
         current_elo = payload.get("current_elo", 0.0)

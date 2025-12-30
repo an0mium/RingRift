@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.core.async_context import fire_and_forget
 from app.coordination.sync_mixin_base import SyncMixinBase
+from app.coordination.event_handler_utils import extract_config_key
 
 if TYPE_CHECKING:
     from app.coordination.sync_strategies import AutoSyncConfig, SyncStats
@@ -193,7 +194,7 @@ class SyncEventMixin(SyncMixinBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
             reason = payload.get("reason", "unknown")
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
 
             logger.info(
                 f"[AutoSyncDaemon] SYNC_TRIGGERED received: "
@@ -227,7 +228,7 @@ class SyncEventMixin(SyncMixinBase):
         try:
             payload = event.payload if hasattr(event, "payload") else {}
             # Dec 27, 2025: Handle both "config_key" and "config" for compatibility
-            config_key = payload.get("config_key") or payload.get("config", "")
+            config_key = extract_config_key(payload)
             new_games = payload.get("new_games", 0)
             total_games = payload.get("total_games", 0)
 
@@ -325,7 +326,7 @@ class SyncEventMixin(SyncMixinBase):
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             games_played = payload.get("games_played", 0)
 
             # Only sync if we have a meaningful batch
@@ -371,7 +372,7 @@ class SyncEventMixin(SyncMixinBase):
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             node_id = payload.get("node_id", "")
 
             if not node_id:

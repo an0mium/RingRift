@@ -37,6 +37,7 @@ from app.config.thresholds import (
 )
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
+from app.coordination.event_handler_utils import extract_config_key
 
 if TYPE_CHECKING:
     from app.coordination.feedback_loop_controller import FeedbackState
@@ -315,7 +316,7 @@ class ExplorationFeedbackHandler(HandlerBase):
         """Handle LOSS_ANOMALY_DETECTED event."""
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         anomaly_count = payload.get("anomaly_count", 1)
 
         if config_key:
@@ -325,7 +326,7 @@ class ExplorationFeedbackHandler(HandlerBase):
         """Handle TRAINING_STALL_DETECTED event."""
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         stall_epochs = payload.get("stall_epochs", 5)
 
         if config_key:
@@ -335,7 +336,7 @@ class ExplorationFeedbackHandler(HandlerBase):
         """Handle TRAINING_IMPROVED event."""
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
 
         if config_key:
             self.reduce_exploration_after_improvement(config_key)
@@ -347,7 +348,7 @@ class ExplorationFeedbackHandler(HandlerBase):
         """
         # December 30, 2025: Use consolidated extraction from HandlerBase
         payload = self._get_payload(event)
-        config_key = payload.get("config_key", "")
+        config_key = extract_config_key(payload)
         plateau_duration_hours = payload.get("duration_hours", 24)
 
         if config_key:

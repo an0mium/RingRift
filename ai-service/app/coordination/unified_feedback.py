@@ -63,6 +63,7 @@ from app.config.thresholds import (
     QUALITY_EXCELLENT_THRESHOLD,
     QUALITY_GOOD_THRESHOLD,
 )
+from app.coordination.event_handler_utils import extract_config_key
 
 logger = logging.getLogger(__name__)
 
@@ -475,7 +476,7 @@ class UnifiedFeedbackOrchestrator:
         try:
             payload = event.payload if hasattr(event, "payload") else {}
             metadata = payload.get("metadata", payload)
-            config_key = metadata.get("config") or metadata.get("config_key", "")
+            config_key = extract_config_key(metadata)
             promoted = metadata.get("promoted", False)
 
             if not config_key:
@@ -532,7 +533,7 @@ class UnifiedFeedbackOrchestrator:
         """Handle QUALITY_DEGRADED event."""
         try:
             payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             quality_score = payload.get("quality_score", 0.5)
 
             if not config_key:
@@ -556,7 +557,7 @@ class UnifiedFeedbackOrchestrator:
         """Handle PLATEAU_DETECTED event."""
         try:
             payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
 
             if not config_key:
                 return
@@ -575,7 +576,7 @@ class UnifiedFeedbackOrchestrator:
         """Handle REGRESSION_DETECTED event."""
         try:
             payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", payload.get("config", ""))
+            config_key = extract_config_key(payload)
 
             if not config_key:
                 return
@@ -628,7 +629,7 @@ class UnifiedFeedbackOrchestrator:
         """Handle ELO_VELOCITY_CHANGED event."""
         try:
             payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             velocity = payload.get("velocity", 0.0)
 
             if not config_key:
@@ -649,7 +650,7 @@ class UnifiedFeedbackOrchestrator:
         """Handle QUALITY_PENALTY_APPLIED event."""
         try:
             payload = event.payload if hasattr(event, "payload") else {}
-            config_key = payload.get("config_key", "")
+            config_key = extract_config_key(payload)
             penalty = payload.get("new_penalty", 0)
 
             if not config_key:
