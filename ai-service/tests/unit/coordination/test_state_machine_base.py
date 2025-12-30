@@ -664,3 +664,277 @@ class TestStateMachineDecorator:
         # Cannot go directly from IDLE to COMPLETED
         assert machine.transition_to(SampleState.COMPLETED) is False
         assert machine.state == SampleState.IDLE
+
+
+# =============================================================================
+# Additional StateMachineBase Tests - Guards and Callbacks
+# =============================================================================
+
+
+class TestStateMachineGuardsAndCallbacks:
+    """Tests for guard and callback functionality."""
+
+    def test_transition_with_guard_true(self):
+        """Should allow transition when guard returns True."""
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={
+                SampleState.IDLE: [
+                    StateTransition(SampleState.RUNNING, guard=lambda: True),
+                ],
+            },
+        )
+        success = machine.transition_to(SampleState.RUNNING)
+        assert success is True
+        assert machine.state == SampleState.RUNNING
+
+    def test_transition_with_guard_false(self):
+        """Should block transition when guard returns False."""
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={
+                SampleState.IDLE: [
+                    StateTransition(SampleState.RUNNING, guard=lambda: False),
+                ],
+            },
+        )
+        success = machine.transition_to(SampleState.RUNNING)
+        assert success is False
+        assert machine.state == SampleState.IDLE
+
+    def test_on_enter_callback(self):
+        """Should call on_enter callback when entering state."""
+        entered_states = []
+
+        def on_enter_running(from_state):
+            entered_states.append((from_state, SampleState.RUNNING))
+
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={
+                SampleState.IDLE: [SampleState.RUNNING],
+            },
+            on_enter={SampleState.RUNNING: on_enter_running},
+        )
+        machine.transition_to(SampleState.RUNNING)
+
+        assert len(entered_states) == 1
+        assert entered_states[0] == (SampleState.IDLE, SampleState.RUNNING)
+
+    def test_on_exit_callback(self):
+        """Should call on_exit callback when leaving state."""
+        exited_states = []
+
+        def on_exit_idle(to_state):
+            exited_states.append((SampleState.IDLE, to_state))
+
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={
+                SampleState.IDLE: [SampleState.RUNNING],
+            },
+            on_exit={SampleState.IDLE: on_exit_idle},
+        )
+        machine.transition_to(SampleState.RUNNING)
+
+        assert len(exited_states) == 1
+        assert exited_states[0] == (SampleState.IDLE, SampleState.RUNNING)
+
+    def test_on_transition_callback(self):
+        """Should call on_transition callback during transition."""
+        transition_calls = []
+
+        def on_transition(from_state, to_state):
+            transition_calls.append((from_state, to_state))
+
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={
+                SampleState.IDLE: [
+                    StateTransition(
+                        SampleState.RUNNING,
+                        on_transition=on_transition,
+                    ),
+                ],
+            },
+        )
+        machine.transition_to(SampleState.RUNNING)
+
+        assert len(transition_calls) == 1
+        assert transition_calls[0] == (SampleState.IDLE, SampleState.RUNNING)
+
+    def test_callback_order(self):
+        """Should call callbacks in order: exit, transition, enter."""
+        call_order = []
+
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={
+                SampleState.IDLE: [
+                    StateTransition(
+                        SampleState.RUNNING,
+                        on_transition=lambda f, t: call_order.append("transition"),
+                    ),
+                ],
+            },
+            on_exit={SampleState.IDLE: lambda t: call_order.append("exit")},
+            on_enter={SampleState.RUNNING: lambda f: call_order.append("enter")},
+        )
+        machine.transition_to(SampleState.RUNNING)
+
+        assert call_order == ["exit", "transition", "enter"]
+
+    def test_callback_exception_rolls_back(self):
+        """Should rollback state if callback raises exception."""
+
+        def bad_callback(from_state):
+            raise ValueError("Callback error")
+
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={
+                SampleState.IDLE: [SampleState.RUNNING],
+            },
+            on_enter={SampleState.RUNNING: bad_callback},
+        )
+        success = machine.transition_to(SampleState.RUNNING)
+
+        # Should fail and rollback
+        assert success is False
+        assert machine.state == SampleState.IDLE
+
+
+# =============================================================================
+# Additional StateHistory Tests
+# =============================================================================
+
+
+class TestStateHistoryTimeTracking:
+    """Tests for StateHistory time-in-state tracking."""
+
+    def test_get_time_in_state_single_visit(self):
+        """Should calculate time spent in a state for single visit."""
+        import time
+
+        history = StateHistory[SampleState]()
+
+        # Record entering RUNNING
+        history.record(SampleState.IDLE, SampleState.RUNNING)
+        time.sleep(0.05)  # 50ms
+        history.record(SampleState.RUNNING, SampleState.COMPLETED)
+
+        # Should have spent at least 50ms in RUNNING
+        time_in_running = history.get_time_in_state(SampleState.RUNNING)
+        assert time_in_running >= 0.04  # Allow some tolerance
+
+    def test_get_time_in_state_still_in_state(self):
+        """Should calculate time when still in the state."""
+        import time
+
+        history = StateHistory[SampleState]()
+        history.record(SampleState.IDLE, SampleState.RUNNING)
+        time.sleep(0.05)
+
+        # Still in RUNNING state (no exit recorded)
+        time_in_running = history.get_time_in_state(SampleState.RUNNING)
+        assert time_in_running >= 0.04
+
+    def test_get_time_in_state_never_visited(self):
+        """Should return 0 for state never visited."""
+        history = StateHistory[SampleState]()
+        history.record(SampleState.IDLE, SampleState.RUNNING)
+
+        time_in_completed = history.get_time_in_state(SampleState.COMPLETED)
+        assert time_in_completed == 0.0
+
+    def test_record_with_metadata(self):
+        """Should record metadata with transitions."""
+        history = StateHistory[SampleState]()
+        history.record(
+            SampleState.IDLE,
+            SampleState.RUNNING,
+            metadata={"job_id": "job-123", "priority": 5},
+        )
+
+        recent = history.get_recent(1)
+        assert recent[0].metadata == {"job_id": "job-123", "priority": 5}
+
+    def test_clear_resets_transition_counts(self):
+        """Should reset transition counts when cleared."""
+        history = StateHistory[SampleState]()
+        history.record(SampleState.IDLE, SampleState.RUNNING)
+        history.record(SampleState.RUNNING, SampleState.IDLE)
+
+        assert history.get_transition_count(SampleState.IDLE, SampleState.RUNNING) == 1
+
+        history.clear()
+        assert history.get_transition_count(SampleState.IDLE, SampleState.RUNNING) == 0
+
+
+# =============================================================================
+# Additional Edge Case Tests
+# =============================================================================
+
+
+class TestStateMachineEdgeCases:
+    """Tests for edge cases and error conditions."""
+
+    def test_transition_to_same_state(self):
+        """Should return True when transitioning to same state."""
+        machine = PriorityStateMachine()
+        success = machine.transition_to(PriorityState.NORMAL)
+        assert success is True
+        # Should not record transition in history
+        assert len(machine.history.entries) == 0
+
+    def test_missing_initial_state_raises(self):
+        """Should raise ValueError when no initial state specified."""
+        with pytest.raises(ValueError, match="Initial state must be specified"):
+            StateMachineBase[SampleState](
+                initial_state=None,
+                transitions={},
+            )
+
+    def test_composite_unknown_machine(self):
+        """Should return False when transitioning unknown machine."""
+        composite = CompositeStateMachine()
+        composite.add("priority", PriorityStateMachine())
+
+        success = composite.transition("unknown", PriorityState.HIGH)
+        assert success is False
+
+    def test_composite_get_unknown_returns_none(self):
+        """Should return None for unknown machine name."""
+        composite = CompositeStateMachine()
+        assert composite.get("nonexistent") is None
+
+    def test_reset_clears_lock(self):
+        """Should clear lock when reset."""
+        machine = PriorityStateMachine()
+        machine.lock()
+        machine.reset()
+        assert machine._locked is False
+
+    def test_transition_with_reason_and_metadata(self):
+        """Should store reason and metadata in history."""
+        machine = PriorityStateMachine()
+        machine.transition_to(
+            PriorityState.HIGH,
+            reason="high priority job",
+            metadata={"source": "scheduler"},
+        )
+
+        recent = machine.history.get_recent(1)
+        assert recent[0].reason == "high priority job"
+        assert recent[0].metadata == {"source": "scheduler"}
+
+    def test_emit_events_disabled(self):
+        """Should not emit events when disabled."""
+        machine = StateMachineBase[SampleState](
+            initial_state=SampleState.IDLE,
+            transitions={SampleState.IDLE: [SampleState.RUNNING]},
+            emit_events=False,
+        )
+        # This should not raise even if event bus is not available
+        machine.transition_to(SampleState.RUNNING)
+        assert machine.state == SampleState.RUNNING

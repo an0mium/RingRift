@@ -1,20 +1,34 @@
-"""Tests for async_executor_base module.
+"""Unit tests for async_executor_base.py.
 
-December 29, 2025: Tests for unified async executor framework.
+Tests the unified async executor framework that provides:
+- AsyncExecutor: Managed async task execution with lifecycle
+- TaskGroup: Grouped task management with cancellation
+- TimeoutExecutor: Tasks with timeout enforcement
+- RetryExecutor: Tasks with retry and backoff
+
+This is critical infrastructure (866 LOC) used by all 77 daemons.
 """
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+import time
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.coordination.async_executor_base import (
     AsyncExecutor,
+    RetryConfig,
+    RetryExecutor,
     TaskGroup,
     TaskInfo,
     TaskState,
+    TimeoutExecutor,
+    execute_with_retry,
+    execute_with_timeout,
+    managed_executor,
 )
 
 
@@ -26,8 +40,8 @@ from app.coordination.async_executor_base import (
 class TestTaskState:
     """Tests for TaskState enum."""
 
-    def test_all_states_exist(self):
-        """All expected states are defined."""
+    def test_task_state_values(self) -> None:
+        """Test that all task states have expected values."""
         assert TaskState.PENDING.value == "pending"
         assert TaskState.RUNNING.value == "running"
         assert TaskState.COMPLETED.value == "completed"
@@ -35,10 +49,9 @@ class TestTaskState:
         assert TaskState.CANCELLED.value == "cancelled"
         assert TaskState.TIMEOUT.value == "timeout"
 
-    def test_states_are_unique(self):
-        """All state values are unique."""
-        values = [s.value for s in TaskState]
-        assert len(values) == len(set(values))
+    def test_task_state_count(self) -> None:
+        """Test that we have all expected states."""
+        assert len(TaskState) == 6
 
 
 # =============================================================================
@@ -49,67 +62,62 @@ class TestTaskState:
 class TestTaskInfo:
     """Tests for TaskInfo dataclass."""
 
-    def test_default_values(self):
-        """Default values are set correctly."""
-        info = TaskInfo(task_id="test-123", name="test_task")
-        assert info.task_id == "test-123"
+    def test_task_info_defaults(self) -> None:
+        """Test TaskInfo with default values."""
+        info = TaskInfo(task_id="abc123", name="test_task")
+
+        assert info.task_id == "abc123"
         assert info.name == "test_task"
         assert info.state == TaskState.PENDING
+        assert info.created_at > 0
         assert info.started_at is None
         assert info.completed_at is None
         assert info.timeout_seconds is None
         assert info.error is None
         assert info.result is None
 
-    def test_duration_not_started(self):
-        """Duration returns None if task not started."""
-        info = TaskInfo(task_id="test", name="test")
+    def test_task_info_duration_not_started(self) -> None:
+        """Test duration is None when not started."""
+        info = TaskInfo(task_id="abc", name="test")
         assert info.duration is None
 
-    def test_duration_running(self):
-        """Duration calculated correctly while running."""
-        import time
+    def test_task_info_duration_running(self) -> None:
+        """Test duration when task is running."""
+        info = TaskInfo(task_id="abc", name="test")
+        info.started_at = time.time() - 5.0  # Started 5 seconds ago
 
-        info = TaskInfo(task_id="test", name="test")
-        info.started_at = time.time() - 1.0  # Started 1 second ago
-        assert info.duration is not None
-        assert info.duration >= 1.0
-        assert info.duration < 2.0
+        duration = info.duration
+        assert duration is not None
+        assert 5.0 <= duration <= 6.0
 
-    def test_duration_completed(self):
-        """Duration calculated correctly when completed."""
-        info = TaskInfo(task_id="test", name="test")
+    def test_task_info_duration_completed(self) -> None:
+        """Test duration when task is completed."""
+        info = TaskInfo(task_id="abc", name="test")
         info.started_at = 1000.0
         info.completed_at = 1005.0
+
         assert info.duration == 5.0
 
-    def test_to_dict(self):
-        """to_dict() returns correct dictionary."""
+    def test_task_info_to_dict(self) -> None:
+        """Test serialization to dictionary."""
         info = TaskInfo(
             task_id="abc123",
-            name="my_task",
+            name="test_task",
             state=TaskState.COMPLETED,
             timeout_seconds=30.0,
         )
         info.started_at = 1000.0
-        info.completed_at = 1002.5
-        info.result = {"data": "value"}
+        info.completed_at = 1005.0
+        info.error = ValueError("test error")
 
-        d = info.to_dict()
-        assert d["task_id"] == "abc123"
-        assert d["name"] == "my_task"
-        assert d["state"] == "completed"
-        assert d["timeout_seconds"] == 30.0
-        assert d["duration"] == 2.5
-        assert d["error"] is None
+        result = info.to_dict()
 
-    def test_to_dict_with_error(self):
-        """to_dict() includes error string."""
-        info = TaskInfo(task_id="test", name="test")
-        info.error = ValueError("Something went wrong")
-
-        d = info.to_dict()
-        assert d["error"] == "Something went wrong"
+        assert result["task_id"] == "abc123"
+        assert result["name"] == "test_task"
+        assert result["state"] == "completed"
+        assert result["timeout_seconds"] == 30.0
+        assert result["duration"] == 5.0
+        assert result["error"] == "test error"
 
 
 # =============================================================================
@@ -117,143 +125,93 @@ class TestTaskInfo:
 # =============================================================================
 
 
-class TestAsyncExecutorLifecycle:
-    """Tests for AsyncExecutor start/shutdown lifecycle."""
+class TestAsyncExecutor:
+    """Tests for AsyncExecutor class."""
+
+    @pytest.fixture
+    def executor(self) -> AsyncExecutor:
+        """Create a test executor."""
+        return AsyncExecutor(name="test_executor", max_concurrent=10)
 
     @pytest.mark.asyncio
-    async def test_start_sets_running_flag(self):
-        """start() sets running flag."""
-        executor = AsyncExecutor(name="test")
-        assert not executor._running
-
+    async def test_executor_start(self, executor: AsyncExecutor) -> None:
+        """Test executor can be started."""
         await executor.start()
-        assert executor._running
-
+        assert executor._running is True
+        assert executor._semaphore is not None
         await executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_start_idempotent(self):
-        """Multiple start() calls are safe."""
-        executor = AsyncExecutor(name="test")
-
+    async def test_executor_double_start(self, executor: AsyncExecutor) -> None:
+        """Test that starting twice is a no-op."""
         await executor.start()
-        await executor.start()  # Should not error
-        assert executor._running
-
+        await executor.start()  # Should not raise
+        assert executor._running is True
         await executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_shutdown_clears_running_flag(self):
-        """shutdown() clears running flag."""
-        executor = AsyncExecutor(name="test")
+    async def test_executor_shutdown(self, executor: AsyncExecutor) -> None:
+        """Test executor shutdown."""
         await executor.start()
         await executor.shutdown()
-        assert not executor._running
+        assert executor._running is False
 
     @pytest.mark.asyncio
-    async def test_shutdown_idempotent(self):
-        """Multiple shutdown() calls are safe."""
-        executor = AsyncExecutor(name="test")
+    async def test_executor_double_shutdown(self, executor: AsyncExecutor) -> None:
+        """Test that shutting down twice is safe."""
         await executor.start()
         await executor.shutdown()
-        await executor.shutdown()  # Should not error
-        assert not executor._running
+        await executor.shutdown()  # Should not raise
+        assert executor._running is False
 
     @pytest.mark.asyncio
-    async def test_shutdown_cancels_pending_tasks(self):
-        """shutdown() cancels pending tasks."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        cancelled = False
-
-        async def long_task():
-            nonlocal cancelled
-            try:
-                await asyncio.sleep(100)
-            except asyncio.CancelledError:
-                cancelled = True
-                raise
-
-        await executor.submit(long_task())
-        await asyncio.sleep(0.05)  # Let task start
-        await executor.shutdown(timeout=1.0)
-
-        assert cancelled
-
-
-class TestAsyncExecutorSubmit:
-    """Tests for AsyncExecutor.submit()."""
-
-    @pytest.mark.asyncio
-    async def test_submit_returns_task_id(self):
-        """submit() returns a task ID."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        async def simple():
-            return 42
-
-        task_id = await executor.submit(simple())
-        assert isinstance(task_id, str)
-        assert len(task_id) == 8
-
-        await executor.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_submit_fails_when_not_running(self):
-        """submit() raises error when executor not started."""
-        executor = AsyncExecutor(name="test")
-
-        async def simple():
-            return 42
+    async def test_submit_not_running_raises(self, executor: AsyncExecutor) -> None:
+        """Test that submit raises when executor not running."""
+        async def dummy() -> None:
+            pass
 
         with pytest.raises(RuntimeError, match="not running"):
-            await executor.submit(simple())
+            await executor.submit(dummy())
 
     @pytest.mark.asyncio
-    async def test_submit_executes_coroutine(self):
-        """Submitted coroutine is executed."""
-        executor = AsyncExecutor(name="test")
+    async def test_submit_task(self, executor: AsyncExecutor) -> None:
+        """Test submitting a task."""
         await executor.start()
 
-        result_holder = []
-
-        async def capture():
-            result_holder.append("executed")
-
-        task_id = await executor.submit(capture())
-        await executor.wait_for(task_id)
-
-        assert result_holder == ["executed"]
-
-        await executor.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_submit_tracks_task_info(self):
-        """submit() creates TaskInfo entry."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        async def simple():
+        async def my_task() -> int:
             return 42
 
-        task_id = await executor.submit(simple(), name="my_task")
-        await asyncio.sleep(0.05)
+        task_id = await executor.submit(my_task(), name="my_task")
+        result = await executor.wait_for(task_id)
 
-        info = executor.get_task_info(task_id)
-        assert info is not None
-        assert info.name == "my_task"
-
+        assert result == 42
+        assert executor._total_completed == 1
         await executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_submit_with_timeout(self):
-        """Task-specific timeout is enforced."""
-        executor = AsyncExecutor(name="test")
+    async def test_submit_task_with_error(self, executor: AsyncExecutor) -> None:
+        """Test submitting a task that raises an error."""
         await executor.start()
 
-        async def slow_task():
+        async def failing_task() -> None:
+            raise ValueError("test error")
+
+        error_callback = MagicMock()
+        task_id = await executor.submit(failing_task(), on_error=error_callback)
+
+        with pytest.raises(ValueError):
+            await executor.wait_for(task_id)
+
+        error_callback.assert_called_once()
+        assert executor._total_failed == 1
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_submit_task_with_timeout(self, executor: AsyncExecutor) -> None:
+        """Test task timeout enforcement."""
+        await executor.start()
+
+        async def slow_task() -> None:
             await asyncio.sleep(10)
 
         task_id = await executor.submit(slow_task(), timeout=0.1)
@@ -261,253 +219,209 @@ class TestAsyncExecutorSubmit:
         with pytest.raises(asyncio.TimeoutError):
             await executor.wait_for(task_id)
 
-        info = executor.get_task_info(task_id)
-        assert info.state == TaskState.TIMEOUT
-
+        assert executor._total_timeout == 1
         await executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_submit_on_complete_callback(self):
-        """on_complete callback is called with result."""
-        executor = AsyncExecutor(name="test")
+    async def test_submit_with_completion_callback(self, executor: AsyncExecutor) -> None:
+        """Test completion callback is called."""
         await executor.start()
 
-        callback_result = []
+        async def my_task() -> str:
+            return "result"
 
-        async def simple():
-            return "success"
-
-        def on_complete(result):
-            callback_result.append(result)
-
-        task_id = await executor.submit(simple(), on_complete=on_complete)
+        callback = MagicMock()
+        task_id = await executor.submit(my_task(), on_complete=callback)
         await executor.wait_for(task_id)
 
-        assert callback_result == ["success"]
+        callback.assert_called_once_with("result")
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_fire_and_forget_not_running(self, executor: AsyncExecutor) -> None:
+        """Test fire_and_forget returns None when not running."""
+        async def dummy() -> None:
+            pass
+
+        result = executor.fire_and_forget(dummy())
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_fire_and_forget(self, executor: AsyncExecutor) -> None:
+        """Test fire_and_forget task execution."""
+        await executor.start()
+
+        completed = asyncio.Event()
+
+        async def my_task() -> None:
+            completed.set()
+
+        task_id = executor.fire_and_forget(my_task())
+        assert task_id is not None
+
+        await asyncio.wait_for(completed.wait(), timeout=1.0)
+        await asyncio.sleep(0.1)  # Let cleanup happen
 
         await executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_submit_on_error_callback(self):
-        """on_error callback is called with exception."""
-        executor = AsyncExecutor(name="test")
+    async def test_fire_and_forget_with_error(self, executor: AsyncExecutor) -> None:
+        """Test fire_and_forget handles errors gracefully."""
         await executor.start()
 
-        callback_errors = []
+        error_callback = MagicMock()
 
-        async def failing():
-            raise ValueError("test error")
+        async def failing_task() -> None:
+            raise ValueError("test")
 
-        def on_error(e):
-            callback_errors.append(str(e))
+        task_id = executor.fire_and_forget(failing_task(), on_error=error_callback)
+        assert task_id is not None
 
-        task_id = await executor.submit(failing(), on_error=on_error)
+        await asyncio.sleep(0.1)  # Let task run
+
+        error_callback.assert_called_once()
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_wait_for_unknown_task(self, executor: AsyncExecutor) -> None:
+        """Test wait_for raises for unknown task."""
+        await executor.start()
+
+        with pytest.raises(KeyError):
+            await executor.wait_for("unknown_id")
+
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_wait_for_completed_task(self, executor: AsyncExecutor) -> None:
+        """Test wait_for returns result for already completed task."""
+        await executor.start()
+
+        async def quick_task() -> int:
+            return 123
+
+        task_id = await executor.submit(quick_task())
+        result1 = await executor.wait_for(task_id)
+
+        # Task should be tracked even after completion
+        info = executor.get_task_info(task_id)
+        assert info is not None
+        assert info.result == 123
+
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_wait_all(self, executor: AsyncExecutor) -> None:
+        """Test waiting for all tasks."""
+        await executor.start()
+
+        results: list[int] = []
+
+        async def task(n: int) -> int:
+            results.append(n)
+            return n
+
+        for i in range(5):
+            await executor.submit(task(i))
+
+        await executor.wait_all()
+
+        assert len(results) == 5
+        assert executor._total_completed == 5
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_wait_all_empty(self, executor: AsyncExecutor) -> None:
+        """Test wait_all with no tasks."""
+        await executor.start()
+        await executor.wait_all()  # Should not hang
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_get_pending_count(self, executor: AsyncExecutor) -> None:
+        """Test getting pending task count."""
+        await executor.start()
+
+        async def slow_task() -> None:
+            await asyncio.sleep(1)
+
+        await executor.submit(slow_task())
+        await executor.submit(slow_task())
+
+        assert executor.get_pending_count() == 2
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_get_stats(self, executor: AsyncExecutor) -> None:
+        """Test getting executor statistics."""
+        await executor.start()
+
+        async def task() -> int:
+            return 1
+
+        await executor.submit(task())
+        await executor.wait_all()
+
+        stats = executor.get_stats()
+
+        assert stats["name"] == "test_executor"
+        assert stats["running"] is True
+        assert stats["total_submitted"] == 1
+        assert stats["total_completed"] == 1
+        assert stats["max_concurrent"] == 10
+
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_global_error_callback(self) -> None:
+        """Test global error callback."""
+        callback = MagicMock()
+        executor = AsyncExecutor(name="test", on_task_error=callback)
+        await executor.start()
+
+        async def failing() -> None:
+            raise ValueError("fail")
+
+        task_id = await executor.submit(failing())
 
         with pytest.raises(ValueError):
             await executor.wait_for(task_id)
 
-        assert callback_errors == ["test error"]
-
-        await executor.shutdown()
-
-
-class TestAsyncExecutorFireAndForget:
-    """Tests for AsyncExecutor.fire_and_forget()."""
-
-    @pytest.mark.asyncio
-    async def test_fire_and_forget_returns_task_id(self):
-        """fire_and_forget() returns task ID when running."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        async def simple():
-            pass
-
-        task_id = executor.fire_and_forget(simple())
-        assert task_id is not None
-        assert isinstance(task_id, str)
-
+        callback.assert_called_once()
         await executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_fire_and_forget_returns_none_when_not_running(self):
-        """fire_and_forget() returns None when not running."""
-        executor = AsyncExecutor(name="test")
-
-        async def simple():
-            pass
-
-        task_id = executor.fire_and_forget(simple())
-        assert task_id is None
-
-    @pytest.mark.asyncio
-    async def test_fire_and_forget_executes_task(self):
-        """fire_and_forget() actually executes the task."""
-        executor = AsyncExecutor(name="test")
+    async def test_global_complete_callback(self) -> None:
+        """Test global completion callback."""
+        callback = MagicMock()
+        executor = AsyncExecutor(name="test", on_task_complete=callback)
         await executor.start()
 
-        result_holder = []
+        async def task() -> str:
+            return "done"
 
-        async def capture():
-            result_holder.append("executed")
+        task_id = await executor.submit(task())
+        await executor.wait_for(task_id)
 
-        executor.fire_and_forget(capture())
-        await asyncio.sleep(0.1)
-
-        assert result_holder == ["executed"]
-
+        callback.assert_called_once()
         await executor.shutdown()
 
     @pytest.mark.asyncio
-    async def test_fire_and_forget_error_callback(self):
-        """fire_and_forget() calls error callback on failure."""
-        executor = AsyncExecutor(name="test")
+    async def test_shutdown_cancels_pending(self, executor: AsyncExecutor) -> None:
+        """Test shutdown cancels pending tasks."""
         await executor.start()
 
-        error_holder = []
-
-        async def failing():
-            raise ValueError("boom")
-
-        def on_error(e):
-            error_holder.append(str(e))
-
-        executor.fire_and_forget(failing(), on_error=on_error)
-        await asyncio.sleep(0.1)
-
-        assert error_holder == ["boom"]
-
-        await executor.shutdown()
-
-
-class TestAsyncExecutorWait:
-    """Tests for AsyncExecutor wait methods."""
-
-    @pytest.mark.asyncio
-    async def test_wait_for_returns_result(self):
-        """wait_for() returns task result."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        async def compute():
-            return 42
-
-        task_id = await executor.submit(compute())
-        result = await executor.wait_for(task_id)
-
-        assert result == 42
-
-        await executor.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_wait_for_raises_on_invalid_id(self):
-        """wait_for() raises KeyError for invalid task ID."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        with pytest.raises(KeyError):
-            await executor.wait_for("nonexistent")
-
-        await executor.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_wait_for_with_timeout(self):
-        """wait_for() respects timeout."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        async def slow():
+        async def slow_task() -> None:
             await asyncio.sleep(10)
 
-        task_id = await executor.submit(slow())
-
-        with pytest.raises(asyncio.TimeoutError):
-            await executor.wait_for(task_id, timeout=0.1)
-
-        await executor.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_wait_all_waits_for_all_tasks(self):
-        """wait_all() waits for all tasks."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        results = []
-
-        async def append(value):
-            await asyncio.sleep(0.05)
-            results.append(value)
-
-        await executor.submit(append(1))
-        await executor.submit(append(2))
-        await executor.submit(append(3))
-
-        await executor.wait_all()
-
-        assert sorted(results) == [1, 2, 3]
-
-        await executor.shutdown()
-
-
-class TestAsyncExecutorMetrics:
-    """Tests for AsyncExecutor metrics collection."""
-
-    @pytest.mark.asyncio
-    async def test_get_stats(self):
-        """get_stats() returns correct statistics."""
-        executor = AsyncExecutor(name="test", max_concurrent=50)
-        await executor.start()
-
-        async def success():
-            return "ok"
-
-        await executor.submit(success())
-        await executor.wait_all()
-
-        stats = executor.get_stats()
-        assert stats["name"] == "test"
-        assert stats["running"] is True
-        assert stats["total_submitted"] == 1
-        assert stats["total_completed"] == 1
-        assert stats["max_concurrent"] == 50
-
-        await executor.shutdown()
-
-    @pytest.mark.asyncio
-    async def test_get_pending_count(self):
-        """get_pending_count() returns correct count."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        async def slow():
-            await asyncio.sleep(1)
-
-        await executor.submit(slow())
-        await executor.submit(slow())
+        await executor.submit(slow_task())
+        await executor.submit(slow_task())
 
         assert executor.get_pending_count() == 2
 
-        await executor.shutdown()
+        await executor.shutdown(timeout=1.0)
 
-    @pytest.mark.asyncio
-    async def test_metrics_track_failures(self):
-        """Metrics correctly track failed tasks."""
-        executor = AsyncExecutor(name="test")
-        await executor.start()
-
-        async def failing():
-            raise ValueError("boom")
-
-        task_id = await executor.submit(failing())
-        try:
-            await executor.wait_for(task_id)
-        except ValueError:
-            pass
-
-        stats = executor.get_stats()
-        assert stats["total_failed"] == 1
-
-        await executor.shutdown()
+        assert executor._total_cancelled == 2
 
 
 # =============================================================================
@@ -516,90 +430,428 @@ class TestAsyncExecutorMetrics:
 
 
 class TestTaskGroup:
-    """Tests for TaskGroup context manager."""
+    """Tests for TaskGroup class."""
 
     @pytest.mark.asyncio
-    async def test_basic_usage(self):
-        """TaskGroup executes all tasks."""
-        results = []
+    async def test_task_group_basic(self) -> None:
+        """Test basic task group usage."""
+        results: list[int] = []
 
-        async def append(value):
-            results.append(value)
+        async with TaskGroup(name="test_group") as group:
+            for i in range(3):
+                async def task(n: int = i) -> int:
+                    results.append(n)
+                    return n
 
-        async with TaskGroup(name="test") as group:
-            group.create_task(append(1))
-            group.create_task(append(2))
-            group.create_task(append(3))
+                group.create_task(task())
 
-        assert sorted(results) == [1, 2, 3]
-
-    @pytest.mark.asyncio
-    async def test_empty_group(self):
-        """Empty TaskGroup completes without error."""
-        async with TaskGroup(name="test") as group:
-            pass  # No tasks
-
-        assert group._finished
+        assert len(results) == 3
+        assert group.success_count == 3
+        assert group.error_count == 0
 
     @pytest.mark.asyncio
-    async def test_group_timeout(self):
-        """TaskGroup respects timeout and collects error."""
-        async def slow():
-            await asyncio.sleep(10)
+    async def test_task_group_results(self) -> None:
+        """Test task group collects results."""
+        async with TaskGroup(name="test_group") as group:
+            async def task1() -> int:
+                return 1
 
-        async with TaskGroup(name="test", timeout=0.1) as group:
-            group.create_task(slow())
+            async def task2() -> int:
+                return 2
 
-        # Timeout is collected as error, not raised
-        assert len(group._errors) == 1
-        assert isinstance(group._errors[0], asyncio.TimeoutError)
+            group.create_task(task1())
+            group.create_task(task2())
 
-    @pytest.mark.asyncio
-    async def test_suppress_errors_false(self):
-        """Errors propagate when suppress_errors=False."""
-        async def failing():
-            raise ValueError("boom")
-
-        async def success():
-            return "ok"
-
-        group = TaskGroup(name="test", suppress_errors=False)
-        try:
-            async with group:
-                group.create_task(failing())
-                group.create_task(success())
-        except ValueError:
-            pass  # Expected
-
-        assert len(group._errors) == 1
+        assert set(group.results) == {1, 2}
 
     @pytest.mark.asyncio
-    async def test_suppress_errors_true(self):
-        """Errors collected when suppress_errors=True."""
-        async def failing():
-            raise ValueError("boom")
+    async def test_task_group_errors(self) -> None:
+        """Test task group collects errors."""
+        async with TaskGroup(name="test_group", suppress_errors=True) as group:
+            async def failing() -> None:
+                raise ValueError("fail")
 
-        async def success():
-            return "ok"
+            async def success() -> int:
+                return 1
 
-        async with TaskGroup(name="test", suppress_errors=True) as group:
             group.create_task(failing())
             group.create_task(success())
 
-        assert len(group._errors) == 1
-        assert "ok" in group._results
+        assert group.error_count == 1
+        assert group.success_count == 1
+        assert len(group.errors) == 1
+        assert isinstance(group.errors[0], ValueError)
 
     @pytest.mark.asyncio
-    async def test_results_property(self):
-        """results property returns successful task results."""
-        async def compute(n):
-            return n * 2
+    async def test_task_group_timeout(self) -> None:
+        """Test task group timeout."""
+        async with TaskGroup(name="test", timeout=0.1) as group:
+            async def slow() -> None:
+                await asyncio.sleep(10)
 
-        async with TaskGroup(name="test", suppress_errors=True) as group:
-            group.create_task(compute(1))
-            group.create_task(compute(2))
-            group.create_task(compute(3))
+            group.create_task(slow())
 
-        assert sorted(group.results) == [2, 4, 6]
-        assert group.success_count == 3
+        assert group.error_count == 1
+        assert isinstance(group.errors[0], asyncio.TimeoutError)
+
+    @pytest.mark.asyncio
+    async def test_task_group_not_started_error(self) -> None:
+        """Test error when creating task without context manager."""
+        group = TaskGroup(name="test")
+
+        async def task() -> None:
+            pass
+
+        with pytest.raises(RuntimeError, match="not started"):
+            group.create_task(task())
+
+    @pytest.mark.asyncio
+    async def test_task_group_finished_error(self) -> None:
+        """Test error when creating task after group finished."""
+        group: TaskGroup
+
+        async with TaskGroup(name="test") as group:
+            pass
+
+        async def task() -> None:
+            pass
+
+        with pytest.raises(RuntimeError, match="finished"):
+            group.create_task(task())
+
+    @pytest.mark.asyncio
+    async def test_task_group_empty(self) -> None:
+        """Test empty task group."""
+        async with TaskGroup(name="empty") as group:
+            pass
+
+        assert group.success_count == 0
         assert group.error_count == 0
+
+
+# =============================================================================
+# TimeoutExecutor Tests
+# =============================================================================
+
+
+class TestTimeoutExecutor:
+    """Tests for TimeoutExecutor class."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_executor_success(self) -> None:
+        """Test successful execution within timeout."""
+        executor = TimeoutExecutor(default_timeout=10.0)
+
+        async def quick() -> int:
+            return 42
+
+        result = await executor.run(quick())
+        assert result == 42
+
+    @pytest.mark.asyncio
+    async def test_timeout_executor_timeout(self) -> None:
+        """Test timeout is enforced."""
+        executor = TimeoutExecutor(default_timeout=0.1)
+
+        async def slow() -> None:
+            await asyncio.sleep(10)
+
+        with pytest.raises(asyncio.TimeoutError):
+            await executor.run(slow())
+
+    @pytest.mark.asyncio
+    async def test_timeout_executor_override(self) -> None:
+        """Test timeout can be overridden per call."""
+        executor = TimeoutExecutor(default_timeout=10.0)
+
+        async def slow() -> None:
+            await asyncio.sleep(1)
+
+        with pytest.raises(asyncio.TimeoutError):
+            await executor.run(slow(), timeout=0.05)
+
+    @pytest.mark.asyncio
+    async def test_timeout_executor_callback(self) -> None:
+        """Test timeout callback is called."""
+        callback = MagicMock()
+        executor = TimeoutExecutor(default_timeout=0.1, on_timeout=callback)
+
+        async def slow() -> None:
+            await asyncio.sleep(10)
+
+        with pytest.raises(asyncio.TimeoutError):
+            await executor.run(slow(), name="my_task")
+
+        callback.assert_called_once_with("my_task")
+
+
+# =============================================================================
+# RetryExecutor Tests
+# =============================================================================
+
+
+class TestRetryConfig:
+    """Tests for RetryConfig dataclass."""
+
+    def test_retry_config_defaults(self) -> None:
+        """Test default retry configuration."""
+        config = RetryConfig()
+
+        assert config.max_attempts == 3
+        assert config.initial_delay == 1.0
+        assert config.max_delay == 60.0
+        assert config.exponential_base == 2.0
+        assert config.jitter is True
+        assert config.retry_on == (Exception,)
+
+    def test_retry_config_custom(self) -> None:
+        """Test custom retry configuration."""
+        config = RetryConfig(
+            max_attempts=5,
+            initial_delay=0.5,
+            retry_on=(ValueError, TypeError),
+        )
+
+        assert config.max_attempts == 5
+        assert config.initial_delay == 0.5
+        assert config.retry_on == (ValueError, TypeError)
+
+
+class TestRetryExecutor:
+    """Tests for RetryExecutor class."""
+
+    @pytest.mark.asyncio
+    async def test_retry_success_first_try(self) -> None:
+        """Test successful execution on first try."""
+        executor = RetryExecutor()
+
+        async def task() -> int:
+            return 42
+
+        result = await executor.run(lambda: task())
+        assert result == 42
+
+    @pytest.mark.asyncio
+    async def test_retry_success_after_failure(self) -> None:
+        """Test success after initial failures."""
+        attempt = 0
+
+        async def flaky() -> str:
+            nonlocal attempt
+            attempt += 1
+            if attempt < 3:
+                raise ValueError("not yet")
+            return "success"
+
+        config = RetryConfig(max_attempts=3, initial_delay=0.01, jitter=False)
+        executor = RetryExecutor(config=config)
+
+        result = await executor.run(lambda: flaky())
+        assert result == "success"
+        assert attempt == 3
+
+    @pytest.mark.asyncio
+    async def test_retry_exhausted(self) -> None:
+        """Test failure after all retries exhausted."""
+        async def always_fail() -> None:
+            raise ValueError("always fails")
+
+        config = RetryConfig(max_attempts=3, initial_delay=0.01, jitter=False)
+        executor = RetryExecutor(config=config)
+
+        with pytest.raises(ValueError, match="always fails"):
+            await executor.run(lambda: always_fail())
+
+    @pytest.mark.asyncio
+    async def test_retry_callback(self) -> None:
+        """Test retry callback is called."""
+        callback = MagicMock()
+        attempt = 0
+
+        async def flaky() -> str:
+            nonlocal attempt
+            attempt += 1
+            if attempt < 2:
+                raise ValueError("retry")
+            return "done"
+
+        config = RetryConfig(max_attempts=3, initial_delay=0.01, jitter=False)
+        executor = RetryExecutor(config=config, on_retry=callback)
+
+        await executor.run(lambda: flaky())
+
+        callback.assert_called_once()
+        call_args = callback.call_args
+        assert call_args[0][0] == 1  # First retry
+        assert isinstance(call_args[0][1], ValueError)
+
+    @pytest.mark.asyncio
+    async def test_retry_only_on_specified_exceptions(self) -> None:
+        """Test retry only on specified exception types."""
+        attempt = 0
+
+        async def task() -> None:
+            nonlocal attempt
+            attempt += 1
+            raise TypeError("wrong type")
+
+        config = RetryConfig(
+            max_attempts=3,
+            initial_delay=0.01,
+            retry_on=(ValueError,),  # Only retry ValueError
+        )
+        executor = RetryExecutor(config=config)
+
+        with pytest.raises(TypeError):
+            await executor.run(lambda: task())
+
+        # Should not retry for TypeError
+        assert attempt == 1
+
+
+# =============================================================================
+# Convenience Function Tests
+# =============================================================================
+
+
+class TestExecuteWithTimeout:
+    """Tests for execute_with_timeout function."""
+
+    @pytest.mark.asyncio
+    async def test_success(self) -> None:
+        """Test successful execution."""
+        async def task() -> int:
+            return 42
+
+        result = await execute_with_timeout(task(), timeout=10.0)
+        assert result == 42
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_default(self) -> None:
+        """Test timeout returns default value."""
+        async def slow() -> int:
+            await asyncio.sleep(10)
+            return 42
+
+        result = await execute_with_timeout(slow(), timeout=0.05, default=-1)
+        assert result == -1
+
+    @pytest.mark.asyncio
+    async def test_timeout_returns_none(self) -> None:
+        """Test timeout returns None when no default specified."""
+        async def slow() -> int:
+            await asyncio.sleep(10)
+            return 42
+
+        result = await execute_with_timeout(slow(), timeout=0.05)
+        assert result is None
+
+
+class TestExecuteWithRetry:
+    """Tests for execute_with_retry function."""
+
+    @pytest.mark.asyncio
+    async def test_success(self) -> None:
+        """Test successful execution."""
+        async def task() -> str:
+            return "done"
+
+        result = await execute_with_retry(lambda: task())
+        assert result == "done"
+
+    @pytest.mark.asyncio
+    async def test_retry_then_success(self) -> None:
+        """Test retry until success."""
+        attempt = 0
+
+        async def flaky() -> str:
+            nonlocal attempt
+            attempt += 1
+            if attempt < 2:
+                raise ValueError("retry")
+            return "done"
+
+        result = await execute_with_retry(lambda: flaky(), max_attempts=3, delay=0.01)
+        assert result == "done"
+        assert attempt == 2
+
+
+class TestManagedExecutor:
+    """Tests for managed_executor context manager."""
+
+    @pytest.mark.asyncio
+    async def test_managed_executor_lifecycle(self) -> None:
+        """Test executor is properly started and shut down."""
+        async with managed_executor(name="test", max_concurrent=5) as executor:
+            assert executor._running is True
+            assert executor.name == "test"
+            assert executor.max_concurrent == 5
+
+            async def task() -> int:
+                return 42
+
+            task_id = await executor.submit(task())
+            result = await executor.wait_for(task_id)
+            assert result == 42
+
+        # After context exit
+        assert executor._running is False
+
+    @pytest.mark.asyncio
+    async def test_managed_executor_with_timeout(self) -> None:
+        """Test managed executor with default timeout."""
+        async with managed_executor(name="test", default_timeout=5.0) as executor:
+            assert executor.default_timeout == 5.0
+
+
+# =============================================================================
+# Concurrency Tests
+# =============================================================================
+
+
+class TestConcurrency:
+    """Tests for concurrent execution."""
+
+    @pytest.mark.asyncio
+    async def test_max_concurrent_limit(self) -> None:
+        """Test that max_concurrent is enforced."""
+        executor = AsyncExecutor(name="test", max_concurrent=2)
+        await executor.start()
+
+        running: list[bool] = []
+        max_running = 0
+
+        async def task() -> None:
+            nonlocal max_running
+            running.append(True)
+            current = len(running)
+            if current > max_running:
+                max_running = current
+            await asyncio.sleep(0.1)
+            running.pop()
+
+        # Submit 5 tasks but only 2 should run concurrently
+        for _ in range(5):
+            await executor.submit(task())
+
+        await executor.wait_all()
+
+        assert max_running <= 2
+        await executor.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_task_group(self) -> None:
+        """Test tasks in group run concurrently."""
+        start = time.time()
+
+        async with TaskGroup(name="test") as group:
+            for _ in range(3):
+                async def task() -> None:
+                    await asyncio.sleep(0.1)
+
+                group.create_task(task())
+
+        elapsed = time.time() - start
+
+        # All tasks should run concurrently, so total time ~0.1s not 0.3s
+        assert elapsed < 0.25
