@@ -615,9 +615,13 @@ class GossipProtocolMixin(P2PMixinBase):
                             # Verify it's the right node
                             if data.get("node_id") == peer.node_id:
                                 return ip
-            except (asyncio.TimeoutError, OSError):
+            except (asyncio.TimeoutError, OSError) as e:
+                # Dec 30, 2025: Log timeout/network errors at debug level
+                self._log_debug(f"[EndpointProbe] {peer.node_id} IP {ip} probe failed: {type(e).__name__}")
                 continue
-            except Exception:
+            except Exception as e:
+                # Dec 30, 2025: Log unexpected errors
+                self._log_debug(f"[EndpointProbe] {peer.node_id} IP {ip} unexpected error: {type(e).__name__}: {e}")
                 continue
 
         return None
@@ -1067,7 +1071,12 @@ class GossipProtocolMixin(P2PMixinBase):
             get_client_session = None
 
         # Send gossip to selected peers, fetching fresh peer info under lock
-        timeout = ClientTimeout(total=5)
+        # Dec 30, 2025: Use configurable timeout instead of hardcoded value
+        try:
+            from app.config.coordination_defaults import GossipDefaults
+            timeout = ClientTimeout(total=GossipDefaults.PROBE_HTTP_TIMEOUT)
+        except ImportError:
+            timeout = ClientTimeout(total=5)
 
         for peer_id in selected_ids:
             with self.peers_lock:
@@ -1136,9 +1145,9 @@ class GossipProtocolMixin(P2PMixinBase):
 
             config_version = get_config_version()
             local_state["config"] = config_version.to_dict()
-        except Exception:
-            # Config version not available - don't fail gossip
-            pass
+        except Exception as e:
+            # Dec 30, 2025: Log config version failures for observability
+            self._log_debug(f"Config version not available for gossip: {type(e).__name__}: {e}")
 
         return local_state
 
@@ -1508,9 +1517,9 @@ class GossipProtocolMixin(P2PMixinBase):
                         "timestamp": time.time(),
                     },
                 )
-            except Exception:
-                # Event emission is optional
-                pass
+            except Exception as e:
+                # Dec 30, 2025: Log event emission failures for observability
+                self._log_debug(f"[ConfigSync] CONFIG_UPDATED event emission failed: {type(e).__name__}: {e}")
 
         except Exception as e:
             self._log_debug(f"[ConfigSync] Sync from {source_node} failed: {e}")
@@ -1827,7 +1836,12 @@ class GossipProtocolMixin(P2PMixinBase):
     ) -> None:
         """Send anti-entropy repair request to a peer."""
         start_time = time.time()
-        timeout = ClientTimeout(total=10)  # Longer timeout for full exchange
+        # Dec 30, 2025: Use configurable timeout instead of hardcoded value
+        try:
+            from app.config.coordination_defaults import GossipDefaults
+            timeout = ClientTimeout(total=GossipDefaults.ANTI_ENTROPY_TIMEOUT)
+        except ImportError:
+            timeout = ClientTimeout(total=10)  # Fallback
 
         try:
             # Import session helper

@@ -2711,6 +2711,33 @@ class HealthCheckOrchestratorDefaults:
     MAX_CONCURRENT: int = _env_int("RINGRIFT_HEALTH_CHECK_MAX_CONCURRENT", 20)
 
 
+class GossipDefaults:
+    """Default values for gossip protocol operations.
+
+    Used by: scripts/p2p/gossip_protocol.py
+
+    December 30, 2025: Extracted hardcoded timeouts to enable network tuning
+    for cross-cloud deployments (Lambda↔Vast↔RunPod may need different settings).
+    """
+    # Lock acquisition timeout for gossip state operations (seconds)
+    STATE_LOCK_TIMEOUT: float = _env_float("RINGRIFT_GOSSIP_LOCK_TIMEOUT", 5.0)
+
+    # HTTP probe timeout for endpoint validation (seconds)
+    PROBE_HTTP_TIMEOUT: float = _env_float("RINGRIFT_GOSSIP_PROBE_TIMEOUT", 5.0)
+
+    # Full gossip exchange timeout (seconds) - longer for full state transfer
+    EXCHANGE_TIMEOUT: float = _env_float("RINGRIFT_GOSSIP_EXCHANGE_TIMEOUT", 10.0)
+
+    # Anti-entropy repair timeout (seconds)
+    ANTI_ENTROPY_TIMEOUT: float = _env_float("RINGRIFT_GOSSIP_ANTI_ENTROPY_TIMEOUT", 10.0)
+
+    # Consecutive failures before marking peer as suspect
+    FAILURE_THRESHOLD: int = _env_int("RINGRIFT_GOSSIP_FAILURE_THRESHOLD", 5)
+
+    # Maximum gossip message size in bytes (1MB default)
+    MAX_MESSAGE_SIZE_BYTES: int = _env_int("RINGRIFT_GOSSIP_MAX_MESSAGE_SIZE", 1_048_576)
+
+
 # =============================================================================
 # Convenience Functions
 # =============================================================================
