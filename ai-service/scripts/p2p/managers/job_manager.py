@@ -66,6 +66,166 @@ class JobManagerStats:
 _emit_event: Callable[[str, dict], None] | None = None
 _event_emitter_lock = threading.Lock()
 
+# ============================================
+# Raft Job Assignment Integration (Dec 30, 2025 - P5.3)
+# ============================================
+
+# Cached Raft job assignments
+_raft_job_assignments: Any | None = None
+_raft_job_assignments_available: bool | None = None
+
+
+def _check_raft_job_assignments_available() -> bool:
+    """Check if Raft job assignments are available.
+
+    Returns True if P2P orchestrator is running with Raft enabled
+    and ReplicatedJobAssignments is accessible.
+
+    Dec 30, 2025 (P5.3): Added for Job Assignment Consistency.
+    """
+    global _raft_job_assignments_available, _raft_job_assignments
+
+    if _raft_job_assignments_available is not None:
+        return _raft_job_assignments_available
+
+    try:
+        from app.p2p.constants import RAFT_ENABLED
+        from app.p2p.raft_state import PYSYNCOBJ_AVAILABLE
+
+        if not RAFT_ENABLED or not PYSYNCOBJ_AVAILABLE:
+            logger.debug("Raft job assignments disabled: RAFT_ENABLED=%s", RAFT_ENABLED)
+            _raft_job_assignments_available = False
+            return False
+
+        # Try to get job assignments from P2P orchestrator
+        try:
+            from scripts.p2p_orchestrator import P2POrchestrator
+
+            orchestrator = getattr(P2POrchestrator, "_instance", None)
+            if orchestrator is None:
+                logger.debug("Raft job assignments: P2P orchestrator not running")
+                _raft_job_assignments_available = False
+                return False
+
+            raft_initialized = getattr(orchestrator, "_raft_initialized", False)
+            if not raft_initialized:
+                logger.debug("Raft job assignments: Raft not initialized")
+                _raft_job_assignments_available = False
+                return False
+
+            raft_ja = getattr(orchestrator, "_raft_job_assignments", None)
+            if raft_ja is None:
+                logger.debug("Raft job assignments: ReplicatedJobAssignments not available")
+                _raft_job_assignments_available = False
+                return False
+
+            if not getattr(raft_ja, "is_ready", False):
+                logger.debug("Raft job assignments: ReplicatedJobAssignments not ready")
+                _raft_job_assignments_available = False
+                return False
+
+            _raft_job_assignments = raft_ja
+            _raft_job_assignments_available = True
+            logger.info(
+                "Raft job assignments available (leader: %s)",
+                getattr(raft_ja, "leader_address", "unknown"),
+            )
+            return True
+
+        except ImportError:
+            _raft_job_assignments_available = False
+            return False
+
+    except ImportError:
+        _raft_job_assignments_available = False
+        return False
+    except Exception as e:
+        logger.warning("Error checking Raft job assignments: %s", e)
+        _raft_job_assignments_available = False
+        return False
+
+
+def reset_raft_job_assignments_cache() -> None:
+    """Reset the Raft job assignments cache."""
+    global _raft_job_assignments_available, _raft_job_assignments
+    _raft_job_assignments_available = None
+    _raft_job_assignments = None
+
+
+def _record_raft_job_assignment(
+    job_id: str,
+    node_id: str,
+    job_type: str,
+    board_type: str = "",
+    num_players: int = 0,
+    **extra_data: Any,
+) -> bool:
+    """Record a job assignment in Raft (Dec 30, 2025 - P5.3).
+
+    This provides cluster-wide visibility of job assignments.
+
+    Args:
+        job_id: Unique job identifier
+        node_id: Node the job is assigned to
+        job_type: Type of job (selfplay, training, etc.)
+        board_type: Board type if applicable
+        num_players: Number of players if applicable
+        **extra_data: Additional job metadata
+
+    Returns:
+        True if recorded successfully, False otherwise
+    """
+    if not _check_raft_job_assignments_available():
+        return False
+
+    try:
+        job_data = {
+            "job_type": job_type,
+            "board_type": board_type,
+            "num_players": num_players,
+            **extra_data,
+        }
+        return _raft_job_assignments.assign_job(job_id, node_id, job_data)
+    except Exception as e:
+        logger.warning("Failed to record Raft job assignment for %s: %s", job_id, e)
+        return False
+
+
+def _start_raft_job(job_id: str) -> bool:
+    """Mark a Raft job as started/running."""
+    if not _check_raft_job_assignments_available():
+        return False
+
+    try:
+        return _raft_job_assignments.start_job(job_id)
+    except Exception as e:
+        logger.warning("Failed to start Raft job %s: %s", job_id, e)
+        return False
+
+
+def _complete_raft_job(job_id: str, result: dict[str, Any] | None = None) -> bool:
+    """Mark a Raft job as completed."""
+    if not _check_raft_job_assignments_available():
+        return False
+
+    try:
+        return _raft_job_assignments.complete_job(job_id, result)
+    except Exception as e:
+        logger.warning("Failed to complete Raft job %s: %s", job_id, e)
+        return False
+
+
+def _fail_raft_job(job_id: str, error: str = "") -> bool:
+    """Mark a Raft job as failed."""
+    if not _check_raft_job_assignments_available():
+        return False
+
+    try:
+        return _raft_job_assignments.fail_job(job_id, error)
+    except Exception as e:
+        logger.warning("Failed to fail Raft job %s: %s", job_id, e)
+        return False
+
 # Default P2P port - cached to avoid repeated imports
 _default_p2p_port: int | None = None
 
@@ -1315,6 +1475,18 @@ class JobManager(EventSubscriptionMixin):
                     "node_id": self.node_id,  # Phase 15.1.9: Track which node is running the job
                 }
 
+            # Dec 30, 2025 (P5.3): Record job assignment in Raft for cluster-wide visibility
+            _record_raft_job_assignment(
+                job_id=job_id,
+                node_id=self.node_id,
+                job_type="selfplay",
+                board_type=board_type,
+                num_players=num_players,
+                num_games=num_games,
+                engine_mode=effective_mode,
+            )
+            _start_raft_job(job_id)
+
             # Phase 15.1.9: Register for heartbeat tracking
             self._register_job_heartbeat(job_id)
 
@@ -1344,6 +1516,11 @@ class JobManager(EventSubscriptionMixin):
                 if job_id in self.active_jobs.get("selfplay", {}):
                     if proc.returncode == 0:
                         self.active_jobs["selfplay"][job_id]["status"] = "completed"
+                        # Dec 30, 2025 (P5.3): Mark job as completed in Raft
+                        _complete_raft_job(job_id, result={
+                            "duration_seconds": duration,
+                            "num_games": num_games,
+                        })
                         self._emit_task_event(
                             "TASK_COMPLETED",
                             job_id,
@@ -1358,6 +1535,8 @@ class JobManager(EventSubscriptionMixin):
                         error_msg = stderr.decode()[:500]
                         logger.warning(f"Selfplay job {job_id} failed: {error_msg}")
                         self.active_jobs["selfplay"][job_id]["status"] = "failed"
+                        # Dec 30, 2025 (P5.3): Mark job as failed in Raft
+                        _fail_raft_job(job_id, error=error_msg)
                         self._emit_task_event(
                             "TASK_FAILED",
                             job_id,
@@ -1379,6 +1558,8 @@ class JobManager(EventSubscriptionMixin):
                 if job_id in self.active_jobs.get("selfplay", {}):
                     self.active_jobs["selfplay"][job_id]["status"] = "timeout"
                     del self.active_jobs["selfplay"][job_id]
+            # Dec 30, 2025 (P5.3): Mark job as failed in Raft
+            _fail_raft_job(job_id, error="timeout")
             logger.warning(f"Selfplay job {job_id} timed out and was killed")
             self._emit_task_event("TASK_FAILED", job_id, "selfplay", error="timeout", board_type=board_type)
         except (OSError, ValueError, RuntimeError) as e:
@@ -1393,6 +1574,8 @@ class JobManager(EventSubscriptionMixin):
                 if job_id in self.active_jobs.get("selfplay", {}):
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
                     del self.active_jobs["selfplay"][job_id]
+            # Dec 30, 2025 (P5.3): Mark job as failed in Raft
+            _fail_raft_job(job_id, error=str(e))
             logger.error(f"Error running selfplay job {job_id}: {e}")
             self._emit_task_event("TASK_FAILED", job_id, "selfplay", error=str(e), board_type=board_type)
         except (asyncio.CancelledError, ChildProcessError, BrokenPipeError) as e:
@@ -1406,6 +1589,8 @@ class JobManager(EventSubscriptionMixin):
                 if job_id in self.active_jobs.get("selfplay", {}):
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
                     del self.active_jobs["selfplay"][job_id]
+            # Dec 30, 2025 (P5.3): Mark job as failed in Raft
+            _fail_raft_job(job_id, error=f"{type(e).__name__}: {e}")
             logger.warning(f"Selfplay job {job_id} interrupted: {type(e).__name__}: {e}")
             self._emit_task_event("TASK_FAILED", job_id, "selfplay", error=str(e), board_type=board_type)
             raise
