@@ -2126,10 +2126,12 @@ class P2POrchestrator(
 
             # NATManagementLoop - STUN-like probing, symmetric NAT detection, relay selection
             # December 27, 2025: Migrated from inline _nat_management_loop
+            # December 30, 2025: Added validate_relay_assignments for automatic failover
             nat_management = NATManagementLoop(
                 detect_nat_type=self._detect_nat_type,
                 probe_nat_blocked_peers=self._probe_nat_blocked_peers,
                 update_relay_preferences=self._update_relay_preferences,
+                validate_relay_assignments=self._validate_relay_assignments,
             )
             manager.register(nat_management)
 
@@ -5683,6 +5685,14 @@ class P2POrchestrator(
                 logger.debug(f"[P2P] Could not load cluster config: {e}")
 
         if is_coordinator:
+            # Dec 30, 2025: Warn if GPU node is misconfigured as coordinator
+            if has_gpu:
+                logger.warning(
+                    f"[P2P] GPU node {self.node_id} is marked as coordinator - "
+                    f"this may be a misconfiguration. GPU: {gpu_name}. "
+                    "Unset RINGRIFT_IS_COORDINATOR or remove role:coordinator from YAML "
+                    "to enable training capabilities."
+                )
             capabilities = []  # Coordinator nodes don't run compute tasks
             logger.info("[P2P] Coordinator-only mode: no selfplay/training/cmaes capabilities")
         else:
@@ -5720,6 +5730,33 @@ class P2POrchestrator(
     # NOTE: _detect_gpu, _detect_memory, _get_local_ip, _get_tailscale_ip
     # delegated to ResourceDetectorMixin (Dec 28, 2025). ~75 LOC removed.
     # Use: self._detect_gpu(), self._detect_memory(), etc.
+
+    @staticmethod
+    def _infer_capabilities_from_hardware(
+        has_gpu: bool,
+        memory_gb: int = 0,
+        gpu_name: str = "",
+    ) -> list[str]:
+        """Infer capabilities from hardware info.
+
+        December 30, 2025: Fallback for nodes reporting empty capabilities but
+        having detectable hardware. Used to populate capabilities for peers
+        that may have misconfigured coordinator settings.
+
+        Args:
+            has_gpu: Whether the node has a GPU
+            memory_gb: RAM in gigabytes
+            gpu_name: GPU name for logging
+
+        Returns:
+            List of inferred capabilities
+        """
+        capabilities = ["selfplay"]  # All nodes can at least do CPU selfplay
+        if has_gpu:
+            capabilities.extend(["training", "cmaes"])
+        if memory_gb >= 64:
+            capabilities.append("large_boards")
+        return capabilities
 
     # _is_tailscale_host provided by NetworkUtilsMixin
 
@@ -8299,18 +8336,40 @@ class P2POrchestrator(
                         self.role = NodeRole.FOLLOWER
                         logger.info(f"Adopted leader {peer_leader} from heartbeat via {peer_info.node_id}")
 
+                # Dec 30, 2025: Auto-populate capabilities from hardware if empty
+                # This handles nodes that have coordinator flag set incorrectly
+                if not getattr(peer_info, "capabilities", None):
+                    has_gpu = getattr(peer_info, "has_gpu", False)
+                    memory_gb = int(getattr(peer_info, "memory_gb", 0) or 0)
+                    if has_gpu or memory_gb > 0:
+                        inferred_caps = self._infer_capabilities_from_hardware(
+                            has_gpu=has_gpu,
+                            memory_gb=memory_gb,
+                            gpu_name=getattr(peer_info, "gpu_name", "") or "",
+                        )
+                        peer_info.capabilities = inferred_caps
+                        logger.info(
+                            f"[P2P] Inferred capabilities for {peer_info.node_id}: {inferred_caps} "
+                            f"(has_gpu={has_gpu}, memory_gb={memory_gb})"
+                        )
+
                 self.peers[peer_info.node_id] = peer_info
 
             # Dec 2025: Emit HOST_ONLINE for first-contact peers
             # This enables SelfplayScheduler, SyncRouter, and DataPipelineOrchestrator
             # to detect newly available nodes for work distribution
+            # Dec 30, 2025: Use capabilities from heartbeat instead of computing minimal list
+            # This preserves the full capability set (selfplay, training, cmaes, large_boards)
             if is_first_contact:
-                capabilities = []
-                if getattr(peer_info, "has_gpu", False):
-                    gpu_type = getattr(peer_info, "gpu_type", "") or "gpu"
-                    capabilities.append(gpu_type)
-                else:
-                    capabilities.append("cpu")
+                # Prefer capabilities from peer_info (advertised by the peer itself)
+                capabilities = getattr(peer_info, "capabilities", None) or []
+                if not capabilities:
+                    # Fallback: compute minimal caps if peer didn't advertise any
+                    if getattr(peer_info, "has_gpu", False):
+                        gpu_type = getattr(peer_info, "gpu_type", "") or "gpu"
+                        capabilities = [gpu_type]
+                    else:
+                        capabilities = ["cpu"]
                 await self._emit_host_online(peer_info.node_id, capabilities)
                 logger.info(f"First-contact peer registered: {peer_info.node_id} (caps: {capabilities})")
 
@@ -19264,6 +19323,49 @@ print(json.dumps({{
                         if relay_node:
                             self.peers[peer.node_id].relay_via = relay_node
 
+    async def _validate_relay_assignments(self) -> None:
+        """Validate and update relay assignments for NAT-blocked peers.
+
+        December 30, 2025: Proactive relay health check. Detects when a relay
+        node has become unhealthy and automatically switches NAT-blocked peers
+        to a healthier relay.
+        """
+        with self.peers_lock:
+            nat_blocked_peers = [
+                p for p in self.peers.values()
+                if getattr(p, "nat_blocked", False)
+                and getattr(p, "relay_via", "")
+                and p.node_id != self.node_id
+            ]
+
+        for peer in nat_blocked_peers:
+            relay_id = str(getattr(peer, "relay_via", "") or "")
+            if not relay_id:
+                continue
+
+            with self.peers_lock:
+                relay_peer = self.peers.get(relay_id)
+
+            # Check if relay is healthy
+            relay_healthy = (
+                relay_peer is not None
+                and relay_peer.is_alive()
+                and not getattr(relay_peer, "nat_blocked", False)
+                and (getattr(relay_peer, "consecutive_failures", 0) or 0) < 2
+            )
+
+            if not relay_healthy:
+                # Find a new relay
+                new_relay = self._select_best_relay()
+                if new_relay and new_relay != relay_id:
+                    logger.info(
+                        f"[RelayHealthCheck] Relay {relay_id} unhealthy for {peer.node_id}, "
+                        f"switching to {new_relay}"
+                    )
+                    with self.peers_lock:
+                        if peer.node_id in self.peers:
+                            self.peers[peer.node_id].relay_via = new_relay
+
     def _select_best_relay(self) -> str:
         """Select the best relay node based on connectivity and load."""
         with self.peers_lock:
@@ -25770,6 +25872,40 @@ print(json.dumps({{
                             continue
                     if last_err:
                         logger.info(f"Relay enqueue via {relay_node_id} failed for {peer_id}: {last_err}")
+                        # Dec 30, 2025: Automatic relay failover
+                        # If the current relay is unreachable, try to find a new one
+                        new_relay = self._select_best_relay()
+                        if new_relay and new_relay != relay_node_id:
+                            logger.info(
+                                f"[RelayFailover] Switching {peer_id} relay: "
+                                f"{relay_node_id} -> {new_relay}"
+                            )
+                            with self.peers_lock:
+                                if peer_id in self.peers:
+                                    self.peers[peer_id].relay_via = new_relay
+                            # Try enqueue on new relay
+                            with self.peers_lock:
+                                new_relay_peer = self.peers.get(new_relay)
+                            if new_relay_peer:
+                                for url in self._urls_for_peer(new_relay_peer, "/relay/enqueue"):
+                                    try:
+                                        timeout = ClientTimeout(total=10)
+                                        async with get_client_session(timeout) as session2:
+                                            async with session2.post(
+                                                url,
+                                                json={
+                                                    "target_node_id": peer_id,
+                                                    "type": cmd_type,
+                                                    "payload": payload or {},
+                                                },
+                                                headers=self._auth_headers(),
+                                            ) as resp2:
+                                                if resp2.status == 200:
+                                                    data2 = await resp2.json()
+                                                    if data2.get("success"):
+                                                        return str(data2.get("id") or "")
+                                    except Exception:  # noqa: BLE001
+                                        continue
 
         # Fallback: enqueue locally (works when peer polls the leader directly).
         return self._enqueue_relay_command(peer_id, cmd_type, payload)

@@ -1853,6 +1853,15 @@ class GossipProtocolMixin(P2PMixinBase):
         """Detect if we're in a network partition.
 
         December 2025 (Phase 2.3): Active partition detection for cluster stability.
+        December 30, 2025: Fixed to exclude long-dead and retired peers from denominator.
+
+        The health ratio now only considers "relevant" peers:
+        - Alive peers (heartbeat within PEER_TIMEOUT)
+        - Recently dead peers (dead < 5 minutes) - may recover
+        - Excludes: retired peers, long-dead peers (>5 min without heartbeat)
+
+        This prevents false "minority" partition detection when the peers dict
+        contains stale entries from nodes that were spun down or never connected.
 
         Partition detection enables the cluster to:
         - Pause writes when in minority partition (prevent split-brain divergence)
@@ -1864,15 +1873,40 @@ class GossipProtocolMixin(P2PMixinBase):
             - status: 'healthy' (>50% peers alive), 'minority' (20-50%), 'isolated' (<20%)
             - health_ratio: Float between 0.0 and 1.0 representing peer connectivity
         """
+        import time
+
+        # Long-dead threshold: peers dead for >5 minutes are excluded from calculation
+        LONG_DEAD_THRESHOLD = 300  # 5 minutes
+
         with self.peers_lock:
-            total_peers = len(self.peers)
-            if total_peers == 0:
+            if len(self.peers) == 0:
                 # No peers known at all - we're isolated
                 return ("isolated", 0.0)
 
-            alive_peers = sum(1 for p in self.peers.values() if p.is_alive())
+            now = time.time()
+            alive_peers = 0
+            relevant_peers = 0
 
-        health_ratio = alive_peers / total_peers
+            for p in self.peers.values():
+                # Skip retired peers entirely - they're intentionally offline
+                if getattr(p, 'retired', False):
+                    continue
+
+                time_since_heartbeat = now - p.last_heartbeat
+
+                if p.is_alive():
+                    alive_peers += 1
+                    relevant_peers += 1
+                elif time_since_heartbeat < LONG_DEAD_THRESHOLD:
+                    # Recently dead - still count in denominator (may recover)
+                    relevant_peers += 1
+                # else: long-dead peer, exclude from both counts
+
+            if relevant_peers == 0:
+                # All peers are long-dead or retired - we're isolated
+                return ("isolated", 0.0)
+
+        health_ratio = alive_peers / relevant_peers
 
         if health_ratio > 0.5:
             return ("healthy", health_ratio)

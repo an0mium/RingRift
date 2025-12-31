@@ -378,6 +378,7 @@ class NATManagementLoop(BaseLoop):
         detect_nat_type: Callable[[], Coroutine[Any, Any, None]],
         probe_nat_blocked_peers: Callable[[], Coroutine[Any, Any, None]],
         update_relay_preferences: Callable[[], Coroutine[Any, Any, None]],
+        validate_relay_assignments: Callable[[], Coroutine[Any, Any, None]] | None = None,
         config: NATManagementConfig | None = None,
     ):
         """Initialize NAT management loop.
@@ -386,6 +387,7 @@ class NATManagementLoop(BaseLoop):
             detect_nat_type: Async callback to detect NAT type via STUN-like probing
             probe_nat_blocked_peers: Async callback to probe NAT-blocked peers for recovery
             update_relay_preferences: Async callback to update relay preferences
+            validate_relay_assignments: Async callback to validate relay assignments (Dec 30, 2025)
             config: NAT management configuration
         """
         self.config = config or NATManagementConfig()
@@ -396,12 +398,14 @@ class NATManagementLoop(BaseLoop):
         self._detect_nat_type = detect_nat_type
         self._probe_nat_blocked_peers = probe_nat_blocked_peers
         self._update_relay_preferences = update_relay_preferences
+        self._validate_relay_assignments = validate_relay_assignments
         self._last_stun_probe = 0.0
 
         # Statistics
         self._stun_probes_count = 0
         self._nat_recovery_attempts = 0
         self._relay_updates_count = 0
+        self._relay_validations_count = 0
 
     async def _on_start(self) -> None:
         """Log startup."""
@@ -428,12 +432,18 @@ class NATManagementLoop(BaseLoop):
         self._relay_updates_count += 1
         await self._update_relay_preferences()
 
+        # Dec 30, 2025: Validate existing relay assignments are healthy
+        if self._validate_relay_assignments:
+            self._relay_validations_count += 1
+            await self._validate_relay_assignments()
+
     def get_nat_stats(self) -> dict[str, Any]:
         """Get NAT management statistics."""
         return {
             "stun_probes": self._stun_probes_count,
             "nat_recovery_attempts": self._nat_recovery_attempts,
             "relay_updates": self._relay_updates_count,
+            "relay_validations": self._relay_validations_count,
             "last_stun_probe": self._last_stun_probe,
             **self.stats.to_dict(),
         }

@@ -530,6 +530,9 @@ class NodeInfo:
         # Dec 30, 2025: Endpoint validation fields
         d.setdefault('endpoint_last_validated', 0.0)
         d.setdefault('endpoint_ttl_seconds', 300)
+        # Dec 30, 2025: Capabilities field - critical for job scheduling
+        # Without this, nodes may have empty capabilities and get skipped by schedulers
+        d.setdefault('capabilities', [])
         # Ignore unknown keys for rolling upgrades.
         allowed = {f.name for f in dataclass_fields(cls)}
         d = {k: v for k, v in d.items() if k in allowed}
