@@ -60,14 +60,22 @@ from app.core.async_context import fire_and_forget, safe_create_task
 # Singleton mixin for thread-safe singleton pattern (Dec 2025)
 from app.coordination.singleton_mixin import SingletonMixin
 
+# Hierarchical cascade circuit breaker (Dec 30, 2025)
+from app.coordination.cascade_breaker import (
+    CascadeBreakerManager,
+    get_cascade_breaker,
+)
+
 # Daemon types extracted to dedicated module (Dec 2025)
 from app.coordination.daemon_types import (
     CRITICAL_DAEMONS,
+    DaemonCategory,
     DaemonInfo,
     DaemonManagerConfig,
     DaemonState,
     DaemonType,
     RestartTier,  # December 2025: Graceful degradation
+    get_daemon_category,
     mark_daemon_ready,
     register_mark_ready_callback,
 )
@@ -295,11 +303,17 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
         # Key: daemon_name, Value: (next_retry_time, restart_tier, entered_degraded_at)
         self._degraded_daemons: dict[str, tuple[float, RestartTier, float]] = {}
 
-        # Dec 2025: Cascade restart circuit breaker state
-        # Tracks global restart activity to prevent thundering herd effect
+        # Dec 30, 2025: Hierarchical cascade circuit breaker
+        # Replaces global cascade breaker with per-category breakers
+        # Critical daemons exempt, category-specific thresholds and cooldowns
+        self._cascade_breaker: CascadeBreakerManager = get_cascade_breaker()
+
+        # Legacy variables kept for backward compatibility during transition
+        # Will be removed once all callers migrate to _cascade_breaker
         self._cascade_breaker_open: bool = False
         self._cascade_breaker_opened_at: float = 0.0
-        self._global_restart_timestamps: list[float] = []  # All daemon restarts globally
+        self._global_restart_timestamps: list[float] = []
+
         self._load_restart_counts()
 
         # Register cleanup
@@ -1147,90 +1161,58 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
             logger.debug(f"Error computing adaptive threshold: {e}")
             return CASCADE_RESTART_THRESHOLD
 
-    def _check_cascade_circuit_breaker(self) -> bool:
+    def _check_cascade_circuit_breaker(self, daemon_type: DaemonType | None = None) -> bool:
         """Check if cascade circuit breaker allows restarts.
 
-        Dec 2025: Implements a global circuit breaker to prevent thundering herd effect.
-        When too many daemons restart in a short window, pause all restarts to allow
-        the system to stabilize.
+        Dec 30, 2025: Delegates to hierarchical CascadeBreakerManager.
+        Now supports per-daemon checks with category-based and critical exemptions.
 
-        December 29, 2025: Added cascade recovery signaling - proactively restart
-        blocked critical daemons when circuit closes.
+        Args:
+            daemon_type: Optional daemon to check. If None, performs legacy global check.
 
         Returns:
             True if restarts are allowed, False if circuit breaker is open
         """
-        current_time = time.time()
+        if daemon_type is not None:
+            # Use new hierarchical breaker
+            allowed, reason = self._cascade_breaker.can_restart(daemon_type)
+            if not allowed:
+                logger.debug(
+                    f"[DaemonManager] Cascade breaker blocked {daemon_type.value}: {reason}"
+                )
+            return allowed
 
-        # If circuit breaker is open, check if cooldown has passed
-        if self._cascade_breaker_open:
-            elapsed = current_time - self._cascade_breaker_opened_at
-            if elapsed >= CASCADE_COOLDOWN_SECONDS:
-                # Cooldown complete - close circuit breaker (half-open -> closed)
-                self._cascade_breaker_open = False
-                logger.info(
-                    f"[DaemonManager] Cascade circuit breaker CLOSED after "
-                    f"{elapsed:.0f}s cooldown - restarts allowed"
-                )
-                # Trigger recovery of critical daemons that were blocked
-                fire_and_forget(
-                    self._cascade_recovery(),
-                    name="cascade_recovery",
-                )
-            else:
-                # Still in cooldown
-                remaining = CASCADE_COOLDOWN_SECONDS - elapsed
-                logger.warning(
-                    f"[DaemonManager] Cascade circuit breaker OPEN - "
-                    f"restarts blocked for {remaining:.0f}s more"
-                )
-                return False
-
-        # Clean up old timestamps outside window
-        cutoff = current_time - CASCADE_RESTART_WINDOW_SECONDS
-        self._global_restart_timestamps = [
-            ts for ts in self._global_restart_timestamps if ts > cutoff
-        ]
+        # Legacy fallback: check if any global breaker is open
+        status = self._cascade_breaker.get_status()
+        if status["global"]["breaker_open"]:
+            remaining = status["global"].get("cooldown_remaining", 0)
+            logger.warning(
+                f"[DaemonManager] Global cascade breaker OPEN - "
+                f"restarts blocked for {remaining:.0f}s more"
+            )
+            return False
 
         return True
 
     def _record_global_restart(self, daemon_type: DaemonType) -> None:
-        """Record a restart in the global tracker and check if circuit should trip.
+        """Record a restart in the hierarchical cascade breaker.
 
-        Dec 2025: Tracks all restarts globally to detect cascade failures.
-        If too many restarts happen in a short window, trips the circuit breaker.
+        Dec 30, 2025: Delegates to CascadeBreakerManager for per-category tracking.
+        The new breaker handles both category-level and global threshold checking.
 
         Args:
             daemon_type: Type of daemon being restarted
         """
-        current_time = time.time()
-        self._global_restart_timestamps.append(current_time)
+        # Record restart in hierarchical breaker
+        self._cascade_breaker.record_restart(daemon_type)
 
-        # Check if we've exceeded threshold (use adaptive threshold Dec 2025)
-        recent_restarts = len(self._global_restart_timestamps)
-        adaptive_threshold = self._get_adaptive_cascade_threshold()
-        if recent_restarts > adaptive_threshold:
-            if not self._cascade_breaker_open:
-                self._cascade_breaker_open = True
-                self._cascade_breaker_opened_at = current_time
-                logger.error(
-                    f"[DaemonManager] CASCADE CIRCUIT BREAKER TRIPPED! "
-                    f"{recent_restarts} restarts in {CASCADE_RESTART_WINDOW_SECONDS}s "
-                    f"(adaptive threshold: {adaptive_threshold}). "
-                    f"Pausing all restarts for {CASCADE_COOLDOWN_SECONDS}s. "
-                    f"Triggered by: {daemon_type.value}"
-                )
-
-                # Emit event for alerting/monitoring
-                try:
-                    from app.distributed.data_events import DataEventType
-
-                    fire_and_forget(
-                        self._emit_circuit_breaker_event(recent_restarts, daemon_type),
-                        name="emit_cascade_breaker_tripped",
-                    )
-                except (ImportError, RuntimeError):
-                    pass
+        # Update legacy state for backward compatibility during transition
+        # Can be removed once all code migrates to _cascade_breaker
+        status = self._cascade_breaker.get_status()
+        self._cascade_breaker_open = status["global"]["breaker_open"]
+        if self._cascade_breaker_open:
+            # Legacy code may check this variable
+            self._cascade_breaker_opened_at = time.time()
 
     async def _emit_circuit_breaker_event(
         self, restart_count: int, triggered_by: DaemonType
@@ -1310,33 +1292,17 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
     def get_circuit_breaker_status(self) -> dict[str, Any]:
         """Get status of the cascade circuit breaker.
 
+        Dec 30, 2025: Returns comprehensive status from hierarchical breaker manager.
+        Includes both global and per-category breaker states.
+
         Returns:
-            Dict with breaker state, recent restart count, and timing info
+            Dict with hierarchical breaker state, including:
+            - global: Global breaker status
+            - categories: Per-category breaker status
+            - uptime_seconds: Manager uptime
+            - total_allowed/total_blocked: Overall stats
         """
-        current_time = time.time()
-
-        # Count recent restarts
-        cutoff = current_time - CASCADE_RESTART_WINDOW_SECONDS
-        recent_restarts = [
-            ts for ts in self._global_restart_timestamps if ts > cutoff
-        ]
-
-        adaptive_threshold = self._get_adaptive_cascade_threshold()
-        result = {
-            "breaker_open": self._cascade_breaker_open,
-            "recent_restart_count": len(recent_restarts),
-            "threshold": adaptive_threshold,
-            "base_threshold": CASCADE_RESTART_THRESHOLD,
-            "window_seconds": CASCADE_RESTART_WINDOW_SECONDS,
-        }
-
-        if self._cascade_breaker_open:
-            elapsed = current_time - self._cascade_breaker_opened_at
-            result["cooldown_remaining"] = max(0, CASCADE_COOLDOWN_SECONDS - elapsed)
-        else:
-            result["cooldown_remaining"] = 0
-
-        return result
+        return self._cascade_breaker.get_status()
 
     # =========================================================================
     # Factory Registration
@@ -2600,18 +2566,10 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                                 info.last_failure_time = current_time
 
         # Handle restarts outside lock to prevent deadlock (start() also acquires lock)
-        # Dec 2025: Check cascade circuit breaker first - if too many restarts are happening
-        # globally, pause all restarts to let the system stabilize
+        # Dec 30, 2025: Use hierarchical circuit breaker with per-daemon checks
+        # Critical daemons and exempt categories can restart even when others are blocked
         if not daemons_to_restart:
             return  # Nothing to restart
-
-        if not self._check_cascade_circuit_breaker():
-            # Circuit breaker is open - skip all restarts this cycle
-            logger.warning(
-                f"[DaemonManager] Skipping {len(daemons_to_restart)} daemon restart(s) "
-                f"due to cascade circuit breaker: {[d.value for d in daemons_to_restart]}"
-            )
-            return
 
         # Also cascade restart to dependent daemons when a dependency fails
         all_to_restart: set[DaemonType] = set(daemons_to_restart)
@@ -2629,17 +2587,18 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
         # Dec 29, 2025: Fix - stop unhealthy daemons before restarting.
         # Without this, start() returns early for RUNNING daemons without restarting.
         sorted_restarts = self._sort_by_dependencies(list(all_to_restart))
-        for daemon_type in sorted_restarts:
-            # Dec 2025: Record global restart for circuit breaker tracking
-            self._record_global_restart(daemon_type)
+        blocked_daemons: list[str] = []
 
-            # Check if circuit breaker tripped mid-batch (could happen with large cascades)
-            if self._cascade_breaker_open:
-                logger.warning(
-                    f"[DaemonManager] Circuit breaker tripped mid-restart - "
-                    f"stopping restart batch"
-                )
-                break
+        for daemon_type in sorted_restarts:
+            # Dec 30, 2025: Per-daemon circuit breaker check
+            # Critical daemons bypass all breakers, others check their category
+            allowed, reason = self._cascade_breaker.can_restart(daemon_type)
+            if not allowed:
+                blocked_daemons.append(f"{daemon_type.value}({reason})")
+                continue
+
+            # Record restart in hierarchical breaker
+            self._record_global_restart(daemon_type)
 
             # First stop the daemon if it's still running (unhealthy but not crashed)
             info = self._daemons.get(daemon_type)
@@ -2650,6 +2609,13 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
                 await self.stop(daemon_type)
             # Now start (or restart) the daemon
             await self.start(daemon_type)
+
+        # Log blocked daemons summary
+        if blocked_daemons:
+            logger.warning(
+                f"[DaemonManager] {len(blocked_daemons)} daemon(s) blocked by circuit breaker: "
+                f"{blocked_daemons[:5]}{'...' if len(blocked_daemons) > 5 else ''}"
+            )
 
     def get_status(self) -> dict[str, Any]:
         """Get status of all daemons.

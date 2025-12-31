@@ -24,6 +24,8 @@ __all__ = [
     "CRITICAL_DAEMONS",
     "DAEMON_DEPENDENCIES",
     "DAEMON_STARTUP_ORDER",
+    "DAEMON_CATEGORY_MAP",
+    "DaemonCategory",
     "DaemonInfo",
     "DaemonManagerConfig",
     "DaemonState",
@@ -31,6 +33,7 @@ __all__ = [
     "MAX_RESTART_DELAY",
     "DAEMON_RESTART_RESET_AFTER",
     "RestartTier",  # December 2025: Graceful degradation
+    "get_daemon_category",
     "get_daemon_startup_position",
     "mark_daemon_ready",
     "register_mark_ready_callback",
@@ -385,6 +388,45 @@ class RestartTier(Enum):
     DEGRADED = "degraded"
 
 
+class DaemonCategory(Enum):
+    """Daemon categories for hierarchical circuit breaking.
+
+    December 30, 2025: Added for per-category cascade circuit breakers.
+    Each category has independent thresholds and cooldowns, allowing:
+    - Critical categories (EVENT, PIPELINE) to restart even when others are blocked
+    - Isolation of failure cascades within categories
+    - Tuned thresholds per category based on expected restart patterns
+
+    Categories:
+    - EVENT: Core event routing daemons (EVENT_ROUTER, CROSS_PROCESS_POLLER, DLQ_RETRY)
+    - SYNC: Data synchronization daemons (AUTO_SYNC, ELO_SYNC, GOSSIP_SYNC)
+    - PIPELINE: Data pipeline daemons (DATA_PIPELINE, SELFPLAY_COORDINATOR)
+    - HEALTH: Health monitoring daemons (NODE_HEALTH_MONITOR, QUALITY_MONITOR)
+    - EVALUATION: Model evaluation daemons (EVALUATION, AUTO_PROMOTION)
+    - DISTRIBUTION: Model/data distribution daemons
+    - RESOURCE: Resource management daemons (IDLE_RESOURCE, NODE_RECOVERY)
+    - FEEDBACK: Training feedback daemons (FEEDBACK_LOOP, CURRICULUM_INTEGRATION)
+    - QUEUE: Queue management daemons (QUEUE_POPULATOR, WORK_QUEUE_MONITOR)
+    - RECOVERY: Recovery daemons (RECOVERY_ORCHESTRATOR, CONNECTIVITY_RECOVERY)
+    - AUTONOMOUS: Autonomous operation daemons (PROGRESS_WATCHDOG, MEMORY_MONITOR)
+    - PROVIDER: Cloud provider daemons (MULTI_PROVIDER, VAST_IDLE)
+    - MISC: Miscellaneous daemons not in other categories
+    """
+    EVENT = "event"
+    SYNC = "sync"
+    PIPELINE = "pipeline"
+    HEALTH = "health"
+    EVALUATION = "evaluation"
+    DISTRIBUTION = "distribution"
+    RESOURCE = "resource"
+    FEEDBACK = "feedback"
+    QUEUE = "queue"
+    RECOVERY = "recovery"
+    AUTONOMOUS = "autonomous"
+    PROVIDER = "provider"
+    MISC = "misc"
+
+
 # Constants for recovery behavior (December 2025: imported from centralized thresholds)
 try:
     from app.config.thresholds import (
@@ -517,6 +559,145 @@ CRITICAL_DAEMONS: set[DaemonType] = {
     DaemonType.FEEDBACK_LOOP,  # Coordinates training feedback signals
     DaemonType.MEMORY_MONITOR,  # Prevents OOM crashes (Dec 30, 2025)
 }
+
+
+# =============================================================================
+# Daemon Category Mapping (December 30, 2025)
+# =============================================================================
+# Maps each DaemonType to its DaemonCategory for hierarchical circuit breaking.
+# Categories enable per-group circuit breakers with independent thresholds.
+DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
+    # EVENT category - core event routing (high threshold, short cooldown)
+    DaemonType.EVENT_ROUTER: DaemonCategory.EVENT,
+    DaemonType.CROSS_PROCESS_POLLER: DaemonCategory.EVENT,
+    DaemonType.DLQ_RETRY: DaemonCategory.EVENT,
+    DaemonType.DAEMON_WATCHDOG: DaemonCategory.EVENT,
+
+    # SYNC category - data synchronization
+    DaemonType.SYNC_COORDINATOR: DaemonCategory.SYNC,
+    DaemonType.AUTO_SYNC: DaemonCategory.SYNC,
+    DaemonType.HIGH_QUALITY_SYNC: DaemonCategory.SYNC,
+    DaemonType.ELO_SYNC: DaemonCategory.SYNC,
+    DaemonType.MODEL_SYNC: DaemonCategory.SYNC,
+    DaemonType.GOSSIP_SYNC: DaemonCategory.SYNC,
+    DaemonType.CLUSTER_DATA_SYNC: DaemonCategory.SYNC,
+    DaemonType.EPHEMERAL_SYNC: DaemonCategory.SYNC,
+    DaemonType.EXTERNAL_DRIVE_SYNC: DaemonCategory.SYNC,
+    DaemonType.TRAINING_DATA_SYNC: DaemonCategory.SYNC,
+    DaemonType.OWC_IMPORT: DaemonCategory.SYNC,
+    DaemonType.SYNC_PUSH: DaemonCategory.SYNC,
+
+    # PIPELINE category - data pipeline (high threshold, exempt from global)
+    DaemonType.DATA_PIPELINE: DaemonCategory.PIPELINE,
+    DaemonType.SELFPLAY_COORDINATOR: DaemonCategory.PIPELINE,
+    DaemonType.AUTO_EXPORT: DaemonCategory.PIPELINE,
+    DaemonType.DATA_CONSOLIDATION: DaemonCategory.PIPELINE,
+    DaemonType.NPZ_COMBINATION: DaemonCategory.PIPELINE,
+    DaemonType.CONTINUOUS_TRAINING_LOOP: DaemonCategory.PIPELINE,
+    DaemonType.CASCADE_TRAINING: DaemonCategory.PIPELINE,
+
+    # HEALTH category - health monitoring
+    DaemonType.HEALTH_CHECK: DaemonCategory.HEALTH,
+    DaemonType.CLUSTER_MONITOR: DaemonCategory.HEALTH,
+    DaemonType.QUEUE_MONITOR: DaemonCategory.HEALTH,
+    DaemonType.NODE_HEALTH_MONITOR: DaemonCategory.HEALTH,
+    DaemonType.QUALITY_MONITOR: DaemonCategory.HEALTH,
+    DaemonType.MODEL_PERFORMANCE_WATCHDOG: DaemonCategory.HEALTH,
+    DaemonType.HEALTH_SERVER: DaemonCategory.HEALTH,
+    DaemonType.COORDINATOR_HEALTH_MONITOR: DaemonCategory.HEALTH,
+    DaemonType.INTEGRITY_CHECK: DaemonCategory.HEALTH,
+    DaemonType.CLUSTER_WATCHDOG: DaemonCategory.HEALTH,
+    DaemonType.CLUSTER_UTILIZATION_WATCHDOG: DaemonCategory.HEALTH,
+
+    # EVALUATION category - model evaluation
+    DaemonType.EVALUATION: DaemonCategory.EVALUATION,
+    DaemonType.AUTO_PROMOTION: DaemonCategory.EVALUATION,
+    DaemonType.UNIFIED_PROMOTION: DaemonCategory.EVALUATION,
+    DaemonType.TOURNAMENT_DAEMON: DaemonCategory.EVALUATION,
+    DaemonType.GAUNTLET_FEEDBACK: DaemonCategory.EVALUATION,
+
+    # DISTRIBUTION category - model/data distribution
+    DaemonType.MODEL_DISTRIBUTION: DaemonCategory.DISTRIBUTION,
+    DaemonType.NPZ_DISTRIBUTION: DaemonCategory.DISTRIBUTION,
+    DaemonType.REPLICATION_MONITOR: DaemonCategory.DISTRIBUTION,
+    DaemonType.REPLICATION_REPAIR: DaemonCategory.DISTRIBUTION,
+    DaemonType.S3_BACKUP: DaemonCategory.DISTRIBUTION,
+    DaemonType.S3_NODE_SYNC: DaemonCategory.DISTRIBUTION,
+    DaemonType.S3_CONSOLIDATION: DaemonCategory.DISTRIBUTION,
+    DaemonType.UNIFIED_DATA_PLANE: DaemonCategory.DISTRIBUTION,
+
+    # RESOURCE category - resource management
+    DaemonType.IDLE_RESOURCE: DaemonCategory.RESOURCE,
+    DaemonType.NODE_RECOVERY: DaemonCategory.RESOURCE,
+    DaemonType.JOB_SCHEDULER: DaemonCategory.RESOURCE,
+    DaemonType.RESOURCE_OPTIMIZER: DaemonCategory.RESOURCE,
+    DaemonType.ADAPTIVE_RESOURCES: DaemonCategory.RESOURCE,
+    DaemonType.UTILIZATION_OPTIMIZER: DaemonCategory.RESOURCE,
+    DaemonType.DISK_SPACE_MANAGER: DaemonCategory.RESOURCE,
+    DaemonType.COORDINATOR_DISK_MANAGER: DaemonCategory.RESOURCE,
+    DaemonType.DATA_CLEANUP: DaemonCategory.RESOURCE,
+
+    # FEEDBACK category - training feedback (high threshold, exempt from global)
+    DaemonType.FEEDBACK_LOOP: DaemonCategory.FEEDBACK,
+    DaemonType.CURRICULUM_INTEGRATION: DaemonCategory.FEEDBACK,
+    DaemonType.ARCHITECTURE_FEEDBACK: DaemonCategory.FEEDBACK,
+    DaemonType.TRAINING_TRIGGER: DaemonCategory.FEEDBACK,
+    DaemonType.DISTILLATION: DaemonCategory.FEEDBACK,
+    DaemonType.NNUE_TRAINING: DaemonCategory.FEEDBACK,
+
+    # QUEUE category - queue management
+    DaemonType.QUEUE_POPULATOR: DaemonCategory.QUEUE,
+    DaemonType.WORK_QUEUE_MONITOR: DaemonCategory.QUEUE,
+    DaemonType.ORPHAN_DETECTION: DaemonCategory.QUEUE,
+    DaemonType.TRAINING_NODE_WATCHER: DaemonCategory.QUEUE,
+
+    # RECOVERY category - recovery daemons
+    DaemonType.RECOVERY_ORCHESTRATOR: DaemonCategory.RECOVERY,
+    DaemonType.CONNECTIVITY_RECOVERY: DaemonCategory.RECOVERY,
+    DaemonType.TAILSCALE_HEALTH: DaemonCategory.RECOVERY,
+    DaemonType.P2P_AUTO_DEPLOY: DaemonCategory.RECOVERY,
+    DaemonType.CACHE_COORDINATION: DaemonCategory.RECOVERY,
+    DaemonType.METRICS_ANALYSIS: DaemonCategory.RECOVERY,
+    DaemonType.PER_ORCHESTRATOR: DaemonCategory.RECOVERY,
+
+    # AUTONOMOUS category - 48h autonomous operation (high threshold, exempt)
+    DaemonType.PROGRESS_WATCHDOG: DaemonCategory.AUTONOMOUS,
+    DaemonType.P2P_RECOVERY: DaemonCategory.AUTONOMOUS,
+    DaemonType.VOTER_HEALTH_MONITOR: DaemonCategory.AUTONOMOUS,
+    DaemonType.MEMORY_MONITOR: DaemonCategory.AUTONOMOUS,
+    DaemonType.STALE_FALLBACK: DaemonCategory.AUTONOMOUS,
+    DaemonType.PARITY_VALIDATION: DaemonCategory.AUTONOMOUS,
+    DaemonType.MAINTENANCE: DaemonCategory.AUTONOMOUS,
+
+    # PROVIDER category - cloud provider daemons
+    DaemonType.MULTI_PROVIDER: DaemonCategory.PROVIDER,
+    DaemonType.VAST_IDLE: DaemonCategory.PROVIDER,
+    DaemonType.LAMBDA_IDLE: DaemonCategory.PROVIDER,
+    DaemonType.VAST_CPU_PIPELINE: DaemonCategory.PROVIDER,
+    DaemonType.NODE_AVAILABILITY: DaemonCategory.PROVIDER,
+    DaemonType.AVAILABILITY_NODE_MONITOR: DaemonCategory.PROVIDER,
+    DaemonType.AVAILABILITY_RECOVERY_ENGINE: DaemonCategory.PROVIDER,
+    DaemonType.AVAILABILITY_PROVISIONER: DaemonCategory.PROVIDER,
+    DaemonType.AVAILABILITY_CAPACITY_PLANNER: DaemonCategory.PROVIDER,
+
+    # MISC category - miscellaneous (default fallback)
+    DaemonType.P2P_BACKEND: DaemonCategory.MISC,
+    DaemonType.DATA_SERVER: DaemonCategory.MISC,
+    DaemonType.SYSTEM_HEALTH_MONITOR: DaemonCategory.MISC,
+}
+
+
+def get_daemon_category(daemon_type: DaemonType) -> DaemonCategory:
+    """Get the category for a daemon type.
+
+    Args:
+        daemon_type: The daemon type to look up.
+
+    Returns:
+        The DaemonCategory for this daemon, or MISC if not mapped.
+    """
+    return DAEMON_CATEGORY_MAP.get(daemon_type, DaemonCategory.MISC)
+
 
 # P0 Critical Fix (Dec 2025): Daemon startup order to prevent race conditions
 # DATA_PIPELINE and FEEDBACK_LOOP must start BEFORE AUTO_SYNC to avoid event loss.

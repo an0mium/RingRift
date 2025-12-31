@@ -438,6 +438,85 @@ def get_circuit_breaker_for_provider(provider: str) -> dict[str, float | int]:
 
 
 # =============================================================================
+# Cascade Breaker Defaults (December 30, 2025)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class CascadeBreakerDefaults:
+    """Default values for hierarchical cascade circuit breaker.
+
+    Used by: app/coordination/cascade_breaker.py
+    See: app/coordination/daemon_types.py for DaemonCategory enum
+
+    The cascade breaker prevents daemon restart cascades from destabilizing
+    the system. It provides per-category breakers with independent thresholds,
+    plus critical daemon exemptions.
+
+    Categories with exempt_from_global=True (EVENT, PIPELINE, FEEDBACK, AUTONOMOUS)
+    can restart even when the global breaker is open.
+
+    Environment variable overrides:
+    - RINGRIFT_CASCADE_GLOBAL_THRESHOLD: Max total restarts before global trips
+    - RINGRIFT_CASCADE_GLOBAL_COOLDOWN: Global cooldown in seconds
+    - RINGRIFT_CASCADE_STARTUP_GRACE: Startup grace period in seconds
+    - RINGRIFT_CASCADE_STARTUP_THRESHOLD: Threshold during startup
+    """
+
+    # Global breaker settings
+    GLOBAL_THRESHOLD: int = _env_int("RINGRIFT_CASCADE_GLOBAL_THRESHOLD", 15)
+    GLOBAL_WINDOW_SECONDS: int = 300  # 5 minutes
+    GLOBAL_COOLDOWN_SECONDS: int = _env_int("RINGRIFT_CASCADE_GLOBAL_COOLDOWN", 120)
+
+    # Startup grace period (higher threshold during initialization)
+    STARTUP_GRACE_PERIOD: int = _env_int("RINGRIFT_CASCADE_STARTUP_GRACE", 180)
+    STARTUP_THRESHOLD: int = _env_int("RINGRIFT_CASCADE_STARTUP_THRESHOLD", 50)
+
+    # Per-category thresholds and cooldowns
+    # Critical categories (exempt from global)
+    EVENT_THRESHOLD: int = 10
+    EVENT_COOLDOWN: int = 30
+
+    PIPELINE_THRESHOLD: int = 8
+    PIPELINE_COOLDOWN: int = 45
+
+    FEEDBACK_THRESHOLD: int = 8
+    FEEDBACK_COOLDOWN: int = 45
+
+    AUTONOMOUS_THRESHOLD: int = 8
+    AUTONOMOUS_COOLDOWN: int = 30
+
+    # Standard categories
+    SYNC_THRESHOLD: int = 6
+    SYNC_COOLDOWN: int = 60
+
+    HEALTH_THRESHOLD: int = 6
+    HEALTH_COOLDOWN: int = 60
+
+    QUEUE_THRESHOLD: int = 5
+    QUEUE_COOLDOWN: int = 60
+
+    RESOURCE_THRESHOLD: int = 5
+    RESOURCE_COOLDOWN: int = 90
+
+    # Less critical categories
+    EVALUATION_THRESHOLD: int = 5
+    EVALUATION_COOLDOWN: int = 90
+
+    DISTRIBUTION_THRESHOLD: int = 4
+    DISTRIBUTION_COOLDOWN: int = 90
+
+    RECOVERY_THRESHOLD: int = 4
+    RECOVERY_COOLDOWN: int = 120
+
+    PROVIDER_THRESHOLD: int = 3
+    PROVIDER_COOLDOWN: int = 120
+
+    MISC_THRESHOLD: int = 4
+    MISC_COOLDOWN: int = 120
+
+
+# =============================================================================
 # Partition Recovery Defaults (December 29, 2025)
 # =============================================================================
 
