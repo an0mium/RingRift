@@ -369,8 +369,11 @@ class TrainingTriggerDaemon(HandlerBase):
         self._training_states: dict[str, ConfigTrainingState] = {}
         self._training_semaphore = asyncio.Semaphore(self._daemon_config.max_concurrent_training)
         self._active_training_tasks: dict[str, asyncio.Task] = {}
-        # Track whether we should skip due to coordinator mode
+        # Track whether we should skip due to coordinator mode (DEPRECATED - use _dispatch_to_queue)
         self._coordinator_skip = False
+        # Dec 30, 2025: When True, dispatch training to work queue instead of running locally
+        # This allows coordinator nodes to trigger training on remote GPU nodes
+        self._dispatch_to_queue = False
         # Dec 29, 2025: Deduplication tracking for training triggers
         self._recent_triggers: dict[str, float] = {}  # config_key -> last_trigger_time
         # December 29, 2025: State persistence (Phase 3)
@@ -658,13 +661,22 @@ class TrainingTriggerDaemon(HandlerBase):
         }
 
     async def _on_start(self) -> None:
-        """Hook called before main loop - check coordinator mode."""
+        """Hook called before main loop - check coordinator mode.
+
+        December 30, 2025: Modified to support work queue dispatch.
+        On coordinator nodes or nodes without GPU, we still run the daemon
+        for decision-making, but dispatch training jobs to the work queue
+        instead of running locally.
+        """
         if env.is_coordinator or not env.training_enabled:
             logger.info(
-                f"[TrainingTriggerDaemon] Skipped on coordinator node: {env.node_id} "
-                f"(is_coordinator={env.is_coordinator}, training_enabled={env.training_enabled})"
+                f"[TrainingTriggerDaemon] Running in dispatch mode on {env.node_id} "
+                f"(is_coordinator={env.is_coordinator}, training_enabled={env.training_enabled}). "
+                f"Training jobs will be dispatched to cluster work queue."
             )
-            self._coordinator_skip = True
+            self._dispatch_to_queue = True
+            # Note: We no longer set _coordinator_skip = True
+            # The daemon will still run cycles and process events
 
     async def _on_stop(self) -> None:
         """Hook called when stopping - cancel active training tasks."""
@@ -2219,6 +2231,106 @@ class TrainingTriggerDaemon(HandlerBase):
             logger.warning(f"[TrainingTriggerDaemon] ensure_fresh_data failed: {e}")
             return False
 
+    async def _dispatch_training_to_queue(
+        self,
+        config_key: str,
+        state: ConfigTrainingState,
+        arch: ArchitectureSpec | None = None,
+    ) -> bool:
+        """Dispatch training job to work queue for remote execution.
+
+        December 30, 2025: Added to support coordinator-based training dispatch.
+        When the daemon runs on a coordinator node (no GPU), it dispatches
+        training jobs to the centralized work queue. GPU nodes in the cluster
+        will claim and execute these jobs.
+
+        Args:
+            config_key: Configuration identifier (e.g., "hex8_2p")
+            state: Current training state for this config
+            arch: Optional architecture specification
+
+        Returns:
+            True if job was successfully queued
+        """
+        try:
+            from app.coordination.work_distributor import get_work_distributor
+
+            distributor = get_work_distributor()
+
+            # Get intensity-adjusted training parameters
+            epochs, batch_size, lr_mult = self._get_training_params_for_intensity(
+                state.training_intensity
+            )
+
+            # Apply architecture-specific overrides if provided
+            arch_name = "v5"
+            if arch is not None:
+                arch_name = arch.name
+                if arch.epochs is not None:
+                    epochs = arch.epochs
+                if arch.batch_size is not None:
+                    batch_size = arch.batch_size
+
+            # Compute priority based on config characteristics
+            priority = 50
+            # Higher priority for underrepresented configs
+            if state.board_type in ("square19", "hexagonal"):
+                priority = min(100, priority + 20)
+            if state.num_players in (3, 4):
+                priority = min(100, priority + 15)
+            # Boost priority for accelerating configs (positive Elo velocity)
+            if state.elo_velocity > 10.0:
+                priority = min(100, priority + 10)
+
+            # Build config for work queue submission
+            from app.coordination.work_distributor import DistributedWorkConfig
+            work_config = DistributedWorkConfig(
+                require_gpu=True,  # Training requires GPU
+                require_high_memory=state.board_type in ("square19", "hexagonal"),
+                priority=priority,
+            )
+
+            # Submit to work queue
+            work_id = await distributor.submit_training(
+                board=state.board_type,
+                num_players=state.num_players,
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=1e-3 * lr_mult,
+                config=work_config,
+            )
+
+            if work_id:
+                logger.info(
+                    f"[TrainingTriggerDaemon] Dispatched training to queue: {config_key} "
+                    f"(work_id={work_id}, arch={arch_name}, epochs={epochs}, batch={batch_size})"
+                )
+                # Update state to track that training was dispatched
+                state.training_in_progress = True
+                state.training_start_time = time.time()
+                # Store work_id for tracking (use _pending prefix to avoid conflicts)
+                if not hasattr(state, "_pending_work_id"):
+                    state._pending_work_id = None
+                state._pending_work_id = work_id
+                return True
+            else:
+                logger.warning(
+                    f"[TrainingTriggerDaemon] Failed to dispatch training for {config_key}: "
+                    "work queue returned None"
+                )
+                return False
+
+        except ImportError as e:
+            logger.warning(
+                f"[TrainingTriggerDaemon] Cannot dispatch to work queue (module not available): {e}"
+            )
+            return False
+        except Exception as e:
+            logger.error(
+                f"[TrainingTriggerDaemon] Failed to dispatch training for {config_key}: {e}"
+            )
+            return False
+
     async def _run_training(
         self,
         config_key: str,
@@ -2239,6 +2351,11 @@ class TrainingTriggerDaemon(HandlerBase):
                 "intensity is 'paused' (quality score < 0.50)"
             )
             return False
+
+        # December 30, 2025: Dispatch to work queue on coordinator nodes
+        # This allows the coordinator to trigger training on remote GPU nodes
+        if self._dispatch_to_queue:
+            return await self._dispatch_training_to_queue(config_key, state, arch)
 
         # December 30, 2025: Default to v5 if no architecture specified
         if arch is None:
@@ -2579,11 +2696,12 @@ class TrainingTriggerDaemon(HandlerBase):
             logger.debug(f"[TrainingTriggerDaemon] Failed to emit TRAINING_FAILED: {e}")
 
     async def _run_cycle(self) -> None:
-        """Main work loop iteration - called by HandlerBase at scan_interval_seconds."""
-        # Skip if we're on a coordinator node
-        if self._coordinator_skip:
-            return
+        """Main work loop iteration - called by HandlerBase at scan_interval_seconds.
 
+        December 30, 2025: Removed _coordinator_skip check. The daemon now runs
+        on all nodes, including coordinators. On coordinator nodes, training jobs
+        are dispatched to the work queue via _dispatch_to_queue mode.
+        """
         # December 29, 2025 (Phase 2): Check for timed-out training jobs
         await self._check_training_timeouts()
 
