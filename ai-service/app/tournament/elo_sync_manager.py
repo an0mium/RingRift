@@ -428,8 +428,8 @@ class EloSyncManager(DatabaseSyncManager):
         )
 
         for node_name, node_info in self.nodes.items():
-            # Skip nodes in circuit breaker
-            if self._is_circuit_open(node_name):
+            # Skip nodes in circuit breaker (using base class method)
+            if not self._can_sync_with_node(node_name):
                 logger.debug(f"[EloSync] Skipping {node_name} (circuit open)")
                 results[node_name] = False
                 continue

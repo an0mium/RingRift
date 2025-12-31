@@ -678,10 +678,12 @@ def validate_npz_header(
                 array_name = name.replace('.npy', '')
                 info = zf.getinfo(name)
 
-                # Check for unreasonably large claimed sizes
-                if info.file_size > max_array_size_bytes:
+                # Check for unreasonably large compressed sizes
+                # Note: We check compress_size (actual disk usage) not file_size (uncompressed)
+                # because training arrays compress very well (e.g., 73GB → 1.2GB)
+                if info.compress_size > max_array_size_bytes:
                     result.error = (
-                        f"Array '{array_name}' claims {info.file_size:,} bytes "
+                        f"Array '{array_name}' compressed size {info.compress_size:,} bytes "
                         f"(exceeds {max_array_size_bytes:,} byte limit)"
                     )
                     return result
