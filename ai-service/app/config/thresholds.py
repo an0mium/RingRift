@@ -14,6 +14,8 @@ Import these constants instead of hardcoding values:
 See ai-service/docs/CONSOLIDATION_ROADMAP.md for consolidation context.
 """
 
+from __future__ import annotations
+
 from functools import lru_cache
 
 # =============================================================================
