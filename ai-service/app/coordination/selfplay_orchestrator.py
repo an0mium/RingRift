@@ -830,10 +830,12 @@ class SelfplayOrchestrator:
                 logger.debug("[SelfplayOrchestrator] No scheduler available for idle resource")
                 return
 
-            next_config = scheduler.get_next_selfplay_config()
-            if next_config is None:
+            # Get top priority config from scheduler
+            priority_configs = scheduler.get_priority_configs_sync(top_n=1)
+            if not priority_configs:
                 logger.debug("[SelfplayOrchestrator] No selfplay config needed")
                 return
+            next_config = priority_configs[0][0]  # First config's key
 
             # Request selfplay for this config
             self.request_selfplay(
