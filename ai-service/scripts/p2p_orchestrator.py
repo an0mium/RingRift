@@ -23912,6 +23912,7 @@ print(json.dumps({{
             elif now - idle_since > MIN_IDLE_TIME:
                 # Calculate new jobs to add
                 gpu_headroom = TARGET_GPU_MAX - gpu_percent
+                is_high_end_gpu = any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090", "a100", "4090"))
                 if any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090")):
                     jobs_per_10_percent = 2
                 elif any(tag in gpu_name for tag in ("a100", "4090", "3090")):
@@ -23922,7 +23923,9 @@ print(json.dumps({{
                 new_jobs = max(1, int(gpu_headroom / 10 * jobs_per_10_percent))
                 new_jobs = min(new_jobs, max_jobs_per_cycle)  # Cap based on leader presence
 
-                logger.info(f"LOCAL: {gpu_percent:.0f}% GPU util, starting {new_jobs} diverse/hybrid selfplay job(s)")
+                # Dec 2025 fix: Use GUMBEL/GPU_SELFPLAY for high-end GPUs
+                job_type_str = "GUMBEL/GPU" if is_high_end_gpu else "diverse/hybrid"
+                logger.info(f"LOCAL: {gpu_percent:.0f}% GPU util, starting {new_jobs} {job_type_str} selfplay job(s)")
 
                 # Dec 27, 2025: Generate batch ID and emit BATCH_SCHEDULED
                 batch_id = f"gpu_selfplay_{self.node_id}_{int(time.time())}"
@@ -23943,12 +23946,26 @@ print(json.dumps({{
                     try:
                         config = self.selfplay_scheduler.pick_weighted_config(self.self_info)
                         if config:
-                            # Use hybrid mode (CPU rules + GPU eval) for quality + speed
+                            # Dec 2025 fix: Select job type based on GPU capabilities
+                            if is_high_end_gpu:
+                                # High-end GPUs: 50% GUMBEL (quality) / 50% GPU_SELFPLAY (volume)
+                                import random
+                                if random.random() < 0.5:
+                                    job_type = JobType.GUMBEL_SELFPLAY
+                                    engine_mode = "gumbel-mcts"
+                                else:
+                                    job_type = JobType.GPU_SELFPLAY
+                                    engine_mode = "gpu"
+                            else:
+                                # Mid-tier GPUs: HYBRID mode for rule fidelity
+                                job_type = JobType.HYBRID_SELFPLAY
+                                engine_mode = "mixed"
+
                             job = await self._start_local_job(
-                                JobType.HYBRID_SELFPLAY,
+                                job_type,
                                 board_type=config["board_type"],
                                 num_players=config["num_players"],
-                                engine_mode="mixed",  # Diverse AI matchups for better training data
+                                engine_mode=engine_mode,
                             )
                             if job:
                                 started += 1
@@ -23956,7 +23973,7 @@ print(json.dumps({{
                             else:
                                 gpu_jobs_failed += 1
                     except Exception as e:  # noqa: BLE001
-                        logger.info(f"LOCAL: Failed to start diverse selfplay: {e}")
+                        logger.info(f"LOCAL: Failed to start selfplay: {e}")
                         gpu_jobs_failed += 1
                         break
 
@@ -24024,17 +24041,17 @@ print(json.dumps({{
     # See scripts/p2p/managers/selfplay_scheduler.py for implementation.
 
     async def _auto_scale_gpu_utilization(self) -> int:
-        """Auto-scale diverse/hybrid selfplay jobs to reach 60-80% GPU utilization.
+        """Auto-scale selfplay jobs to reach 60-80% GPU utilization.
 
-        Detects underutilized GPU nodes and starts HYBRID selfplay jobs to improve
+        Detects underutilized GPU nodes and starts selfplay jobs to improve
         cluster throughput while maintaining game quality and rule fidelity.
 
-        NOTE: GPU-only selfplay is DISABLED. All auto-scaled jobs use hybrid mode
-        which provides 100% rule fidelity (CPU rules) + GPU-accelerated evaluation.
-        This produces higher quality training data than pure GPU selfplay.
+        Dec 2025 fix: Job type is selected based on GPU capabilities:
+        - High-end GPUs (GH200, H100, A100, 5090, 4090): 50% GUMBEL / 50% GPU_SELFPLAY
+        - Mid-tier GPUs: HYBRID mode (CPU rules + GPU eval) for rule fidelity
 
         Returns:
-            Number of new diverse selfplay jobs started
+            Number of new selfplay jobs started
         """
         TARGET_GPU_MIN = 60.0  # Target minimum GPU utilization
         TARGET_GPU_MAX = 80.0  # Target maximum GPU utilization
@@ -24119,14 +24136,17 @@ print(json.dumps({{
             node_id = node_info["node_id"]
             new_jobs = node_info["new_jobs"]
 
+            gpu_name = (node_info.get("gpu_name", "") or "").upper()
+            is_high_end = any(tag in gpu_name for tag in ("H100", "H200", "GH200", "A100", "5090", "4090"))
+            job_type_str = "GUMBEL/GPU" if is_high_end else "diverse/hybrid"
             print(
                 f"[P2P] Auto-scale: {node_id} at {node_info['gpu_percent']:.0f}% GPU, "
-                f"starting {new_jobs} diverse/hybrid selfplay job(s)"
+                f"starting {new_jobs} {job_type_str} selfplay job(s)"
             )
 
             for _ in range(new_jobs):
                 try:
-                    # Schedule diverse/hybrid selfplay job (GPU-only selfplay disabled)
+                    # Schedule selfplay job (type selected by _schedule_diverse_selfplay_on_node)
                     job = await self._schedule_diverse_selfplay_on_node(node_id)
                     if job:
                         started += 1
@@ -24355,9 +24375,11 @@ print(json.dumps({{
             return False
 
     async def _schedule_diverse_selfplay_on_node(self, node_id: str) -> dict | None:
-        """Schedule a diverse/hybrid selfplay job on a specific node.
+        """Schedule a diverse selfplay job on a specific node.
 
-        Uses HYBRID mode (CPU rules + GPU eval) for 100% rule fidelity.
+        Job type is selected based on GPU capabilities (Dec 2025 fix):
+        - High-end GPUs (GH200, H100, A100, 5090, 4090): 50% GUMBEL / 50% GPU_SELFPLAY
+        - Mid-tier GPUs: HYBRID mode (CPU rules + GPU eval) for rule fidelity
         Rotates through all board/player configurations for diversity.
         """
         with self.peers_lock:
@@ -24400,6 +24422,27 @@ print(json.dumps({{
         setattr(self, counter_key, counter + 1)
         board_type, num_players = weighted_configs[counter % len(weighted_configs)]
 
+        # Determine job type based on node GPU capabilities (Dec 2025 fix)
+        # High-end GPUs should use GUMBEL_SELFPLAY (50%) or GPU_SELFPLAY (50%)
+        # Mid-tier GPUs use HYBRID mode for 100% rule fidelity
+        gpu_name = (peer.gpu_name or "").upper()
+        is_high_end_gpu = any(tag in gpu_name for tag in ("H100", "H200", "GH200", "A100", "5090", "4090"))
+        is_apple_gpu = "MPS" in gpu_name or "APPLE" in gpu_name
+
+        if peer.has_gpu and is_high_end_gpu and not is_apple_gpu:
+            # High-end GPUs: 50% GUMBEL (quality) / 50% GPU_SELFPLAY (volume)
+            import random
+            if random.random() < 0.5:
+                job_type = "gumbel_selfplay"
+                engine_mode = "gumbel-mcts"
+            else:
+                job_type = "gpu_selfplay"
+                engine_mode = "gpu"
+        else:
+            # Mid-tier or no GPU: HYBRID mode for rule fidelity
+            job_type = "hybrid_selfplay"
+            engine_mode = "mixed"
+
         try:
             timeout = ClientTimeout(total=30)
             async with get_client_session(timeout) as session:
@@ -24408,9 +24451,9 @@ print(json.dumps({{
                     "board_type": board_type,
                     "num_players": num_players,
                     "num_games": 200,  # Smaller batches for diversity
-                    "engine_mode": "mixed",  # HYBRID mode: CPU rules + GPU eval
+                    "engine_mode": engine_mode,
                     "auto_scaled": True,
-                    "job_type": "hybrid_selfplay",  # Explicitly request hybrid
+                    "job_type": job_type,
                 }
                 async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
