@@ -953,11 +953,21 @@ class DataCatalog:
             estimated_samples = stat.st_size // 200
 
             # Try to get actual sample count if file is small enough
+            # Dec 31, 2025: Added features/values/policy_indices as valid keys
+            # The training data format uses these instead of states/policy
             sample_count = estimated_samples
             if stat.st_size < 100 * 1024 * 1024:  # < 100MB
                 try:
                     with np.load(npz_path, allow_pickle=False) as data:
-                        if "policy" in data:
+                        # Check for various sample count indicators
+                        # Priority: features > values > policy_indices > policy > states
+                        if "features" in data:
+                            sample_count = len(data["features"])
+                        elif "values" in data:
+                            sample_count = len(data["values"])
+                        elif "policy_indices" in data:
+                            sample_count = len(data["policy_indices"])
+                        elif "policy" in data:
                             sample_count = len(data["policy"])
                         elif "states" in data:
                             sample_count = len(data["states"])
