@@ -709,6 +709,40 @@ echo "Key deployed"
         logger.error(f"[RecoveryOrchestrator] SSH key deploy failed on {node_id}: {stderr}")
         return False
 
+    async def start(self) -> None:
+        """Start the recovery daemon loop.
+
+        December 31, 2025: Added to make RecoveryOrchestrator compatible with
+        daemon_runners.py which expects a start() method.
+
+        Runs recovery cycles every 5 minutes until stopped.
+        """
+        self._running = True
+        logger.info("[RecoveryOrchestrator] Starting daemon loop")
+
+        try:
+            while self._running:
+                try:
+                    results = await self.recover_all_unhealthy()
+                    if results:
+                        logger.info(
+                            f"[RecoveryOrchestrator] Recovered {len(results)} nodes this cycle"
+                        )
+                except Exception as e:
+                    logger.error(f"[RecoveryOrchestrator] Recovery cycle error: {e}")
+
+                # Wait 5 minutes between cycles
+                await asyncio.sleep(300)
+
+        except asyncio.CancelledError:
+            logger.info("[RecoveryOrchestrator] Daemon loop cancelled")
+            self._running = False
+
+    async def stop(self) -> None:
+        """Stop the recovery daemon loop."""
+        logger.info("[RecoveryOrchestrator] Stopping daemon loop")
+        self._running = False
+
     def health_check(self) -> HealthCheckResult:
         """Perform health check for daemon manager integration.
 

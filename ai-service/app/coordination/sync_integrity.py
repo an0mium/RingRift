@@ -86,6 +86,13 @@ LARGE_DB_THRESHOLD = SyncIntegrityDefaults.LARGE_DB_THRESHOLD
 # Supported hash algorithms
 HashAlgorithm = Literal["sha256", "sha1", "md5", "blake2b"]
 
+# December 31, 2025: VACUUM cache to prevent repeated VACUUM operations
+# on the same database within a short time window. Each VACUUM takes 1-20s
+# depending on database size, and running VACUUM on a database that was
+# just VACUUMed is redundant and wastes CPU.
+_VACUUM_CACHE: dict[str, float] = {}  # db_path -> last_vacuum_time
+VACUUM_CACHE_TTL_SECONDS = 60  # Don't re-VACUUM within 60 seconds
+
 
 @dataclass
 class IntegrityCheckResult:
@@ -673,6 +680,10 @@ def prepare_database_for_transfer(db_path: Path) -> tuple[bool, str]:
     Without this, WAL mode databases may transfer without their -wal files,
     resulting in missing transactions and data corruption.
 
+    December 31, 2025: Added VACUUM caching to prevent repeated VACUUM
+    operations on the same database within 60 seconds. This reduces CPU
+    usage when multiple sync attempts target the same database.
+
     Args:
         db_path: Path to SQLite database file
 
@@ -687,6 +698,17 @@ def prepare_database_for_transfer(db_path: Path) -> tuple[bool, str]:
     """
     if not db_path.exists():
         return False, f"Database not found: {db_path}"
+
+    # Check VACUUM cache - skip if recently VACUUMed
+    db_key = str(db_path.resolve())
+    now = time.time()
+    last_vacuum = _VACUUM_CACHE.get(db_key, 0)
+    if now - last_vacuum < VACUUM_CACHE_TTL_SECONDS:
+        logger.debug(
+            f"[TransferSafety] Skipping {db_path.name}: VACUUMed "
+            f"{int(now - last_vacuum)}s ago (TTL: {VACUUM_CACHE_TTL_SECONDS}s)"
+        )
+        return True, "Database already prepared (cached)"
 
     try:
         # Dec 2025: Use context manager to prevent connection leaks
@@ -719,12 +741,15 @@ def prepare_database_for_transfer(db_path: Path) -> tuple[bool, str]:
             shm_path.unlink()
             logger.info(f"[TransferSafety] Removed orphaned SHM file: {shm_path}")
 
+        # Update VACUUM cache
+        _VACUUM_CACHE[db_key] = time.time()
+
         logger.info(f"[TransferSafety] ✓ {db_path.name}: prepared for transfer")
         return True, "Database prepared for transfer"
 
     except sqlite3.Error as e:
         return False, f"SQLite error: {e}"
-    except Exception as e:
+    except (OSError, PermissionError, ValueError, TypeError) as e:
         return False, f"Unexpected error: {e}"
 
 

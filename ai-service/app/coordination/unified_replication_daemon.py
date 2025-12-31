@@ -637,23 +637,48 @@ class UnifiedReplicationDaemon:
             await self._trigger_emergency_repair()
 
     async def _trigger_emergency_repair(self) -> None:
-        """Trigger emergency repair of critical games."""
+        """Trigger emergency repair of critical games.
+
+        December 31, 2025: Added batch limit to prevent CPU spike from processing
+        hundreds of thousands of games at once. Only the most critical games
+        (zero-copy first, then lowest replica count) are queued each cycle.
+        """
+        # Limit batch size to prevent CPU spike
+        MAX_EMERGENCY_BATCH = 1000
+
         try:
             # Get games needing immediate repair
             critical_games = await self._find_critical_games()
 
             if critical_games:
-                logger.info(
-                    f"[UnifiedReplicationDaemon] Queuing {len(critical_games)} "
-                    "critical games for emergency repair"
-                )
-                await self.trigger_repair([g[0] for g in critical_games])
+                # Limit to batch size - already sorted by criticality (zero-copy first)
+                batch_games = critical_games[:MAX_EMERGENCY_BATCH]
+                skipped = len(critical_games) - len(batch_games)
+
+                if skipped > 0:
+                    logger.info(
+                        f"[UnifiedReplicationDaemon] Queuing {len(batch_games)} "
+                        f"critical games for emergency repair (skipped {skipped} for next cycle)"
+                    )
+                else:
+                    logger.info(
+                        f"[UnifiedReplicationDaemon] Queuing {len(batch_games)} "
+                        "critical games for emergency repair"
+                    )
+                await self.trigger_repair([g[0] for g in batch_games])
         except Exception as e:
             logger.error(f"[UnifiedReplicationDaemon] Emergency repair failed: {e}")
 
     async def _find_critical_games(self) -> list[tuple[str, int, list[str]]]:
-        """Find games with zero or single copies."""
+        """Find games with zero or single copies.
+
+        December 31, 2025: Added limit to prevent processing 300K+ games.
+        Uses early-exit once we have enough critical games for a batch.
+        """
+        # Limit search - we only process 1000 per batch anyway
+        MAX_SEARCH = 5000
         critical: list[tuple[str, int, list[str]]] = []
+        zero_copy: list[tuple[str, int, list[str]]] = []  # Priority queue for zero-copy
 
         try:
             manifest = await self._get_cluster_manifest()
@@ -661,10 +686,21 @@ class UnifiedReplicationDaemon:
             for game_id, game_info in manifest.items():
                 locations = game_info.get("locations", [])
                 if len(locations) < self.config.min_replicas:
-                    critical.append((game_id, len(locations), locations))
+                    if len(locations) == 0:
+                        zero_copy.append((game_id, 0, []))
+                    else:
+                        critical.append((game_id, len(locations), locations))
 
-            # Sort by replica count (zero-copy first)
+                # Early exit once we have enough
+                if len(zero_copy) + len(critical) >= MAX_SEARCH:
+                    logger.debug(
+                        f"[UnifiedReplicationDaemon] Early exit at {MAX_SEARCH} critical games"
+                    )
+                    break
+
+            # Combine: zero-copy first, then by replica count
             critical.sort(key=lambda x: x[1])
+            return zero_copy + critical
 
         except Exception as e:
             logger.error(f"[UnifiedReplicationDaemon] Failed to find critical games: {e}")

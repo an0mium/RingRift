@@ -790,7 +790,9 @@ try:
         distill_checkpoint_ensemble,
     )
     HAS_DISTILLATION = True
-except ImportError:
+except (ImportError, AttributeError):
+    # Dec 31, 2025: Also catch AttributeError for when torch.nn is None
+    # This happens when distillation.py is imported but PyTorch is unavailable
     HAS_DISTILLATION = False
 
 # =============================================================================

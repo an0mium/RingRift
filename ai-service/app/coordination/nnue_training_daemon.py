@@ -533,8 +533,18 @@ class NNUETrainingDaemon(HandlerBase):
                         result = await resp.json()
                         jobs = result.get("jobs", {})
 
-                        # Find our job
-                        job_status = jobs.get(job_id, {}).get("status")
+                        # December 31, 2025: Handle both dict and list formats
+                        # P2P may return jobs as a list of job dicts or a dict keyed by job_id
+                        job_status = None
+                        if isinstance(jobs, dict):
+                            job_status = jobs.get(job_id, {}).get("status")
+                        elif isinstance(jobs, list):
+                            # Search list for matching job_id
+                            for job in jobs:
+                                if isinstance(job, dict) and job.get("job_id") == job_id:
+                                    job_status = job.get("status")
+                                    break
+
                         if job_status == "completed":
                             logger.info(
                                 f"NNUETrainingDaemon: Training completed for {config_key}"

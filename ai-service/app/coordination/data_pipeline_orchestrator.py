@@ -1054,8 +1054,32 @@ class DataPipelineOrchestrator(
         success: bool = True,
         metadata: dict | None = None,
     ) -> None:
-        """Record a stage transition."""
+        """Record a stage transition.
+
+        December 31, 2025: Added guards to prevent:
+        1. Same-stage transitions (no-op, just log debug)
+        2. Rapid transitions (minimum 100ms interval to prevent loops)
+        """
         old_stage = self._current_stage
+
+        # Guard 1: Skip same-stage transitions
+        if old_stage == new_stage and success:
+            logger.debug(
+                f"[DataPipelineOrchestrator] Skipping same-stage transition: "
+                f"{old_stage.value} -> {new_stage.value}"
+            )
+            return
+
+        # Guard 2: Prevent rapid transitions (minimum 100ms interval)
+        now = time.time()
+        last_transition = getattr(self, "_last_transition_time", 0.0)
+        if now - last_transition < 0.1:  # 100ms cooldown
+            logger.debug(
+                f"[DataPipelineOrchestrator] Throttling rapid transition: "
+                f"{old_stage.value} -> {new_stage.value} (too soon after last)"
+            )
+            return
+        self._last_transition_time = now
 
         # Calculate duration of previous stage
         duration = 0.0

@@ -991,9 +991,11 @@ class AutoSyncDaemon(
                 return False
 
             # Build target dict for sync_to_target_with_retry
+            # December 31, 2025: Use 'host' key (not 'ssh_host') for consistency
+            # with sync_push_mixin.broadcast_sync_to_target() which expects 'host'
             target = {
                 "node_id": node_id,
-                "ssh_host": target_info.get("host", node_id),
+                "host": target_info.get("host", node_id),  # 'host' not 'ssh_host'
                 "ssh_user": target_info.get("ssh_user", "root"),
                 "ssh_port": target_info.get("ssh_port", 22),
                 "disk_free_gb": target_info.get("disk_free_gb", 100),
@@ -1197,6 +1199,13 @@ class AutoSyncDaemon(
         Computes average quality score across all games in the database
         for training data prioritization.
 
+        December 31, 2025: CRITICAL FIX - Changed to extract only from the specific
+        database instead of scanning entire parent directory. The previous approach
+        was O(n²) - for N databases, each extraction scanned all N databases.
+
+        December 31, 2025: Added caching for both successful and failed extractions
+        to prevent repeated extraction from unchanged databases on every sync cycle.
+
         Args:
             db_path: Path to the synced database file
 
@@ -1206,20 +1215,41 @@ class AutoSyncDaemon(
         if not self.config.enable_quality_extraction or not HAS_QUALITY_EXTRACTION:
             return 0.0
 
+        cache_key = str(db_path)
+        now = time.time()
+
+        # Check cache of failed databases (TTL 5 minutes)
+        if cache_key in getattr(self, "_failed_db_cache", {}):
+            if now - self._failed_db_cache[cache_key] < 300:  # 5 min TTL
+                return 0.0
+
+        # Check cache of successful extractions (TTL 5 minutes)
+        # Skip re-extraction if database file hasn't been modified
+        if not hasattr(self, "_quality_cache"):
+            self._quality_cache: dict[str, tuple[float, float, float]] = {}  # path -> (score, extract_time, mtime)
+
+        if cache_key in self._quality_cache:
+            cached_score, cached_time, cached_mtime = self._quality_cache[cache_key]
+            try:
+                current_mtime = db_path.stat().st_mtime
+                # Use cache if: file hasn't changed AND extracted within TTL
+                if current_mtime == cached_mtime and now - cached_time < 300:
+                    return cached_score
+            except OSError:
+                pass  # File might have been deleted, continue with fresh extraction
+
         try:
-            # Extract quality for all games in the database
-            qualities = extract_quality_from_synced_db(
-                local_dir=db_path.parent,
+            from app.distributed.quality_extractor import extract_batch_quality
+
+            # Extract quality only for THIS specific database, not entire directory
+            game_qualities = extract_batch_quality(
+                db_path=db_path,
                 elo_lookup=self._elo_lookup,
                 config=self._quality_config or QualityExtractorConfig(),
             )
 
-            if not qualities or db_path.name not in qualities:
-                logger.debug(f"No quality scores extracted from {db_path.name}")
-                return 0.0
-
-            game_qualities = qualities[db_path.name]
             if not game_qualities:
+                logger.debug(f"No quality scores extracted from {db_path.name}")
                 return 0.0
 
             # Compute average quality
@@ -1247,10 +1277,21 @@ class AutoSyncDaemon(
                 f"{high_quality_count} added to priority queue"
             )
 
+            # Cache successful extraction with file mtime
+            try:
+                mtime = db_path.stat().st_mtime
+                self._quality_cache[cache_key] = (avg_quality, time.time(), mtime)
+            except OSError:
+                pass
+
             return avg_quality
 
-        except (RuntimeError, OSError, KeyError, ValueError) as e:
+        except (RuntimeError, OSError, KeyError, ValueError, sqlite3.Error) as e:
             logger.warning(f"Quality extraction failed for {db_path.name}: {e}")
+            # Cache failed database to avoid retrying for 5 minutes
+            if not hasattr(self, "_failed_db_cache"):
+                self._failed_db_cache = {}
+            self._failed_db_cache[cache_key] = time.time()
             return 0.0
 
     async def _update_priority_queue(
