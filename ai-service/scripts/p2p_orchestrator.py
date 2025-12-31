@@ -6136,6 +6136,55 @@ class P2POrchestrator(
     # Delegated to self.selfplay_scheduler.get_diversity_metrics() and
     # self.selfplay_scheduler.track_diversity(). Removed ~66 LOC Dec 2025.
 
+    def _get_db_game_count_sync(self, db_path: Path) -> int:
+        """Get game count from database synchronously.
+
+        IMPORTANT: This is a blocking operation. Call via asyncio.to_thread() from async code.
+        Added Dec 2025 to fix P2P orchestrator CPU spikes from blocking SQLite in async loops.
+        """
+        try:
+            with safe_db_connection(db_path, timeout=5) as conn:
+                result = conn.execute("SELECT COUNT(*) FROM games").fetchone()
+                return result[0] if result else 0
+        except (sqlite3.Error, OSError):
+            return 0
+
+    def _find_dbs_to_merge_sync(self, selfplay_dir: Path, main_db_path: Path) -> list[tuple[Path, int]]:
+        """Find databases that need merging synchronously.
+
+        IMPORTANT: This is a blocking operation. Call via asyncio.to_thread() from async code.
+        Added Dec 2025 to fix P2P orchestrator CPU spikes from blocking file I/O in async loops.
+        """
+        dbs_to_merge = []
+        for db_path in selfplay_dir.glob("**/games.db"):
+            if ".tmp" in str(db_path) or db_path == main_db_path:
+                continue
+            try:
+                with safe_db_connection(db_path, timeout=5) as conn:
+                    count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+                    if count > 0:
+                        dbs_to_merge.append((db_path, count))
+            except (KeyError, IndexError, AttributeError, sqlite3.Error):
+                pass
+        return dbs_to_merge
+
+    def _run_subprocess_sync(self, cmd: list, timeout: int = 10) -> tuple[int, str, str]:
+        """Run subprocess synchronously.
+
+        IMPORTANT: This is a blocking operation. Call via asyncio.to_thread() from async code.
+        Added Dec 2025 to fix P2P orchestrator CPU spikes from blocking subprocess in async loops.
+
+        Returns: (return_code, stdout, stderr)
+        """
+        import subprocess
+        try:
+            result = subprocess.run(cmd, timeout=timeout, capture_output=True, text=True)
+            return (result.returncode, result.stdout or "", result.stderr or "")
+        except subprocess.TimeoutExpired:
+            return (-1, "", "timeout")
+        except (OSError, subprocess.SubprocessError) as e:
+            return (-1, "", str(e))
+
     def _count_local_jobs(self) -> tuple[int, int]:
         """Count running selfplay and training jobs on this node."""
         def _pid_alive(pid: int) -> bool:
@@ -7759,8 +7808,8 @@ class P2POrchestrator(
             # (vast nodes have 256-512 CPUs vs lambda's 64) to free GPU nodes for training.
             if jsonl_db_path.exists() and not getattr(self, "_npz_export_running", False):
                 try:
-                    with safe_db_connection(jsonl_db_path, timeout=5) as conn:
-                        game_count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+                    # Use asyncio.to_thread to avoid blocking event loop (fix Dec 2025)
+                    game_count = await asyncio.to_thread(self._get_db_game_count_sync, jsonl_db_path)
 
                     # Only export if we have enough games and it's been a while
                     training_dir = data_dir / "training"
@@ -7833,18 +7882,10 @@ class P2POrchestrator(
                     logger.info(f"NPZ export check error: {e}")
 
             # --- PART 2: Merge job DBs (CPU selfplay output) ---
-            dbs_to_merge = []
-            for db_path in selfplay_dir.glob("**/games.db"):
-                # Skip if it's in a .tmp directory or is the main DB
-                if ".tmp" in str(db_path) or db_path == main_db_path:
-                    continue
-                try:
-                    with safe_db_connection(db_path, timeout=5) as conn:
-                        count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
-                        if count > 0:
-                            dbs_to_merge.append((db_path, count))
-                except (KeyError, IndexError, AttributeError, sqlite3.Error):
-                    pass
+            # Use asyncio.to_thread to avoid blocking event loop (fix Dec 2025)
+            dbs_to_merge = await asyncio.to_thread(
+                self._find_dbs_to_merge_sync, selfplay_dir, main_db_path
+            )
 
             if dbs_to_merge:
                 total_games = sum(c for _, c in dbs_to_merge)
@@ -23647,13 +23688,11 @@ print(json.dumps({{
                 logger.info(f"LOCAL STUCK: {selfplay_jobs} selfplay jobs but {gpu_percent:.0f}% GPU for {int((now - last_gpu_active)/60)}min")
                 # Kill all local GPU selfplay processes and let them restart
                 try:
-                    import subprocess
-                    # Kill gpu_selfplay processes specifically
-                    result = subprocess.run(
-                        ["pkill", "-9", "-f", "gpu_selfplay"],
-                        timeout=10, capture_output=True
+                    # Use asyncio.to_thread to avoid blocking event loop (fix Dec 2025)
+                    returncode, _, _ = await asyncio.to_thread(
+                        self._run_subprocess_sync, ["pkill", "-9", "-f", "gpu_selfplay"], 10
                     )
-                    if result.returncode == 0:
+                    if returncode == 0:
                         killed += 1
                         logger.info("LOCAL: Killed stuck GPU selfplay processes")
                         # Clear job tracking so they restart
@@ -23670,13 +23709,12 @@ print(json.dumps({{
 
         # Check for orphaned selfplay processes (processes running but not in job tracking)
         try:
-            import subprocess
             # Count actual selfplay processes
-            result = subprocess.run(
-                ["pgrep", "-fc", "selfplay|gpu_selfplay"],
-                timeout=5, capture_output=True, text=True
+            # Use asyncio.to_thread to avoid blocking event loop (fix Dec 2025)
+            returncode, stdout, _ = await asyncio.to_thread(
+                self._run_subprocess_sync, ["pgrep", "-fc", "selfplay|gpu_selfplay"], 5
             )
-            actual_processes = int(result.stdout.strip() or "0") if result.returncode == 0 else 0
+            actual_processes = int(stdout.strip() or "0") if returncode == 0 else 0
 
             with self.jobs_lock:
                 tracked_jobs = len(self.local_jobs)
