@@ -1297,6 +1297,36 @@ class UnifiedQueuePopulatorDaemon:
                 # Replace timed out work immediately
                 self._populator.populate()
 
+            def _on_work_completed(event: Any) -> None:
+                """Handle WORK_COMPLETED - remove from tracked work IDs set.
+
+                This is critical for accurate tracking: without this handler, the
+                _queued_work_ids set grows indefinitely, causing the populator to
+                incorrectly believe work is still pending when it has completed.
+                """
+                payload = _extract_payload(event)
+                work_id = payload.get("work_id")
+                work_type = payload.get("work_type")
+
+                # Remove from tracking set regardless of work type
+                if work_id and work_id in self._populator._queued_work_ids:
+                    self._populator._queued_work_ids.discard(work_id)
+                    logger.debug(
+                        f"[QueuePopulator] Work completed: {work_id}, "
+                        f"remaining tracked: {len(self._populator._queued_work_ids)}"
+                    )
+
+                # For selfplay work, also update pending counts
+                if work_type == "selfplay":
+                    board_type = payload.get("board_type")
+                    num_players = payload.get("num_players")
+                    config_key = f"{board_type}_{num_players}p" if board_type and num_players else ""
+
+                    if config_key and config_key in self._populator._targets:
+                        target = self._populator._targets[config_key]
+                        if target.pending_selfplay_count > 0:
+                            target.pending_selfplay_count -= 1
+
             def _on_backpressure_released(event: Any) -> None:
                 """Handle BACKPRESSURE_RELEASED - resume queue population."""
                 payload = _extract_payload(event)
@@ -1355,11 +1385,13 @@ class UnifiedQueuePopulatorDaemon:
             if hasattr(DataEventType, 'SELFPLAY_TARGET_UPDATED'):
                 router.subscribe(DataEventType.SELFPLAY_TARGET_UPDATED.value, _on_selfplay_target_updated)
 
-            # Wire WORK_FAILED, WORK_TIMEOUT, TASK_ABANDONED for accurate pending count tracking
+            # Wire WORK_FAILED, WORK_TIMEOUT, WORK_COMPLETED, TASK_ABANDONED for accurate pending count tracking
             if hasattr(DataEventType, 'WORK_FAILED'):
                 router.subscribe(DataEventType.WORK_FAILED.value, _on_work_failed)
             if hasattr(DataEventType, 'WORK_TIMEOUT'):
                 router.subscribe(DataEventType.WORK_TIMEOUT.value, _on_work_timeout)
+            if hasattr(DataEventType, 'WORK_COMPLETED'):
+                router.subscribe(DataEventType.WORK_COMPLETED.value, _on_work_completed)
             if hasattr(DataEventType, 'TASK_ABANDONED'):
                 router.subscribe(DataEventType.TASK_ABANDONED.value, _on_task_abandoned)
 
@@ -1368,7 +1400,7 @@ class UnifiedQueuePopulatorDaemon:
                 router.subscribe(DataEventType.BACKPRESSURE_RELEASED.value, _on_backpressure_released)
 
             _events_wired = True
-            logger.info("[QueuePopulatorDaemon] Subscribed to data events (incl. WORK_FAILED/TIMEOUT/TASK_ABANDONED/BACKPRESSURE_RELEASED)")
+            logger.info("[QueuePopulatorDaemon] Subscribed to data events (incl. WORK_FAILED/TIMEOUT/COMPLETED/TASK_ABANDONED/BACKPRESSURE_RELEASED)")
 
         except ImportError:
             logger.debug("[QueuePopulatorDaemon] Event router not available")

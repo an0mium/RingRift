@@ -143,6 +143,9 @@ class AutoExportDaemon(HandlerBase):
         # Export is gated on sync completion to prevent race conditions where
         # export starts before data from other nodes has arrived.
         self._pending_sync_configs: set[str] = set()
+        # Dec 31, 2025: Track when each config was marked pending (for stale cleanup)
+        self._pending_sync_times: dict[str, float] = {}
+        self._max_pending_time = 300.0  # 5 minutes max wait for sync
         # Track whether we should skip due to coordinator mode
         self._coordinator_skip = False
         # Event-driven batch accumulation (December 2025)
@@ -344,6 +347,7 @@ class AutoExportDaemon(HandlerBase):
 
             # Phase 3: Mark config as pending sync - export will wait for DATA_SYNC_COMPLETED
             self._pending_sync_configs.add(config_key)
+            self._pending_sync_times[config_key] = time.time()  # Dec 31, 2025: Track pending time
             logger.debug(
                 f"[AutoExportDaemon] {config_key}: Marked as pending sync "
                 "(export gated on DATA_SYNC_COMPLETED)"
@@ -434,6 +438,10 @@ class AutoExportDaemon(HandlerBase):
 
         Dec 30, 2025 Phase 4.1: Also scans synced databases for export after sync.
         This enables training on data synced from other cluster nodes.
+
+        Dec 31, 2025: Fix sync-gating deadlock - clear ALL pending configs when ANY
+        sync completes. Sync is a global operation, not per-config. Previously, exports
+        waited forever because DATA_SYNC_COMPLETED events don't include config_key.
         """
         try:
             payload = getattr(event, "payload", {}) or {}
@@ -441,17 +449,25 @@ class AutoExportDaemon(HandlerBase):
             games_synced = payload.get("games_synced", 0) or payload.get("files_synced", 0)
             source_host = payload.get("source_host")
 
-            # Phase 3: Clear pending sync flag if config_key present
+            # Dec 31, 2025: Clear ALL pending configs when ANY sync completes
+            # This fixes the deadlock where exports wait forever for config-specific
+            # sync events that never arrive (sync is global, not per-config).
+            pending = list(self._pending_sync_configs)
+            if pending:
+                logger.info(
+                    f"[AutoExportDaemon] Sync completed with {games_synced} games, "
+                    f"clearing {len(pending)} pending configs: {pending}"
+                )
+                self._pending_sync_configs.clear()
+
+                # Trigger export check for all previously-pending configs
+                for pending_config_key in pending:
+                    await self._maybe_trigger_export(pending_config_key)
+
+            # Phase 3 (legacy): If specific config_key present, also record games
             if config_key:
                 board_type, num_players = self._parse_config_key(config_key)
                 if board_type and num_players:
-                    was_pending = config_key in self._pending_sync_configs
-                    self._pending_sync_configs.discard(config_key)
-                    if was_pending:
-                        logger.info(
-                            f"[AutoExportDaemon] {config_key}: Sync completed, export now allowed "
-                            f"({games_synced} games synced)"
-                        )
                     await self._record_games(config_key, board_type, num_players, games_synced)
 
             # Phase 4.1 (Dec 30, 2025): Scan synced databases for export
@@ -1008,8 +1024,38 @@ class AutoExportDaemon(HandlerBase):
         if self._coordinator_skip:
             return
 
+        # Dec 31, 2025: Clear stale pending configs (fallback for missed sync events)
+        await self._clear_stale_pending_configs()
+
         # Scan for databases that may need export
         await self._scan_for_pending_exports()
+
+    async def _clear_stale_pending_configs(self) -> None:
+        """Clear pending sync configs that have waited too long.
+
+        Dec 31, 2025: Fallback mechanism for 48-hour autonomous operation.
+        If a sync event is missed or delayed beyond max_pending_time, the config
+        is cleared from pending and export can proceed. This prevents permanent
+        deadlocks while still allowing sync coordination when it works.
+        """
+        now = time.time()
+        stale_configs = []
+
+        for config_key in list(self._pending_sync_configs):
+            pending_since = self._pending_sync_times.get(config_key, 0)
+            if pending_since > 0 and (now - pending_since) > self._max_pending_time:
+                stale_configs.append(config_key)
+
+        if stale_configs:
+            logger.warning(
+                f"[AutoExportDaemon] Clearing {len(stale_configs)} stale pending configs "
+                f"(waited >{self._max_pending_time}s): {stale_configs}"
+            )
+            for config_key in stale_configs:
+                self._pending_sync_configs.discard(config_key)
+                self._pending_sync_times.pop(config_key, None)
+                # Trigger export check
+                await self._maybe_trigger_export(config_key)
 
     async def _scan_for_pending_exports(self) -> None:
         """Scan databases to find configs needing export."""
