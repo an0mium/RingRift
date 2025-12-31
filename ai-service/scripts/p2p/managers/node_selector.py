@@ -741,3 +741,94 @@ class NodeSelector:
                 "unhealthy_node_ids": list(self._unhealthy_nodes),
             },
         )
+
+    # =========================================================================
+    # Unhealthy Node Recovery (December 31, 2025)
+    # =========================================================================
+
+    def recover_unhealthy_nodes(self) -> list[str]:
+        """Attempt to recover nodes from unhealthy state.
+
+        Checks all nodes in the unhealthy set and removes them if they're
+        now showing as alive and healthy. This prevents nodes from being
+        permanently stuck in the unhealthy set due to transient failures.
+
+        Returns:
+            List of node IDs that were recovered.
+
+        December 31, 2025: Added to fix idle GPU nodes issue where nodes
+        were permanently excluded from work distribution after transient failures.
+        """
+        if not self._unhealthy_nodes:
+            return []
+
+        recovered = []
+
+        # Get current node info for all potentially unhealthy nodes
+        all_nodes = self._get_all_nodes(include_self=True)
+        nodes_by_id = {n.node_id: n for n in all_nodes}
+
+        for node_id in list(self._unhealthy_nodes):
+            node = nodes_by_id.get(node_id)
+
+            # Check if node appears healthy now
+            if node is not None:
+                is_alive = node.is_alive()
+                is_healthy = node.is_healthy()
+                not_retired = not getattr(node, "retired", False)
+
+                if is_alive and is_healthy and not_retired:
+                    # Node has recovered - remove from unhealthy set
+                    self._unhealthy_nodes.discard(node_id)
+                    self._unhealthy_reasons.pop(node_id, None)
+                    recovered.append(node_id)
+                    logger.info(
+                        f"[NodeSelector] Recovered node {node_id} from unhealthy state "
+                        f"(alive={is_alive}, healthy={is_healthy})"
+                    )
+            else:
+                # Node is no longer in peers dict - might have been removed
+                # Keep in unhealthy set for now to prevent issues if it reappears
+                logger.debug(
+                    f"[NodeSelector] Node {node_id} in unhealthy set but not in peers"
+                )
+
+        if recovered:
+            logger.info(
+                f"[NodeSelector] Recovered {len(recovered)} nodes from unhealthy state: "
+                f"{recovered}"
+            )
+
+        return recovered
+
+    def get_recovery_candidates(self) -> list[dict[str, Any]]:
+        """Get detailed info about unhealthy nodes that might recover.
+
+        Returns:
+            List of dicts with node_id, reason, and current status.
+        """
+        all_nodes = self._get_all_nodes(include_self=True)
+        nodes_by_id = {n.node_id: n for n in all_nodes}
+
+        candidates = []
+        for node_id in self._unhealthy_nodes:
+            node = nodes_by_id.get(node_id)
+            candidate = {
+                "node_id": node_id,
+                "reason": self._unhealthy_reasons.get(node_id, "unknown"),
+                "in_peers": node is not None,
+            }
+            if node:
+                candidate.update({
+                    "is_alive": node.is_alive(),
+                    "is_healthy": node.is_healthy(),
+                    "retired": getattr(node, "retired", False),
+                    "can_recover": (
+                        node.is_alive()
+                        and node.is_healthy()
+                        and not getattr(node, "retired", False)
+                    ),
+                })
+            candidates.append(candidate)
+
+        return candidates

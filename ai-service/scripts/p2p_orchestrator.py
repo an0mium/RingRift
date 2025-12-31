@@ -8616,6 +8616,8 @@ class P2POrchestrator(
             "event_subscriptions": event_subscriptions,
             "partition": partition_status,
             "background_loops": background_loops,
+            # December 30, 2025: Cluster observability for debugging idle nodes
+            "cluster_observability": self._get_cluster_observability(),
             # December 30, 2025: Lock acquisition status for debugging
             "_lock_status": {
                 "peers_lock_acquired": peers_snapshot is not None,
@@ -22581,6 +22583,85 @@ print(json.dumps({{
             },
         }
 
+    def _get_cluster_observability(self) -> dict[str, Any]:
+        """Get cluster observability metrics for debugging.
+
+        December 30, 2025: Added to help diagnose idle GPU nodes and
+        peer visibility discrepancies across the cluster.
+
+        Returns:
+            Dict with:
+            - unhealthy_nodes: Nodes in unhealthy set (excluded from work)
+            - gossip_discovered_peers: Count of peers found via gossip
+            - cluster_job_distribution: Jobs per node for balance analysis
+        """
+        result: dict[str, Any] = {}
+
+        # 1. Unhealthy nodes from node_selector
+        try:
+            if hasattr(self, "node_selector") and self.node_selector:
+                unhealthy_set = getattr(self.node_selector, "_unhealthy_nodes", set())
+                unhealthy_reasons = getattr(self.node_selector, "_unhealthy_reasons", {})
+                result["unhealthy_nodes"] = {
+                    "count": len(unhealthy_set),
+                    "node_ids": list(unhealthy_set),
+                    "reasons": dict(unhealthy_reasons),
+                }
+            else:
+                result["unhealthy_nodes"] = {"error": "node_selector not available"}
+        except Exception as e:  # noqa: BLE001
+            result["unhealthy_nodes"] = {"error": str(e)}
+
+        # 2. Gossip-discovered peers
+        try:
+            gossip_endpoints = getattr(self, "_gossip_learned_endpoints", {})
+            result["gossip_discovered_peers"] = {
+                "count": len(gossip_endpoints),
+                "node_ids": list(gossip_endpoints.keys()),
+            }
+        except Exception as e:  # noqa: BLE001
+            result["gossip_discovered_peers"] = {"error": str(e)}
+
+        # 3. Cluster job distribution (for balance analysis)
+        try:
+            with self.peers_lock:
+                job_distribution = {}
+                for node_id, peer in self.peers.items():
+                    if peer.is_alive():
+                        job_distribution[node_id] = {
+                            "selfplay_jobs": int(getattr(peer, "selfplay_jobs", 0) or 0),
+                            "training_jobs": int(getattr(peer, "training_jobs", 0) or 0),
+                            "gpu_percent": float(getattr(peer, "gpu_percent", 0) or 0),
+                        }
+                # Add self
+                job_distribution[self.node_id] = {
+                    "selfplay_jobs": int(getattr(self.self_info, "selfplay_jobs", 0) or 0),
+                    "training_jobs": int(getattr(self.self_info, "training_jobs", 0) or 0),
+                    "gpu_percent": float(getattr(self.self_info, "gpu_percent", 0) or 0),
+                }
+
+            # Compute summary stats
+            if job_distribution:
+                all_jobs = [d["selfplay_jobs"] for d in job_distribution.values()]
+                avg_jobs = sum(all_jobs) / len(all_jobs) if all_jobs else 0
+                max_jobs = max(all_jobs) if all_jobs else 0
+                min_jobs = min(all_jobs) if all_jobs else 0
+                idle_count = sum(1 for j in all_jobs if j == 0)
+                result["cluster_job_distribution"] = {
+                    "node_count": len(job_distribution),
+                    "avg_selfplay_jobs": round(avg_jobs, 1),
+                    "max_selfplay_jobs": max_jobs,
+                    "min_selfplay_jobs": min_jobs,
+                    "idle_nodes": idle_count,
+                    "per_node": job_distribution,
+                }
+            else:
+                result["cluster_job_distribution"] = {"error": "no peers available"}
+        except Exception as e:  # noqa: BLE001
+            result["cluster_job_distribution"] = {"error": str(e)}
+
+        return result
+
     # ============================================================================
     # DISTRIBUTED TOURNAMENT SCHEDULING
     # ============================================================================
@@ -23463,6 +23544,27 @@ print(json.dumps({{
         # Calculate target jobs for this node (delegated to SelfplayScheduler Dec 2025)
         target_selfplay = self.selfplay_scheduler.get_target_jobs_for_node(node)
         current_jobs = int(getattr(node, "selfplay_jobs", 0) or 0)
+
+        # Dec 30, 2025: Cluster-aware job balancing
+        # Prevent job concentration on a few nodes by checking cluster average
+        # Skip spawning if we're already above average + 2 to give idle nodes a chance
+        try:
+            with self.peers_lock:
+                peer_job_counts = [
+                    int(getattr(p, "selfplay_jobs", 0) or 0)
+                    for p in self.peers.values()
+                    if p.is_alive() and hasattr(p, "selfplay_jobs")
+                ]
+            if peer_job_counts:
+                avg_jobs = sum(peer_job_counts) / len(peer_job_counts)
+                if current_jobs > avg_jobs + 2:
+                    logger.info(
+                        f"LOCAL: Skipping job spawn - {current_jobs} jobs > cluster avg {avg_jobs:.1f}+2 "
+                        f"(letting underutilized nodes catch up)"
+                    )
+                    return 0
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Cluster balance check error: {e}")
 
         # Start jobs if below target
         if current_jobs < target_selfplay:

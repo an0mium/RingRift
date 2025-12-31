@@ -190,7 +190,45 @@ RETRY_DEAD_NODE_INTERVAL = 120  # Retry dead nodes every 2 minutes (reduced from
 # ============================================
 
 # Gossip fanout - number of peers to forward gossip messages to
-GOSSIP_FANOUT = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT", "3") or 3)
+# Dec 30, 2025: Increased default from 3 to 5 for medium clusters (~36 nodes)
+# to improve peer visibility across NAT boundaries. Use get_gossip_fanout()
+# for adaptive fanout based on cluster size.
+GOSSIP_FANOUT = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT", "5") or 5)
+
+
+def get_gossip_fanout(peer_count: int) -> int:
+    """Get adaptive gossip fanout based on cluster size.
+
+    Larger clusters need higher fanout to ensure gossip messages
+    propagate to all nodes within a reasonable number of rounds.
+    This is especially important for nodes behind NAT that may
+    have limited direct connectivity.
+
+    Args:
+        peer_count: Current number of known peers in the cluster.
+
+    Returns:
+        Recommended gossip fanout:
+        - 3 for small clusters (<10 peers)
+        - 5 for medium clusters (10-29 peers)
+        - 7 for large clusters (30+ peers)
+
+    December 30, 2025: Added to fix peer visibility discrepancy where
+    mac-studio saw only 11 peers while Nebius nodes saw 21-26.
+    """
+    # Allow environment override for testing/tuning
+    env_fanout = os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT", "").strip()
+    if env_fanout:
+        return int(env_fanout)
+
+    if peer_count < 10:
+        return 3  # Small cluster - low fanout sufficient
+    elif peer_count < 30:
+        return 5  # Medium cluster - balanced fanout
+    else:
+        return 7  # Large cluster - high fanout for coverage
+
+
 # Gossip interval - seconds between gossip rounds
 # Dec 2025: Reduced from 60s to 15s for faster state convergence (6 gossip rounds per PEER_TIMEOUT)
 GOSSIP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_GOSSIP_INTERVAL", "15") or 15)
