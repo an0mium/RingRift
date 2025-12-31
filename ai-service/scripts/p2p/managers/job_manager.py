@@ -29,6 +29,17 @@ from app.config.coordination_defaults import (
     TaskLifecycleDefaults,
 )
 
+# Dec 31, 2025: Import batch size calculator for GPU utilization optimization
+try:
+    from app.ai.gpu_parallel_games import get_optimal_batch_size
+except ImportError:
+    # Fallback if gpu_parallel_games not available
+    def get_optimal_batch_size(board_type=None, num_players=2, **kwargs):
+        # Conservative defaults based on board complexity
+        if board_type in ("hexagonal", "square19"):
+            return 128  # Large boards need smaller batches
+        return 256  # Small boards can use larger batches
+
 # Import mixin for consolidated event handling (Dec 28, 2025)
 from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
 
@@ -1472,6 +1483,11 @@ class JobManager(EventSubscriptionMixin):
             }
             gpu_engine_mode = mode_map.get(effective_mode, "heuristic-only")
 
+            # Dec 31, 2025: Calculate optimal batch size for GPU utilization
+            # Higher batch sizes improve GPU utilization significantly
+            optimal_batch = get_optimal_batch_size(board_type=board_type, num_players=num_players)
+            logger.debug(f"Computed optimal batch size {optimal_batch} for {board_type}_{num_players}p")
+
             cmd = [
                 sys.executable,
                 script_path,
@@ -1482,6 +1498,7 @@ class JobManager(EventSubscriptionMixin):
                 "--output-db", str(output_dir / "games.db"),
                 "--engine-mode", gpu_engine_mode,
                 "--seed", str(int(time.time() * 1000) % 2**31),
+                "--batch-size", str(optimal_batch),  # Dec 31, 2025: Pass batch size for GPU utilization
             ]
 
         # December 29, 2025: Use helper for consistent env setup (includes RINGRIFT_ALLOW_PENDING_GATE)

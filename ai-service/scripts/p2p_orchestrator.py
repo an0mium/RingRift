@@ -1768,6 +1768,9 @@ class P2POrchestrator(
         # LEADERLESS FALLBACK: Track when we last had a functioning leader.
         # If leaderless for too long, nodes can trigger local training independently.
         self.last_leader_seen: float = time.time()  # When we last saw a functioning leader
+        # Dec 31, 2025: Leader invalidation window - prevents gossip from re-setting stale leader
+        # After we invalidate a leader, ignore gossip leader claims for this window
+        self._leader_invalidation_until: float = 0.0  # timestamp until which we ignore gossip leader claims
         self.last_local_training_fallback: float = 0.0  # When we last triggered local training fallback
         # Dec 30, 2025: Track when we last received work from the leader
         # If leader exists but isn't dispatching work, nodes can self-assign after timeout
@@ -20113,6 +20116,9 @@ print(json.dumps({{
             self.leader_lease_expires = 0.0
             self.last_lease_renewal = 0.0
             self.role = NodeRole.FOLLOWER
+            # Dec 31, 2025: Set invalidation window to prevent gossip from re-setting stale leader
+            # Window = 60 seconds - enough time for election to complete
+            self._leader_invalidation_until = time.time() + 60.0
             # Emit LEADER_LOST before starting election (Dec 2025 fix)
             asyncio.create_task(self._emit_leader_lost(old_leader_id, "lease_expired"))
             # CRITICAL: Check quorum before starting election to prevent quorum bypass
@@ -20138,6 +20144,8 @@ print(json.dumps({{
                     self.leader_lease_expires = 0.0
                     self.last_lease_renewal = 0.0
                     self.role = NodeRole.FOLLOWER
+                    # Dec 31, 2025: Set invalidation window to prevent gossip from re-setting dead leader
+                    self._leader_invalidation_until = time.time() + 60.0
                     asyncio.create_task(self._emit_leader_lost(old_leader_id, reason))
                     # CRITICAL: Check quorum before starting election to prevent quorum bypass
                     if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
@@ -21431,12 +21439,37 @@ print(json.dumps({{
                     self._gossip_peer_states[sender_id] = sender_state
 
                     # Update leader info if sender claims to know a leader
+                    # Dec 31, 2025: Fixed gossip race condition that kept resetting stale leaders
+                    # Three guards prevent accepting stale/unreachable leaders:
+                    # 1. Check leader invalidation window (set when we clear a dead leader)
+                    # 2. Check if we're mid-election (election_in_progress)
+                    # 3. Verify the claimed leader is in our peers list and is alive
                     if sender_state.get("leader_id") and not self.leader_id:
                         claimed_leader = sender_state.get("leader_id")
                         lease_expires = sender_state.get("leader_lease_expires", 0)
-                        if lease_expires > time.time():
-                            self.leader_id = claimed_leader
-                            self.last_leader_seen = time.time()
+                        now = time.time()
+                        # Guard 1: Don't accept leader during invalidation window
+                        if now < getattr(self, "_leader_invalidation_until", 0):
+                            logger.debug(
+                                f"Gossip: Ignoring leader claim {claimed_leader} during invalidation window "
+                                f"({self._leader_invalidation_until - now:.1f}s remaining)"
+                            )
+                        # Guard 2: Don't accept leader during election
+                        elif getattr(self, "election_in_progress", False):
+                            logger.debug(f"Gossip: Ignoring leader claim {claimed_leader} during election")
+                        # Guard 3: Verify lease and leader aliveness
+                        elif lease_expires > now:
+                            # Verify claimed leader is a known, alive peer
+                            with contextlib.suppress(Exception):
+                                leader_peer = self.peers.get(claimed_leader)
+                                if leader_peer and leader_peer.is_alive():
+                                    self.leader_id = claimed_leader
+                                    self.last_leader_seen = now
+                                    logger.debug(f"Gossip: Accepted leader {claimed_leader} from {sender_id}")
+                                elif not leader_peer:
+                                    logger.debug(f"Gossip: Ignoring leader claim {claimed_leader} - not in peers")
+                                else:
+                                    logger.debug(f"Gossip: Ignoring leader claim {claimed_leader} - peer not alive")
 
         # Process known states (propagation)
         known_states = response.get("known_states", {})
@@ -23348,8 +23381,10 @@ print(json.dumps({{
             return time.time() < self.leader_lease_expires
         else:
             # Another node is leader - check if we've received recent lease renewal
-            # Allow some grace period (2x lease duration) for network delays
-            return time.time() < self.leader_lease_expires + LEADER_LEASE_DURATION
+            # Dec 31, 2025: Reduced grace period from 2x to 1.5x lease duration
+            # This allows faster detection of dead leaders while still tolerating network delays
+            # With LEADER_LEASE_DURATION=180s, grace period is now 90s instead of 180s
+            return time.time() < self.leader_lease_expires + (LEADER_LEASE_DURATION * 0.5)
 
     async def _check_and_resolve_split_brain(self) -> bool:
         """Check for split-brain (multiple leaders) and resolve by stepping down if needed.
