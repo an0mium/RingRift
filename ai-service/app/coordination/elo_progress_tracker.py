@@ -1,0 +1,412 @@
+"""Elo Progress Tracker - Track best model Elo over time for each config.
+
+This module provides evidence of steady improvement in model quality by recording
+snapshots of the best model's Elo rating for each board configuration over time.
+
+Usage:
+    from app.coordination.elo_progress_tracker import (
+        get_elo_progress_tracker,
+        snapshot_all_configs,
+        get_progress_report,
+    )
+
+    # Take a snapshot of all configs
+    await snapshot_all_configs()
+
+    # Get progress report
+    report = get_progress_report("hex8_2p", days=7)
+    print(f"Elo improvement: {report.elo_delta}")
+
+December 31, 2025: Created to track training loop effectiveness.
+"""
+
+from __future__ import annotations
+
+import logging
+import sqlite3
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Database path
+from app.utils.paths import DATA_DIR
+
+ELO_PROGRESS_DB = DATA_DIR / "elo_progress.db"
+
+# All canonical configs
+ALL_CONFIGS = [
+    ("hex8", 2), ("hex8", 3), ("hex8", 4),
+    ("square8", 2), ("square8", 3), ("square8", 4),
+    ("square19", 2), ("square19", 3), ("square19", 4),
+    ("hexagonal", 2), ("hexagonal", 3), ("hexagonal", 4),
+]
+
+
+@dataclass
+class EloSnapshot:
+    """A point-in-time snapshot of the best model's Elo for a config."""
+    config_key: str
+    timestamp: float
+    best_model_id: str
+    best_elo: float
+    games_played: int
+    vs_random_win_rate: float | None = None
+    vs_heuristic_win_rate: float | None = None
+
+
+@dataclass
+class ProgressReport:
+    """Progress report for a config over a time period."""
+    config_key: str
+    start_elo: float | None
+    end_elo: float | None
+    elo_delta: float | None
+    start_time: datetime | None
+    end_time: datetime | None
+    num_snapshots: int
+    snapshots: list[EloSnapshot]
+
+    @property
+    def is_improving(self) -> bool:
+        """Check if Elo is trending upward."""
+        if self.elo_delta is None:
+            return False
+        return self.elo_delta > 0
+
+    @property
+    def improvement_rate_per_day(self) -> float | None:
+        """Elo improvement per day."""
+        if self.elo_delta is None or self.start_time is None or self.end_time is None:
+            return None
+        days = (self.end_time - self.start_time).total_seconds() / 86400
+        if days < 0.01:
+            return None
+        return self.elo_delta / days
+
+
+class EloProgressTracker:
+    """Tracks best model Elo progress over time for each config."""
+
+    _instance: EloProgressTracker | None = None
+
+    def __init__(self, db_path: Path | None = None):
+        self.db_path = db_path or ELO_PROGRESS_DB
+        self._init_db()
+
+    @classmethod
+    def get_instance(cls) -> EloProgressTracker:
+        """Get singleton instance."""
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton (for testing)."""
+        cls._instance = None
+
+    def _init_db(self) -> None:
+        """Initialize the database schema."""
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS elo_progress (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    config_key TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    best_model_id TEXT NOT NULL,
+                    best_elo REAL NOT NULL,
+                    games_played INTEGER DEFAULT 0,
+                    vs_random_win_rate REAL,
+                    vs_heuristic_win_rate REAL,
+                    metadata TEXT
+                )
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_progress_config
+                ON elo_progress(config_key, timestamp)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_progress_time
+                ON elo_progress(timestamp)
+            """)
+            conn.commit()
+
+    def record_snapshot(
+        self,
+        config_key: str,
+        best_model_id: str,
+        best_elo: float,
+        games_played: int = 0,
+        vs_random_win_rate: float | None = None,
+        vs_heuristic_win_rate: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record an Elo snapshot for a config."""
+        import json
+
+        timestamp = time.time()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT INTO elo_progress
+                (config_key, timestamp, best_model_id, best_elo, games_played,
+                 vs_random_win_rate, vs_heuristic_win_rate, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                config_key,
+                timestamp,
+                best_model_id,
+                best_elo,
+                games_played,
+                vs_random_win_rate,
+                vs_heuristic_win_rate,
+                json.dumps(metadata) if metadata else None,
+            ))
+            conn.commit()
+
+        logger.info(
+            f"[EloProgress] Recorded {config_key}: {best_model_id} @ {best_elo:.1f} Elo"
+        )
+
+    def get_snapshots(
+        self,
+        config_key: str,
+        since_timestamp: float | None = None,
+        limit: int = 100,
+    ) -> list[EloSnapshot]:
+        """Get Elo snapshots for a config."""
+        with sqlite3.connect(self.db_path) as conn:
+            if since_timestamp:
+                cursor = conn.execute("""
+                    SELECT config_key, timestamp, best_model_id, best_elo,
+                           games_played, vs_random_win_rate, vs_heuristic_win_rate
+                    FROM elo_progress
+                    WHERE config_key = ? AND timestamp >= ?
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """, (config_key, since_timestamp, limit))
+            else:
+                cursor = conn.execute("""
+                    SELECT config_key, timestamp, best_model_id, best_elo,
+                           games_played, vs_random_win_rate, vs_heuristic_win_rate
+                    FROM elo_progress
+                    WHERE config_key = ?
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                """, (config_key, limit))
+
+            return [
+                EloSnapshot(
+                    config_key=row[0],
+                    timestamp=row[1],
+                    best_model_id=row[2],
+                    best_elo=row[3],
+                    games_played=row[4],
+                    vs_random_win_rate=row[5],
+                    vs_heuristic_win_rate=row[6],
+                )
+                for row in cursor.fetchall()
+            ]
+
+    def get_latest_snapshot(self, config_key: str) -> EloSnapshot | None:
+        """Get the most recent snapshot for a config."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT config_key, timestamp, best_model_id, best_elo,
+                       games_played, vs_random_win_rate, vs_heuristic_win_rate
+                FROM elo_progress
+                WHERE config_key = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            """, (config_key,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return EloSnapshot(
+                config_key=row[0],
+                timestamp=row[1],
+                best_model_id=row[2],
+                best_elo=row[3],
+                games_played=row[4],
+                vs_random_win_rate=row[5],
+                vs_heuristic_win_rate=row[6],
+            )
+
+    def get_progress_report(
+        self,
+        config_key: str,
+        days: float = 7.0,
+    ) -> ProgressReport:
+        """Get a progress report for a config over the specified time period."""
+        since = time.time() - (days * 86400)
+        snapshots = self.get_snapshots(config_key, since_timestamp=since, limit=1000)
+
+        if not snapshots:
+            return ProgressReport(
+                config_key=config_key,
+                start_elo=None,
+                end_elo=None,
+                elo_delta=None,
+                start_time=None,
+                end_time=None,
+                num_snapshots=0,
+                snapshots=[],
+            )
+
+        start = snapshots[0]
+        end = snapshots[-1]
+
+        return ProgressReport(
+            config_key=config_key,
+            start_elo=start.best_elo,
+            end_elo=end.best_elo,
+            elo_delta=end.best_elo - start.best_elo,
+            start_time=datetime.fromtimestamp(start.timestamp, tz=timezone.utc),
+            end_time=datetime.fromtimestamp(end.timestamp, tz=timezone.utc),
+            num_snapshots=len(snapshots),
+            snapshots=snapshots,
+        )
+
+    def get_all_progress_summary(self, days: float = 7.0) -> dict[str, ProgressReport]:
+        """Get progress reports for all configs."""
+        return {
+            f"{bt}_{np}p": self.get_progress_report(f"{bt}_{np}p", days=days)
+            for bt, np in ALL_CONFIGS
+        }
+
+
+def get_elo_progress_tracker() -> EloProgressTracker:
+    """Get the singleton EloProgressTracker."""
+    return EloProgressTracker.get_instance()
+
+
+async def snapshot_all_configs() -> dict[str, EloSnapshot | None]:
+    """Take a snapshot of the best model Elo for all configs.
+
+    This queries the unified_elo.db to find the best-performing model
+    for each config and records it in the progress tracker.
+    """
+    from app.training.elo_service import get_elo_service
+
+    tracker = get_elo_progress_tracker()
+    elo_service = get_elo_service()
+    results: dict[str, EloSnapshot | None] = {}
+
+    for board_type, num_players in ALL_CONFIGS:
+        config_key = f"{board_type}_{num_players}p"
+
+        try:
+            # Get leaderboard for this config
+            leaderboard = elo_service.get_leaderboard(
+                board_type=board_type,
+                num_players=num_players,
+                limit=20,
+                min_games=1,  # Must have played at least one game
+            )
+
+            # Filter to actual models (not random/heuristic baselines)
+            model_entries = [
+                entry for entry in leaderboard
+                if not any(x in entry.participant_id.lower() for x in
+                          ["random", "heuristic", "dummy", "baseline", "none:"])
+            ]
+
+            if not model_entries:
+                logger.debug(f"[EloProgress] No models found for {config_key}")
+                results[config_key] = None
+                continue
+
+            best = model_entries[0]
+
+            # Record the snapshot
+            tracker.record_snapshot(
+                config_key=config_key,
+                best_model_id=best.participant_id,
+                best_elo=best.rating,
+                games_played=best.games_played,
+            )
+
+            results[config_key] = EloSnapshot(
+                config_key=config_key,
+                timestamp=time.time(),
+                best_model_id=best.participant_id,
+                best_elo=best.rating,
+                games_played=best.games_played,
+            )
+
+        except Exception as e:
+            logger.warning(f"[EloProgress] Failed to snapshot {config_key}: {e}")
+            results[config_key] = None
+
+    return results
+
+
+def get_progress_report(config_key: str, days: float = 7.0) -> ProgressReport:
+    """Get progress report for a config."""
+    return get_elo_progress_tracker().get_progress_report(config_key, days=days)
+
+
+def print_progress_summary(days: float = 7.0) -> None:
+    """Print a summary of Elo progress for all configs."""
+    tracker = get_elo_progress_tracker()
+    summary = tracker.get_all_progress_summary(days=days)
+
+    print(f"\n{'='*70}")
+    print(f"Elo Progress Report (last {days:.1f} days)")
+    print(f"{'='*70}")
+    print(f"{'Config':<15} {'Start Elo':>10} {'End Elo':>10} {'Delta':>8} {'Rate/day':>10} {'Snapshots':>10}")
+    print(f"{'-'*70}")
+
+    for config_key, report in sorted(summary.items()):
+        if report.num_snapshots == 0:
+            print(f"{config_key:<15} {'N/A':>10} {'N/A':>10} {'N/A':>8} {'N/A':>10} {0:>10}")
+        else:
+            start = f"{report.start_elo:.0f}" if report.start_elo else "N/A"
+            end = f"{report.end_elo:.0f}" if report.end_elo else "N/A"
+            delta = f"{report.elo_delta:+.0f}" if report.elo_delta else "N/A"
+            rate = f"{report.improvement_rate_per_day:.1f}" if report.improvement_rate_per_day else "N/A"
+            trend = "↑" if report.is_improving else "↓" if report.elo_delta and report.elo_delta < 0 else "→"
+            print(f"{config_key:<15} {start:>10} {end:>10} {delta:>8} {rate:>10} {report.num_snapshots:>10} {trend}")
+
+    print(f"{'='*70}\n")
+
+
+# CLI entry point
+if __name__ == "__main__":
+    import argparse
+    import asyncio
+
+    parser = argparse.ArgumentParser(description="Elo Progress Tracker")
+    parser.add_argument("--snapshot", action="store_true", help="Take a snapshot of all configs")
+    parser.add_argument("--report", action="store_true", help="Print progress report")
+    parser.add_argument("--days", type=float, default=7.0, help="Days to include in report")
+    parser.add_argument("--config", type=str, help="Specific config to report on")
+    args = parser.parse_args()
+
+    if args.snapshot:
+        print("Taking Elo snapshots for all configs...")
+        results = asyncio.run(snapshot_all_configs())
+        for config_key, snapshot in sorted(results.items()):
+            if snapshot:
+                print(f"  {config_key}: {snapshot.best_model_id} @ {snapshot.best_elo:.1f} Elo")
+            else:
+                print(f"  {config_key}: No data")
+
+    if args.report or not args.snapshot:
+        if args.config:
+            report = get_progress_report(args.config, days=args.days)
+            print(f"\nProgress for {args.config}:")
+            print(f"  Start Elo: {report.start_elo}")
+            print(f"  End Elo: {report.end_elo}")
+            print(f"  Delta: {report.elo_delta}")
+            print(f"  Snapshots: {report.num_snapshots}")
+        else:
+            print_progress_summary(days=args.days)

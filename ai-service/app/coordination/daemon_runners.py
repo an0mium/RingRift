@@ -333,7 +333,7 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         class_name="AutoPromotionDaemon",
     ),
     "unified_promotion": RunnerSpec(
-        module="app.coordination.promotion_controller",
+        module="app.training.promotion_controller",
         class_name="PromotionController",
     ),
     "gauntlet_feedback": RunnerSpec(
@@ -1430,6 +1430,28 @@ async def create_parity_validation() -> None:
         await _wait_for_daemon(daemon)
     except ImportError as e:
         logger.error(f"ParityValidationDaemon not available: {e}")
+
+
+async def create_elo_progress() -> None:
+    """Create and run Elo progress tracking daemon (December 31, 2025).
+
+    Periodically snapshots the best model's Elo for each config to track
+    improvement over time. Provides evidence of training loop effectiveness.
+
+    - Takes snapshots hourly by default
+    - Also triggers on EVALUATION_COMPLETED and MODEL_PROMOTED events
+    - Stores data in elo_progress.db for trend analysis
+
+    Subscribes to: EVALUATION_COMPLETED, MODEL_PROMOTED
+    """
+    try:
+        from app.coordination.elo_progress_daemon import get_elo_progress_daemon
+
+        daemon = get_elo_progress_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"EloProgressDaemon not available: {e}")
         raise
 
 
@@ -1467,7 +1489,7 @@ async def create_auto_promotion() -> None:
 async def create_unified_promotion() -> None:
     """Create and run unified promotion daemon (December 2025)."""
     try:
-        from app.coordination.promotion_controller import PromotionController
+        from app.training.promotion_controller import PromotionController
 
         controller = PromotionController()
         await controller.start()
@@ -2709,6 +2731,8 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.ARCHITECTURE_FEEDBACK.name: create_architecture_feedback,
         # Parity validation daemon (December 30, 2025)
         DaemonType.PARITY_VALIDATION.name: create_parity_validation,
+        # Elo progress tracking (December 31, 2025)
+        DaemonType.ELO_PROGRESS.name: create_elo_progress,
     }
 
 

@@ -356,6 +356,14 @@ class DaemonType(Enum):
     # =========================================================================
     PARITY_VALIDATION = "parity_validation"
 
+    # =========================================================================
+    # Elo Progress Tracking (December 31, 2025)
+    # =========================================================================
+    # Periodically snapshots best model Elo for each config to track
+    # improvement over time. Provides evidence of training loop effectiveness.
+    # =========================================================================
+    ELO_PROGRESS = "elo_progress"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -667,6 +675,7 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.MEMORY_MONITOR: DaemonCategory.AUTONOMOUS,
     DaemonType.STALE_FALLBACK: DaemonCategory.AUTONOMOUS,
     DaemonType.PARITY_VALIDATION: DaemonCategory.AUTONOMOUS,
+    DaemonType.ELO_PROGRESS: DaemonCategory.AUTONOMOUS,  # Dec 31, 2025: Tracks Elo improvement
     DaemonType.MAINTENANCE: DaemonCategory.AUTONOMOUS,
 
     # PROVIDER category - cloud provider daemons
@@ -950,6 +959,7 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     DaemonType.VOTER_HEALTH_MONITOR: {DaemonType.EVENT_ROUTER},  # Dec 30, 2025: Continuous voter probing
     DaemonType.MEMORY_MONITOR: {DaemonType.EVENT_ROUTER},  # Emits MEMORY_PRESSURE events
     DaemonType.STALE_FALLBACK: {DaemonType.EVENT_ROUTER, DaemonType.AUTO_SYNC},  # Fallback when sync fails
+    DaemonType.ELO_PROGRESS: {DaemonType.EVENT_ROUTER},  # Dec 31, 2025: Tracks Elo improvement
 }
 
 
