@@ -127,6 +127,84 @@ def _ensure_game_modules():
 
 
 # ============================================
+# Model Architecture Verification (Dec 30, 2025)
+# ============================================
+# Catches model mismatches before wasting gauntlet time
+
+
+def verify_model_architecture(
+    model_path: str | Path,
+    board_type: Any,
+    num_players: int,
+) -> tuple[bool, str]:
+    """Verify model architecture matches expected config.
+
+    Checks that the value head output dimension matches the expected player count.
+    This prevents models trained for N players from being loaded for M players,
+    which would cause partial weight loading and degraded performance.
+
+    Args:
+        model_path: Path to the model checkpoint
+        board_type: Board type (for logging context)
+        num_players: Expected number of players (determines value head size)
+
+    Returns:
+        Tuple of (is_valid, error_message). If is_valid is True, error_message is empty.
+
+    Example:
+        >>> is_valid, error = verify_model_architecture("models/hex8_4p.pth", "hex8", 4)
+        >>> if not is_valid:
+        ...     logger.error(f"Architecture mismatch: {error}")
+    """
+    try:
+        from app.utils.torch_utils import safe_load_checkpoint
+    except ImportError:
+        # Fallback if safe_load_checkpoint not available
+        import torch
+        safe_load_checkpoint = lambda p: torch.load(p, map_location="cpu", weights_only=False)
+
+    path = Path(model_path)
+    if not path.exists():
+        return False, f"Model file not found: {path}"
+
+    try:
+        checkpoint = safe_load_checkpoint(path)
+    except Exception as e:
+        return False, f"Failed to load checkpoint: {e}"
+
+    # Get the model state dict
+    state_dict = checkpoint.get("model_state_dict", checkpoint)
+    if not isinstance(state_dict, dict):
+        return False, "Checkpoint does not contain model_state_dict"
+
+    # Check value head dimensions
+    value_fc2_key = None
+    for key in state_dict.keys():
+        if "value_fc2.weight" in key or key == "value_fc2.weight":
+            value_fc2_key = key
+            break
+
+    if value_fc2_key is None:
+        # Model doesn't have standard value head naming - skip check
+        logger.debug(f"[verify_arch] No value_fc2.weight found in {path.name}, skipping check")
+        return True, ""
+
+    value_fc2_weight = state_dict[value_fc2_key]
+    actual_outputs = value_fc2_weight.shape[0]
+    expected_outputs = num_players
+
+    if actual_outputs != expected_outputs:
+        board_str = getattr(board_type, "value", str(board_type)) if board_type else "unknown"
+        return False, (
+            f"Model architecture mismatch: value_fc2 has {actual_outputs} outputs, "
+            f"expected {expected_outputs} for {num_players}-player {board_str} config. "
+            f"Model may have been trained for {actual_outputs}-player games."
+        )
+
+    return True, ""
+
+
+# ============================================
 # Adaptive Resource Management (Dec 2025)
 # ============================================
 # Prevents resource exhaustion by scaling workers based on system load
@@ -496,6 +574,10 @@ class GauntletResult:
     harness_config_hash: str = ""  # Configuration hash for Elo tracking
     model_id: str = ""  # Composite participant ID for Elo
     visit_distributions: list[dict[str, float]] = field(default_factory=list)  # For soft targets
+
+    # Architecture verification (December 30, 2025)
+    passed: bool = True  # True if gauntlet ran to completion
+    failure_reason: str = ""  # Non-empty if passed=False (e.g., architecture mismatch)
 
 
 def create_baseline_ai(
@@ -1653,6 +1735,19 @@ def run_baseline_gauntlet(
     if model_path is None and model_getter is None:
         raise ValueError("Must provide either model_path or model_getter")
     _ensure_game_modules()
+
+    # Dec 30, 2025: Verify model architecture before running gauntlet
+    # This catches mismatches (e.g., 4p weights for 2p config) early
+    if model_path is not None and board_type is not None:
+        is_valid, error_msg = verify_model_architecture(model_path, board_type, num_players)
+        if not is_valid:
+            logger.error(f"[gauntlet] Architecture verification failed: {error_msg}")
+            # Return early with failure result
+            result = GauntletResult()
+            result.passed = False
+            result.model_id = Path(model_path).stem if model_path else None
+            result.failure_reason = error_msg
+            return result
 
     # Dec 29, 2025: Create default recording config if saving enabled and not provided
     if save_games_for_training and recording_config is None and board_type is not None:
