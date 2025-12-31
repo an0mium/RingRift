@@ -1235,10 +1235,13 @@ class MasterLoopController:
 
             # December 2025: Add coordinator-specific daemons
             # These manage coordinator disk space by syncing data to external storage
+            # December 30, 2025: Added PARITY_VALIDATION - validates pending_gate databases
+            # and stores TS hashes for cluster nodes that lack Node.js
             coordinator_daemons = {
                 DaemonType.COORDINATOR_DISK_MANAGER,  # Proactive disk cleanup with external sync
                 DaemonType.EXTERNAL_DRIVE_SYNC,       # Pull data from cluster to OWC drive (Dec 29)
                 DaemonType.OWC_IMPORT,                # Import data FROM OWC to cluster (Dec 30)
+                DaemonType.PARITY_VALIDATION,         # Validate pending_gate DBs, store TS hashes (Dec 30)
             }
 
             # December 2025: Add S3_CONSOLIDATION on coordinator if AWS is configured

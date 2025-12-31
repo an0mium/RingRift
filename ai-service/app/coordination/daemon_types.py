@@ -344,6 +344,15 @@ class DaemonType(Enum):
     NNUE_TRAINING = "nnue_training"
     ARCHITECTURE_FEEDBACK = "architecture_feedback"  # Dec 29, 2025: Architecture allocation weights
 
+    # =========================================================================
+    # Parity Validation Daemon (December 30, 2025)
+    # Runs on coordinator (has Node.js) to validate TS/Python parity for
+    # canonical databases. Cluster nodes generate databases with "pending_gate"
+    # status because they lack npx. This daemon validates them and stores
+    # TS reference hashes, enabling hash-based validation on cluster nodes.
+    # =========================================================================
+    PARITY_VALIDATION = "parity_validation"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -747,6 +756,10 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # Trains NNUE models when game thresholds are met
     DaemonType.NNUE_TRAINING: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
     DaemonType.ARCHITECTURE_FEEDBACK: {DaemonType.EVENT_ROUTER},  # Dec 29, 2025
+
+    # Parity validation daemon (December 30, 2025)
+    # Runs on coordinator only - validates TS/Python parity and stores hashes
+    DaemonType.PARITY_VALIDATION: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
 
     # =========================================================================
     # 48-Hour Autonomous Operation daemons (December 30, 2025)

@@ -643,6 +643,16 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         style=InstantiationStyle.FACTORY,
         factory_func="get_connectivity_recovery_coordinator",
     ),
+    # --- Parity Validation (December 30, 2025) ---
+    # Runs on coordinator (has Node.js) to validate TS/Python parity.
+    # Stores TS reference hashes enabling hash-based validation on cluster nodes.
+    "parity_validation": RunnerSpec(
+        module="app.coordination.parity_validation_daemon",
+        class_name="ParityValidationDaemon",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_parity_validation_daemon",
+        notes="Dec 30, 2025: Validates pending_gate databases and stores TS hashes",
+    ),
 }
 
 
@@ -1396,6 +1406,30 @@ async def create_architecture_feedback() -> None:
         await _wait_for_daemon(controller)
     except ImportError as e:
         logger.error(f"ArchitectureFeedbackController not available: {e}")
+        raise
+
+
+async def create_parity_validation() -> None:
+    """Create and run parity validation daemon (December 30, 2025).
+
+    Runs on coordinator (which has Node.js) to validate TS/Python parity for
+    canonical databases. Cluster nodes generate databases with "pending_gate"
+    status because they lack npx. This daemon validates them and stores TS
+    reference hashes, enabling hash-based validation on cluster nodes.
+
+    Subscribes to: DATA_SYNC_COMPLETED (to validate newly synced databases)
+    Emits: PARITY_VALIDATION_COMPLETED
+    """
+    try:
+        from app.coordination.parity_validation_daemon import (
+            get_parity_validation_daemon,
+        )
+
+        daemon = get_parity_validation_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"ParityValidationDaemon not available: {e}")
         raise
 
 
@@ -2673,6 +2707,8 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.NNUE_TRAINING.name: create_nnue_training,
         # Architecture feedback controller (December 29, 2025)
         DaemonType.ARCHITECTURE_FEEDBACK.name: create_architecture_feedback,
+        # Parity validation daemon (December 30, 2025)
+        DaemonType.PARITY_VALIDATION.name: create_parity_validation,
     }
 
 

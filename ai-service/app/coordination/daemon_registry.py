@@ -685,6 +685,23 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         auto_restart=True,
         max_restarts=3,
     ),
+    # =========================================================================
+    # Parity Validation Daemon (December 30, 2025)
+    # Runs on coordinator (has Node.js) to validate TS/Python parity for
+    # canonical databases. Cluster nodes lack npx, so they generate databases
+    # with "pending_gate" status. This daemon validates them and stores TS
+    # reference hashes, enabling hash-based validation on cluster nodes.
+    # Subscribes to: DATA_SYNC_COMPLETED
+    # Emits: PARITY_VALIDATION_COMPLETED
+    # =========================================================================
+    DaemonType.PARITY_VALIDATION: DaemonSpec(
+        runner_name="create_parity_validation",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE),
+        category="pipeline",
+        health_check_interval=1800.0,  # 30 minutes - matches validation cycle
+        auto_restart=True,
+        max_restarts=5,
+    ),
 }
 
 
