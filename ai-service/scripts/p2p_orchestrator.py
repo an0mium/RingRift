@@ -9474,6 +9474,8 @@ class P2POrchestrator(
                             "num_games": games_this_job,
                             "engine_mode": engine_mode,
                             "config_key": config_key,
+                            # Dec 30, 2025: Prevent coordinator/CPU nodes from claiming selfplay
+                            "requires_gpu": True,
                         },
                         timeout_seconds=3600.0,
                     )

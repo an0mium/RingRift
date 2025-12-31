@@ -1222,6 +1222,22 @@ class WorkQueue:
                     logger.debug(f"Work {item.work_id} targeted for {target_node}, not {node_id}")
                     continue
 
+                # Dec 30, 2025: Check requires_gpu flag to prevent CPU-only/coordinator nodes
+                # from claiming GPU-intensive work (selfplay should run on cluster GPU nodes)
+                requires_gpu = item.config.get("requires_gpu", False)
+                if requires_gpu:
+                    # Check if this is a coordinator node (no GPU, shouldn't run selfplay)
+                    # Coordinator nodes are identified by known prefixes
+                    coordinator_prefixes = ("mac-studio", "local-mac", "macbook", "mbp-")
+                    is_coordinator = any(
+                        node_id.lower().startswith(prefix) for prefix in coordinator_prefixes
+                    )
+                    if is_coordinator:
+                        logger.debug(
+                            f"Work {item.work_id} requires GPU, skipping coordinator {node_id}"
+                        )
+                        continue
+
                 # Check policy
                 if self.policy_manager and not self.policy_manager.is_work_allowed(node_id, work_type):
                     logger.debug(f"Policy denies {work_type} on {node_id}")
@@ -1387,6 +1403,19 @@ class WorkQueue:
             if target_node and target_node != node_id:
                 logger.debug(f"[Raft] Work {work_id} targeted for {target_node}, not {node_id}")
                 continue
+
+            # Dec 30, 2025: Check requires_gpu flag (same as SQLite backend)
+            requires_gpu = config.get("requires_gpu", False)
+            if requires_gpu:
+                coordinator_prefixes = ("mac-studio", "local-mac", "macbook", "mbp-")
+                is_coordinator = any(
+                    node_id.lower().startswith(prefix) for prefix in coordinator_prefixes
+                )
+                if is_coordinator:
+                    logger.debug(
+                        f"[Raft] Work {work_id} requires GPU, skipping coordinator {node_id}"
+                    )
+                    continue
 
             # Check policy
             if self.policy_manager and not self.policy_manager.is_work_allowed(node_id, work_type):

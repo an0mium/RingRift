@@ -708,6 +708,8 @@ class UnifiedQueuePopulator:
             "games": self.config.selfplay_games_per_item,
             "source": "queue_populator",
             "engine_mode": engine_mode,
+            # Dec 30, 2025: Prevent coordinator/CPU nodes from claiming selfplay
+            "requires_gpu": True,
         }
 
         if best_model and model_elo >= 1600:
