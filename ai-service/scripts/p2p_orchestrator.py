@@ -12696,6 +12696,119 @@ print(json.dumps(result))
                 if job:
                     job.status = "failed"
 
+    async def _monitor_selfplay_process(
+        self,
+        job_id: str,
+        proc: subprocess.Popen,
+        output_dir: Path,
+        board_type: str,
+        num_players: int,
+        job_type_str: str = "selfplay",
+    ) -> None:
+        """Monitor a selfplay subprocess and update job status on completion.
+
+        Dec 31, 2025: Added to fix missing process monitoring for SELFPLAY
+        and CPU_SELFPLAY jobs. Previously, these jobs were spawned but never
+        monitored, causing them to remain in "running" status indefinitely.
+
+        This function:
+        1. Waits for the subprocess to complete (with 2-hour timeout)
+        2. Updates job status to "completed" or "failed"
+        3. Logs completion/failure with details
+        4. Emits TASK_COMPLETED or TASK_FAILED events for pipeline coordination
+        """
+        try:
+            # Wait for process to complete (with timeout)
+            return_code = await asyncio.wait_for(
+                asyncio.to_thread(proc.wait),
+                timeout=7200,  # 2 hour max
+            )
+
+            duration = 0.0
+            with self.jobs_lock:
+                job = self.local_jobs.get(job_id)
+                if job:
+                    duration = time.time() - job.started_at
+                    if return_code == 0:
+                        job.status = "completed"
+                        job.completed_at = time.time()
+                        logger.info(
+                            f"Selfplay job {job_id} completed successfully "
+                            f"(duration: {duration:.1f}s)"
+                        )
+                    else:
+                        job.status = "failed"
+                        job.completed_at = time.time()
+                        # Try to get error message from run.log
+                        error_msg = f"exit_code={return_code}"
+                        log_file = output_dir / "run.log"
+                        if log_file.exists():
+                            try:
+                                # Get last 500 chars of log for error context
+                                content = log_file.read_text(encoding='utf-8', errors='replace')
+                                if content:
+                                    error_msg = content[-500:].strip()
+                            except OSError:
+                                pass
+                        job.error_message = error_msg
+                        logger.warning(
+                            f"Selfplay job {job_id} failed (exit code {return_code}): "
+                            f"{error_msg[:200]}..."
+                        )
+
+            # Emit task events for pipeline coordination
+            try:
+                from app.coordination.data_events import DataEventType, emit_data_event
+                config_key = f"{board_type}_{num_players}p"
+                if return_code == 0:
+                    emit_data_event(DataEventType.TASK_COMPLETED, {
+                        "task_id": job_id,
+                        "task_type": job_type_str,
+                        "config_key": config_key,
+                        "board_type": board_type,
+                        "num_players": num_players,
+                        "duration_seconds": duration,
+                        "node_id": self.node_id,
+                    })
+                else:
+                    emit_data_event(DataEventType.TASK_FAILED, {
+                        "task_id": job_id,
+                        "task_type": job_type_str,
+                        "config_key": config_key,
+                        "board_type": board_type,
+                        "num_players": num_players,
+                        "error": f"exit_code={return_code}",
+                        "node_id": self.node_id,
+                    })
+            except ImportError:
+                pass  # Event system not available
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Selfplay job {job_id} timed out after 2 hours")
+            with self.jobs_lock:
+                job = self.local_jobs.get(job_id)
+                if job:
+                    job.status = "timeout"
+                    job.completed_at = time.time()
+                    job.error_message = "timeout_2_hours"
+            # Kill the process
+            try:
+                proc.terminate()
+                await asyncio.sleep(5)
+                if proc.poll() is None:
+                    proc.kill()
+            except OSError:
+                pass
+
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Selfplay process monitor error for {job_id}: {e}")
+            with self.jobs_lock:
+                job = self.local_jobs.get(job_id)
+                if job:
+                    job.status = "error"
+                    job.completed_at = time.time()
+                    job.error_message = str(e)
+
     async def _schedule_model_comparison(self, job: TrainingJob, new_model_path: str):
         """Schedule a tournament to compare new model against current baseline.
 
@@ -25361,6 +25474,13 @@ print(json.dumps({{
 
                 logger.info(f"Started {job_type.value} job {job_id} (PID {proc.pid})")
                 self._save_state()
+
+                # Dec 31, 2025: Add process monitoring to track completion/failure
+                # Previously jobs remained in "running" status indefinitely
+                asyncio.create_task(self._monitor_selfplay_process(
+                    job_id, proc, output_dir, board_type, num_players, "selfplay"
+                ))
+
                 return job
 
             elif job_type == JobType.CPU_SELFPLAY:
@@ -25457,6 +25577,12 @@ print(json.dumps({{
 
                 logger.info(f"Started {job_type.value} job {job_id} (PID {proc.pid}) [CPU-only hybrid mode]")
                 self._save_state()
+
+                # Dec 31, 2025: Add process monitoring to track completion/failure
+                asyncio.create_task(self._monitor_selfplay_process(
+                    job_id, proc, output_dir, board_type, num_players, "cpu_selfplay"
+                ))
+
                 return job
 
             elif job_type == JobType.GPU_SELFPLAY:
@@ -25726,6 +25852,12 @@ print(json.dumps({{
                 })
 
                 self._save_state()
+
+                # Dec 31, 2025: Add process monitoring to track completion/failure
+                asyncio.create_task(self._monitor_selfplay_process(
+                    job_id, proc, output_dir, board_type, num_players, "hybrid_selfplay"
+                ))
+
                 return job
 
             elif job_type == JobType.GUMBEL_SELFPLAY:
@@ -25857,6 +25989,12 @@ print(json.dumps({{
                 })
 
                 self._save_state()
+
+                # Dec 31, 2025: Add process monitoring to track completion/failure
+                asyncio.create_task(self._monitor_selfplay_process(
+                    job_id, proc, output_dir, board_type, num_players, "gumbel_selfplay"
+                ))
+
                 return job
 
             elif job_type == JobType.DATA_EXPORT:
