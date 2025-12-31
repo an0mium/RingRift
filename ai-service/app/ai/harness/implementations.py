@@ -129,19 +129,22 @@ class GPUGumbelHarness(AIHarness):
 
 
 class MinimaxHarness(AIHarness):
-    """Harness for Minimax with alpha-beta pruning.
+    """Harness for Minimax with alpha-beta pruning and Paranoid extension.
 
-    Note: Alpha-beta pruning only works correctly for 2-player zero-sum games.
-    For 3+ players, use MaxNHarness or BRSHarness instead.
+    For 2-player games: Standard alpha-beta minimax.
+    For 3-4 player games: Paranoid algorithm where all opponents are treated
+    as a minimizing coalition against the maximizing player.
+
+    The underlying MinimaxAI handles both cases automatically.
     """
 
     supports_nn = True
     supports_nnue = True
     requires_policy_head = False
 
-    # Alpha-beta only works for 2-player games
+    # Supports 2-4 players (Paranoid algorithm for 3-4p)
     min_players = 2
-    max_players = 2
+    max_players = 4
 
     def _create_underlying_ai(self, player_number: int) -> Any:
         from ...models import AIConfig
@@ -179,16 +182,22 @@ class MinimaxHarness(AIHarness):
 class MaxNHarness(AIHarness):
     """Harness for Max-N multiplayer search.
 
-    Max-N search is designed for 3+ player games where each player
-    maximizes their own score. For 2-player games, use MinimaxHarness instead.
+    Max-N search models each player as self-interested (maximizing their own
+    score). Each node returns a score vector (one per player).
+
+    Works for 2-4 players:
+    - 2 players: Equivalent to minimax but without alpha-beta pruning
+    - 3-4 players: True multiplayer Max-N with score vectors
+
+    For 2-player games, MinimaxHarness may be faster due to alpha-beta pruning.
     """
 
     supports_nn = True
     supports_nnue = True
     requires_policy_head = False
 
-    # Max-N is for multiplayer games (3-4 players)
-    min_players = 3
+    # Supports 2-4 players (score vectors work for any count)
+    min_players = 2
     max_players = 4
 
     def _create_underlying_ai(self, player_number: int) -> Any:
@@ -226,17 +235,22 @@ class MaxNHarness(AIHarness):
 class BRSHarness(AIHarness):
     """Harness for Best-Reply Search (BRS).
 
-    BRS is a fast approximation to Max-N for multiplayer games.
-    It assumes opponents play greedily against the maximizing player.
-    For 2-player games, use MinimaxHarness instead.
+    BRS is a fast approximation to Max-N. It assumes opponents play greedily
+    against the maximizing player, reducing the branching factor significantly.
+
+    Works for 2-4 players:
+    - 2 players: Similar to minimax with greedy opponent modeling
+    - 3-4 players: Fast multiplayer search via best-reply approximation
+
+    BRS is generally faster than Max-N due to reduced search space.
     """
 
     supports_nn = True
     supports_nnue = True
     requires_policy_head = False
 
-    # BRS is for multiplayer games (3-4 players)
-    min_players = 3
+    # Supports 2-4 players (best-reply works for any count)
+    min_players = 2
     max_players = 4
 
     def _create_underlying_ai(self, player_number: int) -> Any:

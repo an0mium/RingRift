@@ -1,17 +1,20 @@
 """Mixed Opponent Selfplay - Diverse opponent training with full harness variety.
 
-This module enables selfplay with a configurable mix of opponent types:
+This module enables selfplay with a configurable mix of opponent types.
+All search algorithms support 2-4 players as of December 2025:
+
 - Random opponents - Pure exploration, maximum diversity
 - Heuristic opponents - Fast tactical play
 - MCTS opponents - Strong strategic play via Gumbel MCTS
-- Minimax opponents (2-player only) - Alpha-beta search with NN/NNUE evaluation
-- MaxN opponents (3-4 player only) - Multi-player search
-- BRS opponents (3-4 player only) - Best Reply Search (fast multiplayer)
+- Minimax opponents - Alpha-beta (2p) or Paranoid search (3-4p)
+- MaxN opponents - Multi-player score vector search
+- BRS opponents - Best Reply Search (fast approximation)
 - PolicyOnly opponents - Direct neural network policy sampling
 - Descent opponents - Gradient-based move selection
 
-Default mix for 2-player: random(15%), heuristic(25%), mcts(25%), minimax(20%), policy_only(15%)
-Default mix for 3-4 player: random(15%), heuristic(20%), mcts(25%), maxn(15%), brs(15%), policy_only(10%)
+Default mix (unified for all player counts):
+  random(10%), heuristic(15%), mcts(20%), minimax(15%),
+  maxn(10%), brs(10%), policy_only(10%), descent(10%)
 
 This creates a robust training curriculum where the model learns to handle
 opponents of varying skill levels and search styles, improving generalization.
@@ -51,46 +54,49 @@ logger = logging.getLogger(__name__)
 class MixedOpponentSelfplayRunner(SelfplayRunner):
     """Selfplay runner with mixed opponent diversity.
 
-    Generates games against a mix of opponent types:
+    Generates games against a mix of 8 opponent types, all supporting 2-4 players:
     - Random: Pure random moves for maximum exploration
     - Heuristic: Fast heuristic AI for tactical diversity
     - MCTS: Monte Carlo Tree Search for strategic depth (Gumbel MCTS)
-    - Minimax: Alpha-beta search (2-player only)
-    - MaxN: Multi-player search (3-4 player only)
-    - BRS: Best Reply Search - fast multiplayer (3-4 player only)
+    - Minimax: Alpha-beta (2p) or Paranoid search (3-4p)
+    - MaxN: Multi-player score vector search
+    - BRS: Best Reply Search - fast approximation to Max-N
     - PolicyOnly: Direct neural network policy sampling
     - Descent: Gradient-based move selection
 
-    The mix percentages are configurable and vary by player count to respect
-    search algorithm constraints (e.g., minimax is 2-player only).
+    All search algorithms support 2-4 players. The unified default mix provides
+    maximum training diversity across different search strategies.
     """
 
-    # Default mixes for different player counts
-    DEFAULT_MIX_2P = {
-        "random": 0.15,
-        "heuristic": 0.25,
-        "mcts": 0.25,
-        "minimax": 0.20,
-        "policy_only": 0.15,
+    # Default mix for all player counts (unified Dec 31, 2025)
+    # All search algorithms now support 2-4 players
+    DEFAULT_MIX = {
+        "random": 0.10,       # Pure exploration
+        "heuristic": 0.15,    # Fast tactical play
+        "mcts": 0.20,         # Strong strategic play (Gumbel MCTS)
+        "minimax": 0.15,      # Alpha-beta/Paranoid search
+        "maxn": 0.10,         # Max-N score vectors
+        "brs": 0.10,          # Fast best-reply search
+        "policy_only": 0.10,  # Direct neural network policy
+        "descent": 0.10,      # Gradient-based exploration
     }
 
-    DEFAULT_MIX_MULTIPLAYER = {
-        "random": 0.15,
-        "heuristic": 0.20,
-        "mcts": 0.25,
-        "maxn": 0.15,
-        "brs": 0.15,
-        "policy_only": 0.10,
-    }
+    # Legacy aliases for backward compatibility
+    DEFAULT_MIX_2P = DEFAULT_MIX
+    DEFAULT_MIX_MULTIPLAYER = DEFAULT_MIX
 
     # Opponent types and their player count restrictions
+    # Dec 31, 2025: All search algorithms now support 2-4 players
+    # - Minimax uses Paranoid algorithm for 3-4p (opponents form coalition)
+    # - MaxN uses score vectors (works for any player count)
+    # - BRS uses best-reply approximation (works for any player count)
     OPPONENT_PLAYER_RESTRICTIONS = {
         "random": (2, 4),      # All player counts
         "heuristic": (2, 4),   # All player counts
         "mcts": (2, 4),        # All player counts
-        "minimax": (2, 2),     # 2-player only (alpha-beta)
-        "maxn": (3, 4),        # 3-4 player only
-        "brs": (3, 4),         # 3-4 player only
+        "minimax": (2, 4),     # 2-4 players (Paranoid for 3-4p)
+        "maxn": (2, 4),        # 2-4 players (score vectors)
+        "brs": (2, 4),         # 2-4 players (best-reply)
         "policy_only": (2, 4), # All player counts
         "descent": (2, 4),     # All player counts
     }
@@ -107,12 +113,9 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
         config.engine_mode = EngineMode.MIXED
         super().__init__(config)
 
-        # Select default mix based on player count
+        # Select default mix (unified for all player counts as of Dec 31, 2025)
         if opponent_mix is None:
-            if config.num_players == 2:
-                opponent_mix = self.DEFAULT_MIX_2P.copy()
-            else:
-                opponent_mix = self.DEFAULT_MIX_MULTIPLAYER.copy()
+            opponent_mix = self.DEFAULT_MIX.copy()
 
         # Filter out opponents incompatible with this player count
         self.opponent_mix = self._filter_compatible_opponents(opponent_mix, config.num_players)
@@ -225,31 +228,36 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
                 device=self.config.device or "cuda",
             )
 
-        # Initialize Minimax AI (2-player only, if needed)
-        if self.opponent_mix.get("minimax", 0) > 0 and self.config.num_players == 2:
+        # Initialize Minimax AI (2-4 players via Paranoid algorithm)
+        if self.opponent_mix.get("minimax", 0) > 0:
             try:
+                # Use shallower depth for 3-4p (Paranoid has higher branching)
+                depth = 4 if self.config.num_players == 2 else 3
                 self._minimax_ai = create_harness(
                     HarnessType.MINIMAX,
                     model_path=model_path,
                     board_type=board_type,
-                    num_players=2,
-                    depth=4,  # Moderate depth for variety
+                    num_players=self.config.num_players,
+                    depth=depth,
                     difficulty=6,
                 )
-                logger.info("  Initialized Minimax opponent")
+                algo = "alpha-beta" if self.config.num_players == 2 else "Paranoid"
+                logger.info(f"  Initialized Minimax opponent ({algo})")
             except Exception as e:
                 logger.warning(f"  Failed to initialize Minimax: {e}")
                 self._minimax_ai = None
 
-        # Initialize MaxN AI (3-4 player only, if needed)
-        if self.opponent_mix.get("maxn", 0) > 0 and self.config.num_players >= 3:
+        # Initialize MaxN AI (2-4 players with score vectors)
+        if self.opponent_mix.get("maxn", 0) > 0:
             try:
+                # Shallower depth for multiplayer (exponential branching)
+                depth = 3 if self.config.num_players >= 3 else 4
                 self._maxn_ai = create_harness(
                     HarnessType.MAXN,
                     model_path=model_path,
                     board_type=board_type,
                     num_players=self.config.num_players,
-                    depth=3,  # Shallower for multiplayer (exponential branching)
+                    depth=depth,
                     difficulty=5,
                 )
                 logger.info("  Initialized MaxN opponent")
@@ -257,15 +265,15 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
                 logger.warning(f"  Failed to initialize MaxN: {e}")
                 self._maxn_ai = None
 
-        # Initialize BRS AI (3-4 player only, if needed)
-        if self.opponent_mix.get("brs", 0) > 0 and self.config.num_players >= 3:
+        # Initialize BRS AI (2-4 players with best-reply approximation)
+        if self.opponent_mix.get("brs", 0) > 0:
             try:
                 self._brs_ai = create_harness(
                     HarnessType.BRS,
                     model_path=model_path,
                     board_type=board_type,
                     num_players=self.config.num_players,
-                    depth=4,  # Faster than MaxN, can go deeper
+                    depth=4,  # BRS is faster, can go deeper
                     difficulty=5,
                 )
                 logger.info("  Initialized BRS opponent")
