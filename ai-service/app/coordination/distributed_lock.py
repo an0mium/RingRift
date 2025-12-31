@@ -1,46 +1,48 @@
 """Distributed Locking for Training Coordination.
 
-.. deprecated:: December 2025
-    This module has been consolidated into ``app.coordination.core_utils``.
-    Import from core_utils for new code. This module remains for backward
-    compatibility and will be removed in Q2 2026.
-
-    Migration:
-        # Old import (deprecated)
-        from app.coordination.distributed_lock import DistributedLock
-
-        # New import (preferred)
-        from app.coordination.core_utils import DistributedLock
-
 Provides reliable distributed locks for coordinating training across
-multiple nodes. Uses Redis when available with automatic fallback
-to file-based locking.
+multiple nodes. Priority order for backends:
+
+1. **Raft** (cluster-wide, strongly consistent) - Dec 30, 2025
+2. **Redis** (distributed, available when Redis is reachable)
+3. **File** (local node only, fcntl-based)
 
 Features:
-- Redis-based distributed locks (preferred)
+- Raft-based distributed locks via pysyncobj (when P2P cluster running)
+- Redis-based distributed locks (when Redis available)
 - Automatic lock expiry to prevent deadlocks
-- File-based fallback for single-node or no-Redis scenarios
+- File-based fallback for single-node scenarios
 - Lock timeout and retry support
-- Context manager interface
+- Context manager interface (sync and async)
+- Graceful degradation: Raft → Redis → File
 
-When to Use This (December 2025):
+Backend Selection (December 2025):
+- **Raft**: Used when P2P orchestrator is running with Raft enabled.
+  Provides cluster-wide consistency via Raft consensus.
+- **Redis**: Used when Redis is reachable. Provides distributed locking
+  across all nodes that can reach Redis.
+- **File**: Fallback for single-node or when other backends unavailable.
+  Only provides local process coordination.
+
+When to Use This:
 - **DistributedLock** (this module): Use for cross-node/cross-process
-  coordination. Uses Redis or file locks for true distributed locking.
-  Suitable for training locks, model registry, resource allocation.
-
+  coordination. Suitable for training locks, model registry, resource allocation.
 - **LockHierarchy** (app.core.locking): Use for in-process async coordination
-  with deadlock prevention through lock ordering. Suitable for coordinating
-  async tasks within a single Python process.
+  with deadlock prevention through lock ordering.
 
 Usage:
     from app.coordination.distributed_lock import DistributedLock
 
     lock = DistributedLock("training:square8_2p")
 
-    # Context manager usage
+    # Context manager usage (sync)
     with lock:
         # Training code here
         pass
+
+    # Async context manager
+    async with lock:
+        await run_training()
 
     # Or explicit acquire/release
     if lock.acquire(timeout=30):
@@ -48,6 +50,11 @@ Usage:
             # Training code
         finally:
             lock.release()
+
+    # Check which backend is being used
+    print(f"Backend: {lock.backend}")  # "raft", "redis", or "file"
+
+Dec 30, 2025 - Part of Priority 5: Optional Raft Consensus Integration
 """
 
 from __future__ import annotations
@@ -59,11 +66,198 @@ import socket
 import time
 import uuid
 from contextlib import contextmanager, suppress
+from enum import Enum
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.utils.paths import DATA_DIR
 
+if TYPE_CHECKING:
+    from pysyncobj.batteries import ReplLockManager
+
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# Lock Backend Selection (Dec 30, 2025)
+# ============================================
+
+
+class LockBackendType(str, Enum):
+    """Available lock backend types."""
+
+    RAFT = "raft"  # Cluster-wide via Raft consensus
+    REDIS = "redis"  # Distributed via Redis
+    FILE = "file"  # Local node only
+
+
+# Raft availability check (cached)
+_raft_available: bool | None = None
+_raft_lock_manager: "ReplLockManager | None" = None
+_raft_node_id: str | None = None
+
+
+def _check_raft_available() -> bool:
+    """Check if Raft lock manager is available.
+
+    Returns True if:
+    1. pysyncobj is installed
+    2. RAFT_ENABLED is True
+    3. P2P orchestrator is running with initialized Raft
+    4. Lock manager is accessible
+
+    Result is cached for performance.
+    """
+    global _raft_available, _raft_lock_manager, _raft_node_id
+
+    if _raft_available is not None:
+        return _raft_available
+
+    try:
+        # Check if Raft is enabled
+        from scripts.p2p.consensus_mixin import (
+            PYSYNCOBJ_AVAILABLE,
+            RAFT_ENABLED,
+        )
+
+        if not RAFT_ENABLED or not PYSYNCOBJ_AVAILABLE:
+            logger.debug("Raft locks disabled: RAFT_ENABLED=%s, PYSYNCOBJ=%s", RAFT_ENABLED, PYSYNCOBJ_AVAILABLE)
+            _raft_available = False
+            return False
+
+        # Try to get lock manager from P2P orchestrator
+        try:
+            from scripts.p2p_orchestrator import P2POrchestrator
+
+            # Check for singleton instance
+            orchestrator = getattr(P2POrchestrator, "_instance", None)
+            if orchestrator is None:
+                logger.debug("Raft locks: P2P orchestrator not running")
+                _raft_available = False
+                return False
+
+            # Check if Raft is initialized
+            raft_initialized = getattr(orchestrator, "_raft_initialized", False)
+            if not raft_initialized:
+                logger.debug("Raft locks: Raft not initialized on orchestrator")
+                _raft_available = False
+                return False
+
+            # Get the lock manager from ReplicatedWorkQueue
+            raft_wq = getattr(orchestrator, "_raft_work_queue", None)
+            if raft_wq is None:
+                logger.debug("Raft locks: Raft work queue not available")
+                _raft_available = False
+                return False
+
+            lock_manager = getattr(raft_wq, "_lock_manager", None)
+            if lock_manager is None:
+                logger.debug("Raft locks: Lock manager not on work queue")
+                _raft_available = False
+                return False
+
+            # Success - cache the lock manager
+            _raft_lock_manager = lock_manager
+            _raft_node_id = getattr(orchestrator, "node_id", "unknown")
+            _raft_available = True
+            logger.info("Raft locks available via P2P orchestrator (node: %s)", _raft_node_id)
+            return True
+
+        except ImportError:
+            logger.debug("Raft locks: Could not import P2P orchestrator")
+            _raft_available = False
+            return False
+
+    except ImportError:
+        logger.debug("Raft locks: pysyncobj or consensus_mixin not available")
+        _raft_available = False
+        return False
+    except Exception as e:
+        logger.warning("Raft locks: Unexpected error checking availability: %s", e)
+        _raft_available = False
+        return False
+
+
+def reset_raft_cache() -> None:
+    """Reset the Raft availability cache.
+
+    Call this if P2P orchestrator state changes (e.g., Raft initialization).
+    """
+    global _raft_available, _raft_lock_manager, _raft_node_id
+    _raft_available = None
+    _raft_lock_manager = None
+    _raft_node_id = None
+
+
+class RaftLockWrapper:
+    """Wrapper for acquiring/releasing Raft locks.
+
+    Provides a consistent interface matching the existing lock patterns.
+    Uses the ReplLockManager from the P2P orchestrator's ReplicatedWorkQueue.
+    """
+
+    def __init__(self, name: str, lock_timeout: int) -> None:
+        """Initialize Raft lock wrapper.
+
+        Args:
+            name: Lock name
+            lock_timeout: Lock timeout in seconds (informational only,
+                         actual timeout is Raft's autoUnlockTime)
+        """
+        self.name = name
+        self.lock_timeout = lock_timeout
+        self._acquired = False
+
+    def acquire(self) -> bool:
+        """Try to acquire the Raft lock.
+
+        Returns:
+            True if acquired, False otherwise
+        """
+        if self._acquired:
+            return True
+
+        if _raft_lock_manager is None:
+            return False
+
+        try:
+            # pysyncobj ReplLockManager.tryAcquire
+            # sync=True ensures the lock is replicated before returning
+            acquired = _raft_lock_manager.tryAcquire(self.name, sync=True)
+            if acquired:
+                self._acquired = True
+                logger.debug("Acquired Raft lock: %s (node: %s)", self.name, _raft_node_id)
+            return acquired
+        except Exception as e:
+            logger.warning("Raft lock acquire error for %s: %s", self.name, e)
+            return False
+
+    def release(self) -> bool:
+        """Release the Raft lock.
+
+        Returns:
+            True if released, False if not held or error
+        """
+        if not self._acquired:
+            return False
+
+        if _raft_lock_manager is None:
+            self._acquired = False
+            return False
+
+        try:
+            _raft_lock_manager.release(self.name)
+            self._acquired = False
+            logger.debug("Released Raft lock: %s", self.name)
+            return True
+        except Exception as e:
+            logger.warning("Raft lock release error for %s: %s", self.name, e)
+            self._acquired = False
+            return False
+
+    def is_held(self) -> bool:
+        """Check if lock is held by this wrapper."""
+        return self._acquired
 
 
 # =============================================================================
@@ -177,11 +371,14 @@ except ImportError:
 
 
 class DistributedLock:
-    """Distributed lock with Redis + file-based fallback.
+    """Distributed lock with Raft + Redis + file-based fallback.
 
-    Automatically selects the best available backend:
-    1. Redis (if available and reachable)
-    2. File-based locking (fallback)
+    Automatically selects the best available backend (Dec 30, 2025):
+    1. Raft (if P2P orchestrator running with Raft enabled) - cluster-wide
+    2. Redis (if available and reachable) - distributed
+    3. File-based locking (fallback) - local node only
+
+    The backend property indicates which backend was selected.
     """
 
     def __init__(
@@ -189,31 +386,55 @@ class DistributedLock:
         name: str,
         lock_timeout: int = DEFAULT_LOCK_TIMEOUT,
         use_redis: bool = True,
+        use_raft: bool = True,
     ):
         """Initialize a distributed lock.
 
         Args:
             name: Unique lock name (e.g., "training:square8_2p")
             lock_timeout: Maximum time to hold lock (seconds)
-            use_redis: Whether to try Redis (True) or force file-based (False)
+            use_redis: Whether to try Redis (True) or skip Redis
+            use_raft: Whether to try Raft (True) or skip Raft (Dec 30, 2025)
         """
         self.name = name
         self.lock_timeout = lock_timeout
         self._lock_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
         self._redis_client: redis.Redis | None = None
+        self._raft_lock: RaftLockWrapper | None = None
         self._file_fd: int | None = None
         self._acquired = False
         self._use_redis = use_redis and HAS_REDIS
+        self._use_raft = use_raft
+        self._backend: LockBackendType = LockBackendType.FILE
 
+        # Dec 30, 2025: Try Raft first (cluster-wide consistency)
+        if self._use_raft and _check_raft_available():
+            self._raft_lock = RaftLockWrapper(name, lock_timeout)
+            self._backend = LockBackendType.RAFT
+            logger.debug("Using Raft for lock: %s", name)
         # Try to connect to Redis if available
-        if self._use_redis:
+        elif self._use_redis:
             try:
                 self._redis_client = redis.Redis.from_url(REDIS_URL, socket_timeout=5)
                 self._redis_client.ping()
-                logger.debug(f"Using Redis for lock: {name}")
+                self._backend = LockBackendType.REDIS
+                logger.debug("Using Redis for lock: %s", name)
             except (ConnectionError, TimeoutError, OSError, redis.RedisError) as e:
-                logger.debug(f"Redis not available, using file lock: {e}")
+                logger.debug("Redis not available, using file lock: %s", e)
                 self._redis_client = None
+                self._backend = LockBackendType.FILE
+        else:
+            self._backend = LockBackendType.FILE
+            logger.debug("Using file lock: %s", name)
+
+    @property
+    def backend(self) -> str:
+        """Get the active backend type.
+
+        Returns:
+            "raft", "redis", or "file"
+        """
+        return self._backend.value
 
     def acquire(self, timeout: int = DEFAULT_ACQUIRE_TIMEOUT, blocking: bool = True) -> bool:
         """Acquire the lock.
@@ -231,7 +452,10 @@ class DistributedLock:
         start_time = time.time()
 
         while True:
-            if self._redis_client is not None:
+            # Dec 30, 2025: Try backends in priority order
+            if self._raft_lock is not None:
+                acquired = self._raft_lock.acquire()
+            elif self._redis_client is not None:
                 acquired = self._acquire_redis()
             else:
                 acquired = self._acquire_file()
@@ -275,7 +499,10 @@ class DistributedLock:
             return
 
         try:
-            if self._redis_client is not None:
+            # Dec 30, 2025: Release from active backend
+            if self._raft_lock is not None:
+                self._raft_lock.release()
+            elif self._redis_client is not None:
                 self._release_redis()
             else:
                 self._release_file()
@@ -288,7 +515,12 @@ class DistributedLock:
 
     def is_locked(self) -> bool:
         """Check if the lock is held by anyone."""
-        if self._redis_client is not None:
+        # Dec 30, 2025: Check active backend
+        if self._raft_lock is not None:
+            # For Raft, we can only check if we hold it
+            # pysyncobj doesn't expose a "check if anyone holds lock" API
+            return self._raft_lock.is_held()
+        elif self._redis_client is not None:
             return self._redis_client.exists(f"lock:{self.name}") > 0
         else:
             return self._is_file_locked()
@@ -304,11 +536,19 @@ class DistributedLock:
             True if TTL was extended, False if lock not held or extension failed
         """
         if not self._acquired:
-            logger.debug(f"Cannot heartbeat lock {self.name}: not acquired")
+            logger.debug("Cannot heartbeat lock %s: not acquired", self.name)
             return False
 
         try:
-            if self._redis_client is not None:
+            # Dec 30, 2025: Handle Raft locks
+            if self._raft_lock is not None:
+                # Raft locks use autoUnlockTime from ReplLockManager
+                # Re-acquire to refresh the auto-unlock timer
+                if self._raft_lock.is_held():
+                    logger.debug("Raft lock heartbeat: %s (auto-managed by Raft)", self.name)
+                    return True
+                return False
+            elif self._redis_client is not None:
                 # Extend Redis key TTL
                 result = self._redis_client.expire(f"lock:{self.name}", self.lock_timeout)
                 if result:
@@ -348,7 +588,12 @@ class DistributedLock:
             return 0.0
 
         try:
-            if self._redis_client is not None:
+            # Dec 30, 2025: Handle Raft locks
+            if self._raft_lock is not None:
+                # Raft uses auto-unlock time, not explicit TTL tracking
+                # Return the configured auto-unlock time as an estimate
+                return float(self.lock_timeout) if self._raft_lock.is_held() else 0.0
+            elif self._redis_client is not None:
                 ttl = self._redis_client.ttl(f"lock:{self.name}")
                 return max(0.0, float(ttl)) if ttl and ttl > 0 else 0.0
             else:
@@ -717,15 +962,20 @@ def cleanup_stale_locks(
 
 
 __all__ = [
-    "DEFAULT_ACQUIRE_TIMEOUT",
     # Constants
+    "DEFAULT_ACQUIRE_TIMEOUT",
     "DEFAULT_LOCK_TIMEOUT",
+    # Backend types (Dec 30, 2025)
+    "LockBackendType",
     # Main class
     "DistributedLock",
+    # Raft support (Dec 30, 2025)
+    "RaftLockWrapper",
+    "reset_raft_cache",
     # Protocol
     "LockProtocol",
-    "acquire_training_lock",
     # Functions
+    "acquire_training_lock",
     "cleanup_stale_locks",
     "get_appropriate_lock",
     "release_training_lock",

@@ -8,6 +8,14 @@ Architecture:
 - Workers: Poll for work, report completion/failure
 - Work items: Typed (training, cmaes, tournament, etc.) with priorities
 
+Backend Priority (Dec 30, 2025 - P5.1 Raft Integration):
+1. **Raft** - Cluster-wide strongly consistent queue via PySyncObj
+2. **SQLite** - Local persistence with file-based locking (fallback)
+
+When Raft is available (P2P orchestrator running with Raft enabled), work queue
+operations use the replicated state machine for cluster-wide consistency. This
+eliminates duplicate job assignments and provides atomic claiming.
+
 Usage:
     # On leader
     queue = WorkQueue()
@@ -17,6 +25,9 @@ Usage:
     work = queue.claim_work(node_id="gpu-node-1", capabilities=["training", "gpu_cmaes"])
     # ... do work ...
     queue.complete_work(work.work_id)
+
+    # Check which backend is being used
+    print(f"Backend: {queue.backend}")  # "raft" or "sqlite"
 """
 
 from __future__ import annotations
@@ -41,6 +52,133 @@ from app.utils.disk_utils import is_enospc_error, handle_enospc_error
 from app.coordination.event_utils import parse_config_key
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# Work Queue Backend Selection (Dec 30, 2025 - P5.1)
+# ============================================
+
+
+class WorkQueueBackendType(str, Enum):
+    """Available work queue backend types."""
+
+    RAFT = "raft"  # Cluster-wide via Raft consensus
+    SQLITE = "sqlite"  # Local SQLite database
+
+
+# Raft work queue availability check (cached)
+_raft_wq_available: bool | None = None
+_raft_work_queue: Any = None  # ReplicatedWorkQueue instance
+_raft_node_id: str | None = None
+
+
+def _check_raft_work_queue_available() -> bool:
+    """Check if Raft work queue is available.
+
+    Returns True if:
+    1. pysyncobj is installed
+    2. RAFT_ENABLED is True
+    3. P2P orchestrator is running with initialized Raft
+    4. ReplicatedWorkQueue is accessible
+
+    Result is cached for performance.
+    """
+    global _raft_wq_available, _raft_work_queue, _raft_node_id
+
+    if _raft_wq_available is not None:
+        return _raft_wq_available
+
+    try:
+        # Check if Raft is enabled
+        from app.p2p.raft_state import PYSYNCOBJ_AVAILABLE
+        from app.p2p.constants import RAFT_ENABLED
+
+        if not RAFT_ENABLED or not PYSYNCOBJ_AVAILABLE:
+            logger.debug(
+                "Raft work queue disabled: RAFT_ENABLED=%s, PYSYNCOBJ=%s",
+                RAFT_ENABLED, PYSYNCOBJ_AVAILABLE
+            )
+            _raft_wq_available = False
+            return False
+
+        # Try to get work queue from P2P orchestrator
+        try:
+            from scripts.p2p_orchestrator import P2POrchestrator
+
+            # Check for singleton instance
+            orchestrator = getattr(P2POrchestrator, "_instance", None)
+            if orchestrator is None:
+                logger.debug("Raft work queue: P2P orchestrator not running")
+                _raft_wq_available = False
+                return False
+
+            # Check if Raft is initialized
+            raft_initialized = getattr(orchestrator, "_raft_initialized", False)
+            if not raft_initialized:
+                logger.debug("Raft work queue: Raft not initialized on orchestrator")
+                _raft_wq_available = False
+                return False
+
+            # Get the replicated work queue
+            raft_wq = getattr(orchestrator, "_raft_work_queue", None)
+            if raft_wq is None:
+                logger.debug("Raft work queue: ReplicatedWorkQueue not available")
+                _raft_wq_available = False
+                return False
+
+            # Check if it's ready
+            if not getattr(raft_wq, "is_ready", False):
+                logger.debug("Raft work queue: ReplicatedWorkQueue not ready")
+                _raft_wq_available = False
+                return False
+
+            # Success - cache the work queue
+            _raft_work_queue = raft_wq
+            _raft_node_id = getattr(orchestrator, "node_id", "unknown")
+            _raft_wq_available = True
+            logger.info(
+                "Raft work queue available via P2P orchestrator (node: %s, leader: %s)",
+                _raft_node_id,
+                getattr(raft_wq, "leader_address", "unknown"),
+            )
+            return True
+
+        except ImportError:
+            logger.debug("Raft work queue: Could not import P2P orchestrator")
+            _raft_wq_available = False
+            return False
+
+    except ImportError:
+        logger.debug("Raft work queue: pysyncobj or raft_state not available")
+        _raft_wq_available = False
+        return False
+    except Exception as e:
+        logger.warning("Raft work queue: Unexpected error checking availability: %s", e)
+        _raft_wq_available = False
+        return False
+
+
+def reset_raft_work_queue_cache() -> None:
+    """Reset the Raft work queue availability cache.
+
+    Call this if P2P orchestrator state changes (e.g., Raft initialization).
+    """
+    global _raft_wq_available, _raft_work_queue, _raft_node_id
+    _raft_wq_available = None
+    _raft_work_queue = None
+    _raft_node_id = None
+
+
+def get_raft_work_queue() -> Any:
+    """Get the cached Raft work queue instance.
+
+    Returns:
+        ReplicatedWorkQueue instance or None if not available
+    """
+    if _check_raft_work_queue_available():
+        return _raft_work_queue
+    return None
+
 
 # Default path for work queue database
 # Respect RINGRIFT_WORK_QUEUE_DB environment variable for consistency across all components
@@ -239,13 +377,41 @@ class WorkQueue:
     - Policy enforcement
     - Timeout handling
     - Retry logic
-    - SQLite persistence for durability across leader changes
+    - Dual-backend support: Raft (cluster-wide) or SQLite (local)
+
+    Backend Selection (Dec 30, 2025 - P5.1):
+    - **Raft**: Used when P2P orchestrator is running with Raft enabled.
+      Provides cluster-wide atomic claiming and strong consistency.
+    - **SQLite**: Fallback for local persistence when Raft unavailable.
     """
 
-    def __init__(self, policy_manager=None, db_path: Path | None = None, slack_webhook: str | None = None):
+    def __init__(
+        self,
+        policy_manager=None,
+        db_path: Path | None = None,
+        slack_webhook: str | None = None,
+        use_raft: bool = True,
+    ):
+        """Initialize work queue.
+
+        Args:
+            policy_manager: Optional policy manager for work assignment
+            db_path: Path to SQLite database (fallback backend)
+            slack_webhook: Optional Slack webhook URL for notifications
+            use_raft: Whether to try Raft backend first (default: True)
+        """
         self._items: dict[str, WorkItem] = {}  # work_id -> WorkItem
         self.lock = threading.RLock()
         self.db_path = db_path or DEFAULT_DB_PATH
+        self._use_raft = use_raft
+        self._backend: WorkQueueBackendType = WorkQueueBackendType.SQLITE
+
+        # Dec 30, 2025 (P5.1): Try Raft backend first
+        if self._use_raft and _check_raft_work_queue_available():
+            self._backend = WorkQueueBackendType.RAFT
+            logger.info("WorkQueue using Raft backend (cluster-wide consistency)")
+        else:
+            logger.debug("WorkQueue using SQLite backend (local persistence)")
 
         # Try to get policy manager
         try:
@@ -260,7 +426,7 @@ class WorkQueue:
         # Slack notifier
         self.notifier = SlackWorkQueueNotifier(webhook_url=slack_webhook)
 
-        # Statistics
+        # Statistics (local tracking, even with Raft backend)
         self.stats = {
             "total_added": 0,
             "total_completed": 0,
@@ -292,19 +458,48 @@ class WorkQueue:
         database when a new WorkQueue instance is created pointing to an
         existing database file. This fixes the persistence bug where a new
         instance would have empty items until a method like add_work() was called.
+
+        Dec 30, 2025 (P5.1): When using Raft backend, this returns a view
+        of the in-memory cache which is synced from the replicated state.
         """
+        if self._backend == WorkQueueBackendType.RAFT:
+            # With Raft, items are managed by ReplicatedWorkQueue
+            # Return local cache for compatibility
+            return self._items
         if not self._db_initialized:
             self._ensure_db()
         return self._items
+
+    @property
+    def backend(self) -> str:
+        """Get the active backend type.
+
+        Returns:
+            "raft" or "sqlite"
+        """
+        return self._backend.value
+
+    def is_using_raft(self) -> bool:
+        """Check if currently using Raft backend.
+
+        Returns:
+            True if Raft backend is active, False for SQLite
+        """
+        return self._backend == WorkQueueBackendType.RAFT
 
     def get_queue_stats(self) -> dict[str, Any]:
         """Get queue statistics for health monitoring.
 
         Dec 29, 2025: Added for master_loop.py health validation.
+        Dec 30, 2025 (P5.1): Also queries Raft backend when available.
 
         Returns:
             Dictionary with queue health statistics.
         """
+        # Dec 30, 2025 (P5.1): Get stats from Raft if available
+        if self._backend == WorkQueueBackendType.RAFT:
+            return self._get_queue_stats_raft()
+
         items = self.items  # Triggers lazy init if needed
         pending = sum(1 for item in items.values() if item.status == WorkStatus.PENDING)
         claimed = sum(1 for item in items.values() if item.status == WorkStatus.CLAIMED)
@@ -326,6 +521,37 @@ class WorkQueue:
             "backpressure_active": self._backpressure_active,
             "db_initialized": self._db_initialized,
             "readonly_mode": self._readonly_mode,
+            "backend": self.backend,
+        }
+
+    def _get_queue_stats_raft(self) -> dict[str, Any]:
+        """Get queue statistics from Raft backend (Dec 30, 2025 - P5.1)."""
+        raft_wq = get_raft_work_queue()
+        if raft_wq is None:
+            logger.warning("Raft work queue unavailable, falling back to SQLite stats")
+            self._backend = WorkQueueBackendType.SQLITE
+            return self.get_queue_stats()
+
+        raft_stats = raft_wq.get_queue_stats()
+
+        return {
+            "total_items": raft_stats.get("total", 0),
+            "pending": raft_stats.get("pending", 0),
+            "claimed": raft_stats.get("claimed", 0),
+            "running": raft_stats.get("running", 0),
+            "completed": raft_stats.get("completed", 0),
+            "failed": raft_stats.get("failed", 0),
+            "total_added": self.stats.get("total_added", 0),
+            "total_completed": self.stats.get("total_completed", 0),
+            "total_failed": self.stats.get("total_failed", 0),
+            "total_timeout": self.stats.get("total_timeout", 0),
+            "backpressure_active": self._backpressure_active,
+            "db_initialized": False,  # Not using SQLite
+            "readonly_mode": False,
+            "backend": self.backend,
+            "raft_is_leader": raft_stats.get("is_leader", False),
+            "raft_leader_address": raft_stats.get("leader_address"),
+            "raft_is_ready": raft_stats.get("is_ready", False),
         }
 
     def _init_db(self) -> None:
@@ -722,6 +948,10 @@ class WorkQueue:
         Raises:
             RuntimeError: If queue is at hard limit and force=False
         """
+        # Dec 30, 2025 (P5.1): Route to Raft backend if available
+        if self._backend == WorkQueueBackendType.RAFT:
+            return self._add_work_raft(item, force)
+
         with self.lock:
             # Dec 28, 2025: Check backpressure before adding
             pending = sum(1 for i in self.items.values() if i.status == WorkStatus.PENDING)
@@ -753,6 +983,45 @@ class WorkQueue:
         # Emit event to unified coordination (December 2025)
         self._emit_work_event("WORK_QUEUED", item)
         return item.work_id
+
+    def _add_work_raft(self, item: WorkItem, force: bool = False) -> str:
+        """Add work via Raft backend (Dec 30, 2025 - P5.1).
+
+        Args:
+            item: The work item to add
+            force: If True, bypass backpressure limits
+
+        Returns:
+            work_id on success
+        """
+        raft_wq = get_raft_work_queue()
+        if raft_wq is None:
+            # Fallback to SQLite if Raft unavailable
+            logger.warning("Raft work queue unavailable, falling back to SQLite")
+            self._backend = WorkQueueBackendType.SQLITE
+            return self.add_work(item, force)
+
+        # Convert WorkItem to dict for Raft
+        work_data = item.to_dict()
+
+        # Add via Raft (replicated across cluster)
+        success = raft_wq.add_work(item.work_id, work_data)
+
+        if success:
+            self.stats["total_added"] += 1
+            # Cache locally for fast lookups
+            self._items[item.work_id] = item
+            logger.info(
+                f"[Raft] Added work {item.work_id}: {item.work_type.value} (priority: {item.priority})"
+            )
+
+            # Notify and emit event
+            self.notifier.on_work_added(item)
+            self._emit_work_event("WORK_QUEUED", item)
+            return item.work_id
+        else:
+            logger.warning(f"[Raft] Failed to add work {item.work_id} (already exists?)")
+            return item.work_id
 
     def add_work_batch(self, items: list[WorkItem], force: bool = False) -> list[str]:
         """Add multiple work items to the queue efficiently.
@@ -895,9 +1164,12 @@ class WorkQueue:
     def claim_work(self, node_id: str, capabilities: list[str] | None = None) -> WorkItem | None:
         """Claim work for a node based on capabilities, policies, and dependencies.
 
-        Uses atomic database operations to prevent TOCTOU race conditions where
-        multiple workers could claim the same work item. The claim is performed
-        via a conditional UPDATE that only succeeds if the item is still PENDING.
+        Uses atomic operations to prevent TOCTOU race conditions where multiple
+        workers could claim the same work item.
+
+        Dec 30, 2025 (P5.1): When Raft backend is active, uses Raft's atomic
+        claim which provides cluster-wide consistency. This eliminates duplicate
+        job assignments across nodes.
 
         Args:
             node_id: The node claiming work
@@ -906,6 +1178,10 @@ class WorkQueue:
         Returns:
             WorkItem if work was claimed, None otherwise
         """
+        # Dec 30, 2025 (P5.1): Route to Raft backend if available
+        if self._backend == WorkQueueBackendType.RAFT:
+            return self._claim_work_raft(node_id, capabilities)
+
         with self.lock:
             # Get set of completed work_ids for dependency checking
             completed_ids = {
@@ -1057,8 +1333,97 @@ class WorkQueue:
 
         return success
 
+    def _claim_work_raft(
+        self, node_id: str, capabilities: list[str] | None = None
+    ) -> WorkItem | None:
+        """Claim work via Raft backend (Dec 30, 2025 - P5.1).
+
+        Uses Raft's atomic claim_work() which provides cluster-wide consistency.
+        This eliminates duplicate job assignments that can occur with SQLite
+        when multiple nodes try to claim the same work.
+
+        Args:
+            node_id: The node claiming work
+            capabilities: Work types this node can handle (if None, check all)
+
+        Returns:
+            WorkItem if work was claimed, None otherwise
+        """
+        raft_wq = get_raft_work_queue()
+        if raft_wq is None:
+            # Fallback to SQLite if Raft unavailable
+            logger.warning("Raft work queue unavailable, falling back to SQLite")
+            self._backend = WorkQueueBackendType.SQLITE
+            return self.claim_work(node_id, capabilities)
+
+        # Get pending work from Raft
+        pending = raft_wq.get_pending_work(limit=100)
+        if not pending:
+            return None
+
+        # Sort by priority (highest first)
+        pending.sort(key=lambda x: -x.get("priority", 50))
+
+        for work_data in pending:
+            work_id = work_data.get("work_id")
+            if not work_id:
+                continue
+
+            work_type = work_data.get("work_type", "selfplay")
+
+            # Check capabilities
+            if capabilities and work_type not in capabilities:
+                continue
+
+            # Check if this node is excluded
+            config = work_data.get("config", {})
+            excluded_nodes = config.get("_excluded_nodes", [])
+            if node_id in excluded_nodes:
+                logger.debug(f"[Raft] Node {node_id} excluded from {work_id}")
+                continue
+
+            # Check target_node hint
+            target_node = config.get("target_node")
+            if target_node and target_node != node_id:
+                logger.debug(f"[Raft] Work {work_id} targeted for {target_node}, not {node_id}")
+                continue
+
+            # Check policy
+            if self.policy_manager and not self.policy_manager.is_work_allowed(node_id, work_type):
+                logger.debug(f"[Raft] Policy denies {work_type} on {node_id}")
+                continue
+
+            # Attempt atomic claim via Raft
+            if raft_wq.claim_work(work_id, node_id):
+                # Create WorkItem from data
+                try:
+                    item = WorkItem.from_dict(work_data)
+                    item.status = WorkStatus.CLAIMED
+                    item.claimed_by = node_id
+                    item.claimed_at = time.time()
+                    item.attempts += 1
+
+                    # Cache locally
+                    self._items[work_id] = item
+
+                    logger.info(f"[Raft] Work {work_id} claimed by {node_id}: {work_type}")
+                    return item
+                except (TypeError, ValueError, KeyError) as e:
+                    logger.error(f"[Raft] Error creating WorkItem from data: {e}")
+                    continue
+            else:
+                # Another worker claimed it first, try next
+                logger.debug(f"[Raft] Work {work_id} already claimed, skipping")
+                continue
+
+        return None
+
     def start_work(self, work_id: str) -> bool:
         """Mark work as started (running)."""
+        # Dec 30, 2025 (P5.1): Route to Raft backend if available
+        if self._backend == WorkQueueBackendType.RAFT:
+            return self._start_work_raft(work_id)
+
         with self.lock:
             item = self.items.get(work_id)
             if not item or item.status != WorkStatus.CLAIMED:
@@ -1069,13 +1434,37 @@ class WorkQueue:
             self._save_item(item)
             return True
 
+    def _start_work_raft(self, work_id: str) -> bool:
+        """Start work via Raft backend (Dec 30, 2025 - P5.1)."""
+        raft_wq = get_raft_work_queue()
+        if raft_wq is None:
+            logger.warning("Raft work queue unavailable, falling back to SQLite")
+            self._backend = WorkQueueBackendType.SQLITE
+            return self.start_work(work_id)
+
+        success = raft_wq.start_work(work_id)
+        if success:
+            # Update local cache
+            item = self._items.get(work_id)
+            if item:
+                item.status = WorkStatus.RUNNING
+                item.started_at = time.time()
+            logger.debug(f"[Raft] Work {work_id} started")
+        return success
+
     def complete_work(self, work_id: str, result: dict[str, Any] | None = None) -> bool:
         """Mark work as completed successfully.
 
         P0.3 Dec 2025: Event emission moved inside lock for atomicity.
         This prevents work being marked COMPLETED but event never emitted
         if crash occurs between DB write and event emission.
+
+        Dec 30, 2025 (P5.1): Routes to Raft backend when available.
         """
+        # Dec 30, 2025 (P5.1): Route to Raft backend if available
+        if self._backend == WorkQueueBackendType.RAFT:
+            return self._complete_work_raft(work_id, result)
+
         with self.lock:
             item = self.items.get(work_id)
             if not item or item.status not in (WorkStatus.CLAIMED, WorkStatus.RUNNING):
@@ -1105,11 +1494,44 @@ class WorkQueue:
 
         return True
 
+    def _complete_work_raft(self, work_id: str, result: dict[str, Any] | None = None) -> bool:
+        """Complete work via Raft backend (Dec 30, 2025 - P5.1)."""
+        raft_wq = get_raft_work_queue()
+        if raft_wq is None:
+            logger.warning("Raft work queue unavailable, falling back to SQLite")
+            self._backend = WorkQueueBackendType.SQLITE
+            return self.complete_work(work_id, result)
+
+        success = raft_wq.complete_work(work_id, result)
+        if success:
+            self.stats["total_completed"] += 1
+            # Update local cache
+            item = self._items.get(work_id)
+            if item:
+                item.status = WorkStatus.COMPLETED
+                item.completed_at = time.time()
+                item.result = result or {}
+
+                # Notify and emit event
+                try:
+                    self.notifier.on_work_completed(item)
+                    self._emit_work_event("WORK_COMPLETED", item, result=result or {})
+                except (ImportError, RuntimeError, AttributeError) as e:
+                    logger.warning(f"Failed to emit WORK_COMPLETED event: {e}")
+
+            logger.info(f"[Raft] Work {work_id} completed")
+        return success
+
     def fail_work(self, work_id: str, error: str = "") -> bool:
         """Mark work as failed. May be retried if attempts < max_attempts.
 
         P0.3 Dec 2025: Event emission moved inside lock for atomicity.
+        Dec 30, 2025 (P5.1): Routes to Raft backend when available.
         """
+        # Dec 30, 2025 (P5.1): Route to Raft backend if available
+        if self._backend == WorkQueueBackendType.RAFT:
+            return self._fail_work_raft(work_id, error)
+
         permanent = False
         with self.lock:
             item = self.items.get(work_id)
@@ -1153,6 +1575,61 @@ class WorkQueue:
                 logger.warning(f"Failed to emit WORK_FAILED event: {e}")
 
         return True
+
+    def _fail_work_raft(self, work_id: str, error: str = "") -> bool:
+        """Fail work via Raft backend (Dec 30, 2025 - P5.1)."""
+        raft_wq = get_raft_work_queue()
+        if raft_wq is None:
+            logger.warning("Raft work queue unavailable, falling back to SQLite")
+            self._backend = WorkQueueBackendType.SQLITE
+            return self.fail_work(work_id, error)
+
+        # Get work item to check attempt count
+        work_data = raft_wq.get_work(work_id)
+        if not work_data:
+            return False
+
+        attempts = work_data.get("attempts", 0)
+        max_attempts = work_data.get("max_attempts", 3)
+        permanent = attempts >= max_attempts
+
+        # Call Raft fail_work (handles retry logic internally)
+        success = raft_wq.fail_work(work_id, error)
+        if success:
+            if permanent:
+                self.stats["total_failed"] += 1
+
+            # Update local cache
+            item = self._items.get(work_id)
+            if item:
+                if permanent:
+                    item.status = WorkStatus.FAILED
+                    item.completed_at = time.time()
+                    item.error = error
+                else:
+                    item.status = WorkStatus.PENDING
+                    item.claimed_by = ""
+                    item.claimed_at = 0.0
+                    item.error = error
+
+                # Emit event
+                try:
+                    self._emit_work_event(
+                        "WORK_FAILED" if permanent else "WORK_RETRY",
+                        item,
+                        error=error,
+                        permanent=permanent,
+                    )
+                    self.notifier.on_work_failed(item, permanent=permanent)
+                except (ImportError, RuntimeError, AttributeError) as e:
+                    logger.warning(f"Failed to emit WORK_FAILED event: {e}")
+
+            if permanent:
+                logger.error(f"[Raft] Work {work_id} permanently failed: {error}")
+            else:
+                logger.warning(f"[Raft] Work {work_id} failed (attempt {attempts}), will retry: {error}")
+
+        return success
 
     def cancel_work(self, work_id: str) -> bool:
         """Cancel pending or claimed work."""
@@ -2084,7 +2561,12 @@ __all__ = [
     "WorkStatus",
     # Enums
     "WorkType",
+    # Backend types (Dec 30, 2025 - P5.1)
+    "WorkQueueBackendType",
     # Functions
     "get_work_queue",
     "reset_work_queue",
+    # Raft support (Dec 30, 2025 - P5.1)
+    "get_raft_work_queue",
+    "reset_raft_work_queue_cache",
 ]
