@@ -1098,16 +1098,20 @@ def should_promote_model(
     vs_heuristic_rate: float,
     beats_current_best: bool = False,
     current_best_elo: float | None = None,
+    model_elo: float | None = None,
 ) -> tuple[bool, str]:
-    """Determine if a model should be promoted using two-tier system.
+    """Determine if a model should be promoted using three-tier system.
+
+    December 30, 2025: Added Elo-adaptive thresholds as first tier.
+    Bootstrap models (low Elo) get easier thresholds to enable faster iteration.
 
     Promotion criteria (in order of precedence):
-    1. If model meets ASPIRATIONAL thresholds -> promote (strong model)
-    2. If PROMOTION_RELATIVE_ENABLED and beats_current_best:
-       - Dec 30, 2025: SAFETY CHECK - If current best Elo < 1200, require aspirational
-         thresholds to prevent "race to the bottom" where weak models beat weaker models
+    1. If model_elo provided and meets ELO-ADAPTIVE thresholds -> promote (bootstrap)
+    2. If model meets ASPIRATIONAL thresholds -> promote (strong model)
+    3. If PROMOTION_RELATIVE_ENABLED and beats_current_best:
+       - Safety check: If current best Elo < 1200, require aspirational thresholds
        - If model meets MINIMUM floor -> promote (incremental improvement)
-    3. Otherwise -> don't promote
+    4. Otherwise -> don't promote
 
     Args:
         config_key: Configuration key like 'hex8_2p'
@@ -1115,18 +1119,40 @@ def should_promote_model(
         vs_heuristic_rate: Win rate against heuristic opponent (0.0-1.0)
         beats_current_best: Whether this model beats the current best model
         current_best_elo: Elo rating of current best model (for safety check)
+        model_elo: Model's current Elo rating (enables adaptive thresholds)
 
     Returns:
         Tuple of (should_promote, reason)
     """
+    # Parse num_players from config_key for Elo-adaptive thresholds
+    num_players = 2  # default
+    if "_4p" in config_key:
+        num_players = 4
+    elif "_3p" in config_key:
+        num_players = 3
+
+    # December 30, 2025: Tier 1 - Elo-adaptive thresholds for bootstrap models
+    # Lower Elo models get easier thresholds to enable faster iteration
+    if model_elo is not None:
+        adaptive_vs_random = get_elo_adaptive_win_rate_vs_random(model_elo, num_players)
+        adaptive_vs_heuristic = get_elo_adaptive_win_rate_vs_heuristic(model_elo, num_players)
+
+        if vs_random_rate >= adaptive_vs_random and vs_heuristic_rate >= adaptive_vs_heuristic:
+            return True, (
+                f"Meets Elo-adaptive thresholds for Elo {model_elo:.0f} "
+                f"(vs_random={vs_random_rate:.1%} >= {adaptive_vs_random:.0%}, "
+                f"vs_heuristic={vs_heuristic_rate:.1%} >= {adaptive_vs_heuristic:.0%})"
+            )
+
+    # Tier 2 - Aspirational thresholds (unchanged from original)
     aspirational = get_promotion_thresholds(config_key)
     minimum = get_minimum_thresholds(config_key)
 
-    # Check aspirational thresholds first
+    # Check aspirational thresholds
     if vs_random_rate >= aspirational["vs_random"] and vs_heuristic_rate >= aspirational["vs_heuristic"]:
         return True, f"Meets aspirational targets (vs_random={vs_random_rate:.1%} >= {aspirational['vs_random']:.0%}, vs_heuristic={vs_heuristic_rate:.1%} >= {aspirational['vs_heuristic']:.0%})"
 
-    # Check relative promotion
+    # Tier 3 - Check relative promotion
     if PROMOTION_RELATIVE_ENABLED and beats_current_best:
         # Dec 30, 2025: Safety check - prevent "race to the bottom"
         # If current best is weak (Elo < 1200), don't allow relative promotion
@@ -1143,7 +1169,15 @@ def should_promote_model(
         else:
             return False, f"Beats current best but below minimum floor (vs_random={vs_random_rate:.1%} < {minimum['vs_random']:.0%})"
 
-    # Didn't meet any criteria
+    # Didn't meet any criteria - provide helpful failure reason
+    if model_elo is not None:
+        adaptive_vs_random = get_elo_adaptive_win_rate_vs_random(model_elo, num_players)
+        adaptive_vs_heuristic = get_elo_adaptive_win_rate_vs_heuristic(model_elo, num_players)
+        if vs_random_rate < adaptive_vs_random:
+            return False, f"Below Elo-adaptive vs_random for Elo {model_elo:.0f} ({vs_random_rate:.1%} < {adaptive_vs_random:.0%})"
+        else:
+            return False, f"Below Elo-adaptive vs_heuristic for Elo {model_elo:.0f} ({vs_heuristic_rate:.1%} < {adaptive_vs_heuristic:.0%})"
+
     if vs_random_rate < aspirational["vs_random"]:
         return False, f"Below aspirational vs_random ({vs_random_rate:.1%} < {aspirational['vs_random']:.0%})"
     else:

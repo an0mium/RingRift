@@ -9,11 +9,24 @@ Usage:
 
 Phase 2.2 extraction - Dec 26, 2025
 Refactored to use P2PMixinBase - Dec 27, 2025
+P5.4: Added Raft leader integration - Dec 30, 2025
+
+Leader Election Modes (controlled by CONSENSUS_MODE):
+- "bully": Traditional bully algorithm with voter quorum (default)
+- "raft": Use Raft leader as authoritative P2P leader (when available)
+- "hybrid": Use Raft for work queue, bully for leadership
+
+When CONSENSUS_MODE="raft" and Raft is initialized, the Raft leader
+becomes the P2P leader. This provides:
+- Single source of truth for leadership
+- Reduced election churn (Raft handles leader changes)
+- Strong consistency with work queue operations
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from scripts.p2p.p2p_mixin_base import P2PMixinBase
@@ -29,9 +42,13 @@ logger = logging.getLogger(__name__)
 # Load constants with fallbacks using base class helper
 _CONSTANTS = P2PMixinBase._load_config_constants({
     "VOTER_MIN_QUORUM": 3,
+    "CONSENSUS_MODE": "bully",
+    "RAFT_ENABLED": False,
 })
 
 VOTER_MIN_QUORUM = _CONSTANTS["VOTER_MIN_QUORUM"]
+CONSENSUS_MODE = _CONSTANTS["CONSENSUS_MODE"]
+RAFT_ENABLED = _CONSTANTS["RAFT_ENABLED"]
 
 
 class LeaderElectionMixin(P2PMixinBase):
@@ -355,6 +372,182 @@ class LeaderElectionMixin(P2PMixinBase):
                 f"SPLIT-BRAIN RESOLUTION: This node ({self.node_id}) is the canonical leader"
             )
 
+    # =========================================================================
+    # P5.4: Raft Leader Integration (Dec 30, 2025)
+    # =========================================================================
+
+    def _use_raft_for_leadership(self) -> bool:
+        """Check if Raft should be used for leadership decisions.
+
+        Returns True when:
+        - CONSENSUS_MODE is "raft" (not "bully" or "hybrid")
+        - Raft is enabled and initialized
+        - This node is a voter (non-voters use bully as fallback)
+
+        In "hybrid" mode, Raft handles work queue but bully handles leadership.
+        In "raft" mode, Raft leader is the authoritative P2P leader.
+
+        Returns:
+            True if Raft should determine leadership
+        """
+        # Only use Raft for leadership in "raft" mode (not "hybrid")
+        if CONSENSUS_MODE != "raft":
+            return False
+
+        # Must have Raft enabled and initialized
+        if not RAFT_ENABLED:
+            return False
+
+        # Check if Raft is initialized (set by ConsensusMixin)
+        if not getattr(self, "_raft_initialized", False):
+            return False
+
+        # Only voters should use Raft for leadership
+        # Non-voters use bully algorithm as fallback
+        if self.node_id not in (self.voter_node_ids or []):
+            return False
+
+        return True
+
+    def _get_raft_leader_node_id(self) -> str | None:
+        """Get the node ID of the current Raft leader.
+
+        Extracts the Raft leader address and maps it back to a node ID
+        by looking up peers with matching addresses.
+
+        Returns:
+            Node ID of the Raft leader, or None if unavailable
+        """
+        raft_wq = getattr(self, "_raft_work_queue", None)
+        if raft_wq is None:
+            return None
+
+        try:
+            leader_addr = raft_wq._getLeader()
+            if leader_addr is None:
+                return None
+
+            leader_addr_str = str(leader_addr)
+
+            # Check if we are the leader
+            advertise_host = getattr(self, "advertise_host", "")
+            raft_port = 4321  # Default from constants
+            try:
+                from scripts.p2p.constants import RAFT_BIND_PORT
+                raft_port = RAFT_BIND_PORT
+            except ImportError:
+                pass
+
+            self_addr = f"{advertise_host}:{raft_port}"
+            if leader_addr_str == self_addr:
+                return self.node_id
+
+            # Look up peer by Raft address
+            # The address is in format "host:raft_port"
+            leader_host = leader_addr_str.rsplit(":", 1)[0]
+
+            with self.peers_lock:
+                for node_id, peer in self.peers.items():
+                    # Check tailscale_ip or host
+                    peer_ip = getattr(peer, "tailscale_ip", None) or getattr(peer, "host", None)
+                    if peer_ip == leader_host:
+                        return node_id
+
+            self._log_debug(f"Could not map Raft leader address {leader_addr_str} to node ID")
+            return None
+
+        except Exception as e:
+            self._log_debug(f"Error getting Raft leader: {e}")
+            return None
+
+    def _sync_leader_from_raft(self) -> bool:
+        """Synchronize P2P leader with Raft leader.
+
+        When Raft is used for leadership, this method updates the P2P
+        leader_id to match the Raft leader. This ensures work queue
+        operations and leadership are consistent.
+
+        Should be called periodically (e.g., in health check or membership loop).
+
+        Returns:
+            True if leader was synced/updated, False if no change or error
+        """
+        if not self._use_raft_for_leadership():
+            return False
+
+        raft_leader_id = self._get_raft_leader_node_id()
+        if raft_leader_id is None:
+            # No Raft leader elected yet - don't change anything
+            return False
+
+        # Check if leader changed
+        current_leader = self.leader_id
+        if current_leader == raft_leader_id:
+            return False  # No change
+
+        # Import NodeRole lazily
+        try:
+            from scripts.p2p.types import NodeRole
+        except ImportError:
+            from enum import Enum
+
+            class NodeRole(str, Enum):
+                LEADER = "leader"
+                FOLLOWER = "follower"
+
+        old_leader = self.leader_id
+        self.leader_id = raft_leader_id
+
+        # Update our role based on whether we're the Raft leader
+        if raft_leader_id == self.node_id:
+            if self.role != NodeRole.LEADER:
+                self._log_info(f"[Raft] Becoming leader (Raft leader elected)")
+                self.role = NodeRole.LEADER
+                self.leader_lease_expires = time.time() + 300  # Raft handles leases
+                self._safe_emit_event("LEADER_ELECTED", {
+                    "leader_id": self.node_id,
+                    "source": "raft",
+                })
+        else:
+            if self.role == NodeRole.LEADER:
+                self._log_info(f"[Raft] Stepping down, new leader: {raft_leader_id}")
+                self.role = NodeRole.FOLLOWER
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self._release_voter_grant_if_self()
+
+        # Save state
+        if hasattr(self, "_save_state"):
+            self._save_state()
+
+        # Emit leader change event
+        self._safe_emit_event("P2P_LEADER_CHANGED", {
+            "old_leader": old_leader,
+            "new_leader": raft_leader_id,
+            "source": "raft_sync",
+        })
+
+        self._log_info(f"[Raft] Leader synced from Raft: {old_leader} -> {raft_leader_id}")
+        return True
+
+    def get_authoritative_leader(self) -> str | None:
+        """Get the authoritative leader ID, checking Raft first.
+
+        This is the preferred method for getting the current leader.
+        It checks Raft leader first (if using Raft for leadership),
+        then falls back to the bully-elected leader.
+
+        Returns:
+            Node ID of the authoritative leader, or None if no leader
+        """
+        if self._use_raft_for_leadership():
+            raft_leader = self._get_raft_leader_node_id()
+            if raft_leader is not None:
+                return raft_leader
+
+        # Fall back to bully-elected leader
+        return self.leader_id
+
     def election_health_check(self) -> dict[str, Any]:
         """Return health status for leader election subsystem.
 
@@ -364,10 +557,16 @@ class LeaderElectionMixin(P2PMixinBase):
         December 2025: Added split-brain detection integration to ensure it runs
         periodically with health checks, enabling automatic resolution.
 
+        December 30, 2025 (P5.4): Added Raft leader sync. When using Raft for
+        leadership, syncs P2P leader with Raft leader on each health check.
+
         Returns:
             dict with is_healthy, role, leader_id, quorum status, split_brain status
         """
-        import time
+        # December 30, 2025 (P5.4): Sync leader from Raft if applicable
+        # This ensures P2P leader stays in sync with Raft leader
+        raft_leader_synced = self._sync_leader_from_raft()
+        using_raft = self._use_raft_for_leadership()
 
         has_quorum = self._has_voter_quorum()
         voter_count = len(self.voter_node_ids) if self.voter_node_ids else 0
@@ -375,25 +574,42 @@ class LeaderElectionMixin(P2PMixinBase):
         lease_remaining = max(0, self.leader_lease_expires - time.time())
 
         # December 2025: Run split-brain detection (triggers resolution if needed)
-        split_brain_info = self._detect_split_brain()
+        # Skip split-brain detection when using Raft - Raft handles this
+        split_brain_info = None
+        if not using_raft:
+            split_brain_info = self._detect_split_brain()
         has_split_brain = split_brain_info is not None
 
         # Unhealthy if:
-        # 1. No quorum and we should have voters, OR
+        # 1. No quorum and we should have voters (unless using Raft), OR
         # 2. Split-brain detected (critical severity)
-        is_healthy = (has_quorum or voter_count == 0) and not has_split_brain
+        # When using Raft, quorum is handled by Raft consensus
+        if using_raft:
+            is_healthy = not has_split_brain
+        else:
+            is_healthy = (has_quorum or voter_count == 0) and not has_split_brain
 
-        return {
+        result = {
             "is_healthy": is_healthy,
             "role": str(self.role) if self.role else "unknown",
             "leader_id": self.leader_id,
+            "authoritative_leader": self.get_authoritative_leader(),
             "has_quorum": has_quorum,
             "voter_count": voter_count,
             "alive_voters": alive_voters,
             "lease_remaining_seconds": lease_remaining,
             "split_brain_detected": has_split_brain,
             "split_brain_info": split_brain_info,
+            # P5.4: Raft leader integration status
+            "using_raft_for_leadership": using_raft,
+            "raft_leader_synced": raft_leader_synced,
         }
+
+        # Add Raft leader info if available
+        if using_raft:
+            result["raft_leader_node_id"] = self._get_raft_leader_node_id()
+
+        return result
 
     def health_check(self) -> dict[str, Any]:
         """Return health status for leader election mixin (DaemonManager integration).

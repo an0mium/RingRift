@@ -112,6 +112,97 @@ except ImportError:
 _elo_service_instance: EloService | None = None
 _elo_service_lock = threading.RLock()
 
+# ============================================
+# Raft Elo Store Integration (Dec 30, 2025 - P5.2)
+# Optional Raft backend for strong consistency across cluster
+# ============================================
+
+from enum import Enum
+
+
+class EloBackendType(str, Enum):
+    """Elo storage backend type."""
+    RAFT = "raft"  # Raft-replicated store (cluster-wide consistency)
+    SQLITE = "sqlite"  # Local SQLite (single-node, faster)
+
+
+# Raft Elo store availability cache
+_raft_elo_store_available: bool | None = None
+_raft_elo_store: Any = None
+_raft_elo_node_id: str | None = None
+
+
+def _check_raft_elo_store_available() -> bool:
+    """Check if Raft Elo store is available.
+
+    Returns:
+        True if Raft is enabled and the P2P orchestrator has a ReplicatedEloStore
+    """
+    global _raft_elo_store_available, _raft_elo_store, _raft_elo_node_id
+
+    # Return cached result if available
+    if _raft_elo_store_available is not None:
+        return _raft_elo_store_available
+
+    try:
+        # Check if Raft is enabled
+        from app.p2p.raft_state import RAFT_ENABLED, PYSYNCOBJ_AVAILABLE
+        if not RAFT_ENABLED or not PYSYNCOBJ_AVAILABLE:
+            logger.debug("Raft Elo store not available: Raft disabled or pysyncobj missing")
+            _raft_elo_store_available = False
+            return False
+
+        # Try to get from P2P orchestrator singleton
+        try:
+            # Import inside try to avoid circular imports
+            import sys
+            if "scripts.p2p_orchestrator" in sys.modules:
+                p2p_module = sys.modules["scripts.p2p_orchestrator"]
+                if hasattr(p2p_module, "P2POrchestrator"):
+                    orchestrator_cls = p2p_module.P2POrchestrator
+                    if hasattr(orchestrator_cls, "_instance") and orchestrator_cls._instance:
+                        orchestrator = orchestrator_cls._instance
+                        if hasattr(orchestrator, "replicated_elo_store"):
+                            elo_store = orchestrator.replicated_elo_store
+                            if elo_store and hasattr(elo_store, "is_ready") and elo_store.is_ready:
+                                _raft_elo_store = elo_store
+                                _raft_elo_node_id = getattr(orchestrator, "node_id", None)
+                                _raft_elo_store_available = True
+                                logger.info(f"Raft Elo store available via P2P orchestrator")
+                                return True
+        except Exception as e:
+            logger.debug(f"Could not get Raft Elo store from orchestrator: {e}")
+
+        _raft_elo_store_available = False
+        return False
+
+    except ImportError as e:
+        logger.debug(f"Raft Elo store not available: {e}")
+        _raft_elo_store_available = False
+        return False
+
+
+def reset_raft_elo_store_cache() -> None:
+    """Reset the Raft Elo store availability cache.
+
+    Call this when the P2P orchestrator state changes.
+    """
+    global _raft_elo_store_available, _raft_elo_store, _raft_elo_node_id
+    _raft_elo_store_available = None
+    _raft_elo_store = None
+    _raft_elo_node_id = None
+
+
+def get_raft_elo_store() -> Any:
+    """Get the cached Raft Elo store instance.
+
+    Returns:
+        ReplicatedEloStore instance or None if not available
+    """
+    if _check_raft_elo_store_available():
+        return _raft_elo_store
+    return None
+
 # Event emission for ELO updates
 try:
     from app.coordination.event_router import emit_elo_updated
@@ -236,18 +327,34 @@ class EloService:
     INITIAL_ELO = float(INITIAL_ELO_RATING)
     CONFIDENCE_GAMES = MIN_GAMES_FOR_ELO  # Games needed for high confidence
 
-    def __init__(self, db_path: Path | None = None, enforce_single_writer: bool = True):
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        enforce_single_writer: bool = True,
+        use_raft: bool = True,
+    ):
         """Initialize the Elo service.
 
         Args:
             db_path: Path to SQLite database
             enforce_single_writer: If True, check cluster coordination before writes
+            use_raft: If True, use Raft backend when available for strong consistency
         """
         self.db_path = db_path or DEFAULT_ELO_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._local = threading.local()
         self._feedback_callbacks: list[Callable[[TrainingFeedback], None]] = []
         self._enforce_single_writer = enforce_single_writer and HAS_COORDINATION
+        self._use_raft = use_raft
+
+        # Determine backend type (Dec 30, 2025 - P5.2)
+        self._backend: EloBackendType = EloBackendType.SQLITE
+        if self._use_raft and _check_raft_elo_store_available():
+            self._backend = EloBackendType.RAFT
+            logger.info("EloService using Raft backend for cluster-wide consistency")
+        else:
+            logger.debug("EloService using SQLite backend")
+
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -337,6 +444,98 @@ class EloService:
         conn = self._get_connection()
         cursor = conn.execute(query, params)
         return cursor.fetchall()
+
+    @property
+    def backend(self) -> EloBackendType:
+        """Get the current backend type.
+
+        Returns:
+            EloBackendType.RAFT if using Raft consensus, EloBackendType.SQLITE otherwise
+        """
+        return self._backend
+
+    def is_using_raft(self) -> bool:
+        """Check if this service is using Raft backend.
+
+        Returns:
+            True if Raft backend is active
+        """
+        return self._backend == EloBackendType.RAFT
+
+    def _record_match_raft(
+        self,
+        match_id: str,
+        participant_a: str,
+        participant_b: str,
+        winner: str | None,
+        board_type: str,
+        num_players: int,
+        game_length: int = 0,
+        duration_sec: float = 0.0,
+    ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
+        """Record a match via Raft for cluster-wide consistency.
+
+        Args:
+            match_id: Unique match identifier
+            participant_a: First participant
+            participant_b: Second participant
+            winner: Winner ID or None for draw
+            board_type: Board type
+            num_players: Number of players
+            game_length: Number of moves
+            duration_sec: Duration in seconds
+
+        Returns:
+            Tuple of (elo_before, elo_after, elo_changes) dicts
+        """
+        raft_store = get_raft_elo_store()
+        if not raft_store:
+            raise RuntimeError("Raft Elo store not available")
+
+        result = raft_store.record_match(
+            match_id=match_id,
+            participant_a=participant_a,
+            participant_b=participant_b,
+            winner_id=winner,
+            board_type=board_type,
+            num_players=num_players,
+            game_length=game_length,
+            duration_sec=duration_sec,
+            k_factor=self.K_FACTOR,
+        )
+
+        # Also update local SQLite cache for fast reads
+        # This ensures local queries don't need to hit Raft
+        elo_before = result.get("elo_before", {})
+        elo_after = result.get("elo_after", {})
+        elo_changes = result.get("elo_changes", {})
+
+        with self._transaction() as conn:
+            for pid in [participant_a, participant_b]:
+                new_rating = elo_after.get(pid, self.INITIAL_ELO)
+                score = 1.0 if winner == pid else (0.0 if winner and winner != pid else 0.5)
+                win_inc = 1 if score == 1.0 else 0
+                loss_inc = 1 if score == 0.0 else 0
+                draw_inc = 1 if score == 0.5 else 0
+
+                conn.execute("""
+                    INSERT INTO elo_ratings (participant_id, board_type, num_players, rating,
+                                           games_played, wins, losses, draws, peak_rating, last_update)
+                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+                    ON CONFLICT(participant_id, board_type, num_players) DO UPDATE SET
+                        rating = excluded.rating,
+                        games_played = games_played + 1,
+                        wins = wins + excluded.wins,
+                        losses = losses + excluded.losses,
+                        draws = draws + excluded.draws,
+                        peak_rating = MAX(peak_rating, excluded.peak_rating),
+                        last_update = excluded.last_update
+                """, (
+                    pid, board_type, num_players, new_rating,
+                    win_inc, loss_inc, draw_inc, new_rating, time.time()
+                ))
+
+        return elo_before, elo_after, elo_changes
 
     def _init_db(self):
         """Initialize database schema with all required tables."""
@@ -751,6 +950,147 @@ class EloService:
 
         return base_k * k_multiplier
 
+    def _emit_elo_events(
+        self,
+        participant_a: str,
+        participant_b: str,
+        elo_before: dict[str, float],
+        elo_after: dict[str, float],
+        elo_changes: dict[str, float],
+        board_type: str,
+        num_players: int,
+        duration_sec: float,
+    ) -> None:
+        """Emit Elo-related events for match recording.
+
+        December 30, 2025: Extracted from record_match() to enable reuse
+        in both SQLite and Raft code paths.
+
+        This method emits:
+        - ELO_UPDATED events for both participants
+        - Composite ELO events for composite participants
+        - ELO_SIGNIFICANT_CHANGE events for large rating changes
+        - ELO_VELOCITY_CHANGED events for rapid improvement/decline
+
+        Args:
+            participant_a: First participant ID
+            participant_b: Second participant ID
+            elo_before: Dict mapping participant IDs to pre-match ratings
+            elo_after: Dict mapping participant IDs to post-match ratings
+            elo_changes: Dict mapping participant IDs to rating changes
+            board_type: Board type (e.g., "hex8")
+            num_players: Number of players (2, 3, or 4)
+            duration_sec: Match duration in seconds (for velocity calculation)
+        """
+        config_key = f"{board_type}_{num_players}p"
+
+        # Emit ELO_UPDATED events for both participants
+        if HAS_ELO_EVENTS and emit_elo_updated is not None:
+            try:
+                # Try to get running event loop
+                try:
+                    asyncio.get_running_loop()
+                    # Schedule coroutines in the running loop
+                    for pid, old_elo, new_elo in [
+                        (participant_a, elo_before[participant_a], elo_after[participant_a]),
+                        (participant_b, elo_before[participant_b], elo_after[participant_b]),
+                    ]:
+                        asyncio.ensure_future(emit_elo_updated(
+                            config=config_key,
+                            model_id=pid,
+                            new_elo=new_elo,
+                            old_elo=old_elo,
+                            games_played=1,
+                            source="elo_service",
+                        ))
+                except RuntimeError:
+                    # No running loop - create one for sync context
+                    pass  # Skip in pure sync context to avoid blocking
+            except (RuntimeError, AttributeError, TypeError, ValueError):
+                pass  # Don't let event emission break match recording
+
+        # Emit composite ELO events for composite participants (Sprint 5)
+        if HAS_COMPOSITE_EVENTS and publish_composite_elo_updated_sync is not None:
+            for pid, old_elo, new_elo in [
+                (participant_a, elo_before[participant_a], elo_after[participant_a]),
+                (participant_b, elo_before[participant_b], elo_after[participant_b]),
+            ]:
+                if is_composite_id and is_composite_id(pid):
+                    try:
+                        parsed = parse_composite_participant_id(pid)
+                        if parsed:
+                            nn_id, ai_type, config_hash = parsed
+                            publish_composite_elo_updated_sync(
+                                nn_id=nn_id,
+                                ai_type=ai_type,
+                                config_hash=config_hash,
+                                participant_id=pid,
+                                old_elo=old_elo,
+                                new_elo=new_elo,
+                                games_played=1,
+                                board_type=board_type,
+                                num_players=num_players,
+                            )
+                    except (RuntimeError, AttributeError, TypeError, ValueError, KeyError):
+                        pass  # Don't let event emission break match recording
+
+        # Emit ELO_SIGNIFICANT_CHANGE and ELO_VELOCITY_CHANGED events
+        if HAS_ELO_VELOCITY_EVENTS and emit_data_event is not None:
+            try:
+                # Check for significant single-match Elo changes
+                for pid, old_elo, new_elo in [
+                    (participant_a, elo_before[participant_a], elo_after[participant_a]),
+                    (participant_b, elo_before[participant_b], elo_after[participant_b]),
+                ]:
+                    elo_delta = new_elo - old_elo
+                    if abs(elo_delta) > ELO_SIGNIFICANT_CHANGE_THRESHOLD:
+                        try:
+                            asyncio.get_running_loop()
+                            asyncio.ensure_future(emit_data_event(
+                                event_type=DataEventType.ELO_SIGNIFICANT_CHANGE,
+                                payload={
+                                    "config_key": config_key,
+                                    "board_type": board_type,
+                                    "num_players": num_players,
+                                    "participant_id": pid,
+                                    "old_elo": old_elo,
+                                    "new_elo": new_elo,
+                                    "delta": elo_delta,
+                                },
+                            ))
+                        except RuntimeError:
+                            pass  # No event loop - skip in sync context
+
+                # Calculate velocity (Elo per hour) if we have duration
+                if duration_sec and duration_sec > 0:
+                    hours = duration_sec / 3600.0
+                    for pid, old_elo, new_elo in [
+                        (participant_a, elo_before[participant_a], elo_after[participant_a]),
+                        (participant_b, elo_before[participant_b], elo_after[participant_b]),
+                    ]:
+                        elo_delta = new_elo - old_elo
+                        elo_per_hour = elo_delta / hours if hours > 0 else 0.0
+
+                        if abs(elo_per_hour) > ELO_VELOCITY_THRESHOLD_PER_HOUR:
+                            try:
+                                asyncio.get_running_loop()
+                                asyncio.ensure_future(emit_data_event(
+                                    event_type=DataEventType.ELO_VELOCITY_CHANGED,
+                                    payload={
+                                        "config_key": config_key,
+                                        "board_type": board_type,
+                                        "num_players": num_players,
+                                        "participant_id": pid,
+                                        "velocity": elo_per_hour,
+                                        "trend": "improving" if elo_per_hour > 0 else "declining",
+                                    },
+                                ))
+                            except RuntimeError:
+                                pass  # No event loop - skip in sync context
+
+            except (RuntimeError, AttributeError, TypeError, ValueError):
+                pass  # Don't let event emission break match recording
+
     def record_match(
         self,
         participant_a: str,
@@ -788,6 +1128,69 @@ class EloService:
                 metadata["harness_type"] = harness_type
             if is_multi_harness:
                 metadata["is_multi_harness"] = is_multi_harness
+
+        # December 30, 2025 - P5.2: Route to Raft backend for cluster-wide consistency
+        if self._backend == EloBackendType.RAFT:
+            try:
+                elo_before, elo_after, elo_changes = self._record_match_raft(
+                    match_id=match_id,
+                    participant_a=participant_a,
+                    participant_b=participant_b,
+                    winner=winner,
+                    board_type=board_type,
+                    num_players=num_players,
+                    game_length=game_length,
+                    duration_sec=duration_sec,
+                )
+
+                # Record match history in local SQLite for queries
+                with self._transaction() as conn:
+                    conn.execute("""
+                        INSERT INTO match_history
+                        (id, participant_ids, winner_id, game_length, duration_sec,
+                         board_type, num_players, timestamp, elo_before, elo_after,
+                         tournament_id, metadata)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        match_id,
+                        json.dumps([participant_a, participant_b]),
+                        winner,
+                        game_length,
+                        duration_sec,
+                        board_type,
+                        num_players,
+                        timestamp,
+                        json.dumps(elo_before),
+                        json.dumps(elo_after),
+                        tournament_id,
+                        json.dumps(metadata) if metadata else None
+                    ))
+
+                # Emit events (same as SQLite path)
+                self._emit_elo_events(
+                    participant_a, participant_b,
+                    elo_before, elo_after, elo_changes,
+                    board_type, num_players, duration_sec,
+                )
+
+                # December 30, 2025: Record Elo snapshots for longitudinal tracking
+                self._record_elo_snapshot(participant_a, board_type, num_players)
+                self._record_elo_snapshot(participant_b, board_type, num_players)
+
+                return MatchResult(
+                    match_id=match_id,
+                    participant_ids=[participant_a, participant_b],
+                    winner_id=winner,
+                    game_length=game_length,
+                    duration_sec=duration_sec,
+                    board_type=board_type,
+                    num_players=num_players,
+                    timestamp=timestamp,
+                    elo_changes=elo_changes,
+                )
+            except Exception as e:
+                logger.warning(f"Raft record_match failed, falling back to SQLite: {e}")
+                # Fall through to SQLite path
 
         # Get current ratings
         rating_a = self.get_rating(participant_a, board_type, num_players)
@@ -889,118 +1292,16 @@ class EloService:
                 json.dumps(metadata) if metadata else None
             ))
 
-        # Emit ELO_UPDATED events for both participants
-        # This enables event-driven coordination across the training pipeline
-        if HAS_ELO_EVENTS and emit_elo_updated is not None:
-            config_key = f"{board_type}_{num_players}p"
-            try:
-                # Try to get running event loop
-                try:
-                    asyncio.get_running_loop()
-                    # Schedule coroutines in the running loop
-                    for pid, old_elo, new_elo in [
-                        (participant_a, elo_before[participant_a], elo_after[participant_a]),
-                        (participant_b, elo_before[participant_b], elo_after[participant_b]),
-                    ]:
-                        asyncio.ensure_future(emit_elo_updated(
-                            config=config_key,
-                            model_id=pid,
-                            new_elo=new_elo,
-                            old_elo=old_elo,
-                            games_played=1,
-                            source="elo_service",
-                        ))
-                except RuntimeError:
-                    # No running loop - create one for sync context
-                    # This is less efficient but ensures events are emitted
-                    pass  # Skip in pure sync context to avoid blocking
-            except (RuntimeError, AttributeError, TypeError, ValueError):
-                pass  # Don't let event emission break match recording
+        # Emit events (uses shared helper for both SQLite and Raft paths)
+        self._emit_elo_events(
+            participant_a, participant_b,
+            elo_before, elo_after, elo_changes,
+            board_type, num_players, duration_sec,
+        )
 
-        # Emit composite ELO events for composite participants (Sprint 5)
-        if HAS_COMPOSITE_EVENTS and publish_composite_elo_updated_sync is not None:
-            for pid, old_elo, new_elo in [
-                (participant_a, elo_before[participant_a], elo_after[participant_a]),
-                (participant_b, elo_before[participant_b], elo_after[participant_b]),
-            ]:
-                if is_composite_id and is_composite_id(pid):
-                    try:
-                        parsed = parse_composite_participant_id(pid)
-                        if parsed:
-                            nn_id, ai_type, config_hash = parsed
-                            publish_composite_elo_updated_sync(
-                                nn_id=nn_id,
-                                ai_type=ai_type,
-                                config_hash=config_hash,
-                                participant_id=pid,
-                                old_elo=old_elo,
-                                new_elo=new_elo,
-                                games_played=1,
-                                board_type=board_type,
-                                num_players=num_players,
-                            )
-                    except (RuntimeError, AttributeError, TypeError, ValueError, KeyError):
-                        pass  # Don't let event emission break match recording
-
-        # December 2025: Emit ELO_SIGNIFICANT_CHANGE and ELO_VELOCITY_CHANGED events
-        # These events drive training prioritization in SelfplayScheduler and
-        # curriculum rebalancing in CurriculumIntegration
-        if HAS_ELO_VELOCITY_EVENTS and emit_data_event is not None:
-            config_key = f"{board_type}_{num_players}p"
-            try:
-                # Check for significant single-match Elo changes
-                for pid, old_elo, new_elo in [
-                    (participant_a, elo_before[participant_a], elo_after[participant_a]),
-                    (participant_b, elo_before[participant_b], elo_after[participant_b]),
-                ]:
-                    elo_delta = new_elo - old_elo
-                    if abs(elo_delta) > ELO_SIGNIFICANT_CHANGE_THRESHOLD:
-                        try:
-                            asyncio.get_running_loop()
-                            asyncio.ensure_future(emit_data_event(
-                                event_type=DataEventType.ELO_SIGNIFICANT_CHANGE,
-                                payload={
-                                    "config_key": config_key,
-                                    "board_type": board_type,
-                                    "num_players": num_players,
-                                    "participant_id": pid,
-                                    "old_elo": old_elo,
-                                    "new_elo": new_elo,
-                                    "delta": elo_delta,
-                                },
-                            ))
-                        except RuntimeError:
-                            pass  # No event loop - skip in sync context
-
-                # Calculate velocity (Elo per hour) if we have duration
-                if duration_sec and duration_sec > 0:
-                    hours = duration_sec / 3600.0
-                    for pid, old_elo, new_elo in [
-                        (participant_a, elo_before[participant_a], elo_after[participant_a]),
-                        (participant_b, elo_before[participant_b], elo_after[participant_b]),
-                    ]:
-                        elo_delta = new_elo - old_elo
-                        elo_per_hour = elo_delta / hours if hours > 0 else 0.0
-
-                        if abs(elo_per_hour) > ELO_VELOCITY_THRESHOLD_PER_HOUR:
-                            try:
-                                asyncio.get_running_loop()
-                                asyncio.ensure_future(emit_data_event(
-                                    event_type=DataEventType.ELO_VELOCITY_CHANGED,
-                                    payload={
-                                        "config_key": config_key,
-                                        "board_type": board_type,
-                                        "num_players": num_players,
-                                        "participant_id": pid,
-                                        "velocity": elo_per_hour,
-                                        "trend": "improving" if elo_per_hour > 0 else "declining",
-                                    },
-                                ))
-                            except RuntimeError:
-                                pass  # No event loop - skip in sync context
-
-            except (RuntimeError, AttributeError, TypeError, ValueError):
-                pass  # Don't let event emission break match recording
+        # December 30, 2025: Record Elo snapshots for longitudinal tracking
+        self._record_elo_snapshot(participant_a, board_type, num_players)
+        self._record_elo_snapshot(participant_b, board_type, num_players)
 
         return MatchResult(
             match_id=match_id,
@@ -1269,6 +1570,61 @@ class EloService:
             """, (
                 participant_id, board_type, num_players,
                 rating.rating, time.time(), iteration
+            ))
+
+    def _record_elo_snapshot(
+        self,
+        participant_id: str,
+        board_type: str,
+        num_players: int,
+        min_interval_seconds: float = 300.0,
+    ) -> None:
+        """Record Elo snapshot for longitudinal tracking.
+
+        December 30, 2025: Added to fix empty elo_history table.
+        Unlike record_iteration_elo(), this doesn't require an iteration number
+        and is called automatically after matches. Snapshots are rate-limited
+        to avoid table bloat.
+
+        Args:
+            participant_id: Participant ID
+            board_type: Board type
+            num_players: Number of players
+            min_interval_seconds: Minimum seconds between snapshots (default 5 min)
+        """
+        # Skip baseline participants (random, heuristic) - their Elo is fixed
+        if _is_random_participant(participant_id):
+            return
+        pid_lower = participant_id.lower()
+        if 'heuristic' in pid_lower or 'baseline' in pid_lower:
+            return
+
+        current_rating = self.get_rating(participant_id, board_type, num_players)
+        if not current_rating or current_rating.games_played == 0:
+            return
+
+        conn = self._get_connection()
+
+        # Check last snapshot time (rate limiting to avoid table bloat)
+        cursor = conn.execute("""
+            SELECT MAX(timestamp) FROM elo_history
+            WHERE participant_id = ? AND board_type = ? AND num_players = ?
+        """, (participant_id, board_type, num_players))
+        row = cursor.fetchone()
+        last_snapshot = row[0] if row and row[0] else 0.0
+
+        if time.time() - last_snapshot < min_interval_seconds:
+            return  # Too recent, skip
+
+        # Record snapshot (iteration=NULL for automatic snapshots)
+        with self._transaction() as txn_conn:
+            txn_conn.execute("""
+                INSERT INTO elo_history
+                (participant_id, board_type, num_players, rating, timestamp)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                participant_id, board_type, num_players,
+                current_rating.rating, time.time()
             ))
 
     def register_feedback_callback(self, callback: Callable[[TrainingFeedback], None]) -> None:

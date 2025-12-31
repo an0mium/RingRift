@@ -1099,8 +1099,623 @@ class ReplicatedJobAssignments(SyncObj):
 
 
 # ============================================
+# ReplicatedEloStore
+# ============================================
+
+
+@dataclass
+class EloRatingEntry:
+    """Elo rating entry for Raft replication.
+
+    Mirrors app.training.elo_service.EloRating structure for compatibility.
+    """
+
+    participant_id: str
+    board_type: str
+    num_players: int
+    rating: float = 1500.0
+    games_played: int = 0
+    wins: int = 0
+    losses: int = 0
+    draws: int = 0
+    peak_rating: float = 1500.0
+    last_update: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EloRatingEntry":
+        """Create from dictionary."""
+        return cls(**data)
+
+    @property
+    def key(self) -> str:
+        """Get the composite key for this rating."""
+        return f"{self.participant_id}:{self.board_type}:{self.num_players}"
+
+
+@dataclass
+class EloMatchEntry:
+    """Match result entry for Raft replication."""
+
+    match_id: str
+    participant_ids: list[str]
+    winner_id: str | None  # None for draw
+    board_type: str
+    num_players: int
+    game_length: int = 0
+    duration_sec: float = 0.0
+    timestamp: float = field(default_factory=time.time)
+    elo_before: dict[str, float] = field(default_factory=dict)
+    elo_after: dict[str, float] = field(default_factory=dict)
+    elo_changes: dict[str, float] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EloMatchEntry":
+        """Create from dictionary."""
+        return cls(**data)
+
+
+class ReplicatedEloStore(SyncObj):
+    """Distributed Elo rating store using Raft consensus.
+
+    Provides strong consistency for Elo ratings across the cluster.
+    Features:
+    - Atomic rating updates
+    - Match history replication
+    - Leader-based writes with follower reads
+    - Automatic log compaction
+
+    December 30, 2025 - P5.2: ELO Strong Consistency
+    """
+
+    # Baseline Elo rating (anchored to prevent rating inflation)
+    BASELINE_ELO_RANDOM = 400.0
+    INITIAL_ELO = 1500.0
+    K_FACTOR = 32.0
+
+    def __init__(
+        self,
+        node_id: str,
+        self_address: str,
+        partner_addresses: list[str],
+        compaction_min_entries: int = RAFT_COMPACTION_MIN_ENTRIES,
+        on_ready: Callable[[], None] | None = None,
+        on_leader_change: Callable[[str | None], None] | None = None,
+    ):
+        """Initialize replicated Elo store.
+
+        Args:
+            node_id: Unique identifier for this node
+            self_address: This node's Raft address (host:port)
+            partner_addresses: List of partner Raft addresses
+            compaction_min_entries: Min log entries before compaction
+            on_ready: Callback when cluster is ready
+            on_leader_change: Callback on leader changes
+        """
+        if not PYSYNCOBJ_AVAILABLE:
+            raise RuntimeError(
+                "pysyncobj not installed. Install with: pip install pysyncobj"
+            )
+
+        self.node_id = node_id
+        self._on_ready_callback = on_ready
+        self._on_leader_change_callback = on_leader_change
+        self._is_ready = False
+
+        # Replicated state
+        # Key: "{participant_id}:{board_type}:{num_players}"
+        self.__ratings = ReplDict()
+        # Match history: match_id -> match data (limited to recent N matches)
+        self.__recent_matches = ReplDict()
+        self.__match_count = 0
+        self._max_recent_matches = 10000  # Keep last 10K matches in Raft
+
+        # Configure PySyncObj
+        conf = SyncObjConf(
+            autoTick=True,
+            appendEntriesUseBatch=True,
+            raftMinTimeout=0.5,
+            raftMaxTimeout=2.0,
+            commandsWaitLeader=True,
+            compactionMinEntries=compaction_min_entries,
+            fullDumpFile=f"/tmp/raft_elo_store_{node_id}.bin",
+            journalFile=f"/tmp/raft_elo_store_{node_id}.journal",
+            onReady=self._handle_ready,
+            onLeaderChanged=self._handle_leader_change,
+        )
+
+        super().__init__(
+            self_address,
+            partner_addresses,
+            conf,
+        )
+
+        logger.info(
+            f"ReplicatedEloStore initialized: {self_address} -> {partner_addresses}"
+        )
+
+    def _handle_ready(self) -> None:
+        """Handle cluster ready event."""
+        self._is_ready = True
+        leader = self.getLeader()
+        logger.info(f"Elo store Raft cluster ready. Leader: {leader}")
+        if self._on_ready_callback:
+            try:
+                self._on_ready_callback()
+            except Exception as e:
+                logger.error(f"Error in on_ready callback: {e}")
+
+    def _handle_leader_change(self) -> None:
+        """Handle leader change event."""
+        leader = self.getLeader()
+        logger.info(f"Elo store Raft leader changed to: {leader}")
+        if self._on_leader_change_callback:
+            try:
+                self._on_leader_change_callback(leader)
+            except Exception as e:
+                logger.error(f"Error in on_leader_change callback: {e}")
+
+    @property
+    def is_ready(self) -> bool:
+        """Check if cluster is ready for operations."""
+        return self._is_ready
+
+    @property
+    def is_leader(self) -> bool:
+        """Check if this node is the current leader."""
+        return self._isLeader()
+
+    @property
+    def leader_address(self) -> str | None:
+        """Get current leader's address."""
+        return self.getLeader()
+
+    def _make_key(
+        self, participant_id: str, board_type: str, num_players: int
+    ) -> str:
+        """Create composite key for rating lookup."""
+        return f"{participant_id}:{board_type}:{num_players}"
+
+    def _is_random_participant(self, participant_id: str) -> bool:
+        """Check if participant is a random baseline that should be anchored."""
+        pid_lower = participant_id.lower()
+        if pid_lower.startswith("none:random"):
+            return True
+        if pid_lower in ("random", "baseline_random", "tier1_random"):
+            return True
+        if "random" in pid_lower and not any(
+            x in pid_lower for x in ("heuristic", "minimax", "mcts", "descent", "neural")
+        ):
+            return True
+        return False
+
+    # ========================================
+    # Replicated (mutating) methods
+    # ========================================
+
+    @replicated
+    def update_rating(
+        self,
+        participant_id: str,
+        board_type: str,
+        num_players: int,
+        rating: float,
+        games_played: int,
+        wins: int,
+        losses: int,
+        draws: int,
+        peak_rating: float | None = None,
+    ) -> bool:
+        """Update or create a rating entry.
+
+        Args:
+            participant_id: Participant ID
+            board_type: Board type (e.g., 'square8', 'hex8')
+            num_players: Number of players (2, 3, or 4)
+            rating: Current Elo rating
+            games_played: Total games played
+            wins: Total wins
+            losses: Total losses
+            draws: Total draws
+            peak_rating: Peak rating (optional, defaults to current rating)
+
+        Returns:
+            True on success
+        """
+        key = self._make_key(participant_id, board_type, num_players)
+
+        # Anchor random participants at fixed Elo
+        if self._is_random_participant(participant_id):
+            rating = self.BASELINE_ELO_RANDOM
+
+        # Get existing peak rating
+        existing = self.__ratings.get(key)
+        if existing and peak_rating is None:
+            peak_rating = max(existing.get("peak_rating", rating), rating)
+        elif peak_rating is None:
+            peak_rating = rating
+
+        entry = {
+            "participant_id": participant_id,
+            "board_type": board_type,
+            "num_players": num_players,
+            "rating": rating,
+            "games_played": games_played,
+            "wins": wins,
+            "losses": losses,
+            "draws": draws,
+            "peak_rating": peak_rating,
+            "last_update": time.time(),
+        }
+
+        self.__ratings[key] = entry
+        logger.debug(f"Raft: Updated rating for {key}: {rating:.1f}")
+        return True
+
+    @replicated
+    def record_match(
+        self,
+        match_id: str,
+        participant_a: str,
+        participant_b: str,
+        winner_id: str | None,
+        board_type: str,
+        num_players: int,
+        game_length: int = 0,
+        duration_sec: float = 0.0,
+        k_factor: float = 32.0,
+    ) -> dict[str, Any]:
+        """Record a match and update ratings atomically.
+
+        Args:
+            match_id: Unique match identifier
+            participant_a: First participant ID
+            participant_b: Second participant ID
+            winner_id: Winner ID (None for draw)
+            board_type: Board type
+            num_players: Number of players
+            game_length: Number of moves
+            duration_sec: Duration in seconds
+            k_factor: K-factor for rating update
+
+        Returns:
+            Dict with match_id, elo_before, elo_after, elo_changes
+        """
+        import math
+
+        # Get current ratings (create defaults if needed)
+        key_a = self._make_key(participant_a, board_type, num_players)
+        key_b = self._make_key(participant_b, board_type, num_players)
+
+        rating_a = self.__ratings.get(key_a, {
+            "participant_id": participant_a,
+            "board_type": board_type,
+            "num_players": num_players,
+            "rating": self.INITIAL_ELO,
+            "games_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "peak_rating": self.INITIAL_ELO,
+            "last_update": time.time(),
+        })
+        rating_b = self.__ratings.get(key_b, {
+            "participant_id": participant_b,
+            "board_type": board_type,
+            "num_players": num_players,
+            "rating": self.INITIAL_ELO,
+            "games_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "peak_rating": self.INITIAL_ELO,
+            "last_update": time.time(),
+        })
+
+        old_elo_a = rating_a["rating"]
+        old_elo_b = rating_b["rating"]
+        elo_before = {participant_a: old_elo_a, participant_b: old_elo_b}
+
+        # Calculate expected scores
+        exp_a = 1.0 / (1.0 + math.pow(10, (old_elo_b - old_elo_a) / 400))
+        exp_b = 1.0 - exp_a
+
+        # Actual scores
+        if winner_id == participant_a:
+            score_a, score_b = 1.0, 0.0
+            win_a, loss_a, draw_a = 1, 0, 0
+            win_b, loss_b, draw_b = 0, 1, 0
+        elif winner_id == participant_b:
+            score_a, score_b = 0.0, 1.0
+            win_a, loss_a, draw_a = 0, 1, 0
+            win_b, loss_b, draw_b = 1, 0, 0
+        else:
+            score_a, score_b = 0.5, 0.5
+            win_a, loss_a, draw_a = 0, 0, 1
+            win_b, loss_b, draw_b = 0, 0, 1
+
+        # Scale K-factor for multiplayer
+        base_k = k_factor / (num_players - 1) if num_players > 2 else k_factor
+
+        # Calculate changes
+        change_a = base_k * (score_a - exp_a)
+        change_b = base_k * (score_b - exp_b)
+
+        new_elo_a = old_elo_a + change_a
+        new_elo_b = old_elo_b + change_b
+
+        # Anchor random participants
+        if self._is_random_participant(participant_a):
+            new_elo_a = self.BASELINE_ELO_RANDOM
+            change_a = 0.0
+        if self._is_random_participant(participant_b):
+            new_elo_b = self.BASELINE_ELO_RANDOM
+            change_b = 0.0
+
+        elo_after = {participant_a: new_elo_a, participant_b: new_elo_b}
+        elo_changes = {participant_a: change_a, participant_b: change_b}
+
+        # Update ratings
+        now = time.time()
+        rating_a.update({
+            "rating": new_elo_a,
+            "games_played": rating_a.get("games_played", 0) + 1,
+            "wins": rating_a.get("wins", 0) + win_a,
+            "losses": rating_a.get("losses", 0) + loss_a,
+            "draws": rating_a.get("draws", 0) + draw_a,
+            "peak_rating": max(rating_a.get("peak_rating", new_elo_a), new_elo_a),
+            "last_update": now,
+        })
+        rating_b.update({
+            "rating": new_elo_b,
+            "games_played": rating_b.get("games_played", 0) + 1,
+            "wins": rating_b.get("wins", 0) + win_b,
+            "losses": rating_b.get("losses", 0) + loss_b,
+            "draws": rating_b.get("draws", 0) + draw_b,
+            "peak_rating": max(rating_b.get("peak_rating", new_elo_b), new_elo_b),
+            "last_update": now,
+        })
+
+        self.__ratings[key_a] = rating_a
+        self.__ratings[key_b] = rating_b
+
+        # Record match (limited history)
+        match_entry = {
+            "match_id": match_id,
+            "participant_ids": [participant_a, participant_b],
+            "winner_id": winner_id,
+            "board_type": board_type,
+            "num_players": num_players,
+            "game_length": game_length,
+            "duration_sec": duration_sec,
+            "timestamp": now,
+            "elo_before": elo_before,
+            "elo_after": elo_after,
+            "elo_changes": elo_changes,
+        }
+        self.__recent_matches[match_id] = match_entry
+        self.__match_count += 1
+
+        # Clean up old matches if exceeding limit
+        if self.__match_count > self._max_recent_matches * 1.5:
+            self._cleanup_old_matches()
+
+        logger.debug(f"Raft: Recorded match {match_id}, changes: {elo_changes}")
+        return {
+            "match_id": match_id,
+            "elo_before": elo_before,
+            "elo_after": elo_after,
+            "elo_changes": elo_changes,
+        }
+
+    def _cleanup_old_matches(self) -> None:
+        """Remove oldest matches to stay within limit (internal, not replicated)."""
+        # Sort matches by timestamp
+        matches = list(self.__recent_matches.items())
+        if len(matches) <= self._max_recent_matches:
+            return
+
+        matches.sort(key=lambda x: x[1].get("timestamp", 0))
+        remove_count = len(matches) - self._max_recent_matches
+
+        for i in range(remove_count):
+            match_id = matches[i][0]
+            if match_id in self.__recent_matches._data:
+                del self.__recent_matches._data[match_id]
+
+        self.__match_count = len(self.__recent_matches._data)
+
+    # ========================================
+    # Local read methods (no replication needed)
+    # ========================================
+
+    def get_rating(
+        self,
+        participant_id: str,
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, Any] | None:
+        """Get rating for a participant.
+
+        Args:
+            participant_id: Participant ID
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            Rating data dict or None if not found
+        """
+        key = self._make_key(participant_id, board_type, num_players)
+        rating = self.__ratings.get(key)
+        if rating:
+            # Always return anchored rating for random participants
+            if self._is_random_participant(participant_id):
+                rating = dict(rating)
+                rating["rating"] = self.BASELINE_ELO_RANDOM
+            return dict(rating)
+        return None
+
+    def get_ratings_batch(
+        self,
+        participant_ids: list[str],
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, dict[str, Any]]:
+        """Get ratings for multiple participants.
+
+        Args:
+            participant_ids: List of participant IDs
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            Dict mapping participant_id to rating data
+        """
+        result = {}
+        for pid in participant_ids:
+            rating = self.get_rating(pid, board_type, num_players)
+            if rating:
+                result[pid] = rating
+        return result
+
+    def get_leaderboard(
+        self,
+        board_type: str,
+        num_players: int,
+        limit: int = 50,
+        min_games: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Get leaderboard for a configuration.
+
+        Args:
+            board_type: Board type
+            num_players: Number of players
+            limit: Maximum entries
+            min_games: Minimum games required
+
+        Returns:
+            List of rating entries sorted by rating (descending)
+        """
+        entries = []
+        for key, rating in self.__ratings.items():
+            if (
+                rating.get("board_type") == board_type
+                and rating.get("num_players") == num_players
+                and rating.get("games_played", 0) >= min_games
+            ):
+                entry = dict(rating)
+                # Anchor random participants
+                if self._is_random_participant(rating.get("participant_id", "")):
+                    entry["rating"] = self.BASELINE_ELO_RANDOM
+                entries.append(entry)
+
+        entries.sort(key=lambda x: -x.get("rating", 0))
+        return entries[:limit]
+
+    def get_recent_matches(
+        self,
+        board_type: str | None = None,
+        num_players: int | None = None,
+        participant_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Get recent matches with optional filters.
+
+        Args:
+            board_type: Filter by board type
+            num_players: Filter by player count
+            participant_id: Filter by participant
+            limit: Maximum matches
+
+        Returns:
+            List of match entries (newest first)
+        """
+        matches = []
+        for match in self.__recent_matches.values():
+            if board_type and match.get("board_type") != board_type:
+                continue
+            if num_players and match.get("num_players") != num_players:
+                continue
+            if participant_id and participant_id not in match.get("participant_ids", []):
+                continue
+            matches.append(dict(match))
+
+        matches.sort(key=lambda x: -x.get("timestamp", 0))
+        return matches[:limit]
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get store statistics.
+
+        Returns:
+            Dict with rating count, match count, and cluster status
+        """
+        return {
+            "total_ratings": len(self.__ratings._data),
+            "total_matches": len(self.__recent_matches._data),
+            "is_leader": self.is_leader,
+            "leader_address": self.leader_address,
+            "is_ready": self.is_ready,
+        }
+
+
+# ============================================
 # Factory Functions
 # ============================================
+
+
+def create_replicated_elo_store(
+    node_id: str,
+    config_path: Path | None = None,
+    bind_port: int = RAFT_BIND_PORT,
+    on_ready: Callable[[], None] | None = None,
+    on_leader_change: Callable[[str | None], None] | None = None,
+) -> ReplicatedEloStore | None:
+    """Create a ReplicatedEloStore with auto-configured addresses.
+
+    Args:
+        node_id: This node's unique identifier
+        config_path: Path to distributed_hosts.yaml
+        bind_port: Raft bind port (uses different offset for Elo store)
+        on_ready: Callback when cluster is ready
+        on_leader_change: Callback on leader changes
+
+    Returns:
+        ReplicatedEloStore instance, or None if Raft not available/enabled
+    """
+    if not PYSYNCOBJ_AVAILABLE:
+        logger.warning("Cannot create ReplicatedEloStore: pysyncobj not installed")
+        return None
+
+    if not RAFT_ENABLED:
+        logger.info("Raft is disabled (RINGRIFT_RAFT_ENABLED=false)")
+        return None
+
+    # Use port offset to avoid conflict with work queue and job assignments
+    elo_port = bind_port + 2
+
+    self_address = get_self_raft_address(config_path, elo_port)
+    if not self_address:
+        logger.error("Cannot determine self Raft address for Elo store")
+        return None
+
+    partners = load_raft_partner_addresses(node_id, config_path, elo_port)
+    if not partners:
+        logger.warning("No Raft partners configured for Elo store - single-node mode")
+
+    return ReplicatedEloStore(
+        node_id=node_id,
+        self_address=self_address,
+        partner_addresses=partners,
+        on_ready=on_ready,
+        on_leader_change=on_leader_change,
+    )
 
 
 def create_replicated_work_queue(
@@ -1215,12 +1830,16 @@ __all__ = [
     # Data classes
     "WorkItem",
     "JobAssignment",
+    "EloRatingEntry",
+    "EloMatchEntry",
     # Main classes
     "ReplicatedWorkQueue",
     "ReplicatedJobAssignments",
+    "ReplicatedEloStore",
     # Factory functions
     "create_replicated_work_queue",
     "create_replicated_job_assignments",
+    "create_replicated_elo_store",
     # Configuration helpers
     "load_raft_partner_addresses",
     "get_self_raft_address",
