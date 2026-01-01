@@ -3840,7 +3840,12 @@ class P2POrchestrator(
 
     def _is_leader(self) -> bool:
         """Check if this node is the current cluster leader with valid lease."""
+        # Dec 31, 2025: Enhanced logging for leader self-recognition debugging
         if self.leader_id != self.node_id:
+            logger.debug(
+                f"[LeaderCheck] Not leader: leader_id={self.leader_id}, "
+                f"self.node_id={self.node_id}, role={self.role.value if hasattr(self.role, 'value') else self.role}"
+            )
             # Consistency: we should never claim role=leader while leader_id points elsewhere (or is None).
             if self.role == NodeRole.LEADER:
                 logger.info("Inconsistent leadership state (role=leader but leader_id!=self); stepping down")
@@ -3900,22 +3905,39 @@ class P2POrchestrator(
                 with contextlib.suppress(RuntimeError):
                     asyncio.get_running_loop().create_task(self._start_election())
             return False
+        # Dec 31, 2025: Add grace period for quorum failures in _is_leader() too
+        # This prevents rapid step-downs from transient network issues
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-            logger.info("Leadership without voter quorum, stepping down")
-            # Dec 2025: Emit LEADER_LOST before clearing leader_id
-            old_leader_id = self.leader_id
-            self.role = NodeRole.FOLLOWER
-            self.leader_id = None
-            self.leader_lease_id = ""
-            self.leader_lease_expires = 0.0
-            self.last_lease_renewal = 0.0
-            self._release_voter_grant_if_self()
-            self._save_state()
-            self._emit_leader_lost_sync(old_leader_id, "quorum_lost")
-            # NOTE: Don't start election here - we just lost quorum, so election would fail anyway
-            # Wait for quorum to be restored before attempting election
-            logger.warning("Skipping election after quorum loss: no voter quorum available")
+            self._is_leader_quorum_fail_count = getattr(self, "_is_leader_quorum_fail_count", 0) + 1
+            voters_alive = sum(
+                1 for vid in getattr(self, "voter_node_ids", [])
+                if vid in self.peers and self.peers[vid].is_alive()
+            )
+            quorum_size = getattr(self, "voter_quorum_size", 0)
+            logger.debug(
+                f"[LeaderCheck] Quorum check failed ({self._is_leader_quorum_fail_count}/3): "
+                f"voters_alive={voters_alive}, quorum_size={quorum_size}"
+            )
+            if self._is_leader_quorum_fail_count >= 3:
+                logger.info("Leadership without voter quorum (3 consecutive failures), stepping down")
+                # Dec 2025: Emit LEADER_LOST before clearing leader_id
+                old_leader_id = self.leader_id
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self.last_lease_renewal = 0.0
+                self._is_leader_quorum_fail_count = 0
+                self._release_voter_grant_if_self()
+                self._save_state()
+                self._emit_leader_lost_sync(old_leader_id, "quorum_lost")
+                # NOTE: Don't start election here - we just lost quorum, so election would fail anyway
+                # Wait for quorum to be restored before attempting election
+                logger.warning("Skipping election after quorum loss: no voter quorum available")
             return False
+        else:
+            # Reset counter on success
+            self._is_leader_quorum_fail_count = 0
         return True
 
     @property
@@ -20575,6 +20597,10 @@ print(json.dumps({{
         self.role = NodeRole.LEADER
         self.leader_id = self.node_id
         self.last_leader_seen = time.time()  # Track when we last had a functioning leader
+        # Dec 31, 2025: Track leadership acquisition time and reset quorum fail counters
+        self._last_become_leader_time = time.time()
+        self._quorum_fail_count = 0
+        self._is_leader_quorum_fail_count = 0
 
         # Phase 29: Increment cluster epoch on leadership change
         # This helps resolve split-brain when partitions merge
@@ -23340,16 +23366,33 @@ print(json.dumps({{
         """Renew our leadership lease and broadcast to peers."""
         if self.role != NodeRole.LEADER:
             return
+        # Dec 31, 2025: Add grace period for quorum failures to prevent flapping
+        # Require 3 consecutive failures (~45 seconds) before stepping down
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-            logger.info(f"Lost voter quorum; stepping down: {self.node_id}")
-            self.role = NodeRole.FOLLOWER
-            self.leader_id = None
-            self.leader_lease_id = ""
-            self.leader_lease_expires = 0.0
-            self.last_lease_renewal = 0.0
-            self._release_voter_grant_if_self()
-            self._save_state()
+            self._quorum_fail_count = getattr(self, "_quorum_fail_count", 0) + 1
+            voters_alive = sum(
+                1 for vid in getattr(self, "voter_node_ids", [])
+                if vid in self.peers and self.peers[vid].is_alive()
+            )
+            quorum_size = getattr(self, "voter_quorum_size", 0)
+            logger.warning(
+                f"[LeaseRenewal] Voter quorum check failed ({self._quorum_fail_count}/3): "
+                f"voters_alive={voters_alive}, quorum_size={quorum_size}"
+            )
+            if self._quorum_fail_count >= 3:
+                logger.info(f"Lost voter quorum (3 consecutive failures); stepping down: {self.node_id}")
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self.last_lease_renewal = 0.0
+                self._quorum_fail_count = 0
+                self._release_voter_grant_if_self()
+                self._save_state()
             return
+        else:
+            # Reset counter on success
+            self._quorum_fail_count = 0
 
         now = time.time()
         if now - self.last_lease_renewal < LEADER_LEASE_RENEW_INTERVAL:
