@@ -25930,20 +25930,32 @@ print(json.dumps({{
                 # NOTE: run_hybrid_selfplay.py doesn't exist, use run_self_play_soak.py instead
 
                 # Normalize engine_mode
-                # run_self_play_soak.py supports: random-only, heuristic-only, mixed, nnue-guided, mcts, gumbel-mcts-only
-                # Map NN-based modes to nnue-guided for neural network evaluation
-                hybrid_engine_modes = {"random-only", "heuristic-only", "mixed", "nnue-guided", "mcts"}
+                # run_self_play_soak.py supports: random-only, heuristic-only, mixed, nnue-guided, mcts,
+                # gumbel-mcts-only, maxn-only, brs-only, policy-only, diverse, diverse-cpu
+                # Map profile engine modes to soak script equivalents
+                hybrid_engine_modes = {"random-only", "heuristic-only", "mixed", "nnue-guided", "mcts",
+                                       "gumbel-mcts-only", "maxn-only", "brs-only", "policy-only", "diverse"}
                 nn_modes = {"nn-only", "best-vs-pool", "nn-vs-mcts", "nn-vs-minimax", "nn-vs-descent", "tournament-varied"}
+                # Map DIVERSE_PROFILES engine_mode values to run_self_play_soak.py equivalents
+                engine_mode_map = {
+                    "gumbel-mcts": "gumbel-mcts-only",  # High-quality Gumbel MCTS
+                    "maxn": "maxn-only",                # Max-N for multiplayer
+                    "brs": "brs-only",                  # Best-Reply Search
+                    "minimax": "minimax-only",          # Minimax search
+                }
                 if engine_mode in hybrid_engine_modes:
                     engine_mode_norm = engine_mode
+                elif engine_mode in engine_mode_map:
+                    engine_mode_norm = engine_mode_map[engine_mode]  # Map to soak script name
                 elif engine_mode in nn_modes:
                     engine_mode_norm = "nnue-guided"  # Use neural network
                 elif engine_mode in ("mcts-only", "descent-only"):
                     engine_mode_norm = "mcts"  # Use MCTS
                 elif engine_mode == "minimax-only":
-                    engine_mode_norm = "mixed"  # Minimax included in mixed
+                    engine_mode_norm = "minimax-only"  # Minimax search
                 else:
-                    engine_mode_norm = "heuristic-only"
+                    # Default to diverse mode for GPU nodes (uses all AI types)
+                    engine_mode_norm = "diverse"
 
                 # Game counts based on board type
                 num_games = 1000
