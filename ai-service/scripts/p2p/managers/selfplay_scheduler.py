@@ -159,10 +159,13 @@ class SelfplayScheduler(EventSubscriptionMixin):
     # Paranoid minimax assumes all opponents ally against current player - works for 2-4 players
     LARGE_BOARD_ENGINE_MIX = [
         # (engine_mode, weight, gpu_required, extra_args)
-        ("heuristic", 30, False, None),  # 30% - fast bootstrap
+        # Jan 2026: Full harness diversity for comprehensive training data
+        ("random", 5, False, None),  # 5% - baseline diversity (vs pure random)
+        ("heuristic", 25, False, None),  # 25% - fast bootstrap
         ("minimax", 10, False, {"depth": 3}),  # 10% - paranoid search (works for 2-4p)
         ("brs", 15, False, None),  # 15% - good for multiplayer
-        ("maxn", 15, False, None),  # 15% - highest heuristic quality
+        ("maxn", 10, False, None),  # 10% - highest heuristic quality
+        ("nn-descent", 5, True, None),  # 5% - exploration via neural descent (GPU)
         ("policy-only", 15, True, None),  # 15% - neural guided (GPU)
         ("gumbel-mcts", 15, True, {"budget": 64}),  # 15% - balanced neural (GPU) - min floor
     ]
@@ -170,7 +173,9 @@ class SelfplayScheduler(EventSubscriptionMixin):
     # CPU-only variant for nodes without GPU
     LARGE_BOARD_ENGINE_MIX_CPU = [
         # (engine_mode, weight, gpu_required, extra_args)
-        ("heuristic", 40, False, None),  # 40% - fast bootstrap
+        # Jan 2026: Full harness diversity for comprehensive training data
+        ("random", 5, False, None),  # 5% - baseline diversity (vs pure random)
+        ("heuristic", 35, False, None),  # 35% - fast bootstrap
         ("minimax", 15, False, {"depth": 3}),  # 15% - paranoid search (2-4p)
         ("brs", 25, False, None),  # 25% - good for multiplayer
         ("maxn", 20, False, None),  # 20% - highest heuristic quality
@@ -181,10 +186,13 @@ class SelfplayScheduler(EventSubscriptionMixin):
     # Dec 31, 2025: Added MINIMAX (paranoid) - deeper search on smaller boards
     STANDARD_BOARD_ENGINE_MIX = [
         # (engine_mode, weight, gpu_required, extra_args)
-        ("heuristic", 20, False, None),  # 20% - fast bootstrap
-        ("minimax", 15, False, {"depth": 4}),  # 15% - paranoid search (2-4p, deeper on small boards)
+        # Jan 2026: Full harness diversity for comprehensive training data
+        ("random", 5, False, None),  # 5% - baseline diversity (vs pure random)
+        ("heuristic", 15, False, None),  # 15% - fast bootstrap
+        ("minimax", 10, False, {"depth": 4}),  # 10% - paranoid search (2-4p, deeper on small boards)
         ("brs", 10, False, None),  # 10% - good for multiplayer diversity
         ("maxn", 10, False, None),  # 10% - highest heuristic quality
+        ("nn-descent", 5, True, None),  # 5% - exploration via neural descent (GPU)
         ("policy-only", 15, True, None),  # 15% - neural guided (GPU)
         ("gumbel-mcts", 30, True, {"budget": 150}),  # 30% - balanced neural (GPU)
     ]
@@ -192,7 +200,9 @@ class SelfplayScheduler(EventSubscriptionMixin):
     # CPU-only variant for standard boards
     STANDARD_BOARD_ENGINE_MIX_CPU = [
         # (engine_mode, weight, gpu_required, extra_args)
-        ("heuristic", 30, False, None),  # 30% - fast bootstrap
+        # Jan 2026: Full harness diversity for comprehensive training data
+        ("random", 5, False, None),  # 5% - baseline diversity (vs pure random)
+        ("heuristic", 25, False, None),  # 25% - fast bootstrap
         ("minimax", 25, False, {"depth": 4}),  # 25% - paranoid search (2-4p)
         ("brs", 25, False, None),  # 25% - good for multiplayer
         ("maxn", 20, False, None),  # 20% - highest heuristic quality
