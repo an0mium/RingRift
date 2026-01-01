@@ -120,13 +120,13 @@ async def start_p2p(host_name: str, host_config: dict, force_restart: bool = Fal
     if not advertise_ip:
         return False, "Could not determine advertise IP"
 
-    # Start P2P with nohup and RINGRIFT_ADVERTISE_HOST set
+    # Start P2P with nohup and --advertise-host for explicit mesh connectivity
+    # January 2026: Use CLI arg instead of just env var for clarity and reliability
     start_cmd = f"""
 cd {ringrift_path} && \\
 {venv_activate} && \\
 mkdir -p logs && \\
-export RINGRIFT_ADVERTISE_HOST={advertise_ip} && \\
-setsid python scripts/p2p_orchestrator.py --node-id {host_name} > logs/p2p.log 2>&1 &
+setsid python scripts/p2p_orchestrator.py --node-id {host_name} --advertise-host {advertise_ip} > logs/p2p.log 2>&1 &
 echo $!
 """
     ok, output = await run_ssh(host_name, host_config, start_cmd, timeout=30)

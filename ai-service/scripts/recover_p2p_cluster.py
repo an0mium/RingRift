@@ -194,12 +194,19 @@ async def restart_p2p_on_node(node: NodeInfo, dry_run: bool = False) -> bool:
             f"{node.ssh_user}@{target}",
         ]
 
-    # Restart command
+    # Restart command - include --advertise-host for Tailscale nodes
+    # December 2025: Critical fix - without --advertise-host, nodes advertise
+    # unreachable IPs causing P2P mesh fragmentation
+    advertise_host_arg = ""
+    if node.tailscale_ip:
+        advertise_host_arg = f"--advertise-host {node.tailscale_ip} "
+
     restart_cmd = (
         f"pkill -SIGTERM -f 'python.*p2p_orchestrator' 2>/dev/null; "
         f"sleep 2; "
         f"cd {node.ringrift_path} && "
         f"nohup python scripts/p2p_orchestrator.py --node-id {node.name} "
+        f"{advertise_host_arg}"
         f"> logs/p2p.log 2>&1 &"
     )
 

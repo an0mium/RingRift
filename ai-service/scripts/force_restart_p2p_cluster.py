@@ -40,6 +40,7 @@ class NodeConfig:
     status: str
     role: str
     p2p_enabled: bool
+    tailscale_ip: str = ""  # For --advertise-host
 
 
 def load_cluster_nodes() -> list[NodeConfig]:
@@ -91,6 +92,7 @@ def load_cluster_nodes() -> list[NodeConfig]:
             status=status,
             role=role,
             p2p_enabled=p2p_enabled,
+            tailscale_ip=host_config.get("tailscale_ip", ""),
         ))
 
     return nodes
@@ -146,8 +148,14 @@ async def restart_p2p_on_node(
 
     # Start P2P orchestrator in background with nohup
     # The script's _load_env_local() will load .env.local automatically
+    # January 2026: Always include --advertise-host for Tailscale nodes to ensure mesh connectivity
+    advertise_host_arg = ""
+    if node.tailscale_ip:
+        advertise_host_arg = f"--advertise-host {node.tailscale_ip} "
+
     start_cmd = (
         f"nohup python scripts/p2p_orchestrator.py --node-id {node.name} "
+        f"{advertise_host_arg}"
         f"> logs/p2p_orchestrator.log 2>&1 &"
     )
 
