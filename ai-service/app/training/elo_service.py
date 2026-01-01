@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -650,6 +651,39 @@ class EloService:
                 conn.execute("ALTER TABLE elo_ratings ADD COLUMN peak_rating REAL DEFAULT 1500.0")
                 logger.info("Migrated elo_ratings: added peak_rating column")
 
+            # Model identity tracking tables (January 2026)
+            # Track model files by SHA256 hash for deduplication and alias resolution
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS model_identities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    model_path TEXT NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    file_size INTEGER,
+                    first_seen_at REAL DEFAULT (strftime('%s', 'now')),
+                    last_verified_at REAL DEFAULT (strftime('%s', 'now')),
+                    UNIQUE(model_path, content_sha256)
+                )
+            """)
+
+            # Participant aliases for same model content
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS participant_aliases (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    primary_participant_id TEXT NOT NULL,
+                    alias_participant_id TEXT NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    created_at REAL DEFAULT (strftime('%s', 'now')),
+                    UNIQUE(primary_participant_id, alias_participant_id)
+                )
+            """)
+
+            # Indexes for hash lookups
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_model_identities_hash ON model_identities(content_sha256)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_model_identities_path ON model_identities(model_path)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_participant_aliases_primary ON participant_aliases(primary_participant_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_participant_aliases_alias ON participant_aliases(alias_participant_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_participant_aliases_hash ON participant_aliases(content_sha256)")
+
     def register_participant(
         self,
         participant_id: str,
@@ -679,6 +713,350 @@ class EloService:
                 time.time(),
                 json.dumps(metadata) if metadata else None
             ))
+
+    # =========================================================================
+    # Model Identity Tracking (January 2026)
+    # Track model files by SHA256 hash for deduplication and alias resolution
+    # =========================================================================
+
+    def _compute_model_hash(self, model_path: str) -> str | None:
+        """Compute SHA256 hash of model file content.
+
+        Args:
+            model_path: Path to the model file
+
+        Returns:
+            SHA256 hex digest or None if file not found
+        """
+        path = Path(model_path)
+
+        # Check common model directories if not found directly
+        if not path.exists():
+            for model_dir in [Path("models"), Path("models_essential")]:
+                candidate = model_dir / path.name
+                if candidate.exists():
+                    path = candidate
+                    break
+
+        if not path.exists():
+            return None
+
+        try:
+            sha256 = hashlib.sha256()
+            with open(path, 'rb') as f:
+                for chunk in iter(lambda: f.read(65536), b''):
+                    sha256.update(chunk)
+            return sha256.hexdigest()
+        except (OSError, IOError) as e:
+            logger.warning(f"Could not compute hash for {model_path}: {e}")
+            return None
+
+    def _store_model_identity(
+        self,
+        model_path: str,
+        content_sha256: str,
+        file_size: int | None = None,
+    ) -> None:
+        """Store model file identity in database.
+
+        Args:
+            model_path: Path to the model file
+            content_sha256: SHA256 hash of file content
+            file_size: Optional file size in bytes
+        """
+        with self._transaction() as conn:
+            conn.execute("""
+                INSERT INTO model_identities (model_path, content_sha256, file_size, last_verified_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(model_path, content_sha256) DO UPDATE SET
+                    last_verified_at = excluded.last_verified_at
+            """, (model_path, content_sha256, file_size, time.time()))
+
+    def _find_participant_by_hash(self, content_sha256: str) -> str | None:
+        """Find an existing participant ID with the same model content hash.
+
+        Args:
+            content_sha256: SHA256 hash of model content
+
+        Returns:
+            Participant ID if found, None otherwise
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT DISTINCT p.participant_id
+            FROM model_identities mi
+            JOIN participants p ON mi.model_path = p.model_path
+            WHERE mi.content_sha256 = ?
+            ORDER BY p.created_at ASC
+            LIMIT 1
+        """, (content_sha256,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def _create_participant_alias(
+        self,
+        primary_id: str,
+        alias_id: str,
+        content_sha256: str,
+    ) -> None:
+        """Create an alias relationship between two participant IDs.
+
+        The primary_id is the canonical participant, and alias_id references
+        the same model content.
+
+        Args:
+            primary_id: The canonical participant ID (with most games)
+            alias_id: The alias participant ID pointing to same model
+            content_sha256: SHA256 hash of the shared model content
+        """
+        with self._transaction() as conn:
+            conn.execute("""
+                INSERT OR IGNORE INTO participant_aliases
+                (primary_participant_id, alias_participant_id, content_sha256)
+                VALUES (?, ?, ?)
+            """, (primary_id, alias_id, content_sha256))
+            logger.info(f"Created participant alias: {alias_id} -> {primary_id}")
+
+    def _resolve_participant_alias(self, participant_id: str) -> str:
+        """Resolve a participant ID to its primary ID if it's an alias.
+
+        Args:
+            participant_id: The participant ID to resolve
+
+        Returns:
+            The primary participant ID (or the original if not an alias)
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT primary_participant_id
+            FROM participant_aliases
+            WHERE alias_participant_id = ?
+            LIMIT 1
+        """, (participant_id,))
+        row = cursor.fetchone()
+        return row[0] if row else participant_id
+
+    def get_model_identity(self, model_path: str) -> dict[str, Any] | None:
+        """Get stored identity information for a model file.
+
+        Args:
+            model_path: Path to the model file
+
+        Returns:
+            Dict with model_path, content_sha256, file_size, first_seen_at, last_verified_at
+            or None if not found
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT model_path, content_sha256, file_size, first_seen_at, last_verified_at
+            FROM model_identities
+            WHERE model_path = ?
+            ORDER BY last_verified_at DESC
+            LIMIT 1
+        """, (model_path,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                "model_path": row[0],
+                "content_sha256": row[1],
+                "file_size": row[2],
+                "first_seen_at": row[3],
+                "last_verified_at": row[4],
+            }
+        return None
+
+    def get_participants_for_hash(self, content_sha256: str) -> list[str]:
+        """Get all participant IDs associated with a model content hash.
+
+        Args:
+            content_sha256: SHA256 hash of model content
+
+        Returns:
+            List of participant IDs using this model content
+        """
+        conn = self._get_connection()
+        cursor = conn.execute("""
+            SELECT DISTINCT p.participant_id
+            FROM model_identities mi
+            JOIN participants p ON mi.model_path = p.model_path
+            WHERE mi.content_sha256 = ?
+        """, (content_sha256,))
+        return [row[0] for row in cursor.fetchall()]
+
+    def verify_and_update_model_identity(
+        self,
+        participant_id: str,
+        model_path: str,
+    ) -> tuple[bool, str | None]:
+        """Verify model file and update identity tracking.
+
+        Computes current hash and checks if it matches the stored hash.
+        If different, the model file has changed (e.g., via promotion).
+
+        Args:
+            participant_id: The participant ID
+            model_path: Path to the model file
+
+        Returns:
+            Tuple of (has_changed, new_hash). has_changed is True if model
+            content differs from stored identity.
+        """
+        current_hash = self._compute_model_hash(model_path)
+        if current_hash is None:
+            return False, None
+
+        stored_identity = self.get_model_identity(model_path)
+        if stored_identity is None:
+            # First time seeing this model, store identity
+            file_size = Path(model_path).stat().st_size if Path(model_path).exists() else None
+            self._store_model_identity(model_path, current_hash, file_size)
+            return False, current_hash
+
+        if stored_identity["content_sha256"] != current_hash:
+            # Model file has changed
+            logger.info(
+                f"Model content changed for {participant_id}: "
+                f"{stored_identity['content_sha256'][:12]}... -> {current_hash[:12]}..."
+            )
+            # Store new identity
+            file_size = Path(model_path).stat().st_size if Path(model_path).exists() else None
+            self._store_model_identity(model_path, current_hash, file_size)
+            return True, current_hash
+
+        # No change, but update last_verified timestamp
+        self._store_model_identity(
+            model_path,
+            current_hash,
+            stored_identity.get("file_size")
+        )
+        return False, current_hash
+
+    def handle_model_promotion(
+        self,
+        source_model_path: str,
+        target_model_path: str,
+        source_participant_id: str,
+        target_participant_id: str,
+        board_type: str,
+        num_players: int,
+    ) -> dict:
+        """Handle model promotion with hash-based identity tracking.
+
+        When a model is promoted (copied to a canonical location), this method:
+        1. Checks if the target already exists with a different hash
+        2. If the source model has Elo data, transfers/aliases it to the target
+        3. Updates model identity tracking
+
+        This fixes the stale Elo problem where canonical models appear weak
+        because their Elo was computed with an older model version.
+
+        Args:
+            source_model_path: Path to the model being promoted
+            target_model_path: Path to the canonical location (will be overwritten)
+            source_participant_id: Participant ID of the source model
+            target_participant_id: Participant ID for the canonical model
+            board_type: Board type for Elo lookup
+            num_players: Number of players
+
+        Returns:
+            Dict with promotion status:
+            - 'status': 'success', 'no_change', or 'error'
+            - 'source_hash': SHA256 of source model
+            - 'old_target_hash': SHA256 of previous target (if existed)
+            - 'elo_transferred': True if Elo was transferred from source
+            - 'elo_reset': True if Elo was reset due to model change
+            - 'message': Human-readable status message
+
+        January 2026: Added for Elo/Model Identity Tracking fix (Priority 0).
+        """
+        result = {
+            "status": "success",
+            "source_hash": None,
+            "old_target_hash": None,
+            "elo_transferred": False,
+            "elo_reset": False,
+            "message": "",
+        }
+
+        # Compute source model hash
+        source_hash = self._compute_model_hash(source_model_path)
+        if source_hash is None:
+            result["status"] = "error"
+            result["message"] = f"Could not compute hash for source model: {source_model_path}"
+            logger.error(result["message"])
+            return result
+
+        result["source_hash"] = source_hash
+
+        # Check if target already exists and get its hash
+        old_target_hash = None
+        if Path(target_model_path).exists():
+            old_target_hash = self._compute_model_hash(target_model_path)
+            result["old_target_hash"] = old_target_hash
+
+        # If hashes are the same, no real change - just update tracking
+        if old_target_hash == source_hash:
+            result["status"] = "no_change"
+            result["message"] = "Source and target models are identical (same hash)"
+            logger.debug(f"[EloService] Promotion no-op: {source_hash[:12]}... unchanged")
+            return result
+
+        # Models are different - need to handle Elo tracking
+        logger.info(
+            f"[EloService] Model promotion detected: "
+            f"{target_participant_id} changing from "
+            f"{old_target_hash[:12] if old_target_hash else 'new'}... to {source_hash[:12]}..."
+        )
+
+        # Get source model's Elo if it exists
+        source_rating = None
+        try:
+            source_rating = self.get_rating(source_participant_id, board_type, num_players)
+            if source_rating.games_played > 0:
+                logger.info(
+                    f"[EloService] Source model {source_participant_id} has Elo "
+                    f"{source_rating.rating:.0f} ({source_rating.games_played} games)"
+                )
+        except Exception as e:
+            logger.debug(f"Could not get source rating: {e}")
+
+        # Create alias from target to source if source has games
+        if source_rating and source_rating.games_played > 0:
+            # The source model's Elo should apply to the target (same content)
+            self._create_participant_alias(
+                primary_id=source_participant_id,
+                alias_id=target_participant_id,
+                content_sha256=source_hash,
+            )
+            result["elo_transferred"] = True
+            result["message"] = (
+                f"Elo transferred: {target_participant_id} -> {source_participant_id} "
+                f"(Elo {source_rating.rating:.0f}, {source_rating.games_played} games)"
+            )
+            logger.info(f"[EloService] {result['message']}")
+        else:
+            # No source Elo - if target had Elo with old model, we need to note it's stale
+            # The target's existing Elo is now invalid (different model content)
+            if old_target_hash:
+                # Mark that the old Elo is stale by storing the new identity
+                # The alias system will handle lookups properly
+                result["elo_reset"] = True
+                result["message"] = (
+                    f"Model content changed for {target_participant_id} - "
+                    f"old Elo may be stale until re-evaluated"
+                )
+                logger.warning(f"[EloService] {result['message']}")
+            else:
+                result["message"] = f"New canonical model registered: {target_participant_id}"
+
+        # Update model identity tracking for both source and target
+        file_size = Path(source_model_path).stat().st_size if Path(source_model_path).exists() else None
+        self._store_model_identity(source_model_path, source_hash, file_size)
+
+        # Note: We store target identity AFTER the file copy happens (caller's responsibility)
+        # But we return the hash so caller can verify
+
+        return result
 
     def _validate_model_player_count(
         self, model_path: str, expected_num_players: int
@@ -810,6 +1188,26 @@ class EloService:
                 )
                 return
 
+        # Compute model content hash for identity tracking (January 2026)
+        content_hash: str | None = None
+        existing_participant: str | None = None
+        if model_path:
+            content_hash = self._compute_model_hash(model_path)
+            if content_hash:
+                # Check if this exact model content is already registered under another ID
+                existing_participant = self._find_participant_by_hash(content_hash)
+                if existing_participant and existing_participant != model_id:
+                    # Create alias relationship - the existing participant becomes primary
+                    self._create_participant_alias(
+                        primary_id=existing_participant,
+                        alias_id=model_id,
+                        content_sha256=content_hash
+                    )
+                    logger.info(
+                        f"Model {model_id} has same content as {existing_participant}, "
+                        f"created alias (hash: {content_hash[:12]}...)"
+                    )
+
         # Register as participant
         self.register_participant(
             participant_id=model_id,
@@ -817,8 +1215,16 @@ class EloService:
             ai_type="neural_net",
             use_neural_net=True,
             model_path=model_path,
-            metadata={"parent_model_id": parent_model_id}
+            metadata={"parent_model_id": parent_model_id, "content_sha256": content_hash}
         )
+
+        # Store model identity for future tracking
+        if model_path and content_hash:
+            file_size = None
+            path = Path(model_path)
+            if path.exists():
+                file_size = path.stat().st_size
+            self._store_model_identity(model_path, content_hash, file_size)
 
         # Initialize rating
         self.get_rating(model_id, board_type, num_players)
@@ -868,12 +1274,20 @@ class EloService:
                 confidence=1.0
             )
 
+        # Resolve participant alias (January 2026 - model identity tracking)
+        # If this participant is an alias for a primary participant with more games,
+        # use the primary's rating instead (they reference the same model content)
+        resolved_id = self._resolve_participant_alias(participant_id)
+        lookup_id = resolved_id if resolved_id != participant_id else participant_id
+        if lookup_id != participant_id:
+            logger.debug(f"Resolved alias {participant_id} -> {lookup_id} for Elo lookup")
+
         conn = self._get_connection()
         cursor = conn.execute("""
             SELECT rating, games_played, wins, losses, draws, last_update
             FROM elo_ratings
             WHERE participant_id = ? AND board_type = ? AND num_players = ?
-        """, (participant_id, board_type, num_players))
+        """, (lookup_id, board_type, num_players))
         row = cursor.fetchone()
 
         if row:

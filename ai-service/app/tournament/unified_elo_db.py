@@ -458,6 +458,44 @@ class EloDatabase:
 
             CREATE INDEX IF NOT EXISTS idx_gauntlet_runs_config
                 ON gauntlet_runs(config_key, started_at DESC);
+
+            -- Model identity tracking (Dec 2025)
+            -- Tracks model files by SHA256 hash for deduplication and alias resolution
+            CREATE TABLE IF NOT EXISTS model_identities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_path TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                file_size INTEGER,
+                first_seen_at REAL DEFAULT (strftime('%s', 'now')),
+                last_verified_at REAL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(model_path, content_sha256)
+            );
+
+            -- Participant aliases for same model content
+            -- Links different participant IDs that refer to the same model file
+            CREATE TABLE IF NOT EXISTS participant_aliases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                primary_participant_id TEXT NOT NULL,
+                alias_participant_id TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                created_at REAL DEFAULT (strftime('%s', 'now')),
+                UNIQUE(primary_participant_id, alias_participant_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_model_identities_hash
+                ON model_identities(content_sha256);
+
+            CREATE INDEX IF NOT EXISTS idx_model_identities_path
+                ON model_identities(model_path);
+
+            CREATE INDEX IF NOT EXISTS idx_participant_aliases_primary
+                ON participant_aliases(primary_participant_id);
+
+            CREATE INDEX IF NOT EXISTS idx_participant_aliases_alias
+                ON participant_aliases(alias_participant_id);
+
+            CREATE INDEX IF NOT EXISTS idx_participant_aliases_hash
+                ON participant_aliases(content_sha256);
         """)
         conn.commit()
 

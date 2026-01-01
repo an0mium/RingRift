@@ -104,6 +104,14 @@ except ImportError:
     def emit_promotion_complete_sync(*args, **kwargs):
         return False
 
+# Import EloService for hash-based model identity tracking (January 2026)
+try:
+    from app.training.elo_service import get_elo_service
+    HAS_ELO_SERVICE = True
+except ImportError:
+    HAS_ELO_SERVICE = False
+    get_elo_service = None
+
 DEFAULT_DB = AI_SERVICE_ROOT / "data" / "unified_elo.db"
 PRODUCTION_DIR = AI_SERVICE_ROOT / "models" / "production"
 PROMOTION_LOG = AI_SERVICE_ROOT / "data" / ".promotion_history.json"
@@ -687,8 +695,53 @@ def promote_after_gauntlet(
 
     # Also copy to canonical location
     canonical_path = AI_SERVICE_ROOT / "models" / f"canonical_{config}.pth"
+
+    # January 2026: Hash-based model identity tracking before promotion
+    # This fixes stale Elo where canonical models appear weak because their
+    # Elo was computed with an older model version
+    if HAS_ELO_SERVICE and get_elo_service is not None:
+        try:
+            elo_service = get_elo_service()
+            # Source participant is the model being promoted (e.g., "ringrift_best_hex8_2p")
+            source_participant_id = f"ringrift_best_{config}"
+            # Target participant is the canonical model
+            target_participant_id = f"canonical_{config}"
+
+            promotion_result = elo_service.handle_model_promotion(
+                source_model_path=str(model_path),
+                target_model_path=str(canonical_path),
+                source_participant_id=source_participant_id,
+                target_participant_id=target_participant_id,
+                board_type=board_type,
+                num_players=num_players,
+            )
+
+            if promotion_result["status"] == "error":
+                print(f"  ⚠ Elo tracking warning: {promotion_result['message']}")
+            elif promotion_result["elo_transferred"]:
+                print(f"  ✓ Elo tracking: {promotion_result['message']}")
+            elif promotion_result["elo_reset"]:
+                print(f"  ⚠ Elo tracking: {promotion_result['message']}")
+            # else: no change or new model, no special message needed
+        except Exception as e:
+            print(f"  ⚠ Elo tracking failed (non-fatal): {e}")
+
     shutil.copy2(model_path, canonical_path)
     print(f"  ✓ Updated canonical model: {canonical_path}")
+
+    # January 2026: Update model identity tracking for target after copy
+    if HAS_ELO_SERVICE and get_elo_service is not None:
+        try:
+            elo_service = get_elo_service()
+            target_participant_id = f"canonical_{config}"
+            elo_service.register_model(
+                model_id=target_participant_id,
+                board_type=board_type,
+                num_players=num_players,
+                model_path=str(canonical_path),
+            )
+        except Exception as e:
+            print(f"  ⚠ Elo identity update failed (non-fatal): {e}")
 
     # Create ringrift_best_* symlink for inference (December 2025)
     symlink_path = AI_SERVICE_ROOT / "models" / f"ringrift_best_{config}.pth"
