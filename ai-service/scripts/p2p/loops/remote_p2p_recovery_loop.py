@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -112,6 +113,7 @@ class RemoteP2PRecoveryStats:
     nodes_verified: int = 0  # Nodes confirmed in P2P mesh after recovery
     nodes_failed: int = 0
     nodes_verification_failed: int = 0  # Started but didn't appear in mesh
+    nodes_skipped_unreachable: int = 0  # Nodes skipped due to failed pre-flight check
     last_recovery_time: float = 0.0
     cycles_run: int = 0
     nodes_skipped_cooldown: int = 0
@@ -124,6 +126,7 @@ class RemoteP2PRecoveryStats:
             "nodes_verified": self.nodes_verified,
             "nodes_failed": self.nodes_failed,
             "nodes_verification_failed": self.nodes_verification_failed,
+            "nodes_skipped_unreachable": self.nodes_skipped_unreachable,
             "last_recovery_time": self.last_recovery_time,
             "cycles_run": self.cycles_run,
             "nodes_skipped_cooldown": self.nodes_skipped_cooldown,
@@ -240,6 +243,31 @@ class RemoteP2PRecoveryLoop(BaseLoop):
         )
         return False
 
+    async def _check_ssh_reachable(self, host: str, port: int, timeout: float = 5.0) -> bool:
+        """Quick TCP check if SSH port is open.
+
+        This pre-flight check avoids wasting time on nodes that are completely
+        unreachable, allowing us to skip them quickly.
+
+        Args:
+            host: SSH host/IP to check
+            port: SSH port (usually 22)
+            timeout: Connection timeout in seconds
+
+        Returns:
+            True if SSH port is reachable, False otherwise.
+        """
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=timeout
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (asyncio.TimeoutError, OSError, ConnectionRefusedError):
+            return False
+
     def _get_paramiko(self) -> Any:
         """Lazy-load paramiko module."""
         if self._paramiko is None:
@@ -291,6 +319,10 @@ class RemoteP2PRecoveryLoop(BaseLoop):
 
             # Skip if retired or not ready
             if node_info.get("status") not in ("ready", "active"):
+                continue
+
+            # Skip if P2P is disabled for this node
+            if not node_info.get("p2p_enabled", True):
                 continue
 
             # Skip if no SSH access configured
@@ -408,12 +440,18 @@ class RemoteP2PRecoveryLoop(BaseLoop):
             logger.warning(f"[RemoteP2PRecovery] No host configured for {node_id}")
             return False
 
+        # Pre-flight check: quickly verify SSH port is reachable
+        if not await self._check_ssh_reachable(host, port):
+            logger.debug(f"[RemoteP2PRecovery] Skipping {node_id} ({host}:{port}): SSH port unreachable")
+            self._stats.nodes_skipped_unreachable += 1
+            return False
+
         logger.info(f"[RemoteP2PRecovery] Starting P2P on {node_id} ({host})")
 
         try:
             # Run SSH operations in thread pool to not block event loop
             result = await asyncio.to_thread(
-                self._ssh_start_p2p, node_id, host, port, user, paramiko
+                self._ssh_start_p2p, node_id, host, port, user, node_info, paramiko
             )
             return result
         except Exception as e:
@@ -421,7 +459,7 @@ class RemoteP2PRecoveryLoop(BaseLoop):
             return False
 
     def _ssh_start_p2p(
-        self, node_id: str, host: str, port: int, user: str, paramiko: Any
+        self, node_id: str, host: str, port: int, user: str, node_info: dict, paramiko: Any
     ) -> bool:
         """Execute SSH commands to start P2P on a node (runs in thread).
 
@@ -430,6 +468,7 @@ class RemoteP2PRecoveryLoop(BaseLoop):
             host: SSH host/IP
             port: SSH port
             user: SSH user
+            node_info: Node configuration from distributed_hosts.yaml
             paramiko: paramiko module
 
         Returns:
@@ -438,12 +477,19 @@ class RemoteP2PRecoveryLoop(BaseLoop):
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+        # Use per-node SSH key if specified, otherwise fall back to default
+        ssh_key = node_info.get("ssh_key", self.config.ssh_key_path)
+        ssh_key = os.path.expanduser(ssh_key)
+
+        # Get ringrift path from node config (supports Vast.ai /workspace, etc.)
+        ringrift_path = node_info.get("ringrift_path", "~/ringrift/ai-service")
+
         try:
             client.connect(
                 host,
                 port=port,
                 username=user,
-                key_filename=self.config.ssh_key_path,
+                key_filename=ssh_key,
                 timeout=self.config.ssh_timeout_seconds,
                 banner_timeout=self.config.ssh_timeout_seconds,
             )
@@ -454,7 +500,7 @@ class RemoteP2PRecoveryLoop(BaseLoop):
 
             # Pull latest code and start P2P
             # Use python3 explicitly since 'python' may not exist on all nodes
-            cmd = f"""cd ~/ringrift/ai-service && \
+            cmd = f"""cd {ringrift_path} && \
 git pull origin main 2>/dev/null || true && \
 PYTHONPATH=. nohup python3 scripts/p2p_orchestrator.py --node-id {node_id} --port 8770 > logs/p2p.log 2>&1 &"""
 
@@ -489,8 +535,20 @@ PYTHONPATH=. nohup python3 scripts/p2p_orchestrator.py --node-id {node_id} --por
                 logger.warning(f"[RemoteP2PRecovery] P2P not running after start on {node_id}")
                 return False
 
-        except Exception as e:
-            logger.warning(f"[RemoteP2PRecovery] SSH error for {node_id}: {e}")
+        except paramiko.AuthenticationException:
+            logger.error(f"[RemoteP2PRecovery] Auth failed for {node_id}: SSH key rejected or wrong user")
+            return False
+        except paramiko.SSHException as e:
+            logger.error(f"[RemoteP2PRecovery] SSH protocol error for {node_id}: {e}")
+            return False
+        except socket.timeout:
+            logger.error(f"[RemoteP2PRecovery] Timeout connecting to {node_id} ({host}): host unreachable")
+            return False
+        except socket.error as e:
+            logger.error(f"[RemoteP2PRecovery] Network error for {node_id} ({host}): {e}")
+            return False
+        except OSError as e:
+            logger.error(f"[RemoteP2PRecovery] OS error for {node_id}: {e}")
             return False
         finally:
             try:
