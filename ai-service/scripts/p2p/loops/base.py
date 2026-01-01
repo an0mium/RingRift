@@ -400,10 +400,21 @@ class BaseLoop(ABC):
         """Get current loop status for monitoring.
 
         Returns:
-            Dictionary with loop status information
+            Dictionary with loop status information including computed status string
         """
+        # Compute status string based on state
+        if not self._running:
+            status = "stopped"
+        elif self._stats.consecutive_errors >= 5:
+            status = "error"
+        elif self._stats.total_runs > 0 and self._stats.success_rate < 0.5:
+            status = "degraded"
+        else:
+            status = "running"
+
         return {
             "name": self.name,
+            "status": status,  # Added: computed status string for monitoring
             "running": self._running,
             "enabled": self.enabled,
             "interval": self.interval,

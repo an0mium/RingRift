@@ -204,6 +204,20 @@ class ElectionHandlersMixin(BaseP2PHandler):
                     )
 
             now = time.time()
+
+            # Jan 1, 2026: Lease epoch validation (Phase 3A fix)
+            # If request has higher epoch, it supersedes cached lease from old leader
+            request_epoch = int(data.get("lease_epoch", 0) or 0)
+            cached_epoch = int(getattr(self, "_voter_lease_epoch", 0) or 0)
+            if request_epoch > cached_epoch:
+                logger.info(
+                    f"[{self.node_id}] Lease epoch {request_epoch} supersedes cached "
+                    f"{cached_epoch}, clearing old grant to {getattr(self, 'voter_grant_leader_id', None)}"
+                )
+                self.voter_grant_leader_id = None
+                self.voter_grant_expires = 0.0
+                self._voter_lease_epoch = request_epoch
+
             current_leader = str(getattr(self, "voter_grant_leader_id", "") or "")
             current_expires = float(getattr(self, "voter_grant_expires", 0.0) or 0.0)
 
@@ -224,6 +238,8 @@ class ElectionHandlersMixin(BaseP2PHandler):
             self.voter_grant_leader_id = leader_id
             self.voter_grant_lease_id = lease_id
             self.voter_grant_expires = now + float(duration)
+            # Jan 1, 2026: Store epoch with grant for supersession tracking
+            self._voter_lease_epoch = max(request_epoch, cached_epoch)
             self._save_state()
 
             lease_ttl_seconds = max(0.0, float(self.voter_grant_expires) - time.time())
@@ -262,6 +278,55 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 "lease_id": str(getattr(self, "voter_grant_lease_id", "") or ""),
                 "lease_expires": expires,
                 "lease_ttl_seconds": max(0.0, expires - now),
+            })
+        except Exception as e:
+            return self.error_response(str(e), status=400)
+
+    async def handle_lease_revoke(self, request: web.Request) -> web.Response:
+        """Voter endpoint: revoke lease when leader steps down.
+
+        Jan 1, 2026: Added for Phase 3B-C fix - leadership stability.
+
+        When a leader steps down (or restarts), it notifies voters to clear their
+        cached grants. This prevents the 60s timeout waiting for lease expiry.
+
+        POST /election/lease_revoke
+        {
+            "leader_id": "node-xyz",     # The leader revoking its lease
+            "epoch": 5                   # Current lease epoch
+        }
+        """
+        try:
+            if not self.check_auth(request):
+                return self.auth_error()
+            data = await self.parse_json_body(request)
+            if data is None:
+                return self.bad_request("Invalid JSON body")
+
+            revoking_leader = str(data.get("leader_id") or "").strip()
+            revoke_epoch = int(data.get("epoch", 0) or 0)
+
+            cleared = False
+            current_leader = str(getattr(self, "voter_grant_leader_id", "") or "")
+
+            # Only clear if this is from the leader we granted to
+            if current_leader == revoking_leader:
+                logger.info(
+                    f"[{self.node_id}] Clearing revoked lease from {revoking_leader}, "
+                    f"epoch={revoke_epoch}"
+                )
+                self.voter_grant_leader_id = None
+                self.voter_grant_expires = 0.0
+                # Increment epoch to prevent stale grants
+                self._voter_lease_epoch = revoke_epoch + 1
+                self._save_state()
+                cleared = True
+
+            return self.json_response({
+                "success": True,
+                "cleared": cleared,
+                "voter_id": self.node_id,
+                "new_epoch": getattr(self, "_voter_lease_epoch", 0),
             })
         except Exception as e:
             return self.error_response(str(e), status=400)

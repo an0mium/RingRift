@@ -25,6 +25,7 @@ becomes the P2P leader. This provides:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -122,6 +123,63 @@ class LeaderElectionMixin(P2PMixinBase):
         self.voter_grant_leader_id = ""
         self.voter_grant_lease_id = ""
         self.voter_grant_expires = 0.0
+
+    async def _notify_voters_lease_revoked(self) -> int:
+        """Notify all voters to revoke cached lease grants.
+
+        Jan 1, 2026: Phase 3B-C fix for leadership stability.
+
+        When stepping down from leadership, this notifies voters to clear their
+        cached grants. This prevents the 60s timeout waiting for lease expiry.
+
+        Returns:
+            Number of voters successfully notified
+        """
+        import aiohttp
+        from aiohttp import ClientTimeout
+
+        voter_node_ids = list(getattr(self, "voter_node_ids", []) or [])
+        if not voter_node_ids:
+            return 0
+
+        # Get current epoch
+        lease_epoch = int(getattr(self, "_lease_epoch", 0) or 0)
+
+        cleared_count = 0
+        timeout = ClientTimeout(total=3)
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for voter_id in voter_node_ids:
+                if voter_id == self.node_id:
+                    # Release our own grant synchronously
+                    self._release_voter_grant_if_self()
+                    cleared_count += 1
+                    continue
+
+                # Get voter peer info
+                peer = self.peers.get(voter_id)
+                if not peer or not peer.is_alive():
+                    continue
+
+                try:
+                    url = self._url_for_peer(peer, "/election/lease_revoke")
+                    resp = await session.post(
+                        url,
+                        json={
+                            "leader_id": self.node_id,
+                            "epoch": lease_epoch,
+                        },
+                        headers=self._auth_headers(),
+                    )
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("cleared"):
+                            cleared_count += 1
+                except (aiohttp.ClientError, asyncio.TimeoutError):
+                    pass  # Expected during step-down
+
+        logger.info(f"Notified {cleared_count}/{len(voter_node_ids)} voters of lease revocation")
+        return cleared_count
 
     # _is_leader_lease_valid: Implemented in P2POrchestrator with additional grace period logic
 

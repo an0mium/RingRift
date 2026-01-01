@@ -129,12 +129,14 @@ class QueuePopulatorLoop(BaseLoop):
             return
 
         # Dec 31, 2025: Log work queue availability
+        # Jan 1, 2026: Fixed to use get_queue_status() instead of non-existent depth()
         from app.coordination.work_queue import get_work_queue
         wq = get_work_queue()
         if wq is None:
             logger.warning(f"[{self.name}] Work queue not available")
             return
-        current_depth = wq.depth() if hasattr(wq, 'depth') else 0
+        wq_status = wq.get_queue_status() if hasattr(wq, 'get_queue_status') else {}
+        current_depth = wq_status.get('total_items', 0)
         logger.debug(f"[{self.name}] Running as LEADER, queue depth={current_depth}")
 
         # Check if all targets are met (run in thread to avoid blocking)

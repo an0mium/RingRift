@@ -8803,6 +8803,30 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             background_loops = {"error": str(e)}
 
+        # Jan 1, 2026: Work queue status for monitoring (Phase 4B fix)
+        work_queue_size = 0
+        active_jobs_count = 0
+        selfplay_jobs_count = 0
+        try:
+            from app.coordination.work_queue import get_work_queue
+            wq = get_work_queue()
+            if wq is not None and hasattr(wq, 'get_queue_status'):
+                wq_status = wq.get_queue_status()
+                work_queue_size = wq_status.get('total_items', 0)
+        except Exception:  # noqa: BLE001
+            pass  # Fall back to 0
+
+        # Count jobs directly from local_jobs
+        if isinstance(jobs, dict) and "error" not in jobs:
+            for job_data in jobs.values():
+                if isinstance(job_data, dict):
+                    status = job_data.get("status", "")
+                    job_type = job_data.get("job_type", "")
+                    if status in ("running", "claimed"):
+                        active_jobs_count += 1
+                    if job_type == "selfplay" and status in ("running", "claimed"):
+                        selfplay_jobs_count += 1
+
         return web.json_response({
             "node_id": self.node_id,
             "role": self.role.value,
@@ -8848,6 +8872,10 @@ class P2POrchestrator(
                 "peers_lock_acquired": peers_snapshot is not None,
                 "jobs_lock_acquired": "error" not in jobs,
             },
+            # Jan 1, 2026: Explicit work queue and job counts (Phase 4B fix)
+            "work_queue_size": work_queue_size,
+            "active_jobs": active_jobs_count,
+            "selfplay_jobs": selfplay_jobs_count,
         })
 
     async def handle_external_work(self, request: web.Request) -> web.Response:
@@ -21022,6 +21050,15 @@ print(json.dumps({{
 
         self._save_state()
 
+        # Jan 1, 2026: Phase 3B-C - notify voters of lease revocation
+        try:
+            asyncio.create_task(self._notify_voters_lease_revoked())
+        except RuntimeError:
+            # Not in async context, schedule on event loop if available
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._notify_voters_lease_revoked(), loop)
+
     def _is_provisional_leader(self) -> bool:
         """Check if we are currently a provisional leader."""
         return self.role == NodeRole.PROVISIONAL_LEADER and self.leader_id == self.node_id
@@ -23956,6 +23993,8 @@ print(json.dumps({{
             self.leader_id = highest_leader.node_id
             self.leader_lease_id = ""
             self.leader_lease_expires = 0.0
+            # Jan 1, 2026: Phase 3B-C - notify voters before releasing local grant
+            await self._notify_voters_lease_revoked()
             self._release_voter_grant_if_self()
             self._save_state()
             return True
@@ -27233,6 +27272,8 @@ print(json.dumps({{
             app.router.add_get('/election/grant', self.handle_voter_grant_status)
             app.router.add_post('/election/reset', self.handle_election_reset)
             app.router.add_post('/election/force_leader', self.handle_election_force_leader)
+            # Jan 1, 2026: Phase 3B-C - lease revocation for leadership stability
+            app.router.add_post('/election/lease_revoke', self.handle_lease_revoke)
             # December 29, 2025: Allow non-voters to request elections via voters
             app.router.add_post('/election/request', self.handle_election_request)
             # Jan 1, 2026: Probabilistic fallback leadership - provisional claim handler
