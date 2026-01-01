@@ -1900,8 +1900,10 @@ class JobManager(EventSubscriptionMixin):
                     f"[EngineBandit] Selected engine '{effective_engine_mode}' for {config_key}"
                 )
             except (ImportError, AttributeError) as e:
-                logger.debug(f"[EngineBandit] Fallback to gumbel-mcts: {e}")
-                effective_engine_mode = "gumbel-mcts"
+                # Dec 31, 2025: Fall back to heuristic-only (not gumbel-mcts) for fast GPU selfplay
+                # gumbel-mcts CPU tree search is too slow even with --no-gpu-tree
+                logger.debug(f"[EngineBandit] Fallback to heuristic-only: {e}")
+                effective_engine_mode = "heuristic-only"
         else:
             effective_engine_mode = "heuristic-only"
         gpu_required = self._engine_mode_requires_gpu(effective_engine_mode)
