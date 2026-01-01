@@ -149,7 +149,8 @@ LOAD_SNAPSHOT_INTERVAL = 3600  # 1 hour - record cluster load for pattern learni
 # Cluster-wide P2P recovery interval (December 31, 2025)
 # SSH into all P2P-enabled nodes and restart P2P on any that aren't responding
 # This complements the local P2P_RECOVERY daemon which handles the coordinator's own P2P
-CLUSTER_P2P_RECOVERY_INTERVAL = int(os.environ.get("RINGRIFT_CLUSTER_P2P_RECOVERY_INTERVAL", "1800"))  # 30 minutes
+# December 31, 2025: Reduced from 30 min to 5 min for faster recovery (48h autonomous operation)
+CLUSTER_P2P_RECOVERY_INTERVAL = int(os.environ.get("RINGRIFT_CLUSTER_P2P_RECOVERY_INTERVAL", "300"))  # 5 minutes
 
 # PID file for master loop detection (December 2025)
 PID_FILE_PATH = Path(__file__).parent.parent / "data" / "coordination" / "master_loop.pid"
@@ -1076,6 +1077,14 @@ class MasterLoopController:
                         await self._run_cluster_p2p_recovery()
                         self._last_cluster_p2p_recovery = now
 
+                    # 10. Emergency P2P recovery on quorum loss (Dec 31, 2025)
+                    # If voter quorum drops below 80%, trigger immediate recovery regardless of interval
+                    # This prevents the cluster from being partitioned for extended periods
+                    if not self._voter_quorum_healthy():
+                        logger.warning("[MasterLoop] Voter quorum unhealthy - triggering immediate P2P recovery")
+                        await self._run_cluster_p2p_recovery()
+                        self._last_cluster_p2p_recovery = now
+
                 except asyncio.CancelledError:
                     # Allow cancellation to propagate for clean shutdown
                     raise
@@ -1843,6 +1852,54 @@ class MasterLoopController:
             logger.warning(f"[MasterLoop] Cluster P2P recovery not available: {e}")
         except Exception as e:
             logger.error(f"[MasterLoop] Error in cluster P2P recovery: {e}", exc_info=True)
+
+    def _voter_quorum_healthy(self) -> bool:
+        """Check if P2P voter quorum is at 80%+ capacity.
+
+        December 31, 2025: Added for 48-hour autonomous operation.
+
+        Returns True if quorum is healthy (80%+ voters alive), False otherwise.
+        Returns True on any error to avoid triggering tight recovery loops.
+
+        The voter quorum is essential for distributed consensus. If too many
+        voters are offline, the cluster can become partitioned and unable to
+        elect a leader or coordinate work.
+        """
+        try:
+            import requests
+
+            resp = requests.get("http://localhost:8770/status", timeout=5)
+            if resp.status_code != 200:
+                return True  # Assume healthy on error
+
+            status = resp.json()
+            voters_alive = status.get("voters_alive", 0)
+            voter_node_ids = status.get("voter_node_ids", [])
+            total_voters = len(voter_node_ids)
+
+            if total_voters == 0:
+                return True  # No voters configured, assume healthy
+
+            quorum_ratio = voters_alive / total_voters
+            quorum_healthy = quorum_ratio >= 0.8
+
+            if not quorum_healthy:
+                logger.warning(
+                    f"[MasterLoop] Voter quorum unhealthy: {voters_alive}/{total_voters} "
+                    f"({quorum_ratio:.0%}) < 80%"
+                )
+
+            return quorum_healthy
+
+        except requests.RequestException:
+            # P2P not responding - let the regular recovery handle it
+            return True
+        except (KeyError, TypeError, ValueError):
+            # Malformed response - assume healthy to avoid tight loops
+            return True
+        except Exception:
+            # Any other error - assume healthy
+            return True
 
     # =========================================================================
     # Training coordination

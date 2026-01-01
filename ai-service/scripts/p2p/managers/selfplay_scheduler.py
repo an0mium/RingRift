@@ -154,13 +154,14 @@ class SelfplayScheduler(EventSubscriptionMixin):
     # - maxn: MaxN search, highest heuristic quality (⚡⚡, ⭐⭐⭐⭐)
     # - policy-only: Neural-guided, needs model (⚡⚡⚡⚡, ⭐⭐⭐) - GPU required
     # - gumbel-mcts: Balanced neural search with budget 64 (⚡⚡, ⭐⭐⭐⭐) - GPU required
+    # Dec 31, 2025: Minimum 15% Gumbel MCTS for quality training data (48h autonomous operation)
     LARGE_BOARD_ENGINE_MIX = [
         # (engine_mode, weight, gpu_required, extra_args)
-        ("heuristic", 40, False, None),  # 40% - fast bootstrap
+        ("heuristic", 35, False, None),  # 35% - fast bootstrap (reduced from 40%)
         ("brs", 20, False, None),  # 20% - good for multiplayer
         ("maxn", 15, False, None),  # 15% - highest heuristic quality
         ("policy-only", 15, True, None),  # 15% - neural guided (GPU)
-        ("gumbel-mcts", 10, True, {"budget": 64}),  # 10% - balanced neural (GPU)
+        ("gumbel-mcts", 15, True, {"budget": 64}),  # 15% - balanced neural (GPU) - min floor
     ]
 
     # CPU-only variant for nodes without GPU

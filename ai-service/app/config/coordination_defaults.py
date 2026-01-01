@@ -2126,7 +2126,9 @@ class SelfplayPriorityWeightDefaults:
         "RINGRIFT_DATA_STARVATION_CRITICAL_THRESHOLD", 1000
     )
     DATA_STARVATION_ULTRA_MULTIPLIER: float = _env_float(
-        "RINGRIFT_DATA_STARVATION_ULTRA_MULTIPLIER", 25.0  # Massive boost for < 20 games
+        # Dec 31, 2025: Increased from 25x to 100x for 48h autonomous operation
+        # Configs with < 20 games desperately need data; 100x ensures they get priority
+        "RINGRIFT_DATA_STARVATION_ULTRA_MULTIPLIER", 100.0
     )
     DATA_STARVATION_EMERGENCY_MULTIPLIER: float = _env_float(
         "RINGRIFT_DATA_STARVATION_EMERGENCY_MULTIPLIER", 10.0

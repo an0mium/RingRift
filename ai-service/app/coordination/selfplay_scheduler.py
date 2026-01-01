@@ -966,14 +966,24 @@ class SelfplayScheduler(HandlerBase):
             ClusterState with current metrics
         """
         # 1. Idle GPU fraction (from node capabilities)
+        # Dec 31, 2025: Enhanced logging to identify which GPU nodes are idle
         idle_gpu_fraction = 0.0
         if self._node_capabilities:
             total_nodes = len(self._node_capabilities)
-            idle_nodes = sum(
-                1 for cap in self._node_capabilities.values()
+            idle_gpu_nodes = [
+                node_id
+                for node_id, cap in self._node_capabilities.items()
                 if cap.current_jobs == 0 and cap.gpu_memory_gb > 0
-            )
+            ]
+            idle_nodes = len(idle_gpu_nodes)
             idle_gpu_fraction = idle_nodes / max(1, total_nodes)
+
+            # Log idle GPU nodes for diagnostics (helps identify underutilized resources)
+            if idle_gpu_nodes:
+                logger.info(
+                    f"[SelfplayScheduler] Idle GPU nodes ({idle_nodes}/{total_nodes}): "
+                    f"{', '.join(idle_gpu_nodes[:5])}{'...' if len(idle_gpu_nodes) > 5 else ''}"
+                )
 
         # 2. Training queue depth (check backpressure monitor)
         training_queue_depth = 0
