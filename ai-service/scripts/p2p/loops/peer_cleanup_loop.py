@@ -127,6 +127,14 @@ class CleanupStats:
     last_cleanup_time: float = 0.0
     cycles_run: int = 0
 
+    @property
+    def total_runs(self) -> int:
+        """Alias for cycles_run to match LoopStats interface.
+
+        Required by LoopManager.start_all() which checks _stats.total_runs.
+        """
+        return self.cycles_run
+
     def to_dict(self) -> dict:
         """Convert stats to dictionary for JSON serialization."""
         return {
@@ -136,6 +144,7 @@ class CleanupStats:
             "tier3_purged": self.tier3_purged,
             "last_cleanup_time": self.last_cleanup_time,
             "cycles_run": self.cycles_run,
+            "total_runs": self.cycles_run,  # Include for consistency
         }
 
 

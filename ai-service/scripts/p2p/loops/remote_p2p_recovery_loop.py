@@ -119,6 +119,14 @@ class RemoteP2PRecoveryStats:
     nodes_skipped_cooldown: int = 0
     ssh_key_missing: bool = False  # SSH key validation failed
 
+    @property
+    def total_runs(self) -> int:
+        """Alias for cycles_run to match LoopStats interface.
+
+        Required by LoopManager.start_all() which checks _stats.total_runs.
+        """
+        return self.cycles_run
+
     def to_dict(self) -> dict:
         """Convert stats to dictionary for JSON serialization."""
         return {
@@ -129,6 +137,7 @@ class RemoteP2PRecoveryStats:
             "nodes_skipped_unreachable": self.nodes_skipped_unreachable,
             "last_recovery_time": self.last_recovery_time,
             "cycles_run": self.cycles_run,
+            "total_runs": self.cycles_run,  # Include for consistency
             "nodes_skipped_cooldown": self.nodes_skipped_cooldown,
             "ssh_key_missing": self.ssh_key_missing,
         }

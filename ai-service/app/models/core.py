@@ -823,6 +823,45 @@ class AIConfig(BaseModel):
         ),
     )
 
+    # ------------------------------------------------------------------
+    # Minimax Quiescence Search Configuration (Dec 2025)
+    #
+    # These fields control quiescence search behavior in MinimaxAI.
+    # Quiescence search explores "noisy" moves (captures, lines) at leaf
+    # nodes to mitigate the horizon effect. On large boards (square19,
+    # hexagonal), unlimited quiescence can cause minimax to exceed time
+    # budgets. These knobs allow tuning for time-constrained scenarios.
+    # ------------------------------------------------------------------
+
+    quiescence_enabled: bool = Field(
+        default=True,
+        description=(
+            "When True (default), MinimaxAI uses quiescence search at leaf nodes "
+            "to explore captures and line formations. When False, returns static "
+            "evaluation at depth 0 (faster but may miss tactical sequences)."
+        ),
+    )
+    quiescence_depth: int | None = Field(
+        default=None,
+        ge=0,
+        le=5,
+        description=(
+            "Maximum depth for quiescence search. When None, uses adaptive depth "
+            "based on board size: 3 for small boards (<100 cells), 2 for medium "
+            "(100-200), 1 for large (>200). Explicit values override this."
+        ),
+    )
+    quiescence_node_limit: int | None = Field(
+        default=None,
+        ge=100,
+        le=100000,
+        description=(
+            "Maximum nodes to visit in quiescence search across all leaf nodes. "
+            "When None, uses a default of 10000 nodes. Helps enforce time limits "
+            "on large boards where quiescence can explore thousands of positions."
+        ),
+    )
+
 
 class LineRewardChoiceOption(str, Enum):
     """Line reward choice options, mirroring TypeScript LineRewardChoice."""

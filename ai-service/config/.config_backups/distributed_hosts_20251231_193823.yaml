@@ -30,9 +30,6 @@ sync_routing:
   target_disk_usage_percent: 60
   min_free_disk_percent: 15
   replication_target: 3
-  # Dec 30, 2025: Hetzner nodes excluded until SSH key is authorized
-  # These nodes are CPU-only P2P voters, not critical for data sync
-  # TODO: Re-enable after running ssh-copy-id to these hosts
   excluded_hosts:
     - hetzner-cpu1
     - hetzner-cpu2
@@ -61,12 +58,13 @@ sync_routing:
     - nebius-h100-3
     - nebius-h100-1
     - runpod-a100-storage-1
-  # Dec 30, 2025: Updated based on actual game counts
-  # Configs with <5,000 games need priority selfplay allocation
   underserved_configs:
-    - hex8_3p # 1,279 games - CRITICAL
-    - square19_4p # 2,830 games - LOW
-    - hexagonal_3p # 3,316 games - LOW
+    # December 31, 2025: Reordered by criticality for 48h autonomous operation
+    - square8_4p # ULTRA CRITICAL - only 16 canonical games
+    - square19_4p # CRITICAL - 574 games
+    - hex8_3p # CRITICAL - 596 games
+    - square19_3p # HIGH - 1,257 games
+    - hexagonal_3p # HIGH - 2,084 games
 auto_sync:
   enabled: true
   interval_seconds: 60
@@ -94,6 +92,7 @@ elo_sync:
     - http
 p2p_voters:
   - local-mac
+  - mac-studio
   - nebius-backbone-1
   - nebius-h100-3
   - hetzner-cpu1
@@ -175,7 +174,7 @@ hosts:
     training_enabled: false
     p2p_enabled: true
     nat_blocked: true
-    force_relay_mode: true
+    force_relay_mode: false
   lambda-gh200-2:
     ssh_host: 192.222.57.140
     tailscale_ip: 100.110.143.119
@@ -193,7 +192,7 @@ hosts:
     training_enabled: false
     p2p_enabled: true
     nat_blocked: true
-    force_relay_mode: true
+    force_relay_mode: false
   lambda-gh200-3:
     ssh_host: 192.222.51.29
     tailscale_ip: 100.69.101.108
@@ -207,11 +206,11 @@ hosts:
     gpu_vram_gb: 96
     role: gpu_training_primary
     status: ready
-    selfplay_enabled: false
+    selfplay_enabled: true
     training_enabled: true
     p2p_enabled: true
     nat_blocked: true
-    force_relay_mode: true
+    force_relay_mode: false
   lambda-gh200-4:
     ssh_host: 192.222.57.184
     tailscale_ip: 100.77.186.124
@@ -225,11 +224,11 @@ hosts:
     gpu_vram_gb: 96
     role: gpu_training_primary
     status: ready
-    selfplay_enabled: false
+    selfplay_enabled: true
     training_enabled: true
     p2p_enabled: true
     nat_blocked: true
-    force_relay_mode: true
+    force_relay_mode: false
   lambda-gh200-5:
     ssh_host: 192.222.58.171
     tailscale_ip: 100.83.177.16
@@ -243,11 +242,11 @@ hosts:
     gpu_vram_gb: 96
     role: gpu_training_primary
     status: ready
-    selfplay_enabled: false
+    selfplay_enabled: true
     training_enabled: true
     p2p_enabled: true
     nat_blocked: true
-    force_relay_mode: true
+    force_relay_mode: false
   lambda-gh200-training:
     ssh_host: 192.222.51.195
     tailscale_ip: 100.68.208.43
@@ -261,11 +260,11 @@ hosts:
     gpu_vram_gb: 96
     role: gpu_training_primary
     status: ready
-    selfplay_enabled: false
+    selfplay_enabled: true
     training_enabled: true
     p2p_enabled: true
     nat_blocked: true
-    force_relay_mode: true
+    force_relay_mode: false
   lambda-gh200-7:
     ssh_host: 192.222.56.232
     tailscale_ip: 100.78.141.94
@@ -279,7 +278,7 @@ hosts:
     gpu_vram_gb: 96
     role: gpu_training_primary
     status: ready
-    selfplay_enabled: false
+    selfplay_enabled: true
     training_enabled: true
     p2p_enabled: true
     nat_blocked: true
@@ -362,7 +361,7 @@ hosts:
     gpu: 8x RTX 4090
     gpu_vram_gb: 192
     role: gpu_selfplay_primary
-    status: offline
+    status: ready
     vast_instance_id: '29129529'
     p2p_enabled: false
     is_ephemeral: true
@@ -384,7 +383,7 @@ hosts:
     gpu: 8x RTX 3090
     gpu_vram_gb: 192
     role: gpu_selfplay_primary
-    status: offline
+    status: ready
     vast_instance_id: '29118471'
     p2p_enabled: true
     is_ephemeral: true
@@ -403,7 +402,7 @@ hosts:
     gpu: 2x RTX 5090
     gpu_vram_gb: 64
     role: nn_training_primary
-    status: offline
+    status: ready
     vast_instance_id: '29128352'
     p2p_enabled: false
     is_ephemeral: true
@@ -424,7 +423,7 @@ hosts:
     gpu: RTX 5090
     gpu_vram_gb: 32
     role: nn_training_primary
-    status: offline
+    status: ready
     vast_instance_id: '28925166'
     p2p_enabled: true
     is_ephemeral: true
@@ -464,7 +463,7 @@ hosts:
     gpu: A40
     gpu_vram_gb: 46
     role: gpu_selfplay
-    status: offline
+    status: ready
     vast_instance_id: '28918742'
     p2p_enabled: true
     is_ephemeral: true
@@ -484,7 +483,7 @@ hosts:
     gpu: RTX 5080
     gpu_vram_gb: 16
     role: gpu_selfplay
-    status: offline
+    status: ready
     vast_instance_id: '29031159'
     p2p_enabled: true
     is_ephemeral: true
@@ -505,7 +504,7 @@ hosts:
     gpu: RTX 4060 Ti
     gpu_vram_gb: 16
     role: gpu_selfplay
-    status: offline
+    status: ready
     vast_instance_id: '29126088'
     p2p_enabled: true
     is_ephemeral: true
@@ -545,7 +544,7 @@ hosts:
     gpu: RTX 2080 Ti
     gpu_vram_gb: 11
     role: gpu_selfplay
-    status: offline
+    status: ready
     vast_instance_id: '28890015'
     p2p_enabled: true
     is_ephemeral: true
@@ -565,7 +564,7 @@ hosts:
     gpu: RTX 3060 Ti
     gpu_vram_gb: 8
     role: gpu_selfplay
-    status: offline
+    status: ready
     vast_instance_id: '28889766'
     p2p_enabled: true
     is_ephemeral: true
@@ -605,7 +604,7 @@ hosts:
     gpu: RTX 5090
     gpu_vram_gb: 32
     role: gpu_selfplay
-    status: offline
+    status: ready
     vast_instance_id: '29118472'
     p2p_enabled: true
     is_ephemeral: true
@@ -624,7 +623,7 @@ hosts:
     gpu: RTX 5090
     gpu_vram_gb: 32
     role: gpu_selfplay
-    status: offline
+    status: ready
     vast_instance_id: '29129151'
     p2p_enabled: false
     is_ephemeral: true
@@ -687,11 +686,13 @@ hosts:
     role: gpu_selfplay
     status: ready
     runpod_id: yu03gfn71vrsj7
+    selfplay_enabled: true
+    training_enabled: true
     p2p_enabled: true
     is_container: true
     needs_userspace_tailscale: true
     socks5_port: 1055
-    note: Updated Dec 29, 2025
+    note: Updated Dec 31, 2025 - enabled selfplay
   runpod-a100-storage-1:
     ssh_host: 213.173.105.7
     tailscale_ip: 100.74.137.51
@@ -766,7 +767,8 @@ hosts:
     gpu: A100D-20C (vGPU)
     gpu_vram_gb: 20
     role: gpu_selfplay
-    status: retired
+    status: ready
+    selfplay_enabled: true
     vultr_id: 7d37247e-37ab-4d21-9eeb-ce082ebad05a
     region: ewr
     p2p_enabled: true

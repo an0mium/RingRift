@@ -161,6 +161,43 @@ class MinimaxAI(HeuristicAI):
                 "Policy move ordering will be initialized on first move"
             )
 
+        # Quiescence search configuration (Dec 2025)
+        # Controls quiescence search to prevent time budget overruns on large boards
+        self.quiescence_enabled: bool = getattr(config, 'quiescence_enabled', True)
+        self.quiescence_depth_override: int | None = getattr(config, 'quiescence_depth', None)
+        self.quiescence_node_limit: int = getattr(config, 'quiescence_node_limit', None) or 10000
+        # Track nodes visited specifically in quiescence (reset per search)
+        self.quiescence_nodes: int = 0
+        # Board size for adaptive quiescence depth (set on first move)
+        self._board_cells: int | None = None
+
+        logger.debug(
+            f"MinimaxAI(player={player_number}): quiescence_enabled={self.quiescence_enabled}, "
+            f"quiescence_depth_override={self.quiescence_depth_override}, "
+            f"quiescence_node_limit={self.quiescence_node_limit}"
+        )
+
+    def _get_quiescence_depth(self) -> int:
+        """Get quiescence depth, adapting to board size if not explicitly set.
+
+        Returns:
+            Quiescence depth: 3 for small boards (<100 cells), 2 for medium
+            (100-200 cells), 1 for large boards (>200 cells).
+        """
+        if self.quiescence_depth_override is not None:
+            return self.quiescence_depth_override
+
+        # Adaptive depth based on board size
+        if self._board_cells is None:
+            return 3  # Default before board size is known
+
+        if self._board_cells > 200:  # hexagonal (469), square19 (361)
+            return 1
+        elif self._board_cells > 100:  # hex8 (61) gets 3, but nothing in 100-200 range currently
+            return 2
+        else:
+            return 3  # square8 (64), hex8 (61)
+
     def _init_policy_model(self, board_type: BoardType, num_players: int) -> None:
         """Initialize policy model for move ordering."""
         if not self._pending_policy_init:
@@ -371,6 +408,22 @@ class MinimaxAI(HeuristicAI):
         if getattr(self, '_pending_policy_init', False):
             board_type = game_state.board.type
             self._init_policy_model(board_type, num_players)
+
+        # Initialize board size for adaptive quiescence depth (Dec 2025)
+        if self._board_cells is None:
+            board = game_state.board
+            if hasattr(board, 'cells') and board.cells:
+                # Count actual cells (some may be None for hex boards)
+                self._board_cells = sum(
+                    1 for row in board.cells for cell in row if cell is not None
+                )
+            elif hasattr(board, 'size'):
+                self._board_cells = board.size * board.size
+            else:
+                self._board_cells = 64  # Default fallback
+
+        # Reset quiescence node counter for this search
+        self.quiescence_nodes = 0
 
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
@@ -610,14 +663,18 @@ class MinimaxAI(HeuristicAI):
                 return entry['score']
 
         if depth == 0:
-            # Use Quiescence Search at leaf nodes
-            score = self._quiescence_search(
-                game_state,
-                alpha,
-                beta,
-                (game_state.current_player == self.player_number),
-                depth=3
-            )
+            # Use Quiescence Search at leaf nodes (if enabled)
+            if self.quiescence_enabled:
+                q_depth = self._get_quiescence_depth()
+                score = self._quiescence_search(
+                    game_state,
+                    alpha,
+                    beta,
+                    (game_state.current_player == self.player_number),
+                    depth=q_depth
+                )
+            else:
+                score = self.evaluate_position(game_state)
             self.transposition_table.put(state_hash, {
                 'score': score,
                 'depth': depth,
@@ -842,13 +899,18 @@ class MinimaxAI(HeuristicAI):
                 return entry['score']
 
         if depth == 0:
-            score = self._quiescence_search_mutable(
-                state,
-                alpha,
-                beta,
-                (state.current_player == self.player_number),
-                depth=3,
-            )
+            # Use Quiescence Search at leaf nodes (if enabled)
+            if self.quiescence_enabled:
+                q_depth = self._get_quiescence_depth()
+                score = self._quiescence_search_mutable(
+                    state,
+                    alpha,
+                    beta,
+                    (state.current_player == self.player_number),
+                    depth=q_depth,
+                )
+            else:
+                score = self._evaluate_mutable(state)
             self.transposition_table.put(state_hash, {
                 'score': score,
                 'depth': depth,
@@ -977,16 +1039,27 @@ class MinimaxAI(HeuristicAI):
 
         Explores noisy moves (captures, line formations) to mitigate the
         horizon effect without the overhead of immutable state cloning.
+
+        Dec 2025: Added time and node limit checks inside move loops to prevent
+        quiescence from exceeding time budgets on large boards.
         """
+        # Track quiescence nodes for limit enforcement
+        self.quiescence_nodes += 1
+
         # Ensure max/min tracking matches the actual side-to-move; this matters
         # for phases where a player may take multiple moves in a row.
         maximizing_player = (state.current_player == self.player_number)
         stand_pat = self._evaluate_mutable(state)
 
+        # Time limit check at start of each quiescence call
         if (
             self.time_limit > 0
             and (time.time() - self.start_time) > self.time_limit
         ):
+            return stand_pat
+
+        # Node limit check to prevent runaway quiescence on large boards
+        if self.quiescence_nodes >= self.quiescence_node_limit:
             return stand_pat
 
         if maximizing_player:
@@ -1035,6 +1108,13 @@ class MinimaxAI(HeuristicAI):
 
         if is_me:
             for _, move in scored_moves:
+                # Time and node limit check inside move loop (Dec 2025)
+                if (self.time_limit > 0 and
+                    (time.time() - self.start_time) > self.time_limit):
+                    return alpha
+                if self.quiescence_nodes >= self.quiescence_node_limit:
+                    return alpha
+
                 undo = state.make_move(move)
                 next_is_me = (state.current_player == self.player_number)
                 score = self._quiescence_search_mutable(
@@ -1053,6 +1133,13 @@ class MinimaxAI(HeuristicAI):
             return alpha
         else:
             for _, move in scored_moves:
+                # Time and node limit check inside move loop (Dec 2025)
+                if (self.time_limit > 0 and
+                    (time.time() - self.start_time) > self.time_limit):
+                    return beta
+                if self.quiescence_nodes >= self.quiescence_node_limit:
+                    return beta
+
                 undo = state.make_move(move)
                 next_is_me = (state.current_player == self.player_number)
                 score = self._quiescence_search_mutable(
@@ -1298,6 +1385,9 @@ class MinimaxAI(HeuristicAI):
         Quiescence search to mitigate horizon effect by exploring noisy moves.
         (Legacy version using immutable state cloning)
         """
+        # Track quiescence nodes for limit enforcement (Dec 2025)
+        self.quiescence_nodes += 1
+
         # Ensure max/min tracking matches the actual side-to-move; this matters
         # for phases where a player may take multiple moves in a row.
         maximizing_player = (game_state.current_player == self.player_number)
@@ -1310,6 +1400,10 @@ class MinimaxAI(HeuristicAI):
             self.time_limit > 0
             and (time.time() - self.start_time) > self.time_limit
         ):
+            return stand_pat
+
+        # Node limit check (Dec 2025) - prevent runaway quiescence on large boards
+        if self.quiescence_nodes >= self.quiescence_node_limit:
             return stand_pat
 
         if maximizing_player:
@@ -1356,6 +1450,15 @@ class MinimaxAI(HeuristicAI):
 
         if is_me:
             for _, move in scored_moves:
+                # Time and node limit check inside move loop (Dec 2025)
+                if (
+                    self.time_limit > 0
+                    and (time.time() - self.start_time) > self.time_limit
+                ):
+                    return alpha
+                if self.quiescence_nodes >= self.quiescence_node_limit:
+                    return alpha
+
                 next_state = self.rules_engine.apply_move(game_state, move)
                 next_is_me = (next_state.current_player == self.player_number)
                 score = self._quiescence_search(
@@ -1373,6 +1476,15 @@ class MinimaxAI(HeuristicAI):
             return alpha
         else:
             for _, move in scored_moves:
+                # Time and node limit check inside move loop (Dec 2025)
+                if (
+                    self.time_limit > 0
+                    and (time.time() - self.start_time) > self.time_limit
+                ):
+                    return beta
+                if self.quiescence_nodes >= self.quiescence_node_limit:
+                    return beta
+
                 next_state = self.rules_engine.apply_move(game_state, move)
                 # Check who is next (similar to minimax)
                 next_is_me = (next_state.current_player == self.player_number)
