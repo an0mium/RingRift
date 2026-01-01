@@ -196,15 +196,34 @@ class SelfplayScheduler(EventSubscriptionMixin):
     # Standard board types that should use the standard board engine mix
     STANDARD_BOARD_TYPES = {"hex8", "square8"}
 
+    # Dec 31, 2025: 2-player specific engine mix with MINIMAX for stronger search
+    # MINIMAX is only valid for 2-player games (perfect information adversarial search)
+    TWO_PLAYER_ENGINE_MIX = [
+        # (engine_mode, weight, gpu_required, extra_args)
+        ("heuristic", 20, False, None),  # 20% - fast bootstrap
+        ("minimax", 20, False, {"depth": 4}),  # 20% - classic adversarial (2p only)
+        ("policy-only", 20, True, None),  # 20% - neural guided (GPU)
+        ("gumbel-mcts", 30, True, {"budget": 150}),  # 30% - balanced neural (GPU)
+        ("descent", 10, True, None),  # 10% - exploration via descent (GPU)
+    ]
+
+    TWO_PLAYER_ENGINE_MIX_CPU = [
+        # (engine_mode, weight, gpu_required, extra_args)
+        ("heuristic", 40, False, None),  # 40% - fast bootstrap
+        ("minimax", 60, False, {"depth": 4}),  # 60% - classic adversarial (2p only)
+    ]
+
     @classmethod
     def _select_board_engine(
         cls,
         has_gpu: bool,
         board_type: str,
+        num_players: int = 0,
     ) -> tuple[str, dict[str, Any] | None]:
         """Select an engine mode from the appropriate engine mix for the board type.
 
         Uses weighted random selection from the engine mix matching the board type:
+        - 2-player games: TWO_PLAYER_ENGINE_MIX (includes MINIMAX)
         - Large boards (square19, hexagonal): LARGE_BOARD_ENGINE_MIX
         - Standard boards (hex8, square8): STANDARD_BOARD_ENGINE_MIX
 
@@ -213,6 +232,7 @@ class SelfplayScheduler(EventSubscriptionMixin):
         Args:
             has_gpu: Whether the node has GPU capability
             board_type: Board type to select engine for
+            num_players: Number of players (2-player uses special MINIMAX mix)
 
         Returns:
             Tuple of (engine_mode, extra_args) where extra_args may contain
@@ -220,9 +240,15 @@ class SelfplayScheduler(EventSubscriptionMixin):
 
         December 2025: Extended to support mixed-engine strategy for ALL board types,
         not just large boards. BRS and MaxN now available for hex8/square8 diversity.
+        December 31, 2025: Added 2-player specific engine mix with MINIMAX.
         """
+        # Dec 31, 2025: Use 2-player engine mix for 2-player games
+        # MINIMAX is only valid for 2-player adversarial games
+        if num_players == 2:
+            engine_mix = cls.TWO_PLAYER_ENGINE_MIX if has_gpu else cls.TWO_PLAYER_ENGINE_MIX_CPU
+            board_category = "2-player"
         # Select appropriate engine mix based on board type and GPU availability
-        if board_type in cls.LARGE_BOARD_TYPES:
+        elif board_type in cls.LARGE_BOARD_TYPES:
             engine_mix = cls.LARGE_BOARD_ENGINE_MIX if has_gpu else cls.LARGE_BOARD_ENGINE_MIX_CPU
             board_category = "large"
         else:
@@ -1424,9 +1450,11 @@ class SelfplayScheduler(EventSubscriptionMixin):
             # Apply engine mix for any board type with "mixed" or "diverse" mode
             if engine_mode in ("mixed", "diverse"):
                 has_gpu = self._node_has_gpu(node)
+                num_players = selected.get("num_players", 0)
                 actual_engine, extra_args = self._select_board_engine(
                     has_gpu=has_gpu,
                     board_type=board_type,
+                    num_players=num_players,
                 )
 
                 # Update the config with the selected engine
@@ -1435,9 +1463,14 @@ class SelfplayScheduler(EventSubscriptionMixin):
                     selected["engine_extra_args"] = extra_args
 
                 # Determine board category for logging
-                board_category = "large" if board_type in self.LARGE_BOARD_TYPES else "standard"
+                if num_players == 2:
+                    board_category = "2-player"
+                elif board_type in self.LARGE_BOARD_TYPES:
+                    board_category = "large"
+                else:
+                    board_category = "standard"
                 logger.info(
-                    f"{board_category.capitalize()} board engine mix: {board_type} '{engine_mode}' -> "
+                    f"{board_category.capitalize()} board engine mix: {board_type}_{num_players}p '{engine_mode}' -> "
                     f"'{actual_engine}' (gpu={has_gpu}, extra_args={extra_args})"
                 )
 

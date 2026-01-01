@@ -76,7 +76,7 @@ class TournamentDaemonConfig:
     games_per_evaluation: int = 20
     games_per_baseline: int = 10
     # Extended baselines for diverse Elo population (Dec 2025)
-    # Includes random, heuristic variants, and MCTS at different strengths
+    # Includes random, heuristic variants, MCTS, and NNUE at different strengths
     baselines: list[str] = field(default_factory=lambda: [
         "random",           # ~400 Elo - baseline anchor
         "heuristic",        # ~1200 Elo - standard gate
@@ -84,6 +84,17 @@ class TournamentDaemonConfig:
         "mcts_light",       # ~1500 Elo - 32 simulations
         "mcts_medium",      # ~1700 Elo - 128 simulations
     ])
+
+    # Dec 31, 2025: NNUE baselines for architecture diversity
+    # Added separately since they require NNUE model for the config
+    nnue_baselines_2p: list[str] = field(default_factory=lambda: [
+        "nnue_minimax_d4",  # ~1600 Elo - NNUE + minimax depth 4 (2-player only)
+    ])
+    nnue_baselines_mp: list[str] = field(default_factory=lambda: [
+        "nnue_brs_d3",      # ~1550 Elo - NNUE + BRS depth 3 (3-4 player)
+        "nnue_maxn_d3",     # ~1650 Elo - NNUE + MaxN depth 3 (3-4 player)
+    ])
+    enable_nnue_baselines: bool = True  # Test against NNUE baselines when available
 
     # Game recording for training data (Dec 2025)
     # When enabled, tournament games are saved to canonical databases for training
@@ -100,6 +111,13 @@ class TournamentDaemonConfig:
     enable_cross_nn_tournaments: bool = True
     cross_nn_interval_seconds: float = 3600.0 * 4  # Every 4 hours
     cross_nn_games_per_pairing: int = 20
+
+    # Multi-harness evaluation - evaluate model under all compatible harnesses (Dec 31, 2025)
+    # Tests model with MINIMAX, MAXN, BRS, GUMBEL_MCTS, etc. to find best (model, harness) combo
+    enable_multi_harness_evaluation: bool = True
+    multi_harness_games_per_baseline: int = 10
+    # Only run multi-harness after model passes basic RANDOM/HEURISTIC gate
+    multi_harness_min_baseline_winrate: float = 0.60  # 60% vs heuristic required
 
     # Concurrency
     max_concurrent_games: int = 4
@@ -556,6 +574,47 @@ class TournamentDaemon:
                 f"win_rates={results['win_rates']}, elo={results['elo']}"
             )
 
+            # Dec 31, 2025: Multi-harness evaluation for harness diversity
+            # Only run if model passed the baseline gate (60%+ vs heuristic)
+            heuristic_winrate = results["win_rates"].get("heuristic", 0.0)
+            if (
+                self.config.enable_multi_harness_evaluation
+                and heuristic_winrate >= self.config.multi_harness_min_baseline_winrate
+            ):
+                try:
+                    multi_harness_results = await self._run_multi_harness_evaluation(
+                        model_path, board_type, num_players
+                    )
+                    results["multi_harness"] = multi_harness_results
+                    logger.info(
+                        f"Multi-harness evaluation complete: best_harness={multi_harness_results.get('best_harness')}, "
+                        f"best_elo={multi_harness_results.get('best_elo')}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Multi-harness evaluation failed (non-fatal): {e}")
+                    results["multi_harness_error"] = str(e)
+            elif self.config.enable_multi_harness_evaluation:
+                logger.debug(
+                    f"Skipping multi-harness: heuristic winrate {heuristic_winrate:.1%} < "
+                    f"{self.config.multi_harness_min_baseline_winrate:.1%} threshold"
+                )
+
+            # Dec 31, 2025: NNUE baseline evaluation for architecture diversity
+            # Tests model against NNUE-based baselines when NNUE model exists for config
+            if self.config.enable_nnue_baselines and heuristic_winrate >= 0.50:
+                try:
+                    nnue_results = await self._run_nnue_baseline_evaluation(
+                        model_path, board_type, num_players, recording_config
+                    )
+                    if nnue_results:
+                        results["nnue_baselines"] = nnue_results
+                        logger.info(
+                            f"NNUE baseline evaluation complete: {nnue_results}"
+                        )
+                except Exception as e:
+                    logger.warning(f"NNUE baseline evaluation failed (non-fatal): {e}")
+                    results["nnue_baseline_error"] = str(e)
+
         except asyncio.TimeoutError:
             logger.error(f"Evaluation timeout: {model_path}")
             results["error"] = "timeout"
@@ -632,6 +691,173 @@ class TournamentDaemon:
             results["error"] = str(e)
 
         return results
+
+    async def _run_multi_harness_evaluation(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+    ) -> dict[str, Any]:
+        """Run multi-harness evaluation to find best (model, harness) combo.
+
+        December 31, 2025: Integrates MultiHarnessGauntlet for harness diversity.
+        Tests model under MINIMAX, MAXN, BRS, GUMBEL_MCTS, etc.
+
+        Args:
+            model_path: Path to model checkpoint
+            board_type: Board type
+            num_players: Number of players
+
+        Returns:
+            Dict with per-harness Elo ratings and best harness
+        """
+        from app.training.multi_harness_gauntlet import MultiHarnessGauntlet
+
+        gauntlet = MultiHarnessGauntlet(
+            default_games_per_baseline=self.config.multi_harness_games_per_baseline,
+            default_baselines=["random", "heuristic"],
+        )
+
+        # Run evaluation under all compatible harnesses
+        result = await gauntlet.evaluate_model(
+            model_path=model_path,
+            board_type=board_type,
+            num_players=num_players,
+        )
+
+        # Extract per-harness results for tracking
+        harness_elos = {}
+        for harness_type, elo_rating in result.harness_results.items():
+            harness_name = harness_type.value if hasattr(harness_type, "value") else str(harness_type)
+            harness_elos[harness_name] = {
+                "elo": elo_rating.elo,
+                "win_rate": elo_rating.win_rate,
+                "games": elo_rating.games_played,
+            }
+
+            # Emit per-harness EVALUATION_COMPLETED event for Elo tracking
+            await self._emit_harness_evaluation_completed(
+                model_path=model_path,
+                board_type=board_type,
+                num_players=num_players,
+                harness_type=harness_name,
+                elo=elo_rating.elo,
+                win_rate=elo_rating.win_rate,
+            )
+
+        return {
+            "best_harness": result.best_harness.value if result.best_harness else None,
+            "best_elo": result.best_elo,
+            "total_games": result.total_games,
+            "evaluation_time_seconds": result.evaluation_time_seconds,
+            "harness_results": harness_elos,
+        }
+
+    async def _run_nnue_baseline_evaluation(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        recording_config: Any = None,
+    ) -> dict[str, Any] | None:
+        """Run evaluation against NNUE-based baselines (Dec 31, 2025).
+
+        Tests the model against NNUE baselines to compare NN vs NNUE performance:
+        - 2-player: Uses NNUE_MINIMAX_D4
+        - 3-4 player: Uses NNUE_BRS_D3 and NNUE_MAXN_D3
+
+        Returns:
+            Results dict with win rates per NNUE baseline, or None if NNUE unavailable
+        """
+        from pathlib import Path
+
+        # Check if NNUE model exists for this config
+        nnue_model_path = Path(f"models/nnue/nnue_{board_type}_{num_players}p.pt")
+        if not nnue_model_path.exists():
+            # Also check alternative naming convention
+            nnue_model_path = Path(f"models/nnue_{board_type}_{num_players}p.pt")
+            if not nnue_model_path.exists():
+                logger.debug(f"No NNUE model found for {board_type}_{num_players}p")
+                return None
+
+        try:
+            from app.training.game_gauntlet import BaselineOpponent, run_baseline_gauntlet
+
+            # Select appropriate NNUE baselines based on player count
+            if num_players == 2:
+                nnue_opponents = [BaselineOpponent.NNUE_MINIMAX_D4]
+            else:
+                nnue_opponents = [
+                    BaselineOpponent.NNUE_BRS_D3,
+                    BaselineOpponent.NNUE_MAXN_D3,
+                ]
+
+            # Run gauntlet against NNUE baselines
+            gauntlet_results = await asyncio.wait_for(
+                asyncio.to_thread(
+                    run_baseline_gauntlet,
+                    model_path=model_path,
+                    board_type=board_type,
+                    num_players=num_players,
+                    games_per_opponent=self.config.games_per_baseline,
+                    opponents=nnue_opponents,
+                    recording_config=recording_config,
+                ),
+                timeout=self.config.evaluation_timeout_seconds / 2,  # Use half timeout
+            )
+
+            # Extract win rates per NNUE opponent
+            results = {
+                "nnue_model": str(nnue_model_path),
+                "win_rates": {},
+            }
+            for opponent, stats in gauntlet_results.opponent_results.items():
+                results["win_rates"][opponent] = stats.get("win_rate", 0.0)
+
+            return results
+
+        except asyncio.TimeoutError:
+            logger.warning(f"NNUE baseline evaluation timed out for {board_type}_{num_players}p")
+            return None
+        except ImportError as e:
+            logger.debug(f"NNUE baseline dependencies not available: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"NNUE baseline evaluation error: {e}")
+            return None
+
+    async def _emit_harness_evaluation_completed(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        harness_type: str,
+        elo: float,
+        win_rate: float,
+    ) -> None:
+        """Emit HARNESS_EVALUATION_COMPLETED event for per-harness Elo tracking.
+
+        December 31, 2025: Enables tracking Elo per (model, harness) combination.
+        """
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            config_key = f"{board_type}_{num_players}p"
+            await emit_data_event(
+                DataEventType.HARNESS_EVALUATION_COMPLETED,
+                payload={
+                    "config_key": config_key,
+                    "model_path": model_path,
+                    "harness_type": harness_type,
+                    "elo": elo,
+                    "win_rate": win_rate,
+                },
+                source="tournament_daemon",
+            )
+        except ImportError:
+            pass  # Event system not available
+        except Exception as e:
+            logger.debug(f"Failed to emit HARNESS_EVALUATION_COMPLETED: {e}")
 
     async def _run_ladder_tournament(self) -> dict[str, Any]:
         """Run a ladder tournament across all configurations.
@@ -715,10 +941,13 @@ class TournamentDaemon:
             from app.models import BoardType
 
             # Define calibration matchups: (stronger, weaker, expected_win_rate)
+            # Dec 31, 2025: Added NNUE calibration pairs for architecture diversity
             calibration_pairs = [
                 (BaselineOpponent.HEURISTIC, BaselineOpponent.RANDOM, 0.90),
                 (BaselineOpponent.HEURISTIC_STRONG, BaselineOpponent.HEURISTIC, 0.55),
                 (BaselineOpponent.MCTS_LIGHT, BaselineOpponent.HEURISTIC_STRONG, 0.55),
+                # NNUE calibration (NNUE_MINIMAX should beat HEURISTIC_STRONG)
+                (BaselineOpponent.NNUE_MINIMAX_D4, BaselineOpponent.HEURISTIC_STRONG, 0.55),
             ]
 
             # Use square8_2p for calibration (fast games)
@@ -892,6 +1121,25 @@ class TournamentDaemon:
                         config_models[config_key] = []
                     config_models[config_key].append((version, model_path))
 
+            # Dec 31, 2025: Also discover named architecture variants (v5heavy, v5-heavy-large)
+            # Pattern: canonical_{board}_{n}p_{variant}.pth
+            variant_pattern = re.compile(
+                r"canonical_(?P<board>\w+)_(?P<players>\d)p_(?P<variant>v5heavy|v5-heavy|v5-heavy-large|v4|nnue)\.pth"
+            )
+
+            for model_path in models_dir.glob("canonical_*_*.pth"):
+                match = variant_pattern.match(model_path.name)
+                if match:
+                    board = match.group("board")
+                    players = int(match.group("players"))
+                    variant = match.group("variant")
+                    config_key = (board, players)
+
+                    if config_key not in config_models:
+                        config_models[config_key] = []
+                    # Use variant name as version identifier
+                    config_models[config_key].append((variant, model_path))
+
             games_per_pairing = self.config.cross_nn_games_per_pairing
             total_games = 0
 
@@ -899,12 +1147,27 @@ class TournamentDaemon:
                 if len(models) < 2:
                     continue  # Need at least 2 versions to compare
 
-                # Sort by version (base < v2 < v3 < ...)
-                def version_key(item: tuple[str, Path]) -> int:
+                # Sort by version (base < v2 < v3 < ... < v4 < v5heavy < nnue)
+                # Dec 31, 2025: Extended to handle named architecture variants
+                def version_key(item: tuple[str, Path]) -> tuple[int, str]:
                     v = item[0]
-                    if v == "base":
-                        return 0
-                    return int(v.replace("v", ""))
+                    # Known architectures in order of complexity/recency
+                    version_order = {
+                        "base": (0, ""),
+                        "v2": (2, ""),
+                        "v3": (3, ""),
+                        "v4": (4, ""),
+                        "v5heavy": (5, "heavy"),
+                        "v5-heavy": (5, "heavy"),
+                        "v5-heavy-large": (5, "heavy-large"),
+                        "nnue": (6, ""),  # NNUE is evaluated separately
+                    }
+                    if v in version_order:
+                        return version_order[v]
+                    # Handle numeric versions like "v5", "v10"
+                    if v.startswith("v") and v[1:].isdigit():
+                        return (int(v[1:]), "")
+                    return (100, v)  # Unknown versions sort last
 
                 models.sort(key=version_key)
 
