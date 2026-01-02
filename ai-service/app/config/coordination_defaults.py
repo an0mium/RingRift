@@ -1201,6 +1201,42 @@ class PartitionHealingDefaults:
 
 
 # =============================================================================
+# Frozen Leader Detection Defaults (January 2, 2026)
+# =============================================================================
+
+@dataclass(frozen=True)
+class FrozenLeaderDefaults:
+    """Default values for frozen leader detection.
+
+    January 2, 2026: Detects leaders that heartbeat but can't accept work.
+
+    Used by: scripts/p2p/leader_health.py, app/p2p/constants.py
+
+    Problem: A leader may respond to /status (heartbeat) but fail to accept new work
+    because its event loop is blocked (long-running sync, deadlock, stuck callback).
+    Solution: Probe /admin/ping_work which requires the event loop to be responsive.
+    """
+    # Timeout for work acceptance probe (seconds)
+    # Should be shorter than heartbeat interval to detect frozen state quickly
+    PROBE_TIMEOUT: float = _env_float("RINGRIFT_P2P_FROZEN_LEADER_PROBE_TIMEOUT", 5.0)
+
+    # How long a leader can fail work acceptance probes before triggering election
+    # 300s = 5 minutes of unresponsive event loop
+    TIMEOUT: int = _env_int("RINGRIFT_P2P_FROZEN_LEADER_TIMEOUT", 300)
+
+    # Consecutive work acceptance failures before declaring leader frozen
+    # Requires 3 failures to avoid false positives during transient load spikes
+    CONSECUTIVE_FAILURES: int = _env_int("RINGRIFT_P2P_FROZEN_LEADER_CONSECUTIVE_FAILURES", 3)
+
+    # Grace period after leader election before probing for frozen state
+    # New leaders need time to initialize before being probed
+    GRACE_PERIOD: int = _env_int("RINGRIFT_P2P_FROZEN_LEADER_GRACE_PERIOD", 60)
+
+    # Whether frozen leader detection is enabled
+    ENABLED: bool = _env_bool("RINGRIFT_P2P_FROZEN_LEADER_ENABLED", True)
+
+
+# =============================================================================
 # Endpoint Validation Defaults (December 30, 2025)
 # =============================================================================
 
@@ -3244,6 +3280,7 @@ __all__ = [
     "DurationDefaults",
     "EphemeralDefaults",
     "EphemeralGuardDefaults",
+    "FrozenLeaderDefaults",  # January 2026
     "HealthCheckOrchestratorDefaults",  # December 28, 2025
     "HealthDefaults",
     "HeartbeatDefaults",

@@ -2134,11 +2134,13 @@ class P2POrchestrator(
             manager.register(job_reaper)
 
             # IdleDetectionLoop - auto-assigns work to idle nodes
+            # Jan 2, 2026: Added on_zombie_detected callback to kill stuck processes
             idle_detection = IdleDetectionLoop(
                 get_role=lambda: self.role,
                 get_peers=lambda: self.peers,
                 get_work_queue=get_work_queue,
                 on_idle_detected=self._auto_start_selfplay,
+                on_zombie_detected=self._handle_zombie_detected,
             )
             manager.register(idle_detection)
 
@@ -17814,6 +17816,51 @@ print(json.dumps(result))
     # Now runs via LoopManager as IdleDetectionLoop.
     # See scripts/p2p/loops/job_loops.py for implementation.
 
+    async def _handle_zombie_detected(self, peer, zombie_duration: float) -> None:
+        """Handle detection of zombie/stuck selfplay processes on a node.
+
+        Jan 2, 2026: Added as callback for IdleDetectionLoop's on_zombie_detected.
+        When a node reports selfplay_jobs > 0 but gpu_util < 10% for extended
+        time, the processes may be stuck (zombie). This handler kills them.
+
+        Args:
+            peer: NodeInfo or DiscoveredNode with zombie processes
+            zombie_duration: How long the node has been in zombie state (seconds)
+        """
+        node_id = getattr(peer, "node_id", str(peer))
+        logger.warning(
+            f"Zombie processes detected on {node_id} for {zombie_duration:.0f}s, "
+            "attempting to kill stale selfplay"
+        )
+
+        try:
+            # Send kill command to the node's /process/kill endpoint
+            url = self._url_for_peer(peer, "/process/kill")
+            timeout = ClientTimeout(total=15)
+
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # Kill all selfplay processes
+                async with session.post(
+                    url,
+                    json={"pattern": "selfplay", "signal": "SIGTERM"},
+                    headers=self._auth_headers(),
+                ) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        killed = result.get("killed", 0)
+                        logger.info(
+                            f"Killed {killed} zombie selfplay processes on {node_id}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Failed to kill zombies on {node_id}: HTTP {resp.status}"
+                        )
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout killing zombie processes on {node_id}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Error killing zombie processes on {node_id}: {e}")
+
     async def _auto_start_selfplay(self, peer, idle_duration: float):
         """Auto-start diverse hybrid selfplay on an idle node.
 
@@ -18137,6 +18184,7 @@ print(json.dumps(result))
                                 config={
                                     **cfg,
                                     "target_node": peer.node_id,  # Hint for WorkerPullLoop
+                                    "target_node_expires_at": time.time() + 600,  # 10 min expiration
                                     "nat_blocked_dispatch": True,  # Mark as NAT-blocked dispatch
                                 },
                                 timeout_seconds=3600.0,  # 1 hour timeout
@@ -28581,6 +28629,7 @@ print(json.dumps({{
             app.router.add_post('/admin/reset_node_jobs', self.handle_admin_reset_node_jobs)  # Reset job counts for zombie nodes
             app.router.add_post('/admin/add_peer', self.handle_admin_add_peer)  # Inject peer for partition healing (Jan 2026)
             app.router.add_get('/admin/clear_nat_blocked', self.handle_admin_clear_nat_blocked)  # Clear NAT-blocked status (Jan 2, 2026)
+            app.router.add_post('/admin/ping_work', self.handle_admin_ping_work)  # Frozen leader detection (Jan 2, 2026)
 
             # Phase 5: Event subscription visibility (December 2025)
             app.router.add_get('/subscriptions', self.handle_subscriptions)              # Show event subscriptions

@@ -638,6 +638,39 @@ LEADER_MIN_RESPONSE_RATE = float(os.environ.get("RINGRIFT_P2P_LEADER_MIN_RESPONS
 LEADER_DEGRADED_STEPDOWN_DELAY = int(os.environ.get("RINGRIFT_P2P_LEADER_DEGRADED_STEPDOWN_DELAY", "60") or 60)
 
 # ============================================
+# Frozen Leader Detection (January 2, 2026)
+# ============================================
+# Leaders can heartbeat but have a stuck event loop (frozen).
+# These settings control the work acceptance probe that detects this condition.
+#
+# Problem: A leader may respond to /status (heartbeat) but fail to accept new work
+# because its event loop is blocked (long-running sync, deadlock, etc.).
+# Solution: Probe /admin/ping_work which requires the event loop to be responsive.
+
+# Timeout for work acceptance probe (should be shorter than heartbeat interval)
+FROZEN_LEADER_PROBE_TIMEOUT = float(
+    os.environ.get("RINGRIFT_P2P_FROZEN_LEADER_PROBE_TIMEOUT", "5.0") or 5.0
+)
+
+# How long a leader can fail work acceptance probes before triggering election
+# 300s = 5 minutes of unresponsive event loop
+FROZEN_LEADER_TIMEOUT = int(
+    os.environ.get("RINGRIFT_P2P_FROZEN_LEADER_TIMEOUT", "300") or 300
+)
+
+# Consecutive work acceptance failures before declaring leader frozen
+# Requires 3 failures to avoid false positives during transient load spikes
+FROZEN_LEADER_CONSECUTIVE_FAILURES = int(
+    os.environ.get("RINGRIFT_P2P_FROZEN_LEADER_CONSECUTIVE_FAILURES", "3") or 3
+)
+
+# Grace period after leader election before probing for frozen state
+# New leaders need time to initialize before being probed
+FROZEN_LEADER_GRACE_PERIOD = int(
+    os.environ.get("RINGRIFT_P2P_FROZEN_LEADER_GRACE_PERIOD", "60") or 60
+)
+
+# ============================================
 # Git Auto-Update
 # ============================================
 

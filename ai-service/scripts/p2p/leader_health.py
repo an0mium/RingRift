@@ -53,6 +53,7 @@ class ProbeTransport(str, Enum):
     HTTP_TAILSCALE = "http_tailscale"
     GOSSIP = "gossip"
     TCP_PING = "tcp_ping"
+    WORK_ACCEPTANCE = "work_acceptance"  # January 2, 2026: Frozen leader detection
 
 
 class LeaderHealthStatus(str, Enum):
@@ -61,6 +62,7 @@ class LeaderHealthStatus(str, Enum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"  # Some probes failing
     UNHEALTHY = "unhealthy"  # All probes failing
+    FROZEN = "frozen"  # Leader responds to heartbeat but not accepting work (stuck event loop)
     UNKNOWN = "unknown"  # Not enough data
 
 
@@ -115,6 +117,10 @@ class LeaderProbeConfig:
     enable_tailscale_probe: bool = True
     enable_gossip_probe: bool = True
     enable_tcp_probe: bool = True
+    # January 2, 2026: Frozen leader detection
+    enable_work_acceptance_probe: bool = True
+    frozen_leader_consecutive_failures: int = 3
+    frozen_leader_grace_period: float = 60.0
 
 
 class LeaderHealthProbe:
@@ -150,6 +156,12 @@ class LeaderHealthProbe:
 
         # Transport probers (initialized lazily)
         self._http_session: Any = None
+
+        # January 2, 2026: Frozen leader detection
+        # Track work acceptance probe failures separately from heartbeat failures
+        self._work_acceptance_failures = 0
+        self._last_work_acceptance_success = 0.0
+        self._leader_became_leader_at = 0.0  # For grace period tracking
 
     async def probe_leader(
         self,
@@ -188,6 +200,10 @@ class LeaderHealthProbe:
             port = int(leader_addr.split(":")[1]) if ":" in leader_addr else 8770
             probe_tasks.append(self._probe_tcp(host, port))
 
+        # January 2, 2026: Work acceptance probe for frozen leader detection
+        if self._config.enable_work_acceptance_probe and leader_addr:
+            probe_tasks.append(self._probe_work_acceptance(leader_addr))
+
         if not probe_tasks:
             return LeaderHealthResult(
                 is_healthy=False,
@@ -214,13 +230,17 @@ class LeaderHealthProbe:
                 else:
                     failed.append(result)
 
-        # Determine overall health
-        if len(successful) >= self._config.min_probes_for_decision:
+        # January 2, 2026: Separate work acceptance probe from heartbeat probes
+        # for frozen leader detection
+        heartbeat_successful = [p for p in successful if p.transport != ProbeTransport.WORK_ACCEPTANCE]
+
+        # Determine overall health based on heartbeat probes
+        if len(heartbeat_successful) >= self._config.min_probes_for_decision:
             is_healthy = True
             status = LeaderHealthStatus.HEALTHY
             self._consecutive_failures = 0
             self._last_successful_probe = time.time()
-        elif len(successful) > 0:
+        elif len(heartbeat_successful) > 0:
             is_healthy = True  # Partial success is still healthy
             status = LeaderHealthStatus.DEGRADED
             self._consecutive_failures = 0
@@ -232,6 +252,17 @@ class LeaderHealthProbe:
             else:
                 is_healthy = True  # Still within tolerance
                 status = LeaderHealthStatus.DEGRADED
+
+        # January 2, 2026: Check for frozen leader (heartbeat OK but work acceptance failing)
+        # A frozen leader is unhealthy even if heartbeats succeed
+        if status in (LeaderHealthStatus.HEALTHY, LeaderHealthStatus.DEGRADED):
+            if self.is_leader_frozen():
+                is_healthy = False
+                status = LeaderHealthStatus.FROZEN
+                logger.warning(
+                    f"Leader {self._leader_id} detected as FROZEN: heartbeat OK but "
+                    f"work acceptance failed {self._work_acceptance_failures} times"
+                )
 
         # Find best transport
         best_latency = None
@@ -416,6 +447,106 @@ class LeaderHealthProbe:
                 error=str(e),
             )
 
+    async def _probe_work_acceptance(self, addr: str) -> ProbeResult:
+        """Probe leader via /admin/ping_work endpoint.
+
+        January 2, 2026: Detects frozen leaders that respond to heartbeats
+        but can't accept new work (stuck event loop).
+
+        This probe POSTs a ping_work request that requires the leader's
+        event loop to process a simple task within timeout. If the leader
+        is frozen (deadlock, long-running sync, etc.), this will fail
+        even though /status still responds.
+
+        Args:
+            addr: Leader's HTTP address (host:port)
+
+        Returns:
+            ProbeResult indicating work acceptance capability
+        """
+        start = time.time()
+        try:
+            import aiohttp
+
+            if self._http_session is None:
+                self._http_session = aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=self._config.probe_timeout)
+                )
+
+            # POST to /admin/ping_work - requires event loop processing
+            url = f"http://{addr}/admin/ping_work"
+            payload = {
+                "probe_id": f"{self._node_id}-{int(time.time()*1000)}",
+                "prober_node": self._node_id,
+                "timestamp": time.time(),
+            }
+
+            async with self._http_session.post(url, json=payload) as resp:
+                if resp.status == 200:
+                    latency = (time.time() - start) * 1000
+                    self._work_acceptance_failures = 0
+                    self._last_work_acceptance_success = time.time()
+                    return ProbeResult(
+                        transport=ProbeTransport.WORK_ACCEPTANCE,
+                        success=True,
+                        latency_ms=latency,
+                    )
+                else:
+                    self._work_acceptance_failures += 1
+                    return ProbeResult(
+                        transport=ProbeTransport.WORK_ACCEPTANCE,
+                        success=False,
+                        error=f"HTTP {resp.status}",
+                    )
+
+        except asyncio.TimeoutError:
+            self._work_acceptance_failures += 1
+            return ProbeResult(
+                transport=ProbeTransport.WORK_ACCEPTANCE,
+                success=False,
+                error="timeout",
+            )
+        except Exception as e:
+            self._work_acceptance_failures += 1
+            return ProbeResult(
+                transport=ProbeTransport.WORK_ACCEPTANCE,
+                success=False,
+                error=str(e),
+            )
+
+    def is_leader_frozen(self) -> bool:
+        """Check if the leader appears frozen (heartbeating but not accepting work).
+
+        January 2, 2026: A leader is considered frozen if:
+        1. Enough consecutive work acceptance failures have occurred
+        2. We're past the grace period for new leaders
+        3. Heartbeat probes are still succeeding (distinguishes from UNHEALTHY)
+
+        Returns:
+            True if leader appears frozen
+        """
+        # Check if past grace period
+        if self._leader_became_leader_at > 0:
+            time_as_leader = time.time() - self._leader_became_leader_at
+            if time_as_leader < self._config.frozen_leader_grace_period:
+                return False
+
+        # Check if enough work acceptance failures
+        return self._work_acceptance_failures >= self._config.frozen_leader_consecutive_failures
+
+    def notify_leader_change(self, leader_id: str | None) -> None:
+        """Notify that the leader has changed.
+
+        January 2, 2026: Resets frozen leader tracking when leader changes.
+        """
+        if leader_id != self._leader_id:
+            self._leader_id = leader_id
+            self._consecutive_failures = 0
+            self._work_acceptance_failures = 0
+            self._last_work_acceptance_success = 0.0
+            self._leader_became_leader_at = time.time()
+            self._probe_history.clear()
+
     async def start_continuous_probing(
         self,
         leader_addr: str,
@@ -489,10 +620,16 @@ class LeaderHealthProbe:
         logger.debug("Stopped continuous leader probing")
 
     def set_leader(self, leader_id: str | None) -> None:
-        """Update the leader being probed."""
+        """Update the leader being probed.
+
+        January 2, 2026: Also resets frozen leader tracking.
+        """
         if leader_id != self._leader_id:
             self._leader_id = leader_id
             self._consecutive_failures = 0
+            self._work_acceptance_failures = 0
+            self._last_work_acceptance_success = 0.0
+            self._leader_became_leader_at = time.time()
             self._probe_history.clear()
 
     def get_stats(self) -> dict[str, Any]:
@@ -510,6 +647,11 @@ class LeaderHealthProbe:
             "probe_history_count": total_count,
             "success_rate": successful_count / total_count if total_count > 0 else 0.0,
             "is_probing": self._running,
+            # January 2, 2026: Frozen leader detection stats
+            "work_acceptance_failures": self._work_acceptance_failures,
+            "last_work_acceptance_success": self._last_work_acceptance_success,
+            "is_leader_frozen": self.is_leader_frozen(),
+            "leader_became_leader_at": self._leader_became_leader_at,
         }
 
 

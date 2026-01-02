@@ -520,6 +520,76 @@ class AdminHandlersMixin(BaseP2PHandler):
             logger.error(f"Error in handle_admin_add_peer: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_admin_ping_work(self, request: web.Request) -> web.Response:
+        """Respond to work acceptance probe for frozen leader detection.
+
+        January 2, 2026: This endpoint is probed by voter nodes to verify
+        the leader's event loop is responsive. A frozen leader may still
+        respond to /status (heartbeat) but fail to process this request
+        because its event loop is stuck.
+
+        This is a lightweight endpoint that requires the event loop to:
+        1. Accept the HTTP request
+        2. Parse JSON body
+        3. Create a simple async task
+        4. Return response
+
+        If the leader is frozen (deadlock, long sync, etc.), this will timeout
+        while /status may still respond due to buffered TCP responses.
+
+        Request body:
+            probe_id: Unique probe identifier
+            prober_node: Node ID of the prober
+            timestamp: Probe timestamp
+
+        Returns:
+            JSON with pong response and processing time
+        """
+        start_time = time.time()
+        try:
+            data = await request.json()
+            probe_id = data.get("probe_id", "unknown")
+            prober_node = data.get("prober_node", "unknown")
+
+            # Perform a minimal async operation to verify event loop is responsive
+            # This creates a task and awaits it, which requires the event loop
+            async def _verify_loop() -> bool:
+                await asyncio.sleep(0)  # Yield to event loop
+                return True
+
+            loop_ok = await asyncio.wait_for(_verify_loop(), timeout=1.0)
+
+            processing_time_ms = (time.time() - start_time) * 1000
+
+            logger.debug(
+                f"Ping work from {prober_node} (probe_id={probe_id}): "
+                f"loop_ok={loop_ok}, processing_time={processing_time_ms:.1f}ms"
+            )
+
+            return web.json_response({
+                "success": True,
+                "pong": True,
+                "probe_id": probe_id,
+                "responder_node": getattr(self, "node_id", "unknown"),
+                "processing_time_ms": processing_time_ms,
+                "loop_responsive": loop_ok,
+                "timestamp": time.time(),
+            })
+
+        except asyncio.TimeoutError:
+            logger.warning(f"Event loop timeout in ping_work - possible frozen leader")
+            return web.json_response({
+                "success": False,
+                "error": "event_loop_timeout",
+                "processing_time_ms": (time.time() - start_time) * 1000,
+            }, status=503)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Error in handle_admin_ping_work: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e),
+            }, status=500)
+
     async def handle_admin_clear_nat_blocked(self, request: web.Request) -> web.Response:
         """Clear NAT-blocked status on all or specific peers.
 
