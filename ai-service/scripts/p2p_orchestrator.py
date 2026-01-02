@@ -1461,6 +1461,11 @@ class P2POrchestrator(
                 f"quorum={self.voter_quorum_size} ({', '.join(self.voter_node_ids)})"
             )
 
+        # Jan 2, 2026: IP-to-node-name mapping for SWIM peer ID resolution
+        # SWIM identifies peers by IP:port, but voters are configured by name.
+        # This mapping translates between them.
+        self._ip_to_node_map: dict[str, str] = self._build_ip_to_node_map()
+
         # Node state
         self.role = NodeRole.FOLLOWER
         self.leader_id: str | None = None
@@ -4049,10 +4054,8 @@ class P2POrchestrator(
         # This prevents rapid step-downs from transient network issues
         # Jan 2026: Use ULSM QuorumHealth for unified quorum tracking
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-            voters_alive = sum(
-                1 for vid in getattr(self, "voter_node_ids", [])
-                if vid in self.peers and self.peers[vid].is_alive()
-            )
+            # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
+            voters_alive = self._count_alive_voters()
             quorum_size = getattr(self, "voter_quorum_size", 0)
             # Use ULSM QuorumHealth for unified tracking (threshold=5 vs old 3)
             threshold_exceeded = self._leadership_sm.quorum_health.record_failure(voters_alive)
@@ -4072,10 +4075,8 @@ class P2POrchestrator(
             return False
         else:
             # Reset quorum health counter on success
-            voters_alive = sum(
-                1 for vid in getattr(self, "voter_node_ids", [])
-                if vid in self.peers and self.peers[vid].is_alive()
-            )
+            # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
+            voters_alive = self._count_alive_voters()
             self._leadership_sm.quorum_health.record_success(voters_alive)
         return True
 
@@ -5009,6 +5010,143 @@ class P2POrchestrator(
 
         self.voter_config_source = "none"
         return []
+
+    def _build_voter_ip_mapping(self) -> dict[str, set[str]]:
+        """Build a mapping from voter node_ids to their known IPs.
+
+        Jan 2, 2026: Added to support voter matching when peers are discovered
+        via SWIM as IP:port format instead of proper node_ids.
+
+        Returns:
+            Dict mapping voter node_id -> set of known IPs (tailscale_ip, ssh_host)
+        """
+        voter_ids = getattr(self, "voter_node_ids", []) or []
+        if not voter_ids:
+            return {}
+
+        # Load config to get IP mappings
+        cfg_path = Path(self.ringrift_path) / "ai-service" / "config" / "distributed_hosts.yaml"
+        if not cfg_path.exists():
+            return {}
+
+        try:
+            import yaml
+            data = yaml.safe_load(cfg_path.read_text()) or {}
+            hosts = data.get("hosts", {}) or {}
+        except Exception:
+            return {}
+
+        voter_ip_map: dict[str, set[str]] = {}
+        for voter_id in voter_ids:
+            host_cfg = hosts.get(voter_id, {})
+            ips: set[str] = set()
+
+            # Collect all known IPs for this voter
+            if host_cfg.get("tailscale_ip"):
+                ips.add(host_cfg["tailscale_ip"])
+            if host_cfg.get("ssh_host"):
+                ssh_host = host_cfg["ssh_host"]
+                # Only add if it's an IP (not a hostname like "ssh5.vast.ai")
+                if ssh_host and not any(c.isalpha() for c in ssh_host.replace(".", "")):
+                    ips.add(ssh_host)
+
+            if ips:
+                voter_ip_map[voter_id] = ips
+
+        return voter_ip_map
+
+    def _build_ip_to_node_map(self) -> dict[str, str]:
+        """Build a reverse mapping from IP addresses to node names.
+
+        Jan 2, 2026: Added for translating SWIM peer IDs (IP:port) to node names.
+        """
+        cfg_path = Path(self.ringrift_path) / "ai-service" / "config" / "distributed_hosts.yaml"
+        if not cfg_path.exists():
+            return {}
+        try:
+            import yaml
+            data = yaml.safe_load(cfg_path.read_text()) or {}
+            hosts = data.get("hosts", {}) or {}
+        except Exception:
+            return {}
+        ip_to_node: dict[str, str] = {}
+        for node_id, host_cfg in hosts.items():
+            ts_ip = host_cfg.get("tailscale_ip")
+            if ts_ip:
+                ip_to_node[ts_ip] = node_id
+            ssh_host = host_cfg.get("ssh_host")
+            if ssh_host and not any(c.isalpha() for c in ssh_host.replace(".", "")):
+                ip_to_node[ssh_host] = node_id
+        return ip_to_node
+
+    def _resolve_peer_id_to_node_name(self, peer_id: str) -> str:
+        """Translate a SWIM peer ID (IP:port) to a node name if possible."""
+        if ":" not in peer_id or not peer_id.split(":")[0].replace(".", "").isdigit():
+            return peer_id
+        ip = peer_id.split(":")[0]
+        ip_map = getattr(self, "_ip_to_node_map", {})
+        return ip_map.get(ip, peer_id)
+
+    def _count_alive_voters(self) -> int:
+        """Count alive voters by checking both node_id and IP:port matches.
+
+        Jan 2, 2026: Added because SWIM discovers peers as IP:port format
+        (e.g., "135.181.39.239:7947") but voter_node_ids are proper names
+        (e.g., "hetzner-cpu1"). This method checks both.
+
+        Returns:
+            Number of alive voters (including self if we are a voter)
+        """
+        voter_ids = getattr(self, "voter_node_ids", []) or []
+        if not voter_ids:
+            return 0
+
+        alive_count = 0
+
+        # Build voter IP mapping
+        voter_ip_map = self._build_voter_ip_mapping()
+
+        # Build reverse map: IP -> voter_id for quick lookup
+        ip_to_voter: dict[str, str] = {}
+        for voter_id, ips in voter_ip_map.items():
+            for ip in ips:
+                ip_to_voter[ip] = voter_id
+
+        # Track which voters we've counted to avoid double-counting
+        counted_voters: set[str] = set()
+
+        # Check each voter
+        for voter_id in voter_ids:
+            if voter_id in counted_voters:
+                continue
+
+            # Check 1: Is this voter us?
+            if voter_id == self.node_id:
+                alive_count += 1
+                counted_voters.add(voter_id)
+                continue
+
+            # Check 2: Direct node_id match in peers
+            peer = self.peers.get(voter_id)
+            if peer and peer.is_alive():
+                alive_count += 1
+                counted_voters.add(voter_id)
+                continue
+
+            # Check 3: IP:port match - look for any peer whose IP matches this voter
+            voter_ips = voter_ip_map.get(voter_id, set())
+            for peer_id, peer in self.peers.items():
+                if voter_id in counted_voters:
+                    break
+                # Extract IP from peer_id (format: "IP:port")
+                if ":" in peer_id:
+                    peer_ip = peer_id.split(":")[0]
+                    if peer_ip in voter_ips and peer.is_alive():
+                        alive_count += 1
+                        counted_voters.add(voter_id)
+                        break
+
+        return alive_count
 
     def _maybe_adopt_voter_node_ids(self, voter_node_ids: list[str], *, source: str) -> bool:
         """Adopt/override the voter set when it's not explicitly configured.
@@ -9199,16 +9337,8 @@ class P2POrchestrator(
             diversity_metrics = {"error": str(e)}
 
         voter_ids = list(getattr(self, "voter_node_ids", []) or [])
-        voters_alive = 0
-        if voter_ids:
-            peer_map = {p.node_id: p for p in peers_snapshot}
-            for vid in voter_ids:
-                if vid == self.node_id:
-                    voters_alive += 1
-                    continue
-                peer = peer_map.get(vid)
-                if peer and peer.is_alive():
-                    voters_alive += 1
+        # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
+        voters_alive = self._count_alive_voters()
 
         # Get P2P sync metrics (with error handling for new features)
         # December 27, 2025: Wrapped all metric calls to prevent cascading 500 errors
@@ -15615,17 +15745,8 @@ print(json.dumps(result))
                 }
 
             voter_ids = list(getattr(self, "voter_node_ids", []) or [])
-            voters_alive = 0
-            if voter_ids:
-                with self.peers_lock:
-                    peers_by_id = dict(self.peers)
-                for vid in voter_ids:
-                    if vid == self.node_id:
-                        voters_alive += 1
-                        continue
-                    p = peers_by_id.get(vid)
-                    if p and p.is_alive():
-                        voters_alive += 1
+            # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
+            voters_alive = self._count_alive_voters()
 
             self_payload = self.self_info.to_dict() if hasattr(self.self_info, "to_dict") else asdict(self.self_info)
             self_key = self._endpoint_key(self.self_info)
@@ -24552,10 +24673,8 @@ print(json.dumps({{
         # Require 3 consecutive failures (~45 seconds) before stepping down
         if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
             self._quorum_fail_count = getattr(self, "_quorum_fail_count", 0) + 1
-            voters_alive = sum(
-                1 for vid in getattr(self, "voter_node_ids", [])
-                if vid in self.peers and self.peers[vid].is_alive()
-            )
+            # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
+            voters_alive = self._count_alive_voters()
             quorum_size = getattr(self, "voter_quorum_size", 0)
             logger.warning(
                 f"[LeaseRenewal] Voter quorum check failed ({self._quorum_fail_count}/3): "
@@ -28549,7 +28668,8 @@ print(json.dumps({{
                 # Check quorum and start election if possible
                 if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
                     retry_count += 1
-                    voters_alive = self._count_alive_peers(self.voter_node_ids) if hasattr(self, '_count_alive_peers') else 0
+                    # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
+                    voters_alive = self._count_alive_voters()
                     logger.warning(
                         f"No voter quorum for election retry {retry_count}/{len(retry_intervals)} "
                         f"(alive={voters_alive}, need={getattr(self, 'voter_quorum_size', 3)})"
