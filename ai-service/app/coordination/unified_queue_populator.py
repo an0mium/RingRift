@@ -683,10 +683,35 @@ class UnifiedQueuePopulator:
     # Work Item Creation
     # =========================================================================
 
+    # Jan 1, 2026: Engine modes for diversity in selfplay
+    # Cycle through different harness types to ensure diverse training data
+    # Format: (engine_mode, requires_model, player_restriction)
+    # player_restriction: None = all, 2 = 2p only, (3,4) = 3-4p only
+    _ENGINE_MODES_2P = [
+        ("gumbel", True, None),       # High-quality MCTS with NN
+        ("heuristic-only", False, None),  # Fast bootstrap
+        ("minimax", True, 2),         # Alpha-beta (2p only)
+        ("policy-only", True, None),  # Policy network only
+        ("descent", True, None),      # Gradient descent search
+    ]
+    _ENGINE_MODES_MP = [
+        ("gumbel", True, None),       # High-quality MCTS with NN
+        ("heuristic-only", False, None),  # Fast bootstrap
+        ("maxn", True, (3, 4)),       # Max-N for multiplayer
+        ("brs", True, (3, 4)),        # Best-Reply Search
+        ("policy-only", True, None),  # Policy network only
+    ]
+    _engine_mode_counter = 0
+
     def _create_selfplay_item(
         self, board_type: str, num_players: int
     ) -> "WorkItem":
-        """Create a selfplay work item."""
+        """Create a selfplay work item with diverse engine types.
+
+        Jan 1, 2026: Added engine mode rotation for training data diversity.
+        Cycles through available harness types (gumbel, heuristic, minimax, etc.)
+        to ensure training data comes from varied play styles.
+        """
         from app.coordination.work_queue import WorkItem, WorkType
 
         work_id = f"selfplay_{board_type}_{num_players}p_{int(time.time() * 1000)}"
@@ -696,16 +721,36 @@ class UnifiedQueuePopulator:
         best_model = target.best_model_id if target else None
         model_elo = target.current_best_elo if target else 1500.0
 
-        # Engine selection based on board size and model quality
-        # Jan 1, 2026: Changed large board mode from "gumbel" to "heuristic-only"
-        # because gumbel-mcts with --no-gpu-tree (CPU tree search) is too slow
-        # (~0 games/hour). Will switch back once GPU tree mode is fixed.
+        # Select engine mode with diversity rotation
+        # Jan 1, 2026: Rotate through multiple engine modes instead of always using one
         if board_type in LARGE_BOARDS:
-            engine_mode = "heuristic-only"  # Was "gumbel", too slow with CPU tree
-        elif model_elo >= 1600 and best_model:
-            engine_mode = "nnue-guided"
+            # Large boards: heuristic-only (gumbel too slow without GPU tree)
+            engine_mode = "heuristic-only"
         else:
-            engine_mode = "heuristic-only"  # Was "gpu_heuristic"
+            # Select engine mode based on player count and rotation counter
+            modes = self._ENGINE_MODES_2P if num_players == 2 else self._ENGINE_MODES_MP
+
+            # Find valid modes for this configuration
+            valid_modes = []
+            for mode, requires_model, player_restrict in modes:
+                # Check player restriction
+                if player_restrict is not None:
+                    if isinstance(player_restrict, int) and num_players != player_restrict:
+                        continue
+                    if isinstance(player_restrict, tuple) and num_players not in player_restrict:
+                        continue
+                # Check model requirement
+                if requires_model and not best_model:
+                    continue
+                valid_modes.append(mode)
+
+            if valid_modes:
+                # Rotate through valid modes
+                UnifiedQueuePopulator._engine_mode_counter += 1
+                engine_mode = valid_modes[UnifiedQueuePopulator._engine_mode_counter % len(valid_modes)]
+            else:
+                # Fallback to heuristic if no valid modes
+                engine_mode = "heuristic-only"
 
         config = {
             "board_type": board_type,
