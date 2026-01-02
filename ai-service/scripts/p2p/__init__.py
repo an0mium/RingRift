@@ -11,7 +11,7 @@ Backward Compatibility:
 Usage:
     from scripts.p2p import NodeRole, JobType, NodeInfo, ClusterJob
     from scripts.p2p.constants import PEER_TIMEOUT, DISK_WARNING_THRESHOLD
-    from scripts.p2p.resource import check_all_resources
+    from scripts.p2p.resource_utils import check_all_resources
     from scripts.p2p.network import get_client_session, peer_request
 
 Module Structure:
@@ -63,7 +63,7 @@ from .constants import (
 )
 
 # Re-export resource utilities
-from .resource import (
+from .resource_utils import (
     get_disk_usage_percent,
     check_disk_has_capacity,
     check_all_resources,

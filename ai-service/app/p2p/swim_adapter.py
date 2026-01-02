@@ -499,13 +499,55 @@ class SwimMembershipManager:
 
     def _handle_member_failed(self, member: SwimMember):
         """Handle member failure detection."""
-        self._members[member.id] = "failed"
-        logger.warning(f"SWIM: {member.id} is now FAILED")
+        member_id = self._get_member_id(member)
+        self._members[member_id] = "failed"
+        logger.warning(f"SWIM: {member_id} is now FAILED")
         if self.on_member_failed:
             try:
-                self.on_member_failed(member.id)
+                self.on_member_failed(member_id)
             except (TypeError, AttributeError, ValueError) as e:
                 logger.error(f"Error in on_member_failed callback: {e}")
+
+    @staticmethod
+    def _get_member_id(member) -> str:
+        """Extract a string ID from a SWIM Member object.
+
+        Jan 2, 2026: SWIM Members have 'addr' attribute (host, port tuple),
+        not 'id'. This helper extracts a consistent string identifier.
+
+        Args:
+            member: SWIM Member object
+
+        Returns:
+            String identifier like "100.113.2.45:7947"
+        """
+        # Try explicit id attribute first (some SWIM variants)
+        if hasattr(member, 'id') and member.id:
+            return str(member.id)
+
+        # SWIM 1.2.x uses 'addr' attribute: (host, port) tuple
+        if hasattr(member, 'addr') and member.addr:
+            host, port = member.addr
+            return f"{host}:{port}"
+
+        # Try 'address' attribute (alternative naming)
+        if hasattr(member, 'address') and member.address:
+            if isinstance(member.address, tuple):
+                host, port = member.address
+                return f"{host}:{port}"
+            return str(member.address)
+
+        # Last resort: str() but try to parse address from it
+        # Format: "Member(100.113.2.45:7947, ALIVE, inc=1)"
+        member_str = str(member)
+        if member_str.startswith("Member(") and ":" in member_str:
+            # Extract IP:port from "Member(IP:port, ...)"
+            import re
+            match = re.search(r'Member\(([^,]+)', member_str)
+            if match:
+                return match.group(1).strip()
+
+        return member_str
 
     def get_alive_peers(self) -> list[str]:
         """Get list of all alive peer node IDs.
