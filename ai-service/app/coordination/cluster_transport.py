@@ -264,6 +264,13 @@ class ClusterTransport:
             recovery_timeout=float(DEFAULT_RECOVERY_TIMEOUT),
             operation_type="cluster_transport",
         )
+        # Jan 2, 2026: Per-(node, transport) circuit breakers for faster failover
+        # Key format: "{hostname}:{transport}" e.g. "node-001:tailscale"
+        self._transport_circuit_breaker = CircuitBreaker(
+            failure_threshold=2,  # Fewer failures needed to skip transport
+            recovery_timeout=60.0,  # Try again after 60 seconds
+            operation_type="transport_specific",
+        )
 
     def can_attempt(self, node_id: str) -> bool:
         """Check if circuit allows operation for a node."""
@@ -276,6 +283,56 @@ class ClusterTransport:
     def record_failure(self, node_id: str) -> None:
         """Record failed operation for a node."""
         self._circuit_breaker.record_failure(node_id)
+
+    # Jan 2, 2026: Per-transport circuit breaker methods
+    def _transport_key(self, node_id: str, transport: str) -> str:
+        """Create unique key for (node, transport) pair."""
+        return f"{node_id}:{transport}"
+
+    def can_attempt_transport(self, node_id: str, transport: str) -> bool:
+        """Check if a specific transport can be attempted for a node.
+
+        This enables faster failover by skipping transports that have
+        recently failed for this node, without waiting for timeout.
+
+        Args:
+            node_id: Target node hostname
+            transport: Transport name (tailscale, ssh, base64, http)
+
+        Returns:
+            True if transport should be tried, False to skip
+        """
+        key = self._transport_key(node_id, transport)
+        return self._transport_circuit_breaker.can_execute(key)
+
+    def record_transport_success(self, node_id: str, transport: str) -> None:
+        """Record successful transport attempt.
+
+        Resets the transport circuit breaker for this (node, transport) pair.
+        """
+        key = self._transport_key(node_id, transport)
+        self._transport_circuit_breaker.record_success(key)
+
+    def record_transport_failure(self, node_id: str, transport: str) -> None:
+        """Record failed transport attempt.
+
+        After 2 failures, this transport will be skipped for 60 seconds,
+        allowing other transports to be tried immediately.
+        """
+        key = self._transport_key(node_id, transport)
+        self._transport_circuit_breaker.record_failure(key)
+
+    def get_transport_states(self, node_id: str) -> dict[str, bool]:
+        """Get circuit breaker state for all transports to a node.
+
+        Returns:
+            Dict mapping transport name to whether it can be attempted
+        """
+        transports = ["tailscale", "ssh", "base64", "http"]
+        return {
+            t: self.can_attempt_transport(node_id, t)
+            for t in transports
+        }
 
     async def transfer_file(
         self,
@@ -316,30 +373,47 @@ class ClusterTransport:
             ("http", self._transfer_via_http),
         ]
 
+        skipped_transports = []
         for transport_name, transport_fn in transports:
+            # Jan 2, 2026: Check per-transport circuit breaker
+            if not self.can_attempt_transport(node.hostname, transport_name):
+                skipped_transports.append(transport_name)
+                logger.debug(
+                    f"Skipping {transport_name} for {node.hostname} (circuit open)"
+                )
+                continue
+
             try:
                 result = await transport_fn(
                     local_path, full_remote_path, node, direction
                 )
                 if result.success:
                     self.record_success(node.hostname)
+                    self.record_transport_success(node.hostname, transport_name)
                     result.transport_used = transport_name
                     result.latency_ms = (time.time() - start_time) * 1000
                     return result
+                else:
+                    # Transport returned failure result (not exception)
+                    self.record_transport_failure(node.hostname, transport_name)
             except (OSError, ValueError, TypeError, RuntimeError) as e:
                 # OSError: network/file errors
                 # ValueError: invalid path or parameters
                 # TypeError: invalid argument types
                 # RuntimeError: transfer operation failed
+                self.record_transport_failure(node.hostname, transport_name)
                 logger.debug(
                     f"Transport {transport_name} failed for {node.hostname}: {e}"
                 )
                 continue
 
         self.record_failure(node.hostname)
+        error_msg = "All transports failed"
+        if skipped_transports:
+            error_msg += f" (skipped: {', '.join(skipped_transports)})"
         return TransportResult(
             success=False,
-            error="All transports failed",
+            error=error_msg,
             latency_ms=(time.time() - start_time) * 1000,
         )
 
@@ -988,6 +1062,7 @@ class ClusterTransport:
             # Fallback when protocols not importable
             return {"healthy": True, "status": "unknown", "details": {}}  # type: ignore
 
+        # Node-level circuit breaker stats
         all_states = self._circuit_breaker.get_all_states()
         total_circuits = len(all_states)
         open_circuits = sum(
@@ -997,6 +1072,14 @@ class ClusterTransport:
         half_open_circuits = sum(
             1 for s in all_states.values()
             if s.state.value == "half_open"
+        )
+
+        # Jan 2, 2026: Transport-level circuit breaker stats
+        transport_states = self._transport_circuit_breaker.get_all_states()
+        transport_total = len(transport_states)
+        transport_open = sum(
+            1 for s in transport_states.values()
+            if s.state.value == "open"
         )
 
         # Determine health status based on circuit breaker states
@@ -1022,6 +1105,9 @@ class ClusterTransport:
                 "half_open_circuits": half_open_circuits,
                 "closed_circuits": total_circuits - open_circuits - half_open_circuits,
                 "p2p_url": self.p2p_url,
+                # Jan 2, 2026: Transport-specific circuit breakers
+                "transport_circuits": transport_total,
+                "transport_open": transport_open,
             },
         )
 
