@@ -4619,59 +4619,99 @@ class P2POrchestrator(
         return int(self.port)
 
     def _validate_and_fix_advertise_host(self) -> None:
-        """Validate advertise_host and fix private IP issues.
+        """Validate advertise_host, fix private IP issues, and populate alternate_ips.
 
         December 30, 2025: Added to prevent P2P quorum loss caused by nodes
         advertising private LAN IPs (10.x, 192.168.x, 172.16-31.x) that other
         nodes in the mesh cannot reach.
 
+        January 2, 2026: Extended for dual-stack IPv4/IPv6 support.
+        - Discovers all IPs (IPv4 + IPv6) for this node
+        - Prefers IPv4 for primary (broader compatibility)
+        - Populates alternate_ips with all other addresses including IPv6
+
         This method:
-        1. Detects if advertise_host is a private IP
-        2. If private and Tailscale is available, switches to Tailscale IP
-        3. Emits warnings/errors for operator awareness
+        1. Discovers all reachable IPs (both address families)
+        2. Selects best primary (prefer Tailscale IPv4, then any IPv4, then IPv6)
+        3. Populates alternate_ips with remaining addresses
+        4. Emits warnings/errors for operator awareness if using private IP
         """
         import ipaddress
 
-        if not self.advertise_host:
+        # Discover all IPs for this node (IPv4 + IPv6)
+        all_ips = self._discover_all_ips()
+
+        if not all_ips:
+            logger.warning("[P2P] No IPs discovered for this node")
             return
 
-        try:
-            ip = ipaddress.ip_address(self.advertise_host)
-        except ValueError:
-            # Not an IP address (maybe hostname), skip validation
+        # If we already have a valid advertise_host in our discovered IPs, just update alternates
+        if self.advertise_host and self.advertise_host in all_ips:
+            # Check if current host is IPv6 but we have IPv4 available
+            is_current_ipv6 = ":" in self.advertise_host
+            ipv4_ips = {ip for ip in all_ips if ":" not in ip}
+
+            if is_current_ipv6 and ipv4_ips:
+                # Prefer IPv4 for primary
+                primary, alternates = self._select_primary_advertise_host(all_ips)
+                if primary and primary != self.advertise_host:
+                    old_host = self.advertise_host
+                    self.advertise_host = primary
+                    self.alternate_ips = alternates
+                    logger.info(
+                        f"[P2P] Switched advertise_host from IPv6 {old_host} to IPv4 {primary} "
+                        f"(IPv4 preferred for compatibility)"
+                    )
+                    return
+
+            # Current host is valid, just update alternates
+            self.alternate_ips = all_ips - {self.advertise_host}
+            logger.debug(f"[P2P] Updated alternate_ips: {len(self.alternate_ips)} addresses")
             return
 
-        # Jan 2026: Also reject loopback - 127.0.0.1 is unreachable by peers!
-        is_unreachable = ip.is_private or ip.is_loopback
+        # Need to select a new primary host
+        if self.advertise_host:
+            # Current advertise_host is not in discovered IPs (possibly private/loopback)
+            try:
+                ip = ipaddress.ip_address(self.advertise_host)
+                is_unreachable = ip.is_private or ip.is_loopback
+                if is_unreachable:
+                    ip_type = "loopback" if ip.is_loopback else "private"
+                    logger.warning(
+                        f"[P2P] Current advertise_host {self.advertise_host} is {ip_type}, selecting new primary"
+                    )
+            except ValueError:
+                pass  # Not an IP address (maybe hostname)
 
-        if not is_unreachable:
-            # Public IP - no issue
-            return
+        # Select best primary (IPv4 preferred)
+        primary, alternates = self._select_primary_advertise_host(all_ips)
 
-        # Private or loopback IP detected - try to get Tailscale IP
-        ts_ip = self._get_tailscale_ip()
-
-        if ts_ip and ts_ip != self.advertise_host:
+        if primary:
             old_host = self.advertise_host
-            self.advertise_host = ts_ip
-            ip_type = "loopback" if ip.is_loopback else "private"
-            print(
-                f"[P2P] WARNING: advertise_host was {ip_type} IP {old_host}, "
-                f"auto-switched to Tailscale IP {ts_ip} for mesh reachability"
-            )
-            logger.warning(
-                f"P2P advertise_host auto-fixed: {old_host} -> {ts_ip} ({ip_type} IP unreachable by peers)"
-            )
+            self.advertise_host = primary
+            self.alternate_ips = alternates
+
+            if old_host and old_host != primary:
+                print(
+                    f"[P2P] WARNING: advertise_host auto-fixed: {old_host} -> {primary} "
+                    f"(alternate IPs: {len(alternates)})"
+                )
+                logger.warning(
+                    f"P2P advertise_host auto-fixed: {old_host} -> {primary} "
+                    f"(discovered {len(all_ips)} IPs, {len(alternates)} alternates)"
+                )
+            else:
+                logger.info(
+                    f"[P2P] advertise_host set to {primary} with {len(alternates)} alternate IPs"
+                )
         else:
-            # No Tailscale available - emit warning
-            ip_type = "loopback" if ip.is_loopback else "private"
+            # No valid IPs found - emit error
             print(
-                f"[P2P] ERROR: advertise_host {self.advertise_host} is a {ip_type} IP! "
-                f"Other nodes in the mesh cannot reach this address. "
+                f"[P2P] ERROR: advertise_host {self.advertise_host} is unreachable by peers! "
                 f"Set RINGRIFT_P2P_ADVERTISE_HOST to your public/Tailscale IP."
             )
             logger.error(
-                f"P2P advertise_host {self.advertise_host} is {ip_type} - mesh connectivity will fail!"
+                f"P2P advertise_host {self.advertise_host} is unreachable - mesh connectivity will fail!"
             )
 
     async def _periodic_ip_validation_loop(self) -> None:
@@ -4702,14 +4742,15 @@ class P2POrchestrator(
             await asyncio.sleep(300)  # Check every 5 minutes
 
     def _discover_all_ips(self, exclude_primary: str | None = None) -> set[str]:
-        """Discover all IP addresses this node can be reached at.
+        """Discover all IP addresses this node can be reached at (IPv4 AND IPv6).
 
         January 2026: Multi-IP advertising for improved mesh resilience.
+        January 2, 2026: Extended for dual-stack IPv4/IPv6 support.
 
         Collects IPs from:
-        1. Tailscale IP (100.x.x.x) - mesh network
-        2. Public IP (from hostname resolution or config)
-        3. Local network interfaces (non-loopback)
+        1. Tailscale IPs (100.x.x.x IPv4, fd7a:115c:a1e0:: IPv6)
+        2. Hostname resolution (both address families)
+        3. Local network interfaces (both address families)
         4. YAML config (tailscale_ip, ssh_host if resolvable)
 
         Returns:
@@ -4720,41 +4761,78 @@ class P2POrchestrator(
 
         ips: set[str] = set()
 
-        # 1. Tailscale IP
-        ts_ip = self._get_tailscale_ip()
-        if ts_ip:
-            ips.add(ts_ip)
+        # 1. Tailscale IPs (both IPv4 and IPv6)
+        # IMPORTANT: Explicitly fetch BOTH address families since _get_tailscale_ip()
+        # defaults to IPv6, which may not be reachable from IPv4-only peers.
+        try:
+            from scripts.p2p.resource_detector import ResourceDetector
+            detector = ResourceDetector()
+            # Get Tailscale IPv4 explicitly (100.x.x.x)
+            ts_ipv4 = detector.get_tailscale_ipv4()
+            if ts_ipv4:
+                ips.add(ts_ipv4)
+                logger.debug(f"[P2P] Discovered Tailscale IPv4: {ts_ipv4}")
+            # Get Tailscale IPv6 explicitly (fd7a:115c:a1e0::)
+            ts_ipv6 = detector.get_tailscale_ipv6()
+            if ts_ipv6:
+                ips.add(ts_ipv6)
+                logger.debug(f"[P2P] Discovered Tailscale IPv6: {ts_ipv6}")
+        except Exception as e:
+            logger.debug(f"[P2P] ResourceDetector Tailscale lookup failed: {e}")
+            # Fall back to legacy method
+            ts_ip = self._get_tailscale_ip()
+            if ts_ip:
+                ips.add(ts_ip)
 
-        # 2. Try to get public IP from hostname
+        # 2. Try to get IPs from hostname - BOTH address families
         try:
             hostname = socket.gethostname()
+            # IPv4
             for addr_info in socket.getaddrinfo(hostname, None, socket.AF_INET):
                 ip = addr_info[4][0]
                 if ip and ip != "127.0.0.1":
                     ips.add(ip)
+            # IPv6
+            for addr_info in socket.getaddrinfo(hostname, None, socket.AF_INET6):
+                ip = addr_info[4][0]
+                # Skip link-local (fe80::) and loopback (::1)
+                if ip and not ip.startswith("fe80:") and ip != "::1":
+                    ips.add(ip)
         except Exception:
             pass
 
-        # 3. Get IPs from network interfaces
+        # 3. Get IPs from network interfaces - BOTH address families
         try:
             import netifaces
             for iface in netifaces.interfaces():
+                # Skip loopback interfaces
+                if iface.startswith("lo"):
+                    continue
                 addrs = netifaces.ifaddresses(iface)
-                if netifaces.AF_INET in addrs:
-                    for addr in addrs[netifaces.AF_INET]:
-                        ip = addr.get("addr")
-                        if ip and ip != "127.0.0.1":
-                            try:
-                                ip_obj = ipaddress.ip_address(ip)
-                                # Include Tailscale and public IPs, skip other private
-                                if not ip_obj.is_private or ip.startswith("100."):
-                                    ips.add(ip)
-                            except ValueError:
-                                pass
+                # IPv4
+                for addr_info in addrs.get(netifaces.AF_INET, []):
+                    ip = addr_info.get("addr")
+                    if ip and ip != "127.0.0.1":
+                        try:
+                            ip_obj = ipaddress.ip_address(ip)
+                            # Include Tailscale and public IPs, skip other private
+                            if not ip_obj.is_private or ip.startswith("100."):
+                                ips.add(ip)
+                        except ValueError:
+                            pass
+                # IPv6 (NEW - dual-stack support)
+                for addr_info in addrs.get(netifaces.AF_INET6, []):
+                    ip = addr_info.get("addr", "")
+                    if ip:
+                        # Strip zone ID (e.g., "fe80::1%eth0" -> "fe80::1")
+                        ip = ip.split("%")[0]
+                        # Skip link-local (fe80::) and loopback (::1)
+                        if not ip.startswith("fe80:") and ip != "::1":
+                            ips.add(ip)
         except ImportError:
             # netifaces not available, try socket approach
             try:
-                # Get all IPs bound to this host
+                # Get primary outbound IPv4
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
                 local_ip = s.getsockname()[0]
@@ -4763,6 +4841,8 @@ class P2POrchestrator(
                     ips.add(local_ip)
             except Exception:
                 pass
+        except Exception:
+            pass
 
         # 4. Check YAML config for this node
         try:
@@ -4776,13 +4856,20 @@ class P2POrchestrator(
             if cfg_ts_ip:
                 ips.add(cfg_ts_ip)
 
-            # Try to resolve ssh_host if it's a hostname
+            # Try to resolve ssh_host if it's a hostname - both address families
             ssh_host = node_cfg.get("ssh_host")
             if ssh_host and not ssh_host.startswith("ssh"):  # Skip vast.ai ssh gateway
                 try:
-                    resolved = socket.gethostbyname(ssh_host)
-                    if resolved and resolved != "127.0.0.1":
-                        ips.add(resolved)
+                    # IPv4
+                    for addr_info in socket.getaddrinfo(ssh_host, None, socket.AF_INET):
+                        ip = addr_info[4][0]
+                        if ip and ip != "127.0.0.1":
+                            ips.add(ip)
+                    # IPv6
+                    for addr_info in socket.getaddrinfo(ssh_host, None, socket.AF_INET6):
+                        ip = addr_info[4][0]
+                        if ip and not ip.startswith("fe80:") and ip != "::1":
+                            ips.add(ip)
                 except Exception:
                     pass
         except Exception:
@@ -4797,6 +4884,80 @@ class P2POrchestrator(
 
         logger.debug(f"[P2P] Discovered alternate IPs: {ips}")
         return ips
+
+    def _format_ip_for_url(self, ip: str) -> str:
+        """Format IP for URL (bracket IPv6 addresses).
+
+        January 2, 2026: Added for dual-stack IPv4/IPv6 URL construction.
+
+        Args:
+            ip: IP address string (IPv4 or IPv6)
+
+        Returns:
+            IP formatted for URL: IPv4 unchanged, IPv6 wrapped in brackets
+        """
+        if ":" in ip and not ip.startswith("["):
+            return f"[{ip}]"
+        return ip
+
+    def _select_primary_advertise_host(self, all_ips: set[str]) -> tuple[str, set[str]]:
+        """Select best primary address (prefer IPv4 for compatibility) and return alternates.
+
+        January 2, 2026: Added for dual-stack IPv4/IPv6 support.
+        Ensures primary advertise_host is IPv4 when available (broader compatibility),
+        with IPv6 addresses available in alternate_ips for dual-stack peers.
+
+        Preference order for primary:
+        1. Tailscale CGNAT IPv4 (100.x.x.x) - globally routable via Tailscale mesh
+        2. Other IPv4 addresses
+        3. Tailscale IPv6 (fd7a:115c:a1e0::) - if no IPv4 available
+        4. Other IPv6 addresses
+
+        Args:
+            all_ips: Set of all discovered IP addresses
+
+        Returns:
+            Tuple of (primary_host, alternate_ips)
+        """
+        if not all_ips:
+            return "", set()
+
+        ipv4_ips: set[str] = set()
+        ipv6_ips: set[str] = set()
+
+        for ip in all_ips:
+            if ":" in ip:
+                ipv6_ips.add(ip)
+            else:
+                ipv4_ips.add(ip)
+
+        # Preference 1: Tailscale CGNAT IPv4 (100.x.x.x)
+        tailscale_v4 = [ip for ip in ipv4_ips if ip.startswith("100.")]
+        if tailscale_v4:
+            primary = tailscale_v4[0]
+            alternates = all_ips - {primary}
+            return primary, alternates
+
+        # Preference 2: Any other IPv4
+        if ipv4_ips:
+            primary = next(iter(ipv4_ips))
+            alternates = all_ips - {primary}
+            return primary, alternates
+
+        # Preference 3: Tailscale IPv6 (fd7a:115c:a1e0::)
+        tailscale_v6 = [ip for ip in ipv6_ips if ip.startswith("fd7a:115c:a1e0:")]
+        if tailscale_v6:
+            primary = tailscale_v6[0]
+            alternates = all_ips - {primary}
+            return primary, alternates
+
+        # Preference 4: Any other IPv6
+        if ipv6_ips:
+            primary = next(iter(ipv6_ips))
+            alternates = all_ips - {primary}
+            return primary, alternates
+
+        return "", set()
 
     def _load_voter_node_ids(self) -> list[str]:
         """Load the set of P2P voter node_ids (for quorum-based leadership).
@@ -9265,6 +9426,14 @@ class P2POrchestrator(
             "selfplay_jobs": cluster_selfplay_jobs,  # Cluster-wide aggregated
             "training_jobs": cluster_training_jobs,  # Cluster-wide aggregated
             "local_selfplay_jobs": selfplay_jobs_count,  # This node only
+            # Jan 2, 2026: Dual-stack IPv4/IPv6 network info
+            "network": {
+                "advertise_host": self.advertise_host,
+                "advertise_host_family": "ipv6" if ":" in (self.advertise_host or "") else "ipv4",
+                "alternate_ips": list(getattr(self, "alternate_ips", set()) or set()),
+                "alternate_ipv4_count": sum(1 for ip in getattr(self, "alternate_ips", set()) or set() if ":" not in ip),
+                "alternate_ipv6_count": sum(1 for ip in getattr(self, "alternate_ips", set()) or set() if ":" in ip),
+            },
         })
 
     async def handle_external_work(self, request: web.Request) -> web.Response:
@@ -28431,6 +28600,85 @@ print(json.dumps({{
                 logger.warning("HTTP server cleanup timed out after 30s")
 
 
+def _auto_detect_node_id() -> str | None:
+    """Auto-detect node ID from environment, config, or hostname.
+
+    Jan 2, 2026: Added to prevent startup failures when --node-id is forgotten.
+
+    Detection order:
+    1. RINGRIFT_NODE_ID environment variable
+    2. Match current IP addresses against distributed_hosts.yaml
+    3. Fall back to hostname
+
+    Returns:
+        Detected node_id string, or None if detection failed
+    """
+    import socket
+
+    # 1. Check environment variable
+    node_id = os.environ.get("RINGRIFT_NODE_ID")
+    if node_id:
+        return node_id
+
+    # 2. Try to match IP against config
+    try:
+        # Get all local IPs
+        local_ips = set()
+        hostname = socket.gethostname()
+        try:
+            for info in socket.getaddrinfo(hostname, None):
+                ip = info[4][0]
+                if ip and not ip.startswith("127."):
+                    local_ips.add(ip)
+        except socket.gaierror:
+            pass
+
+        # Also get IPs from network interfaces
+        try:
+            import netifaces
+            for iface in netifaces.interfaces():
+                addrs = netifaces.ifaddresses(iface)
+                for addr_family in (netifaces.AF_INET, netifaces.AF_INET6):
+                    if addr_family in addrs:
+                        for addr in addrs[addr_family]:
+                            ip = addr.get("addr", "")
+                            if ip and not ip.startswith("127.") and not ip.startswith("fe80"):
+                                local_ips.add(ip.split("%")[0])  # Remove interface suffix
+        except ImportError:
+            pass
+
+        # Load config and match
+        config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
+        if config_path.exists():
+            import yaml
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            for name, host_cfg in config.get("hosts", {}).items():
+                host_ips = set()
+                if host_cfg.get("ssh_host"):
+                    host_ips.add(host_cfg["ssh_host"])
+                if host_cfg.get("tailscale_ip"):
+                    host_ips.add(host_cfg["tailscale_ip"])
+
+                if local_ips & host_ips:
+                    logger.info(f"Matched node_id '{name}' by IP: {local_ips & host_ips}")
+                    return name
+
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Config-based node_id detection failed: {e}")
+
+    # 3. Fall back to hostname
+    try:
+        hostname = socket.gethostname()
+        # Clean up hostname (remove .local, etc.)
+        if "." in hostname:
+            hostname = hostname.split(".")[0]
+        return hostname
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _acquire_singleton_lock(
     kill_duplicates: bool = False,
     force_takeover: bool = False,
@@ -28558,7 +28806,7 @@ def main():
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="P2P Orchestrator for RingRift cluster")
-    parser.add_argument("--node-id", required=True, help="Unique identifier for this node")
+    parser.add_argument("--node-id", required=False, help="Unique identifier for this node (auto-detects if not provided)")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to listen on")
     parser.add_argument(
@@ -28589,6 +28837,14 @@ def main():
                         help="Force acquire lock even if held by another process (use when PID was recycled after crash)")
 
     args = parser.parse_args()
+
+    # Jan 2, 2026: Auto-detect node_id if not provided
+    if not args.node_id:
+        args.node_id = _auto_detect_node_id()
+        if not args.node_id:
+            logger.error("Could not auto-detect node-id. Please provide --node-id explicitly.")
+            sys.exit(1)
+        logger.info(f"Auto-detected node-id: {args.node_id}")
 
     known_peers = []
     if args.peers:
