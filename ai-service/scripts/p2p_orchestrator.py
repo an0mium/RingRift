@@ -2552,33 +2552,32 @@ class P2POrchestrator(
 
             # RemoteP2PRecoveryLoop - December 31, 2025
             # Automatically starts P2P on cluster nodes that should be running it
-            # but aren't currently in the mesh. Runs on any voter node for redundancy.
-            # Dec 31, 2025: Changed from coordinator-only to any voter node
-            voter_ids = list(getattr(self, "voter_node_ids", []) or [])
-            is_coordinator = self.node_id in ("local-mac", "mac-studio") or os.environ.get("RINGRIFT_IS_COORDINATOR")
-            is_voter = self.node_id in voter_ids
-            if is_coordinator or is_voter:
-                try:
-                    from scripts.p2p.loops import RemoteP2PRecoveryLoop
+            # but aren't currently in the mesh.
+            # Jan 2, 2026: Register on ALL nodes - the is_leader callback in the loop
+            # already prevents non-leaders from doing any work. Previous restriction
+            # to coordinator/voter nodes caused a bug where the leader (elected after
+            # startup) didn't have the loop registered because voter_node_ids was
+            # empty at loop registration time.
+            try:
+                from scripts.p2p.loops import RemoteP2PRecoveryLoop
 
-                    def _get_alive_peer_ids_for_recovery() -> list[str]:
-                        """Get list of alive peer IDs."""
-                        with self.peers_lock:
-                            return [p.node_id for p in self.peers.values() if p.is_alive()]
+                def _get_alive_peer_ids_for_recovery() -> list[str]:
+                    """Get list of alive peer IDs."""
+                    with self.peers_lock:
+                        return [p.node_id for p in self.peers.values() if p.is_alive()]
 
-                    # Note: emit_event omitted - uses internal logging instead
-                    # P2POrchestrator doesn't have _emit_event but the loop is optional
-                    # Jan 2, 2026: Added is_leader callback - CRITICAL to prevent
-                    # all nodes from trying to restart each other simultaneously
-                    remote_recovery = RemoteP2PRecoveryLoop(
-                        get_alive_peer_ids=_get_alive_peer_ids_for_recovery,
-                        is_leader=lambda: self.is_leader(),
-                    )
-                    manager.register(remote_recovery)
-                    role_desc = "coordinator" if is_coordinator else "voter"
-                    logger.info(f"[LoopManager] RemoteP2PRecoveryLoop registered ({role_desc}: {self.node_id}, leader-only execution)")
-                except (ImportError, TypeError) as e:
-                    logger.debug(f"RemoteP2PRecoveryLoop: not available: {e}")
+                # Note: emit_event omitted - uses internal logging instead
+                # P2POrchestrator doesn't have _emit_event but the loop is optional
+                # Jan 2, 2026: Added is_leader callback - CRITICAL to prevent
+                # all nodes from trying to restart each other simultaneously
+                remote_recovery = RemoteP2PRecoveryLoop(
+                    get_alive_peer_ids=_get_alive_peer_ids_for_recovery,
+                    is_leader=lambda: self.is_leader(),
+                )
+                manager.register(remote_recovery)
+                logger.info(f"[LoopManager] RemoteP2PRecoveryLoop registered (node: {self.node_id}, leader-only execution)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"RemoteP2PRecoveryLoop: not available: {e}")
 
             # PredictiveMonitoringLoop - December 28, 2025
             # Migrated from inline _predictive_monitoring_loop (~98 LOC removed)
@@ -27893,6 +27892,7 @@ print(json.dumps({{
             app.router.add_post('/admin/unretire', self.handle_admin_unretire)           # Unretire specific node
             app.router.add_post('/admin/restart', self.handle_admin_restart)             # Force restart orchestrator
             app.router.add_post('/admin/reset_node_jobs', self.handle_admin_reset_node_jobs)  # Reset job counts for zombie nodes
+            app.router.add_post('/admin/add_peer', self.handle_admin_add_peer)  # Inject peer for partition healing (Jan 2026)
 
             # Phase 5: Event subscription visibility (December 2025)
             app.router.add_get('/subscriptions', self.handle_subscriptions)              # Show event subscriptions
