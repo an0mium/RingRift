@@ -102,6 +102,8 @@ class DataEventType(Enum):
     # NPZ export events (December 2025 - triggers combination daemon)
     NPZ_EXPORT_STARTED = "npz_export_started"  # Export in progress
     NPZ_EXPORT_COMPLETE = "npz_export_complete"  # NPZ export finished
+    # Sprint 4 (Jan 2, 2026): Export validation pre-check
+    EXPORT_VALIDATION_FAILED = "export_validation_failed"  # Export blocked by validation
 
     # NPZ combination events (December 2025 - quality-weighted data combination)
     NPZ_COMBINATION_STARTED = "npz_combination_started"  # Combination in progress

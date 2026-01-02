@@ -325,6 +325,111 @@ class PartitionHealer:
         result.duration_ms = (time.time() - start_time) * 1000
         return result
 
+    async def _validate_convergence(
+        self,
+        known_peers: dict[str, DiscoveredPeer],
+        timeout: float | None = None,
+    ) -> tuple[bool, str]:
+        """
+        Validate that gossip has converged after healing.
+
+        Sprint 4 (Jan 2, 2026): Verify that all nodes agree on peer membership
+        after healing, instead of assuming success.
+
+        Args:
+            known_peers: Known peers from union discovery
+            timeout: Timeout for convergence (defaults to CONVERGENCE_TIMEOUT)
+
+        Returns:
+            Tuple of (converged, message)
+        """
+        timeout = timeout or PartitionHealingDefaults.CONVERGENCE_TIMEOUT
+        check_interval = PartitionHealingDefaults.CONVERGENCE_CHECK_INTERVAL
+        agreement_threshold = PartitionHealingDefaults.CONVERGENCE_AGREEMENT_THRESHOLD
+
+        start_time = time.time()
+        reachable_nodes = [
+            (node_id, peer.best_address)
+            for node_id, peer in known_peers.items()
+            if peer.best_address
+        ]
+
+        if not reachable_nodes:
+            return False, "No reachable nodes for convergence check"
+
+        logger.info(
+            f"[ConvergenceCheck] Starting convergence validation "
+            f"(timeout={timeout}s, threshold={agreement_threshold*100:.0f}%)"
+        )
+
+        while (time.time() - start_time) < timeout:
+            # Collect peer views from all reachable nodes
+            peer_views: dict[str, set[str]] = {}
+
+            async def get_view(node_id: str, addr: str) -> tuple[str, set[str] | None]:
+                view = await self.get_peer_view(addr)
+                if view:
+                    peers = view.get("peers", {})
+                    seen = set(peers.keys())
+                    seen.add(view.get("node_id", node_id))
+                    return node_id, seen
+                return node_id, None
+
+            tasks = [get_view(node_id, addr) for node_id, addr in reachable_nodes]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, tuple):
+                    node_id, seen = result
+                    if seen is not None:
+                        peer_views[node_id] = seen
+
+            if len(peer_views) < 2:
+                # Not enough responses for comparison
+                logger.debug("[ConvergenceCheck] Not enough responses, waiting...")
+                await asyncio.sleep(check_interval)
+                continue
+
+            # Calculate agreement: what percentage of known peers do nodes agree on?
+            # All nodes should see the same set of peers if converged
+            all_seen_peers: set[str] = set()
+            for seen in peer_views.values():
+                all_seen_peers.update(seen)
+
+            # Count how many nodes see each peer
+            peer_counts: dict[str, int] = {}
+            for seen in peer_views.values():
+                for peer_id in seen:
+                    peer_counts[peer_id] = peer_counts.get(peer_id, 0) + 1
+
+            # Agreement = average(how many nodes see each peer / total responding nodes)
+            total_responding = len(peer_views)
+            agreement_scores = [
+                count / total_responding for count in peer_counts.values()
+            ]
+            avg_agreement = sum(agreement_scores) / len(agreement_scores) if agreement_scores else 0
+
+            logger.debug(
+                f"[ConvergenceCheck] Progress: {avg_agreement*100:.1f}% agreement "
+                f"({total_responding} nodes responding, {len(all_seen_peers)} peers seen)"
+            )
+
+            if avg_agreement >= agreement_threshold:
+                elapsed = time.time() - start_time
+                msg = (
+                    f"Convergence achieved: {avg_agreement*100:.1f}% agreement "
+                    f"in {elapsed:.1f}s ({total_responding} nodes, {len(all_seen_peers)} peers)"
+                )
+                logger.info(f"[ConvergenceCheck] {msg}")
+                return True, msg
+
+            await asyncio.sleep(check_interval)
+
+        elapsed = time.time() - start_time
+        msg = f"Convergence timeout after {elapsed:.1f}s (last agreement: {avg_agreement*100:.1f}%)"
+        logger.warning(f"[ConvergenceCheck] {msg}")
+        return False, msg
+
     async def run_healing_pass(self) -> HealingResult:
         """
         Run a single healing pass: discover, detect partitions, heal.
@@ -357,9 +462,25 @@ class PartitionHealer:
         if len(partitions) > 1:
             logger.info("Healing partitions...")
             result = await self.heal_partitions(partitions, known_peers)
-            # Emit event on successful healing
+
+            # Sprint 4 (Jan 2, 2026): Validate convergence after healing
             if result.partitions_healed > 0:
-                self._emit_healing_event(result)
+                logger.info("Validating convergence after healing...")
+                converged, convergence_msg = await self._validate_convergence(known_peers)
+
+                if converged:
+                    # Emit success event
+                    self._emit_healing_event(result)
+                else:
+                    # Convergence failed - mark result as partial success
+                    result.success = False
+                    result.errors.append(f"Convergence failed: {convergence_msg}")
+                    self._emit_healing_failed_event(convergence_msg)
+                    logger.warning(
+                        f"Partition healing completed but convergence not achieved: "
+                        f"{convergence_msg}"
+                    )
+
             return result
         else:
             return HealingResult(

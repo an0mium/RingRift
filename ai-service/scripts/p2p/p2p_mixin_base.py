@@ -67,9 +67,17 @@ _event_emission_failures = 0
 _event_circuit_open = False
 _event_circuit_opened_at: float = 0.0
 
-# Circuit breaker thresholds
-EVENT_CIRCUIT_FAILURE_THRESHOLD = 10  # Open circuit after 10 consecutive failures
-EVENT_CIRCUIT_RESET_TIMEOUT = 60.0  # Try again after 60 seconds
+# Circuit breaker thresholds - use centralized defaults when available
+# Sprint 4 (Jan 2, 2026): Integrated with CircuitBreakerDefaults for consistency
+try:
+    from app.config.coordination_defaults import CircuitBreakerDefaults
+
+    EVENT_CIRCUIT_FAILURE_THRESHOLD = CircuitBreakerDefaults.P2P_FAILURE_THRESHOLD
+    EVENT_CIRCUIT_RESET_TIMEOUT = CircuitBreakerDefaults.P2P_RECOVERY_TIMEOUT
+except ImportError:
+    # Fallback for standalone usage
+    EVENT_CIRCUIT_FAILURE_THRESHOLD = 3  # Reduced from 10 to match P2P defaults
+    EVENT_CIRCUIT_RESET_TIMEOUT = 45.0  # Match P2P recovery timeout
 
 # =============================================================================
 # IP Mapping Cache (Sprint 3.5 - Jan 2, 2026)

@@ -39,6 +39,12 @@ from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_utils import parse_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
+# Sprint 4 (Jan 2, 2026): Export validation defaults
+try:
+    from app.config.coordination_defaults import ExportValidationDefaults
+except ImportError:
+    ExportValidationDefaults = None  # Fallback for standalone usage
+
 logger = logging.getLogger(__name__)
 
 
@@ -712,6 +718,121 @@ class AutoExportDaemon(HandlerBase):
             # Fallback to original threshold-based triggering
             await self._maybe_trigger_export(config_key)
 
+    async def _validate_export_readiness(
+        self,
+        config_key: str,
+        state: ConfigExportState,
+    ) -> tuple[bool, str]:
+        """Validate that export data meets quality thresholds.
+
+        Sprint 4 (Jan 2, 2026): Pre-export validation to prevent low-quality
+        training data from entering the pipeline.
+
+        Args:
+            config_key: Configuration key (e.g., "hex8_2p")
+            state: Current export state for this config
+
+        Returns:
+            Tuple of (is_ready, reason)
+        """
+        if ExportValidationDefaults is None or not ExportValidationDefaults.ENABLED:
+            return True, "Validation disabled"
+
+        game_count = state.games_since_last_export
+
+        # Bootstrap mode: allow export with lower thresholds for initial training
+        total_exported = state.total_exported_samples
+        if total_exported < ExportValidationDefaults.BOOTSTRAP_MODE_THRESHOLD:
+            logger.debug(
+                f"[AutoExportDaemon] {config_key}: Bootstrap mode "
+                f"({total_exported} < {ExportValidationDefaults.BOOTSTRAP_MODE_THRESHOLD}), "
+                f"skipping quality validation"
+            )
+            return True, "Bootstrap mode - validation skipped"
+
+        # Check minimum games
+        meets_game_threshold = game_count >= ExportValidationDefaults.MIN_GAMES
+
+        # Check quality (attempt to get quality score from databases)
+        avg_quality = await self._estimate_data_quality(config_key)
+        meets_quality_threshold = avg_quality >= ExportValidationDefaults.MIN_AVG_QUALITY
+
+        if ExportValidationDefaults.REQUIRE_BOTH:
+            # Require both thresholds
+            if not meets_game_threshold or not meets_quality_threshold:
+                reason = (
+                    f"Validation failed: games={game_count} "
+                    f"(need {ExportValidationDefaults.MIN_GAMES}), "
+                    f"quality={avg_quality:.2f} "
+                    f"(need {ExportValidationDefaults.MIN_AVG_QUALITY})"
+                )
+                logger.warning(f"[AutoExportDaemon] {config_key}: {reason}")
+                return False, reason
+        else:
+            # Require either threshold
+            if not meets_game_threshold and not meets_quality_threshold:
+                reason = (
+                    f"Validation failed: need games>={ExportValidationDefaults.MIN_GAMES} "
+                    f"OR quality>={ExportValidationDefaults.MIN_AVG_QUALITY}, "
+                    f"got games={game_count}, quality={avg_quality:.2f}"
+                )
+                logger.warning(f"[AutoExportDaemon] {config_key}: {reason}")
+                return False, reason
+
+        return True, f"Validation passed: games={game_count}, quality={avg_quality:.2f}"
+
+    async def _estimate_data_quality(self, config_key: str) -> float:
+        """Estimate data quality for a configuration.
+
+        Sprint 4 (Jan 2, 2026): Calculate average quality score from databases.
+
+        Args:
+            config_key: Configuration key
+
+        Returns:
+            Estimated quality score (0.0-1.0)
+        """
+        try:
+            from app.utils.game_discovery import GameDiscovery
+
+            discovery = GameDiscovery()
+            parsed = parse_config_key(config_key)
+            if not parsed:
+                return 0.5  # Default if can't parse
+
+            # Find databases for this config
+            databases = discovery.find_databases_for_config(
+                board_type=parsed.board_type,
+                num_players=parsed.num_players,
+            )
+
+            if not databases:
+                return 0.5  # Default if no databases
+
+            # Estimate quality based on available metrics
+            total_games = sum(db.game_count for db in databases)
+            total_samples = sum(db.sample_count for db in databases if db.sample_count)
+
+            if total_games == 0:
+                return 0.5
+
+            # Quality heuristics:
+            # 1. Samples per game (higher is better - more moves per game)
+            samples_per_game = total_samples / total_games if total_samples else 20
+            quality_from_length = min(samples_per_game / 50.0, 1.0)  # 50 moves = max quality
+
+            # 2. Assume gauntlet/tournament games have higher quality
+            # This would need actual metadata tracking in the future
+            quality_estimate = quality_from_length
+
+            return quality_estimate
+
+        except ImportError:
+            return 0.5  # Default if GameDiscovery not available
+        except Exception as e:
+            logger.debug(f"[AutoExportDaemon] Quality estimation error: {e}")
+            return 0.5
+
     async def _maybe_trigger_export(self, config_key: str) -> None:
         """Check conditions and trigger export if appropriate."""
         state = self._export_states.get(config_key)
@@ -744,6 +865,14 @@ class AutoExportDaemon(HandlerBase):
                 f"[AutoExportDaemon] {config_key}: Cooldown active, "
                 f"{remaining:.0f}s remaining"
             )
+            return
+
+        # Sprint 4 (Jan 2, 2026): Validate export readiness
+        is_ready, reason = await self._validate_export_readiness(config_key, state)
+        if not is_ready:
+            logger.debug(f"[AutoExportDaemon] {config_key}: {reason}")
+            # Emit validation failed event for monitoring
+            self._emit_validation_failed_event(config_key, reason)
             return
 
         # Trigger export
@@ -1018,6 +1147,37 @@ class AutoExportDaemon(HandlerBase):
 
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[AutoExportDaemon] Failed to emit new games available event: {e}")
+
+    def _emit_validation_failed_event(self, config_key: str, reason: str) -> None:
+        """Emit EXPORT_VALIDATION_FAILED event for monitoring.
+
+        Sprint 4 (Jan 2, 2026): Track when exports are blocked by validation.
+        """
+        try:
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import emit_event
+
+            parsed = parse_config_key(config_key)
+            board_type = parsed.board_type if parsed else config_key
+            num_players = parsed.num_players if parsed else 2
+
+            emit_event(
+                DataEventType.EXPORT_VALIDATION_FAILED,
+                {
+                    "config_key": config_key,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "reason": reason,
+                    "timestamp": time.time(),
+                    "source": "auto_export_daemon",
+                },
+            )
+            logger.debug(
+                f"[AutoExportDaemon] Emitted EXPORT_VALIDATION_FAILED for {config_key}"
+            )
+
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[AutoExportDaemon] Failed to emit validation failed event: {e}")
 
     async def _run_cycle(self) -> None:
         """Main work loop iteration - called by HandlerBase at 5 minute intervals."""

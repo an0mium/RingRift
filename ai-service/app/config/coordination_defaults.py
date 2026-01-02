@@ -1199,10 +1199,64 @@ class PartitionHealingDefaults:
     # Maximum bridges to create per partition pair
     MAX_BRIDGES: int = _env_int("RINGRIFT_PARTITION_HEALING_MAX_BRIDGES", 3)
 
+    # Sprint 4 (Jan 2, 2026): Convergence validation after healing
+    # Timeout for waiting for gossip convergence after healing (seconds)
+    CONVERGENCE_TIMEOUT: float = _env_float(
+        "RINGRIFT_PARTITION_HEALING_CONVERGENCE_TIMEOUT", 120.0
+    )
+
+    # Convergence check interval (seconds)
+    CONVERGENCE_CHECK_INTERVAL: float = _env_float(
+        "RINGRIFT_PARTITION_HEALING_CONVERGENCE_CHECK_INTERVAL", 15.0
+    )
+
+    # Minimum agreement ratio across quorum for convergence (0.0-1.0)
+    # Nodes must agree on at least this ratio of peers to consider converged
+    CONVERGENCE_AGREEMENT_THRESHOLD: float = _env_float(
+        "RINGRIFT_PARTITION_HEALING_CONVERGENCE_AGREEMENT", 0.8
+    )
+
+
+# =============================================================================
+# Export Validation Defaults (Sprint 4 - January 2, 2026)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class ExportValidationDefaults:
+    """Default values for pre-export validation checks.
+
+    Sprint 4 (Jan 2, 2026): Validates game count and quality before NPZ export
+    to prevent low-quality training data from entering the pipeline.
+
+    Used by: app/coordination/auto_export_daemon.py
+    """
+    # Minimum games required before export is allowed
+    # Lower than min_games_threshold allows export with quality override
+    MIN_GAMES: int = _env_int("RINGRIFT_EXPORT_VALIDATION_MIN_GAMES", 100)
+
+    # Minimum average quality score (0.0-1.0)
+    # Games are quality-scored based on move diversity, game length, etc.
+    MIN_AVG_QUALITY: float = _env_float("RINGRIFT_EXPORT_VALIDATION_MIN_QUALITY", 0.5)
+
+    # Enable/disable validation entirely
+    ENABLED: bool = _env_bool("RINGRIFT_EXPORT_VALIDATION_ENABLED", True)
+
+    # Skip validation for bootstrap configs (less than MIN_BOOTSTRAP_GAMES games)
+    # Bootstrap mode allows lower quality for initial training data
+    BOOTSTRAP_MODE_THRESHOLD: int = _env_int(
+        "RINGRIFT_EXPORT_VALIDATION_BOOTSTRAP_THRESHOLD", 500
+    )
+
+    # Allow export if either game count OR quality exceeds thresholds
+    # False = require both, True = require either
+    REQUIRE_BOTH: bool = _env_bool("RINGRIFT_EXPORT_VALIDATION_REQUIRE_BOTH", False)
+
 
 # =============================================================================
 # Frozen Leader Detection Defaults (January 2, 2026)
 # =============================================================================
+
 
 @dataclass(frozen=True)
 class FrozenLeaderDefaults:

@@ -210,25 +210,74 @@ class LeaderHealthProbe:
                 status=LeaderHealthStatus.UNKNOWN,
             )
 
-        # Wait for all probes with timeout
-        results = await asyncio.gather(*probe_tasks, return_exceptions=True)
-
-        # Aggregate results
+        # Sprint 4 (Jan 2, 2026): Fail-fast probing with early exit
+        # Use asyncio.wait with FIRST_COMPLETED to return quickly on success
+        # instead of waiting for all probes (which could include slow timeouts)
         successful = []
         failed = []
+        pending_tasks = {asyncio.create_task(t) for t in probe_tasks}
+        completed_tasks: set[asyncio.Task] = set()
 
-        for result in results:
-            if isinstance(result, Exception):
-                failed.append(ProbeResult(
-                    transport=ProbeTransport.HTTP_DIRECT,
-                    success=False,
-                    error=str(result),
-                ))
-            elif isinstance(result, ProbeResult):
-                if result.success:
-                    successful.append(result)
-                else:
-                    failed.append(result)
+        try:
+            while pending_tasks:
+                # Wait for the first probe to complete
+                done, pending_tasks = await asyncio.wait(
+                    pending_tasks,
+                    timeout=self._config.probe_timeout + 1.0,  # Slightly longer than individual probe timeout
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                if not done:
+                    # All remaining tasks timed out
+                    break
+
+                completed_tasks.update(done)
+
+                # Process completed probes
+                for task in done:
+                    try:
+                        result = task.result()
+                        if isinstance(result, ProbeResult):
+                            if result.success:
+                                successful.append(result)
+                            else:
+                                failed.append(result)
+                    except Exception as e:
+                        failed.append(ProbeResult(
+                            transport=ProbeTransport.HTTP_DIRECT,
+                            success=False,
+                            error=str(e),
+                        ))
+
+                # Fail-fast: If we have enough successful probes, cancel remaining
+                # and return immediately (skip slow/timing-out probes)
+                heartbeat_successful = [p for p in successful if p.transport != ProbeTransport.WORK_ACCEPTANCE]
+                if len(heartbeat_successful) >= self._config.min_probes_for_decision:
+                    # We have enough for a healthy decision
+                    logger.debug(
+                        f"[LeaderProbe] Fail-fast exit: {len(heartbeat_successful)} successful probes "
+                        f"(threshold: {self._config.min_probes_for_decision}), "
+                        f"cancelling {len(pending_tasks)} remaining"
+                    )
+                    break
+
+                # Also check if remaining probes can't change outcome
+                max_possible_successes = len(heartbeat_successful) + len(pending_tasks)
+                if max_possible_successes < self._config.min_probes_for_decision:
+                    # Can't possibly reach threshold even if all remaining succeed
+                    logger.debug(
+                        f"[LeaderProbe] Early fail: max possible {max_possible_successes} < "
+                        f"threshold {self._config.min_probes_for_decision}"
+                    )
+                    break
+
+        finally:
+            # Cancel any remaining tasks to avoid resource leaks
+            for task in pending_tasks:
+                task.cancel()
+            # Give cancelled tasks a chance to clean up
+            if pending_tasks:
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
 
         # January 2, 2026: Separate work acceptance probe from heartbeat probes
         # for frozen leader detection
