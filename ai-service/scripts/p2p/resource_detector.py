@@ -256,6 +256,70 @@ class ResourceDetector:
         except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
             return ""
 
+    def get_all_ips(self) -> set[str]:
+        """Get all discoverable IP addresses for this node.
+
+        Jan 2, 2026: Added for multi-IP advertising. Returns all IPs that peers
+        could potentially use to reach this node:
+        - Tailscale IPv4 (100.x.x.x) - mesh network
+        - Tailscale IPv6 (fd7a:...) - mesh network, NAT-friendly
+        - Local IP (from socket) - direct network
+        - All interface IPs - fallback
+
+        Returns:
+            Set of IP addresses (excludes localhost/loopback)
+        """
+        ips: set[str] = set()
+
+        # Tailscale IPs (highest priority - mesh reachable)
+        ts_ipv4 = self.get_tailscale_ipv4()
+        if ts_ipv4:
+            ips.add(ts_ipv4)
+
+        ts_ipv6 = self.get_tailscale_ipv6()
+        if ts_ipv6:
+            ips.add(ts_ipv6)
+
+        # Local IP from socket (what we'd use for outbound)
+        local_ip = self.get_local_ip()
+        if local_ip and local_ip != "127.0.0.1":
+            ips.add(local_ip)
+
+        # All network interface IPs
+        try:
+            import socket
+            hostname = socket.gethostname()
+            # Get all IPs for this hostname
+            for info in socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM):
+                addr = info[4][0]
+                # Skip localhost/loopback
+                if addr and not addr.startswith("127.") and addr != "::1":
+                    ips.add(addr)
+        except (OSError, socket.gaierror):
+            pass
+
+        # Try netifaces for more complete interface enumeration
+        try:
+            import netifaces
+            for iface in netifaces.interfaces():
+                addrs = netifaces.ifaddresses(iface)
+                # IPv4
+                for addr_info in addrs.get(netifaces.AF_INET, []):
+                    addr = addr_info.get("addr", "")
+                    if addr and not addr.startswith("127."):
+                        ips.add(addr)
+                # IPv6
+                for addr_info in addrs.get(netifaces.AF_INET6, []):
+                    addr = addr_info.get("addr", "").split("%")[0]  # Remove scope
+                    if addr and addr != "::1" and not addr.startswith("fe80"):  # Skip link-local
+                        ips.add(addr)
+        except ImportError:
+            pass  # netifaces not available
+        except Exception:
+            pass
+
+        return ips
+
     def is_in_startup_grace_period(self) -> bool:
         """Check if we're still in the startup grace period.
 
@@ -498,6 +562,10 @@ class ResourceDetectorMixin:
     def _get_tailscale_ip(self) -> str:
         """Get Tailscale IP (delegates to ResourceDetector)."""
         return self._resource_detector.get_tailscale_ip()
+
+    def _get_all_ips(self) -> set[str]:
+        """Get all discoverable IPs (delegates to ResourceDetector)."""
+        return self._resource_detector.get_all_ips()
 
     def _is_in_startup_grace_period(self) -> bool:
         """Check startup grace period (delegates to ResourceDetector)."""

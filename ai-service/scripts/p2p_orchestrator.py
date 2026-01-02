@@ -4641,34 +4641,37 @@ class P2POrchestrator(
             # Not an IP address (maybe hostname), skip validation
             return
 
-        is_private = ip.is_private and not ip.is_loopback
+        # Jan 2026: Also reject loopback - 127.0.0.1 is unreachable by peers!
+        is_unreachable = ip.is_private or ip.is_loopback
 
-        if not is_private:
-            # Public IP or loopback - no issue
+        if not is_unreachable:
+            # Public IP - no issue
             return
 
-        # Private IP detected - try to get Tailscale IP
+        # Private or loopback IP detected - try to get Tailscale IP
         ts_ip = self._get_tailscale_ip()
 
         if ts_ip and ts_ip != self.advertise_host:
             old_host = self.advertise_host
             self.advertise_host = ts_ip
+            ip_type = "loopback" if ip.is_loopback else "private"
             print(
-                f"[P2P] WARNING: advertise_host was private IP {old_host}, "
+                f"[P2P] WARNING: advertise_host was {ip_type} IP {old_host}, "
                 f"auto-switched to Tailscale IP {ts_ip} for mesh reachability"
             )
             logger.warning(
-                f"P2P advertise_host auto-fixed: {old_host} -> {ts_ip} (private IP unreachable by peers)"
+                f"P2P advertise_host auto-fixed: {old_host} -> {ts_ip} ({ip_type} IP unreachable by peers)"
             )
         else:
             # No Tailscale available - emit warning
+            ip_type = "loopback" if ip.is_loopback else "private"
             print(
-                f"[P2P] ERROR: advertise_host {self.advertise_host} is a private IP! "
+                f"[P2P] ERROR: advertise_host {self.advertise_host} is a {ip_type} IP! "
                 f"Other nodes in the mesh cannot reach this address. "
                 f"Set RINGRIFT_P2P_ADVERTISE_HOST to your public/Tailscale IP."
             )
             logger.error(
-                f"P2P advertise_host {self.advertise_host} is private - mesh connectivity will fail!"
+                f"P2P advertise_host {self.advertise_host} is {ip_type} - mesh connectivity will fail!"
             )
 
     async def _periodic_ip_validation_loop(self) -> None:
@@ -4697,6 +4700,104 @@ class P2POrchestrator(
                 logger.debug(f"[P2P] IP revalidation error: {e}")
 
             await asyncio.sleep(300)  # Check every 5 minutes
+
+    def _discover_all_ips(self, exclude_primary: str | None = None) -> set[str]:
+        """Discover all IP addresses this node can be reached at.
+
+        January 2026: Multi-IP advertising for improved mesh resilience.
+
+        Collects IPs from:
+        1. Tailscale IP (100.x.x.x) - mesh network
+        2. Public IP (from hostname resolution or config)
+        3. Local network interfaces (non-loopback)
+        4. YAML config (tailscale_ip, ssh_host if resolvable)
+
+        Returns:
+            Set of IP addresses (excluding the primary advertise_host)
+        """
+        import ipaddress
+        import socket
+
+        ips: set[str] = set()
+
+        # 1. Tailscale IP
+        ts_ip = self._get_tailscale_ip()
+        if ts_ip:
+            ips.add(ts_ip)
+
+        # 2. Try to get public IP from hostname
+        try:
+            hostname = socket.gethostname()
+            for addr_info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+                ip = addr_info[4][0]
+                if ip and ip != "127.0.0.1":
+                    ips.add(ip)
+        except Exception:
+            pass
+
+        # 3. Get IPs from network interfaces
+        try:
+            import netifaces
+            for iface in netifaces.interfaces():
+                addrs = netifaces.ifaddresses(iface)
+                if netifaces.AF_INET in addrs:
+                    for addr in addrs[netifaces.AF_INET]:
+                        ip = addr.get("addr")
+                        if ip and ip != "127.0.0.1":
+                            try:
+                                ip_obj = ipaddress.ip_address(ip)
+                                # Include Tailscale and public IPs, skip other private
+                                if not ip_obj.is_private or ip.startswith("100."):
+                                    ips.add(ip)
+                            except ValueError:
+                                pass
+        except ImportError:
+            # netifaces not available, try socket approach
+            try:
+                # Get all IPs bound to this host
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+                if local_ip and local_ip != "127.0.0.1":
+                    ips.add(local_ip)
+            except Exception:
+                pass
+
+        # 4. Check YAML config for this node
+        try:
+            from app.config.cluster_config import load_cluster_config
+            config = load_cluster_config()
+            nodes = getattr(config, "hosts_raw", {}) or {}
+            node_cfg = nodes.get(self.node_id, {})
+
+            # Add Tailscale IP from config
+            cfg_ts_ip = node_cfg.get("tailscale_ip")
+            if cfg_ts_ip:
+                ips.add(cfg_ts_ip)
+
+            # Try to resolve ssh_host if it's a hostname
+            ssh_host = node_cfg.get("ssh_host")
+            if ssh_host and not ssh_host.startswith("ssh"):  # Skip vast.ai ssh gateway
+                try:
+                    resolved = socket.gethostbyname(ssh_host)
+                    if resolved and resolved != "127.0.0.1":
+                        ips.add(resolved)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Remove primary host to avoid duplication
+        if exclude_primary and exclude_primary in ips:
+            ips.discard(exclude_primary)
+
+        # Remove localhost variants
+        ips.discard("127.0.0.1")
+        ips.discard("0.0.0.0")
+
+        logger.debug(f"[P2P] Discovered alternate IPs: {ips}")
+        return ips
 
     def _load_voter_node_ids(self) -> list[str]:
         """Load the set of P2P voter node_ids (for quorum-based leadership).
@@ -6112,6 +6213,11 @@ class P2POrchestrator(
             # Use the actual listening port for mesh endpoints (port-mapped
             # advertise ports may not be reachable inside overlays).
             info.reported_port = int(self.port)
+
+        # Jan 2026: Populate alternate_ips with all reachable IPs for partition healing
+        # Peers can try multiple IPs to reach us, improving mesh resilience
+        info.alternate_ips = self._discover_all_ips(exclude_primary=info.host)
+
         return info
 
     # NOTE: _detect_gpu, _detect_memory, _get_local_ip, _get_tailscale_ip
