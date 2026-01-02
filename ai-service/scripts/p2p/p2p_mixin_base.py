@@ -403,6 +403,10 @@ class P2PMixinBase:
         Uses SWIM-based failure detection when available (MembershipMixin),
         falling back to HTTP heartbeat-based checks otherwise.
 
+        Jan 2, 2026: Added IP:port matching because SWIM discovers peers
+        as IP:port format (e.g., "135.181.39.239:7947") but node_ids are
+        proper names (e.g., "hetzner-cpu1"). This method now checks both.
+
         Args:
             node_ids: List of node IDs to check
 
@@ -430,15 +434,25 @@ class P2PMixinBase:
         else:
             peers = dict(peers)
 
+        # Jan 2, 2026: Build IP mapping for node_ids from distributed_hosts.yaml
+        # This allows matching peers discovered as IP:port against node_ids
+        node_ip_map = self._build_node_ip_mapping(node_ids)
+
         # Check if SWIM-based hybrid check is available (from MembershipMixin)
         # SWIM provides 5s failure detection vs 60-90s for HTTP heartbeats
         hybrid_check = getattr(self, "is_peer_alive_hybrid", None)
         use_hybrid = callable(hybrid_check)
 
+        counted_nodes: set[str] = set()
+
         for nid in node_ids:
+            if nid in counted_nodes:
+                continue
+
             # Count self as alive
             if nid == node_id:
                 alive += 1
+                counted_nodes.add(nid)
                 continue
 
             # Use SWIM-based check if available
@@ -446,18 +460,86 @@ class P2PMixinBase:
                 try:
                     if hybrid_check(nid):
                         alive += 1
+                        counted_nodes.add(nid)
                     continue
                 except Exception as e:
                     # Dec 30, 2025: Log SWIM check failures for observability
                     self._log_debug(f"SWIM check failed for {nid}, falling back to HTTP: {type(e).__name__}")
                     pass
 
-            # HTTP heartbeat fallback
+            # Check 1: Direct node_id match in peers
             peer = peers.get(nid)
             if peer and hasattr(peer, "is_alive") and peer.is_alive():
                 alive += 1
+                counted_nodes.add(nid)
+                continue
+
+            # Jan 2, 2026: Check 2: IP:port match - look for any peer whose IP matches
+            node_ips = node_ip_map.get(nid, set())
+            if node_ips:
+                for peer_id, peer in peers.items():
+                    if nid in counted_nodes:
+                        break
+                    # Extract IP from peer_id (format: "IP:port")
+                    if ":" in peer_id:
+                        peer_ip = peer_id.split(":")[0]
+                        if peer_ip in node_ips and hasattr(peer, "is_alive") and peer.is_alive():
+                            alive += 1
+                            counted_nodes.add(nid)
+                            break
 
         return alive
+
+    def _build_node_ip_mapping(self, node_ids: list[str]) -> dict[str, set[str]]:
+        """Build a mapping from node_ids to their known IPs.
+
+        Jan 2, 2026: Added to support peer matching when peers are discovered
+        via SWIM as IP:port format instead of proper node_ids.
+
+        Args:
+            node_ids: List of node IDs to map
+
+        Returns:
+            Dict mapping node_id -> set of known IPs (tailscale_ip, ssh_host)
+        """
+        if not node_ids:
+            return {}
+
+        # Load config to get IP mappings
+        ringrift_path = getattr(self, "ringrift_path", None)
+        if not ringrift_path:
+            return {}
+
+        from pathlib import Path
+        cfg_path = Path(ringrift_path) / "ai-service" / "config" / "distributed_hosts.yaml"
+        if not cfg_path.exists():
+            return {}
+
+        try:
+            import yaml
+            data = yaml.safe_load(cfg_path.read_text()) or {}
+            hosts = data.get("hosts", {}) or {}
+        except Exception:
+            return {}
+
+        node_ip_map: dict[str, set[str]] = {}
+        for nid in node_ids:
+            host_cfg = hosts.get(nid, {})
+            ips: set[str] = set()
+
+            # Collect all known IPs for this node
+            if host_cfg.get("tailscale_ip"):
+                ips.add(host_cfg["tailscale_ip"])
+            if host_cfg.get("ssh_host"):
+                ssh_host = host_cfg["ssh_host"]
+                # Only add if it's an IP (not a hostname like "ssh5.vast.ai")
+                if ssh_host and not any(c.isalpha() for c in ssh_host.replace(".", "")):
+                    ips.add(ssh_host)
+
+            if ips:
+                node_ip_map[nid] = ips
+
+        return node_ip_map
 
     def _get_alive_peer_list(self, node_ids: list[str]) -> list[str]:
         """Get list of node IDs that are currently alive.
