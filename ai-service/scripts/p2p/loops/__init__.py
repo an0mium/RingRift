@@ -113,6 +113,11 @@ from .peer_recovery_loop import (
     PeerRecoveryConfig,
     PeerRecoveryLoop,
 )
+from .cluster_healing_loop import (
+    ClusterHealingConfig,
+    ClusterHealingLoop,
+    HostInfo as ClusterHostInfo,
+)
 from .remote_p2p_recovery_loop import (
     RemoteP2PRecoveryConfig,
     RemoteP2PRecoveryLoop,
@@ -200,6 +205,10 @@ __all__ = [
     # Peer Recovery (Dec 2025)
     "PeerRecoveryConfig",
     "PeerRecoveryLoop",
+    # Cluster Healing (Jan 2026)
+    "ClusterHealingConfig",
+    "ClusterHealingLoop",
+    "ClusterHostInfo",
     # Remote P2P Recovery (Dec 2025)
     "RemoteP2PRecoveryConfig",
     "RemoteP2PRecoveryLoop",

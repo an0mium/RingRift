@@ -2863,6 +2863,52 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"TailscaleKeepaliveLoop: not available: {e}")
 
+            # ClusterHealingLoop - January 2026
+            # Automatically connects missing nodes from distributed_hosts.yaml
+            try:
+                from scripts.p2p.loops import ClusterHealingLoop, ClusterHealingConfig
+
+                def _get_current_peer_ids() -> set[str]:
+                    """Get set of known peer node_ids."""
+                    with self.peers_lock:
+                        return set(self.peers.keys())
+
+                def _get_alive_peer_addresses() -> list[str]:
+                    """Get list of alive peer HTTP addresses."""
+                    with self.peers_lock:
+                        return [
+                            f"http://{p.tailscale_ip or p.host or p.ip}:{p.port or DEFAULT_PORT}"
+                            for p in self.peers.values()
+                            if p.is_alive() and (p.tailscale_ip or p.host or p.ip)
+                        ]
+
+                def _on_node_joined(node_id: str) -> None:
+                    """Callback when a node is healed and joins."""
+                    logger.info(f"[ClusterHealing] Node {node_id} joined the cluster")
+
+                healing_config = ClusterHealingConfig(
+                    check_interval_seconds=300.0,  # Check every 5 minutes
+                    max_heal_per_cycle=5,  # Heal up to 5 nodes per cycle
+                    ssh_timeout_seconds=30.0,
+                    p2p_startup_wait_seconds=15.0,
+                )
+
+                cluster_healing = ClusterHealingLoop(
+                    get_current_peers=_get_current_peer_ids,
+                    get_alive_peer_addresses=_get_alive_peer_addresses,
+                    emit_event=self._safe_emit_event if hasattr(self, "_safe_emit_event") else None,
+                    on_node_joined=_on_node_joined,
+                    config=healing_config,
+                )
+                manager.register(cluster_healing)
+                logger.info(
+                    f"[P2P] ClusterHealingLoop registered "
+                    f"(interval={healing_config.check_interval_seconds}s, "
+                    f"max_heal={healing_config.max_heal_per_cycle})"
+                )
+            except (ImportError, TypeError) as e:
+                logger.debug(f"ClusterHealingLoop: not available: {e}")
+
             # UdpDiscoveryLoop - December 28, 2025
             # LAN peer discovery via UDP broadcast (useful for network partition recovery)
             try:

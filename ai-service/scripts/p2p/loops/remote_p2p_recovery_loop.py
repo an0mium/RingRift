@@ -51,18 +51,18 @@ logger = logging.getLogger(__name__)
 class RemoteP2PRecoveryConfig:
     """Configuration for remote P2P recovery."""
 
-    # Interval between recovery cycles (seconds) - default 2 minutes
-    # Jan 2026: Increased from 60s to 120s to prevent restart cascade
-    # When set too low, nodes get restarted before they finish joining mesh
+    # Interval between recovery cycles (seconds) - default 60 seconds
+    # Jan 2026: Reduced from 120s to 60s for faster recovery
+    # Nodes typically connect within 30-60s if healthy
     check_interval_seconds: float = field(
         default_factory=lambda: float(
-            os.environ.get("RINGRIFT_REMOTE_P2P_RECOVERY_INTERVAL", "120")
+            os.environ.get("RINGRIFT_REMOTE_P2P_RECOVERY_INTERVAL", "60")
         )
     )
 
     # Maximum nodes to recover per cycle (prevent thundering herd)
-    # Jan 2026: Reduced from 10 to 5 to prevent cluster instability
-    max_nodes_per_cycle: int = 5
+    # Jan 2026: Increased from 5 to 10 for faster cluster recovery
+    max_nodes_per_cycle: int = 10
 
     # SSH timeout per node (seconds)
     ssh_timeout_seconds: float = 30.0
@@ -91,9 +91,9 @@ class RemoteP2PRecoveryConfig:
     )
 
     # Minimum time since last attempt for a node before retrying (seconds)
-    # Jan 2026: Increased from 60s to 180s to prevent restart cascade
-    # Nodes need time to fully start up and establish mesh connectivity
-    retry_cooldown_seconds: float = 180.0  # 3 minutes (base cooldown)
+    # Jan 2026: Reduced from 180s to 90s - balances recovery speed with stability
+    # Nodes typically need 30-60s to start and join mesh
+    retry_cooldown_seconds: float = 90.0  # 1.5 minutes (base cooldown)
 
     # Exponential backoff configuration
     # Jan 2026: Prevent pathological restart loops by backing off exponentially

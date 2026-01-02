@@ -1,0 +1,529 @@
+"""Cluster Healing Loop for P2P Orchestrator.
+
+January 2026: Automates cluster membership healing by proactively
+connecting missing nodes from distributed_hosts.yaml.
+
+Problem: Nodes may fail to join the P2P cluster due to:
+- Wrong bootstrap peers configured
+- P2P process crashed and didn't restart
+- Network partitions isolating sub-clusters
+- New nodes added to YAML but never contacted
+
+Solution: Periodically scan distributed_hosts.yaml, identify nodes missing
+from P2P peers, and proactively reach out via SSH to restart P2P with
+correct bootstrap peers.
+
+Usage:
+    from scripts.p2p.loops import ClusterHealingLoop, ClusterHealingConfig
+
+    healing_loop = ClusterHealingLoop(
+        get_current_peers=lambda: orchestrator.get_peer_ids(),
+        get_alive_peer_addresses=lambda: orchestrator.get_alive_peer_addresses(),
+        on_node_joined=lambda node_id: logger.info(f"Healed: {node_id}"),
+        config=ClusterHealingConfig(
+            check_interval_seconds=300,
+            max_heal_per_cycle=5,
+        ),
+    )
+    await healing_loop.run_forever()
+
+Events:
+    NODE_HEALED: Emitted when a missing node is successfully restarted
+    NODE_HEAL_FAILED: Emitted when healing attempt fails
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import random
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Coroutine
+
+import yaml
+
+from .base import BaseLoop
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+
+@dataclass
+class ClusterHealingConfig:
+    """Configuration for cluster healing loop."""
+
+    # Interval between healing cycles (seconds)
+    # Default: 5 minutes - balance between responsiveness and not hammering nodes
+    check_interval_seconds: float = field(
+        default_factory=lambda: float(
+            os.environ.get("RINGRIFT_CLUSTER_HEALING_INTERVAL", "300")
+        )
+    )
+
+    # Maximum nodes to attempt healing per cycle
+    # Limits SSH load and allows gradual recovery
+    max_heal_per_cycle: int = 5
+
+    # SSH timeout for connecting to nodes (seconds)
+    ssh_timeout_seconds: float = 30.0
+
+    # Time to wait for P2P to start before checking status (seconds)
+    p2p_startup_wait_seconds: float = 15.0
+
+    # Path to distributed_hosts.yaml
+    hosts_yaml_path: Path = field(
+        default_factory=lambda: Path(
+            os.environ.get(
+                "RINGRIFT_HOSTS_YAML",
+                Path(__file__).parent.parent.parent.parent
+                / "config"
+                / "distributed_hosts.yaml",
+            )
+        )
+    )
+
+    # Number of bootstrap peers to use when restarting P2P
+    num_bootstrap_peers: int = 4
+
+    # Backoff after failed healing attempt (seconds)
+    backoff_after_failure_seconds: float = 600.0  # 10 minutes
+
+    # Whether to emit events
+    emit_events: bool = True
+
+    # Whether the loop is enabled
+    enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "RINGRIFT_CLUSTER_HEALING_ENABLED", "true"
+        ).lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+    # Dry run mode (log actions without executing)
+    dry_run: bool = field(
+        default_factory=lambda: os.environ.get(
+            "RINGRIFT_CLUSTER_HEALING_DRY_RUN", "false"
+        ).lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+
+# =============================================================================
+# Host Info
+# =============================================================================
+
+
+@dataclass
+class HostInfo:
+    """Information about a cluster host from distributed_hosts.yaml."""
+
+    name: str
+    tailscale_ip: str
+    ssh_user: str = "root"
+    ssh_port: int = 22
+    p2p_port: int = 8770
+    enabled: bool = True
+    role: str = "gpu_selfplay"
+
+    @property
+    def ssh_target(self) -> str:
+        """SSH target string."""
+        if self.ssh_port == 22:
+            return f"{self.ssh_user}@{self.tailscale_ip}"
+        return f"{self.ssh_user}@{self.tailscale_ip} -p {self.ssh_port}"
+
+    @property
+    def p2p_url(self) -> str:
+        """P2P HTTP URL."""
+        return f"http://{self.tailscale_ip}:{self.p2p_port}"
+
+
+# =============================================================================
+# Cluster Healing Loop
+# =============================================================================
+
+
+class ClusterHealingLoop(BaseLoop):
+    """Background loop that heals cluster by connecting missing nodes.
+
+    Key features:
+    - Reads expected membership from distributed_hosts.yaml
+    - Identifies nodes missing from P2P peers
+    - Reaches out via SSH to restart P2P with correct bootstrap peers
+    - Tracks healing attempts with backoff for repeated failures
+    - Emits events for monitoring
+    """
+
+    def __init__(
+        self,
+        get_current_peers: Callable[[], set[str]],
+        get_alive_peer_addresses: Callable[[], list[str]],
+        emit_event: Callable[[str, dict[str, Any]], None] | None = None,
+        on_node_joined: Callable[[str], None] | None = None,
+        config: ClusterHealingConfig | None = None,
+    ):
+        """Initialize cluster healing loop.
+
+        Args:
+            get_current_peers: Callback returning set of known peer node_ids
+            get_alive_peer_addresses: Callback returning list of alive peer
+                HTTP addresses (e.g., "http://100.x.x.x:8770")
+            emit_event: Optional callback to emit events
+            on_node_joined: Optional callback when a node is successfully healed
+            config: Healing configuration
+        """
+        self.config = config or ClusterHealingConfig()
+        super().__init__(
+            name="cluster_healing",
+            interval=self.config.check_interval_seconds,
+            enabled=self.config.enabled,
+        )
+
+        self._get_current_peers = get_current_peers
+        self._get_alive_peer_addresses = get_alive_peer_addresses
+        self._emit_event = emit_event
+        self._on_node_joined = on_node_joined
+
+        # Track healing attempts with backoff
+        self._heal_failures: dict[str, int] = {}  # node_id -> failure count
+        self._heal_next_attempt: dict[str, float] = {}  # node_id -> next attempt time
+
+        # Cache hosts config
+        self._hosts_cache: dict[str, HostInfo] = {}
+        self._hosts_cache_time: float = 0.0
+
+        # Statistics
+        self._stats_heal_attempts = 0
+        self._stats_heal_successes = 0
+        self._stats_heal_failures = 0
+
+    def _load_hosts_config(self) -> dict[str, HostInfo]:
+        """Load and cache hosts from distributed_hosts.yaml."""
+        # Cache for 5 minutes
+        now = time.time()
+        if self._hosts_cache and (now - self._hosts_cache_time) < 300:
+            return self._hosts_cache
+
+        try:
+            with open(self.config.hosts_yaml_path) as f:
+                config = yaml.safe_load(f)
+
+            hosts = {}
+            for host_data in config.get("hosts", []):
+                name = host_data.get("name", "")
+                if not name:
+                    continue
+
+                # Skip disabled hosts
+                if not host_data.get("enabled", True):
+                    continue
+
+                # Extract SSH info
+                tailscale_ip = host_data.get("tailscale_ip", "")
+                if not tailscale_ip:
+                    continue
+
+                ssh_user = host_data.get("ssh_user", "root")
+                ssh_port = host_data.get("ssh_port", 22)
+                p2p_port = host_data.get("p2p_port", 8770)
+                role = host_data.get("role", "gpu_selfplay")
+
+                hosts[name] = HostInfo(
+                    name=name,
+                    tailscale_ip=tailscale_ip,
+                    ssh_user=ssh_user,
+                    ssh_port=ssh_port,
+                    p2p_port=p2p_port,
+                    role=role,
+                )
+
+            self._hosts_cache = hosts
+            self._hosts_cache_time = now
+            logger.debug(f"[ClusterHealing] Loaded {len(hosts)} hosts from YAML")
+            return hosts
+
+        except Exception as e:
+            logger.warning(f"[ClusterHealing] Failed to load hosts YAML: {e}")
+            return self._hosts_cache or {}
+
+    def _get_missing_nodes(self) -> list[HostInfo]:
+        """Get list of nodes in YAML but not in P2P peers."""
+        hosts = self._load_hosts_config()
+        current_peers = self._get_current_peers()
+        now = time.time()
+
+        missing = []
+        for name, host in hosts.items():
+            if name in current_peers:
+                continue
+
+            # Check backoff
+            next_attempt = self._heal_next_attempt.get(name, 0)
+            if now < next_attempt:
+                remaining = next_attempt - now
+                logger.debug(
+                    f"[ClusterHealing] Skipping {name}: backoff ({remaining:.0f}s remaining)"
+                )
+                continue
+
+            missing.append(host)
+
+        return missing
+
+    def _select_bootstrap_peers(self) -> list[str]:
+        """Select bootstrap peers for P2P restart."""
+        alive_addresses = self._get_alive_peer_addresses()
+        if not alive_addresses:
+            return []
+
+        # Select random subset
+        count = min(self.config.num_bootstrap_peers, len(alive_addresses))
+        return random.sample(alive_addresses, count)
+
+    async def _check_p2p_status(self, host: HostInfo) -> dict[str, Any] | None:
+        """Check P2P status on a remote node via SSH + curl."""
+        cmd = f"curl -s --connect-timeout 5 http://localhost:{host.p2p_port}/status"
+        ssh_cmd = self._build_ssh_command(host, cmd)
+
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                ssh_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=self.config.ssh_timeout_seconds
+            )
+
+            if proc.returncode == 0 and stdout:
+                import json
+
+                try:
+                    return json.loads(stdout.decode())
+                except json.JSONDecodeError:
+                    pass
+            return None
+
+        except asyncio.TimeoutError:
+            logger.debug(f"[ClusterHealing] SSH timeout checking {host.name}")
+            return None
+        except Exception as e:
+            logger.debug(f"[ClusterHealing] Error checking {host.name}: {e}")
+            return None
+
+    async def _restart_p2p(
+        self, host: HostInfo, bootstrap_peers: list[str]
+    ) -> bool:
+        """Restart P2P on a remote node with correct bootstrap peers."""
+        peers_arg = ",".join(bootstrap_peers)
+
+        # Build restart command
+        restart_cmd = f"""
+pkill -9 -f p2p_orchestrator || true
+sleep 2
+cd ~/ringrift/ai-service && \\
+nohup python3 scripts/p2p_orchestrator.py --peers "{peers_arg}" \\
+  > logs/p2p_orchestrator.log 2>&1 &
+sleep 3
+echo "P2P restarted"
+"""
+        ssh_cmd = self._build_ssh_command(host, restart_cmd)
+
+        if self.config.dry_run:
+            logger.info(f"[ClusterHealing] DRY RUN: Would restart P2P on {host.name}")
+            logger.debug(f"  Bootstrap peers: {peers_arg}")
+            return True
+
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                ssh_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=self.config.ssh_timeout_seconds + 10
+            )
+
+            if proc.returncode == 0:
+                logger.info(f"[ClusterHealing] Restarted P2P on {host.name}")
+                return True
+            else:
+                logger.warning(
+                    f"[ClusterHealing] Failed to restart P2P on {host.name}: "
+                    f"exit={proc.returncode}"
+                )
+                return False
+
+        except asyncio.TimeoutError:
+            logger.warning(f"[ClusterHealing] SSH timeout restarting P2P on {host.name}")
+            return False
+        except Exception as e:
+            logger.warning(f"[ClusterHealing] Error restarting P2P on {host.name}: {e}")
+            return False
+
+    def _build_ssh_command(self, host: HostInfo, remote_cmd: str) -> str:
+        """Build SSH command for a host."""
+        ssh_opts = (
+            "-o StrictHostKeyChecking=no "
+            "-o UserKnownHostsFile=/dev/null "
+            "-o ConnectTimeout=10 "
+            "-o BatchMode=yes"
+        )
+        if host.ssh_port != 22:
+            ssh_opts += f" -p {host.ssh_port}"
+
+        return f"ssh {ssh_opts} {host.ssh_user}@{host.tailscale_ip} '{remote_cmd}'"
+
+    async def _heal_node(self, host: HostInfo, bootstrap_peers: list[str]) -> bool:
+        """Attempt to heal a single node."""
+        self._stats_heal_attempts += 1
+        logger.info(f"[ClusterHealing] Attempting to heal {host.name}")
+
+        # First check if P2P is already running
+        status = await self._check_p2p_status(host)
+        if status:
+            # P2P is running but not connected to us - might be in another partition
+            leader = status.get("leader_id")
+            peers = status.get("alive_peers", 0)
+            logger.info(
+                f"[ClusterHealing] {host.name} has P2P running "
+                f"(leader={leader}, peers={peers}), restarting with correct bootstrap"
+            )
+
+        # Restart P2P with our bootstrap peers
+        success = await self._restart_p2p(host, bootstrap_peers)
+
+        if success:
+            # Wait for P2P to start
+            await asyncio.sleep(self.config.p2p_startup_wait_seconds)
+
+            # Verify it joined
+            status = await self._check_p2p_status(host)
+            if status:
+                self._stats_heal_successes += 1
+                self._heal_failures.pop(host.name, None)
+                self._heal_next_attempt.pop(host.name, None)
+
+                if self._on_node_joined:
+                    self._on_node_joined(host.name)
+
+                if self._emit_event and self.config.emit_events:
+                    self._emit_event(
+                        "NODE_HEALED",
+                        {
+                            "node_id": host.name,
+                            "tailscale_ip": host.tailscale_ip,
+                            "leader_id": status.get("leader_id"),
+                            "timestamp": time.time(),
+                        },
+                    )
+
+                logger.info(f"[ClusterHealing] Successfully healed {host.name}")
+                return True
+
+        # Record failure with backoff
+        self._record_heal_failure(host.name, "restart_failed")
+        return False
+
+    def _record_heal_failure(self, node_id: str, reason: str) -> None:
+        """Record a healing failure and apply backoff."""
+        self._stats_heal_failures += 1
+        failures = self._heal_failures.get(node_id, 0) + 1
+        self._heal_failures[node_id] = failures
+
+        # Exponential backoff: 10min, 20min, 40min, max 1 hour
+        backoff = self.config.backoff_after_failure_seconds * (2 ** (failures - 1))
+        backoff = min(backoff, 3600)  # Cap at 1 hour
+        self._heal_next_attempt[node_id] = time.time() + backoff
+
+        logger.warning(
+            f"[ClusterHealing] Failed to heal {node_id}: {reason} "
+            f"(failures: {failures}, backoff: {backoff:.0f}s)"
+        )
+
+        if self._emit_event and self.config.emit_events:
+            self._emit_event(
+                "NODE_HEAL_FAILED",
+                {
+                    "node_id": node_id,
+                    "reason": reason,
+                    "consecutive_failures": failures,
+                    "next_attempt_in_seconds": backoff,
+                    "timestamp": time.time(),
+                },
+            )
+
+    async def _run_once(self) -> None:
+        """Execute one healing cycle."""
+        if not self.config.enabled:
+            return
+
+        # Get missing nodes
+        missing = self._get_missing_nodes()
+        if not missing:
+            logger.debug("[ClusterHealing] No missing nodes to heal")
+            return
+
+        logger.info(f"[ClusterHealing] Found {len(missing)} missing nodes")
+
+        # Get bootstrap peers
+        bootstrap_peers = self._select_bootstrap_peers()
+        if not bootstrap_peers:
+            logger.warning("[ClusterHealing] No alive peers for bootstrap, skipping")
+            return
+
+        # Limit healing attempts per cycle
+        to_heal = missing[: self.config.max_heal_per_cycle]
+        logger.info(
+            f"[ClusterHealing] Attempting to heal {len(to_heal)}/{len(missing)} nodes"
+        )
+
+        # Heal each node
+        healed = 0
+        for host in to_heal:
+            success = await self._heal_node(host, bootstrap_peers)
+            if success:
+                healed += 1
+
+        if healed > 0:
+            logger.info(
+                f"[ClusterHealing] Healed {healed}/{len(to_heal)} nodes this cycle"
+            )
+
+    def get_healing_stats(self) -> dict[str, Any]:
+        """Get healing statistics."""
+        return {
+            "heal_attempts": self._stats_heal_attempts,
+            "heal_successes": self._stats_heal_successes,
+            "heal_failures": self._stats_heal_failures,
+            "nodes_in_backoff": len(self._heal_next_attempt),
+            "success_rate": (
+                self._stats_heal_successes / max(1, self._stats_heal_attempts)
+            ),
+        }
+
+    def reset_backoff(self, node_id: str) -> None:
+        """Reset backoff for a specific node."""
+        self._heal_failures.pop(node_id, None)
+        self._heal_next_attempt.pop(node_id, None)
+        logger.debug(f"[ClusterHealing] Reset backoff for {node_id}")
+
+    def reset_all_backoffs(self) -> None:
+        """Reset backoff for all nodes."""
+        self._heal_failures.clear()
+        self._heal_next_attempt.clear()
+        logger.info("[ClusterHealing] Reset all node backoffs")
+
+
+__all__ = [
+    "ClusterHealingConfig",
+    "ClusterHealingLoop",
+    "HostInfo",
+]
