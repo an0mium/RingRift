@@ -56,7 +56,8 @@ class PeerRecoveryConfig:
     )
 
     # Maximum peers to probe per cycle (limit API load)
-    max_probes_per_cycle: int = 10
+    # Jan 2026: Increased from 10 to 20 for faster cluster recovery after outages
+    max_probes_per_cycle: int = 20
 
     # HTTP timeout for health probes (seconds)
     probe_timeout_seconds: float = 10.0
@@ -73,7 +74,8 @@ class PeerRecoveryConfig:
     backoff_multiplier: float = 1.2
 
     # Number of failures before applying backoff
-    backoff_threshold: int = 3
+    # Jan 2026: Reduced from 3 to 1 to start backing off earlier and avoid retry storms
+    backoff_threshold: int = 1
 
     # Whether to emit events on recovery/failure
     emit_events: bool = True

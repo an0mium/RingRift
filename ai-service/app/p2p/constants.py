@@ -378,7 +378,8 @@ BOOTSTRAP_SEEDS: list[str] = [s.strip() for s in _bootstrap_seeds_env.split(",")
 MIN_BOOTSTRAP_ATTEMPTS = int(os.environ.get("RINGRIFT_P2P_MIN_BOOTSTRAP_ATTEMPTS", "3") or 3)
 
 # Interval between bootstrap attempts when node is isolated (no connected peers)
-ISOLATED_BOOTSTRAP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_ISOLATED_BOOTSTRAP_INTERVAL", "30") or 30)
+# Jan 2026: Reduced from 30s to 15s for faster discovery when isolated
+ISOLATED_BOOTSTRAP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_ISOLATED_BOOTSTRAP_INTERVAL", "15") or 15)
 
 # Minimum connected peers to not be considered isolated
 # Dec 30, 2025: Increased from 2 to 5 to prevent gossip partitioning at low peer counts

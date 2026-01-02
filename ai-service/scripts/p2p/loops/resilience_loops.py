@@ -170,7 +170,8 @@ class SplitBrainDetectionConfig:
 
     # December 29, 2025: Partition recovery settings (48-hour autonomous operation)
     # Using PartitionRecoveryDefaults from coordination_defaults.py
-    partition_alert_threshold_seconds: int = 1800  # 30 min before alert
+    # Jan 2026: Reduced alert threshold from 1800s (30min) to 600s (10min) for faster alerting
+    partition_alert_threshold_seconds: int = 600  # 10 min before alert
     partition_resync_delay_seconds: int = 60  # Wait after partition heals before resync
     min_peers_for_healthy: int = 3  # Minimum peers for healthy cluster
 
