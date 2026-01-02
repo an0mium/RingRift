@@ -112,3 +112,4 @@ opentelemetry-exporter-otlp==1.29.0
 # Kept for backward compatibility; set OTEL_EXPORTER=otlp for new deployments.
 opentelemetry-exporter-jaeger==1.21.0
 opentelemetry-instrumentation-fastapi==0.50b0
+paramiko>=3.0.0
