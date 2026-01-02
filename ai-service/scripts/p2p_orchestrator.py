@@ -2448,12 +2448,20 @@ class P2POrchestrator(
             # Workers poll leader for work (pull model instead of push)
             # Extracted from _worker_pull_loop
             def _get_self_metrics_for_pull() -> dict[str, Any]:
-                """Get self node metrics for idle detection."""
+                """Get self node metrics for idle detection and slot-based work claiming.
+
+                Jan 2, 2026: Added selfplay_jobs and max_selfplay_slots for slot-based
+                capacity management. WorkerPullLoop uses these to determine if the node
+                has capacity for more work, even when legacy selfplay is running.
+                """
                 return {
                     "gpu_percent": getattr(self.self_info, "gpu_percent", 0),
                     "cpu_percent": getattr(self.self_info, "cpu_percent", 0),
                     "training_jobs": getattr(self.self_info, "training_jobs", 0),
                     "has_gpu": getattr(self.self_info, "has_gpu", False),
+                    # Jan 2, 2026: Slot-based capacity management
+                    "selfplay_jobs": getattr(self.self_info, "selfplay_jobs", 0),
+                    "max_selfplay_slots": getattr(self.self_info, "max_selfplay_slots", 8),
                 }
 
             try:
