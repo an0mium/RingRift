@@ -146,6 +146,8 @@ ADMIN_ROUTES = [
     Route("GET", "/admin/purge_stale", "handle_purge_stale_peers"),
     Route("POST", "/admin/unretire", "handle_admin_unretire"),
     Route("POST", "/admin/restart", "handle_admin_restart"),
+    Route("POST", "/admin/reset_node_jobs", "handle_admin_reset_node_jobs"),
+    Route("POST", "/admin/add_peer", "handle_admin_add_peer"),  # Jan 2026: Partition healing
 ]
 
 # ===========================================================================
