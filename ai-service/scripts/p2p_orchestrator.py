@@ -692,7 +692,7 @@ from scripts.p2p.network import (
 )
 
 # Import refactored utilities (Phase 2 refactoring)
-from scripts.p2p.resource import (
+from scripts.p2p.resource_utils import (
     check_disk_has_capacity,
 )
 
