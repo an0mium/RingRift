@@ -3272,10 +3272,23 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
             runner = web.AppRunner(app)
             await runner.setup()
-            site = web.TCPSite(runner, '0.0.0.0', port)
-            await site.start()
 
-            logger.info(f"Health server listening on http://0.0.0.0:{port}")
+            # Jan 2, 2026: Try dual-stack IPv6 first (accepts both IPv4 and IPv6)
+            # Fall back to IPv4-only if IPv6 binding fails
+            sites_started = []
+            try:
+                site_v6 = web.TCPSite(runner, '::', port)
+                await site_v6.start()
+                sites_started.append('[::]')
+                logger.info(f"Health server listening on http://[::]:{port} (dual-stack)")
+            except OSError as e:
+                if "address already in use" not in str(e).lower():
+                    logger.debug(f"IPv6 bind failed, falling back to IPv4: {e}")
+                # Fall back to IPv4-only
+                site_v4 = web.TCPSite(runner, '0.0.0.0', port)
+                await site_v4.start()
+                sites_started.append('0.0.0.0')
+                logger.info(f"Health server listening on http://0.0.0.0:{port} (IPv4-only)")
 
             # Keep running
             while True:

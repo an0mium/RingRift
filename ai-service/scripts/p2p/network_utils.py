@@ -45,11 +45,15 @@ class NetworkUtils:
     def parse_peer_address(peer_addr: str) -> tuple[str, str, int]:
         """Parse peer address from various formats.
 
+        Jan 2, 2026: Added IPv6 support. Handles bracketed notation [::1]:port.
+
         Supports:
         - `host`
         - `host:port`
+        - `[ipv6]:port`
         - `http://host[:port]`
         - `https://host[:port]`
+        - `http://[ipv6][:port]`
 
         Args:
             peer_addr: Peer address string
@@ -76,7 +80,45 @@ class NetworkUtils:
                 port = 443 if scheme == "https" else DEFAULT_PORT
             return scheme, host, port
 
-        # Back-compat: host[:port]
+        # Handle IPv6 bracket notation: [ipv6]:port or [ipv6]
+        if peer_addr.startswith("["):
+            bracket_end = peer_addr.find("]")
+            if bracket_end == -1:
+                raise ValueError(f"Invalid IPv6 address (unclosed bracket): {peer_addr}")
+            host = peer_addr[1:bracket_end]
+            rest = peer_addr[bracket_end + 1:]
+            if rest.startswith(":"):
+                try:
+                    port = int(rest[1:])
+                except ValueError:
+                    port = DEFAULT_PORT
+            else:
+                port = DEFAULT_PORT
+            return "http", host, port
+
+        # Check if this is an unbracketed IPv6 address (contains multiple colons)
+        # IPv6 addresses have 7 colons (full form) or :: (compressed form)
+        if peer_addr.count(":") > 1:
+            # This is likely an IPv6 address without brackets
+            # Try to parse as IP to validate
+            try:
+                ipaddress.ip_address(peer_addr)
+                return "http", peer_addr, DEFAULT_PORT
+            except ValueError:
+                # Could be IPv6:port, try to split on last colon
+                # But this is ambiguous, so prefer explicit bracket notation
+                last_colon = peer_addr.rfind(":")
+                maybe_port = peer_addr[last_colon + 1:]
+                if maybe_port.isdigit():
+                    host = peer_addr[:last_colon]
+                    try:
+                        ipaddress.ip_address(host)
+                        return "http", host, int(maybe_port)
+                    except ValueError:
+                        pass
+                # Fall through to treat as hostname
+
+        # Back-compat: host[:port] for IPv4 and hostnames
         parts = peer_addr.split(":", 1)
         host = parts[0]
         port = int(parts[1]) if len(parts) > 1 and parts[1] else DEFAULT_PORT
@@ -211,6 +253,9 @@ class NetworkUtils:
                 return
             if not host_str or port_int <= 0:
                 return
+            # Jan 2, 2026: Wrap IPv6 addresses in brackets for URL construction
+            if ":" in host_str and not host_str.startswith("["):
+                host_str = f"[{host_str}]"
             url = f"{scheme}://{host_str}:{port_int}{path}"
             if url not in urls:
                 urls.append(url)
@@ -308,6 +353,110 @@ class NetworkUtils:
 
         counts = Counter(keys)
         return {k for k, count in counts.items() if count > 1}
+
+    @staticmethod
+    def get_local_tailscale_ipv6() -> str:
+        """Get local Tailscale IPv6 address if available.
+
+        Jan 2, 2026: Added for IPv6 support. Tailscale assigns each node an IPv6
+        address in the fd7a:115c:a1e0::/48 range in addition to the IPv4 100.x.x.x.
+
+        Returns:
+            Tailscale IPv6 address (e.g., "fd7a:115c:a1e0:ab12:4843:cd96:6260:1234")
+            or empty string if not available.
+        """
+        import socket
+        try:
+            # Get all network interfaces
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET6):
+                addr = info[4][0]
+                # Check if this is a Tailscale IPv6 address
+                try:
+                    ip = ipaddress.ip_address(addr.split("%")[0])  # Strip zone ID
+                    if isinstance(ip, ipaddress.IPv6Address) and ip in TAILSCALE_IPV6_NETWORK:
+                        return str(ip)
+                except ValueError:
+                    continue
+        except (socket.gaierror, OSError):
+            pass
+
+        # Fallback: try reading from tailscale status
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["tailscale", "ip", "-6"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                ipv6 = result.stdout.strip().split()[0]
+                try:
+                    ip = ipaddress.ip_address(ipv6)
+                    if isinstance(ip, ipaddress.IPv6Address) and ip in TAILSCALE_IPV6_NETWORK:
+                        return str(ip)
+                except ValueError:
+                    pass
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+
+        return ""
+
+    @staticmethod
+    def get_local_tailscale_ipv4() -> str:
+        """Get local Tailscale IPv4 address if available.
+
+        Returns:
+            Tailscale IPv4 address (e.g., "100.64.1.100") or empty string.
+        """
+        import socket
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                addr = info[4][0]
+                try:
+                    ip = ipaddress.ip_address(addr)
+                    if isinstance(ip, ipaddress.IPv4Address) and ip in TAILSCALE_CGNAT_NETWORK:
+                        return str(ip)
+                except ValueError:
+                    continue
+        except (socket.gaierror, OSError):
+            pass
+
+        # Fallback: try reading from tailscale status
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["tailscale", "ip", "-4"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                ipv4 = result.stdout.strip().split()[0]
+                try:
+                    ip = ipaddress.ip_address(ipv4)
+                    if isinstance(ip, ipaddress.IPv4Address) and ip in TAILSCALE_CGNAT_NETWORK:
+                        return str(ip)
+                except ValueError:
+                    pass
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            pass
+
+        return ""
+
+    @staticmethod
+    def get_local_tailscale_ips() -> tuple[str, str]:
+        """Get both local Tailscale IPv4 and IPv6 addresses.
+
+        Jan 2, 2026: Added for dual-stack support.
+
+        Returns:
+            Tuple of (ipv4, ipv6) where each is empty string if not available.
+        """
+        return (
+            NetworkUtils.get_local_tailscale_ipv4(),
+            NetworkUtils.get_local_tailscale_ipv6(),
+        )
 
 
 class NetworkUtilsMixin:

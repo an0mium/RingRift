@@ -670,6 +670,7 @@ class ClusterNode:
 
     name: str
     tailscale_ip: str | None = None
+    tailscale_ipv6: str | None = None  # Jan 2, 2026: IPv6 Tailscale address (fd7a:...)
     ssh_host: str | None = None
     ssh_user: str = "ubuntu"
     ssh_key: str | None = None
@@ -699,7 +700,7 @@ class ClusterNode:
 
     @property
     def best_ip(self) -> str | None:
-        """Get best IP for connection (prefer Tailscale)."""
+        """Get best IPv4 IP for connection (prefer Tailscale)."""
         for candidate in (self.tailscale_ip, self.ssh_host):
             if not candidate:
                 continue
@@ -713,6 +714,31 @@ class ClusterNode:
         return None
 
     @property
+    def best_ipv6(self) -> str | None:
+        """Get best IPv6 IP for connection (Jan 2, 2026).
+
+        Returns Tailscale IPv6 address if available.
+        """
+        if self.tailscale_ipv6:
+            return str(self.tailscale_ipv6).strip() or None
+        return None
+
+    def get_best_ip(self, prefer_ipv6: bool = False) -> str | None:
+        """Get best IP for connection with IPv6 preference option.
+
+        Jan 2, 2026: Added for dual-stack support.
+
+        Args:
+            prefer_ipv6: If True, prefer IPv6 over IPv4 when available.
+
+        Returns:
+            Best available IP address, or None if no IP available.
+        """
+        if prefer_ipv6 and self.best_ipv6:
+            return self.best_ipv6
+        return self.best_ip or self.best_ipv6
+
+    @property
     def data_server_base_url(self) -> str | None:
         """Get base URL for the node's data server."""
         if self.data_server_url:
@@ -720,6 +746,9 @@ class ClusterNode:
         ip = self.best_ip
         if not ip:
             return None
+        # Jan 2, 2026: Handle IPv6 addresses (wrap in brackets)
+        if ":" in ip and not ip.startswith("["):
+            ip = f"[{ip}]"
         return f"http://{ip}:{self.data_server_port}"
 
     @property
@@ -874,6 +903,7 @@ def get_cluster_nodes(config_path: str | Path | None = None) -> dict[str, Cluste
         nodes[name] = ClusterNode(
             name=name,
             tailscale_ip=cfg.get("tailscale_ip"),
+            tailscale_ipv6=cfg.get("tailscale_ipv6"),  # Jan 2, 2026: IPv6 support
             ssh_host=cfg.get("ssh_host"),
             ssh_user=cfg.get("ssh_user", "ubuntu"),
             ssh_key=cfg.get("ssh_key"),
@@ -1399,6 +1429,8 @@ def cluster_node_to_dict(node: ClusterNode) -> dict[str, Any]:
     # Only include non-default values
     if node.tailscale_ip:
         result["tailscale_ip"] = node.tailscale_ip
+    if node.tailscale_ipv6:  # Jan 2, 2026: IPv6 support
+        result["tailscale_ipv6"] = node.tailscale_ipv6
     if node.ssh_host:
         result["ssh_host"] = node.ssh_host
     if node.ssh_user != "ubuntu":

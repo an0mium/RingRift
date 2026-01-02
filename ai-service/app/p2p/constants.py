@@ -54,27 +54,36 @@ TAILSCALE_IPV6_NETWORK = ipaddress.ip_network("fd7a:115c:a1e0::/48")
 HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_HEARTBEAT_INTERVAL", "15") or 15)
 # Dec 2025: Originally reduced from 90s to 60s for faster failure detection.
 # Dec 30, 2025: Increased back to 90s for coordinator nodes behind NAT.
-# Coordinators (like local-mac) behind home NAT experience higher latency
-# and need longer timeouts to avoid false-positive peer deaths.
-# With 15s heartbeats, 6 missed = dead for coordinators, 4 missed for others.
+# Jan 2, 2026: Increased to 120s for NAT-blocked nodes (Lambda GH200, RunPod) that
+# rely on relay mode. Relay adds latency and can cause false-positive peer deaths.
+# With 15s heartbeats, 8 missed = dead for NAT-blocked, 6 for coordinators, 4 for DC.
 PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "90") or 90)
 # Original fast timeout for non-coordinator nodes in well-connected DC environments
 PEER_TIMEOUT_FAST = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_FAST", "60") or 60)
+# Jan 2, 2026: Extended timeout for NAT-blocked nodes using relay mode.
+# These nodes have higher latency due to relay hops and need more tolerance.
+PEER_TIMEOUT_NAT_BLOCKED = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_NAT_BLOCKED", "120") or 120)
 
 
-def get_peer_timeout_for_node(is_coordinator: bool = False) -> int:
-    """Get appropriate peer timeout based on node role.
+def get_peer_timeout_for_node(is_coordinator: bool = False, nat_blocked: bool = False) -> int:
+    """Get appropriate peer timeout based on node role and NAT status.
 
-    Coordinators behind NAT need longer timeouts due to higher latency
-    and potential connection drops. DC nodes can use shorter timeouts
-    for faster failover.
+    NAT-blocked nodes need the longest timeouts due to relay latency.
+    Coordinators behind NAT need moderate timeouts.
+    DC nodes can use shorter timeouts for faster failover.
 
     Args:
         is_coordinator: True if node is a coordinator (typically behind NAT)
+        nat_blocked: True if node is NAT-blocked and uses relay mode
 
     Returns:
-        Timeout in seconds (90s for coordinators, 60s for DC nodes)
+        Timeout in seconds:
+        - 120s for NAT-blocked nodes (relay mode)
+        - 90s for coordinators behind NAT
+        - 60s for well-connected DC nodes
     """
+    if nat_blocked:
+        return PEER_TIMEOUT_NAT_BLOCKED  # 120s for NAT-blocked nodes
     if is_coordinator:
         return PEER_TIMEOUT  # 90s for coordinators behind NAT
     return PEER_TIMEOUT_FAST  # 60s for well-connected DC nodes
@@ -459,8 +468,10 @@ SWIM_BIND_PORT = int(os.environ.get("RINGRIFT_SWIM_BIND_PORT", str(SWIM_PORT)) o
 # December 29, 2025: Tuned for high-latency cross-cloud networks
 # Original values: 5.0s failure, 3.0s suspicion, 3 indirect pings
 # Increased for P99 RTT of 2.6s observed between cloud providers
-SWIM_FAILURE_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_FAILURE_TIMEOUT", "10.0") or 10.0)
-SWIM_SUSPICION_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_SUSPICION_TIMEOUT", "6.0") or 6.0)
+# Jan 2, 2026: Further increased to 15s/10s for NAT-blocked nodes using relay.
+# Relay adds 1-3 RTTs of latency; 10s was too aggressive for stable detection.
+SWIM_FAILURE_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_FAILURE_TIMEOUT", "15.0") or 15.0)
+SWIM_SUSPICION_TIMEOUT = float(os.environ.get("RINGRIFT_SWIM_SUSPICION_TIMEOUT", "10.0") or 10.0)
 SWIM_PING_INTERVAL = float(os.environ.get("RINGRIFT_SWIM_PING_INTERVAL", "1.0") or 1.0)
 # Increased indirect probes from 3 to 7 per SWIM paper for better success rate
 SWIM_INDIRECT_PING_COUNT = int(os.environ.get("RINGRIFT_SWIM_INDIRECT_PING_COUNT", "7") or 7)
@@ -516,21 +527,32 @@ def get_effective_election_timeout() -> int:
     return ELECTION_TIMEOUT
 
 
-def get_adaptive_peer_timeout(node_id: str = "", role: str = "") -> int:
+def get_adaptive_peer_timeout(node_id: str = "", role: str = "", nat_blocked: bool = False) -> int:
     """Return adaptive peer timeout based on node characteristics.
 
     Dec 30, 2025: Added to provide longer timeouts for coordinators and
     NAT-blocked nodes while keeping fast detection for DC nodes.
+    Jan 2, 2026: Added nat_blocked parameter for explicit relay mode detection.
 
     Args:
         node_id: Node identifier (e.g., "local-mac", "nebius-h100-1")
         role: Node role (e.g., "coordinator", "gpu_selfplay")
+        nat_blocked: True if node uses relay mode (force_relay_mode: true)
 
     Returns:
-        Peer timeout in seconds (90s for coordinators, 60s for others)
+        Peer timeout in seconds:
+        - 120s for NAT-blocked nodes (relay mode)
+        - 90s for coordinators
+        - 60s for DC nodes
     """
     if AGGRESSIVE_FAILOVER_ENABLED:
         return AGGRESSIVE_PEER_TIMEOUT
+
+    # NAT-blocked nodes get longest timeout due to relay latency
+    # Detect by explicit flag or node_id patterns (Lambda, RunPod)
+    is_nat_blocked = nat_blocked or _is_likely_nat_blocked(node_id)
+    if is_nat_blocked:
+        return PEER_TIMEOUT_NAT_BLOCKED  # 120s for NAT-blocked
 
     # Coordinators and local nodes get longer timeout for NAT resilience
     is_coordinator = role in ("coordinator", "leader")
@@ -539,6 +561,30 @@ def get_adaptive_peer_timeout(node_id: str = "", role: str = "") -> int:
     if is_coordinator or is_local:
         return PEER_TIMEOUT  # 90s for coordinators
     return PEER_TIMEOUT_FAST  # 60s for DC nodes
+
+
+def _is_likely_nat_blocked(node_id: str) -> bool:
+    """Heuristic to detect NAT-blocked nodes by node_id pattern.
+
+    Jan 2, 2026: Lambda GH200 and RunPod nodes are typically NAT-blocked
+    and require relay mode for connectivity.
+
+    Args:
+        node_id: Node identifier
+
+    Returns:
+        True if node is likely NAT-blocked based on naming pattern
+    """
+    if not node_id:
+        return False
+    node_lower = node_id.lower()
+    # Lambda GH200 nodes are NAT-blocked (except training nodes with static IPs)
+    if node_lower.startswith("lambda-gh200"):
+        return True
+    # RunPod nodes are typically NAT-blocked
+    if node_lower.startswith("runpod-"):
+        return True
+    return False
 
 # ============================================
 # Environment Variable Names (for reference)
