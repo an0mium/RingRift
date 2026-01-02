@@ -18,6 +18,8 @@ Usage:
 
     # Check for partitions only (no action)
     python scripts/p2p/partition_healer.py --check-only
+
+    # Triggered automatically from P2P orchestrator on NETWORK_ISOLATION_DETECTED
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ import os
 import subprocess
 import sys
 import time
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -40,9 +43,14 @@ import yaml
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from app.config.coordination_defaults import PartitionHealingDefaults
 from scripts.p2p.union_discovery import UnionDiscovery, DiscoveredPeer
 
 logger = logging.getLogger(__name__)
+
+# Singleton instance for access from P2P orchestrator
+_partition_healer_instance: PartitionHealer | None = None
+_partition_healer_lock = threading.Lock()
 
 
 @dataclass
@@ -81,21 +89,28 @@ class PartitionHealer:
     3. Identify partitions (groups of nodes that don't see each other)
     4. Inject bridge peers into each partition via /admin/add_peer endpoint
     5. Wait for gossip to propagate and verify healing
+
+    January 2026: Added auto-triggering from P2P orchestrator with rate limiting.
     """
 
     def __init__(
         self,
         config_path: Path | None = None,
         p2p_port: int = 8770,
-        timeout: float = 10.0,
+        timeout: float | None = None,
     ):
         self._config_path = config_path or (
             Path(__file__).parent.parent.parent / "config" / "distributed_hosts.yaml"
         )
         self._p2p_port = p2p_port
-        self._timeout = timeout
+        self._timeout = timeout if timeout is not None else PartitionHealingDefaults.PEER_TIMEOUT
         self._union_discovery = UnionDiscovery()
         self._session: aiohttp.ClientSession | None = None
+
+        # January 2026: Rate limiting for auto-triggered healing
+        self._last_healing_time: float = 0.0
+        self._healing_lock = threading.Lock()
+        self._pending_trigger: bool = False
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
@@ -341,7 +356,11 @@ class PartitionHealer:
         # Step 3: Heal partitions
         if len(partitions) > 1:
             logger.info("Healing partitions...")
-            return await self.heal_partitions(partitions, known_peers)
+            result = await self.heal_partitions(partitions, known_peers)
+            # Emit event on successful healing
+            if result.partitions_healed > 0:
+                self._emit_healing_event(result)
+            return result
         else:
             return HealingResult(
                 success=True,
@@ -349,6 +368,128 @@ class PartitionHealer:
                 partitions_healed=0,
                 nodes_reconnected=0,
             )
+
+    def _emit_healing_event(self, result: HealingResult) -> None:
+        """Emit PARTITION_HEALED event after successful healing."""
+        try:
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import emit_event
+
+            emit_event(
+                DataEventType.PARTITION_HEALED,
+                {
+                    "partitions_found": result.partitions_found,
+                    "partitions_healed": result.partitions_healed,
+                    "nodes_reconnected": result.nodes_reconnected,
+                    "duration_ms": result.duration_ms,
+                    "timestamp": time.time(),
+                },
+            )
+            logger.info(
+                f"Emitted PARTITION_HEALED event: "
+                f"{result.partitions_healed} partitions healed"
+            )
+        except ImportError:
+            logger.debug("Event emission not available (missing event_router)")
+        except Exception as e:
+            logger.warning(f"Failed to emit partition healed event: {e}")
+
+    async def trigger_healing_pass(
+        self,
+        delay: float | None = None,
+        force: bool = False,
+    ) -> HealingResult | None:
+        """Trigger a healing pass with rate limiting.
+
+        January 2026: Called from P2P orchestrator on NETWORK_ISOLATION_DETECTED.
+        Uses rate limiting to prevent healing loops.
+
+        Args:
+            delay: Optional delay before starting (defaults to DETECTION_DELAY)
+            force: If True, bypass rate limiting
+
+        Returns:
+            HealingResult if healing was performed, None if rate-limited
+        """
+        now = time.time()
+
+        with self._healing_lock:
+            # Check rate limit unless forced
+            if not force:
+                time_since_last = now - self._last_healing_time
+                if time_since_last < PartitionHealingDefaults.MIN_INTERVAL:
+                    remaining = PartitionHealingDefaults.MIN_INTERVAL - time_since_last
+                    logger.info(
+                        f"Partition healing rate-limited, {remaining:.0f}s until next allowed"
+                    )
+                    return None
+
+            # Mark that we're about to heal
+            self._last_healing_time = now
+
+        # Emit start event
+        self._emit_healing_start_event()
+
+        # Apply delay if specified
+        delay = delay if delay is not None else PartitionHealingDefaults.DETECTION_DELAY
+        if delay > 0:
+            logger.info(f"Waiting {delay:.0f}s before starting healing pass...")
+            await asyncio.sleep(delay)
+
+        # Run the healing pass
+        try:
+            result = await self.run_healing_pass()
+            return result
+        except Exception as e:
+            logger.error(f"Healing pass failed: {e}")
+            self._emit_healing_failed_event(str(e))
+            return HealingResult(
+                success=False,
+                partitions_found=0,
+                partitions_healed=0,
+                nodes_reconnected=0,
+                errors=[str(e)],
+            )
+
+    def _emit_healing_start_event(self) -> None:
+        """Emit PARTITION_HEALING_STARTED event."""
+        try:
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import emit_event
+
+            emit_event(
+                DataEventType.PARTITION_HEALING_STARTED,
+                {"timestamp": time.time()},
+            )
+        except (ImportError, Exception):
+            pass  # Best effort
+
+    def _emit_healing_failed_event(self, error: str) -> None:
+        """Emit PARTITION_HEALING_FAILED event."""
+        try:
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import emit_event
+
+            emit_event(
+                DataEventType.PARTITION_HEALING_FAILED,
+                {"error": error, "timestamp": time.time()},
+            )
+        except (ImportError, Exception):
+            pass  # Best effort
+
+    def get_status(self) -> dict[str, Any]:
+        """Get partition healer status for /status endpoint."""
+        return {
+            "auto_enabled": PartitionHealingDefaults.AUTO_ENABLED,
+            "min_interval": PartitionHealingDefaults.MIN_INTERVAL,
+            "last_healing_time": self._last_healing_time,
+            "time_since_last": time.time() - self._last_healing_time if self._last_healing_time > 0 else None,
+            "ready_for_trigger": (
+                time.time() - self._last_healing_time >= PartitionHealingDefaults.MIN_INTERVAL
+                if self._last_healing_time > 0
+                else True
+            ),
+        }
 
     async def run_daemon(self, interval: float = 60.0) -> None:
         """Run as a background daemon, healing partitions periodically."""
@@ -366,6 +507,53 @@ class PartitionHealer:
                 logger.error(f"Error in healing pass: {e}")
 
             await asyncio.sleep(interval)
+
+
+# =============================================================================
+# Singleton accessors for P2P orchestrator integration
+# =============================================================================
+
+
+def get_partition_healer() -> PartitionHealer:
+    """Get or create the singleton PartitionHealer instance.
+
+    January 2026: Used by P2P orchestrator for auto-triggered healing.
+    """
+    global _partition_healer_instance
+    with _partition_healer_lock:
+        if _partition_healer_instance is None:
+            _partition_healer_instance = PartitionHealer()
+        return _partition_healer_instance
+
+
+def reset_partition_healer() -> None:
+    """Reset the singleton instance (for testing)."""
+    global _partition_healer_instance
+    with _partition_healer_lock:
+        _partition_healer_instance = None
+
+
+async def trigger_partition_healing(
+    delay: float | None = None,
+    force: bool = False,
+) -> HealingResult | None:
+    """Convenience function to trigger healing from P2P orchestrator.
+
+    January 2026: Called on NETWORK_ISOLATION_DETECTED event.
+
+    Args:
+        delay: Optional delay before starting (defaults to DETECTION_DELAY)
+        force: If True, bypass rate limiting
+
+    Returns:
+        HealingResult if healing was performed, None if rate-limited or disabled
+    """
+    if not PartitionHealingDefaults.AUTO_ENABLED:
+        logger.info("Partition auto-healing is disabled")
+        return None
+
+    healer = get_partition_healer()
+    return await healer.trigger_healing_pass(delay=delay, force=force)
 
 
 async def main() -> None:

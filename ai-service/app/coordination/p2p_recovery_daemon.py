@@ -394,13 +394,24 @@ class P2PRecoveryDaemon(HandlerBase):
             return  # Skip other recovery actions this cycle
 
         elif is_isolated and self._consecutive_isolation_checks >= self.config.isolation_consecutive_checks:
-            # Network isolation confirmed - trigger restart
+            # Network isolation confirmed - try partition healing first, then restart
             logger.warning(
                 f"Network isolation confirmed after {self._consecutive_isolation_checks} checks, "
-                f"triggering P2P restart"
+                f"attempting partition healing before restart"
             )
             await self._emit_isolation_event(isolation_details)
 
+            # January 2026: Try partition healing first (less disruptive than restart)
+            healing_result = await self._trigger_partition_healing()
+            if healing_result and healing_result.partitions_healed > 0:
+                logger.info(
+                    f"Partition healing succeeded: {healing_result.partitions_healed} partitions healed, "
+                    f"skipping P2P restart"
+                )
+                self._consecutive_isolation_checks = 0
+                return
+
+            # Fall back to restart if healing didn't fix the problem
             if self._can_restart():
                 await self._restart_p2p()
                 self._consecutive_isolation_checks = 0
@@ -867,6 +878,30 @@ class P2PRecoveryDaemon(HandlerBase):
             )
         except Exception as e:
             logger.debug(f"Failed to emit NETWORK_ISOLATION_DETECTED: {e}")
+
+    async def _trigger_partition_healing(self) -> Any:
+        """Trigger partition healing as a softer alternative to P2P restart.
+
+        January 2026: Auto-trigger partition healing before resorting to full restart.
+        Uses the partition healer's rate limiting to prevent healing loops.
+
+        Returns:
+            HealingResult if healing was attempted, None if not available or rate-limited
+        """
+        try:
+            from scripts.p2p.partition_healer import trigger_partition_healing
+
+            logger.info("Triggering partition healing for network isolation recovery")
+            result = await trigger_partition_healing(delay=0, force=False)
+            if result is None:
+                logger.debug("Partition healing was rate-limited or disabled")
+            return result
+        except ImportError:
+            logger.debug("Partition healer not available")
+            return None
+        except Exception as e:
+            logger.warning(f"Partition healing failed: {e}")
+            return None
 
     async def _emit_leader_gap_event(self) -> None:
         """Emit event when leader gap triggers an election.

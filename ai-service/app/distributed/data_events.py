@@ -255,6 +255,11 @@ class DataEventType(Enum):
     QUORUM_AT_RISK = "quorum_at_risk"  # Quorum marginal (e.g., exactly at threshold)
     QUORUM_RECOVERY_STARTED = "quorum_recovery_started"  # Recovery initiated after quorum lost
 
+    # Partition healing events (January 2026)
+    PARTITION_HEALING_STARTED = "partition_healing_started"  # Healing pass initiated
+    PARTITION_HEALED = "partition_healed"  # Partitions successfully healed
+    PARTITION_HEALING_FAILED = "partition_healing_failed"  # Healing attempt failed
+
     # Progress monitoring events (December 2025 - 48h autonomous operation)
     PROGRESS_STALL_DETECTED = "progress_stall_detected"  # Config Elo stalled, recovery triggered
     PROGRESS_RECOVERED = "progress_recovered"  # Config resumed making Elo progress

@@ -1174,6 +1174,32 @@ class P2PRecoveryDefaults:
     SSH_TIMEOUT: float = _env_float("RINGRIFT_P2P_SSH_TIMEOUT", 30.0)
 
 
+@dataclass(frozen=True)
+class PartitionHealingDefaults:
+    """Default values for partition healing automation.
+
+    January 2026: Auto-triggered healing when network partitions are detected.
+
+    Used by: scripts/p2p/partition_healer.py, scripts/p2p_orchestrator.py
+    """
+    # Minimum interval between healing passes (seconds)
+    # Rate limit to prevent healing loops
+    MIN_INTERVAL: float = _env_float("RINGRIFT_PARTITION_HEALING_MIN_INTERVAL", 300.0)
+
+    # Timeout for individual peer queries during healing (seconds)
+    PEER_TIMEOUT: float = _env_float("RINGRIFT_PARTITION_HEALING_PEER_TIMEOUT", 10.0)
+
+    # Whether auto-healing is enabled
+    AUTO_ENABLED: bool = _env_bool("RINGRIFT_PARTITION_HEALING_AUTO_ENABLED", True)
+
+    # Delay before starting healing after partition detection (seconds)
+    # Gives time for transient issues to resolve
+    DETECTION_DELAY: float = _env_float("RINGRIFT_PARTITION_HEALING_DETECTION_DELAY", 30.0)
+
+    # Maximum bridges to create per partition pair
+    MAX_BRIDGES: int = _env_int("RINGRIFT_PARTITION_HEALING_MAX_BRIDGES", 3)
+
+
 # =============================================================================
 # Endpoint Validation Defaults (December 30, 2025)
 # =============================================================================
@@ -3236,6 +3262,7 @@ __all__ = [
     "OrphanDetectionDefaults",
     "P2PDefaults",
     "P2PRecoveryDefaults",  # January 2026
+    "PartitionHealingDefaults",  # January 2026
     "PeerDefaults",  # December 28, 2025
     "PIDDefaults",
     "ProviderDefaults",  # December 27, 2025
