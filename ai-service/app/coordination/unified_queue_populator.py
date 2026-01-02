@@ -71,6 +71,12 @@ BOARD_CONFIGS: list[tuple[str, int]] = [
 # These have many more cells (361-469) and benefit from quality over quantity
 LARGE_BOARDS = frozenset({"square19", "hexagonal", "fullhex", "full_hex"})
 
+# Minimum exploration constants (Phase 1.2 - Jan 2026)
+# Ensures cluster never idles completely, even when Elo targets are met
+MINIMUM_EXPLORATION_GAMES = 100  # Minimum pending games per config
+EXPLORATION_CONFIGS_PER_CYCLE = 3  # Number of configs to explore each cycle
+EXPLORATION_STALE_THRESHOLD_HOURS = 4.0  # Config is "stale" if no games in this many hours
+
 # Default curriculum weights (priority multipliers)
 # Dec 27, 2025: REBALANCED to prioritize 3p/4p configs which are severely starved
 # Previous weights heavily favored 2p (0.7-1.0) over 3p/4p (0.4-0.6)
@@ -572,6 +578,49 @@ class UnifiedQueuePopulator:
         unmet.sort(key=lambda t: (t.elo_gap, -t.games_played))
         return unmet[0]
 
+    def get_least_recent_configs(self, count: int = EXPLORATION_CONFIGS_PER_CYCLE) -> list[ConfigTarget]:
+        """Get configs that haven't had recent selfplay activity.
+
+        Phase 1.2 (Jan 2026): Ensures exploration work for stale configs.
+        Returns configs sorted by staleness (oldest first).
+
+        Args:
+            count: Maximum number of configs to return
+
+        Returns:
+            List of ConfigTarget objects, sorted by last_game_time (oldest first)
+        """
+        now = time.time()
+        stale_threshold = now - (EXPLORATION_STALE_THRESHOLD_HOURS * 3600)
+
+        # Find stale configs (no games in threshold period)
+        stale_configs = [
+            t for t in self._targets.values()
+            if t.last_game_time < stale_threshold
+        ]
+
+        # Sort by staleness (oldest first)
+        stale_configs.sort(key=lambda t: t.last_game_time)
+
+        return stale_configs[:count]
+
+    def get_pending_selfplay_games(self, config_key: str) -> int:
+        """Get number of pending selfplay games for a config.
+
+        Phase 1.2 (Jan 2026): Used to check if exploration work is needed.
+
+        Args:
+            config_key: Config identifier (e.g., 'hex8_2p')
+
+        Returns:
+            Number of pending selfplay games (pending_selfplay_count * games_per_item)
+        """
+        target = self._targets.get(config_key)
+        if not target:
+            return 0
+
+        return target.pending_selfplay_count * self.config.selfplay_games_per_item
+
     # =========================================================================
     # Queue Status
     # =========================================================================
@@ -920,6 +969,12 @@ class UnifiedQueuePopulator:
             return 0
 
         if self.all_targets_met():
+            # Phase 1.2: Even when all targets met, add exploration work for stale configs
+            # This prevents cluster idling and maintains training data diversity
+            exploration_added = self._populate_exploration_work()
+            if exploration_added > 0:
+                logger.info(f"All Elo targets met - added {exploration_added} exploration items")
+                return exploration_added
             logger.info("All Elo targets met, no population needed")
             return 0
 
@@ -1089,13 +1144,18 @@ class UnifiedQueuePopulator:
                     except Exception as e:
                         logger.error(f"Failed to add sweep item: {e}")
 
+        # Phase 1.2: Also add exploration work for stale configs
+        # This ensures diversity even when focusing on unmet targets
+        exploration_added = self._populate_exploration_work()
+        added += exploration_added
+
         self._last_populate_time = time.time()
         # Dec 31, 2025: Show actual training items added vs planned
         # Training items may be skipped if no training data exists
         logger.info(
             f"Populated queue with {added} items "
             f"(selfplay={selfplay_count + training_skipped}, training={training_added}, "
-            f"tournament={tournament_count}, sweeps={sweep_added})"
+            f"tournament={tournament_count}, sweeps={sweep_added}, exploration={exploration_added})"
         )
 
         return added
@@ -1103,6 +1163,51 @@ class UnifiedQueuePopulator:
     def populate_queue(self) -> int:
         """Backward-compatible alias for populate()."""
         return self.populate()
+
+    def _populate_exploration_work(self) -> int:
+        """Add exploration work for stale configs (Phase 1.2 - Jan 2026).
+
+        This ensures the cluster never completely idles, even when all Elo
+        targets are met. It maintains training data diversity by exploring
+        configs that haven't had recent activity.
+
+        Returns:
+            Number of exploration items added
+        """
+        if self._work_queue is None:
+            return 0
+
+        # Get stale configs that need exploration
+        stale_configs = self.get_least_recent_configs(EXPLORATION_CONFIGS_PER_CYCLE)
+        if not stale_configs:
+            return 0
+
+        added = 0
+        for target in stale_configs:
+            pending_games = self.get_pending_selfplay_games(target.config_key)
+
+            if pending_games >= MINIMUM_EXPLORATION_GAMES:
+                # Already have enough pending work
+                continue
+
+            try:
+                item = self._create_selfplay_item(target.board_type, target.num_players)
+                # Slightly boost priority for exploration items
+                item.priority = self.config.selfplay_priority + 10
+                self._work_queue.add_work(item)
+                self._queued_work_ids.add(item.work_id)
+                target.pending_selfplay_count += 1
+                added += 1
+            except Exception as e:
+                logger.error(f"[Exploration] Failed to add item for {target.config_key}: {e}")
+
+        if added > 0:
+            logger.info(
+                f"[Exploration] Added {added} exploration items for stale configs: "
+                f"{', '.join(t.config_key for t in stale_configs[:added])}"
+            )
+
+        return added
 
     def _populate_trickle_items(self) -> int:
         """Add minimal items under extreme backpressure (Phase 15.1.2).
@@ -1830,6 +1935,9 @@ __all__ = [
     "BOARD_CONFIGS",
     "LARGE_BOARDS",
     "DEFAULT_CURRICULUM_WEIGHTS",
+    "MINIMUM_EXPLORATION_GAMES",
+    "EXPLORATION_CONFIGS_PER_CYCLE",
+    "EXPLORATION_STALE_THRESHOLD_HOURS",
     # Enums
     "BoardType",
     # Data classes

@@ -588,12 +588,9 @@ class TrainingCoordinator:
         current_elo = payload.get("current_elo", 0)
         previous_elo = payload.get("previous_elo", 0)
 
-        if not config_key:
+        if not config_key and model_id:
             # Try to extract from model_id (format: "{board}_{n}p_...")
-            if model_id and "_" in model_id:
-                candidate = "_".join(model_id.split("_")[:2])
-                if parse_config_key(candidate):
-                    config_key = candidate
+            config_key = extract_config_from_path(model_id) or ""
 
         if not config_key:
             logger.debug("[TrainingCoordinator] REGRESSION_DETECTED without config_key, ignoring")
@@ -654,10 +651,8 @@ class TrainingCoordinator:
         model_id = payload.get("model_id", "")
         elo_drop = payload.get("elo_drop", 0)
 
-        if not config_key and model_id and "_" in model_id:
-            candidate = "_".join(model_id.split("_")[:2])
-            if parse_config_key(candidate):
-                config_key = candidate
+        if not config_key and model_id:
+            config_key = extract_config_from_path(model_id) or ""
 
         if not config_key:
             logger.error("[TrainingCoordinator] REGRESSION_CRITICAL without config_key")
@@ -704,10 +699,8 @@ class TrainingCoordinator:
         model_id = payload.get("model_id", "")
         elo_recovered = payload.get("elo_recovered", 0)
 
-        if not config_key and model_id and "_" in model_id:
-            candidate = "_".join(model_id.split("_")[:2])
-            if parse_config_key(candidate):
-                config_key = candidate
+        if not config_key and model_id:
+            config_key = extract_config_from_path(model_id) or ""
 
         if not config_key:
             logger.warning("[TrainingCoordinator] REGRESSION_CLEARED without config_key")

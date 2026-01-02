@@ -51,6 +51,14 @@ VOTER_MIN_QUORUM = _CONSTANTS["VOTER_MIN_QUORUM"]
 CONSENSUS_MODE = _CONSTANTS["CONSENSUS_MODE"]
 RAFT_ENABLED = _CONSTANTS["RAFT_ENABLED"]
 
+# Phase 3.2 (January 2026): Dynamic voter management
+# Enable via RINGRIFT_P2P_DYNAMIC_VOTER=true
+import os
+DYNAMIC_VOTER_ENABLED = os.environ.get("RINGRIFT_P2P_DYNAMIC_VOTER", "false").lower() == "true"
+VOTER_QUORUM_MARGIN = 1  # Promote when alive voters <= quorum_required + margin
+VOTER_MIN_UPTIME_SECONDS = 300.0  # Candidate must have 5+ minutes uptime
+VOTER_MAX_ERROR_RATE = 0.10  # Candidate must have <10% error rate
+
 
 class LeaderElectionMixin(P2PMixinBase):
     """Mixin providing core leader election logic.
@@ -205,6 +213,255 @@ class LeaderElectionMixin(P2PMixinBase):
             "total": len(voters),
             "quorum_required": quorum,
             "quorum_met": len(alive_voters) >= quorum,
+        }
+
+    # =========================================================================
+    # Phase 3.2: Dynamic Voter Management (January 2026)
+    # =========================================================================
+
+    def _should_promote_voter(self) -> bool:
+        """Check if a new voter should be promoted to maintain quorum margin.
+
+        Returns True when:
+        - Dynamic voter management is enabled
+        - Alive voters are at or below quorum + margin threshold
+        - Not using Raft for leadership (Raft has its own membership)
+
+        Returns:
+            True if a new voter should be promoted
+        """
+        if not DYNAMIC_VOTER_ENABLED:
+            return False
+
+        # Don't mess with voters when using Raft
+        if self._use_raft_for_leadership():
+            return False
+
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+        if not voters:
+            return False
+
+        quorum = min(VOTER_MIN_QUORUM, len(voters))
+        threshold = quorum + VOTER_QUORUM_MARGIN
+
+        alive = self._count_alive_peers(voters)
+        return alive <= threshold
+
+    def _rank_voter_candidates(self) -> list[dict[str, Any]]:
+        """Rank non-voter peers as candidates for voter promotion.
+
+        Candidates are ranked by:
+        1. Uptime (longer is better)
+        2. Error rate (lower is better)
+        3. Connectivity (more peers visible is better)
+
+        Returns:
+            List of candidate dicts sorted best-to-worst:
+            [{"node_id": str, "score": float, "uptime": float, "error_rate": float}, ...]
+        """
+        voters = set(getattr(self, "voter_node_ids", []) or [])
+        candidates: list[dict[str, Any]] = []
+        now = time.time()
+
+        with self.peers_lock:
+            peers = dict(self.peers)
+
+        for node_id, peer in peers.items():
+            # Skip existing voters
+            if node_id in voters:
+                continue
+
+            # Skip dead/unhealthy peers
+            if not peer.is_alive():
+                continue
+
+            # Calculate uptime
+            first_seen = getattr(peer, "first_seen", now)
+            uptime = now - first_seen
+
+            # Skip peers without minimum uptime
+            if uptime < VOTER_MIN_UPTIME_SECONDS:
+                continue
+
+            # Get error rate from peer stats (default to 0 if not available)
+            error_count = getattr(peer, "error_count", 0)
+            request_count = getattr(peer, "request_count", 1)  # Avoid div by 0
+            error_rate = error_count / max(request_count, 1)
+
+            # Skip peers with high error rates
+            if error_rate > VOTER_MAX_ERROR_RATE:
+                continue
+
+            # Get connectivity score (number of peers this node sees)
+            peer_count = getattr(peer, "peer_count", 0)
+
+            # Calculate composite score (higher is better)
+            # Normalize factors: uptime in hours, 1-error_rate, peer_count
+            uptime_score = min(uptime / 3600, 24)  # Cap at 24 hours
+            reliability_score = (1.0 - error_rate) * 10
+            connectivity_score = min(peer_count, 20)  # Cap at 20 peers
+
+            score = uptime_score + reliability_score + connectivity_score
+
+            candidates.append({
+                "node_id": node_id,
+                "score": score,
+                "uptime": uptime,
+                "error_rate": error_rate,
+                "peer_count": peer_count,
+            })
+
+        # Sort by score descending (best first)
+        candidates.sort(key=lambda c: c["score"], reverse=True)
+        return candidates
+
+    async def _promote_to_voter(self, node_id: str) -> bool:
+        """Promote a node to voter status.
+
+        This adds the node to voter_node_ids and broadcasts the update
+        to the cluster via gossip.
+
+        Args:
+            node_id: The node ID to promote
+
+        Returns:
+            True if promotion was successful
+        """
+        # Validate node exists and is healthy
+        with self.peers_lock:
+            peer = self.peers.get(node_id)
+            if not peer or not peer.is_alive():
+                self._log_warning(f"Cannot promote {node_id}: peer not found or not alive")
+                return False
+
+        # Add to voter list
+        if self.voter_node_ids is None:
+            self.voter_node_ids = []
+
+        if node_id in self.voter_node_ids:
+            self._log_info(f"Node {node_id} is already a voter")
+            return True
+
+        self.voter_node_ids.append(node_id)
+
+        # Log and emit event
+        self._log_info(
+            f"[DynamicVoter] Promoted {node_id} to voter "
+            f"(total voters: {len(self.voter_node_ids)})"
+        )
+
+        self._safe_emit_event("VOTER_PROMOTED", {
+            "node_id": node_id,
+            "total_voters": len(self.voter_node_ids),
+            "quorum_required": min(VOTER_MIN_QUORUM, len(self.voter_node_ids)),
+        })
+
+        # Save state
+        if hasattr(self, "_save_state"):
+            self._save_state()
+
+        # Broadcast voter change via gossip
+        await self._broadcast_voter_change("promote", node_id)
+
+        return True
+
+    async def _maybe_promote_voter(self) -> bool:
+        """Check quorum margin and promote a voter if needed.
+
+        This is the main entry point for dynamic voter management.
+        Call this periodically (e.g., in membership loop or health check).
+
+        Returns:
+            True if a voter was promoted
+        """
+        if not self._should_promote_voter():
+            return False
+
+        # Get ranked candidates
+        candidates = self._rank_voter_candidates()
+        if not candidates:
+            self._log_warning(
+                "[DynamicVoter] Quorum at risk but no suitable candidates for promotion"
+            )
+            return False
+
+        # Promote the best candidate
+        best = candidates[0]
+        self._log_info(
+            f"[DynamicVoter] Promoting {best['node_id']} (score={best['score']:.2f}, "
+            f"uptime={best['uptime']:.0f}s, error_rate={best['error_rate']:.2%})"
+        )
+
+        return await self._promote_to_voter(best["node_id"])
+
+    async def _broadcast_voter_change(self, action: str, node_id: str) -> int:
+        """Broadcast voter list change to all peers.
+
+        Args:
+            action: "promote" or "demote"
+            node_id: The affected node
+
+        Returns:
+            Number of peers successfully notified
+        """
+        import aiohttp
+        from aiohttp import ClientTimeout
+
+        notified = 0
+        timeout = ClientTimeout(total=5)
+
+        payload = {
+            "action": action,
+            "node_id": node_id,
+            "voters": list(self.voter_node_ids or []),
+            "source_node": self.node_id,
+            "timestamp": time.time(),
+        }
+
+        with self.peers_lock:
+            peers = list(self.peers.values())
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for peer in peers:
+                if not peer.is_alive():
+                    continue
+
+                try:
+                    url = self._url_for_peer(peer, "/election/voter_update")
+                    resp = await session.post(
+                        url,
+                        json=payload,
+                        headers=self._auth_headers(),
+                    )
+                    if resp.status == 200:
+                        notified += 1
+                except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
+                    pass  # Expected for some nodes
+
+        self._log_info(f"[DynamicVoter] Notified {notified} peers of voter {action}")
+        return notified
+
+    def _check_dynamic_voter_health(self) -> dict[str, Any]:
+        """Return health status for dynamic voter management.
+
+        Returns:
+            Dict with dynamic voter status and metrics
+        """
+        voters = list(getattr(self, "voter_node_ids", []) or [])
+        quorum = min(VOTER_MIN_QUORUM, len(voters)) if voters else 0
+        alive = self._count_alive_peers(voters) if voters else 0
+
+        candidates = self._rank_voter_candidates() if DYNAMIC_VOTER_ENABLED else []
+
+        return {
+            "dynamic_voter_enabled": DYNAMIC_VOTER_ENABLED,
+            "total_voters": len(voters),
+            "alive_voters": alive,
+            "quorum_required": quorum,
+            "margin_threshold": quorum + VOTER_QUORUM_MARGIN,
+            "should_promote": self._should_promote_voter(),
+            "candidate_count": len(candidates),
+            "top_candidate": candidates[0] if candidates else None,
         }
 
     def _check_leader_consistency(self) -> tuple[bool, str]:
@@ -618,6 +875,9 @@ class LeaderElectionMixin(P2PMixinBase):
         December 30, 2025 (P5.4): Added Raft leader sync. When using Raft for
         leadership, syncs P2P leader with Raft leader on each health check.
 
+        January 2026 (Phase 3.2): Added dynamic voter management. When enabled,
+        automatically promotes healthy nodes to voter status when quorum is at risk.
+
         Returns:
             dict with is_healthy, role, leader_id, quorum status, split_brain status
         """
@@ -637,6 +897,9 @@ class LeaderElectionMixin(P2PMixinBase):
         if not using_raft:
             split_brain_info = self._detect_split_brain()
         has_split_brain = split_brain_info is not None
+
+        # January 2026 (Phase 3.2): Dynamic voter management health info
+        dynamic_voter_info = self._check_dynamic_voter_health()
 
         # Unhealthy if:
         # 1. No quorum and we should have voters (unless using Raft), OR
@@ -661,6 +924,8 @@ class LeaderElectionMixin(P2PMixinBase):
             # P5.4: Raft leader integration status
             "using_raft_for_leadership": using_raft,
             "raft_leader_synced": raft_leader_synced,
+            # Phase 3.2: Dynamic voter management
+            "dynamic_voter": dynamic_voter_info,
         }
 
         # Add Raft leader info if available

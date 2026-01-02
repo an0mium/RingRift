@@ -296,6 +296,15 @@ class PipelineCircuitBreaker:
 CircuitBreaker = PipelineCircuitBreaker
 
 
+# =============================================================================
+# Phase 4.2: Cascade Recovery Constants (January 2026)
+# =============================================================================
+# Automatic retry for failed pipeline stages with exponential backoff
+MAX_STAGE_RETRIES = 3  # Maximum retry attempts per stage/config
+STAGE_RETRY_DELAY_SECONDS = 300.0  # 5 minutes between retries
+STAGE_RETRY_BACKOFF_MULTIPLIER = 2.0  # Exponential backoff factor
+
+
 class PipelineStage(Enum):
     """Pipeline stages in execution order."""
 
@@ -511,6 +520,11 @@ class DataPipelineOrchestrator(
         self._errors_count: int = 0
         self._last_error: str = ""
 
+        # Phase 4.2: Cascade recovery state (January 2026)
+        # Tracks retry counts per (stage, config_key) for automatic retry
+        self._stage_retry_counts: dict[tuple[str, str], int] = {}
+        self._pending_retries: dict[tuple[str, str], asyncio.Task] = {}
+
     def _get_board_config(
         self, result: Any = None, metadata: dict | None = None
     ) -> tuple[str | None, int | None]:
@@ -565,6 +579,206 @@ class DataPipelineOrchestrator(
             )
 
         return board_type, num_players
+
+    # =========================================================================
+    # Phase 4.2: Cascade Recovery Methods (January 2026)
+    # =========================================================================
+
+    async def handle_stage_failure(
+        self,
+        stage: PipelineStage,
+        config_key: str,
+        error: Exception | str,
+    ) -> bool:
+        """Handle a stage failure with automatic retry logic.
+
+        Implements cascade recovery: when a stage fails, it will be retried
+        up to MAX_STAGE_RETRIES times with exponential backoff.
+
+        Args:
+            stage: The pipeline stage that failed
+            config_key: The configuration key (e.g., "hex8_2p")
+            error: The error that caused the failure
+
+        Returns:
+            True if a retry was scheduled, False if retries exhausted
+        """
+        key = (stage.value, config_key)
+        retry_count = self._stage_retry_counts.get(key, 0)
+
+        # Record failure in circuit breaker
+        if self._circuit_breaker:
+            self._circuit_breaker.record_failure(stage.value, str(error))
+
+        if retry_count >= MAX_STAGE_RETRIES:
+            # Retries exhausted - emit PIPELINE_FAILED event
+            logger.error(
+                f"[DataPipelineOrchestrator] Stage {stage.value} failed {MAX_STAGE_RETRIES} times "
+                f"for {config_key}, giving up. Error: {error}"
+            )
+            self._stage_retry_counts.pop(key, None)  # Reset counter
+
+            await self._emit_pipeline_failed(stage, config_key, error)
+            return False
+
+        # Schedule retry with exponential backoff
+        self._stage_retry_counts[key] = retry_count + 1
+        delay = STAGE_RETRY_DELAY_SECONDS * (STAGE_RETRY_BACKOFF_MULTIPLIER ** retry_count)
+
+        logger.warning(
+            f"[DataPipelineOrchestrator] Stage {stage.value} failed for {config_key}: {error}. "
+            f"Retry {retry_count + 1}/{MAX_STAGE_RETRIES} in {delay:.0f}s"
+        )
+
+        # Cancel any existing pending retry for this stage/config
+        existing_task = self._pending_retries.get(key)
+        if existing_task and not existing_task.done():
+            existing_task.cancel()
+
+        # Schedule the retry
+        task = asyncio.create_task(
+            self._execute_stage_retry(stage, config_key, delay)
+        )
+        self._pending_retries[key] = task
+
+        return True
+
+    async def _execute_stage_retry(
+        self,
+        stage: PipelineStage,
+        config_key: str,
+        delay: float,
+    ) -> None:
+        """Execute a delayed stage retry.
+
+        Args:
+            stage: The stage to retry
+            config_key: The configuration key
+            delay: Delay before retry in seconds
+        """
+        try:
+            await asyncio.sleep(delay)
+
+            key = (stage.value, config_key)
+            retry_count = self._stage_retry_counts.get(key, 0)
+
+            logger.info(
+                f"[DataPipelineOrchestrator] Retrying {stage.value} for {config_key} "
+                f"(attempt {retry_count}/{MAX_STAGE_RETRIES})"
+            )
+
+            # Parse config_key to get board_type and num_players
+            parsed = parse_config_key(config_key)
+            if not parsed:
+                logger.error(f"[DataPipelineOrchestrator] Invalid config_key: {config_key}")
+                return
+
+            # Trigger the appropriate stage
+            await self._trigger_stage(stage, parsed.board_type, parsed.num_players)
+
+        except asyncio.CancelledError:
+            logger.debug(f"[DataPipelineOrchestrator] Retry cancelled for {stage.value}/{config_key}")
+        except Exception as e:
+            logger.error(f"[DataPipelineOrchestrator] Retry failed for {stage.value}/{config_key}: {e}")
+
+    async def _trigger_stage(
+        self,
+        stage: PipelineStage,
+        board_type: str,
+        num_players: int,
+    ) -> None:
+        """Trigger a specific pipeline stage.
+
+        Args:
+            stage: The stage to trigger
+            board_type: Board type for the stage
+            num_players: Number of players
+        """
+        config_key = make_config_key(board_type, num_players)
+
+        # Call the appropriate trigger method based on stage
+        if stage == PipelineStage.DATA_SYNC:
+            await self._trigger_data_sync(board_type, num_players)
+        elif stage == PipelineStage.NPZ_EXPORT:
+            await self._trigger_npz_export(board_type, num_players)
+        elif stage == PipelineStage.NPZ_COMBINATION:
+            await self._trigger_npz_combination(board_type, num_players)
+        elif stage == PipelineStage.TRAINING:
+            await self._trigger_training(board_type, num_players)
+        elif stage == PipelineStage.EVALUATION:
+            await self._trigger_evaluation(board_type, num_players)
+        elif stage == PipelineStage.PROMOTION:
+            await self._trigger_promotion(board_type, num_players)
+        else:
+            logger.warning(f"[DataPipelineOrchestrator] Cannot trigger stage: {stage.value}")
+
+    async def _emit_pipeline_failed(
+        self,
+        stage: PipelineStage,
+        config_key: str,
+        error: Exception | str,
+    ) -> None:
+        """Emit PIPELINE_FAILED event when retries are exhausted.
+
+        Args:
+            stage: The stage that failed
+            config_key: The configuration key
+            error: The error that caused the failure
+        """
+        try:
+            from app.coordination.event_router import emit_event
+            from app.coordination.data_events import DataEventType
+
+            await emit_event(
+                DataEventType.PIPELINE_FAILED,
+                {
+                    "stage": stage.value,
+                    "config_key": config_key,
+                    "error": str(error),
+                    "retries_exhausted": True,
+                    "max_retries": MAX_STAGE_RETRIES,
+                    "timestamp": time.time(),
+                },
+            )
+        except ImportError:
+            logger.debug("[DataPipelineOrchestrator] Event emission not available")
+        except Exception as e:
+            logger.warning(f"[DataPipelineOrchestrator] Failed to emit PIPELINE_FAILED: {e}")
+
+    def reset_stage_retry_count(self, stage: PipelineStage, config_key: str) -> None:
+        """Reset retry count for a stage/config after successful completion.
+
+        Call this after a stage completes successfully to reset the retry counter.
+
+        Args:
+            stage: The stage that completed
+            config_key: The configuration key
+        """
+        key = (stage.value, config_key)
+        if key in self._stage_retry_counts:
+            del self._stage_retry_counts[key]
+            logger.debug(f"[DataPipelineOrchestrator] Reset retry count for {stage.value}/{config_key}")
+
+    def get_cascade_recovery_status(self) -> dict[str, Any]:
+        """Get current cascade recovery status.
+
+        Returns:
+            Dict with retry counts and pending retries
+        """
+        return {
+            "retry_counts": {
+                f"{stage}/{config}": count
+                for (stage, config), count in self._stage_retry_counts.items()
+            },
+            "pending_retries": [
+                f"{stage}/{config}"
+                for (stage, config), task in self._pending_retries.items()
+                if not task.done()
+            ],
+            "max_retries": MAX_STAGE_RETRIES,
+            "retry_delay_seconds": STAGE_RETRY_DELAY_SECONDS,
+            "backoff_multiplier": STAGE_RETRY_BACKOFF_MULTIPLIER,
+        }
 
     # =========================================================================
     # CoordinatorProtocol Implementation (December 2025 - Phase 14)

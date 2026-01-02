@@ -2052,22 +2052,43 @@ class TrainingTriggerDaemon(HandlerBase):
             return False, f"cooldown active ({remaining:.1f}h remaining{trend_info})"
 
         # 3. Check data freshness (December 2025: use training_freshness for sync)
+        # January 2026 (Phase 4.1): Auto-sync on stale data instead of blocking
         data_age_hours = (time.time() - state.last_npz_update) / 3600
         if data_age_hours > self.config.max_data_age_hours:
             # December 29, 2025: Strict mode - fail immediately without sync attempt
             if self.config.strict_freshness_mode:
                 return False, f"data too old ({data_age_hours:.1f}h) [strict mode - no sync]"
+
+            # January 2026 (Phase 4.1): Check if data is "very stale" (>2x threshold)
+            # Very stale data → proceed with warning (don't block indefinitely)
+            very_stale_threshold = self.config.max_data_age_hours * 2
+            if data_age_hours > very_stale_threshold:
+                # Data is very old - proceed anyway with warning to prevent indefinite blocks
+                logger.warning(
+                    f"[TrainingTriggerDaemon] {config_key}: proceeding with very stale data "
+                    f"(age={data_age_hours:.1f}h > {very_stale_threshold:.1f}h threshold). "
+                    f"Triggering background sync."
+                )
+                # Trigger background sync (don't wait for it)
+                asyncio.create_task(
+                    self._trigger_priority_sync(config_key, state.board_type, state.num_players)
+                )
+                # Continue with training (data will be fresher next time)
             elif self.config.enforce_freshness_with_sync:
-                # Try to sync and wait for fresh data
+                # Moderately stale - try to sync and wait for fresh data
                 fresh = await self._ensure_fresh_data(state.board_type, state.num_players)
                 if not fresh:
-                    return False, f"data too old ({data_age_hours:.1f}h), sync failed"
+                    return False, f"data stale ({data_age_hours:.1f}h), sync triggered but not ready"
                 # Sync succeeded, continue with training check
                 logger.info(
                     f"[TrainingTriggerDaemon] {config_key}: data refreshed via sync"
                 )
             else:
-                return False, f"data too old ({data_age_hours:.1f}h)"
+                # Not enforcing with sync - just trigger background sync and block
+                asyncio.create_task(
+                    self._trigger_priority_sync(config_key, state.board_type, state.num_players)
+                )
+                return False, f"data stale ({data_age_hours:.1f}h), sync triggered"
 
         # January 2026: Log cluster-wide game counts for visibility
         # This helps understand data distribution across all sources
