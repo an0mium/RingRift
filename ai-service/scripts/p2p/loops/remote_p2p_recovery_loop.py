@@ -197,6 +197,7 @@ class RemoteP2PRecoveryLoop(BaseLoop):
     - Respects cooldown periods to avoid hammering failed nodes
     - Limits recoveries per cycle to prevent thundering herd
     - Emits REMOTE_P2P_STARTED event for monitoring
+    - IMPORTANT: Only runs on the leader node to prevent restart cascades
     """
 
     def __init__(
@@ -204,6 +205,7 @@ class RemoteP2PRecoveryLoop(BaseLoop):
         get_alive_peer_ids: Callable[[], list[str]],
         emit_event: Callable[[str, dict[str, Any]], None] | None = None,
         config: RemoteP2PRecoveryConfig | None = None,
+        is_leader: Callable[[], bool] | None = None,
     ):
         """Initialize remote P2P recovery loop.
 
@@ -211,6 +213,9 @@ class RemoteP2PRecoveryLoop(BaseLoop):
             get_alive_peer_ids: Callback returning list of alive peer node IDs
             emit_event: Optional callback to emit events (event_name, event_data)
             config: Recovery configuration
+            is_leader: Callback returning True if this node is the leader.
+                       CRITICAL: Only the leader should run recovery to prevent
+                       all nodes trying to restart each other simultaneously.
         """
         self.config = config or RemoteP2PRecoveryConfig()
         super().__init__(
@@ -222,6 +227,7 @@ class RemoteP2PRecoveryLoop(BaseLoop):
         # Callbacks
         self._get_alive_peer_ids = get_alive_peer_ids
         self._emit_event = emit_event
+        self._is_leader = is_leader or (lambda: False)  # Default to not leader
 
         # Statistics
         self._stats = RemoteP2PRecoveryStats()
@@ -395,6 +401,14 @@ class RemoteP2PRecoveryLoop(BaseLoop):
     async def _run_once(self) -> None:
         """Execute one recovery cycle."""
         if not self.config.enabled:
+            return
+
+        # CRITICAL: Only leader should run recovery to prevent restart cascade
+        # If every node ran this, they'd all try to restart each other
+        if not self._is_leader():
+            logger.debug(
+                "[RemoteP2PRecovery] Skipping cycle - not leader"
+            )
             return
 
         # Skip if SSH key is missing

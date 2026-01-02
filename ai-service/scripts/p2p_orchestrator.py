@@ -2568,12 +2568,15 @@ class P2POrchestrator(
 
                     # Note: emit_event omitted - uses internal logging instead
                     # P2POrchestrator doesn't have _emit_event but the loop is optional
+                    # Jan 2, 2026: Added is_leader callback - CRITICAL to prevent
+                    # all nodes from trying to restart each other simultaneously
                     remote_recovery = RemoteP2PRecoveryLoop(
                         get_alive_peer_ids=_get_alive_peer_ids_for_recovery,
+                        is_leader=lambda: self.is_leader(),
                     )
                     manager.register(remote_recovery)
                     role_desc = "coordinator" if is_coordinator else "voter"
-                    logger.info(f"[LoopManager] RemoteP2PRecoveryLoop registered ({role_desc}: {self.node_id})")
+                    logger.info(f"[LoopManager] RemoteP2PRecoveryLoop registered ({role_desc}: {self.node_id}, leader-only execution)")
                 except (ImportError, TypeError) as e:
                     logger.debug(f"RemoteP2PRecoveryLoop: not available: {e}")
 
