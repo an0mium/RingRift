@@ -1101,6 +1101,55 @@ def get_p2p_port() -> int:
 
 
 # =============================================================================
+# P2P Recovery Defaults (January 2026)
+# =============================================================================
+
+@dataclass(frozen=True)
+class P2PRecoveryDefaults:
+    """Default values for P2P cluster recovery operations.
+
+    Used by: app/coordination/p2p_recovery_daemon.py,
+             scripts/p2p/loops/remote_p2p_recovery_loop.py
+
+    January 2026: Centralized defaults for 48-hour autonomous operation.
+    These values optimize P2P cluster connectivity by enabling faster
+    recovery intervals and NAT-aware thresholds.
+    """
+    # Remote recovery loop interval (seconds) - how often to check for missing nodes
+    # Jan 2026: Reduced from 300s to 60s for faster 48h autonomous recovery
+    REMOTE_RECOVERY_INTERVAL: float = _env_float("RINGRIFT_REMOTE_P2P_RECOVERY_INTERVAL", 60.0)
+
+    # Maximum nodes to recover per cycle (prevents thundering herd)
+    # Jan 2026: Increased from 5 to 10 for faster cluster recovery
+    MAX_NODES_PER_CYCLE: int = _env_int("RINGRIFT_REMOTE_P2P_MAX_NODES_PER_CYCLE", 10)
+
+    # Retry cooldown for individual nodes (seconds)
+    # Jan 2026: Reduced from 120s to 60s for faster NAT-blocked node recovery
+    RETRY_COOLDOWN: float = _env_float("RINGRIFT_REMOTE_P2P_RETRY_COOLDOWN", 60.0)
+
+    # Normal restart threshold (consecutive failures before restart)
+    RESTART_THRESHOLD: int = _env_int("RINGRIFT_P2P_RESTART_THRESHOLD", 3)
+
+    # NAT-blocked restart threshold (fewer failures needed for NAT nodes)
+    NAT_BLOCKED_RESTART_THRESHOLD: int = _env_int("RINGRIFT_P2P_NAT_RESTART_THRESHOLD", 2)
+
+    # Normal restart cooldown (seconds)
+    RESTART_COOLDOWN: int = _env_int("RINGRIFT_P2P_RESTART_COOLDOWN", 300)
+
+    # NAT-blocked restart cooldown (seconds) - faster for NAT nodes
+    NAT_BLOCKED_COOLDOWN: int = _env_int("RINGRIFT_P2P_NAT_COOLDOWN", 60)
+
+    # Minimum healthy relays required for NAT-blocked nodes
+    MIN_HEALTHY_RELAYS: int = _env_int("RINGRIFT_P2P_MIN_HEALTHY_RELAYS", 3)
+
+    # Verification timeout after recovery (seconds) - wait for node to appear in mesh
+    VERIFICATION_TIMEOUT: float = _env_float("RINGRIFT_P2P_VERIFICATION_TIMEOUT", 60.0)
+
+    # SSH timeout for recovery operations (seconds)
+    SSH_TIMEOUT: float = _env_float("RINGRIFT_P2P_SSH_TIMEOUT", 30.0)
+
+
+# =============================================================================
 # Endpoint Validation Defaults (December 30, 2025)
 # =============================================================================
 
@@ -3154,6 +3203,7 @@ __all__ = [
     "OptimizationDefaults",
     "OrphanDetectionDefaults",
     "P2PDefaults",
+    "P2PRecoveryDefaults",  # January 2026
     "PeerDefaults",  # December 28, 2025
     "PIDDefaults",
     "ProviderDefaults",  # December 27, 2025

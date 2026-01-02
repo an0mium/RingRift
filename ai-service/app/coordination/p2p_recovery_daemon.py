@@ -63,6 +63,9 @@ class P2PRecoveryConfig:
     health_endpoint: str = "http://localhost:8770/status"
     max_consecutive_failures: int = 3
     restart_cooldown_seconds: int = 300  # 5 minutes (initial cooldown)
+    # Jan 2026: NAT-blocked nodes need faster recovery (more likely to disconnect)
+    nat_blocked_restart_threshold: int = 2  # Fewer failures before restart (vs 3)
+    nat_blocked_cooldown_seconds: int = 60  # 1 minute cooldown (vs 5 min)
     restart_backoff_multiplier: float = 2.0  # Double cooldown each attempt
     max_cooldown_seconds: int = 1800  # 30 minutes max cooldown
     health_timeout_seconds: float = 10.0
@@ -190,11 +193,73 @@ class P2PRecoveryDaemon(HandlerBase):
         self._quorum_recovery_attempts = 0
         # Dec 30, 2025: Exponential backoff for restarts
         self._restart_attempt_count = 0  # Consecutive restart attempts without recovery
+        # Jan 2026: Cache NAT-blocked status (checked once at startup)
+        self._is_nat_blocked: bool | None = None
 
     @property
     def config(self) -> P2PRecoveryConfig:
         """Return daemon configuration."""
         return self._daemon_config
+
+    def _check_is_nat_blocked(self) -> bool:
+        """Check if this node is NAT-blocked based on config.
+
+        Jan 2026: NAT-blocked nodes use different thresholds for faster recovery.
+        Checks distributed_hosts.yaml for nat_blocked or force_relay_mode flags.
+        """
+        if self._is_nat_blocked is not None:
+            return self._is_nat_blocked
+
+        try:
+            import socket
+            import yaml
+
+            node_id = os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
+            config_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "config",
+                "distributed_hosts.yaml",
+            )
+
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+
+            hosts = config.get("hosts", {})
+            node_info = hosts.get(node_id, {})
+
+            # Check for NAT-blocked indicators
+            self._is_nat_blocked = (
+                node_info.get("nat_blocked", False)
+                or node_info.get("force_relay_mode", False)
+            )
+
+            if self._is_nat_blocked:
+                logger.info(f"Node {node_id} is NAT-blocked, using faster recovery thresholds")
+
+            return self._is_nat_blocked
+
+        except Exception as e:
+            logger.debug(f"Failed to check NAT-blocked status: {e}")
+            self._is_nat_blocked = False
+            return False
+
+    def _get_effective_restart_threshold(self) -> int:
+        """Get the effective restart threshold based on NAT-blocked status.
+
+        Jan 2026: NAT-blocked nodes use lower threshold for faster recovery.
+        """
+        if self._check_is_nat_blocked():
+            return self.config.nat_blocked_restart_threshold
+        return self.config.max_consecutive_failures
+
+    def _get_effective_cooldown(self) -> int:
+        """Get the effective base cooldown based on NAT-blocked status.
+
+        Jan 2026: NAT-blocked nodes use shorter cooldown for faster recovery.
+        """
+        if self._check_is_nat_blocked():
+            return self.config.nat_blocked_cooldown_seconds
+        return self.config.restart_cooldown_seconds
 
     # =========================================================================
     # Event Subscriptions (December 30, 2025)
@@ -350,12 +415,13 @@ class P2PRecoveryDaemon(HandlerBase):
         elif not is_healthy:
             # Standard health check failure
             self._consecutive_failures += 1
+            effective_threshold = self._get_effective_restart_threshold()
             logger.warning(
-                f"P2P health check failed ({self._consecutive_failures}/{self.config.max_consecutive_failures})"
+                f"P2P health check failed ({self._consecutive_failures}/{effective_threshold})"
             )
 
-            # Check if we should restart
-            if self._consecutive_failures >= self.config.max_consecutive_failures:
+            # Check if we should restart (Jan 2026: use NAT-aware threshold)
+            if self._consecutive_failures >= effective_threshold:
                 if self._can_restart():
                     await self._restart_p2p()
                     self._consecutive_failures = 0
@@ -499,12 +565,15 @@ class P2PRecoveryDaemon(HandlerBase):
 
         Formula: base_cooldown * (multiplier ** attempt_count)
         Capped at max_cooldown_seconds.
+
+        Jan 2026: Uses NAT-aware base cooldown (60s for NAT-blocked, 300s normal).
         """
+        base_cooldown = float(self._get_effective_cooldown())
         if self._restart_attempt_count == 0:
-            return float(self.config.restart_cooldown_seconds)
+            return base_cooldown
 
         backoff_cooldown = (
-            self.config.restart_cooldown_seconds
+            base_cooldown
             * (self.config.restart_backoff_multiplier ** self._restart_attempt_count)
         )
         return min(backoff_cooldown, float(self.config.max_cooldown_seconds))
@@ -833,8 +902,9 @@ class P2PRecoveryDaemon(HandlerBase):
                 details={},
             )
 
-        # Check if P2P is currently unhealthy
-        if self._consecutive_failures >= self.config.max_consecutive_failures:
+        # Check if P2P is currently unhealthy (Jan 2026: use NAT-aware threshold)
+        effective_threshold = self._get_effective_restart_threshold()
+        if self._consecutive_failures >= effective_threshold:
             return HealthCheckResult(
                 healthy=True,  # Daemon is healthy, P2P is not
                 status=CoordinatorStatus.RUNNING,
@@ -922,8 +992,11 @@ class P2PRecoveryDaemon(HandlerBase):
         return base_status
 
     def is_p2p_healthy(self) -> bool:
-        """Check if P2P is currently healthy based on last check."""
-        return self._consecutive_failures < self.config.max_consecutive_failures
+        """Check if P2P is currently healthy based on last check.
+
+        Jan 2026: Uses NAT-aware threshold for healthiness check.
+        """
+        return self._consecutive_failures < self._get_effective_restart_threshold()
 
 
 # =============================================================================

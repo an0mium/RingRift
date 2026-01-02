@@ -51,15 +51,17 @@ logger = logging.getLogger(__name__)
 class RemoteP2PRecoveryConfig:
     """Configuration for remote P2P recovery."""
 
-    # Interval between recovery cycles (seconds) - default 5 minutes
+    # Interval between recovery cycles (seconds) - default 1 minute
+    # Jan 2026: Reduced from 300s to 60s for faster 48h autonomous recovery
     check_interval_seconds: float = field(
         default_factory=lambda: float(
-            os.environ.get("RINGRIFT_REMOTE_P2P_RECOVERY_INTERVAL", "300")
+            os.environ.get("RINGRIFT_REMOTE_P2P_RECOVERY_INTERVAL", "60")
         )
     )
 
     # Maximum nodes to recover per cycle (prevent thundering herd)
-    max_nodes_per_cycle: int = 5
+    # Jan 2026: Increased from 5 to 10 for faster cluster recovery
+    max_nodes_per_cycle: int = 10
 
     # SSH timeout per node (seconds)
     ssh_timeout_seconds: float = 30.0
@@ -88,8 +90,8 @@ class RemoteP2PRecoveryConfig:
     )
 
     # Minimum time since last attempt for a node before retrying (seconds)
-    # Dec 2025: Reduced from 600s to 120s for faster 48h autonomous recovery
-    retry_cooldown_seconds: float = 120.0  # 2 minutes
+    # Jan 2026: Reduced from 120s to 60s for faster NAT-blocked node recovery
+    retry_cooldown_seconds: float = 60.0  # 1 minute
 
     # Whether to emit events on recovery
     emit_events: bool = True
@@ -369,6 +371,15 @@ class RemoteP2PRecoveryLoop(BaseLoop):
                 continue
 
             nodes_to_recover.append((node_id, node_info))
+
+        # Prioritize NAT-blocked nodes (they need more help staying connected)
+        # Jan 2026: NAT-blocked nodes often drop out and need faster recovery
+        nodes_to_recover.sort(
+            key=lambda x: (
+                0 if x[1].get("nat_blocked") or x[1].get("force_relay_mode") else 1,
+                x[0],  # Then alphabetical for determinism
+            )
+        )
 
         if not nodes_to_recover:
             logger.debug(
