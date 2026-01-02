@@ -49,6 +49,9 @@ class NodeInfo:
     gpu_percent: float = 0.0
     gpu_memory_percent: float = 0.0
     selfplay_jobs: int = 0
+    # Jan 2, 2026: Maximum selfplay slots for this node based on GPU capability
+    # Used by WorkerPullLoop for slot-based capacity management
+    max_selfplay_slots: int = 8
     training_jobs: int = 0
     has_gpu: bool = False
     gpu_name: str = ""

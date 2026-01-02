@@ -397,9 +397,17 @@ class WorkerPullConfig:
     """Configuration for worker pull loop."""
 
     pull_interval_seconds: float = 30.0
-    gpu_idle_threshold_percent: float = 15.0
+    # Jan 2, 2026: Raised from 15% to 90% - now used as GPU overload guard,
+    # not primary capacity limiter. Slot-based claiming is the primary mechanism.
+    gpu_idle_threshold_percent: float = 90.0
     cpu_idle_threshold_percent: float = 30.0
     initial_delay_seconds: float = 30.0
+
+    # Jan 2, 2026: Slot-based capacity management
+    # Allows work queue claiming to coexist with legacy selfplay processes
+    enable_slot_based_claiming: bool = True
+    default_max_selfplay_slots: int = 8
+    min_available_slots_to_claim: int = 1
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -415,6 +423,10 @@ class WorkerPullConfig:
             raise ValueError("cpu_idle_threshold_percent must be <= 100")
         if self.initial_delay_seconds < 0:
             raise ValueError("initial_delay_seconds must be >= 0")
+        if self.default_max_selfplay_slots <= 0:
+            raise ValueError("default_max_selfplay_slots must be > 0")
+        if self.min_available_slots_to_claim <= 0:
+            raise ValueError("min_available_slots_to_claim must be > 0")
 
 
 class WorkerPullLoop(BaseLoop):
@@ -500,20 +512,47 @@ class WorkerPullLoop(BaseLoop):
         training_jobs = int(metrics.get("training_jobs", 0) or 0)
         has_gpu = bool(metrics.get("has_gpu", False))
 
+        # Jan 2, 2026: Get slot-based capacity metrics
+        # selfplay_jobs counts ALL processes (both work queue and legacy) via pgrep
+        selfplay_jobs = int(metrics.get("selfplay_jobs", 0) or 0)
+        max_slots = int(
+            metrics.get("max_selfplay_slots", self.config.default_max_selfplay_slots)
+            or self.config.default_max_selfplay_slots
+        )
+        available_slots = max(0, max_slots - selfplay_jobs)
+
         # Don't pull work if already running training
         if training_jobs > 0:
             self._skipped_busy += 1
             return
 
-        # Check if we're actually idle
-        if has_gpu:
-            is_idle = gpu_percent < self.config.gpu_idle_threshold_percent
-        else:
-            is_idle = cpu_percent < self.config.cpu_idle_threshold_percent
+        # Jan 2, 2026: Slot-based capacity check with GPU guard rail
+        # This allows work queue claiming to coexist with legacy selfplay processes
+        if self.config.enable_slot_based_claiming and has_gpu:
+            has_capacity = available_slots >= self.config.min_available_slots_to_claim
+            gpu_safe = gpu_percent < self.config.gpu_idle_threshold_percent
 
-        if not is_idle:
-            self._skipped_busy += 1
-            return
+            if not has_capacity:
+                self._skipped_busy += 1
+                logger.debug(
+                    f"[WorkerPull] No slots available: {selfplay_jobs}/{max_slots} "
+                    f"(GPU: {gpu_percent:.1f}%)"
+                )
+                return
+
+            if not gpu_safe:
+                self._skipped_busy += 1
+                logger.debug(
+                    f"[WorkerPull] GPU overloaded ({gpu_percent:.1f}% >= "
+                    f"{self.config.gpu_idle_threshold_percent}%), "
+                    f"slots: {available_slots}/{max_slots}"
+                )
+                return
+        else:
+            # Fallback to legacy CPU% check for non-GPU nodes
+            if cpu_percent >= self.config.cpu_idle_threshold_percent:
+                self._skipped_busy += 1
+                return
 
         # Get allowed work types
         capabilities = ["selfplay", "training", "gpu_cmaes", "tournament"]

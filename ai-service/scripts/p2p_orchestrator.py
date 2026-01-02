@@ -7211,6 +7211,48 @@ class P2POrchestrator(
 
         return len(selfplay_pids), len(training_pids)
 
+    def _get_max_selfplay_slots_for_node(self) -> int:
+        """Get maximum selfplay slots based on GPU capability.
+
+        Jan 2, 2026: Added for slot-based capacity management.
+        This allows work queue claiming to coexist with legacy selfplay processes.
+
+        The slot count is based on GPU type since different GPUs can handle
+        different numbers of concurrent selfplay processes effectively.
+
+        Returns:
+            Maximum number of selfplay slots for this node.
+        """
+        import os
+
+        # Check environment variable first (allows manual override)
+        env_slots = os.environ.get("RINGRIFT_MAX_SELFPLAY_SLOTS")
+        if env_slots:
+            try:
+                return int(env_slots)
+            except ValueError:
+                pass
+
+        # Compute based on GPU name
+        gpu_name = getattr(self.self_info, "gpu_name", "") or ""
+        gpu_name_lower = gpu_name.lower()
+
+        # High-end GPUs get more slots
+        if "gh200" in gpu_name_lower or "h100" in gpu_name_lower:
+            return 16
+        elif "a100" in gpu_name_lower:
+            return 12
+        elif "5090" in gpu_name_lower or "4090" in gpu_name_lower:
+            return 8
+        elif "3090" in gpu_name_lower or "a40" in gpu_name_lower or "l40" in gpu_name_lower:
+            return 6
+        elif "4060" in gpu_name_lower or "3060" in gpu_name_lower:
+            return 3
+        elif self.self_info.has_gpu:
+            return 4  # Default for other GPUs
+        else:
+            return 2  # CPU-only nodes
+
     def _cleanup_stale_processes(self) -> int:
         """Kill processes that have been running too long.
 
@@ -19158,6 +19200,8 @@ print(json.dumps({{
         self.self_info.gpu_percent = usage["gpu_percent"]
         self.self_info.gpu_memory_percent = usage["gpu_memory_percent"]
         self.self_info.selfplay_jobs = selfplay
+        # Jan 2, 2026: Set max slots for slot-based work queue claiming
+        self.self_info.max_selfplay_slots = self._get_max_selfplay_slots_for_node()
         self.self_info.training_jobs = training
         self.self_info.role = self.role
         self.self_info.last_heartbeat = time.time()
@@ -19269,6 +19313,8 @@ print(json.dumps({{
         self.self_info.gpu_percent = usage["gpu_percent"]
         self.self_info.gpu_memory_percent = usage["gpu_memory_percent"]
         self.self_info.selfplay_jobs = selfplay
+        # Jan 2, 2026: Set max slots for slot-based work queue claiming
+        self.self_info.max_selfplay_slots = self._get_max_selfplay_slots_for_node()
         self.self_info.training_jobs = training
         self.self_info.role = self.role
         self.self_info.last_heartbeat = time.time()
