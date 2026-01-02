@@ -171,9 +171,12 @@ class ICEGatherer:
         return self._candidates
 
     async def _gather_host_candidates(self) -> None:
-        """Gather host candidates from local network interfaces."""
+        """Gather host candidates from local network interfaces (IPv4 and IPv6).
+
+        Jan 2026: Added IPv6 host candidate support for better connectivity.
+        """
         try:
-            # Get all local IP addresses
+            # Get all local IPv4 addresses
             hostname = socket.gethostname()
             addrs = socket.getaddrinfo(hostname, None, socket.AF_INET)
 
@@ -195,6 +198,30 @@ class ICEGatherer:
                         priority=priority,
                     )
                 )
+
+            # Also get IPv6 addresses (higher priority than IPv4)
+            try:
+                addrs_v6 = socket.getaddrinfo(hostname, None, socket.AF_INET6)
+                for addr in addrs_v6:
+                    ip = addr[4][0]
+                    # Skip loopback and link-local
+                    if ip.startswith("::1") or ip.startswith("fe80:"):
+                        continue
+
+                    # IPv6 host candidates get slightly higher priority
+                    priority = (127 << 24) + (65535 << 8) + 1
+
+                    self._candidates.append(
+                        ICECandidate(
+                            type=CandidateType.HOST,
+                            transport=TransportType.HTTP,
+                            address=ip,
+                            port=self._http_port,
+                            priority=priority,
+                        )
+                    )
+            except Exception:
+                pass  # IPv6 not available
 
             # Also try to get the default route IP
             try:
@@ -221,7 +248,44 @@ class ICEGatherer:
             logger.debug(f"Failed to gather host candidates: {e}")
 
     async def _gather_tailscale_candidates(self) -> None:
-        """Gather Tailscale mesh address if available."""
+        """Gather Tailscale mesh addresses (both IPv4 and IPv6) if available.
+
+        Jan 2026: Added IPv6 support. Tailscale IPv6 (fd7a:115c:a1e0::*) bypasses
+        NAT entirely and provides more reliable connectivity across cloud providers.
+        IPv6 is given higher priority since it avoids NAT traversal issues.
+        """
+        # Get IPv6 first (higher priority - bypasses NAT)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "tailscale", "ip", "-6",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+
+            if proc.returncode == 0:
+                tailscale_ipv6 = stdout.decode().strip().split("\n")[0]
+                if tailscale_ipv6 and ":" in tailscale_ipv6:
+                    # IPv6 gets highest priority for Tailscale (no NAT issues)
+                    priority = (115 << 24) + (65535 << 8) + 1
+
+                    self._candidates.append(
+                        ICECandidate(
+                            type=CandidateType.TAILSCALE,
+                            transport=TransportType.TAILSCALE,
+                            address=tailscale_ipv6,
+                            port=self._http_port,
+                            priority=priority,
+                        )
+                    )
+                    logger.debug(f"Added Tailscale IPv6 candidate: {tailscale_ipv6}")
+
+        except asyncio.TimeoutError:
+            logger.debug("Tailscale IPv6 candidate gathering timeout")
+        except Exception as e:
+            logger.debug(f"Failed to gather Tailscale IPv6 candidates: {e}")
+
+        # Also get IPv4 (fallback for compatibility)
         try:
             proc = await asyncio.create_subprocess_exec(
                 "tailscale", "ip", "-4",
@@ -233,7 +297,7 @@ class ICEGatherer:
             if proc.returncode == 0:
                 tailscale_ip = stdout.decode().strip().split("\n")[0]
                 if tailscale_ip:
-                    # Tailscale is very reliable but slightly higher latency
+                    # Tailscale IPv4 is reliable but slightly lower priority than IPv6
                     priority = (110 << 24) + (65535 << 8) + 1
 
                     self._candidates.append(
@@ -247,9 +311,9 @@ class ICEGatherer:
                     )
 
         except asyncio.TimeoutError:
-            logger.debug("Tailscale candidate gathering timeout")
+            logger.debug("Tailscale IPv4 candidate gathering timeout")
         except Exception as e:
-            logger.debug(f"Failed to gather Tailscale candidates: {e}")
+            logger.debug(f"Failed to gather Tailscale IPv4 candidates: {e}")
 
     async def _gather_stun_candidates(self) -> None:
         """Gather server-reflexive candidates via STUN."""

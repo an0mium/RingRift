@@ -223,15 +223,30 @@ class TailscaleHTTPTransport(BaseTransport):
         tailscale_ip = await self._get_tailscale_ip(target)
         return tailscale_ip is not None
 
-    async def _get_tailscale_ip(self, target: str) -> str | None:
-        """Get Tailscale IP for a target node."""
+    async def _get_tailscale_ip(self, target: str, prefer_ipv6: bool = True) -> str | None:
+        """Get Tailscale IP for a target node.
+
+        Jan 2026: Added IPv6 support. Prefers IPv6 (fd7a:...) as it bypasses NAT.
+
+        Args:
+            target: Target node ID or IP
+            prefer_ipv6: If True, prefer IPv6 over IPv4. Default True.
+
+        Returns:
+            Tailscale IP or None
+        """
         # Check cache first
         if target in self._tailscale_ips:
             return self._tailscale_ips[target]
 
-        # If target is already a Tailscale IP (100.x.x.x)
+        # If target is already a Tailscale IPv4 (100.x.x.x) or IPv6 (fd7a:...)
         if target.startswith("100."):
             return target.split(":")[0]  # Remove port if present
+        if target.startswith("fd7a:"):
+            # IPv6 - extract address without port (brackets notation)
+            if target.startswith("["):
+                return target.split("]")[0][1:]
+            return target.split("]:")[0] if "]:" in target else target
 
         # Try to get from tailscale status
         try:
@@ -250,8 +265,24 @@ class TailscaleHTTPTransport(BaseTransport):
                 if hostname == target or hostname.startswith(target):
                     ips = peer_info.get("TailscaleIPs", [])
                     if ips:
-                        self._tailscale_ips[target] = ips[0]
-                        return ips[0]
+                        # Prefer IPv6 if available and requested
+                        ipv4 = None
+                        ipv6 = None
+                        for ip in ips:
+                            if ":" in ip:
+                                ipv6 = ip
+                            else:
+                                ipv4 = ip
+
+                        if prefer_ipv6 and ipv6:
+                            self._tailscale_ips[target] = ipv6
+                            return ipv6
+                        elif ipv4:
+                            self._tailscale_ips[target] = ipv4
+                            return ipv4
+                        elif ips:
+                            self._tailscale_ips[target] = ips[0]
+                            return ips[0]
 
         except Exception as e:
             logger.debug(f"Failed to get Tailscale IP for {target}: {e}")

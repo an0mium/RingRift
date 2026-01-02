@@ -43,6 +43,10 @@ DEFAULT_PORT = P2P_DEFAULT_PORT
 # Helpers treat hosts in this range as "Tailscale endpoints".
 TAILSCALE_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
+# Jan 2026: Tailscale IPv6 network. All Tailscale nodes also get an IPv6 address
+# in the fd7a:115c:a1e0::/48 range. IPv6 bypasses NAT entirely for better connectivity.
+TAILSCALE_IPV6_NETWORK = ipaddress.ip_network("fd7a:115c:a1e0::/48")
+
 # Dec 2025 (Phase 2): Reduced from 30s to 15s for faster failure detection
 # Matches RELAY_HEARTBEAT_INTERVAL. 10s would match voters but may cause
 # false positives on congested networks.

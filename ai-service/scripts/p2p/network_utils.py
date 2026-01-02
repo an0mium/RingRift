@@ -27,7 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from .constants import DEFAULT_PORT, TAILSCALE_CGNAT_NETWORK
+from .constants import DEFAULT_PORT, TAILSCALE_CGNAT_NETWORK, TAILSCALE_IPV6_NETWORK
 
 if TYPE_CHECKING:
     from .models import NodeInfo
@@ -86,28 +86,45 @@ class NetworkUtils:
     def is_tailscale_host(host: str) -> bool:
         """Check if host is a Tailscale mesh endpoint.
 
+        Jan 2026: Added IPv6 support. Recognizes both IPv4 (100.x.x.x) and
+        IPv6 (fd7a:115c:a1e0::*) Tailscale addresses.
+
         Args:
             host: Hostname or IP address to check
 
         Returns:
-            True if host is a Tailscale endpoint (100.x.x.x or .ts.net)
+            True if host is a Tailscale endpoint (100.x.x.x, fd7a:..., or .ts.net)
         """
         h = (host or "").strip()
         if not h:
             return False
         if h.endswith(".ts.net"):
             return True
+
+        # Handle IPv6 with brackets (e.g., [fd7a:115c:a1e0::1]:8770)
+        if h.startswith("["):
+            h = h.split("]")[0][1:]
+
         try:
             ip = ipaddress.ip_address(h)
         except ValueError:
             return False
-        if not isinstance(ip, ipaddress.IPv4Address):
-            return False
-        return ip in TAILSCALE_CGNAT_NETWORK
+
+        # Check IPv4 CGNAT range (100.64.0.0/10)
+        if isinstance(ip, ipaddress.IPv4Address):
+            return ip in TAILSCALE_CGNAT_NETWORK
+
+        # Check IPv6 Tailscale range (fd7a:115c:a1e0::/48)
+        if isinstance(ip, ipaddress.IPv6Address):
+            return ip in TAILSCALE_IPV6_NETWORK
+
+        return False
 
     @staticmethod
     def build_url(scheme: str, host: str, port: int, path: str) -> str:
         """Build a URL from components.
+
+        Jan 2026: Added IPv6 support. IPv6 addresses are wrapped in brackets.
 
         Args:
             scheme: URL scheme (http/https)
@@ -118,6 +135,9 @@ class NetworkUtils:
         Returns:
             Formatted URL string
         """
+        # Wrap IPv6 addresses in brackets
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
         return f"{scheme}://{host}:{port}{path}"
 
     @staticmethod

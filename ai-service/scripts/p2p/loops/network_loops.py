@@ -1419,6 +1419,278 @@ class VoterHeartbeatLoop(BaseLoop):
         }
 
 
+@dataclass
+class TailscaleKeepaliveConfig:
+    """Configuration for Tailscale connection keepalive.
+
+    Userspace mode Tailscale (used in containers) has slower connection
+    establishment and more frequent DERP relay fallback. This loop keeps
+    connections warm by periodically pinging peers.
+    """
+
+    # How often to run the keepalive cycle (seconds)
+    interval_seconds: float = 60.0
+
+    # Ping timeout per peer (seconds)
+    ping_timeout_seconds: float = 5.0
+
+    # Max peers to ping per cycle (to avoid overload)
+    max_peers_per_cycle: int = 20
+
+    # How often to attempt direct connection if using DERP (seconds)
+    derp_recovery_interval_seconds: float = 300.0
+
+    # Enable aggressive mode for userspace/container nodes
+    userspace_aggressive_mode: bool = True
+
+    # For userspace mode: faster interval (seconds)
+    userspace_interval_seconds: float = 30.0
+
+
+class TailscaleKeepaliveLoop(BaseLoop):
+    """Background loop that keeps Tailscale connections warm.
+
+    Addresses userspace mode limitations:
+    1. Periodically pings peers to keep NAT mappings alive
+    2. Detects when connections fall back to DERP relay
+    3. Attempts to re-establish direct connections
+    4. More aggressive pinging for container nodes
+
+    Usage:
+        keepalive = TailscaleKeepaliveLoop(
+            get_peer_tailscale_ips=lambda: {"node1": "100.x.x.x", ...},
+            is_userspace_mode=lambda: True,  # For containers
+        )
+        await keepalive.run_forever()
+    """
+
+    def __init__(
+        self,
+        get_peer_tailscale_ips: Callable[[], dict[str, str]],
+        is_userspace_mode: Callable[[], bool] | None = None,
+        on_connection_quality_change: Callable[[str, str, bool], Coroutine[Any, Any, None]] | None = None,
+        config: TailscaleKeepaliveConfig | None = None,
+    ):
+        """Initialize keepalive loop.
+
+        Args:
+            get_peer_tailscale_ips: Returns dict of node_id -> tailscale_ip
+            is_userspace_mode: Returns True if running in userspace/container mode
+            on_connection_quality_change: Callback(node_id, ip, is_direct) when quality changes
+            config: Keepalive configuration
+        """
+        self.config = config or TailscaleKeepaliveConfig()
+
+        # Adjust interval for userspace mode
+        interval = self.config.interval_seconds
+        if is_userspace_mode and is_userspace_mode():
+            if self.config.userspace_aggressive_mode:
+                interval = self.config.userspace_interval_seconds
+
+        super().__init__(name="tailscale_keepalive", interval=interval)
+
+        self._get_peer_tailscale_ips = get_peer_tailscale_ips
+        self._is_userspace_mode = is_userspace_mode or (lambda: False)
+        self._on_connection_quality_change = on_connection_quality_change
+
+        # Connection quality tracking
+        self._connection_quality: dict[str, dict[str, Any]] = {}
+        # node_id -> {"is_direct": bool, "relay": str, "latency_ms": float, "last_check": float}
+
+        # Stats
+        self._pings_sent = 0
+        self._pings_succeeded = 0
+        self._direct_connections = 0
+        self._derp_connections = 0
+        self._derp_recovery_attempts = 0
+        self._derp_recoveries_succeeded = 0
+        self._last_derp_recovery: dict[str, float] = {}
+
+    async def _run_once(self) -> None:
+        """Run one keepalive cycle."""
+        peer_ips = self._get_peer_tailscale_ips()
+        if not peer_ips:
+            return
+
+        now = time.time()
+
+        # Sample peers if too many
+        peers_to_ping = list(peer_ips.items())
+        if len(peers_to_ping) > self.config.max_peers_per_cycle:
+            peers_to_ping = random.sample(peers_to_ping, self.config.max_peers_per_cycle)
+
+        # Ping each peer
+        for node_id, tailscale_ip in peers_to_ping:
+            if not tailscale_ip or tailscale_ip == "0.0.0.0":
+                continue
+
+            self._pings_sent += 1
+
+            try:
+                result = await self._ping_peer(tailscale_ip)
+                if result:
+                    self._pings_succeeded += 1
+                    await self._update_connection_quality(node_id, tailscale_ip, result, now)
+            except Exception as e:
+                logger.debug(f"[TailscaleKeepalive] Ping failed for {node_id}: {e}")
+
+        # Attempt DERP recovery for peers using relay
+        await self._attempt_derp_recoveries(now)
+
+    async def _ping_peer(self, tailscale_ip: str) -> dict[str, Any] | None:
+        """Ping a peer via Tailscale and return connection info.
+
+        Returns:
+            Dict with keys: is_direct, relay, latency_ms, or None if failed
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "tailscale", "ping", "-c", "1", "--timeout",
+                str(int(self.config.ping_timeout_seconds)), tailscale_ip,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self.config.ping_timeout_seconds + 2,
+            )
+
+            if proc.returncode != 0:
+                return None
+
+            output = stdout.decode("utf-8", errors="replace")
+
+            # Parse output: "pong from node (100.x.x.x) via DERP(xyz) in 50ms"
+            # or: "pong from node (100.x.x.x) via 1.2.3.4:41641 in 10ms"
+            is_direct = "via DERP" not in output
+
+            relay = None
+            if "via DERP" in output:
+                # Extract relay name
+                import re
+                match = re.search(r"via DERP\(([^)]+)\)", output)
+                if match:
+                    relay = match.group(1)
+
+            latency_ms = 0.0
+            if " in " in output:
+                import re
+                match = re.search(r"in (\d+(?:\.\d+)?)(ms|s)", output)
+                if match:
+                    latency = float(match.group(1))
+                    unit = match.group(2)
+                    latency_ms = latency if unit == "ms" else latency * 1000
+
+            return {
+                "is_direct": is_direct,
+                "relay": relay,
+                "latency_ms": latency_ms,
+            }
+
+        except asyncio.TimeoutError:
+            return None
+        except FileNotFoundError:
+            # Tailscale CLI not available
+            return None
+        except Exception as e:
+            logger.debug(f"[TailscaleKeepalive] Ping error: {e}")
+            return None
+
+    async def _update_connection_quality(
+        self,
+        node_id: str,
+        tailscale_ip: str,
+        result: dict[str, Any],
+        now: float,
+    ) -> None:
+        """Update connection quality tracking and emit events if changed."""
+        old_quality = self._connection_quality.get(node_id, {})
+        was_direct = old_quality.get("is_direct", True)  # Assume direct if unknown
+
+        is_direct = result["is_direct"]
+
+        self._connection_quality[node_id] = {
+            "tailscale_ip": tailscale_ip,
+            "is_direct": is_direct,
+            "relay": result.get("relay"),
+            "latency_ms": result.get("latency_ms", 0),
+            "last_check": now,
+        }
+
+        # Update stats
+        if is_direct:
+            self._direct_connections += 1
+        else:
+            self._derp_connections += 1
+
+        # Notify if quality changed
+        if was_direct != is_direct and self._on_connection_quality_change:
+            try:
+                await self._on_connection_quality_change(node_id, tailscale_ip, is_direct)
+            except Exception as e:
+                logger.warning(f"[TailscaleKeepalive] Quality change callback failed: {e}")
+
+    async def _attempt_derp_recoveries(self, now: float) -> None:
+        """Attempt to recover direct connections for peers using DERP relay."""
+        for node_id, quality in self._connection_quality.items():
+            if quality.get("is_direct", True):
+                continue
+
+            tailscale_ip = quality.get("tailscale_ip")
+            if not tailscale_ip:
+                continue
+
+            # Check cooldown
+            last_attempt = self._last_derp_recovery.get(node_id, 0)
+            if now - last_attempt < self.config.derp_recovery_interval_seconds:
+                continue
+
+            self._derp_recovery_attempts += 1
+            self._last_derp_recovery[node_id] = now
+
+            # Try to force direct connection by sending multiple pings
+            # This helps NAT hole-punching
+            logger.debug(f"[TailscaleKeepalive] Attempting DERP recovery for {node_id}")
+
+            for _ in range(3):
+                result = await self._ping_peer(tailscale_ip)
+                if result and result.get("is_direct"):
+                    self._derp_recoveries_succeeded += 1
+                    logger.info(f"[TailscaleKeepalive] Recovered direct connection to {node_id}")
+                    await self._update_connection_quality(node_id, tailscale_ip, result, now)
+                    break
+                await asyncio.sleep(0.5)
+
+    def get_keepalive_stats(self) -> dict[str, Any]:
+        """Get keepalive statistics."""
+        total_pings = self._pings_sent
+        return {
+            "pings_sent": self._pings_sent,
+            "pings_succeeded": self._pings_succeeded,
+            "success_rate": (
+                self._pings_succeeded / total_pings * 100
+                if total_pings > 0
+                else 0.0
+            ),
+            "direct_connections": self._direct_connections,
+            "derp_connections": self._derp_connections,
+            "direct_ratio": (
+                self._direct_connections / (self._direct_connections + self._derp_connections) * 100
+                if (self._direct_connections + self._derp_connections) > 0
+                else 0.0
+            ),
+            "derp_recovery_attempts": self._derp_recovery_attempts,
+            "derp_recoveries_succeeded": self._derp_recoveries_succeeded,
+            "is_userspace_mode": self._is_userspace_mode(),
+            "peers_tracked": len(self._connection_quality),
+            **self.stats.to_dict(),
+        }
+
+    def get_connection_quality(self) -> dict[str, dict[str, Any]]:
+        """Get current connection quality for all tracked peers."""
+        return dict(self._connection_quality)
+
+
 __all__ = [
     # IP Discovery
     "IpDiscoveryConfig",
@@ -1442,4 +1714,7 @@ __all__ = [
     "HeartbeatLoop",
     "VoterHeartbeatConfig",
     "VoterHeartbeatLoop",
+    # Tailscale Keepalive (January 2026)
+    "TailscaleKeepaliveConfig",
+    "TailscaleKeepaliveLoop",
 ]

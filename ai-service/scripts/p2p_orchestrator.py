@@ -2814,6 +2814,55 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"TailscaleRecoveryLoop: not available: {e}")
 
+            # TailscaleKeepaliveLoop - January 2026
+            # Keeps connections warm, especially for userspace/container nodes
+            try:
+                from scripts.p2p.loops import TailscaleKeepaliveLoop, TailscaleKeepaliveConfig
+
+                def _get_peer_tailscale_ips_for_keepalive() -> dict[str, str]:
+                    """Get Tailscale IPs for all peers."""
+                    result = {}
+                    with self.peers_lock:
+                        for p in self.peers.values():
+                            ts_ip = getattr(p, "tailscale_ip", None)
+                            if ts_ip and ts_ip != "0.0.0.0":
+                                result[p.node_id] = ts_ip
+                    return result
+
+                def _is_userspace_mode() -> bool:
+                    """Check if running in userspace/container mode."""
+                    # Container nodes typically don't have /dev/net/tun
+                    try:
+                        return not os.path.exists("/dev/net/tun")
+                    except OSError:
+                        return True  # Assume userspace if we can't check
+
+                async def _on_connection_quality_change(node_id: str, ip: str, is_direct: bool) -> None:
+                    """Log connection quality changes."""
+                    conn_type = "direct" if is_direct else "DERP relay"
+                    logger.info(f"[TailscaleKeepalive] {node_id} ({ip}): now using {conn_type}")
+
+                keepalive_config = TailscaleKeepaliveConfig(
+                    interval_seconds=60.0,  # Normal mode: ping every 60s
+                    userspace_interval_seconds=30.0,  # Container mode: every 30s
+                    derp_recovery_interval_seconds=180.0,  # Try to escape DERP every 3 min
+                )
+
+                tailscale_keepalive = TailscaleKeepaliveLoop(
+                    get_peer_tailscale_ips=_get_peer_tailscale_ips_for_keepalive,
+                    is_userspace_mode=_is_userspace_mode,
+                    on_connection_quality_change=_on_connection_quality_change,
+                    config=keepalive_config,
+                )
+                manager.register(tailscale_keepalive)
+                is_userspace = _is_userspace_mode()
+                logger.info(
+                    f"[P2P] TailscaleKeepaliveLoop registered "
+                    f"(userspace_mode={is_userspace}, interval={keepalive_config.userspace_interval_seconds if is_userspace else keepalive_config.interval_seconds}s)"
+                )
+            except (ImportError, TypeError) as e:
+                logger.debug(f"TailscaleKeepaliveLoop: not available: {e}")
+
             # UdpDiscoveryLoop - December 28, 2025
             # LAN peer discovery via UDP broadcast (useful for network partition recovery)
             try:

@@ -170,11 +170,77 @@ class ResourceDetector:
         except OSError:
             return "127.0.0.1"
 
-    def get_tailscale_ip(self) -> str:
-        """Return this node's Tailscale IPv4 (100.x) when available.
+    def get_tailscale_ip(self, prefer_ipv6: bool = True) -> str:
+        """Return this node's Tailscale IP address.
+
+        Jan 2026: Added IPv6 support. Tailscale IPv6 (fd7a:115c:a1e0::*) bypasses
+        NAT traversal issues and provides more reliable connectivity.
+
+        Args:
+            prefer_ipv6: If True, return IPv6 when available. Default True.
 
         Returns:
             Tailscale IP if available, else empty string
+        """
+        ipv4 = ""
+        ipv6 = ""
+
+        # Get IPv4
+        try:
+            result = subprocess.run(
+                ["tailscale", "ip", "-4"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                ipv4 = (result.stdout or "").strip().splitlines()[0].strip()
+        except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+            pass
+
+        # Get IPv6
+        try:
+            result = subprocess.run(
+                ["tailscale", "ip", "-6"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                ipv6 = (result.stdout or "").strip().splitlines()[0].strip()
+        except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+            pass
+
+        # Return based on preference
+        if prefer_ipv6 and ipv6:
+            return ipv6
+        return ipv4 or ipv6 or ""
+
+    def get_tailscale_ipv6(self) -> str:
+        """Return this node's Tailscale IPv6 (fd7a:...) when available.
+
+        Returns:
+            Tailscale IPv6 if available, else empty string
+        """
+        try:
+            result = subprocess.run(
+                ["tailscale", "ip", "-6"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                return ""
+            ip = (result.stdout or "").strip().splitlines()[0].strip()
+            return ip if ":" in ip else ""
+        except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+            return ""
+
+    def get_tailscale_ipv4(self) -> str:
+        """Return this node's Tailscale IPv4 (100.x) when available.
+
+        Returns:
+            Tailscale IPv4 if available, else empty string
         """
         try:
             result = subprocess.run(
@@ -187,16 +253,7 @@ class ResourceDetector:
                 return ""
             ip = (result.stdout or "").strip().splitlines()[0].strip()
             return ip
-        except FileNotFoundError:
-            return ""
-        except (
-            subprocess.SubprocessError,
-            subprocess.TimeoutExpired,
-            OSError,
-            KeyError,
-            IndexError,
-            AttributeError,
-        ):
+        except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
             return ""
 
     def is_in_startup_grace_period(self) -> bool:
