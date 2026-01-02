@@ -20476,12 +20476,14 @@ print(json.dumps({{
                         # Emit CLUSTER_CAPACITY_CHANGED (Dec 2025 - enables SyncRouter reaction)
                         alive_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
                         gpu_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
+                        training_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "training_enabled", False))
                         asyncio.create_task(self._emit_cluster_capacity_changed(
-                            change_type="node_removed",
-                            node_id=node_id,
-                            total_nodes=alive_count,
+                            total_nodes=len(self.peers),
+                            alive_nodes=alive_count,
                             gpu_nodes=gpu_count,
-                            reason="peer_timeout",
+                            training_nodes=training_count,
+                            change_type="node_removed",
+                            change_details={"node_id": node_id, "reason": "peer_timeout"},
                         ))
                 elif info.is_alive() and getattr(info, "retired", False):
                     # Peer came back: clear retirement.
@@ -20495,12 +20497,14 @@ print(json.dumps({{
                     # Emit CLUSTER_CAPACITY_CHANGED (Dec 2025 - enables SyncRouter reaction)
                     alive_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
                     gpu_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
+                    training_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "training_enabled", False))
                     asyncio.create_task(self._emit_cluster_capacity_changed(
-                        change_type="node_added",
-                        node_id=node_id,
-                        total_nodes=alive_count,
+                        total_nodes=len(self.peers),
+                        alive_nodes=alive_count,
                         gpu_nodes=gpu_count,
-                        reason="peer_recovered",
+                        training_nodes=training_count,
+                        change_type="node_added",
+                        change_details={"node_id": node_id, "reason": "peer_recovered"},
                     ))
                     logger.info(f"Peer {node_id} recovered from retirement")
 
@@ -20689,12 +20693,18 @@ print(json.dumps({{
                                     if p.is_alive() and not getattr(p, "retired", False)
                                     and getattr(p, "gpu_type", None)
                                 )
+                                training_count = sum(
+                                    1 for p in self.peers.values()
+                                    if p.is_alive() and not getattr(p, "retired", False)
+                                    and getattr(p, "training_enabled", False)
+                                )
                             asyncio.create_task(self._emit_cluster_capacity_changed(
-                                change_type="node_added",
-                                node_id=peer.node_id,
-                                total_nodes=alive_count,
+                                total_nodes=len(self.peers),
+                                alive_nodes=alive_count,
                                 gpu_nodes=gpu_count,
-                                reason="peer_recovered_via_probe",
+                                training_nodes=training_count,
+                                change_type="node_added",
+                                change_details={"node_id": peer.node_id, "reason": "peer_recovered_via_probe"},
                             ))
 
             except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
