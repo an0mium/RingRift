@@ -231,15 +231,46 @@ class EloSyncManager(DatabaseSyncManager):
 
         After merging match_history, recalculates all elo_ratings from scratch
         to ensure win/loss conservation invariant is maintained.
+
+        Jan 2, 2026: Wrapped blocking SQLite operations with asyncio.to_thread()
+        to avoid blocking the event loop.
         """
         if not remote_db_path.exists():
             return False
 
         try:
-            # Open both databases
-            local_conn = sqlite3.connect(self.db_path)
-            remote_conn = sqlite3.connect(remote_db_path)
+            # Run blocking SQLite operations in thread pool
+            inserted = await asyncio.to_thread(
+                self._merge_databases_sync, remote_db_path
+            )
 
+            if inserted > 0:
+                logger.info(f"Merged {inserted} new matches from remote")
+                self._elo_state.merge_conflicts += inserted
+            else:
+                logger.debug("No new matches to merge")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Database merge failed: {e}")
+            remote_db_path.unlink(missing_ok=True)
+            return False
+
+    def _merge_databases_sync(self, remote_db_path: Path) -> int:
+        """Synchronous helper for database merge operations.
+
+        Jan 2, 2026: Extracted from async _merge_databases to avoid blocking
+        the event loop with SQLite operations.
+
+        Returns:
+            Number of new matches inserted.
+        """
+        # Open both databases
+        local_conn = sqlite3.connect(self.db_path)
+        remote_conn = sqlite3.connect(remote_db_path)
+
+        try:
             local_cur = local_conn.cursor()
             remote_cur = remote_conn.cursor()
 
@@ -288,21 +319,17 @@ class EloSyncManager(DatabaseSyncManager):
             # Cleanup temp file
             remote_db_path.unlink(missing_ok=True)
 
+            # Recalculate ratings if we inserted new matches
             if inserted > 0:
-                logger.info(f"Merged {inserted} new matches from remote")
-                self._elo_state.merge_conflicts += inserted
-                # Recalculate ratings from merged match history
-                await self._recalculate_ratings_from_history(local_conn)
-            else:
-                logger.debug("No new matches to merge")
+                self._recalculate_ratings_from_history_sync(local_conn)
 
             local_conn.close()
-            return True
+            return inserted
 
-        except Exception as e:
-            logger.error(f"Database merge failed: {e}")
-            remote_db_path.unlink(missing_ok=True)
-            return False
+        except Exception:
+            local_conn.close()
+            remote_conn.close()
+            raise
 
     # =========================================================================
     # Elo-specific methods
@@ -497,9 +524,12 @@ class EloSyncManager(DatabaseSyncManager):
 
         return False
 
-    async def _recalculate_ratings_from_history(self, conn: sqlite3.Connection) -> None:
+    def _recalculate_ratings_from_history_sync(self, conn: sqlite3.Connection) -> None:
         """
-        Recalculate all ELO ratings from match history.
+        Recalculate all ELO ratings from match history (sync version).
+
+        Jan 2, 2026: Renamed from async _recalculate_ratings_from_history to
+        sync _recalculate_ratings_from_history_sync for use within asyncio.to_thread().
 
         This ensures win/loss conservation after merging databases.
         Replays all matches chronologically to rebuild accurate ratings.

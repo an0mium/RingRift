@@ -799,22 +799,11 @@ except (ImportError, AttributeError):
 # Modular Training Components (December 2025)
 # =============================================================================
 # Extracted from monolithic train.py for better maintainability:
-# - training_config_resolver: Parameter resolution and validation
 # - model_factory: Neural network model creation
 # - data_loader_factory: Data loader creation and configuration
 # - train_setup: Fault tolerance and device setup
-
-try:
-    from app.training.training_config_resolver import (
-        ResolvedTrainingParams,
-        get_board_size,
-        get_effective_architecture,
-        resolve_training_params,
-        validate_model_id_for_board,
-    )
-    HAS_CONFIG_RESOLVER = True
-except ImportError:
-    HAS_CONFIG_RESOLVER = False
+# NOTE: training_config_resolver.py was removed Jan 2026 (unused, superseded by
+# train_config_resolver.py which is used by train_components.py)
 
 try:
     from app.training.model_factory import (
