@@ -116,19 +116,18 @@ class RemoteP2PRecoveryStats:
     nodes_verification_failed: int = 0  # Started but didn't appear in mesh
     nodes_skipped_unreachable: int = 0  # Nodes skipped due to failed pre-flight check
     last_recovery_time: float = 0.0
-    cycles_run: int = 0
+    # Jan 1, 2026: Changed from cycles_run to total_runs to match LoopStats interface
+    # This is required because base.py does self._stats.total_runs += 1
+    total_runs: int = 0
     nodes_skipped_cooldown: int = 0
     ssh_key_missing: bool = False  # SSH key validation failed
     consecutive_errors: int = 0  # Required by LoopManager.get_status()
     successful_runs: int = 0  # Required by LoopManager.get_status()
 
     @property
-    def total_runs(self) -> int:
-        """Alias for cycles_run to match LoopStats interface.
-
-        Required by LoopManager.start_all() which checks _stats.total_runs.
-        """
-        return self.cycles_run
+    def cycles_run(self) -> int:
+        """Alias for total_runs for backward compatibility."""
+        return self.total_runs
 
     @property
     def success_rate(self) -> float:
@@ -158,8 +157,8 @@ class RemoteP2PRecoveryStats:
             "nodes_verification_failed": self.nodes_verification_failed,
             "nodes_skipped_unreachable": self.nodes_skipped_unreachable,
             "last_recovery_time": self.last_recovery_time,
-            "cycles_run": self.cycles_run,
-            "total_runs": self.cycles_run,  # Include for consistency
+            "cycles_run": self.cycles_run,  # Property alias for backward compat
+            "total_runs": self.total_runs,  # Canonical field
             "successful_runs": self.successful_runs,
             "failed_runs": self.failed_runs,  # Computed property
             "nodes_skipped_cooldown": self.nodes_skipped_cooldown,
@@ -329,7 +328,8 @@ class RemoteP2PRecoveryLoop(BaseLoop):
             return
 
         now = time.time()
-        self._stats.cycles_run += 1
+        # Jan 1, 2026: Removed self._stats.cycles_run += 1 as base class handles
+        # total_runs incrementing in run_forever() at lines 256 and 281
 
         # Get current alive peers
         alive_peer_ids = set(self._get_alive_peer_ids())
