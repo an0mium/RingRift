@@ -65,6 +65,14 @@ python scripts/update_all_nodes.py --restart-p2p
 | `app/config/coordination_defaults.py` | Centralized timeouts, thresholds, priority weights             |
 | `app/config/thresholds.py`            | Centralized quality/training/budget thresholds (canonical)     |
 
+**ClusterConfigCache** (singleton in `cluster_config.py`):
+
+- Thread-safe caching with mtime-based auto-refresh
+- `get_config_cache()` - Get singleton instance
+- `get_config(force_reload=False)` - Get config with auto-refresh
+- `get_config_version()` - Get ConfigVersion for gossip state sync
+- Avoids repeated YAML parsing across modules
+
 ### Coordination Infrastructure (260 modules)
 
 | Module                                 | Purpose                                           |
@@ -452,7 +460,17 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 | `SyncMixinBase`        | `sync_mixin_base.py`            | AutoSyncDaemon mixins (380 LOC, retry/logging) |
 | `P2PMixinBase`         | `scripts/p2p/p2p_mixin_base.py` | P2P mixin utilities (995 LOC)                  |
 | `SingletonMixin`       | `singleton_mixin.py`            | Singleton pattern (503 LOC)                    |
-| `CircuitBreakerConfig` | `transport_base.py`             | Circuit breaker configuration (canonical)      |
+| `CircuitBreakerConfig` | `transport_base.py`             | Circuit breaker configuration (transport ops)  |
+
+**Circuit Breaker Implementations** (multiple concerns):
+| Class | Location | Purpose |
+| ----- | -------- | ------- |
+| `CircuitBreakerConfig` | `transport_base.py` | Transport failover (SSH, HTTP, rsync) |
+| `CircuitBreaker` | `circuit_breaker.py` | Per-operation circuit breaker registry |
+| `NodeCircuitBreaker` | `node_circuit_breaker.py` | Per-node health isolation (466 LOC) |
+| `DaemonStatusCircuitBreaker` | `daemon_manager.py` | Daemon health tracking |
+| `PipelineCircuitBreaker` | `data_pipeline_orchestrator.py` | Pipeline stage protection |
+| Per-transport CB | `cluster_transport.py` | Per-(node, transport) failover (Jan 2026) |
 
 ## Daemon System
 
@@ -556,8 +574,13 @@ Selfplay → NEW_GAMES_AVAILABLE → DataPipeline → TRAINING_THRESHOLD_REACHED
 - `docs/architecture/EVENT_FLOW_INTEGRATION.md` - Event flow diagrams and integration patterns
 
 ```python
-from app.coordination.event_emitters import emit_training_complete
-emit_training_complete(config_key="hex8_2p", model_path="models/canonical_hex8_2p.pth")
+# Canonical: Use event_router directly
+from app.coordination.event_router import emit_event
+from app.coordination.data_events import DataEventType
+emit_event(DataEventType.TRAINING_COMPLETED, {"config_key": "hex8_2p", "model_path": "models/canonical_hex8_2p.pth"})
+
+# Deprecated (Q2 2026 removal): event_emitters module
+# from app.coordination.event_emitters import emit_training_complete  # DEPRECATED
 ```
 
 **Subscription Timing Requirement:**
@@ -871,6 +894,11 @@ All training loop feedback mechanisms are fully implemented:
 Expected Elo improvement: **+28-45 Elo** across all configs from these feedback loops.
 
 ## Infrastructure Verification (Dec 30, 2025)
+
+> **⚠️ WARNING FOR FUTURE AGENTS**: Exploration agents may report stale findings about the codebase.
+> Before implementing suggested "improvements", VERIFY current state using `grep` and code inspection.
+> Most consolidation targets (HealthCheckMixin, event helpers, config caching, circuit breakers) are
+> ALREADY IMPLEMENTED. The plan at `~/.claude/plans/*.md` may contain outdated information.
 
 Comprehensive exploration verified the following are ALREADY COMPLETE:
 
