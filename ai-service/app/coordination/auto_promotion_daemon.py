@@ -880,18 +880,34 @@ class AutoPromotionDaemon:
         logger.info(f"[AutoPromotion] Promoting {config_key} ({model_path})")
 
         try:
-            # Import promotion controller
-            from app.training.promotion_controller import PromotionController
+            # Import promotion controller and decision types
+            # Jan 3, 2026: Fixed API - execute_promotion() requires PromotionDecision
+            from pathlib import Path as PathLib
+            from app.training.promotion_controller import (
+                PromotionController,
+                PromotionDecision,
+                PromotionType,
+            )
 
             controller = PromotionController()
-            success = await controller.promote_model(
-                config_key=config_key,
-                model_path=model_path,
+
+            # Create PromotionDecision with evaluation data
+            model_stem = PathLib(model_path).stem if model_path else "unknown"
+            decision = PromotionDecision(
+                model_id=f"{config_key}_{model_stem}",
+                promotion_type=PromotionType.ELO_IMPROVEMENT,
+                should_promote=True,
                 reason="auto_promotion_passed_evaluation",
-                evaluation_results={
-                    "vs_random": candidate.evaluation_results.get("RANDOM", 0.0),
-                    "vs_heuristic": candidate.evaluation_results.get("HEURISTIC", 0.0),
-                },
+                win_rate=candidate.evaluation_results.get("HEURISTIC", 0.0),
+                current_elo=candidate.estimated_elo,
+                games_played=sum(candidate.evaluation_games.values()),
+            )
+
+            # Note: execute_promotion is sync, run in thread to avoid blocking
+            success = await asyncio.to_thread(
+                controller.execute_promotion,
+                decision,
+                self.config.dry_run,
             )
 
             if success:

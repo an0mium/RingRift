@@ -3953,6 +3953,21 @@ class P2POrchestrator(
                     # Trigger selfplay allocation refresh
                     if hasattr(self, "selfplay_scheduler"):
                         self.selfplay_scheduler.on_training_complete(config_key)
+
+                    # Jan 3, 2026: Bridge to coordination event bus for EvaluationDaemon
+                    # This enables the Training → Evaluation → Promotion pipeline
+                    try:
+                        from app.coordination.event_router import emit_event
+                        from app.coordination.data_events import DataEventType
+                        emit_event(DataEventType.TRAINING_COMPLETED, {
+                            "config_key": config_key,
+                            "model_path": model_path,
+                            "final_loss": final_loss,
+                            "source": "p2p_bridge",
+                        })
+                        logger.debug(f"[P2P] Bridged TRAINING_COMPLETED to coordination bus")
+                    except Exception as bridge_err:  # noqa: BLE001
+                        logger.debug(f"Could not bridge TRAINING_COMPLETED: {bridge_err}")
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"Error handling training completed event: {e}")
 

@@ -1143,6 +1143,8 @@ class MasterLoopController:
             # Dec 30 2025: Removed deprecated CLUSTER_DATA_SYNC (use AUTO_SYNC with broadcast strategy)
             DaemonType.AUTO_SYNC,
             DaemonType.ELO_SYNC,
+            # Jan 3, 2026: ELO_PROGRESS snapshots Elo periodically for trend tracking
+            DaemonType.ELO_PROGRESS,
         ]
 
         standard = minimal + [
@@ -1251,9 +1253,8 @@ class MasterLoopController:
                 DaemonType.TRAINING_TRIGGER,        # triggers training jobs
                 DaemonType.NNUE_TRAINING,           # dispatches NNUE training to cluster
                 DaemonType.TOURNAMENT_DAEMON,       # runs tournaments
-                DaemonType.EVALUATION,              # runs gauntlets
-                # Jan 2026: AUTO_PROMOTION moved to coordinator - it only subscribes to
-                # EVALUATION_COMPLETED events and promotes models. No CPU/GPU work.
+                # Jan 3, 2026: EVALUATION moved to coordinator - dispatches gauntlet runs
+                # to cluster nodes via P2P, doesn't run locally. Similar to AUTO_PROMOTION.
                 DaemonType.QUEUE_POPULATOR,         # can spawn selfplay
                 DaemonType.UTILIZATION_OPTIMIZER,   # spawns processes on idle GPUs
             }
