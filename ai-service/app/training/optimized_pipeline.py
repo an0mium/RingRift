@@ -102,7 +102,8 @@ except ImportError:
 
 try:
     from app.config.coordination_defaults import LockDefaults
-    from app.coordination.distributed_lock import DistributedLock
+    # January 2026: Use core_utils consolidation point
+    from app.coordination.core_utils import DistributedLock
     HAS_DISTRIBUTED_LOCK = True
 except ImportError:
     HAS_DISTRIBUTED_LOCK = False

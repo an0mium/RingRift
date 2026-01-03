@@ -1,5 +1,17 @@
 """Distributed Locking for Training Coordination.
 
+.. deprecated:: January 2026
+    Import from `app.coordination.core_utils` instead of this module directly.
+    This module remains the implementation, but `core_utils` is the consolidation point.
+
+    Old::
+
+        from app.coordination.distributed_lock import DistributedLock
+
+    New::
+
+        from app.coordination.core_utils import DistributedLock
+
 Provides reliable distributed locks for coordinating training across
 multiple nodes. Priority order for backends:
 

@@ -62,7 +62,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.coordination.distributed_lock import DistributedLock
+# January 2026: Use core_utils consolidation point
+from app.coordination.core_utils import DistributedLock
 from app.coordination.event_handler_utils import extract_config_from_path, extract_config_key
 from app.coordination.event_utils import parse_config_key
 from app.utils.paths import DATA_DIR

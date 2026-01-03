@@ -35,7 +35,8 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 
-from app.coordination.distributed_lock import (
+# January 2026: Use core_utils consolidation point
+from app.coordination.core_utils import (
     DEFAULT_ACQUIRE_TIMEOUT,
     DEFAULT_LOCK_TIMEOUT,
     DistributedLock,

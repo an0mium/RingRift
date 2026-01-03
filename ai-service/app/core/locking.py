@@ -526,7 +526,8 @@ class LockFactory:
 
         if lock_type == LockType.DISTRIBUTED:
             try:
-                from app.coordination.distributed_lock import DistributedLock
+                # January 2026: Use core_utils consolidation point
+                from app.coordination.core_utils import DistributedLock
                 return DistributedLock(name, lock_timeout=timeout)
             except ImportError:
                 logger.warning("DistributedLock not available, using local lock")
