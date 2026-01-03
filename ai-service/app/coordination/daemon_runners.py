@@ -961,7 +961,9 @@ async def create_owc_import() -> None:
     """Create and run OWC import daemon (December 29, 2025).
 
     Periodically imports training data from OWC external drive on mac-studio
-    for underserved configs (those with <500 games in canonical databases).
+    for underserved configs (those with <100,000 games in canonical databases).
+    January 2026: Threshold increased from 500 to 100,000 to enable comprehensive
+    import from OWC drive (8.5M games available).
 
     Features:
     - SSH-based discovery of databases on OWC drive
@@ -974,6 +976,7 @@ async def create_owc_import() -> None:
     - OWC_HOST: Remote host with OWC drive (default: mac-studio)
     - OWC_BASE_PATH: Base path on OWC drive (default: /Volumes/RingRift-Data)
     - OWC_SSH_KEY: SSH key for connection (default: ~/.ssh/id_ed25519)
+    - RINGRIFT_OWC_UNDERSERVED_THRESHOLD: Threshold for import (default: 100000)
     """
     try:
         from app.coordination.owc_import_daemon import (

@@ -261,9 +261,19 @@ class ConsolidationEligibilityManager:
         # Get node config
         host_config = self._host_configs.get(node_id)
         if host_config is None:
+            # January 2026: Allow consolidation for nodes not in config if they have local data.
+            # This enables consolidation on local development machines and any node with
+            # game data in data/games/ that needs to be merged into canonical DBs.
+            # The node may have received data via OWC import, P2P sync, or local selfplay.
+            if self._has_local_game_data():
+                return EligibilityResult(
+                    is_eligible=True,
+                    reason="Node not in config but has local game data",
+                    disk_free_gb=self._get_local_disk_free_gb_unsafe(),
+                )
             return EligibilityResult(
                 is_eligible=False,
-                reason="Node not found in configuration",
+                reason="Node not found in configuration and no local game data",
             )
 
         # Check node status
@@ -336,6 +346,65 @@ class ConsolidationEligibilityManager:
         except OSError:
             # Disk access error (permission, path not found, etc.)
             return None
+
+    def _get_local_disk_free_gb_unsafe(self) -> float | None:
+        """Get disk free space for the current node (no node_id validation).
+
+        Used when checking eligibility for nodes not in configuration.
+
+        Returns:
+            Free disk space in GB, or None on error
+        """
+        try:
+            disk_usage = shutil.disk_usage(self.root_path)
+            return disk_usage.free / (1024**3)
+        except OSError:
+            return None
+
+    def _has_local_game_data(self) -> bool:
+        """Check if this node has local game data that could be consolidated.
+
+        Scans common source directories for non-canonical game databases.
+        Returns True if any source databases exist with games.
+
+        January 2026: Used to allow consolidation on nodes not in config.
+
+        Returns:
+            True if local game data exists
+        """
+        data_dir = self.root_path / "data" / "games"
+        search_dirs = [
+            data_dir,
+            data_dir / "owc_imports",
+            data_dir / "synced",
+            data_dir / "selfplay",
+            data_dir / "p2p_gpu",
+        ]
+
+        for search_dir in search_dirs:
+            if not search_dir.exists():
+                continue
+
+            # Look for any .db files that aren't canonical databases
+            for db_path in search_dir.glob("**/*.db"):
+                if "canonical" in db_path.name.lower():
+                    continue
+
+                # Quick check: does it have any games?
+                try:
+                    conn = sqlite3.connect(str(db_path), timeout=2)
+                    cursor = conn.execute("SELECT 1 FROM games LIMIT 1")
+                    has_games = cursor.fetchone() is not None
+                    conn.close()
+                    if has_games:
+                        logger.debug(
+                            f"[ConsolidationEligibility] Found local game data in {db_path}"
+                        )
+                        return True
+                except (sqlite3.Error, OSError):
+                    continue
+
+        return False
 
     def get_best_consolidation_node(
         self,

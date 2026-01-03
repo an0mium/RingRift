@@ -22,6 +22,8 @@ Environment Variables:
     RINGRIFT_OWC_IMPORT_ENABLED: Enable/disable daemon (default: true)
     RINGRIFT_OWC_IMPORT_INTERVAL: Check interval in seconds (default: 3600)
     RINGRIFT_OWC_IMPORT_MIN_GAMES: Minimum games to trigger import (default: 50)
+    RINGRIFT_OWC_UNDERSERVED_THRESHOLD: Local game count below which to import (default: 100000)
+        Jan 2026: Increased from 500 to enable comprehensive import from OWC drive
 
 December 2025: Created as part of the training data pipeline infrastructure.
 """
@@ -95,7 +97,10 @@ OWC_BASE_PATH = os.getenv("OWC_BASE_PATH", "/Volumes/RingRift-Data")
 OWC_SSH_KEY = os.getenv("OWC_SSH_KEY", os.path.expanduser("~/.ssh/id_ed25519"))
 
 # Critical configs that need more data
-UNDERSERVED_THRESHOLD = 500  # Configs with fewer than this are underserved
+# January 2026: Increased from 500 to 100,000 to enable comprehensive data import
+# from OWC. With 8.5M games on OWC and only 84K locally, 500 was far too low.
+# Set via RINGRIFT_OWC_UNDERSERVED_THRESHOLD env var if needed.
+UNDERSERVED_THRESHOLD = int(os.getenv("RINGRIFT_OWC_UNDERSERVED_THRESHOLD", "100000"))
 
 # Known good OWC database paths
 OWC_SOURCE_DATABASES = [

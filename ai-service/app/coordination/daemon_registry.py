@@ -553,6 +553,16 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         category="sync",
         health_check_interval=300.0,  # 5 minutes (matches sync cycle)
     ),
+    # Comprehensive Consolidation (January 2026) - Scheduled full sweep
+    # Scans ALL databases (local, OWC, S3, P2P) and consolidates into canonical DBs
+    # Unlike event-driven consolidation, runs on schedule to catch missed data
+    DaemonType.COMPREHENSIVE_CONSOLIDATION: DaemonSpec(
+        runner_name="create_comprehensive_consolidation",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE),
+        soft_depends_on=(DaemonType.OWC_IMPORT, DaemonType.S3_BACKUP),
+        category="pipeline",
+        health_check_interval=1800.0,  # 30 minutes (matches consolidation cycle)
+    ),
     # NPZ Combination (December 2025) - quality-weighted NPZ combination
     DaemonType.NPZ_COMBINATION: DaemonSpec(
         runner_name="create_npz_combination",
