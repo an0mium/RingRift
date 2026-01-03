@@ -110,7 +110,7 @@ class S3PushDaemon(HandlerBase):
         self.config = config or S3PushConfig()
         super().__init__(name="s3_push", cycle_interval=self.config.push_interval)
 
-        self.stats = S3PushStats()
+        self._push_stats = S3PushStats()
         self._last_push_times: dict[str, float] = {}  # path -> mtime at last push
         self._base_path = Path(os.environ.get("RINGRIFT_BASE_PATH", "."))
 
@@ -147,15 +147,15 @@ class S3PushDaemon(HandlerBase):
             if self._should_push_models():
                 await self._push_models()
 
-            self.stats.last_push_time = time.time()
+            self._push_stats.last_push_time = time.time()
             logger.info(
                 f"[S3PushDaemon] Cycle complete: "
-                f"{self.stats.total_files_pushed} files pushed"
+                f"{self._push_stats.total_files_pushed} files pushed"
             )
 
         except Exception as e:
-            self.stats.push_errors += 1
-            self.stats.last_error = str(e)
+            self._push_stats.push_errors += 1
+            self._push_stats.last_error = str(e)
             logger.error(f"[S3PushDaemon] Push cycle failed: {e}")
 
     def _check_aws_credentials(self) -> bool:
@@ -258,8 +258,8 @@ class S3PushDaemon(HandlerBase):
             if result.returncode == 0:
                 file_size = local_path.stat().st_size
                 self._last_push_times[str(local_path)] = mtime
-                self.stats.total_files_pushed += 1
-                self.stats.total_bytes_pushed += file_size
+                self._push_stats.total_files_pushed += 1
+                self._push_stats.total_bytes_pushed += file_size
                 logger.info(
                     f"[S3PushDaemon] Pushed {local_path.name} to {s3_uri} "
                     f"({file_size / (1024*1024):.1f} MB)"
@@ -269,16 +269,16 @@ class S3PushDaemon(HandlerBase):
                 logger.warning(
                     f"[S3PushDaemon] Failed to push {local_path.name}: {result.stderr}"
                 )
-                self.stats.push_errors += 1
+                self._push_stats.push_errors += 1
                 return False
 
         except subprocess.TimeoutExpired:
             logger.warning(f"[S3PushDaemon] Push timed out for {local_path.name}")
-            self.stats.push_errors += 1
+            self._push_stats.push_errors += 1
             return False
         except Exception as e:
             logger.warning(f"[S3PushDaemon] Push error for {local_path.name}: {e}")
-            self.stats.push_errors += 1
+            self._push_stats.push_errors += 1
             return False
 
     def _get_event_subscriptions(self) -> dict[str, Any]:
@@ -324,12 +324,12 @@ class S3PushDaemon(HandlerBase):
     def get_stats(self) -> dict[str, Any]:
         """Get current daemon statistics."""
         return {
-            "total_files_pushed": self.stats.total_files_pushed,
-            "total_bytes_pushed": self.stats.total_bytes_pushed,
-            "total_mb_pushed": round(self.stats.total_bytes_pushed / (1024 * 1024), 2),
-            "last_push_time": self.stats.last_push_time,
-            "push_errors": self.stats.push_errors,
-            "last_error": self.stats.last_error,
+            "total_files_pushed": self._push_stats.total_files_pushed,
+            "total_bytes_pushed": self._push_stats.total_bytes_pushed,
+            "total_mb_pushed": round(self._push_stats.total_bytes_pushed / (1024 * 1024), 2),
+            "last_push_time": self._push_stats.last_push_time,
+            "push_errors": self._push_stats.push_errors,
+            "last_error": self._push_stats.last_error,
             "tracked_files": len(self._last_push_times),
         }
 
