@@ -1869,6 +1869,16 @@ class SyncCoordinator:
             },
         )
 
+    async def start(self) -> None:
+        """Start the coordinator (daemon lifecycle interface)."""
+        self._running = True
+        await self.start_data_server()
+        logger.info("[SyncCoordinator] Started")
+
+    async def stop(self) -> None:
+        """Stop the coordinator (daemon lifecycle interface)."""
+        await self.shutdown()
+
     async def shutdown(self) -> None:
         """Shutdown the coordinator and all transports."""
         self._running = False

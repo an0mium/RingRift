@@ -680,6 +680,15 @@ class MultiProviderOrchestrator:
             details=summary,
         )
 
+    async def start(self) -> None:
+        """Start the orchestrator (daemon lifecycle interface)."""
+        await self.discover_all()
+        logger.info("[MultiProviderOrchestrator] Started")
+
+    async def stop(self) -> None:
+        """Stop the orchestrator (daemon lifecycle interface)."""
+        logger.info("[MultiProviderOrchestrator] Stopped")
+
 
 # Global orchestrator instance
 _orchestrator: MultiProviderOrchestrator | None = None

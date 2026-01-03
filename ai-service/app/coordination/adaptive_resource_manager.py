@@ -603,6 +603,12 @@ class AdaptiveResourceManager:
 
         logger.info("Adaptive Resource Manager stopped")
 
+    async def start(self) -> None:
+        """Start the manager (daemon lifecycle interface)."""
+        self.running = True
+        await self.run()
+        logger.info("[AdaptiveResourceManager] Started")
+
     def stop(self) -> None:
         """Stop the manager."""
         self.running = False

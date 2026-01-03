@@ -899,6 +899,17 @@ class MetricsAnalysisOrchestrator:
             details=status,
         )
 
+    async def start(self) -> None:
+        """Start the metrics analysis orchestrator (daemon lifecycle interface)."""
+        self.subscribe_to_events()
+        logger.info("[MetricsAnalysisOrchestrator] Started")
+
+    async def stop(self) -> None:
+        """Stop the metrics analysis orchestrator (daemon lifecycle interface)."""
+        # Nothing async to stop, but mark as not subscribed for clean restart
+        self._subscribed = False
+        logger.info("[MetricsAnalysisOrchestrator] Stopped")
+
 
 # =============================================================================
 # Singleton and convenience functions

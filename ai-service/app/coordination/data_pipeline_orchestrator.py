@@ -101,6 +101,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 import time
 from collections.abc import Callable
@@ -977,6 +978,15 @@ class DataPipelineOrchestrator(
     def status(self) -> CoordinatorStatus:
         """Current status of the coordinator."""
         return self._coordinator_status
+
+    @property
+    def is_running(self) -> bool:
+        """Check if orchestrator is running (for daemon manager compatibility).
+
+        Jan 3, 2026: Added for DaemonManager._check_daemon_running() integration.
+        The daemon manager checks for is_running property to detect daemon status.
+        """
+        return self._coordinator_status == CoordinatorStatus.RUNNING
 
     @property
     def uptime_seconds(self) -> float:

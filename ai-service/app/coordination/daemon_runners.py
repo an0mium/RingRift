@@ -71,6 +71,7 @@ class InstantiationStyle(Enum):
     FACTORY = "factory"  # factory_function() returns daemon
     WITH_CONFIG = "with_config"  # DaemonClass(config=ConfigClass.from_env())
     ASYNC_FACTORY = "async_factory"  # await factory_function()
+    CUSTOM = "custom"  # Use custom runner function (create_<daemon_name>())
 
 
 class WaitStyle(Enum):
@@ -358,11 +359,13 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         style=InstantiationStyle.FACTORY,
         factory_func="create_npz_distribution_daemon",
     ),
+    # Jan 3, 2026: Changed to CUSTOM runner because SyncCoordinator has
+    # start_data_server() not start_server(). The create_data_server() function
+    # correctly calls start_data_server() on the singleton instance.
     "data_server": RunnerSpec(
-        module="app.distributed.sync_coordinator",
-        class_name="SyncCoordinator",
-        style=InstantiationStyle.SINGLETON,
-        start_method=StartMethod.START_SERVER,
+        module="app.coordination.daemon_runners",
+        class_name="",  # Not used for CUSTOM
+        style=InstantiationStyle.CUSTOM,
     ),
     # --- Replication Daemons ---
     "replication_monitor": RunnerSpec(

@@ -81,6 +81,7 @@ __all__ = [
     "get_priority_configs_sync",
 ]
 
+import asyncio
 import contextlib
 import logging
 import math
