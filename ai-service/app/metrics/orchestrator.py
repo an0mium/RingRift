@@ -1145,3 +1145,315 @@ def time_event_handler(
     finally:
         duration = time.time() - start
         record_event_handler_duration(event_type, handler, duration)
+
+
+# =============================================================================
+# P2P Connection Quality Metrics (Jan 2026 - Phase 5.1)
+# =============================================================================
+
+P2P_RTT_SECONDS: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_p2p_rtt_seconds",
+    "Round-trip time to peer in seconds.",
+    labelnames=("peer", "transport"),
+)
+
+P2P_PACKET_LOSS_RATE: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_p2p_packet_loss_rate",
+    "Packet loss rate to peer (0-1).",
+    labelnames=("peer",),
+)
+
+P2P_TRANSPORT_HEALTH: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_p2p_transport_health",
+    "Transport health score to peer (0-1).",
+    labelnames=("peer", "transport"),
+)
+
+P2P_TRANSPORT_SUCCESS_TOTAL: Final[Counter] = _safe_metric(Counter,
+    "ringrift_p2p_transport_success_total",
+    "Total successful transport operations per peer/transport.",
+    labelnames=("peer", "transport"),
+)
+
+P2P_TRANSPORT_FAILURE_TOTAL: Final[Counter] = _safe_metric(Counter,
+    "ringrift_p2p_transport_failure_total",
+    "Total failed transport operations per peer/transport.",
+    labelnames=("peer", "transport"),
+)
+
+P2P_PEER_COUNT: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_p2p_peer_count",
+    "Number of peers by status.",
+    labelnames=("status",),
+)
+
+P2P_LEADER_CHANGES: Final[Counter] = _safe_metric(Counter,
+    "ringrift_p2p_leader_changes_total",
+    "Total leader election changes.",
+    labelnames=(),
+)
+
+P2P_QUORUM_STATUS: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_p2p_quorum_status",
+    "Cluster quorum status (1=healthy, 0=degraded).",
+    labelnames=(),
+)
+
+
+def record_p2p_rtt(
+    peer: str,
+    transport: str,
+    rtt_seconds: float,
+) -> None:
+    """Record round-trip time to a peer.
+
+    Args:
+        peer: Peer identifier
+        transport: Transport type (tailscale, ssh, http)
+        rtt_seconds: RTT in seconds
+    """
+    P2P_RTT_SECONDS.labels(peer, transport).set(rtt_seconds)
+
+
+def record_p2p_packet_loss(
+    peer: str,
+    loss_rate: float,
+) -> None:
+    """Record packet loss rate to a peer.
+
+    Args:
+        peer: Peer identifier
+        loss_rate: Loss rate (0-1)
+    """
+    P2P_PACKET_LOSS_RATE.labels(peer).set(loss_rate)
+
+
+def record_p2p_transport_health(
+    peer: str,
+    transport: str,
+    health_score: float,
+) -> None:
+    """Record transport health score to a peer.
+
+    Args:
+        peer: Peer identifier
+        transport: Transport type
+        health_score: Health score (0-1)
+    """
+    P2P_TRANSPORT_HEALTH.labels(peer, transport).set(health_score)
+
+
+def record_p2p_transport_success(
+    peer: str,
+    transport: str,
+) -> None:
+    """Record successful transport operation."""
+    P2P_TRANSPORT_SUCCESS_TOTAL.labels(peer, transport).inc()
+
+
+def record_p2p_transport_failure(
+    peer: str,
+    transport: str,
+) -> None:
+    """Record failed transport operation."""
+    P2P_TRANSPORT_FAILURE_TOTAL.labels(peer, transport).inc()
+
+
+def update_p2p_peer_counts(
+    alive: int,
+    dead: int,
+    unknown: int = 0,
+) -> None:
+    """Update P2P peer count metrics.
+
+    Args:
+        alive: Number of alive peers
+        dead: Number of dead peers
+        unknown: Number of peers with unknown status
+    """
+    P2P_PEER_COUNT.labels("alive").set(alive)
+    P2P_PEER_COUNT.labels("dead").set(dead)
+    P2P_PEER_COUNT.labels("unknown").set(unknown)
+
+
+def record_leader_change() -> None:
+    """Record a leader election change."""
+    P2P_LEADER_CHANGES.inc()
+
+
+def update_quorum_status(healthy: bool) -> None:
+    """Update quorum status.
+
+    Args:
+        healthy: Whether quorum is healthy
+    """
+    P2P_QUORUM_STATUS.set(1 if healthy else 0)
+
+
+# =============================================================================
+# Starvation Detection Metrics (Jan 2026 - Phase 5.2)
+# =============================================================================
+
+CONFIG_STARVATION_STATUS: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_config_starvation_status",
+    "Starvation status per config (1=starving, 0=healthy).",
+    labelnames=("config_key",),
+)
+
+CONFIG_GAMES_TOTAL: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_config_games_total",
+    "Total games completed per config.",
+    labelnames=("config_key",),
+)
+
+CONFIG_LAST_GAME_AGE_HOURS: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_config_last_game_age_hours",
+    "Hours since last game completed for config.",
+    labelnames=("config_key",),
+)
+
+CONFIG_ALLOCATION_PERCENTAGE: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_config_allocation_percentage",
+    "Selfplay allocation percentage for config.",
+    labelnames=("config_key",),
+)
+
+STARVED_CONFIG_COUNT: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_starved_config_count",
+    "Total number of configs currently starving.",
+    labelnames=(),
+)
+
+
+def record_config_starvation(
+    config_key: str,
+    is_starving: bool,
+    total_games: int = 0,
+    hours_since_last_game: float = 0.0,
+    allocation_percentage: float = 0.0,
+) -> None:
+    """Record starvation status for a config.
+
+    A config is considered starving if:
+    - Less than 100 games AND
+    - More than 24 hours since last game
+
+    Args:
+        config_key: Config identifier (e.g., "hex8_4p")
+        is_starving: Whether the config is starving
+        total_games: Total games for this config
+        hours_since_last_game: Hours since last game completed
+        allocation_percentage: Current selfplay allocation (0-100)
+    """
+    CONFIG_STARVATION_STATUS.labels(config_key).set(1 if is_starving else 0)
+    CONFIG_GAMES_TOTAL.labels(config_key).set(total_games)
+    CONFIG_LAST_GAME_AGE_HOURS.labels(config_key).set(hours_since_last_game)
+    CONFIG_ALLOCATION_PERCENTAGE.labels(config_key).set(allocation_percentage)
+
+
+def update_starved_config_count(count: int) -> None:
+    """Update the total count of starving configs.
+
+    Args:
+        count: Number of configs currently starving
+    """
+    STARVED_CONFIG_COUNT.set(count)
+
+
+# =============================================================================
+# Training State Machine Metrics (Jan 2026 - Phase 4.2)
+# =============================================================================
+
+TRAINING_STATE: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_training_state",
+    "Current training state per config (0=idle, 1=preparing, 2=running, 3=finalizing, 4=evaluating).",
+    labelnames=("config_key",),
+)
+
+TRAINING_STATE_DURATION: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_training_state_duration_seconds",
+    "Duration in current training state.",
+    labelnames=("config_key", "state"),
+)
+
+TRAINING_ACTIVE_COUNT: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_training_active_count",
+    "Number of configs currently in training.",
+    labelnames=(),
+)
+
+TRAINING_QUEUE_DEPTH: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_training_queue_depth",
+    "Number of configs waiting for training.",
+    labelnames=(),
+)
+
+TRAINING_STATE_TRANSITIONS: Final[Counter] = _safe_metric(Counter,
+    "ringrift_training_state_transitions_total",
+    "Total training state transitions.",
+    labelnames=("config_key", "from_state", "to_state"),
+)
+
+# Training state constants
+TRAINING_STATE_IDLE = 0
+TRAINING_STATE_PREPARING = 1
+TRAINING_STATE_RUNNING = 2
+TRAINING_STATE_FINALIZING = 3
+TRAINING_STATE_EVALUATING = 4
+
+TRAINING_STATE_NAMES = {
+    TRAINING_STATE_IDLE: "idle",
+    TRAINING_STATE_PREPARING: "preparing",
+    TRAINING_STATE_RUNNING: "running",
+    TRAINING_STATE_FINALIZING: "finalizing",
+    TRAINING_STATE_EVALUATING: "evaluating",
+}
+
+
+def update_training_state(
+    config_key: str,
+    state: int,
+    duration_seconds: float = 0.0,
+) -> None:
+    """Update training state for a config.
+
+    Args:
+        config_key: Config identifier
+        state: Training state (use TRAINING_STATE_* constants)
+        duration_seconds: Duration in current state
+    """
+    TRAINING_STATE.labels(config_key).set(state)
+
+    state_name = TRAINING_STATE_NAMES.get(state, "unknown")
+    TRAINING_STATE_DURATION.labels(config_key, state_name).set(duration_seconds)
+
+
+def record_training_state_transition(
+    config_key: str,
+    from_state: int,
+    to_state: int,
+) -> None:
+    """Record a training state transition.
+
+    Args:
+        config_key: Config identifier
+        from_state: Previous state
+        to_state: New state
+    """
+    from_name = TRAINING_STATE_NAMES.get(from_state, "unknown")
+    to_name = TRAINING_STATE_NAMES.get(to_state, "unknown")
+    TRAINING_STATE_TRANSITIONS.labels(config_key, from_name, to_name).inc()
+
+
+def update_training_counts(
+    active: int,
+    queued: int,
+) -> None:
+    """Update training counts.
+
+    Args:
+        active: Number of active training runs
+        queued: Number of configs waiting for training
+    """
+    TRAINING_ACTIVE_COUNT.set(active)
+    TRAINING_QUEUE_DEPTH.set(queued)
