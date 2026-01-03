@@ -51,6 +51,16 @@ from app.coordination.contracts import CoordinatorStatus, HealthCheckResult  # n
 from app.utils.disk_utils import is_enospc_error, handle_enospc_error
 from app.coordination.event_utils import parse_config_key
 
+# Jan 2, 2026: Strategy pattern for Raft/SQLite backends
+from app.coordination.work_queue_backends import (
+    BackendResult,
+    BackendType,
+    RaftBackend,
+    SQLiteBackend,
+    WorkQueueBackend,
+    create_backend,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -514,6 +524,10 @@ class WorkQueue:
         # Jan 2, 2026: Claim rejection tracking for dispatch observability
         self._claim_rejection_stats = ClaimRejectionStats()
 
+        # Jan 2, 2026: Strategy pattern backend (lazy initialized)
+        # Backend is created on first use to allow _get_connection to be ready
+        self._backend_impl: WorkQueueBackend | None = None
+
         # Database initialization is now lazy - deferred to first use
         # This allows importing the module on read-only filesystems
 
@@ -554,33 +568,58 @@ class WorkQueue:
         """
         return self._backend == WorkQueueBackendType.RAFT
 
+    def _get_backend_impl(self) -> WorkQueueBackend:
+        """Get or create the backend implementation (lazy initialization).
+
+        Jan 2, 2026: Strategy pattern backend creation. The backend is created
+        on first use to ensure _get_connection is available.
+
+        Returns:
+            WorkQueueBackend implementation (Raft or SQLite)
+        """
+        if self._backend_impl is None:
+            # Ensure database is initialized first
+            self._ensure_db()
+
+            self._backend_impl = create_backend(
+                db_path=self.db_path,
+                get_connection=self._get_connection,
+                use_raft=self._use_raft,
+                readonly_mode=self._readonly_mode,
+            )
+
+            # Sync backend type for backward compatibility
+            if isinstance(self._backend_impl, RaftBackend):
+                self._backend = WorkQueueBackendType.RAFT
+            else:
+                self._backend = WorkQueueBackendType.SQLITE
+
+            logger.debug(f"[WorkQueue] Backend initialized: {self._backend_impl.backend_type.value}")
+
+        return self._backend_impl
+
     def get_queue_stats(self) -> dict[str, Any]:
         """Get queue statistics for health monitoring.
 
         Dec 29, 2025: Added for master_loop.py health validation.
         Dec 30, 2025 (P5.1): Also queries Raft backend when available.
+        Jan 2, 2026: Refactored to use Strategy pattern backend.
 
         Returns:
             Dictionary with queue health statistics.
         """
-        # Dec 30, 2025 (P5.1): Get stats from Raft if available
-        if self._backend == WorkQueueBackendType.RAFT:
-            return self._get_queue_stats_raft()
+        # Jan 2, 2026: Use Strategy pattern - backend handles Raft/SQLite transparently
+        backend = self._get_backend_impl()
+        backend_stats = backend.get_stats()
 
-        items = self.items  # Triggers lazy init if needed
-        pending = sum(1 for item in items.values() if item.status == WorkStatus.PENDING)
-        claimed = sum(1 for item in items.values() if item.status == WorkStatus.CLAIMED)
-        running = sum(1 for item in items.values() if item.status == WorkStatus.RUNNING)
-        completed = sum(1 for item in items.values() if item.status == WorkStatus.COMPLETED)
-        failed = sum(1 for item in items.values() if item.status == WorkStatus.FAILED)
-
-        return {
-            "total_items": len(items),
-            "pending": pending,
-            "claimed": claimed,
-            "running": running,
-            "completed": completed,
-            "failed": failed,
+        # Merge backend stats with WorkQueue-level stats
+        result = {
+            "total_items": backend_stats.get("total", 0),
+            "pending": backend_stats.get("pending", 0),
+            "claimed": backend_stats.get("claimed", 0),
+            "running": backend_stats.get("running", 0),
+            "completed": backend_stats.get("completed", 0),
+            "failed": backend_stats.get("failed", 0),
             "total_added": self.stats.get("total_added", 0),
             "total_completed": self.stats.get("total_completed", 0),
             "total_failed": self.stats.get("total_failed", 0),
@@ -588,38 +627,27 @@ class WorkQueue:
             "backpressure_active": self._backpressure_active,
             "db_initialized": self._db_initialized,
             "readonly_mode": self._readonly_mode,
-            "backend": self.backend,
+            "backend": backend.backend_type.value,
         }
+
+        # Add Raft-specific fields if using Raft
+        if backend.backend_type == BackendType.RAFT:
+            result["raft_is_leader"] = backend_stats.get("is_leader", False)
+            result["raft_leader_address"] = backend_stats.get("leader_address")
+            result["raft_is_ready"] = backend_stats.get("is_ready", False)
+        if backend_stats.get("fallback_active"):
+            result["raft_fallback_active"] = True
+
+        return result
 
     def _get_queue_stats_raft(self) -> dict[str, Any]:
-        """Get queue statistics from Raft backend (Dec 30, 2025 - P5.1)."""
-        raft_wq = get_raft_work_queue()
-        if raft_wq is None:
-            logger.warning("Raft work queue unavailable, falling back to SQLite stats")
-            self._backend = WorkQueueBackendType.SQLITE
-            return self.get_queue_stats()
+        """Get queue statistics from Raft backend (Dec 30, 2025 - P5.1).
 
-        raft_stats = raft_wq.get_queue_stats()
-
-        return {
-            "total_items": raft_stats.get("total", 0),
-            "pending": raft_stats.get("pending", 0),
-            "claimed": raft_stats.get("claimed", 0),
-            "running": raft_stats.get("running", 0),
-            "completed": raft_stats.get("completed", 0),
-            "failed": raft_stats.get("failed", 0),
-            "total_added": self.stats.get("total_added", 0),
-            "total_completed": self.stats.get("total_completed", 0),
-            "total_failed": self.stats.get("total_failed", 0),
-            "total_timeout": self.stats.get("total_timeout", 0),
-            "backpressure_active": self._backpressure_active,
-            "db_initialized": False,  # Not using SQLite
-            "readonly_mode": False,
-            "backend": self.backend,
-            "raft_is_leader": raft_stats.get("is_leader", False),
-            "raft_leader_address": raft_stats.get("leader_address"),
-            "raft_is_ready": raft_stats.get("is_ready", False),
-        }
+        DEPRECATED: Jan 2, 2026 - Use get_queue_stats() which now uses
+        Strategy pattern backend transparently.
+        """
+        # Delegate to main method which handles backend selection
+        return self.get_queue_stats()
 
     def get_claim_rejection_stats(self) -> dict[str, Any]:
         """Get claim rejection statistics for debugging job dispatch issues.
