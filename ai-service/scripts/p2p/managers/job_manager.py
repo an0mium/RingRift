@@ -941,11 +941,32 @@ class JobManager(EventSubscriptionMixin):
         Returns:
             Tuple of (is_healthy, reason).
             - (True, "ok") if GPU is healthy
+            - (True, "no_gpu_on_node") if node doesn't have GPU (skipped)
             - (False, reason) if GPU has issues
 
         December 2025: Added as part of cluster availability fix to prevent
         dispatching to nodes with CUDA errors.
+
+        January 2026: Skip nvidia-smi on non-GPU nodes (macOS, Hetzner CPU)
+        to prevent crashes and false failures.
         """
+        # Check if target node has GPU capability before running nvidia-smi
+        # This prevents crashes on macOS coordinators and CPU-only nodes
+        with self.peers_lock:
+            node_info = self.peers.get(node_id)
+
+        if node_info is not None:
+            has_gpu = self._worker_has_gpu(node_info)
+            if not has_gpu:
+                logger.debug(f"Skipping GPU health check for non-GPU node {node_id}")
+                return True, "no_gpu_on_node"
+        elif node_id == self.node_id:
+            # Current node - check via platform detection
+            import platform
+            if platform.system() == "Darwin":
+                logger.debug(f"Skipping GPU health check for macOS node {node_id}")
+                return True, "macos_no_nvidia_gpu"
+
         try:
             from app.core.ssh import run_ssh_command_async
 

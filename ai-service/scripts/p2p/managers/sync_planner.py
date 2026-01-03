@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sqlite3
 import threading
 import time
@@ -111,6 +112,7 @@ class SyncPlannerConfig:
     """Configuration for the SyncPlanner.
 
     December 28, 2025: Now uses centralized PeerDefaults for timeout values.
+    January 2026: Added max_concurrent_syncs to prevent memory pressure from rsync.
     """
 
     # Jan 2, 2026 (Sprint 8): Use centralized PeerDefaults.MANIFEST_TIMEOUT (60s = 1 minute)
@@ -122,6 +124,11 @@ class SyncPlannerConfig:
     # Dec 28, 2025: Use centralized PeerDefaults.SUSPECT_TIMEOUT (30s)
     # Doubled to 60s for clock skew tolerance
     sync_mtime_tolerance_seconds: int = int(PeerDefaults.SUSPECT_TIMEOUT * 2)
+    # Jan 2026: Limit concurrent rsync operations to prevent memory pressure
+    # Each rsync can consume 7-10% RAM for large DBs; default of 2 keeps usage ~15-20%
+    max_concurrent_syncs: int = int(os.environ.get("RINGRIFT_MAX_CONCURRENT_SYNCS", "2"))
+    # Jan 2026: Stagger large DB syncs by this many seconds
+    large_db_sync_stagger_seconds: float = float(os.environ.get("RINGRIFT_LARGE_DB_SYNC_STAGGER", "60"))
 
 
 @dataclass
@@ -214,6 +221,8 @@ class SyncPlanner(EventSubscriptionMixin):
         self.config = config or SyncPlannerConfig()
 
         # Cached manifest
+        # Jan 2, 2026 (Sprint 9): Added lock to prevent race condition in cache check/write
+        self._manifest_lock = threading.Lock()
         self._cached_local_manifest: "NodeDataManifest | None" = None
         self._cached_manifest_time: float = 0.0
 
@@ -230,6 +239,12 @@ class SyncPlanner(EventSubscriptionMixin):
 
         # Statistics
         self.stats = SyncStats()
+
+        # Jan 2026: Semaphore for limiting concurrent sync operations (memory-aware)
+        # Default of 2 keeps rsync RAM usage around 15-20% (each can use 7-10% for large DBs)
+        self._sync_semaphore = asyncio.Semaphore(self.config.max_concurrent_syncs)
+        # Track last large DB sync time for staggering
+        self._last_large_sync_time: float = 0.0
 
         # Dec 2025: Validate event types at startup to catch config issues early
         _validate_event_types()
@@ -321,10 +336,13 @@ class SyncPlanner(EventSubscriptionMixin):
         from ..models import DataFileInfo, NodeDataManifest
 
         # Check cache if requested
-        if use_cache and self._cached_local_manifest:
-            cache_age = time.time() - self._cached_manifest_time
-            if cache_age < self.config.manifest_cache_age_seconds:
-                return self._cached_local_manifest
+        # Jan 2, 2026 (Sprint 9): Use lock to prevent race condition where multiple
+        # threads read stale cache, both scan, and then race to update cache
+        with self._manifest_lock:
+            if use_cache and self._cached_local_manifest:
+                cache_age = time.time() - self._cached_manifest_time
+                if cache_age < self.config.manifest_cache_age_seconds:
+                    return self._cached_local_manifest
 
         manifest = NodeDataManifest(
             node_id=self.node_id,
@@ -390,10 +408,12 @@ class SyncPlanner(EventSubscriptionMixin):
         manifest.files = files
 
         # Update cache
-        self._cached_local_manifest = manifest
-        self._cached_manifest_time = time.time()
-        self.stats.manifests_collected += 1
-        self.stats.last_manifest_collection = time.time()
+        # Jan 2, 2026 (Sprint 9): Use lock to ensure atomic cache update
+        with self._manifest_lock:
+            self._cached_local_manifest = manifest
+            self._cached_manifest_time = time.time()
+            self.stats.manifests_collected += 1
+            self.stats.last_manifest_collection = time.time()
 
         logger.debug(
             f"Collected local manifest: {manifest.total_files} files, "
@@ -772,21 +792,34 @@ class SyncPlanner(EventSubscriptionMixin):
                     jobs_by_target[job.target_node] = []
                 jobs_by_target[job.target_node].append(job)
 
-            # Execute jobs
+            # Execute jobs with concurrency limiting (Jan 2026)
+            async def execute_job_throttled(job: "DataSyncJob") -> bool:
+                """Execute a sync job with semaphore-based throttling."""
+                async with self._sync_semaphore:
+                    # Stagger large DB syncs for memory protection
+                    if hasattr(job, 'files') and job.files:
+                        is_large = any("canonical" in f or "hexagonal" in f or "square19" in f for f in job.files)
+                        if is_large:
+                            since_last = time.time() - self._last_large_sync_time
+                            if since_last < self.config.large_db_sync_stagger_seconds:
+                                wait = self.config.large_db_sync_stagger_seconds - since_last
+                                logger.debug(f"Staggering large DB sync by {wait:.1f}s")
+                                await asyncio.sleep(wait)
+                            self._last_large_sync_time = time.time()
+
+                    if execute_job_callback_async:
+                        return await execute_job_callback_async(job)
+                    elif execute_job_callback:
+                        return execute_job_callback(job)
+                    else:
+                        # Default: mark as pending for external execution
+                        self._active_sync_jobs[job.job_id] = job
+                        return True
+
             for target_node, jobs in jobs_by_target.items():
                 for job in jobs:
                     try:
-                        success = False
-                        if execute_job_callback_async:
-                            # Async callback (preferred for network operations)
-                            success = await execute_job_callback_async(job)
-                        elif execute_job_callback:
-                            # Sync callback
-                            success = execute_job_callback(job)
-                        else:
-                            # Default: mark as pending for external execution
-                            self._active_sync_jobs[job.job_id] = job
-                            success = True  # Will be executed externally
+                        success = await execute_job_throttled(job)
 
                         if success:
                             # Only set completed if not already set by callback
@@ -1234,24 +1267,39 @@ class SyncPlanner(EventSubscriptionMixin):
                             files_to_sync[:max_files_per_job]
                         )
 
-        # Execute sync jobs
+        # Execute sync jobs with concurrency limiting (Jan 2026)
+        # Use semaphore to prevent memory pressure from too many rsync processes
         successful_syncs = 0
+
+        async def execute_with_throttle(job: "DataSyncJob") -> bool:
+            """Execute sync job with semaphore-based throttling."""
+            async with self._sync_semaphore:
+                # Stagger large DB syncs to prevent memory spikes
+                if job.files and any("canonical" in f or "hexagonal" in f or "square19" in f for f in job.files):
+                    # Large DB - check if we need to stagger
+                    since_last_large = time.time() - self._last_large_sync_time
+                    if since_last_large < self.config.large_db_sync_stagger_seconds:
+                        wait_time = self.config.large_db_sync_stagger_seconds - since_last_large
+                        logger.debug(f"Staggering large DB sync by {wait_time:.1f}s for memory protection")
+                        await asyncio.sleep(wait_time)
+                    self._last_large_sync_time = time.time()
+
+                try:
+                    return await execute_sync_job(job)
+                except (OSError, ConnectionError, TimeoutError, asyncio.TimeoutError, RuntimeError) as e:
+                    logger.info(f"Sync job {job.job_id} failed: {e}")
+                    job.error_message = str(e)
+                    return False
+
         for job in sync_jobs:
-            try:
-                success = await execute_sync_job(job)
-                if success:
-                    job.status = "completed"
-                    job.completed_at = time.time()
-                    successful_syncs += 1
-                    self.stats.sync_jobs_completed += 1
-                else:
-                    job.status = "failed"
-                    self.stats.sync_jobs_failed += 1
-            except (OSError, ConnectionError, TimeoutError, asyncio.TimeoutError, RuntimeError) as e:
-                # Dec 2025: Narrowed from broad Exception - sync execution errors
-                logger.info(f"Sync job {job.job_id} failed: {e}")
+            success = await execute_with_throttle(job)
+            if success:
+                job.status = "completed"
+                job.completed_at = time.time()
+                successful_syncs += 1
+                self.stats.sync_jobs_completed += 1
+            else:
                 job.status = "failed"
-                job.error_message = str(e)
                 self.stats.sync_jobs_failed += 1
 
         # Cleanup source nodes with high disk usage after successful syncs
