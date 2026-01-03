@@ -963,53 +963,72 @@ class DatabaseSyncManager(SyncManagerBase):
     # =========================================================================
 
     async def discover_nodes(self) -> None:
-        """Discover cluster nodes from P2P status or YAML config."""
-        try:
-            # Try P2P discovery first
-            import aiohttp
+        """Discover cluster nodes from P2P status or YAML config.
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{self.p2p_url}/status",
-                    timeout=aiohttp.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        peers = data.get("peers", {})
-                        # Dec 30, 2025: peers is a dict {node_id: peer_info}
-                        # Iterate over values (peer_info dicts), not keys (strings)
-                        peer_list = peers.values() if isinstance(peers, dict) else peers
-                        skipped_count = 0
-                        for peer in peer_list:
-                            if isinstance(peer, str):
-                                # Skip if peer is just a string (old format)
-                                logger.debug(
-                                    f"[{self.db_type}] Skipping string-format peer: {peer}"
+        January 2026: Added retry with backoff for P2P discovery.
+        Tries P2P 3 times with 2s/4s/8s delays before falling back to YAML.
+        """
+        max_retries = 3
+        base_delay = 2.0
+
+        for attempt in range(max_retries):
+            try:
+                # Try P2P discovery
+                import aiohttp
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        f"{self.p2p_url}/status",
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            peers = data.get("peers", {})
+                            # Dec 30, 2025: peers is a dict {node_id: peer_info}
+                            # Iterate over values (peer_info dicts), not keys (strings)
+                            peer_list = peers.values() if isinstance(peers, dict) else peers
+                            skipped_count = 0
+                            for peer in peer_list:
+                                if isinstance(peer, str):
+                                    # Skip if peer is just a string (old format)
+                                    logger.debug(
+                                        f"[{self.db_type}] Skipping string-format peer: {peer}"
+                                    )
+                                    skipped_count += 1
+                                    continue
+                                name = peer.get("node_id", peer.get("host", "unknown"))
+                                self.nodes[name] = SyncNodeInfo(
+                                    name=name,
+                                    tailscale_ip=peer.get("tailscale_ip"),
+                                    ssh_host=peer.get("ssh_host"),
+                                    ssh_port=peer.get("ssh_port", 22),
+                                    http_url=peer.get("http_url"),
+                                    remote_db_path=self._get_remote_db_path(),
+                                    last_seen=time.time(),
                                 )
-                                skipped_count += 1
-                                continue
-                            name = peer.get("node_id", peer.get("host", "unknown"))
-                            self.nodes[name] = SyncNodeInfo(
-                                name=name,
-                                tailscale_ip=peer.get("tailscale_ip"),
-                                ssh_host=peer.get("ssh_host"),
-                                ssh_port=peer.get("ssh_port", 22),
-                                http_url=peer.get("http_url"),
-                                remote_db_path=self._get_remote_db_path(),
-                                last_seen=time.time(),
+                            logger.info(
+                                f"[{self.db_type}] Discovered {len(self.nodes)} nodes from P2P"
+                                + (f" (skipped {skipped_count} string-format)" if skipped_count else "")
                             )
-                        logger.info(
-                            f"[{self.db_type}] Discovered {len(self.nodes)} nodes from P2P"
-                            + (f" (skipped {skipped_count} string-format)" if skipped_count else "")
-                        )
-                        return
+                            return
 
-        except ImportError:
-            pass
-        except (OSError, asyncio.TimeoutError, ValueError, KeyError) as e:
-            # OSError: network errors, TimeoutError: request timeout
-            # ValueError/KeyError: malformed P2P response
-            logger.debug(f"[{self.db_type}] P2P discovery failed: {e}")
+            except ImportError:
+                # aiohttp not available, fall through to YAML
+                break
+            except (OSError, asyncio.TimeoutError, ValueError, KeyError) as e:
+                # OSError: network errors, TimeoutError: request timeout
+                # ValueError/KeyError: malformed P2P response
+                delay = base_delay * (2 ** attempt)
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        f"[{self.db_type}] P2P discovery attempt {attempt + 1}/{max_retries} "
+                        f"failed: {e}, retrying in {delay:.1f}s"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.debug(
+                        f"[{self.db_type}] P2P discovery failed after {max_retries} attempts: {e}"
+                    )
 
         # Fallback to YAML config
         await self._discover_nodes_from_yaml()
