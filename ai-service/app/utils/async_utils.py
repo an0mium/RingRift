@@ -1,19 +1,24 @@
-"""Async utilities for safe task management and subprocess execution.
+"""Async utilities for safe task management, subprocess execution, and SQLite.
 
 This module provides utilities for:
 - Managing asyncio tasks safely (preventing GC and unhandled exceptions)
 - Running subprocesses asynchronously without blocking the event loop
+- Executing SQLite operations asynchronously without blocking the event loop
 
 Use `async_subprocess_run()` instead of `subprocess.run()` in async contexts.
+Use `async_sqlite_execute()` instead of `sqlite3.connect().execute()` in async contexts.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 import subprocess
-from collections.abc import Coroutine, Sequence
+from collections.abc import Callable, Coroutine, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -316,3 +321,294 @@ async def async_subprocess_shell(
             stdout="",
             stderr="",
         )
+
+
+# =============================================================================
+# Async SQLite Utilities
+# =============================================================================
+
+
+class SqliteError(Exception):
+    """Error raised when async SQLite execution fails."""
+
+    def __init__(self, message: str, db_path: str | Path | None = None):
+        super().__init__(message)
+        self.db_path = str(db_path) if db_path else None
+
+
+@dataclass
+class SqliteResult:
+    """Result of async SQLite execution.
+
+    Attributes:
+        rows: List of result rows (for SELECT queries).
+        rowcount: Number of affected rows (for INSERT/UPDATE/DELETE).
+        lastrowid: ID of last inserted row (for INSERT).
+    """
+
+    rows: list[tuple[Any, ...]]
+    rowcount: int
+    lastrowid: int | None
+
+    @property
+    def first(self) -> tuple[Any, ...] | None:
+        """Get the first row, or None if empty."""
+        return self.rows[0] if self.rows else None
+
+    @property
+    def scalar(self) -> Any:
+        """Get single value from first row, first column."""
+        if self.rows and self.rows[0]:
+            return self.rows[0][0]
+        return None
+
+
+def _execute_sqlite_sync(
+    db_path: str | Path,
+    query: str,
+    params: tuple[Any, ...] | dict[str, Any] | None = None,
+    timeout: float = 30.0,
+    row_factory: Callable[[sqlite3.Cursor, tuple[Any, ...]], Any] | None = None,
+) -> SqliteResult:
+    """Synchronous SQLite execution (runs in thread pool)."""
+    with sqlite3.connect(str(db_path), timeout=timeout) as conn:
+        if row_factory:
+            conn.row_factory = row_factory
+        cursor = conn.cursor()
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        rows = cursor.fetchall()
+        conn.commit()
+        return SqliteResult(
+            rows=rows,
+            rowcount=cursor.rowcount,
+            lastrowid=cursor.lastrowid,
+        )
+
+
+def _executemany_sqlite_sync(
+    db_path: str | Path,
+    query: str,
+    params_seq: Sequence[tuple[Any, ...] | dict[str, Any]],
+    timeout: float = 30.0,
+) -> SqliteResult:
+    """Synchronous SQLite executemany (runs in thread pool)."""
+    with sqlite3.connect(str(db_path), timeout=timeout) as conn:
+        cursor = conn.cursor()
+        cursor.executemany(query, params_seq)
+        conn.commit()
+        return SqliteResult(
+            rows=[],
+            rowcount=cursor.rowcount,
+            lastrowid=cursor.lastrowid,
+        )
+
+
+async def async_sqlite_execute(
+    db_path: str | Path,
+    query: str,
+    params: tuple[Any, ...] | dict[str, Any] | None = None,
+    *,
+    timeout: float = 30.0,
+    row_factory: Callable[[sqlite3.Cursor, tuple[Any, ...]], Any] | None = None,
+) -> SqliteResult:
+    """Execute a SQLite query asynchronously without blocking the event loop.
+
+    This is the async equivalent of `sqlite3.connect().execute()`. Use this
+    instead of blocking SQLite calls in async contexts.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        query: SQL query to execute.
+        params: Query parameters (tuple for positional, dict for named).
+        timeout: SQLite connection timeout in seconds.
+        row_factory: Optional row factory (e.g., sqlite3.Row for dict-like access).
+
+    Returns:
+        SqliteResult with rows, rowcount, and lastrowid.
+
+    Raises:
+        SqliteError: If the query fails.
+        sqlite3.Error: For SQLite-specific errors.
+
+    Example:
+        # SELECT query
+        result = await async_sqlite_execute(
+            "data/games.db",
+            "SELECT * FROM games WHERE board_type = ?",
+            ("hex8",),
+        )
+        for row in result.rows:
+            print(row)
+
+        # INSERT query
+        result = await async_sqlite_execute(
+            "data/games.db",
+            "INSERT INTO games (board_type, num_players) VALUES (?, ?)",
+            ("hex8", 2),
+        )
+        print(f"Inserted row ID: {result.lastrowid}")
+
+        # With dict-like row access
+        result = await async_sqlite_execute(
+            "data/games.db",
+            "SELECT * FROM games LIMIT 1",
+            row_factory=sqlite3.Row,
+        )
+        if result.first:
+            print(result.first["board_type"])
+    """
+    try:
+        return await asyncio.to_thread(
+            _execute_sqlite_sync,
+            db_path,
+            query,
+            params,
+            timeout,
+            row_factory,
+        )
+    except sqlite3.Error as e:
+        raise SqliteError(f"SQLite error: {e}", db_path) from e
+
+
+async def async_sqlite_executemany(
+    db_path: str | Path,
+    query: str,
+    params_seq: Sequence[tuple[Any, ...] | dict[str, Any]],
+    *,
+    timeout: float = 30.0,
+) -> SqliteResult:
+    """Execute a SQLite query with multiple parameter sets asynchronously.
+
+    This is the async equivalent of `cursor.executemany()`. Use for bulk
+    INSERT/UPDATE operations.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        query: SQL query to execute.
+        params_seq: Sequence of parameter tuples/dicts.
+        timeout: SQLite connection timeout in seconds.
+
+    Returns:
+        SqliteResult with rowcount.
+
+    Example:
+        # Bulk insert
+        result = await async_sqlite_executemany(
+            "data/games.db",
+            "INSERT INTO games (board_type, num_players) VALUES (?, ?)",
+            [("hex8", 2), ("square8", 4), ("hexagonal", 3)],
+        )
+        print(f"Inserted {result.rowcount} rows")
+    """
+    try:
+        return await asyncio.to_thread(
+            _executemany_sqlite_sync,
+            db_path,
+            query,
+            params_seq,
+            timeout,
+        )
+    except sqlite3.Error as e:
+        raise SqliteError(f"SQLite error: {e}", db_path) from e
+
+
+async def async_sqlite_fetchone(
+    db_path: str | Path,
+    query: str,
+    params: tuple[Any, ...] | dict[str, Any] | None = None,
+    *,
+    timeout: float = 30.0,
+) -> tuple[Any, ...] | None:
+    """Execute a query and return the first row.
+
+    Convenience wrapper around async_sqlite_execute for single-row queries.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        query: SQL query to execute.
+        params: Query parameters.
+        timeout: SQLite connection timeout in seconds.
+
+    Returns:
+        First row as tuple, or None if no results.
+
+    Example:
+        row = await async_sqlite_fetchone(
+            "data/games.db",
+            "SELECT COUNT(*) FROM games WHERE board_type = ?",
+            ("hex8",),
+        )
+        if row:
+            print(f"Count: {row[0]}")
+    """
+    result = await async_sqlite_execute(db_path, query, params, timeout=timeout)
+    return result.first
+
+
+async def async_sqlite_fetchall(
+    db_path: str | Path,
+    query: str,
+    params: tuple[Any, ...] | dict[str, Any] | None = None,
+    *,
+    timeout: float = 30.0,
+) -> list[tuple[Any, ...]]:
+    """Execute a query and return all rows.
+
+    Convenience wrapper around async_sqlite_execute for multi-row queries.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        query: SQL query to execute.
+        params: Query parameters.
+        timeout: SQLite connection timeout in seconds.
+
+    Returns:
+        List of rows as tuples.
+
+    Example:
+        rows = await async_sqlite_fetchall(
+            "data/games.db",
+            "SELECT board_type, num_players FROM games",
+        )
+        for board_type, num_players in rows:
+            print(f"{board_type}: {num_players}p")
+    """
+    result = await async_sqlite_execute(db_path, query, params, timeout=timeout)
+    return result.rows
+
+
+async def async_sqlite_scalar(
+    db_path: str | Path,
+    query: str,
+    params: tuple[Any, ...] | dict[str, Any] | None = None,
+    *,
+    timeout: float = 30.0,
+    default: Any = None,
+) -> Any:
+    """Execute a query and return a single scalar value.
+
+    Convenience wrapper for queries that return a single value (e.g., COUNT).
+
+    Args:
+        db_path: Path to the SQLite database file.
+        query: SQL query to execute.
+        params: Query parameters.
+        timeout: SQLite connection timeout in seconds.
+        default: Value to return if no results.
+
+    Returns:
+        Single value from first row, first column, or default.
+
+    Example:
+        count = await async_sqlite_scalar(
+            "data/games.db",
+            "SELECT COUNT(*) FROM games",
+            default=0,
+        )
+        print(f"Total games: {count}")
+    """
+    result = await async_sqlite_execute(db_path, query, params, timeout=timeout)
+    return result.scalar if result.scalar is not None else default
