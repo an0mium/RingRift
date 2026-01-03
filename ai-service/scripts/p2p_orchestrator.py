@@ -2139,8 +2139,11 @@ class P2POrchestrator(
             )
 
             # QueuePopulatorLoop - maintains 50+ work items until 2000 Elo
+            # Jan 3, 2026: CRITICAL FIX - Use _is_leader() instead of raw role check
+            # The raw role check caused the queue populator to stay stopped even when
+            # this node was the elected leader, because leader_id was set but role wasn't.
             queue_populator = QueuePopulatorLoop(
-                get_role=lambda: self.role,
+                get_role=lambda: NodeRole.LEADER if self._is_leader() else NodeRole.FOLLOWER,
                 get_selfplay_scheduler=lambda: self.selfplay_scheduler,
                 notifier=self.notifier,
             )
@@ -4101,6 +4104,80 @@ class P2POrchestrator(
             logger.warning(f"Manager events: failed to subscribe: {e}")
             return False
 
+    # =========================================================================
+    # Leadership State Management - Single Source of Truth (Jan 3, 2026)
+    # =========================================================================
+
+    def _set_leader(
+        self,
+        new_leader_id: str | None,
+        reason: str = "unknown",
+        *,
+        sync_to_ulsm: bool = True,
+        save_state: bool = True,
+    ) -> bool:
+        """Atomically set the leader and role to ensure consistency.
+
+        This is the CANONICAL method for modifying self.leader_id and self.role.
+        Using this method ensures both tracking systems (direct fields and ULSM)
+        stay synchronized and prevents the leader self-recognition desync bug.
+
+        Jan 3, 2026: Created to fix critical bug where leader node didn't recognize
+        itself as leader due to divergent state between leader_id and role fields.
+
+        Args:
+            new_leader_id: The new leader ID (None to clear leader)
+            reason: Human-readable reason for logging/debugging
+            sync_to_ulsm: Whether to sync state to LeadershipStateMachine
+            save_state: Whether to persist state after change
+
+        Returns:
+            True if this node is now the leader
+        """
+        old_leader_id = self.leader_id
+        old_role = self.role
+
+        # Determine new role based on leader_id
+        if new_leader_id is None:
+            new_role = NodeRole.FOLLOWER
+            is_now_leader = False
+        elif new_leader_id == self.node_id:
+            new_role = NodeRole.LEADER
+            is_now_leader = True
+        else:
+            new_role = NodeRole.FOLLOWER
+            is_now_leader = False
+
+        # Atomic update of both fields
+        self.leader_id = new_leader_id
+        self.role = new_role
+
+        # Sync to ULSM (Unified Leadership State Machine) if enabled
+        if sync_to_ulsm and hasattr(self, "_leadership_sm") and self._leadership_sm is not None:
+            try:
+                from scripts.p2p.leadership_state_machine import LeaderState
+
+                self._leadership_sm._leader_id = new_leader_id
+                self._leadership_sm._state = (
+                    LeaderState.LEADER if is_now_leader else LeaderState.FOLLOWER
+                )
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[LeaderSet] ULSM sync skipped: {e}")
+
+        # Log if changed
+        if old_leader_id != new_leader_id or old_role != new_role:
+            logger.info(
+                f"[LeaderSet] {old_role.value if hasattr(old_role, 'value') else old_role}->"
+                f"{new_role.value if hasattr(new_role, 'value') else new_role}, "
+                f"leader_id={old_leader_id}->{new_leader_id}, reason={reason}"
+            )
+
+        # Persist state if requested
+        if save_state and (old_leader_id != new_leader_id or old_role != new_role):
+            self._save_state()
+
+        return is_now_leader
+
     def _is_leader(self) -> bool:
         """Check if this node is the current cluster leader with valid lease."""
         # Dec 31, 2025: Enhanced logging for leader self-recognition debugging
@@ -4193,6 +4270,67 @@ class P2POrchestrator(
     def is_leader(self) -> bool:
         """Property alias for _is_leader() - required by WorkQueueHandlersMixin."""
         return self._is_leader()
+
+    def _get_leadership_consistency_metrics(self) -> dict:
+        """Get metrics for detecting leadership state desyncs.
+
+        Jan 3, 2026: Added to monitor and debug the leader self-recognition bug
+        where leader_id is set correctly but role doesn't match.
+
+        Returns:
+            Dictionary with consistency check results for monitoring.
+        """
+        try:
+            from scripts.p2p.leadership_state_machine import LeaderState
+        except ImportError:
+            LeaderState = None
+
+        # Get ULSM state if available
+        ulsm_state = None
+        ulsm_leader = None
+        if hasattr(self, "_leadership_sm") and self._leadership_sm is not None:
+            if LeaderState is not None:
+                ulsm_state = self._leadership_sm._state.value if hasattr(self._leadership_sm._state, "value") else str(self._leadership_sm._state)
+            ulsm_leader = self._leadership_sm._leader_id
+
+        # Check for inconsistencies
+        role_ulsm_mismatch = False
+        leader_ulsm_mismatch = False
+
+        if hasattr(self, "_leadership_sm") and self._leadership_sm is not None and LeaderState is not None:
+            # Role should match ULSM state
+            local_is_leader = self.role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER)
+            ulsm_is_leader = self._leadership_sm._state == LeaderState.LEADER
+            role_ulsm_mismatch = (local_is_leader != ulsm_is_leader) and self._leadership_sm._state != LeaderState.STEPPING_DOWN
+            # Leader IDs should match
+            leader_ulsm_mismatch = (self._leadership_sm._leader_id != self.leader_id)
+
+        # Self-recognition check: If we're the elected leader, do we recognize it?
+        leader_id_is_self = (self.leader_id == self.node_id)
+        role_is_leader = self.role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER)
+        is_leader_call = self._is_leader()
+
+        # Desync conditions
+        # Case 1: leader_id=self but role!=LEADER (gossip bug)
+        gossip_desync = leader_id_is_self and not role_is_leader
+        # Case 2: role=LEADER but leader_id!=self (should not happen)
+        role_desync = role_is_leader and not leader_id_is_self
+
+        return {
+            "role": self.role.value if hasattr(self.role, "value") else str(self.role),
+            "leader_id": self.leader_id,
+            "node_id": self.node_id,
+            "is_leader_call": is_leader_call,
+            "leader_id_is_self": leader_id_is_self,
+            "role_is_leader": role_is_leader,
+            "ulsm_state": ulsm_state,
+            "ulsm_leader_id": ulsm_leader,
+            "role_ulsm_mismatch": role_ulsm_mismatch,
+            "leader_ulsm_mismatch": leader_ulsm_mismatch,
+            "gossip_desync": gossip_desync,  # leader_id=self but role!=LEADER
+            "role_desync": role_desync,  # role=LEADER but leader_id!=self
+            "self_recognition_ok": leader_id_is_self == is_leader_call,  # Quick health check
+        }
 
     def _was_recently_leader(self) -> bool:
         """Check if this node was the cluster leader within RECENT_LEADER_WINDOW.
@@ -9626,14 +9764,28 @@ class P2POrchestrator(
 
                 # Dec 2025: Leader discovery from peer heartbeats
                 # If we don't have a leader but peer reports one, consider adopting it
+                # Jan 3, 2026: CRITICAL FIX - Handle case where peer reports US as leader
                 peer_leader = getattr(peer_info, "leader_id", "") or ""
                 if peer_leader and not self.leader_id:
-                    # Peer reports a leader and we don't have one - check if valid
-                    potential_leader = self.peers.get(peer_leader)
-                    if potential_leader and potential_leader.is_alive() and potential_leader.role == NodeRole.LEADER:
-                        self.leader_id = peer_leader
-                        self.role = NodeRole.FOLLOWER
-                        logger.info(f"Adopted leader {peer_leader} from heartbeat via {peer_info.node_id}")
+                    # CRITICAL FIX (Jan 3, 2026): Check if peer reports US as leader
+                    # This fixes the leader self-recognition desync bug where leader_id
+                    # gets set to self.node_id but role stays FOLLOWER.
+                    if peer_leader == self.node_id:
+                        # Peer thinks WE are leader - verify with lease before accepting
+                        if self._is_leader_lease_valid():
+                            self._set_leader(self.node_id, reason=f"gossip_self_leader_discovery_via_{peer_info.node_id}")
+                            logger.info(f"Discovered we are leader from heartbeat via {peer_info.node_id}")
+                        else:
+                            logger.debug(
+                                f"Peer {peer_info.node_id} reports us as leader but lease invalid; "
+                                f"lease_expires={self.leader_lease_expires}, now={time.time()}"
+                            )
+                    else:
+                        # Peer reports someone else as leader - adopt if valid
+                        potential_leader = self.peers.get(peer_leader)
+                        if potential_leader and potential_leader.is_alive() and potential_leader.role == NodeRole.LEADER:
+                            self._set_leader(peer_leader, reason=f"gossip_adopt_from_{peer_info.node_id}")
+                            logger.info(f"Adopted leader {peer_leader} from heartbeat via {peer_info.node_id}")
 
                 # Dec 30, 2025: Auto-populate capabilities from hardware if empty
                 # This handles nodes that have coordinator flag set incorrectly
@@ -10033,6 +10185,11 @@ class P2POrchestrator(
                 "alternate_ipv4_count": sum(1 for ip in getattr(self, "alternate_ips", set()) or set() if ":" not in ip),
                 "alternate_ipv6_count": sum(1 for ip in getattr(self, "alternate_ips", set()) or set() if ":" in ip),
             },
+            # Jan 3, 2026: Leadership consistency metrics for monitoring desync issues
+            # This enables detection of the leader self-recognition bug where leader_id
+            # is set correctly but role doesn't match.
+            "leadership_consistency": self._get_leadership_consistency_metrics(),
+            "is_leader": self._is_leader(),  # Explicit field for quick checks
         })
 
     async def handle_peer_health(self, request: web.Request) -> web.Response:
