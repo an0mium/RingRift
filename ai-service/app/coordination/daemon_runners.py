@@ -986,11 +986,43 @@ async def create_ephemeral_sync() -> None:
 
 
 async def create_gossip_sync() -> None:
-    """Create and run gossip sync daemon."""
+    """Create and run gossip sync daemon.
+
+    Jan 3, 2026: Fixed to provide required constructor arguments.
+    GossipSyncDaemon requires node_id, data_dir, and peers_config.
+    """
     try:
+        import socket
+        from pathlib import Path
+
         from app.distributed.gossip_sync import GossipSyncDaemon
 
-        daemon = GossipSyncDaemon()
+        # Get node_id from hostname
+        node_id = socket.gethostname()
+
+        # Use standard data directory
+        data_dir = Path("data/games")
+
+        # Load peers config from distributed_hosts.yaml
+        peers_config: dict[str, dict] = {}
+        try:
+            from app.config.cluster_config import get_config_cache
+            config = get_config_cache().get_config()
+            if config and "hosts" in config:
+                for host_name, host_info in config["hosts"].items():
+                    if isinstance(host_info, dict):
+                        peers_config[host_name] = {
+                            "host": host_info.get("tailscale_ip") or host_info.get("ssh_host", ""),
+                            "port": host_info.get("gossip_port", 8771),
+                        }
+        except Exception as e:
+            logger.warning(f"Failed to load peers config for GossipSync: {e}")
+
+        daemon = GossipSyncDaemon(
+            node_id=node_id,
+            data_dir=data_dir,
+            peers_config=peers_config,
+        )
         await daemon.start()
         await _wait_for_daemon(daemon)
     except ImportError as e:
@@ -1038,11 +1070,16 @@ async def create_cross_process_poller() -> None:
     """Create and run cross-process event poller daemon.
 
     Jan 3, 2026: Fixed import to use cross_process_events module.
+    Jan 3, 2026: Fixed to provide required process_name argument.
     """
     try:
         from app.coordination.cross_process_events import CrossProcessEventPoller
 
-        poller = CrossProcessEventPoller()
+        # process_name identifies this poller instance for event routing
+        poller = CrossProcessEventPoller(
+            process_name="daemon_manager",
+            event_types=None,  # Subscribe to all event types
+        )
         await poller.start()
         await _wait_for_daemon(poller)
     except ImportError as e:
