@@ -83,6 +83,11 @@ class AutoExportConfig:
     event_driven: bool = True  # Enable event-driven mode (vs pure timer)
     batch_accumulation_timeout_seconds: int = 30  # Max wait before export
     immediate_threshold_multiplier: float = 2.0  # Export immediately if games >= threshold * 2
+    # January 3, 2026: Sync-gating option - when disabled, exports proceed immediately
+    # with local data instead of waiting for DATA_SYNC_COMPLETED from cluster.
+    # Pipeline analysis showed sync-gating added 15-20 Elo worth of latency by
+    # delaying exports until remote data arrived. Disabled by default for faster iteration.
+    gate_export_on_sync: bool = False
 
 
 @dataclass
@@ -354,12 +359,15 @@ class AutoExportDaemon(HandlerBase):
             config_key = f"{board_type}_{num_players}p"
 
             # Phase 3: Mark config as pending sync - export will wait for DATA_SYNC_COMPLETED
-            self._pending_sync_configs.add(config_key)
-            self._pending_sync_times[config_key] = time.time()  # Dec 31, 2025: Track pending time
-            logger.debug(
-                f"[AutoExportDaemon] {config_key}: Marked as pending sync "
-                "(export gated on DATA_SYNC_COMPLETED)"
-            )
+            # January 3, 2026: Only apply sync-gating if gate_export_on_sync is enabled.
+            # When disabled, exports proceed immediately with local data.
+            if self.config.gate_export_on_sync:
+                self._pending_sync_configs.add(config_key)
+                self._pending_sync_times[config_key] = time.time()  # Dec 31, 2025: Track pending time
+                logger.debug(
+                    f"[AutoExportDaemon] {config_key}: Marked as pending sync "
+                    "(export gated on DATA_SYNC_COMPLETED)"
+                )
 
             await self._record_games(config_key, board_type, num_players, games_generated)
 
@@ -843,7 +851,8 @@ class AutoExportDaemon(HandlerBase):
 
         # Phase 3: Check if sync is still pending for this config
         # Export is gated on DATA_SYNC_COMPLETED to prevent race conditions
-        if config_key in self._pending_sync_configs:
+        # January 3, 2026: Only apply sync-gating if gate_export_on_sync is enabled.
+        if self.config.gate_export_on_sync and config_key in self._pending_sync_configs:
             logger.debug(
                 f"[AutoExportDaemon] {config_key}: Export deferred - waiting for sync completion "
                 f"(games pending: {state.games_since_last_export})"

@@ -65,14 +65,18 @@ class VoterHealthConfig:
 
     enabled: bool = True
     check_interval_seconds: int = 30  # Faster than P2P recovery (60s)
-    consecutive_failures_before_offline: int = 2
+    # January 3, 2026: Increased from 2 to 3 to reduce false positives from
+    # transient network hiccups. Slightly slower offline detection but fewer
+    # spurious QUORUM_AT_RISK alerts.
+    consecutive_failures_before_offline: int = 3
     p2p_timeout_seconds: float = 5.0
     tailscale_timeout_seconds: float = 10.0
     ssh_timeout_seconds: float = 15.0
     enable_ssh_fallback: bool = True
     quorum_size: int = 4
     quorum_warning_threshold: int = 5  # Warn when only 5 voters online (quorum + 1)
-    startup_grace_seconds: int = 30
+    # January 3, 2026: Reduced from 30s to 10s for faster startup detection
+    startup_grace_seconds: int = 10
     p2p_port: int = 8770
 
     @classmethod

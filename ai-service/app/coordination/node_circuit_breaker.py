@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -111,6 +112,9 @@ class _NodeCircuitData:
     last_success_time: float | None = None
     opened_at: float | None = None
     half_open_at: float | None = None
+    # January 2026 Sprint 10: Per-circuit jitter offset (set when circuit opens)
+    # This ensures consistent jitter per-circuit until reset
+    jitter_offset: float = 0.0
 
 
 @dataclass
@@ -148,6 +152,18 @@ class NodeCircuitConfig:
 
     # Enable event emission on state changes
     emit_events: bool = True
+
+    # January 2026 Sprint 10: Jitter factor to prevent thundering herd
+    # When multiple nodes reset at the same time, jitter spreads them out
+    # Default 15% jitter = ±7.5% variation from recovery_timeout
+    jitter_factor: float = field(
+        default_factory=lambda: float(
+            os.environ.get(
+                "RINGRIFT_P2P_NODE_CIRCUIT_JITTER_FACTOR",
+                "0.15",
+            )
+        )
+    )
 
     def __post_init__(self) -> None:
         """Validate configuration."""
@@ -194,10 +210,27 @@ class NodeCircuitBreaker:
             self._circuits[node_id] = _NodeCircuitData()
         return self._circuits[node_id]
 
+    def _compute_jittered_timeout(self, circuit: _NodeCircuitData) -> float:
+        """Compute recovery timeout with jitter applied.
+
+        January 2026 Sprint 10: Prevents thundering herd when multiple
+        node circuits reset at the same time. Uses per-circuit jitter
+        offset for consistency (same offset until circuit resets).
+
+        Returns:
+            Recovery timeout in seconds with jitter applied.
+        """
+        base = self.config.recovery_timeout
+        if self.config.jitter_factor <= 0:
+            return base
+        # Apply jitter: base * (1 + jitter_offset), where offset is in [-jitter_factor, +jitter_factor]
+        return base * (1.0 + circuit.jitter_offset)
+
     def _check_recovery(self, circuit: _NodeCircuitData) -> None:
         """Check if circuit should transition to half-open."""
         if circuit.state == NodeCircuitState.OPEN:
-            if circuit.opened_at and (time.time() - circuit.opened_at) >= self.config.recovery_timeout:
+            jittered_timeout = self._compute_jittered_timeout(circuit)
+            if circuit.opened_at and (time.time() - circuit.opened_at) >= jittered_timeout:
                 circuit.state = NodeCircuitState.HALF_OPEN
                 circuit.half_open_at = time.time()
 
@@ -273,6 +306,8 @@ class NodeCircuitBreaker:
                 circuit.state = NodeCircuitState.OPEN
                 circuit.opened_at = time.time()
                 circuit.success_count = 0
+                # January 2026 Sprint 10: Set jitter offset to prevent thundering herd
+                circuit.jitter_offset = self.config.jitter_factor * (2 * random.random() - 1)
                 logger.warning(
                     f"[NodeCircuitBreaker] Circuit OPEN for {node_id} (half-open test failed)"
                 )
@@ -280,6 +315,8 @@ class NodeCircuitBreaker:
                 if circuit.failure_count >= self.config.failure_threshold:
                     circuit.state = NodeCircuitState.OPEN
                     circuit.opened_at = time.time()
+                    # January 2026 Sprint 10: Set jitter offset to prevent thundering herd
+                    circuit.jitter_offset = self.config.jitter_factor * (2 * random.random() - 1)
                     logger.warning(
                         f"[NodeCircuitBreaker] Circuit OPEN for {node_id} "
                         f"({circuit.failure_count} failures)"

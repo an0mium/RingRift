@@ -4563,6 +4563,36 @@ def train_model(
                             )
                             quality_trainer.quality_stats["ranking_loss"] = quality_ranking_loss.item()
 
+                        # January 2026 Sprint 10: Apply quality weights to per-sample losses
+                        # Higher quality samples (sharper policy targets) contribute more to loss
+                        # Expected improvement: +25-40 Elo by focusing learning on decisive positions
+                        if quality_trainer.quality_weight > 0:
+                            # Compute quality weights with minimum floor
+                            quality_weights = torch.clamp(quality_scores, min=quality_trainer.min_quality_weight)
+                            # Normalize to mean 1.0 (preserves effective batch size)
+                            quality_weights = quality_weights / quality_weights.mean()
+                            # Blend with uniform weights
+                            blend = quality_trainer.quality_weight
+                            uniform_weights = torch.ones_like(quality_weights)
+                            final_weights = blend * quality_weights + (1.0 - blend) * uniform_weights
+
+                            # Apply to policy loss (per-sample then weighted mean)
+                            per_sample_policy_loss = -(policy_targets * policy_log_probs).sum(dim=1)
+                            valid_mask = policy_targets.sum(dim=1) > 0
+                            if valid_mask.any():
+                                policy_loss = (per_sample_policy_loss[valid_mask] * final_weights[valid_mask]).mean()
+
+                            # Apply to value loss (per-sample then weighted mean)
+                            if value_pred.ndim == 2:
+                                per_sample_value_loss = ((value_pred - value_targets) ** 2).mean(dim=1)
+                            else:
+                                per_sample_value_loss = (value_pred_scalar.reshape(-1) - value_targets.reshape(-1)) ** 2
+                            value_loss = (per_sample_value_loss * final_weights).mean()
+
+                            # Track statistics
+                            quality_trainer.quality_stats["mean_weight"] = final_weights.mean().item()
+                            quality_trainer.quality_stats["std_weight"] = final_weights.std().item()
+
                     # Entropy regularization to prevent policy collapse
                     # H(p) = -sum(p * log(p)); higher entropy = more exploration
                     # We add -entropy_weight * H to encourage exploration

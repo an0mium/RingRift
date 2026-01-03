@@ -139,7 +139,9 @@ class TrainingTriggerConfig:
     # January 2, 2026: Maximum duration for evaluation backpressure before auto-recovery.
     # If EVALUATION_BACKPRESSURE_RELEASED event is lost/never received, training resumes
     # automatically after this timeout to prevent indefinite training pauses.
-    backpressure_max_duration_seconds: float = 1800.0  # 30 minutes
+    # January 3, 2026: Reduced from 1800s (30 min) to 300s (5 min) based on pipeline
+    # analysis showing shorter backpressure periods are optimal for throughput.
+    backpressure_max_duration_seconds: float = 300.0  # 5 minutes
     # Check interval for periodic scans
     # December 29, 2025: Reduced from 120s to 30s for faster detection
     scan_interval_seconds: int = 30  # 30 seconds
@@ -445,6 +447,10 @@ class TrainingTriggerDaemon(HandlerBase):
             "processes_killed": 0,
             "last_timeout_time": 0.0,
         }
+        # January 3, 2026: NPZ discovery event-driven cache
+        # Caches NPZ metadata from events to skip redundant disk scans during _run_cycle
+        # Key: config_key, Value: (mtime, sample_count, path)
+        self._npz_cache: dict[str, tuple[float, int, str]] = {}
         # December 30, 2025: Multi-architecture training support
         # Tracks training per (config_key, architecture) tuple
         self._architecture_config = MultiArchitectureConfig.load()
@@ -931,15 +937,29 @@ class TrainingTriggerDaemon(HandlerBase):
         # Calculate CI width: 2 * z * sqrt(variance / n)
         ci_width = 2 * z_score * math.sqrt(variance / sample_count)
 
+        # January 2026 Sprint 10: Log CI width and sample variance for all cases
+        # Expected improvement: +5-8 Elo from better confidence threshold tuning
+        logger.debug(
+            f"[TrainingTriggerDaemon] {config_key} CI validation: "
+            f"CI_width={ci_width:.4f}, variance={variance:.4f}, samples={sample_count}, "
+            f"target_CI={self.config.confidence_target_ci_width:.4f}"
+        )
+
         # Check if confidence is high enough
         if ci_width <= self.config.confidence_target_ci_width:
             logger.info(
                 f"[TrainingTriggerDaemon] Confidence early trigger for {config_key}: "
                 f"CI_width={ci_width:.4f} ≤ target={self.config.confidence_target_ci_width:.4f}, "
-                f"samples={sample_count}"
+                f"samples={sample_count}, variance={variance:.4f}"
             )
             return True, f"confidence threshold met (CI={ci_width:.4f})"
 
+        # Log rejection with variance info for threshold tuning
+        logger.debug(
+            f"[TrainingTriggerDaemon] {config_key} confidence not met: "
+            f"CI_width={ci_width:.4f} > target={self.config.confidence_target_ci_width:.4f}, "
+            f"samples_needed≈{int((2 * z_score / self.config.confidence_target_ci_width) ** 2 * variance)}"
+        )
         return False, f"confidence not met (CI={ci_width:.4f} > target={self.config.confidence_target_ci_width:.4f})"
 
     async def _on_npz_export_complete(self, result: Any) -> None:
@@ -965,6 +985,9 @@ class TrainingTriggerDaemon(HandlerBase):
             state.last_npz_update = time.time()
             state.npz_sample_count = samples or 0
             state.npz_path = npz_path
+
+            # January 3, 2026: Update NPZ cache to skip redundant disk scans
+            self._npz_cache[config_key] = (time.time(), samples or 0, npz_path)
 
             logger.info(
                 f"[TrainingTriggerDaemon] NPZ export complete for {config_key}: "
@@ -1007,6 +1030,9 @@ class TrainingTriggerDaemon(HandlerBase):
             state.last_npz_update = time.time()
             state.npz_sample_count = samples or 0
             state.npz_path = output_path
+
+            # January 3, 2026: Update NPZ cache to skip redundant disk scans
+            self._npz_cache[config_key] = (time.time(), samples or 0, output_path)
 
             logger.info(
                 f"[TrainingTriggerDaemon] NPZ combination complete for {config_key}: "
@@ -1854,7 +1880,9 @@ class TrainingTriggerDaemon(HandlerBase):
             "accelerating": 0.5,    # 50% cooldown - train faster
             "stable": 1.0,          # Normal cooldown
             "decelerating": 1.5,    # 150% cooldown - train slower
-            "plateauing": 1.25,     # 125% cooldown - slightly slower
+            # January 3, 2026: Fixed plateauing multiplier - should train MORE aggressively
+            # to break the plateau, not slower. This was backwards before.
+            "plateauing": 0.6,      # 60% cooldown - train faster to break plateau
         }
 
         multiplier = velocity_multipliers.get(state.elo_velocity_trend, 1.0)
@@ -1868,6 +1896,48 @@ class TrainingTriggerDaemon(HandlerBase):
             multiplier *= 1.3
 
         return base_cooldown * multiplier
+
+    def _get_adaptive_max_data_age(self, state: ConfigTrainingState) -> float:
+        """Get adaptive max data age based on velocity trend (January 3, 2026).
+
+        Stalled/plateauing configs should be more lenient on data freshness
+        to allow training with whatever data is available and break the plateau.
+        Accelerating configs should be stricter to maintain training quality.
+
+        Args:
+            state: Current training state for the config
+
+        Returns:
+            Adaptive max data age in hours
+        """
+        base_max_age = self.config.max_data_age_hours
+
+        # Trend-based multipliers for data freshness
+        # Higher multiplier = more lenient (accepts older data)
+        freshness_multipliers = {
+            "accelerating": 0.5,    # Stricter - need fresh data for quality
+            "stable": 1.0,          # Normal threshold
+            "decelerating": 1.5,    # Slightly lenient
+            "plateauing": 3.0,      # Very lenient - accept older data to break stall
+        }
+
+        multiplier = freshness_multipliers.get(state.elo_velocity_trend, 1.0)
+
+        # Also consider time since last successful training
+        # If config hasn't been trained in a long time, be more lenient
+        time_since_training = time.time() - state.last_training_time
+        if time_since_training > 86400:  # >24h since last training
+            multiplier *= 1.5
+        elif time_since_training > 172800:  # >48h since last training
+            multiplier *= 2.0
+
+        adaptive_age = base_max_age * multiplier
+        logger.debug(
+            f"[TrainingTriggerDaemon] {state.config_key}: adaptive_max_data_age="
+            f"{adaptive_age:.1f}h (base={base_max_age:.1f}h, trend={state.elo_velocity_trend}, mult={multiplier:.2f})"
+        )
+
+        return adaptive_age
 
     async def _trigger_priority_sync(
         self, config_key: str, board_type: str, num_players: int
@@ -2141,15 +2211,19 @@ class TrainingTriggerDaemon(HandlerBase):
 
         # 3. Check data freshness (December 2025: use training_freshness for sync)
         # January 2026 (Phase 4.1): Auto-sync on stale data instead of blocking
+        # January 3, 2026: Adaptive data freshness based on velocity trend
+        # - Plateauing configs get 3x threshold (more lenient) to break stalls
+        # - Accelerating configs get 0.5x threshold (stricter) to maintain quality
         data_age_hours = (time.time() - state.last_npz_update) / 3600
-        if data_age_hours > self.config.max_data_age_hours:
+        adaptive_max_age = self._get_adaptive_max_data_age(state)
+        if data_age_hours > adaptive_max_age:
             # December 29, 2025: Strict mode - fail immediately without sync attempt
             if self.config.strict_freshness_mode:
                 return False, f"data too old ({data_age_hours:.1f}h) [strict mode - no sync]"
 
-            # January 2026 (Phase 4.1): Check if data is "very stale" (>2x threshold)
+            # January 2026 (Phase 4.1): Check if data is "very stale" (>2x adaptive threshold)
             # Very stale data → proceed with warning (don't block indefinitely)
-            very_stale_threshold = self.config.max_data_age_hours * 2
+            very_stale_threshold = adaptive_max_age * 2
             if data_age_hours > very_stale_threshold:
                 # Data is very old - proceed anyway with warning to prevent indefinite blocks
                 logger.warning(
@@ -3395,6 +3469,7 @@ class TrainingTriggerDaemon(HandlerBase):
                 await self._maybe_trigger_training(config_key)
 
             # Also scan for NPZ files that haven't been tracked
+            # January 3, 2026: Skip files already known via event-driven cache
             training_dir = Path(__file__).resolve().parent.parent.parent / "data" / "training"
             if training_dir.exists():
                 for npz_path in training_dir.glob("*.npz"):
@@ -3404,6 +3479,16 @@ class TrainingTriggerDaemon(HandlerBase):
                         continue
 
                     config_key = f"{board_type}_{num_players}p"
+
+                    # January 3, 2026: Skip if already in cache with same or newer mtime
+                    # This avoids redundant disk I/O when events already informed us
+                    if config_key in self._npz_cache:
+                        cached_mtime, cached_samples, cached_path = self._npz_cache[config_key]
+                        current_mtime = npz_path.stat().st_mtime
+                        if current_mtime <= cached_mtime:
+                            # File hasn't changed since last event, skip disk read
+                            continue
+
                     if config_key not in self._training_states:
                         state = self._get_or_create_state(config_key, board_type, num_players)
                         state.npz_path = str(npz_path)
@@ -3423,6 +3508,12 @@ class TrainingTriggerDaemon(HandlerBase):
                             from app.utils.numpy_utils import safe_load_npz
                             with safe_load_npz(npz_path) as data:
                                 state.npz_sample_count = len(data.get("values", []))
+                                # Update cache with discovered file
+                                self._npz_cache[config_key] = (
+                                    state.last_npz_update,
+                                    state.npz_sample_count,
+                                    str(npz_path),
+                                )
                         except (FileNotFoundError, OSError, ValueError, ImportError):
                             pass
 

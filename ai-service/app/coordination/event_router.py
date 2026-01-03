@@ -87,6 +87,7 @@ try:
         emit_leader_elected,
         emit_leader_lost,
         emit_node_overloaded,
+        emit_node_suspect,
         emit_promotion_candidate,
         emit_quality_check_requested,
         emit_quality_degraded,
@@ -118,6 +119,7 @@ except ImportError:
     emit_leader_elected = None
     emit_leader_lost = None
     emit_node_overloaded = None
+    emit_node_suspect = None
     emit_promotion_candidate = None
     emit_quality_check_requested = None
     emit_quality_degraded = None
@@ -2053,6 +2055,7 @@ __all__ = [  # noqa: RUF022
     "emit_leader_elected",
     "emit_leader_lost",
     "emit_node_overloaded",
+    "emit_node_suspect",
     "emit_promotion_candidate",
     "emit_quality_check_requested",
     "emit_quality_degraded",

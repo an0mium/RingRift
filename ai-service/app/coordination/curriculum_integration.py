@@ -169,7 +169,13 @@ class MomentumToCurriculumBridge:
             if hasattr(DataEventType, 'CURRICULUM_ADVANCEMENT_NEEDED'):
                 router.subscribe(DataEventType.CURRICULUM_ADVANCEMENT_NEEDED, self._on_curriculum_advancement_needed)
 
-            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED")
+            # January 2026 Sprint 10: Subscribe to ELO_VELOCITY_CHANGED for
+            # velocity-based curriculum acceleration (+15-25 Elo improvement).
+            # When learning is fast (high velocity), accelerate curriculum to capitalize.
+            if hasattr(DataEventType, 'ELO_VELOCITY_CHANGED'):
+                router.subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed)
+
+            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED")
 
             # December 29, 2025: Only set _event_subscribed = True after successful subscription
             # Previously this was in finally block which caused race condition:
@@ -218,6 +224,9 @@ class MomentumToCurriculumBridge:
                 # December 29, 2025: Unsubscribe from CURRICULUM_ADVANCEMENT_NEEDED
                 if hasattr(DataEventType, 'CURRICULUM_ADVANCEMENT_NEEDED'):
                     router.unsubscribe(DataEventType.CURRICULUM_ADVANCEMENT_NEEDED, self._on_curriculum_advancement_needed)
+                # January 2026 Sprint 10: Unsubscribe from ELO_VELOCITY_CHANGED
+                if hasattr(DataEventType, 'ELO_VELOCITY_CHANGED'):
+                    router.unsubscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed)
             self._event_subscribed = False
         except (ImportError, AttributeError, TypeError, RuntimeError):
             # ImportError: modules not available
@@ -633,6 +642,114 @@ class MomentumToCurriculumBridge:
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling curriculum advancement: {e}")
+
+    def _on_elo_velocity_changed(self, event) -> None:
+        """Handle ELO_VELOCITY_CHANGED event - accelerate curriculum on high velocity.
+
+        January 2026 Sprint 10: Velocity-based curriculum acceleration (+15-25 Elo).
+        When learning is fast (high Elo velocity), accelerate curriculum to capitalize:
+        - High velocity (>10 Elo/hr): Boost curriculum weight by 20%
+        - Very high velocity (>20 Elo/hr): Boost by 35%, emit fast-track event
+
+        This closes the feedback loop: Fast learning → Accelerated curriculum → More challenge
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event if isinstance(event, dict) else {}
+
+            config_key = extract_config_key(payload)
+            velocity = payload.get("velocity", 0.0)
+            previous_velocity = payload.get("previous_velocity", 0.0)
+            trend = payload.get("trend", "stable")
+
+            if not config_key:
+                return
+
+            # Velocity thresholds for curriculum acceleration
+            HIGH_VELOCITY_THRESHOLD = 10.0  # Elo/hour
+            VERY_HIGH_VELOCITY_THRESHOLD = 20.0  # Elo/hour
+            BOOST_HIGH = 1.20  # 20% boost
+            BOOST_VERY_HIGH = 1.35  # 35% boost
+
+            # Only accelerate on positive velocity with accelerating trend
+            if velocity <= 0 or trend == "decelerating":
+                return
+
+            # Determine boost level
+            if velocity >= VERY_HIGH_VELOCITY_THRESHOLD:
+                boost_multiplier = BOOST_VERY_HIGH
+                acceleration_level = "fast_track"
+            elif velocity >= HIGH_VELOCITY_THRESHOLD:
+                boost_multiplier = BOOST_HIGH
+                acceleration_level = "accelerated"
+            else:
+                # Below threshold - no acceleration needed
+                return
+
+            logger.info(
+                f"[MomentumToCurriculumBridge] Velocity acceleration for {config_key}: "
+                f"velocity={velocity:.1f} Elo/hr, level={acceleration_level}"
+            )
+
+            # Apply curriculum weight boost
+            try:
+                from app.training.curriculum_feedback import get_curriculum_feedback
+
+                curriculum = get_curriculum_feedback()
+                if curriculum:
+                    current_weights = curriculum.get_curriculum_weights()
+                    old_weight = current_weights.get(config_key, 1.0)
+
+                    # Apply boost, cap at 2.5x
+                    new_weight = min(old_weight * boost_multiplier, 2.5)
+
+                    if new_weight > old_weight:
+                        curriculum.update_weight(
+                            config_key=config_key,
+                            new_weight=new_weight,
+                            source=f"velocity_acceleration_{acceleration_level}",
+                        )
+                        self._last_weights[config_key] = new_weight
+
+                        logger.info(
+                            f"[MomentumToCurriculumBridge] Boosted curriculum weight for {config_key}: "
+                            f"{old_weight:.2f} -> {new_weight:.2f} (velocity={velocity:.1f})"
+                        )
+
+                        # Emit curriculum rebalanced event
+                        self._emit_rebalance_event([config_key], {config_key: new_weight})
+
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[MomentumToCurriculumBridge] Could not update curriculum weight: {e}")
+
+            # For very high velocity, also emit curriculum advanced event
+            if acceleration_level == "fast_track":
+                try:
+                    from app.coordination.event_emitters import emit_curriculum_advanced
+                    import asyncio
+
+                    async def _emit():
+                        await emit_curriculum_advanced(
+                            config_key=config_key,
+                            old_tier="standard",
+                            new_tier="fast_track",
+                            trigger=f"velocity_acceleration_{velocity:.0f}_elo_hr",
+                            source="curriculum_integration",
+                        )
+
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(_emit())
+                    except RuntimeError:
+                        # No running loop - skip async emission
+                        pass
+
+                except ImportError:
+                    pass
+
+            self._last_sync_time = time.time()
+
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            logger.warning(f"[MomentumToCurriculumBridge] Error handling Elo velocity: {e}")
 
     def _sync_weights_for_momentum(
         self,

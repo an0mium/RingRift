@@ -148,6 +148,74 @@ class JobDefaults:
         }
 
 
+@dataclass(frozen=True)
+class LoopTimeouts:
+    """Centralized timeout values for P2P operations (in seconds).
+
+    January 2026 Sprint 10: Consolidates scattered timeout magic numbers.
+    Reduces technical debt and enables consistent tuning.
+    """
+
+    # Health check timeouts
+    HEALTH_CHECK: float = 5.0                # Default health check timeout
+    HEALTH_CHECK_FAST: float = 2.0           # Fast health probes
+    HEALTH_CHECK_SLOW: float = 10.0          # Slow/remote nodes
+
+    # SSH/network timeouts
+    SSH_CONNECT: float = 30.0                # SSH connection timeout
+    SSH_COMMAND: float = 60.0                # SSH command execution
+    SSH_TRANSFER: float = 300.0              # SSH file transfer (large files)
+
+    # HTTP/API timeouts
+    HTTP_QUICK: float = 5.0                  # Quick HTTP requests
+    HTTP_STANDARD: float = 15.0              # Standard HTTP requests
+    HTTP_LONG: float = 30.0                  # Long HTTP requests (data)
+
+    # P2P-specific timeouts
+    GOSSIP_LOCK: float = 5.0                 # Gossip state lock acquisition
+    GOSSIP_RPC: float = 10.0                 # Gossip RPC calls
+    PEER_PROBE: float = 5.0                  # Peer health probe
+    PEER_PROBE_NAT: float = 120.0            # NAT-blocked peer probe
+
+    # Leader election
+    ELECTION_REQUEST: float = 3.0            # Election request timeout
+    LEADER_PROBE: float = 5.0                # Leader health probe
+    STATE_TRANSFER: float = 10.0             # Leader state transfer
+
+    # Sync and transfer
+    SYNC_LOCK: float = 120.0                 # Sync operation lock
+    SYNC_OPERATION: float = 300.0            # Full sync timeout
+    RSYNC_TRANSFER: float = 300.0            # Rsync file transfer
+
+    # Process management
+    PROCESS_SPAWN: float = 30.0              # Process spawn verification
+    PROCESS_GRACEFUL: float = 30.0           # Graceful shutdown timeout
+    SUBPROCESS_QUICK: float = 5.0            # Quick subprocess calls
+    SUBPROCESS_LONG: float = 30.0            # Long subprocess calls
+
+    @staticmethod
+    def get_for_provider(provider: str) -> dict[str, float]:
+        """Get provider-specific timeout adjustments.
+
+        Some providers (Vast.ai) have higher latency and need longer timeouts.
+        """
+        adjustments = {
+            "vast": 1.5,       # 50% longer for Vast.ai
+            "runpod": 1.2,     # 20% longer for RunPod
+            "lambda": 1.0,     # Standard for Lambda
+            "nebius": 1.0,     # Standard for Nebius
+            "vultr": 1.1,      # 10% longer for Vultr
+            "hetzner": 1.0,    # Standard for Hetzner
+        }
+        multiplier = adjustments.get(provider.lower(), 1.0)
+        return {
+            "health_check": LoopTimeouts.HEALTH_CHECK * multiplier,
+            "ssh_connect": LoopTimeouts.SSH_CONNECT * multiplier,
+            "http_standard": LoopTimeouts.HTTP_STANDARD * multiplier,
+            "peer_probe": LoopTimeouts.PEER_PROBE * multiplier,
+        }
+
+
 # Network ports (re-export for convenience)
 DEFAULT_DISCOVERY_PORT: int = 8771
 DEFAULT_P2P_PORT: int = 8770

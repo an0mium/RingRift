@@ -55,6 +55,7 @@ from .loop_constants import (
     LoopIntervals,
     LoopLimits,
     LoopThresholds,
+    LoopTimeouts,
 )
 from .coordination_loops import (
     AutoScalingConfig,

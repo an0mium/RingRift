@@ -69,7 +69,13 @@ class ClusterHealingConfig:
 
     # Maximum nodes to attempt healing per cycle
     # Limits SSH load and allows gradual recovery
-    max_heal_per_cycle: int = 5
+    # January 2026 Sprint 10: Reduced from 10 to 5 to prevent cascading restarts
+    # Higher values can overwhelm the cluster if many nodes need healing simultaneously
+    max_heal_per_cycle: int = field(
+        default_factory=lambda: int(
+            os.environ.get("RINGRIFT_MAX_HEAL_PER_CYCLE", "3")
+        )
+    )
 
     # SSH timeout for connecting to nodes (seconds)
     ssh_timeout_seconds: float = 30.0

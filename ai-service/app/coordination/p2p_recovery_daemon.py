@@ -74,7 +74,9 @@ class P2PRecoveryConfig:
     max_cooldown_seconds: int = 1800  # 30 minutes max cooldown
     health_timeout_seconds: float = 10.0
     min_alive_peers: int = 3
-    startup_grace_seconds: int = 30
+    # January 3, 2026: Reduced from 30s to 10s for 60% faster crash detection.
+    # P2P should be ready within 10s; if not, start health checks early.
+    startup_grace_seconds: int = 10
     # Network isolation detection (December 2025)
     isolation_check_enabled: bool = True
     min_peer_ratio: float = 0.5  # Trigger if P2P sees < 50% of Tailscale peers

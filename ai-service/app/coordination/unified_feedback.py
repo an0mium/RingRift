@@ -461,8 +461,11 @@ class UnifiedFeedbackOrchestrator:
 
             # Dec 29, 2025: Emit ELO_VELOCITY_CHANGED event if velocity changed significantly
             # This enables SelfplayScheduler to adjust allocation based on Elo momentum
+            # January 3, 2026: Also emit on first Elo update for immediate trend classification
+            # This accelerates training decisions by not waiting for 2+ evaluations
             velocity_delta = abs(state.elo_velocity - old_velocity)
-            if velocity_delta > 5.0:  # Significant change (>5 Elo/hour)
+            is_first_update = len(state.elo_history) == 1
+            if velocity_delta > 5.0 or is_first_update:
                 self._emit_elo_velocity_changed(config_key, state.elo_velocity, old_velocity)
 
             # Recompute signals
@@ -1014,6 +1017,10 @@ class UnifiedFeedbackOrchestrator:
         Dec 29, 2025: Added as part of Phase 2 training loop improvements.
         This event enables intelligent selfplay allocation based on Elo momentum.
 
+        January 3, 2026: Enhanced trend detection to include "plateauing" for
+        configs with near-zero velocity. This enables more aggressive training
+        interventions to break plateaus.
+
         Args:
             config_key: Configuration key (e.g., "hex8_2p")
             velocity: New Elo velocity (points/hour)
@@ -1022,11 +1029,15 @@ class UnifiedFeedbackOrchestrator:
         try:
             from app.coordination.event_router import emit_elo_velocity_changed
 
-            # Determine trend
+            # Determine trend with plateauing detection
+            # January 3, 2026: Detect plateauing when velocity stays near zero
             if velocity > previous_velocity + 5:
                 trend = "accelerating"
             elif velocity < previous_velocity - 5:
                 trend = "decelerating"
+            elif abs(velocity) < 2.0 and abs(previous_velocity) < 2.0:
+                # Both current and previous velocity near zero = plateauing
+                trend = "plateauing"
             else:
                 trend = "stable"
 

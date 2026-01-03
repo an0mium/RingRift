@@ -73,7 +73,9 @@ class NPZCombinationConfig:
     combine_on_single_file: bool = False  # Combine even with single file (for metadata)
 
     # Throttling
-    min_interval_seconds: float = 60.0  # Minimum seconds between combinations per config
+    # January 3, 2026: Reduced from 60s to 30s for faster training iteration cycles.
+    # Pipeline analysis showed 60s added unnecessary latency between export and training.
+    min_interval_seconds: float = 30.0  # Minimum seconds between combinations per config
 
     def to_combiner_config(self) -> NPZCombinerConfig:
         """Convert to NPZCombinerConfig."""
