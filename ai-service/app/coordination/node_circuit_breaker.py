@@ -64,6 +64,13 @@ __all__ = [
     "NodeCircuitState",
     "NodeCircuitStatus",
     "get_node_circuit_breaker",
+    "get_node_circuit_registry",
+    # Cluster-level (January 2026)
+    "ClusterCircuitBreaker",
+    "ClusterCircuitConfig",
+    "ClusterCircuitStatus",
+    "ClusterDegradationState",
+    "get_cluster_circuit_breaker",
 ]
 
 
@@ -609,3 +616,287 @@ def get_node_circuit_registry() -> NodeCircuitBreakerRegistry:
     if _registry is None:
         _registry = NodeCircuitBreakerRegistry.get_instance()
     return _registry
+
+
+# =============================================================================
+# Cluster-Level Circuit Breaker (January 2026)
+# =============================================================================
+
+
+class ClusterDegradationState(Enum):
+    """Cluster-level health states based on failure ratio."""
+
+    HEALTHY = "healthy"  # < 20% nodes failing
+    DEGRADED = "degraded"  # 20-40% nodes failing - reduced operations
+    CRITICAL = "critical"  # > 40% nodes failing - pause new work
+
+
+@dataclass
+class ClusterCircuitConfig:
+    """Configuration for cluster-level circuit breaker.
+
+    January 2026: Prevents cascade failures by tracking cluster-wide failure ratio.
+    When too many nodes fail simultaneously, pause operations to prevent amplification.
+    """
+
+    degraded_threshold: float = 0.20  # 20% open = degraded
+    critical_threshold: float = 0.40  # 40% open = critical (pause work)
+    min_nodes_for_tracking: int = 5  # Don't trigger with < 5 nodes
+    recovery_check_interval: float = 30.0  # Check recovery every 30s
+    auto_recovery_threshold: float = 0.15  # Recover when < 15% open
+
+
+@dataclass
+class ClusterCircuitStatus:
+    """Status of cluster-level circuit breaker."""
+
+    state: ClusterDegradationState
+    total_nodes: int
+    open_nodes: int
+    failure_ratio: float
+    degraded_since: float | None = None
+    critical_since: float | None = None
+    open_node_ids: list[str] = field(default_factory=list)
+
+
+class ClusterCircuitBreaker:
+    """Cluster-level circuit breaker for cascade prevention.
+
+    January 2026: Tracks overall cluster health and triggers degradation
+    mode when too many nodes fail simultaneously. This prevents:
+    - Retry storms against failing nodes
+    - Resource exhaustion from repeated timeouts
+    - Cascade failures spreading through the cluster
+
+    Usage:
+        from app.coordination.node_circuit_breaker import get_cluster_circuit_breaker
+
+        cluster_cb = get_cluster_circuit_breaker()
+
+        # Check before scheduling new work
+        if cluster_cb.should_pause_new_work():
+            logger.warning("Cluster degraded - pausing new work scheduling")
+            return
+
+        # Get current cluster health
+        status = cluster_cb.get_status()
+        if status.state == ClusterDegradationState.DEGRADED:
+            # Reduce concurrent operations
+            max_concurrent = max_concurrent // 2
+    """
+
+    _instance: ClusterCircuitBreaker | None = None
+    _lock = RLock()
+
+    def __init__(
+        self,
+        config: ClusterCircuitConfig | None = None,
+        node_breaker: NodeCircuitBreaker | None = None,
+    ):
+        self.config = config or ClusterCircuitConfig()
+        self._node_breaker = node_breaker
+        self._state = ClusterDegradationState.HEALTHY
+        self._degraded_since: float | None = None
+        self._critical_since: float | None = None
+        self._last_state_change: float = time.time()
+        self._state_change_callbacks: list[Callable[[ClusterDegradationState, ClusterDegradationState], None]] = []
+
+    @classmethod
+    def get_instance(
+        cls,
+        config: ClusterCircuitConfig | None = None,
+    ) -> ClusterCircuitBreaker:
+        """Get singleton instance."""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = cls(config=config)
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset singleton (for testing)."""
+        with cls._lock:
+            cls._instance = None
+
+    def _get_node_breaker(self) -> NodeCircuitBreaker:
+        """Get node circuit breaker (lazy initialization)."""
+        if self._node_breaker is None:
+            self._node_breaker = get_node_circuit_breaker()
+        return self._node_breaker
+
+    def _calculate_failure_ratio(self) -> tuple[float, int, int, list[str]]:
+        """Calculate current cluster failure ratio.
+
+        Returns:
+            (failure_ratio, total_nodes, open_nodes, open_node_ids)
+        """
+        summary = self._get_node_breaker().get_summary()
+        total = summary["total_nodes"]
+        open_count = summary["open"]
+        open_nodes = summary.get("open_nodes", [])
+
+        if total < self.config.min_nodes_for_tracking:
+            return 0.0, total, open_count, open_nodes
+
+        ratio = open_count / total if total > 0 else 0.0
+        return ratio, total, open_count, open_nodes
+
+    def update_state(self) -> ClusterDegradationState:
+        """Update cluster state based on current failure ratio.
+
+        Call this periodically (e.g., after health checks) to update state.
+        """
+        ratio, total, open_count, open_nodes = self._calculate_failure_ratio()
+        old_state = self._state
+        now = time.time()
+
+        if total < self.config.min_nodes_for_tracking:
+            # Not enough nodes to track - stay healthy
+            new_state = ClusterDegradationState.HEALTHY
+        elif ratio >= self.config.critical_threshold:
+            new_state = ClusterDegradationState.CRITICAL
+            if self._critical_since is None:
+                self._critical_since = now
+        elif ratio >= self.config.degraded_threshold:
+            new_state = ClusterDegradationState.DEGRADED
+            if self._degraded_since is None:
+                self._degraded_since = now
+            self._critical_since = None
+        elif ratio < self.config.auto_recovery_threshold:
+            new_state = ClusterDegradationState.HEALTHY
+            self._degraded_since = None
+            self._critical_since = None
+        else:
+            # Hysteresis: stay in current state if between recovery and degraded thresholds
+            new_state = self._state
+
+        if new_state != old_state:
+            self._state = new_state
+            self._last_state_change = now
+            self._notify_state_change(old_state, new_state, ratio, open_nodes)
+
+        return self._state
+
+    def _notify_state_change(
+        self,
+        old_state: ClusterDegradationState,
+        new_state: ClusterDegradationState,
+        ratio: float,
+        open_nodes: list[str],
+    ) -> None:
+        """Notify callbacks and emit events on state change."""
+        logger.warning(
+            f"[ClusterCircuitBreaker] State change: {old_state.value} → {new_state.value} "
+            f"(failure_ratio={ratio:.1%}, open_nodes={len(open_nodes)})"
+        )
+
+        # Emit event if available
+        if _HAS_EVENTS and publish_sync is not None:
+            try:
+                # Use CLUSTER_HEALTH_CHANGED event type
+                publish_sync(
+                    DataEventType.CLUSTER_HEALTH_CHANGED,
+                    {
+                        "old_state": old_state.value,
+                        "new_state": new_state.value,
+                        "failure_ratio": ratio,
+                        "open_nodes": open_nodes,
+                        "is_degraded": new_state != ClusterDegradationState.HEALTHY,
+                        "is_critical": new_state == ClusterDegradationState.CRITICAL,
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"[ClusterCircuitBreaker] Event emission failed: {e}")
+
+        # Notify callbacks
+        for callback in self._state_change_callbacks:
+            try:
+                callback(old_state, new_state)
+            except Exception as e:
+                logger.error(f"[ClusterCircuitBreaker] Callback error: {e}")
+
+    def get_state(self) -> ClusterDegradationState:
+        """Get current cluster degradation state."""
+        return self._state
+
+    def get_status(self) -> ClusterCircuitStatus:
+        """Get detailed cluster circuit status."""
+        ratio, total, open_count, open_nodes = self._calculate_failure_ratio()
+        return ClusterCircuitStatus(
+            state=self._state,
+            total_nodes=total,
+            open_nodes=open_count,
+            failure_ratio=ratio,
+            degraded_since=self._degraded_since,
+            critical_since=self._critical_since,
+            open_node_ids=open_nodes,
+        )
+
+    def should_pause_new_work(self) -> bool:
+        """Check if new work should be paused due to cluster degradation.
+
+        Returns True when cluster is in CRITICAL state (>40% failure).
+        """
+        self.update_state()
+        return self._state == ClusterDegradationState.CRITICAL
+
+    def should_reduce_concurrency(self) -> bool:
+        """Check if concurrency should be reduced due to degradation.
+
+        Returns True when cluster is DEGRADED or CRITICAL.
+        """
+        self.update_state()
+        return self._state != ClusterDegradationState.HEALTHY
+
+    def get_recommended_concurrency_factor(self) -> float:
+        """Get recommended concurrency reduction factor.
+
+        Returns:
+            1.0 for healthy, 0.5 for degraded, 0.1 for critical
+        """
+        self.update_state()
+        if self._state == ClusterDegradationState.HEALTHY:
+            return 1.0
+        elif self._state == ClusterDegradationState.DEGRADED:
+            return 0.5
+        else:
+            return 0.1
+
+    def add_state_change_callback(
+        self,
+        callback: Callable[[ClusterDegradationState, ClusterDegradationState], None],
+    ) -> None:
+        """Register callback for state changes."""
+        self._state_change_callbacks.append(callback)
+
+    def force_healthy(self) -> None:
+        """Force cluster to healthy state (manual intervention)."""
+        old_state = self._state
+        self._state = ClusterDegradationState.HEALTHY
+        self._degraded_since = None
+        self._critical_since = None
+        if old_state != self._state:
+            logger.info("[ClusterCircuitBreaker] Forced to HEALTHY state")
+
+
+# Module-level singleton access
+_cluster_breaker: ClusterCircuitBreaker | None = None
+
+
+def get_cluster_circuit_breaker() -> ClusterCircuitBreaker:
+    """Get the cluster-level circuit breaker singleton.
+
+    January 2026: Use this to check cluster health before scheduling work.
+
+    Example:
+        cluster_cb = get_cluster_circuit_breaker()
+        if cluster_cb.should_pause_new_work():
+            return  # Don't schedule - cluster degraded
+    """
+    global _cluster_breaker
+    if _cluster_breaker is None:
+        _cluster_breaker = ClusterCircuitBreaker.get_instance()
+    return _cluster_breaker
+
+

@@ -664,6 +664,40 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         factory_func="get_parity_validation_daemon",
         notes="Dec 30, 2025: Validates pending_gate databases and stores TS hashes",
     ),
+    # --- Comprehensive Data Consolidation System (January 2026) ---
+    # These daemons provide unified data management across all storage locations.
+    "owc_push": RunnerSpec(
+        module="app.coordination.owc_push_daemon",
+        class_name="OWCPushDaemon",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_owc_push_daemon",
+        notes="Jan 2026: Push data to OWC external drive for backup",
+    ),
+    "s3_import": RunnerSpec(
+        module="app.coordination.s3_import_daemon",
+        class_name="S3ImportDaemon",
+        style=InstantiationStyle.SINGLETON,
+        notes="Jan 2026: Import data from S3 for recovery/bootstrap",
+    ),
+    "unified_data_catalog": RunnerSpec(
+        module="app.coordination.unified_data_catalog",
+        class_name="UnifiedDataCatalog",
+        style=InstantiationStyle.SINGLETON,
+        notes="Jan 2026: Single API for querying data across all sources",
+    ),
+    "dual_backup": RunnerSpec(
+        module="app.coordination.dual_backup_daemon",
+        class_name="DualBackupDaemon",
+        style=InstantiationStyle.SINGLETON,
+        notes="Jan 2026: Ensures data is backed up to BOTH S3 AND OWC",
+    ),
+    "node_data_agent": RunnerSpec(
+        module="app.coordination.node_data_agent",
+        class_name="NodeDataAgent",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_node_data_agent",
+        notes="Jan 2026: Per-node agent for data discovery and fetching",
+    ),
 }
 
 
@@ -2364,6 +2398,65 @@ async def create_cluster_consolidation() -> None:
         raise
 
 
+async def create_comprehensive_consolidation() -> None:
+    """Create and run comprehensive consolidation daemon (January 2026).
+
+    Scheduled sweep consolidation that finds ALL games across 14+ storage patterns.
+    Unlike DATA_CONSOLIDATION (event-driven), this runs on a schedule to ensure
+    no games are missed from:
+    - owc_imports/ - Games imported from OWC external drive
+    - synced/ - Games synced from P2P cluster
+    - p2p_gpu/ - Games from GPU selfplay nodes
+    - gumbel/ - High-quality Gumbel MCTS games
+    - slurm/ - Games from SLURM cluster runs
+    - And 9+ other patterns
+
+    Flow:
+        1. Runs on schedule (default: every 30 minutes)
+        2. Uses GameDiscovery to scan all 14+ database patterns
+        3. Merges all games into canonical_*.db databases
+        4. Updates consolidation_tracking.db with progress
+        5. Emits COMPREHENSIVE_CONSOLIDATION_COMPLETE event
+
+    Sprint 1 of Unified Data Consolidation plan.
+    """
+    try:
+        from app.coordination.comprehensive_consolidation_daemon import (
+            get_comprehensive_consolidation_daemon,
+        )
+
+        daemon = get_comprehensive_consolidation_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"ComprehensiveConsolidationDaemon not available: {e}")
+        raise
+
+
+async def create_unified_data_sync_orchestrator() -> None:
+    """Create and run unified data sync orchestrator daemon (January 2026).
+
+    Central coordinator for all data synchronization operations:
+    - Listens to DATA_SYNC_COMPLETED events from AutoSyncDaemon
+    - Triggers S3 and OWC backups based on event flags
+    - Tracks replication status across all storage destinations
+    - Provides unified visibility into data distribution
+
+    Part of unified data sync plan for comprehensive backup and visibility.
+    """
+    try:
+        from app.coordination.unified_data_sync_orchestrator import (
+            get_unified_data_sync_orchestrator,
+        )
+
+        daemon = get_unified_data_sync_orchestrator()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"UnifiedDataSyncOrchestrator not available: {e}")
+        raise
+
+
 async def create_npz_combination() -> None:
     """Create and run NPZ combination daemon (December 2025).
 
@@ -2824,6 +2917,8 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.METRICS_ANALYSIS.name: create_metrics_analysis,
         DaemonType.DATA_CONSOLIDATION.name: create_data_consolidation,
         DaemonType.CLUSTER_CONSOLIDATION.name: create_cluster_consolidation,
+        DaemonType.COMPREHENSIVE_CONSOLIDATION.name: create_comprehensive_consolidation,  # Jan 2026: Scheduled sweep
+        DaemonType.UNIFIED_DATA_SYNC_ORCHESTRATOR.name: create_unified_data_sync_orchestrator,
         DaemonType.INTEGRITY_CHECK.name: create_integrity_check,
         # Cluster Availability Manager (December 28, 2025)
         DaemonType.AVAILABILITY_NODE_MONITOR.name: create_availability_node_monitor,

@@ -325,3 +325,280 @@ class ManifestHandlersMixin(BaseP2PHandler):
                 "unconsolidated_by_config": {},
                 "error": str(e),
             }
+
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
+    async def handle_backup_status(self, request: web.Request) -> web.Response:
+        """Return backup completeness status for all configurations.
+
+        Jan 3, 2026: Sprint 2 - Backup Completeness Tracking
+
+        Compares local canonical databases with S3 and OWC backup inventories
+        to show backup coverage percentage per config.
+
+        Query params:
+            refresh: If "true", bypass cache and query fresh
+            config: If specified, return only that config's status
+
+        Returns:
+            {
+                "timestamp": ...,
+                "overall": {
+                    "total_local_games": ...,
+                    "total_s3_games": ...,
+                    "total_owc_games": ...,
+                    "overall_s3_coverage": ...,
+                    "overall_owc_coverage": ...,
+                    "configs_complete": ...,
+                    "configs_incomplete": ...,
+                },
+                "by_config": {
+                    "hex8_2p": {
+                        "local_game_count": ...,
+                        "s3_game_count": ...,
+                        "s3_coverage": ...,
+                        "owc_game_count": ...,
+                        "owc_coverage": ...,
+                        "dual_backed_up": ...,
+                        "needs_backup": ...,
+                    },
+                    ...
+                },
+            }
+        """
+        import time
+        try:
+            refresh_raw = str(request.query.get("refresh", "") or "").strip().lower()
+            refresh = refresh_raw in {"1", "true", "yes", "y"}
+            config_filter = request.query.get("config")
+
+            backup_status = await self._get_backup_status(
+                force_refresh=refresh,
+                config_filter=config_filter,
+            )
+
+            return web.json_response({
+                "timestamp": time.time(),
+                "node_id": self.node_id,
+                **backup_status,
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[ManifestHandlers] Error in handle_backup_status")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _get_backup_status(
+        self,
+        force_refresh: bool = False,
+        config_filter: str | None = None,
+    ) -> dict:
+        """Get backup completeness status from BackupCompletenessTracker.
+
+        Jan 3, 2026: Sprint 2 - Backup Completeness Tracking
+        """
+        try:
+            from app.coordination.backup_completeness import (
+                get_backup_completeness_tracker,
+            )
+
+            tracker = get_backup_completeness_tracker()
+
+            if config_filter:
+                # Return status for a single config
+                status = await tracker.get_backup_status(
+                    config_filter,
+                    force_refresh=force_refresh,
+                )
+                return {
+                    "config": config_filter,
+                    "status": status.to_dict(),
+                }
+            else:
+                # Return overall status with all configs
+                overall = await tracker.get_all_status(force_refresh=force_refresh)
+                return {
+                    "overall": {
+                        "total_local_games": overall.total_local_games,
+                        "total_s3_games": overall.total_s3_games,
+                        "total_owc_games": overall.total_owc_games,
+                        "overall_s3_coverage": overall.overall_s3_coverage,
+                        "overall_owc_coverage": overall.overall_owc_coverage,
+                        "configs_complete": overall.configs_complete,
+                        "configs_incomplete": overall.configs_incomplete,
+                        "configs_missing": overall.configs_missing,
+                        "last_checked": overall.last_checked,
+                    },
+                    "by_config": {
+                        k: v.to_dict() for k, v in overall.by_config.items()
+                    },
+                }
+        except ImportError as e:
+            logger.warning(f"[ManifestHandlers] BackupCompletenessTracker not available: {e}")
+            return {
+                "error": "backup_completeness_module_not_available",
+                "details": str(e),
+            }
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error getting backup status: {e}")
+            return {
+                "error": str(e),
+            }
+
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
+    async def handle_cluster_data_summary(self, request: web.Request) -> web.Response:
+        """Return aggregated data summary across all storage sources.
+
+        Jan 3, 2026: Sprint 3 - Unified Data Visibility
+
+        Aggregates game counts from:
+        - Local canonical databases
+        - S3 backup inventory
+        - OWC backup inventory
+        - P2P cluster manifest
+
+        Query params:
+            refresh: If "true", bypass cache and query fresh
+
+        Returns:
+            {
+                "timestamp": ...,
+                "summary": {
+                    "hex8_2p": {
+                        "local": 50000,
+                        "s3": 49000,
+                        "owc": 48500,
+                        "p2p": 52000,
+                        "total": 52000,  # Max across sources
+                    },
+                    ...
+                },
+                "totals": {
+                    "local": 200000,
+                    "s3": 195000,
+                    "owc": 190000,
+                    "p2p": 210000,
+                },
+            }
+        """
+        import time
+        try:
+            refresh_raw = str(request.query.get("refresh", "") or "").strip().lower()
+            refresh = refresh_raw in {"1", "true", "yes", "y"}
+
+            data_summary = await self._collect_cluster_data_summary(force_refresh=refresh)
+
+            return web.json_response({
+                "timestamp": time.time(),
+                "node_id": self.node_id,
+                **data_summary,
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.exception("[ManifestHandlers] Error in handle_cluster_data_summary")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _collect_cluster_data_summary(self, force_refresh: bool = False) -> dict:
+        """Collect aggregated data summary from all sources.
+
+        Jan 3, 2026: Sprint 3 - Unified Data Visibility
+
+        Sources:
+        1. Local canonical databases (GameDiscovery)
+        2. S3 backup inventory (S3Inventory)
+        3. OWC backup inventory (OWCInventory)
+        4. P2P cluster manifest (ClusterManifest)
+
+        Returns:
+            {
+                "summary": {config_key: {local, s3, owc, p2p, total}},
+                "totals": {local, s3, owc, p2p},
+            }
+        """
+        summary: dict[str, dict[str, int]] = {}
+        totals = {"local": 0, "s3": 0, "owc": 0, "p2p": 0}
+
+        # 1. Local canonical databases
+        try:
+            from app.utils.game_discovery import GameDiscovery
+            discovery = GameDiscovery()
+
+            for db_info in discovery.find_all_databases():
+                # Only count canonical databases
+                if "canonical" not in db_info.path.name:
+                    continue
+
+                config_key = f"{db_info.board_type}_{db_info.num_players}p"
+                if config_key not in summary:
+                    summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
+
+                summary[config_key]["local"] += db_info.game_count
+                totals["local"] += db_info.game_count
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error getting local counts: {e}")
+
+        # 2. S3 inventory
+        try:
+            from app.coordination.s3_inventory import get_s3_inventory
+            s3_inventory = get_s3_inventory()
+            s3_counts = await s3_inventory.get_game_counts(force_refresh=force_refresh)
+
+            for config_key, count in s3_counts.items():
+                if config_key not in summary:
+                    summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
+                summary[config_key]["s3"] = count
+                totals["s3"] += count
+        except ImportError:
+            logger.debug("[ManifestHandlers] S3 inventory not available")
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error getting S3 counts: {e}")
+
+        # 3. OWC inventory
+        try:
+            from app.coordination.owc_inventory import get_owc_inventory
+            owc_inventory = get_owc_inventory()
+            owc_counts = await owc_inventory.get_game_counts(force_refresh=force_refresh)
+
+            for config_key, count in owc_counts.items():
+                if config_key not in summary:
+                    summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
+                summary[config_key]["owc"] = count
+                totals["owc"] += count
+        except ImportError:
+            logger.debug("[ManifestHandlers] OWC inventory not available")
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error getting OWC counts: {e}")
+
+        # 4. P2P cluster manifest
+        try:
+            from app.distributed.cluster_manifest import get_cluster_manifest
+            manifest = get_cluster_manifest()
+
+            with manifest._connection() as conn:
+                cursor = conn.execute("""
+                    SELECT board_type || '_' || num_players || 'p' as config,
+                           COUNT(DISTINCT game_id) as game_count
+                    FROM game_locations
+                    WHERE board_type IS NOT NULL
+                    GROUP BY board_type, num_players
+                """)
+                for row in cursor:
+                    config_key = row[0]
+                    count = row[1]
+                    if config_key and config_key != "None_Nonep":
+                        if config_key not in summary:
+                            summary[config_key] = {"local": 0, "s3": 0, "owc": 0, "p2p": 0, "total": 0}
+                        summary[config_key]["p2p"] = count
+                        totals["p2p"] += count
+        except Exception as e:
+            logger.warning(f"[ManifestHandlers] Error getting P2P counts: {e}")
+
+        # Compute total (max across all sources) for each config
+        for config_key, counts in summary.items():
+            counts["total"] = max(
+                counts["local"],
+                counts["s3"],
+                counts["owc"],
+                counts["p2p"],
+            )
+
+        return {
+            "summary": summary,
+            "totals": totals,
+        }

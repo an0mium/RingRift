@@ -333,6 +333,42 @@ class SyncHealthSummary:
 
 
 @dataclass
+class DataSyncHealthSummary:
+    """Summary of unified data sync health (January 2026).
+
+    Tracks backup status to S3 and OWC for disaster recovery readiness.
+    """
+
+    # Backup status
+    s3_healthy: bool = True
+    owc_healthy: bool = True
+    last_s3_backup_time: float = 0.0
+    last_owc_backup_time: float = 0.0
+
+    # Counters
+    s3_backups_succeeded: int = 0
+    s3_backups_failed: int = 0
+    owc_backups_succeeded: int = 0
+    owc_backups_failed: int = 0
+
+    # Replication status
+    pending_backups: int = 0
+    under_replicated_count: int = 0
+    games_with_s3_backup: int = 0
+    games_with_owc_backup: int = 0
+
+    @property
+    def is_healthy(self) -> bool:
+        """Check if data sync is healthy."""
+        return self.s3_healthy and self.owc_healthy
+
+    @property
+    def has_redundancy(self) -> bool:
+        """Check if data has redundant backups."""
+        return self.games_with_s3_backup > 0 and self.games_with_owc_backup > 0
+
+
+@dataclass
 class ClusterHealthStatus:
     """Comprehensive cluster health status.
 
@@ -364,6 +400,7 @@ class ClusterHealthStatus:
     node_counts: dict[str, int] = field(default_factory=dict)
     daemon_health: DaemonHealthSummary = field(default_factory=DaemonHealthSummary)
     sync_health: SyncHealthSummary = field(default_factory=SyncHealthSummary)
+    data_sync_health: DataSyncHealthSummary = field(default_factory=DataSyncHealthSummary)
 
     # Aggregated status
     total_nodes: int = 0
@@ -493,6 +530,9 @@ class ClusterHealthDashboard:
         if sync_summary.consecutive_failures > 0:
             sync_score = max(0, sync_score - sync_summary.consecutive_failures * 10)
 
+        # Get data sync health (January 2026)
+        data_sync_summary = self._get_data_sync_health()
+
         # Calculate overall score (weighted average)
         overall_score = (
             self.WEIGHT_SYSTEM * system_score
@@ -525,6 +565,7 @@ class ClusterHealthDashboard:
             node_counts=node_counts,
             daemon_health=daemon_summary,
             sync_health=sync_summary,
+            data_sync_health=data_sync_summary,
             total_nodes=sum(node_counts.values()),
             healthy_nodes=node_counts.get(NodeHealthState.HEALTHY.value, 0),
             pipeline_paused=should_pause,
@@ -630,6 +671,39 @@ class ClusterHealthDashboard:
             logger.debug(f"Error getting sync health: {e}")
             return SyncHealthSummary()
 
+    def _get_data_sync_health(self) -> DataSyncHealthSummary:
+        """Get unified data sync health summary (January 2026).
+
+        Collects metrics from UnifiedDataSyncOrchestrator for backup status.
+        """
+        try:
+            from app.coordination.unified_data_sync_orchestrator import (
+                get_unified_data_sync_orchestrator,
+            )
+
+            orchestrator = get_unified_data_sync_orchestrator()
+            metrics = orchestrator.get_metrics()
+
+            return DataSyncHealthSummary(
+                s3_healthy=metrics.get("s3_backups_failed", 0) < 5,
+                owc_healthy=metrics.get("owc_backups_failed", 0) < 5,
+                last_s3_backup_time=0.0,  # TODO: Track in orchestrator
+                last_owc_backup_time=0.0,  # TODO: Track in orchestrator
+                s3_backups_succeeded=metrics.get("s3_backups_succeeded", 0),
+                s3_backups_failed=metrics.get("s3_backups_failed", 0),
+                owc_backups_succeeded=metrics.get("owc_backups_succeeded", 0),
+                owc_backups_failed=metrics.get("owc_backups_failed", 0),
+                pending_backups=metrics.get("pending_backups", 0),
+                under_replicated_count=metrics.get("under_replicated_count", 0),
+            )
+
+        except ImportError:
+            logger.debug("UnifiedDataSyncOrchestrator not available for health check")
+            return DataSyncHealthSummary()  # Default healthy state
+        except Exception as e:
+            logger.debug(f"Error getting data sync health: {e}")
+            return DataSyncHealthSummary()
+
     def should_allow_new_jobs(
         self,
         threshold: float = DEFAULT_JOB_SCHEDULING_THRESHOLD,
@@ -731,6 +805,15 @@ def get_sync_health_summary() -> SyncHealthSummary:
     return get_cluster_health_dashboard()._get_sync_health()
 
 
+def get_data_sync_health_summary() -> DataSyncHealthSummary:
+    """Get a summary of unified data sync health (January 2026).
+
+    Returns:
+        DataSyncHealthSummary with backup status to S3 and OWC
+    """
+    return get_cluster_health_dashboard()._get_data_sync_health()
+
+
 __all__ = [
     # System-level health
     "get_health_manager",
@@ -760,10 +843,12 @@ __all__ = [
     "ClusterHealthStatus",
     "DaemonHealthSummary",
     "SyncHealthSummary",
+    "DataSyncHealthSummary",  # January 2026
     "get_cluster_health_dashboard",
     "should_allow_new_jobs",
     "get_daemon_health_summary",
     "get_sync_health_summary",
+    "get_data_sync_health_summary",  # January 2026
     "DEFAULT_JOB_SCHEDULING_THRESHOLD",
     # Backward compat (deprecated)
     "get_node_health_monitor",

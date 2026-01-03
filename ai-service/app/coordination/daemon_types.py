@@ -275,6 +275,12 @@ class DaemonType(Enum):
     # Combines historical data with fresh data using quality and freshness weighting
     NPZ_COMBINATION = "npz_combination"
 
+    # Comprehensive consolidation (January 2026) - scheduled sweep consolidation
+    # Unlike DATA_CONSOLIDATION (event-driven), this runs on a schedule to find
+    # ALL games across 14+ storage patterns (owc_imports, synced, p2p_gpu, etc.)
+    # Ensures no games are missed by the event-driven consolidation daemon
+    COMPREHENSIVE_CONSOLIDATION = "comprehensive_consolidation"
+
     # Disk space manager (December 2025) - proactive disk space management
     # Monitors disk usage and triggers cleanup before reaching critical thresholds
     DISK_SPACE_MANAGER = "disk_space_manager"
@@ -392,6 +398,32 @@ class DaemonType(Enum):
     # Event-driven: responds to NEW_GAMES_AVAILABLE, SELFPLAY_COMPLETE.
     # =========================================================================
     CLUSTER_CONSOLIDATION = "cluster_consolidation"
+
+    # =========================================================================
+    # Unified Data Sync Orchestrator (January 2026)
+    # =========================================================================
+    # Central coordinator for all data synchronization operations.
+    # Listens to DATA_SYNC_COMPLETED events and triggers S3/OWC backups.
+    # Tracks replication status and provides unified data visibility.
+    # Event-driven: responds to DATA_SYNC_COMPLETED, BACKUP_COMPLETED.
+    # =========================================================================
+    UNIFIED_DATA_SYNC_ORCHESTRATOR = "unified_data_sync_orchestrator"
+
+    # =========================================================================
+    # Comprehensive Data Consolidation System (January 2026)
+    # =========================================================================
+    # These daemons provide unified data management across all storage:
+    # - OWC_PUSH: Push data to OWC external drive for backup
+    # - S3_IMPORT: Import data from S3 for recovery/bootstrap
+    # - UNIFIED_DATA_CATALOG: Single API for querying data across sources
+    # - DUAL_BACKUP: Ensures data is backed up to BOTH S3 AND OWC
+    # - NODE_DATA_AGENT: Per-node agent for data discovery and fetching
+    # =========================================================================
+    OWC_PUSH = "owc_push"
+    S3_IMPORT = "s3_import"
+    UNIFIED_DATA_CATALOG = "unified_data_catalog"
+    DUAL_BACKUP = "dual_backup"
+    NODE_DATA_AGENT = "node_data_agent"
 
 
 class DaemonState(Enum):
@@ -633,6 +665,12 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.OWC_IMPORT: DaemonCategory.SYNC,
     DaemonType.SYNC_PUSH: DaemonCategory.SYNC,
     DaemonType.CLUSTER_CONSOLIDATION: DaemonCategory.SYNC,  # Jan 2026: Pull games from cluster
+    DaemonType.UNIFIED_DATA_SYNC_ORCHESTRATOR: DaemonCategory.SYNC,  # Jan 2026: Coordinate all data sync
+    DaemonType.OWC_PUSH: DaemonCategory.SYNC,  # Jan 2026: Push to OWC external drive
+    DaemonType.S3_IMPORT: DaemonCategory.SYNC,  # Jan 2026: Import from S3
+    DaemonType.UNIFIED_DATA_CATALOG: DaemonCategory.SYNC,  # Jan 2026: Unified data catalog API
+    DaemonType.DUAL_BACKUP: DaemonCategory.SYNC,  # Jan 2026: Dual S3+OWC backup
+    DaemonType.NODE_DATA_AGENT: DaemonCategory.DISTRIBUTION,  # Jan 2026: Per-node data agent
 
     # PIPELINE category - data pipeline (high threshold, exempt from global)
     DaemonType.DATA_PIPELINE: DaemonCategory.PIPELINE,
@@ -640,6 +678,7 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.AUTO_EXPORT: DaemonCategory.PIPELINE,
     DaemonType.DATA_CONSOLIDATION: DaemonCategory.PIPELINE,
     DaemonType.NPZ_COMBINATION: DaemonCategory.PIPELINE,
+    DaemonType.COMPREHENSIVE_CONSOLIDATION: DaemonCategory.PIPELINE,  # Jan 2026: Scheduled sweep
     DaemonType.CONTINUOUS_TRAINING_LOOP: DaemonCategory.PIPELINE,
     DaemonType.CASCADE_TRAINING: DaemonCategory.PIPELINE,
 
@@ -923,6 +962,8 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     DaemonType.DATA_CONSOLIDATION: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
     # NPZ combination (Dec 2025) - combines NPZ files after export
     DaemonType.NPZ_COMBINATION: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
+    # Comprehensive consolidation (Jan 2026) - scheduled sweep across all storage patterns
+    DaemonType.COMPREHENSIVE_CONSOLIDATION: {DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE},
     DaemonType.S3_BACKUP: {DaemonType.EVENT_ROUTER, DaemonType.AUTO_PROMOTION},
     # S3 node sync (December 2025) - bi-directional S3 sync for cluster nodes
     DaemonType.S3_NODE_SYNC: {DaemonType.EVENT_ROUTER},

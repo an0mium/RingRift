@@ -204,6 +204,9 @@ DATA_MANIFEST_ROUTES = [
     Route("GET", "/data_manifest", "handle_data_manifest"),
     Route("GET", "/cluster_data_manifest", "handle_cluster_data_manifest"),
     Route("POST", "/refresh_manifest", "handle_refresh_manifest"),
+    Route("GET", "/data/inventory", "handle_data_inventory"),  # Jan 3, 2026: Sprint 1 - Comprehensive consolidation
+    Route("GET", "/backup/status", "handle_backup_status"),  # Jan 3, 2026: Sprint 2 - Backup completeness tracking
+    Route("GET", "/cluster/data-summary", "handle_cluster_data_summary"),  # Jan 3, 2026: Sprint 3 - Unified visibility
 ]
 
 # ===========================================================================
