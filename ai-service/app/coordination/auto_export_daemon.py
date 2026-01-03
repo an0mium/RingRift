@@ -183,20 +183,22 @@ class AutoExportDaemon(HandlerBase):
     async def _on_start(self) -> None:
         """Hook called before main loop - check coordinator mode and init state DB."""
         from app.config.env import env
-        if env.is_coordinator or not env.export_enabled:
-            logger.info(
-                f"[AutoExportDaemon] Skipped on coordinator node: {env.node_id} "
-                f"(is_coordinator={env.is_coordinator}, export_enabled={env.export_enabled})"
-            )
-            self._coordinator_skip = True
-            return
 
-        # Initialize state persistence and load previous state (Phase 8)
-        # Dec 30, 2025: Wrap blocking SQLite I/O with asyncio.to_thread()
-        # to avoid blocking the event loop
+        # Initialize state persistence first for visibility, even on coordinators
+        # Jan 3, 2026: State DB should be initialized for observability regardless
+        # of whether exports are actually run on this node
         if self._daemon_config.persist_state:
             await asyncio.to_thread(self._init_state_db)
             await asyncio.to_thread(self._load_state)
+
+        if env.is_coordinator or not env.export_enabled:
+            logger.info(
+                f"[AutoExportDaemon] Export operations skipped on coordinator node: {env.node_id} "
+                f"(is_coordinator={env.is_coordinator}, export_enabled={env.export_enabled}). "
+                f"State tracking still active for observability."
+            )
+            self._coordinator_skip = True
+            return
 
     # ========== State Persistence (Phase 8 Dec 2025) ==========
 

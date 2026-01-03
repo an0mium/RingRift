@@ -549,6 +549,8 @@ class HealthCheckOrchestrator:
         P0.2 (December 2025): Enables SelfplayScheduler and ResourceMonitoringCoordinator
         to track available capacity for job scheduling.
 
+        Sprint 10 (Jan 3, 2026): Now uses unified emitter for consistent payloads.
+
         Args:
             node_id: Node identifier
             gpu_memory_gb: Available GPU memory in GB
@@ -557,24 +559,25 @@ class HealthCheckOrchestrator:
             available_slots: Number of available task slots
         """
         try:
-            from app.coordination.event_router import publish_sync
+            # Sprint 10: Use unified emitter for consistent payloads
+            from app.distributed.data_events import emit_node_capacity_updated_sync
 
-            publish_sync("NODE_CAPACITY_UPDATED", {
-                "node_id": node_id,
-                "gpu_memory_gb": gpu_memory_gb,
-                "gpu_utilization": gpu_utilization,
-                "cpu_utilization": cpu_utilization,
-                "available_slots": available_slots,
-                "reason": "health_check",
-                "source": "health_check_orchestrator",
-            })
+            emit_node_capacity_updated_sync(
+                node_id=node_id,
+                gpu_memory_gb=gpu_memory_gb,
+                gpu_utilization=gpu_utilization,
+                cpu_utilization=cpu_utilization,
+                available_slots=available_slots,
+                reason="health_check",
+                source="health_check_orchestrator",
+            )
         except ImportError:
-            pass  # Event router not available
+            pass  # Unified emitter not available
         except (AttributeError, TypeError, ValueError, RuntimeError) as e:
             # December 29, 2025: Narrowed from bare except Exception
-            # - AttributeError: publish_sync not available or misconfigured
-            # - TypeError: Wrong argument types for publish_sync
-            # - ValueError: Invalid event type
+            # - AttributeError: emit function not available or misconfigured
+            # - TypeError: Wrong argument types
+            # - ValueError: Invalid values
             # - RuntimeError: Event loop issues
             logger.debug(f"[HealthCheckOrchestrator] Failed to emit capacity update: {e}")
 

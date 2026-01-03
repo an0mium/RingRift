@@ -583,18 +583,18 @@ class SyncRouter:
             logger.debug(f"[SyncRouter] Failed to refresh local capacity: {e}")
 
         # Emit capacity refresh event for cluster-wide updates
+        # Sprint 10 (Jan 3, 2026): Use unified emitter for consistent payloads
         try:
-            from app.coordination.event_router import DataEventType, get_event_bus
+            from app.distributed.data_events import emit_node_capacity_updated_sync
 
-            bus = get_event_bus()
-            if bus:
-                bus.emit(DataEventType.NODE_CAPACITY_UPDATED, {
-                    "node_id": self.node_id,
-                    "reason": "capacity_refresh",
-                })
+            emit_node_capacity_updated_sync(
+                node_id=self.node_id,
+                reason="capacity_refresh",
+                source="sync_router",
+            )
         except (ImportError, AttributeError, RuntimeError) as e:
-            # ImportError: event_router not available
-            # AttributeError: bus or DataEventType missing
+            # ImportError: unified emitter not available
+            # AttributeError: emitter misconfigured
             # RuntimeError: event emission failed
             logger.debug(f"[SyncRouter] Failed to emit capacity event: {e}")
 

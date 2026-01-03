@@ -3318,6 +3318,114 @@ def get_all_defaults() -> dict:
     }
 
 
+# =============================================================================
+# Quality Gate Defaults (January 2, 2026 - Phase 2.2)
+# =============================================================================
+
+class QualityGateDefaults:
+    """Quality gate thresholds for training triggers.
+
+    January 2, 2026 (Phase 2.2): Adaptive quality gates by player count.
+    4-player configs have higher variance, so they need stricter quality
+    thresholds to ensure training data is meaningful.
+
+    Used by: training_trigger_daemon.py, quality_monitor_daemon.py
+    """
+    # Default quality threshold (used if config not in QUALITY_GATES)
+    DEFAULT_THRESHOLD: float = _env_float("RINGRIFT_DEFAULT_QUALITY_THRESHOLD", 0.50)
+
+    # Quality thresholds by config - higher player counts need higher quality
+    # Thresholds represent minimum data quality score (0.0 - 1.0) for training
+    QUALITY_GATES: dict = {
+        # 2-player configs - baseline quality
+        "hex8_2p": 0.50,
+        "square8_2p": 0.50,
+        "square19_2p": 0.50,
+        "hexagonal_2p": 0.50,
+        # 3-player configs - moderate increase
+        "hex8_3p": 0.55,
+        "square8_3p": 0.55,
+        "square19_3p": 0.55,
+        "hexagonal_3p": 0.55,
+        # 4-player configs - highest quality required
+        "hex8_4p": 0.65,
+        "square8_4p": 0.65,
+        "square19_4p": 0.65,
+        "hexagonal_4p": 0.65,
+    }
+
+    @classmethod
+    def get_quality_threshold(cls, config_key: str) -> float:
+        """Get quality threshold for a config.
+
+        Args:
+            config_key: Config key like "hex8_2p" or "square19_4p"
+
+        Returns:
+            Quality threshold (0.0 - 1.0)
+        """
+        return cls.QUALITY_GATES.get(config_key, cls.DEFAULT_THRESHOLD)
+
+
+# =============================================================================
+# Promotion Game Defaults (January 2, 2026 - Phase 2.3)
+# =============================================================================
+
+class PromotionGameDefaults:
+    """Promotion game count requirements by player count.
+
+    January 2, 2026 (Phase 2.3): Graduate promotion games by player count.
+    4-player games have higher variance, requiring more games for
+    statistically significant promotion decisions.
+
+    Used by: auto_promotion_daemon.py, promotion_controller.py
+    """
+    # Minimum games by player count for promotion consideration
+    MIN_GAMES_2P: int = _env_int("RINGRIFT_PROMOTION_MIN_GAMES_2P", 50)
+    MIN_GAMES_3P: int = _env_int("RINGRIFT_PROMOTION_MIN_GAMES_3P", 70)
+    MIN_GAMES_4P: int = _env_int("RINGRIFT_PROMOTION_MIN_GAMES_4P", 100)
+
+    # Win rate thresholds by player count
+    # 4-player games are harder to win consistently, so lower threshold
+    WIN_RATE_2P: float = _env_float("RINGRIFT_PROMOTION_WIN_RATE_2P", 0.52)
+    WIN_RATE_3P: float = _env_float("RINGRIFT_PROMOTION_WIN_RATE_3P", 0.45)
+    WIN_RATE_4P: float = _env_float("RINGRIFT_PROMOTION_WIN_RATE_4P", 0.35)
+
+    @classmethod
+    def get_min_games(cls, num_players: int) -> int:
+        """Get minimum games required for promotion.
+
+        Args:
+            num_players: Number of players (2, 3, or 4)
+
+        Returns:
+            Minimum games required
+        """
+        games_map = {
+            2: cls.MIN_GAMES_2P,
+            3: cls.MIN_GAMES_3P,
+            4: cls.MIN_GAMES_4P,
+        }
+        return games_map.get(num_players, cls.MIN_GAMES_2P)
+
+    @classmethod
+    def get_win_rate_threshold(cls, num_players: int) -> float:
+        """Get win rate threshold for promotion.
+
+        Args:
+            num_players: Number of players (2, 3, or 4)
+
+        Returns:
+            Minimum win rate (0.0 - 1.0)
+        """
+        rate_map = {
+            2: cls.WIN_RATE_2P,
+            3: cls.WIN_RATE_3P,
+            4: cls.WIN_RATE_4P,
+        }
+        return rate_map.get(num_players, cls.WIN_RATE_2P)
+
+
 __all__ = [
     # Config classes (alphabetical)
     "BackpressureDefaults",
@@ -3357,7 +3465,9 @@ __all__ = [
     "PartitionHealingDefaults",  # January 2026
     "PeerDefaults",  # December 28, 2025
     "PIDDefaults",
+    "PromotionGameDefaults",  # January 2026
     "ProviderDefaults",  # December 27, 2025
+    "QualityGateDefaults",  # January 2026
     "QueueDefaults",
     "ResourceLimitsDefaults",
     "ResourceManagerDefaults",

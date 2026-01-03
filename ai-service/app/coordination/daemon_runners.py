@@ -207,8 +207,9 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         factory_func="get_router",
         wait=WaitStyle.CUSTOM,  # Has validation guards
     ),
+    # Jan 3, 2026: Fixed module path - was pointing to event_router
     "cross_process_poller": RunnerSpec(
-        module="app.coordination.event_router",
+        module="app.coordination.cross_process_events",
         class_name="CrossProcessEventPoller",
     ),
     "dlq_retry": RunnerSpec(
@@ -1031,9 +1032,12 @@ async def create_event_router() -> None:
 
 
 async def create_cross_process_poller() -> None:
-    """Create and run cross-process event poller daemon."""
+    """Create and run cross-process event poller daemon.
+
+    Jan 3, 2026: Fixed import to use cross_process_events module.
+    """
     try:
-        from app.coordination.event_router import CrossProcessEventPoller
+        from app.coordination.cross_process_events import CrossProcessEventPoller
 
         poller = CrossProcessEventPoller()
         await poller.start()
@@ -1301,16 +1305,18 @@ async def create_data_pipeline() -> None:
 
 
 async def create_continuous_training_loop() -> None:
-    """Create and run continuous training loop daemon."""
-    try:
-        from app.coordination.continuous_training_loop import ContinuousTrainingLoop
+    """Create and run continuous training loop daemon.
 
-        loop = ContinuousTrainingLoop()
-        await loop.start()
-        await _wait_for_daemon(loop)
-    except ImportError as e:
-        logger.error(f"ContinuousTrainingLoop not available: {e}")
-        raise
+    Jan 3, 2026: DEPRECATED - Module archived. Functionality moved to p2p_orchestrator.py.
+    This function now logs a warning and returns without raising to prevent cascade failures.
+    """
+    logger.warning(
+        "[DEPRECATED] ContinuousTrainingLoop module is archived. "
+        "Functionality now provided by p2p_orchestrator.py. "
+        "This daemon will be removed in Q2 2026."
+    )
+    # Don't raise - allow daemon manager to continue with other daemons
+    return
 
 
 async def create_selfplay_coordinator() -> None:
@@ -2140,16 +2146,17 @@ async def create_s3_push() -> None:
 
 
 async def create_distillation() -> None:
-    """Create and run distillation daemon."""
-    try:
-        from app.coordination.distillation_daemon import DistillationDaemon
+    """Create and run distillation daemon.
 
-        daemon = DistillationDaemon()
-        await daemon.start()
-        await _wait_for_daemon(daemon)
-    except ImportError as e:
-        logger.error(f"DistillationDaemon not available: {e}")
-        raise
+    Jan 3, 2026: DEPRECATED - Standalone script at scripts/distillation_daemon.py.
+    """
+    logger.warning(
+        "[DEPRECATED] DistillationDaemon is a standalone script. "
+        "Use scripts/distillation_daemon.py directly. "
+        "This daemon will be removed in Q2 2026."
+    )
+    # Don't raise - allow daemon manager to continue with other daemons
+    return
 
 
 async def create_external_drive_sync() -> None:

@@ -68,7 +68,11 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from aiohttp import web
 
-from app.config.coordination_defaults import DaemonHealthDefaults, DegradedModeDefaults
+from app.config.coordination_defaults import (
+    CircuitBreakerDefaults,
+    DaemonHealthDefaults,
+    DegradedModeDefaults,
+)
 from app.core.async_context import fire_and_forget, safe_create_task
 
 # Singleton mixin for thread-safe singleton pattern (Dec 2025)
@@ -176,15 +180,23 @@ class DaemonStatusCircuitBreaker:
 
     def __init__(
         self,
-        failure_threshold: int = 3,
-        reset_timeout: float = 60.0,
+        failure_threshold: int | None = None,
+        reset_timeout: float | None = None,
     ):
         """Initialize circuit breaker.
 
         Args:
             failure_threshold: Number of consecutive failures before circuit opens.
+                Defaults to CircuitBreakerDefaults.FAILURE_THRESHOLD.
             reset_timeout: Seconds until circuit closes after opening.
+                Defaults to CircuitBreakerDefaults.RECOVERY_TIMEOUT.
+
+        Jan 2, 2026: Consolidated to use CircuitBreakerDefaults for consistency.
         """
+        if failure_threshold is None:
+            failure_threshold = CircuitBreakerDefaults.FAILURE_THRESHOLD
+        if reset_timeout is None:
+            reset_timeout = CircuitBreakerDefaults.RECOVERY_TIMEOUT
         self._failures: dict[str, int] = {}
         self._open_until: dict[str, float] = {}
         self._failure_threshold = failure_threshold

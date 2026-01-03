@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 # Import HealthCheckResult for runtime use (not just type hints)
 from app.coordination.contracts import HealthCheckResult
+from app.config.coordination_defaults import CircuitBreakerDefaults
 from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
@@ -320,13 +321,17 @@ class CircuitBreakerConfig:
     - Increased failure_threshold from 3 to 5 to tolerate network blips
     - Reduced recovery_timeout from 300s to 60s for faster recovery
     - Added backoff parameters for exponential backoff with jitter
+
+    Jan 2, 2026: Consolidated to use CircuitBreakerDefaults from coordination_defaults.py
+    for consistent configuration across all circuit breaker implementations.
     """
 
-    failure_threshold: int = 5  # Failures before opening circuit (was 3)
-    recovery_timeout: float = 60.0  # Seconds before trying again (was 300)
-    half_open_max_calls: int = 1  # Calls allowed in half-open state
+    # Use centralized defaults from coordination_defaults.py
+    failure_threshold: int = CircuitBreakerDefaults.FAILURE_THRESHOLD
+    recovery_timeout: float = CircuitBreakerDefaults.RECOVERY_TIMEOUT
+    half_open_max_calls: int = CircuitBreakerDefaults.HALF_OPEN_MAX_CALLS
     backoff_multiplier: float = 2.0  # Exponential backoff multiplier
-    max_backoff: float = 300.0  # Maximum backoff in seconds
+    max_backoff: float = CircuitBreakerDefaults.MAX_BACKOFF
     jitter_factor: float = 0.1  # Randomization factor (±10%)
 
     @classmethod
@@ -338,6 +343,45 @@ class CircuitBreakerConfig:
     def patient(cls) -> CircuitBreakerConfig:
         """Tolerant configuration for occasionally-failing targets."""
         return cls(failure_threshold=10, recovery_timeout=120.0)
+
+    @classmethod
+    def for_transport(cls, transport_type: str) -> CircuitBreakerConfig:
+        """Get config tuned for a specific transport type.
+
+        Args:
+            transport_type: One of 'ssh', 'http', 'p2p', 'aria2', 'rsync'
+
+        Returns:
+            CircuitBreakerConfig with transport-specific thresholds
+        """
+        from app.config.coordination_defaults import get_circuit_breaker_configs
+
+        configs = get_circuit_breaker_configs()
+        if transport_type in configs:
+            cfg = configs[transport_type]
+            return cls(
+                failure_threshold=cfg["failure_threshold"],
+                recovery_timeout=cfg["recovery_timeout"],
+            )
+        return cls()  # Default config
+
+    @classmethod
+    def for_provider(cls, provider: str) -> CircuitBreakerConfig:
+        """Get config tuned for a specific cloud provider.
+
+        Args:
+            provider: One of 'vast', 'runpod', 'lambda', 'nebius', 'vultr', 'hetzner'
+
+        Returns:
+            CircuitBreakerConfig with provider-specific thresholds
+        """
+        from app.config.coordination_defaults import get_circuit_breaker_for_provider
+
+        cfg = get_circuit_breaker_for_provider(provider)
+        return cls(
+            failure_threshold=cfg["failure_threshold"],
+            recovery_timeout=cfg["recovery_timeout"],
+        )
 
 
 @dataclass
@@ -390,10 +434,11 @@ class TransportBase(ABC):
     """
 
     # Default configurations (subclasses can override)
+    # Jan 2, 2026: Use centralized CircuitBreakerDefaults for consistency
     DEFAULT_CONNECT_TIMEOUT: int = 30
     DEFAULT_OPERATION_TIMEOUT: int = 180
-    DEFAULT_FAILURE_THRESHOLD: int = 3
-    DEFAULT_RECOVERY_TIMEOUT: float = 300.0
+    DEFAULT_FAILURE_THRESHOLD: int = CircuitBreakerDefaults.FAILURE_THRESHOLD
+    DEFAULT_RECOVERY_TIMEOUT: float = CircuitBreakerDefaults.RECOVERY_TIMEOUT
 
     def __init__(
         self,

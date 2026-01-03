@@ -56,3 +56,68 @@ class JobType(str, Enum):
     # CPU-intensive data processing jobs
     DATA_EXPORT = "data_export"  # NPZ export (CPU-intensive, route to high-CPU nodes)
     DATA_AGGREGATION = "data_aggregation"  # JSONL aggregation (CPU-intensive)
+
+
+class JobLifecycleState(str, Enum):
+    """Unified job lifecycle states for all job management loops.
+
+    Jan 2, 2026 - Sprint 9: Consolidates job states from:
+    - JobReaperLoop: claimed, started, running
+    - JobReassignmentLoop: orphaned, stale
+    - SpawnVerificationLoop: verified, failed, pending
+    - General: completed, cancelled
+
+    State transitions:
+        PENDING -> CLAIMED -> STARTING -> RUNNING -> COMPLETED
+                              |           |
+                              v           v
+                            STALE     ORPHANED / STUCK
+                              |           |
+                              v           v
+                            FAILED      FAILED
+    """
+    # Initial states
+    PENDING = "pending"      # Queued in work queue, not yet claimed
+    CLAIMED = "claimed"      # Claimed by a node, not yet started
+
+    # Active states
+    STARTING = "starting"    # Process is being spawned
+    RUNNING = "running"      # Actively executing
+
+    # Verification state (from SpawnVerificationLoop)
+    VERIFIED = "verified"    # Spawn confirmed successful
+
+    # Problem states
+    STALE = "stale"          # Claimed but not started within timeout
+    STUCK = "stuck"          # Running too long (exceeds expected duration)
+    ORPHANED = "orphaned"    # Lost contact with executing node
+
+    # Terminal states
+    COMPLETED = "completed"  # Finished successfully
+    FAILED = "failed"        # Execution failed or spawn failed
+    CANCELLED = "cancelled"  # Explicitly cancelled
+
+    def is_terminal(self) -> bool:
+        """Check if this is a terminal (final) state."""
+        return self in (
+            JobLifecycleState.COMPLETED,
+            JobLifecycleState.FAILED,
+            JobLifecycleState.CANCELLED,
+        )
+
+    def is_active(self) -> bool:
+        """Check if the job is actively executing or about to execute."""
+        return self in (
+            JobLifecycleState.CLAIMED,
+            JobLifecycleState.STARTING,
+            JobLifecycleState.RUNNING,
+            JobLifecycleState.VERIFIED,
+        )
+
+    def is_problem(self) -> bool:
+        """Check if the job is in a problem state that needs attention."""
+        return self in (
+            JobLifecycleState.STALE,
+            JobLifecycleState.STUCK,
+            JobLifecycleState.ORPHANED,
+        )

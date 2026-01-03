@@ -45,6 +45,12 @@ try:
 except ImportError:
     DEFAULT_PORT = 8770  # Fallback if constants unavailable
 
+# Jan 2, 2026 - Sprint 9: Import centralized JobLifecycleState
+try:
+    from .types import JobLifecycleState
+except ImportError:
+    JobLifecycleState = None  # type: ignore[misc, assignment]
+
 DEFAULT_TIMEOUT = 30
 
 
@@ -58,12 +64,39 @@ class JobType(Enum):
 
 
 class JobStatus(Enum):
-    """Status of a submitted job."""
+    """Status of a submitted job.
+
+    Jan 2, 2026 - Sprint 9: For full lifecycle tracking, use JobLifecycleState
+    from scripts.p2p.types instead. This enum is retained for backward compatibility.
+    """
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+    @classmethod
+    def from_lifecycle_state(cls, state: "JobLifecycleState") -> "JobStatus":
+        """Convert from JobLifecycleState to JobStatus.
+
+        Maps extended states to their closest JobStatus equivalent.
+        """
+        if JobLifecycleState is None:
+            raise ValueError("JobLifecycleState not available")
+        mapping = {
+            JobLifecycleState.PENDING: cls.PENDING,
+            JobLifecycleState.CLAIMED: cls.PENDING,
+            JobLifecycleState.STARTING: cls.RUNNING,
+            JobLifecycleState.RUNNING: cls.RUNNING,
+            JobLifecycleState.VERIFIED: cls.RUNNING,
+            JobLifecycleState.STALE: cls.FAILED,
+            JobLifecycleState.STUCK: cls.RUNNING,
+            JobLifecycleState.ORPHANED: cls.FAILED,
+            JobLifecycleState.COMPLETED: cls.COMPLETED,
+            JobLifecycleState.FAILED: cls.FAILED,
+            JobLifecycleState.CANCELLED: cls.CANCELLED,
+        }
+        return mapping.get(state, cls.PENDING)
 
 
 @dataclass

@@ -406,6 +406,8 @@ class DaemonLifecycleManager:
                     f"{daemon_type.value} import failed permanently: {e}. "
                     f"Fix the import and restart the daemon manager."
                 )
+                # Jan 2, 2026: Clean up resources before marking as failed
+                await self._cleanup_failed_daemon(daemon_type, info)
                 # Don't retry import failures - they need manual intervention
                 break
             except (RuntimeError, OSError, ConnectionError, asyncio.CancelledError) as e:
@@ -422,6 +424,8 @@ class DaemonLifecycleManager:
                         info, DaemonState.FAILED,
                         reason="exception", error=str(e)
                     )
+                    # Jan 2, 2026: Clean up resources before marking as failed
+                    await self._cleanup_failed_daemon(daemon_type, info)
                     break
 
                 if info.restart_count >= info.max_restarts:
@@ -431,6 +435,8 @@ class DaemonLifecycleManager:
                         info, DaemonState.FAILED,
                         reason="max_restarts_exceeded", error=str(e)
                     )
+                    # Jan 2, 2026: Clean up resources before marking as failed
+                    await self._cleanup_failed_daemon(daemon_type, info)
 
                     # December 2025: Handle dependent daemons on failure
                     # When a daemon fails permanently, dependent daemons should be notified
@@ -463,6 +469,8 @@ class DaemonLifecycleManager:
                             info, DaemonState.FAILED,
                             reason="hourly_limit_exceeded", error=str(e)
                         )
+                        # Jan 2, 2026: Clean up resources before marking as failed
+                        await self._cleanup_failed_daemon(daemon_type, info)
                         break
 
                 # Restart with exponential backoff + jitter to prevent thundering herd
@@ -487,6 +495,9 @@ class DaemonLifecycleManager:
 
         if info.state not in (DaemonState.FAILED, DaemonState.IMPORT_FAILED):
             info.state = DaemonState.STOPPED
+            # Jan 2, 2026: Clean up on normal stop as well
+            # Even for normal completion, we should clear the instance reference
+            await self._cleanup_failed_daemon(daemon_type, info)
 
     async def stop(self, daemon_type: DaemonType) -> bool:
         """Stop a specific daemon with timeout escalation.
@@ -801,6 +812,67 @@ class DaemonLifecycleManager:
             if daemon_type in info.depends_on:
                 dependents.append(dt)
         return dependents
+
+    async def _cleanup_failed_daemon(
+        self,
+        daemon_type: DaemonType,
+        info: DaemonInfo,
+    ) -> None:
+        """Clean up resources when a daemon fails.
+
+        Jan 2, 2026: Added to prevent resource leaks when daemons fail.
+        This method:
+        1. Calls the daemon's stop/shutdown method if available
+        2. Unsubscribes from events
+        3. Clears the instance reference
+
+        Args:
+            daemon_type: The type of daemon that failed
+            info: The DaemonInfo containing the instance and state
+        """
+        logger.debug(f"[DaemonLifecycle] Cleaning up failed daemon: {daemon_type.value}")
+
+        instance = info.instance
+        if instance is None:
+            logger.debug(f"[DaemonLifecycle] No instance to clean up for {daemon_type.value}")
+            return
+
+        # Try to call cleanup methods on the instance
+        cleanup_methods = ["stop", "shutdown", "_on_stop", "cleanup", "close"]
+        for method_name in cleanup_methods:
+            method = getattr(instance, method_name, None)
+            if method is not None and callable(method):
+                try:
+                    logger.debug(f"[DaemonLifecycle] Calling {method_name}() on {daemon_type.value}")
+                    if asyncio.iscoroutinefunction(method):
+                        await asyncio.wait_for(method(), timeout=10.0)
+                    else:
+                        method()
+                    logger.debug(f"[DaemonLifecycle] {method_name}() completed for {daemon_type.value}")
+                    break  # Only call one cleanup method
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        f"[DaemonLifecycle] {method_name}() timed out for {daemon_type.value}"
+                    )
+                except asyncio.CancelledError:
+                    logger.debug(f"[DaemonLifecycle] {method_name}() cancelled for {daemon_type.value}")
+                except Exception as e:
+                    logger.warning(
+                        f"[DaemonLifecycle] Error in {method_name}() for {daemon_type.value}: {e}"
+                    )
+
+        # Try to unsubscribe from events
+        unsubscribe = getattr(instance, "unsubscribe", None)
+        if unsubscribe is not None and callable(unsubscribe):
+            try:
+                unsubscribe()
+                logger.debug(f"[DaemonLifecycle] Unsubscribed {daemon_type.value} from events")
+            except Exception as e:
+                logger.warning(f"[DaemonLifecycle] Failed to unsubscribe {daemon_type.value}: {e}")
+
+        # Clear the instance reference to allow garbage collection
+        info.instance = None
+        logger.info(f"[DaemonLifecycle] Cleaned up resources for {daemon_type.value}")
 
     async def _cascade_restart_dependent(
         self,

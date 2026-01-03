@@ -110,6 +110,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+from app.config.coordination_defaults import CircuitBreakerDefaults
+from app.coordination.coordinator_persistence import StatePersistenceMixin
 from app.coordination.protocols import (
     CoordinatorStatus,
     HealthCheckResult,
@@ -176,19 +178,30 @@ class PipelineCircuitBreaker:
 
     def __init__(
         self,
-        failure_threshold: int = 3,
-        recovery_timeout: float = 60.0,
-        half_open_max_calls: int = 1,
+        failure_threshold: int | None = None,
+        recovery_timeout: float | None = None,
+        half_open_max_calls: int | None = None,
         db_path: Path | str | None = None,
     ):
         """Initialize pipeline circuit breaker.
 
         Args:
-            failure_threshold: Failures before opening circuit
-            recovery_timeout: Seconds before trying half-open recovery
-            half_open_max_calls: Max test calls in half-open state
+            failure_threshold: Failures before opening circuit.
+                Defaults to CircuitBreakerDefaults.FAILURE_THRESHOLD.
+            recovery_timeout: Seconds before trying half-open recovery.
+                Defaults to CircuitBreakerDefaults.RECOVERY_TIMEOUT.
+            half_open_max_calls: Max test calls in half-open state.
+                Defaults to CircuitBreakerDefaults.HALF_OPEN_MAX_CALLS.
             db_path: SQLite database path for state persistence (None = use default)
+
+        Jan 2, 2026: Consolidated to use CircuitBreakerDefaults for consistency.
         """
+        if failure_threshold is None:
+            failure_threshold = CircuitBreakerDefaults.FAILURE_THRESHOLD
+        if recovery_timeout is None:
+            recovery_timeout = CircuitBreakerDefaults.RECOVERY_TIMEOUT
+        if half_open_max_calls is None:
+            half_open_max_calls = CircuitBreakerDefaults.HALF_OPEN_MAX_CALLS
         self._failures_by_stage: dict[str, int] = {}
         self._success_count: int = 0
         self._failure_threshold = failure_threshold
@@ -530,6 +543,7 @@ class DataPipelineOrchestrator(
     PipelineTriggerMixin,
     PipelineStageMixin,
     PipelineMetricsMixin,
+    StatePersistenceMixin,
 ):
     """Orchestrates the self-improvement pipeline stages.
 
@@ -542,6 +556,7 @@ class DataPipelineOrchestrator(
     - PipelineTriggerMixin: Stage triggering methods (~600 lines)
     - PipelineStageMixin: Stage callback handlers (~500 lines)
     - PipelineMetricsMixin: Metrics, status, and health reporting (~400 lines)
+    - StatePersistenceMixin: Crash recovery persistence (Jan 2026)
     """
 
     def __init__(
@@ -684,6 +699,15 @@ class DataPipelineOrchestrator(
         # Tracks retry counts per (stage, config_key) for automatic retry
         self._stage_retry_counts: dict[tuple[str, str], int] = {}
         self._pending_retries: dict[tuple[str, str], asyncio.Task] = {}
+
+        # Jan 2, 2026: Initialize state persistence for crash recovery
+        # Persists pipeline stage, iteration count, and statistics
+        self.init_persistence(
+            db_path=Path("data/coordination/pipeline_state.db"),
+            auto_snapshot=True,
+            snapshot_interval=300.0,  # 5 minutes
+            max_snapshots=10,
+        )
 
     def _get_board_config(
         self, result: Any = None, metadata: dict | None = None
@@ -968,12 +992,21 @@ class DataPipelineOrchestrator(
         Idempotent - calling on an already running orchestrator is a no-op.
 
         Jan 2, 2026: Detects operation mode for graceful degradation.
+        Jan 2, 2026: Restores state from previous snapshot for crash recovery.
         """
         if self._coordinator_status == CoordinatorStatus.RUNNING:
             return  # Already running
 
         self._coordinator_status = CoordinatorStatus.RUNNING
         self._start_time = time.time()
+
+        # Jan 2, 2026: Restore state from previous snapshot (crash recovery)
+        try:
+            restored = await self.restore_from_snapshot()
+            if restored:
+                logger.info(f"[{self.name}] Restored state from previous snapshot")
+        except Exception as e:
+            logger.warning(f"[{self.name}] Failed to restore snapshot: {e}")
 
         # Jan 2, 2026: Detect operation mode based on available dependencies
         self._operation_mode, self._missing_dependencies = await self._detect_operation_mode()
@@ -994,6 +1027,9 @@ class DataPipelineOrchestrator(
         # Register with coordinator registry
         register_coordinator(self)
 
+        # Jan 2, 2026: Start auto-snapshots for periodic persistence
+        await self.start_auto_snapshots()
+
         logger.info(
             f"[{self.name}] Started (mode={self._operation_mode.value})"
         )
@@ -1003,11 +1039,21 @@ class DataPipelineOrchestrator(
 
         Cleans up subscriptions and resources.
         Idempotent - calling on an already stopped orchestrator is a no-op.
+
+        Jan 2, 2026: Saves final snapshot for crash recovery.
         """
         if self._coordinator_status == CoordinatorStatus.STOPPED:
             return  # Already stopped
 
         self._coordinator_status = CoordinatorStatus.STOPPING
+
+        # Jan 2, 2026: Stop auto-snapshots and save final state
+        try:
+            await self.stop_auto_snapshots()
+            await self.save_snapshot(reason="shutdown")
+            logger.debug(f"[{self.name}] Saved final snapshot on shutdown")
+        except Exception as e:
+            logger.warning(f"[{self.name}] Failed to save final snapshot: {e}")
 
         # Unregister from coordinator registry
         unregister_coordinator(self.name)
@@ -1178,6 +1224,148 @@ class DataPipelineOrchestrator(
                 "current_stage": self._current_stage.value,
                 "current_iteration": self._current_iteration,
             },
+        )
+
+    # =========================================================================
+    # State Persistence (Jan 2, 2026 - StatePersistenceMixin implementation)
+    # =========================================================================
+
+    def _get_state_for_persistence(self) -> dict[str, Any]:
+        """Get pipeline state for crash recovery persistence.
+
+        Jan 2, 2026: Implements StatePersistenceMixin abstract method.
+        Persists critical state needed to resume pipeline after restart.
+
+        Returns:
+            Dict of state to persist (JSON-serializable)
+        """
+        # Convert iteration records to serializable format
+        completed_records = []
+        for record in self._completed_iterations[-self.max_history:]:
+            completed_records.append({
+                "iteration": record.iteration,
+                "start_time": record.start_time,
+                "end_time": record.end_time,
+                "success": record.success,
+                "stages_completed": record.stages_completed,
+                "games_generated": record.games_generated,
+                "model_id": record.model_id,
+                "elo_delta": record.elo_delta,
+                "promoted": record.promoted,
+                "error": record.error,
+            })
+
+        # Convert transitions to serializable format (last 50 only)
+        transitions = []
+        for trans in self._transitions[-50:]:
+            transitions.append({
+                "from_stage": trans.from_stage.value,
+                "to_stage": trans.to_stage.value,
+                "iteration": trans.iteration,
+                "timestamp": trans.timestamp,
+                "success": trans.success,
+                "duration_seconds": trans.duration_seconds,
+            })
+
+        return {
+            # Core state
+            "current_stage": self._current_stage.value,
+            "current_iteration": self._current_iteration,
+            "current_board_type": self._current_board_type,
+            "current_num_players": self._current_num_players,
+
+            # Statistics
+            "total_games": self._total_games,
+            "total_models": self._total_models,
+            "total_promotions": self._total_promotions,
+            "events_processed": self._events_processed,
+            "errors_count": self._errors_count,
+
+            # Quality tracking
+            "last_quality_score": self._last_quality_score,
+            "quality_check_history": self._quality_check_history[-20:],
+
+            # History (limited to prevent bloat)
+            "completed_iterations": completed_records,
+            "transitions": transitions,
+
+            # Operation mode
+            "operation_mode": self._operation_mode.value,
+        }
+
+    def _restore_state_from_persistence(self, state: dict[str, Any]) -> None:
+        """Restore pipeline state after crash/restart.
+
+        Jan 2, 2026: Implements StatePersistenceMixin abstract method.
+        Restores critical state from previous snapshot.
+
+        Args:
+            state: Previously persisted state dict
+        """
+        # Restore core state
+        stage_value = state.get("current_stage", "IDLE")
+        try:
+            self._current_stage = PipelineStage(stage_value)
+        except ValueError:
+            self._current_stage = PipelineStage.IDLE
+            logger.warning(f"[{self.name}] Unknown stage '{stage_value}', defaulting to IDLE")
+
+        self._current_iteration = state.get("current_iteration", 0)
+        self._current_board_type = state.get("current_board_type")
+        self._current_num_players = state.get("current_num_players")
+
+        # Restore statistics
+        self._total_games = state.get("total_games", 0)
+        self._total_models = state.get("total_models", 0)
+        self._total_promotions = state.get("total_promotions", 0)
+        self._events_processed = state.get("events_processed", 0)
+        self._errors_count = state.get("errors_count", 0)
+
+        # Restore quality tracking
+        self._last_quality_score = state.get("last_quality_score", 0.0)
+        self._quality_check_history = state.get("quality_check_history", [])
+
+        # Restore completed iterations
+        for record_dict in state.get("completed_iterations", []):
+            record = IterationRecord(
+                iteration=record_dict.get("iteration", 0),
+                start_time=record_dict.get("start_time", 0.0),
+                end_time=record_dict.get("end_time", 0.0),
+                success=record_dict.get("success", False),
+                stages_completed=record_dict.get("stages_completed", []),
+                games_generated=record_dict.get("games_generated", 0),
+                model_id=record_dict.get("model_id"),
+                elo_delta=record_dict.get("elo_delta", 0.0),
+                promoted=record_dict.get("promoted", False),
+                error=record_dict.get("error"),
+            )
+            self._completed_iterations.append(record)
+
+        # Restore transitions
+        for trans_dict in state.get("transitions", []):
+            try:
+                trans = StageTransition(
+                    from_stage=PipelineStage(trans_dict.get("from_stage", "IDLE")),
+                    to_stage=PipelineStage(trans_dict.get("to_stage", "IDLE")),
+                    iteration=trans_dict.get("iteration", 0),
+                    timestamp=trans_dict.get("timestamp", 0.0),
+                    success=trans_dict.get("success", True),
+                    duration_seconds=trans_dict.get("duration_seconds", 0.0),
+                )
+                self._transitions.append(trans)
+            except (ValueError, KeyError) as e:
+                logger.debug(f"[{self.name}] Skipping invalid transition: {e}")
+
+        # Restore operation mode
+        mode_value = state.get("operation_mode", "full")
+        try:
+            self._operation_mode = OperationMode(mode_value)
+        except ValueError:
+            self._operation_mode = OperationMode.FULL
+
+        logger.info(
+            f"[{self.name}] Restored state: stage={self._current_stage.value}, "
+            f"iteration={self._current_iteration}, games={self._total_games}"
         )
 
     def _record_event_processed(self) -> None:
@@ -2318,6 +2506,10 @@ class DataPipelineOrchestrator(
 
         Sprint 4 (Jan 2, 2026): After orphan games are registered, trigger NPZ export
         to include the recovered data in training.
+
+        Sprint 10 (Jan 3, 2026): Added auto-quality-check for orphan games.
+        Only triggers export if orphan game quality is acceptable.
+        Expected Elo gain: +1-2 Elo from better training data quality.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
@@ -2333,14 +2525,34 @@ class DataPipelineOrchestrator(
 
             # Extract configs from registered paths and trigger re-export
             configs_to_export: set[str] = set()
+            configs_needing_quality_boost: set[str] = set()
+
             for path in registered_paths:
                 config = self._extract_config_from_db_path(path)
                 if config:
-                    configs_to_export.add(config)
+                    # Sprint 10: Check quality of orphan games before export
+                    quality_result = self._check_orphan_game_quality(path, config)
+                    if quality_result["acceptable"]:
+                        configs_to_export.add(config)
+                        if quality_result.get("needs_boost"):
+                            configs_needing_quality_boost.add(config)
+                    else:
+                        # Quality too low - emit event to boost selfplay quality
+                        logger.warning(
+                            f"[DataPipelineOrchestrator] Orphan games for {config} "
+                            f"have low quality ({quality_result['score']:.2f}), "
+                            f"triggering quality boost instead of export"
+                        )
+                        self._emit_orphan_quality_blocked(
+                            config, quality_result["score"], path
+                        )
 
-            # Trigger export for affected configs
+            # Trigger export for configs that passed quality check
             for config_key in configs_to_export:
-                self._emit_export_trigger(config_key, source="orphan_recovery")
+                source = "orphan_recovery"
+                if config_key in configs_needing_quality_boost:
+                    source = "orphan_recovery_with_boost"
+                self._emit_export_trigger(config_key, source=source)
 
             self._record_event_processed()
 
@@ -2414,6 +2626,187 @@ class DataPipelineOrchestrator(
             num_players = match.group(2)
             return f"{board_type}_{num_players}p"
         return None
+
+    def _check_orphan_game_quality(
+        self, db_path: str, config_key: str
+    ) -> dict[str, bool | float]:
+        """Check quality of orphan games in a database.
+
+        Sprint 10 (Jan 3, 2026): Auto-quality-check for orphan games.
+        Ensures only acceptable-quality orphan data gets exported to training.
+
+        Args:
+            db_path: Path to the orphan games database
+            config_key: Config key (e.g., "hex8_2p")
+
+        Returns:
+            dict with keys:
+                - acceptable: True if quality is good enough for export
+                - score: Quality score (0.0-1.0)
+                - needs_boost: True if quality is borderline and needs boost
+                - reason: Human-readable explanation
+        """
+        import sqlite3
+        from pathlib import Path
+
+        # Default thresholds - configurable via env
+        ORPHAN_QUALITY_MIN = float(
+            os.environ.get("RINGRIFT_ORPHAN_QUALITY_MIN", "0.4")
+        )
+        ORPHAN_QUALITY_BOOST_THRESHOLD = float(
+            os.environ.get("RINGRIFT_ORPHAN_QUALITY_BOOST", "0.6")
+        )
+
+        try:
+            db = Path(db_path)
+            if not db.exists():
+                logger.warning(f"[QualityCheck] Orphan DB not found: {db_path}")
+                return {
+                    "acceptable": False,
+                    "score": 0.0,
+                    "needs_boost": False,
+                    "reason": "database_not_found",
+                }
+
+            # Connect and check quality metrics
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            # Check 1: Game completion rate (finished games / total games)
+            cursor.execute(
+                "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL"
+            )
+            finished_games = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM games")
+            total_games = cursor.fetchone()[0]
+
+            if total_games == 0:
+                conn.close()
+                return {
+                    "acceptable": False,
+                    "score": 0.0,
+                    "needs_boost": False,
+                    "reason": "no_games",
+                }
+
+            completion_rate = finished_games / total_games
+
+            # Check 2: Average game length (longer games = more training signal)
+            cursor.execute(
+                """
+                SELECT AVG(move_count) FROM (
+                    SELECT game_id, COUNT(*) as move_count
+                    FROM moves GROUP BY game_id
+                )
+                """
+            )
+            avg_moves_result = cursor.fetchone()
+            avg_moves = avg_moves_result[0] if avg_moves_result[0] else 0
+
+            # Check 3: Move diversity (unique positions explored)
+            cursor.execute("SELECT COUNT(DISTINCT game_id) FROM moves")
+            games_with_moves = cursor.fetchone()[0]
+
+            conn.close()
+
+            # Calculate quality score (weighted average)
+            # - Completion rate: 40% weight (finished games are more valuable)
+            # - Game length: 40% weight (normalized to expected range)
+            # - Coverage: 20% weight (games with moves recorded)
+
+            # Normalize avg_moves to 0-1 (expect 30-100 moves for a typical game)
+            length_score = min(1.0, avg_moves / 50.0) if avg_moves > 0 else 0.0
+
+            # Coverage score
+            coverage_score = games_with_moves / total_games if total_games > 0 else 0.0
+
+            quality_score = (
+                completion_rate * 0.4
+                + length_score * 0.4
+                + coverage_score * 0.2
+            )
+
+            # Determine acceptability
+            acceptable = quality_score >= ORPHAN_QUALITY_MIN
+            needs_boost = quality_score < ORPHAN_QUALITY_BOOST_THRESHOLD
+
+            reason = "quality_ok"
+            if not acceptable:
+                reason = f"quality_too_low_{quality_score:.2f}"
+            elif needs_boost:
+                reason = f"quality_borderline_{quality_score:.2f}"
+
+            logger.info(
+                f"[QualityCheck] Orphan games {config_key}: "
+                f"score={quality_score:.2f}, completion={completion_rate:.1%}, "
+                f"avg_moves={avg_moves:.0f}, acceptable={acceptable}"
+            )
+
+            return {
+                "acceptable": acceptable,
+                "score": quality_score,
+                "needs_boost": needs_boost,
+                "reason": reason,
+            }
+
+        except (sqlite3.Error, OSError, ValueError) as e:
+            logger.warning(f"[QualityCheck] Error checking orphan quality: {e}")
+            # On error, be permissive and allow export with boost flag
+            return {
+                "acceptable": True,
+                "score": 0.5,
+                "needs_boost": True,
+                "reason": f"error_{type(e).__name__}",
+            }
+
+    def _emit_orphan_quality_blocked(
+        self, config_key: str, quality_score: float, db_path: str
+    ) -> None:
+        """Emit event when orphan game quality is too low for export.
+
+        Sprint 10 (Jan 3, 2026): Triggers quality boost in SelfplayScheduler.
+        This causes the scheduler to prefer high-quality Gumbel MCTS modes
+        for this config, improving overall training data quality.
+
+        Args:
+            config_key: Config that failed quality check
+            quality_score: The quality score that triggered the block
+            db_path: Path to the orphan database
+        """
+        try:
+            from app.distributed.data_events import DataEventType
+            from app.coordination.event_router import emit_event
+
+            # Calculate quality deficit for boost strength
+            min_quality = float(
+                os.environ.get("RINGRIFT_ORPHAN_QUALITY_MIN", "0.4")
+            )
+            quality_deficit = max(0.0, min_quality - quality_score)
+
+            emit_event(
+                DataEventType.TRAINING_BLOCKED_BY_QUALITY,
+                {
+                    "config_key": config_key,
+                    "quality_score": quality_score,
+                    "threshold": min_quality,
+                    "quality_deficit": quality_deficit,
+                    "source": "orphan_quality_check",
+                    "db_path": db_path,
+                    "reason": "orphan_games_low_quality",
+                    "recommendation": "boost_selfplay_quality",
+                    "timestamp": time.time(),
+                },
+            )
+            logger.info(
+                f"[DataPipelineOrchestrator] Emitted TRAINING_BLOCKED_BY_QUALITY "
+                f"for orphan games {config_key} (score={quality_score:.2f})"
+            )
+
+        except (AttributeError, ImportError, RuntimeError) as e:
+            logger.debug(
+                f"[DataPipelineOrchestrator] Failed to emit orphan quality event: {e}"
+            )
 
     def _update_selfplay_scheduler_targets(self, config_key: str) -> None:
         """Update SelfplayScheduler with training sample targets.

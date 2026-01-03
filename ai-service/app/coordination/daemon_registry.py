@@ -230,10 +230,13 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         category="pipeline",
         health_check_interval=30.0,  # Dec 2025: Critical for data flow
     ),
+    # Jan 3, 2026: Deprecated - module archived, functionality in p2p_orchestrator.py
     DaemonType.CONTINUOUS_TRAINING_LOOP: DaemonSpec(
         runner_name="create_continuous_training_loop",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="pipeline",
+        deprecated=True,
+        deprecated_message="Module archived. Functionality now in p2p_orchestrator.py. Removal: Q2 2026.",
     ),
     DaemonType.SELFPLAY_COORDINATOR: DaemonSpec(
         runner_name="create_selfplay_coordinator",
@@ -459,10 +462,13 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.S3_NODE_SYNC),
         category="sync",
     ),
+    # Jan 3, 2026: Deprecated - standalone script at scripts/distillation_daemon.py
     DaemonType.DISTILLATION: DaemonSpec(
         runner_name="create_distillation",
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="misc",
+        deprecated=True,
+        deprecated_message="Standalone script. Use scripts/distillation_daemon.py directly.",
     ),
     DaemonType.EXTERNAL_DRIVE_SYNC: DaemonSpec(
         runner_name="create_external_drive_sync",
@@ -728,6 +734,34 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         health_check_interval=1800.0,  # 30 minutes - matches validation cycle
         auto_restart=True,
         max_restarts=5,
+    ),
+    # =========================================================================
+    # Jan 3, 2026: Added missing daemon specs
+    # These daemon types existed but had no registry entries
+    # =========================================================================
+    DaemonType.CLUSTER_UTILIZATION_WATCHDOG: DaemonSpec(
+        runner_name="create_cluster_utilization_watchdog",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="health",
+        health_check_interval=300.0,  # 5 minutes
+    ),
+    DaemonType.ELO_PROGRESS: DaemonSpec(
+        runner_name="create_elo_progress",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="autonomous",
+        health_check_interval=600.0,  # 10 minutes - tracks Elo improvement
+    ),
+    DaemonType.UNIFIED_BACKUP: DaemonSpec(
+        runner_name="create_unified_backup",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="distribution",
+        health_check_interval=3600.0,  # 1 hour - backup operations are slow
+    ),
+    DaemonType.S3_PUSH: DaemonSpec(
+        runner_name="create_s3_push",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="distribution",
+        health_check_interval=1800.0,  # 30 minutes
     ),
 }
 

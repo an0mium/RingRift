@@ -47,7 +47,11 @@ from typing import Any, Callable
 
 import yaml
 
-from app.config.coordination_defaults import DataFreshnessDefaults, SyncDefaults
+from app.config.coordination_defaults import (
+    DataFreshnessDefaults,
+    QualityGateDefaults,
+    SyncDefaults,
+)
 from app.config.env import env
 from app.coordination.event_handler_utils import extract_config_from_path, extract_config_key
 from app.coordination.event_utils import parse_config_key
@@ -1038,15 +1042,29 @@ class TrainingTriggerDaemon(HandlerBase):
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling training completion: {e}")
 
-    def _intensity_from_quality(self, quality_score: float) -> str:
-        """Map quality scores to training intensity."""
+    def _intensity_from_quality(
+        self, quality_score: float, config_key: str | None = None
+    ) -> str:
+        """Map quality scores to training intensity.
+
+        January 2026 (Phase 2.2): Uses config-specific quality thresholds from
+        QualityGateDefaults. 4-player configs require higher quality (0.65) than
+        2-player configs (0.50) since 4-player games have higher variance.
+
+        Args:
+            quality_score: The data quality score (0.0 to 1.0)
+            config_key: Optional config key (e.g., "hex8_4p") for per-config thresholds
+        """
+        # Get config-specific minimum threshold (4p configs need higher quality)
+        min_threshold = QualityGateDefaults.get_quality_threshold(config_key or "")
+
         if quality_score >= 0.90:
             return "hot_path"
         if quality_score >= 0.80:
             return "accelerated"
         if quality_score >= 0.65:
             return "normal"
-        if quality_score >= 0.50:
+        if quality_score >= min_threshold:
             return "reduced"
         return "paused"
 
@@ -1089,7 +1107,7 @@ class TrainingTriggerDaemon(HandlerBase):
 
             quality_score = float(payload.get("quality_score", 0.0))
             state = self._get_or_create_state(config_key)
-            state.training_intensity = self._intensity_from_quality(quality_score)
+            state.training_intensity = self._intensity_from_quality(quality_score, config_key)
 
             logger.debug(
                 f"[TrainingTriggerDaemon] {config_key}: "

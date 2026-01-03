@@ -3784,11 +3784,17 @@ async def emit_node_capacity_updated(
     available_slots: int,
     reason: str = "capacity_update",
     source: str = "health_check_orchestrator",
+    *,
+    queue_depth: int = 0,
 ) -> None:
     """Emit a NODE_CAPACITY_UPDATED event when node capacity changes.
 
     Used by SelfplayScheduler and ResourceMonitoringCoordinator to track
     available capacity for job scheduling.
+
+    Sprint 10 (Jan 3, 2026): Unified emitter for NODE_CAPACITY_UPDATED.
+    All emission locations should use this function (or its sync variant)
+    to ensure consistent payloads.
     """
     await get_event_bus().publish(DataEvent(
         event_type=DataEventType.NODE_CAPACITY_UPDATED,
@@ -3798,10 +3804,63 @@ async def emit_node_capacity_updated(
             "gpu_utilization": gpu_utilization,
             "cpu_utilization": cpu_utilization,
             "available_slots": available_slots,
+            "queue_depth": queue_depth,
             "reason": reason,
         },
         source=source,
     ))
+
+
+def emit_node_capacity_updated_sync(
+    node_id: str,
+    gpu_memory_gb: float = 0.0,
+    gpu_utilization: float = 0.0,
+    cpu_utilization: float = 0.0,
+    available_slots: int = 0,
+    reason: str = "capacity_update",
+    source: str = "health_check_orchestrator",
+    *,
+    queue_depth: int = 0,
+) -> None:
+    """Synchronous version of emit_node_capacity_updated.
+
+    Sprint 10 (Jan 3, 2026): Unified synchronous emitter for NODE_CAPACITY_UPDATED.
+    Use this in sync contexts (heartbeat loops, health checks).
+
+    All callers should use this function to ensure consistent payloads:
+    - health_check_orchestrator.py
+    - sync_router.py
+    - p2p_orchestrator.py
+
+    Args:
+        node_id: Node identifier
+        gpu_memory_gb: Available GPU memory in GB
+        gpu_utilization: GPU utilization percentage (0-100)
+        cpu_utilization: CPU utilization percentage (0-100)
+        available_slots: Number of available job slots
+        reason: Reason for capacity update
+        source: Source component emitting the event
+        queue_depth: Current work queue depth
+    """
+    try:
+        bus = get_event_bus()
+        if bus:
+            bus.publish_sync(DataEvent(
+                event_type=DataEventType.NODE_CAPACITY_UPDATED,
+                payload={
+                    "node_id": node_id,
+                    "gpu_memory_gb": gpu_memory_gb,
+                    "gpu_utilization": gpu_utilization,
+                    "cpu_utilization": cpu_utilization,
+                    "available_slots": available_slots,
+                    "queue_depth": queue_depth,
+                    "reason": reason,
+                },
+                source=source,
+            ))
+    except (AttributeError, RuntimeError):
+        # Event bus not available - non-critical
+        pass
 
 
 # =============================================================================

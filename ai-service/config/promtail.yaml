@@ -1,0 +1,173 @@
+# Promtail configuration for RingRift log shipping
+# Jan 2026: Phase 3.1 - Centralized Log Aggregation
+#
+# Usage:
+#   promtail -config.file=config/promtail.yaml
+#
+# Prerequisites:
+#   - Loki server running (e.g., http://loki:3100)
+#   - RINGRIFT_LOG_JSON=true for structured logging
+#
+# Environment variables:
+#   LOKI_URL: Loki server URL (default: http://localhost:3100)
+#   HOSTNAME: Node identifier (default: from hostname)
+#   RINGRIFT_NODE_ID: Override node ID label
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/promtail-positions.yaml
+
+clients:
+  - url: ${LOKI_URL:-http://localhost:3100}/loki/api/v1/push
+    batchwait: 1s
+    batchsize: 1048576
+    timeout: 10s
+    backoff_config:
+      min_period: 500ms
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  # Main application logs (JSON format)
+  - job_name: ringrift-app
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ringrift
+          node: ${RINGRIFT_NODE_ID:-${HOSTNAME}}
+          __path__: /var/log/ringrift/*.log
+    pipeline_stages:
+      # Parse JSON logs
+      - json:
+          expressions:
+            level: level
+            trace_id: trace_id
+            operation: operation
+            node_id: node_id
+            logger: logger
+            message: message
+            timestamp: timestamp
+
+      # Extract labels from JSON
+      - labels:
+          level:
+          trace_id:
+          operation:
+          logger:
+
+      # Set timestamp from log entry
+      - timestamp:
+          source: timestamp
+          format: RFC3339
+
+      # Keep the message for display
+      - output:
+          source: message
+
+  # P2P orchestrator logs
+  - job_name: ringrift-p2p
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ringrift-p2p
+          node: ${RINGRIFT_NODE_ID:-${HOSTNAME}}
+          __path__: /var/log/ringrift/p2p/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            trace_id: trace_id
+            peer_id: peer_id
+            leader_id: leader_id
+      - labels:
+          level:
+          trace_id:
+          peer_id:
+
+  # Training logs
+  - job_name: ringrift-training
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ringrift-training
+          node: ${RINGRIFT_NODE_ID:-${HOSTNAME}}
+          __path__: /var/log/ringrift/training/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            trace_id: trace_id
+            config_key: config_key
+            epoch: epoch
+            loss: loss
+      - labels:
+          level:
+          trace_id:
+          config_key:
+
+  # Selfplay logs
+  - job_name: ringrift-selfplay
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ringrift-selfplay
+          node: ${RINGRIFT_NODE_ID:-${HOSTNAME}}
+          __path__: /var/log/ringrift/selfplay/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            trace_id: trace_id
+            config_key: config_key
+            games_completed: games_completed
+      - labels:
+          level:
+          trace_id:
+          config_key:
+
+  # Master loop logs
+  - job_name: ringrift-master
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ringrift-master
+          node: ${RINGRIFT_NODE_ID:-${HOSTNAME}}
+          __path__: /var/log/ringrift/master_loop*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            trace_id: trace_id
+            daemon: daemon
+            status: status
+      - labels:
+          level:
+          trace_id:
+          daemon:
+
+  # Fallback: Plain text logs (for non-JSON output)
+  - job_name: ringrift-plain
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: ringrift-plain
+          node: ${RINGRIFT_NODE_ID:-${HOSTNAME}}
+          __path__: /var/log/ringrift/**/*.txt
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (?P<logger>\S+) - (?P<level>\w+) - (?P<message>.*)$'
+      - labels:
+          level:
+          logger:
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05'

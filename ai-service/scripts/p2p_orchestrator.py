@@ -19687,31 +19687,25 @@ print(json.dumps({{
                 pass  # Don't fail heartbeat if optimizer unavailable
 
         # December 2025: Emit NODE_CAPACITY_UPDATED for backpressure detection
+        # Sprint 10 (Jan 3, 2026): Use unified emitter for consistent payloads
         # Throttled to every 30 seconds to avoid event spam
         now = time.time()
         last_emit = getattr(self, "_last_capacity_emit_time", 0)
         if now - last_emit >= 30:  # 30s throttle matches backpressure cooldown
             self._last_capacity_emit_time = now
             try:
-                from app.coordination.event_router import get_event_bus
-                from app.distributed.data_events import DataEventType, DataEvent
+                from app.distributed.data_events import emit_node_capacity_updated_sync
 
-                bus = get_event_bus()
-                if bus:
-                    event = DataEvent(
-                        event_type=DataEventType.NODE_CAPACITY_UPDATED,
-                        payload={
-                            "node_id": self.node_id,
-                            "gpu_utilization": usage["gpu_percent"],
-                            "cpu_utilization": usage["cpu_percent"],
-                            "memory_used_percent": usage["memory_percent"],
-                            "disk_used_percent": usage["disk_percent"],
-                            "gpu_memory_percent": usage["gpu_memory_percent"],
-                            "task_slots_available": max(0, self._get_max_selfplay_jobs() - selfplay - training),
-                            "task_slots_total": self._get_max_selfplay_jobs(),
-                        },
-                    )
-                    bus.publish_sync(event)
+                available_slots = max(0, self._get_max_selfplay_jobs() - selfplay - training)
+                emit_node_capacity_updated_sync(
+                    node_id=self.node_id,
+                    gpu_utilization=usage["gpu_percent"],
+                    cpu_utilization=usage["cpu_percent"],
+                    available_slots=available_slots,
+                    reason="heartbeat",
+                    source="p2p_orchestrator",
+                    queue_depth=getattr(self, "_work_queue_depth", 0),
+                )
             except (ImportError, RuntimeError, AttributeError):
                 pass  # Event system not available or no event loop
 
@@ -19799,29 +19793,23 @@ print(json.dumps({{
                 pass
 
         # NODE_CAPACITY_UPDATED event (throttled, fast)
+        # Sprint 10 (Jan 3, 2026): Use unified emitter for consistent payloads
         last_emit = getattr(self, "_last_capacity_emit_time", 0)
         if now - last_emit >= 30:
             self._last_capacity_emit_time = now
             try:
-                from app.coordination.event_router import get_event_bus
-                from app.distributed.data_events import DataEventType, DataEvent
+                from app.distributed.data_events import emit_node_capacity_updated_sync
 
-                bus = get_event_bus()
-                if bus:
-                    event = DataEvent(
-                        event_type=DataEventType.NODE_CAPACITY_UPDATED,
-                        payload={
-                            "node_id": self.node_id,
-                            "gpu_utilization": usage["gpu_percent"],
-                            "cpu_utilization": usage["cpu_percent"],
-                            "memory_used_percent": usage["memory_percent"],
-                            "disk_used_percent": usage["disk_percent"],
-                            "gpu_memory_percent": usage["gpu_memory_percent"],
-                            "task_slots_available": max(0, self._get_max_selfplay_jobs() - selfplay - training),
-                            "task_slots_total": self._get_max_selfplay_jobs(),
-                        },
-                    )
-                    bus.publish_sync(event)
+                available_slots = max(0, self._get_max_selfplay_jobs() - selfplay - training)
+                emit_node_capacity_updated_sync(
+                    node_id=self.node_id,
+                    gpu_utilization=usage["gpu_percent"],
+                    cpu_utilization=usage["cpu_percent"],
+                    available_slots=available_slots,
+                    reason="heartbeat_async",
+                    source="p2p_orchestrator",
+                    queue_depth=getattr(self, "_work_queue_depth", 0),
+                )
             except (ImportError, RuntimeError, AttributeError):
                 pass
 

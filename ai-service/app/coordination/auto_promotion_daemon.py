@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.config.coordination_defaults import PromotionGameDefaults
 from app.config.thresholds import AUTO_PROMOTION_MIN_QUALITY
 from app.coordination.event_utils import parse_config_key
 from app.utils.game_discovery import count_games_for_config
@@ -354,20 +355,27 @@ class AutoPromotionDaemon:
             return
 
         # Check game counts
+        # January 2026 (Phase 2.3): Graduate minimum games by player count
+        # 4-player games have higher variance, requiring more games for statistical confidence
         random_games = candidate.evaluation_games.get("RANDOM", 0)
         heuristic_games = candidate.evaluation_games.get("HEURISTIC", 0)
 
-        if random_games < self.config.min_games_vs_random:
+        # Get player count from config_key for graduated thresholds
+        parsed = parse_config_key(candidate.config_key)
+        num_players = parsed.num_players if parsed else 2
+        min_games = PromotionGameDefaults.get_min_games(num_players)
+
+        if random_games < min_games:
             logger.debug(
                 f"[AutoPromotion] {candidate.config_key}: "
-                f"Need {self.config.min_games_vs_random} games vs RANDOM, have {random_games}"
+                f"Need {min_games} games vs RANDOM (graduated for {num_players}p), have {random_games}"
             )
             return
 
-        if heuristic_games < self.config.min_games_vs_heuristic:
+        if heuristic_games < min_games:
             logger.debug(
                 f"[AutoPromotion] {candidate.config_key}: "
-                f"Need {self.config.min_games_vs_heuristic} games vs HEURISTIC, have {heuristic_games}"
+                f"Need {min_games} games vs HEURISTIC (graduated for {num_players}p), have {heuristic_games}"
             )
             return
 

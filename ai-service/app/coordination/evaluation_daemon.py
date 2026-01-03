@@ -142,7 +142,35 @@ class EvaluationConfig:
     # Timeouts
     # Dec 29: Reduced from 600s to 300s for faster iteration (5 min per eval)
     # Full cycle time: 2h → 1h (12 configs × 5 min = 1h total evaluation time)
-    evaluation_timeout_seconds: float = 300.0  # 5 minutes
+    # Jan 2, 2026: Now used as fallback; board-specific timeouts in get_timeout_for_board()
+    evaluation_timeout_seconds: float = 300.0  # 5 minutes (default/fallback)
+
+    # January 2, 2026 (Phase 1.3): Graduated timeouts by board size
+    # Larger boards need more time per game, so evaluation timeouts must scale.
+    # hex8/square8: 64/61 cells → fast games → 1 hour
+    # square19: 361 cells → 4-5x longer games → 3 hours
+    # hexagonal: 469 cells → longest games → 4 hours
+    board_timeout_seconds: dict = field(default_factory=lambda: {
+        "hex8": 3600,       # 1 hour - small board, fast games
+        "square8": 7200,    # 2 hours - small board, medium complexity
+        "square19": 10800,  # 3 hours - large board (Go-sized)
+        "hexagonal": 14400, # 4 hours - largest board
+    })
+
+    def get_timeout_for_board(self, board_type: str) -> float:
+        """Get evaluation timeout based on board type.
+
+        January 2, 2026 (Phase 1.3): Large boards (square19, hexagonal) were
+        timing out prematurely with the fixed 5-minute timeout. This method
+        returns graduated timeouts based on board complexity.
+
+        Args:
+            board_type: Board type (hex8, square8, square19, hexagonal)
+
+        Returns:
+            Timeout in seconds for this board type.
+        """
+        return self.board_timeout_seconds.get(board_type, self.evaluation_timeout_seconds)
 
     # Deduplication settings (December 2025)
     dedup_cooldown_seconds: float = 300.0  # 5 minute cooldown per model
@@ -717,6 +745,8 @@ class EvaluationDaemon(BaseEventHandler):
 
         # Run with timeout, early stopping, and parallel game execution
         # Dec 29: Enable parallel_games=16 for 2-4x faster gauntlet throughput
+        # Jan 2, 2026 (Phase 1.3): Use graduated timeout based on board size
+        timeout = self.config.get_timeout_for_board(board_type)
         result = await asyncio.wait_for(
             asyncio.to_thread(
                 run_baseline_gauntlet,
@@ -732,7 +762,7 @@ class EvaluationDaemon(BaseEventHandler):
                 parallel_games=16,  # Dec 29: Increased for faster evaluation
                 game_count=game_count,  # Dec 30: Graduated thresholds
             ),
-            timeout=self.config.evaluation_timeout_seconds,
+            timeout=timeout,
         )
 
         # Convert to dict if needed
@@ -772,13 +802,15 @@ class EvaluationDaemon(BaseEventHandler):
             )
 
             # Run multi-harness evaluation
+            # Jan 2, 2026 (Phase 1.3): Use graduated timeout based on board size
+            base_timeout = self.config.get_timeout_for_board(board_type)
             result = await asyncio.wait_for(
                 gauntlet.evaluate_model(
                     model_path=model_path,
                     board_type=board_type,
                     num_players=num_players,
                 ),
-                timeout=self.config.evaluation_timeout_seconds * 2,  # Extra time for multiple harnesses
+                timeout=base_timeout * 2,  # Extra time for multiple harnesses
             )
 
             # Convert to dict format expected by event emission

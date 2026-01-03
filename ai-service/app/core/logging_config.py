@@ -38,14 +38,116 @@ Migration Guide:
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import logging.handlers  # P1.1 Dec 2025: For RotatingFileHandler
 import os
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+# =============================================================================
+# Trace Context (Jan 2026 - Phase 3.1)
+# =============================================================================
+
+# Context variable for trace ID - automatically propagated through async calls
+_trace_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "trace_id", default=None
+)
+
+# Context variable for operation name (optional)
+_operation: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "operation", default=None
+)
+
+# Context variable for node ID
+_node_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "node_id", default=None
+)
+
+
+def get_trace_id() -> str | None:
+    """Get the current trace ID from context."""
+    return _trace_id.get()
+
+
+def set_trace_id(trace_id: str | None = None) -> str:
+    """Set or generate a trace ID for the current context.
+
+    Args:
+        trace_id: Optional trace ID to set. If None, generates a new UUID.
+
+    Returns:
+        The trace ID that was set.
+    """
+    if trace_id is None:
+        trace_id = str(uuid.uuid4())[:12]  # Short UUID for readability
+    _trace_id.set(trace_id)
+    return trace_id
+
+
+def set_node_id(node_id: str) -> None:
+    """Set the node ID for the current context."""
+    _node_id.set(node_id)
+
+
+def get_node_id() -> str | None:
+    """Get the current node ID from context."""
+    return _node_id.get()
+
+
+class TraceContext:
+    """Context manager for tracing operations.
+
+    Automatically sets a trace ID for the duration of the context,
+    which is included in all log messages.
+
+    Usage:
+        with TraceContext("training_hex8_2p"):
+            logger.info("Starting training")  # Includes trace_id
+            # All nested async calls also include the trace_id
+        # trace_id is restored to previous value (or None)
+
+    For distributed tracing across services, pass the trace_id in headers:
+        trace_id = get_trace_id()
+        response = await client.post("/train", headers={"X-Trace-ID": trace_id})
+    """
+
+    def __init__(
+        self,
+        operation: str | None = None,
+        trace_id: str | None = None,
+    ):
+        """Initialize trace context.
+
+        Args:
+            operation: Optional operation name for this trace
+            trace_id: Optional trace ID. If None, generates a new one.
+        """
+        self.operation = operation
+        self.new_trace_id = trace_id or str(uuid.uuid4())[:12]
+        self._token_trace: contextvars.Token[str | None] | None = None
+        self._token_op: contextvars.Token[str | None] | None = None
+
+    def __enter__(self) -> "TraceContext":
+        self._token_trace = _trace_id.set(self.new_trace_id)
+        if self.operation:
+            self._token_op = _operation.set(self.operation)
+        return self
+
+    def __exit__(self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object) -> None:
+        if self._token_trace:
+            _trace_id.reset(self._token_trace)
+        if self._token_op:
+            _operation.reset(self._token_op)
+
+    @property
+    def trace_id(self) -> str:
+        """Get the trace ID for this context."""
+        return self.new_trace_id
 
 # Import path utilities (graceful fallback for bootstrap)
 try:
@@ -111,18 +213,24 @@ class JSONFormatter(logging.Formatter):
     Outputs log records as JSON objects for easy parsing by log aggregators
     like ELK, Loki, or CloudWatch.
 
+    Jan 2026 (Phase 3.1): Automatically includes trace_id, operation, and node_id
+    from context variables when available.
+
     Output format:
-        {"timestamp": "2025-12-19T10:30:00", "level": "INFO", "logger": "app.training", "message": "...", ...}
+        {"timestamp": "2025-12-19T10:30:00", "level": "INFO", "logger": "app.training",
+         "message": "...", "trace_id": "abc123def456", "node_id": "gpu-01", ...}
     """
 
     def __init__(
         self,
         include_extra: bool = True,
         include_exception: bool = True,
+        include_trace_context: bool = True,
     ):
         super().__init__()
         self.include_extra = include_extra
         self.include_exception = include_exception
+        self.include_trace_context = include_trace_context
 
     def format(self, record: logging.LogRecord) -> str:
         log_obj: dict[str, Any] = {
@@ -131,6 +239,20 @@ class JSONFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+
+        # Jan 2026: Add trace context (trace_id, operation, node_id)
+        if self.include_trace_context:
+            trace_id = _trace_id.get()
+            if trace_id:
+                log_obj["trace_id"] = trace_id
+
+            operation = _operation.get()
+            if operation:
+                log_obj["operation"] = operation
+
+            node_id = _node_id.get()
+            if node_id:
+                log_obj["node_id"] = node_id
 
         # Add location info
         if record.pathname:

@@ -873,6 +873,43 @@ TARGET_CHANGE_THRESHOLD = int(os.environ.get("RINGRIFT_SCHEDULER_TARGET_CHANGE_T
 # CPU-only job spawn threshold (min CPU count)
 CPU_ONLY_JOB_MIN_CPUS = int(os.environ.get("RINGRIFT_SCHEDULER_CPU_ONLY_JOB_MIN_CPUS", "128") or 128)
 
+# ============================================
+# Job Lifecycle Thresholds (Sprint 9, Jan 2, 2026)
+# ============================================
+# Centralized job management thresholds used by JobReaperLoop, SpawnVerificationLoop,
+# JobReassignmentLoop, and other job lifecycle management components.
+
+# Job Stale Thresholds (seconds) - how long before claimed job is considered stale
+# GPU jobs fail fast (expensive), CPU jobs can wait longer (cheap)
+JOB_STALE_GPU = int(os.environ.get("RINGRIFT_JOB_STALE_GPU", "600") or 600)  # 10 min
+JOB_STALE_GPU_GUMBEL = int(os.environ.get("RINGRIFT_JOB_STALE_GPU_GUMBEL", "600") or 600)  # 10 min
+JOB_STALE_TRAINING = int(os.environ.get("RINGRIFT_JOB_STALE_TRAINING", "1800") or 1800)  # 30 min
+JOB_STALE_CPU = int(os.environ.get("RINGRIFT_JOB_STALE_CPU", "1800") or 1800)  # 30 min
+JOB_STALE_EVALUATION = int(os.environ.get("RINGRIFT_JOB_STALE_EVALUATION", "900") or 900)  # 15 min
+JOB_STALE_DEFAULT = int(os.environ.get("RINGRIFT_JOB_STALE_DEFAULT", "1800") or 1800)  # 30 min
+
+# Job Stuck Threshold - how long before running job is considered stuck
+JOB_STUCK_THRESHOLD = int(os.environ.get("RINGRIFT_JOB_STUCK_THRESHOLD", "7200") or 7200)  # 2 hours
+
+# Spawn Verification Timeout - how long to wait for job to start after spawn
+JOB_SPAWN_VERIFY_TIMEOUT = int(os.environ.get("RINGRIFT_JOB_SPAWN_VERIFY_TIMEOUT", "30") or 30)  # 30 seconds
+
+# Spawn Verification Check Interval - how often to check pending spawns
+JOB_SPAWN_VERIFY_INTERVAL = int(os.environ.get("RINGRIFT_JOB_SPAWN_VERIFY_INTERVAL", "5") or 5)  # 5 seconds
+
+# Job Orphan Detection Timeout - how long without heartbeat before job is orphaned
+JOB_ORPHAN_TIMEOUT = int(os.environ.get("RINGRIFT_JOB_ORPHAN_TIMEOUT", "300") or 300)  # 5 min
+
+# Job Reaper Check Interval - how often to scan for stale/stuck jobs
+JOB_REAPER_INTERVAL = int(os.environ.get("RINGRIFT_JOB_REAPER_INTERVAL", "300") or 300)  # 5 min
+
+# Maximum jobs to reap per cycle (prevents thundering herd)
+JOB_REAPER_MAX_PER_CYCLE = int(os.environ.get("RINGRIFT_JOB_REAPER_MAX_PER_CYCLE", "10") or 10)
+
+# Queue Depth Limits
+WORK_QUEUE_MAX_DEPTH = int(os.environ.get("RINGRIFT_WORK_QUEUE_MAX_DEPTH", "1080") or 1080)  # Max pending items
+WORK_QUEUE_TARGET_DEPTH = int(os.environ.get("RINGRIFT_WORK_QUEUE_TARGET_DEPTH", "50") or 50)  # Target depth
+
 # Promotion penalty durations (critical/multiple/single failure)
 PROMOTION_PENALTY_DURATION_CRITICAL = int(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_CRITICAL", "7200") or 7200)  # 2 hours
 PROMOTION_PENALTY_DURATION_MULTIPLE = int(os.environ.get("RINGRIFT_SCHEDULER_PROMOTION_PENALTY_MULTIPLE", "3600") or 3600)  # 1 hour

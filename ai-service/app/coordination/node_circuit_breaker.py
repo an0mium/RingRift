@@ -43,6 +43,8 @@ from enum import Enum
 from threading import RLock
 from typing import Any, Callable
 
+from app.config.coordination_defaults import CircuitBreakerDefaults
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -113,24 +115,36 @@ class _NodeCircuitData:
 
 @dataclass
 class NodeCircuitConfig:
-    """Configuration for per-node circuit breakers."""
+    """Configuration for per-node circuit breakers.
+
+    Jan 2, 2026: Consolidated to use CircuitBreakerDefaults as fallback.
+    Environment variables still take precedence for runtime tuning.
+    """
 
     # Number of consecutive failures to open circuit
+    # Uses CircuitBreakerDefaults.FAILURE_THRESHOLD as fallback
     failure_threshold: int = field(
         default_factory=lambda: int(
-            os.environ.get("RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD", "5")
+            os.environ.get(
+                "RINGRIFT_P2P_NODE_CIRCUIT_FAILURE_THRESHOLD",
+                str(CircuitBreakerDefaults.FAILURE_THRESHOLD),
+            )
         )
     )
 
     # Seconds to wait before testing recovery
+    # Uses CircuitBreakerDefaults.RECOVERY_TIMEOUT as fallback
     recovery_timeout: float = field(
         default_factory=lambda: float(
-            os.environ.get("RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT", "60.0")
+            os.environ.get(
+                "RINGRIFT_P2P_NODE_CIRCUIT_RECOVERY_TIMEOUT",
+                str(CircuitBreakerDefaults.RECOVERY_TIMEOUT),
+            )
         )
     )
 
     # Successes needed in half-open to close circuit
-    success_threshold: int = 1
+    success_threshold: int = CircuitBreakerDefaults.HALF_OPEN_MAX_CALLS
 
     # Enable event emission on state changes
     emit_events: bool = True
