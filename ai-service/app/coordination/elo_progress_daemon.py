@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.coordination.event_utils import extract_config_key, normalize_event_payload
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,9 @@ class EloProgressDaemon(HandlerBase):
         if time.time() - self._last_snapshot_time < MIN_SNAPSHOT_INTERVAL:
             return
 
-        config_key = event.get("config_key") or event.get("payload", {}).get("config_key")
+        # Jan 3, 2026: Use event_utils for consistent payload extraction
+        payload = normalize_event_payload(event)
+        config_key = extract_config_key(payload)
         if not config_key:
             return
 
@@ -138,7 +141,9 @@ class EloProgressDaemon(HandlerBase):
         if time.time() - self._last_snapshot_time < MIN_SNAPSHOT_INTERVAL:
             return
 
-        config_key = event.get("config_key") or event.get("payload", {}).get("config_key")
+        # Jan 3, 2026: Use event_utils for consistent payload extraction
+        payload = normalize_event_payload(event)
+        config_key = extract_config_key(payload)
         if not config_key:
             return
 
