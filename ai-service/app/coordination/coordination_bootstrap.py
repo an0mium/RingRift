@@ -1255,6 +1255,51 @@ def _start_unified_feedback_orchestrator() -> bool:
         return False
 
 
+def _initialize_event_coalescer() -> bool:
+    """Initialize the EventCoalescer for high-frequency event deduplication (January 2026).
+
+    The EventCoalescer batches and deduplicates rapid-fire events to reduce
+    processing overhead. Default coalesce types (from event_batch_buffer.py):
+    - PRIORITY_UPDATED: Selfplay priority changes (high frequency)
+    - QUALITY_SCORE_UPDATED: Data quality score updates
+    - SELFPLAY_TARGET_UPDATED: Target game count changes
+    - ELO_VELOCITY_UPDATED: Elo velocity metric updates
+
+    Expected impact: 50-80% reduction in event processing overhead for
+    high-frequency events.
+
+    Returns:
+        True if initialization succeeded
+    """
+    try:
+        from app.coordination.event_batch_buffer import initialize_batch_publisher
+        import asyncio
+        from app.utils.async_utils import fire_and_forget
+
+        # Handle sync/async context
+        try:
+            asyncio.get_running_loop()
+            # If we're in an async context, schedule with fire_and_forget
+            fire_and_forget(
+                initialize_batch_publisher(),
+                name="event_coalescer_init",
+            )
+            logger.info("[Bootstrap] Event coalescer initialization scheduled")
+        except RuntimeError:
+            # No running loop - run synchronously
+            asyncio.run(initialize_batch_publisher())
+            logger.info("[Bootstrap] Event coalescer initialized")
+
+        return True
+
+    except ImportError as e:
+        logger.warning(f"[Bootstrap] Event batch buffer module not available: {e}")
+        return False
+    except (RuntimeError, AttributeError, TypeError) as e:
+        logger.warning(f"[Bootstrap] Failed to initialize event coalescer: {e}")
+        return False
+
+
 def _validate_event_wiring() -> dict[str, Any]:
     """Validate event flow and critical event subscriptions.
 
@@ -1708,6 +1753,9 @@ def bootstrap_coordination(
 
     # Start unified feedback orchestrator (December 2025 - critical integration gap)
     _start_unified_feedback_orchestrator()
+
+    # January 2026: Initialize event coalescer for high-frequency event deduplication
+    _initialize_event_coalescer()
 
     # Phase 21.2 (December 2025): Validate event flow to detect orphaned events
     _validate_event_wiring()

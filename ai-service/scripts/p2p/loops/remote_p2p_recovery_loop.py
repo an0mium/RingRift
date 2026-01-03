@@ -241,7 +241,15 @@ class RemoteP2PRecoveryLoop(BaseLoop):
         # Callbacks
         self._get_alive_peer_ids = get_alive_peer_ids
         self._emit_event = emit_event
-        self._is_leader = is_leader or (lambda: False)  # Default to not leader
+        # Jan 3, 2026: Validate is_leader is callable to prevent "'bool' object is not callable"
+        # This can happen if someone passes is_leader=True instead of is_leader=lambda: True
+        if is_leader is not None and not callable(is_leader):
+            logger.warning(
+                f"[RemoteP2PRecovery] is_leader must be callable, got {type(is_leader).__name__}. "
+                f"Using default (always False). Pass a lambda like: is_leader=lambda: my_check()"
+            )
+            is_leader = None
+        self._is_leader = is_leader if is_leader is not None else (lambda: False)
 
         # Statistics
         self._stats = RemoteP2PRecoveryStats()
