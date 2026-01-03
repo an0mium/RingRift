@@ -2208,11 +2208,11 @@ class P2POrchestrator(
 
             # JobReassignmentLoop - automatically reassigns orphaned jobs (P1 Sprint 6, Jan 2026)
             # Detects jobs without heartbeats and reassigns within 5 min (vs 1 hour for JobReaper)
-            # Uses JobManager.check_and_reassign_stale_jobs() with exponential backoff
+            # Uses JobManager.process_stale_jobs() with exponential backoff
             if self.job_manager is not None:
                 job_reassignment = JobReassignmentLoop(
                     get_role=lambda: self.role,
-                    check_and_reassign=self.job_manager.check_and_reassign_stale_jobs,
+                    check_and_reassign=self.job_manager.process_stale_jobs,
                     get_healthy_nodes=self._get_healthy_node_ids_for_reassignment,
                 )
                 manager.register(job_reassignment)

@@ -2830,6 +2830,70 @@ async def create_connectivity_recovery() -> None:
 
 
 # =============================================================================
+# Data Availability Infrastructure (Jan 3, 2026)
+# =============================================================================
+
+
+async def create_dual_backup() -> None:
+    """Create and run dual backup daemon (S3 + OWC)."""
+    try:
+        from app.coordination.dual_backup_daemon import (
+            create_dual_backup as _create,
+        )
+
+        await _create()
+    except ImportError as e:
+        logger.error(f"DualBackupDaemon not available: {e}")
+        raise
+
+
+async def create_owc_push() -> None:
+    """Create and run OWC push daemon."""
+    try:
+        from app.coordination.owc_push_daemon import (
+            create_owc_push as _create,
+        )
+
+        await _create()
+    except ImportError as e:
+        logger.error(f"OWCPushDaemon not available: {e}")
+        raise
+
+
+async def create_s3_import() -> None:
+    """Create and run S3 import daemon."""
+    try:
+        from app.coordination.s3_import_daemon import (
+            create_s3_import as _create,
+        )
+
+        await _create()
+    except ImportError as e:
+        logger.error(f"S3ImportDaemon not available: {e}")
+        raise
+
+
+async def create_unified_data_catalog() -> None:
+    """Create and run unified data catalog daemon (placeholder)."""
+    logger.warning(
+        "UNIFIED_DATA_CATALOG daemon is not yet implemented - "
+        "this is a placeholder for future unified data catalog API"
+    )
+    # Placeholder - daemon does nothing but prevents startup failure
+    await asyncio.sleep(float("inf"))
+
+
+async def create_node_data_agent() -> None:
+    """Create and run node data agent daemon (placeholder)."""
+    logger.warning(
+        "NODE_DATA_AGENT daemon is not yet implemented - "
+        "this is a placeholder for future per-node data agent"
+    )
+    # Placeholder - daemon does nothing but prevents startup failure
+    await asyncio.sleep(float("inf"))
+
+
+# =============================================================================
 # Runner Registry
 # =============================================================================
 
@@ -2950,6 +3014,12 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.PARITY_VALIDATION.name: create_parity_validation,
         # Elo progress tracking (December 31, 2025)
         DaemonType.ELO_PROGRESS.name: create_elo_progress,
+        # Data availability infrastructure (January 3, 2026)
+        DaemonType.DUAL_BACKUP.name: create_dual_backup,
+        DaemonType.OWC_PUSH.name: create_owc_push,
+        DaemonType.S3_IMPORT.name: create_s3_import,
+        DaemonType.UNIFIED_DATA_CATALOG.name: create_unified_data_catalog,
+        DaemonType.NODE_DATA_AGENT.name: create_node_data_agent,
     }
 
 

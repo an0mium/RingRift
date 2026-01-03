@@ -1337,7 +1337,7 @@ class JobReassignmentLoop(BaseLoop):
     - Only runs on leader node
 
     Integration with JobManager:
-    - Uses check_and_reassign_stale_jobs() for the actual reassignment
+    - Uses process_stale_jobs() for the actual reassignment
     - Respects exponential backoff for retry limits
     - Emits JOB_REASSIGNED events for monitoring
     """
@@ -1354,7 +1354,7 @@ class JobReassignmentLoop(BaseLoop):
         Args:
             get_role: Callback returning current node role (must have .is_leader)
             check_and_reassign: Async callback to check and reassign stale jobs
-                               (from JobManager.check_and_reassign_stale_jobs)
+                               (from JobManager.process_stale_jobs)
             get_healthy_nodes: Optional callback returning list of healthy node IDs
             config: Loop configuration
         """

@@ -773,6 +773,50 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         category="distribution",
         health_check_interval=1800.0,  # 30 minutes
     ),
+    # =========================================================================
+    # Jan 3, 2026: Added missing daemon specs for data availability infrastructure
+    # These daemon types were declared in DaemonType enum but missing from registry
+    # =========================================================================
+    DaemonType.DUAL_BACKUP: DaemonSpec(
+        runner_name="create_dual_backup",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="sync",
+        health_check_interval=3600.0,  # 1 hour - backup operations are slow
+    ),
+    DaemonType.OWC_PUSH: DaemonSpec(
+        runner_name="create_owc_push",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="sync",
+        health_check_interval=3600.0,  # 1 hour - push operations are slow
+    ),
+    DaemonType.S3_IMPORT: DaemonSpec(
+        runner_name="create_s3_import",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="sync",
+        health_check_interval=1800.0,  # 30 minutes
+    ),
+    DaemonType.UNIFIED_DATA_CATALOG: DaemonSpec(
+        runner_name="create_unified_data_catalog",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="sync",
+        health_check_interval=600.0,  # 10 minutes
+        deprecated=True,
+        deprecated_message="Not yet implemented - placeholder for future unified data catalog API",
+    ),
+    DaemonType.NODE_DATA_AGENT: DaemonSpec(
+        runner_name="create_node_data_agent",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="distribution",
+        health_check_interval=300.0,  # 5 minutes
+        deprecated=True,
+        deprecated_message="Not yet implemented - placeholder for per-node data agent",
+    ),
+    DaemonType.UNIFIED_DATA_SYNC_ORCHESTRATOR: DaemonSpec(
+        runner_name="create_unified_data_sync_orchestrator",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AUTO_SYNC),
+        category="sync",
+        health_check_interval=300.0,  # 5 minutes
+    ),
 }
 
 
