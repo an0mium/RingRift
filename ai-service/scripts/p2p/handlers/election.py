@@ -758,3 +758,85 @@ class ElectionHandlersMixin(BaseP2PHandler):
         except Exception as e:
             logger.error(f"Error handling leader state change: {e}")
             return self.error_response(str(e), status=500)
+
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
+    async def handle_commitment_ack(self, request: web.Request) -> web.Response:
+        """Handle commitment ack request for two-phase leadership commitment.
+
+        January 2026: Part of two-phase leadership commitment protocol.
+        Leader requests commitment acks from voters after winning election.
+        Voters only ack if they agree on the leader.
+
+        Request body:
+            {
+                "leader_id": "node-1",
+                "lease_id": "uuid-1234"  // Optional
+            }
+
+        Response:
+            {
+                "agreed": true,
+                "voter_id": "node-2",
+                "leader_seen": "node-1",  // What leader this voter sees
+                "reason": ""  // If disagreed, why
+            }
+        """
+        try:
+            if not self.check_auth(request):
+                return self.auth_error()
+
+            data = await self.parse_json_body(request)
+            if data is None:
+                return self.bad_request("Invalid JSON body")
+
+            leader_id = str(data.get("leader_id", "")).strip()
+
+            if not leader_id:
+                return self.json_response({
+                    "agreed": False,
+                    "voter_id": self.node_id,
+                    "leader_seen": self.leader_id,
+                    "reason": "missing_leader_id",
+                })
+
+            # Check if this is a voter node
+            voters = list(getattr(self, "voter_node_ids", []) or [])
+            if voters and self.node_id not in voters:
+                return self.json_response({
+                    "agreed": False,
+                    "voter_id": self.node_id,
+                    "leader_seen": self.leader_id,
+                    "reason": "not_a_voter",
+                })
+
+            # Check if we agree on the leader
+            current_leader = self.leader_id
+            agreed = current_leader == leader_id or current_leader is None
+
+            reason = ""
+            if not agreed:
+                reason = f"different_leader_seen:{current_leader}"
+            elif getattr(self, "election_in_progress", False):
+                agreed = False
+                reason = "election_in_progress"
+
+            logger.debug(
+                f"[CommitmentAck] Request from leader {leader_id}: "
+                f"agreed={agreed}, our_leader={current_leader}"
+            )
+
+            return self.json_response({
+                "agreed": agreed,
+                "voter_id": self.node_id,
+                "leader_seen": current_leader,
+                "reason": reason,
+            })
+
+        except Exception as e:
+            logger.error(f"Error handling commitment ack: {e}")
+            return self.json_response({
+                "agreed": False,
+                "voter_id": self.node_id,
+                "leader_seen": getattr(self, "leader_id", None),
+                "reason": f"error:{e}",
+            }, status=500)

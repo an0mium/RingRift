@@ -93,6 +93,7 @@ ELECTION_ROUTES = [
     Route("GET", "/election/grant", "handle_voter_grant_status"),
     Route("POST", "/election/reset", "handle_election_reset"),
     Route("POST", "/election/force_leader", "handle_election_force_leader"),
+    Route("POST", "/election/commitment-ack", "handle_commitment_ack"),  # Jan 2026: Two-phase commit
 ]
 
 # ===========================================================================

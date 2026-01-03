@@ -133,7 +133,12 @@ class DaemonEventHandlers:
                 router.subscribe(DataEventType.DISK_SPACE_LOW.value, self._on_disk_space_low)
                 logger.debug("[DaemonEventHandlers] Subscribed to DISK_SPACE_LOW")
 
-            logger.info("[DaemonEventHandlers] Subscribed to critical events (Phase 5, P0.3, P2P cluster, backpressure, disk space)")
+            # January 2026: Split-brain detection
+            if hasattr(DataEventType, 'SPLIT_BRAIN_DETECTED'):
+                router.subscribe(DataEventType.SPLIT_BRAIN_DETECTED.value, self._on_split_brain_detected)
+                logger.debug("[DaemonEventHandlers] Subscribed to SPLIT_BRAIN_DETECTED")
+
+            logger.info("[DaemonEventHandlers] Subscribed to critical events (Phase 5, P0.3, P2P cluster, backpressure, disk space, split-brain)")
             self._subscribed = True
 
             # Phase 7: Wire AutoRollbackHandler
@@ -674,6 +679,75 @@ class DaemonEventHandlers:
 
         except (RuntimeError, OSError, AttributeError, KeyError) as e:
             logger.debug(f"[DaemonEventHandlers] Error handling DISK_SPACE_LOW: {e}")
+
+    async def _on_split_brain_detected(self, event: Any) -> None:
+        """Handle SPLIT_BRAIN_DETECTED event - pause non-critical daemons.
+
+        January 2026: When split-brain is detected, coordinate daemon-level response:
+        1. Log the critical event prominently
+        2. Pause non-critical daemons to prevent inconsistent operations
+        3. Wait for SPLIT_BRAIN_RESOLVED before resuming
+
+        Args:
+            event: The SPLIT_BRAIN_DETECTED event
+        """
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            leaders_seen = payload.get("leaders_seen", [])
+            severity = payload.get("severity", "warning")
+            voter_count = payload.get("voter_count", 0)
+
+            # Prominent logging - this is critical
+            logger.critical(
+                f"[SPLIT_BRAIN_DETECTED] Cluster split-brain detected!\n"
+                f"  Leaders seen: {leaders_seen}\n"
+                f"  Severity: {severity}\n"
+                f"  Voter count: {voter_count}"
+            )
+
+            # Pause non-critical daemons during split-brain
+            # Critical daemons (health monitoring, recovery) should keep running
+            non_critical_daemons = [
+                DaemonType.SELFPLAY_COORDINATOR,
+                DaemonType.TRAINING_COORDINATOR,
+                DaemonType.AUTO_EXPORT,
+                DaemonType.AUTO_SYNC,
+                DaemonType.NPZ_COMBINATION,
+                DaemonType.MODEL_DISTRIBUTION,
+            ]
+
+            paused_count = 0
+            for daemon_type in non_critical_daemons:
+                if daemon_type in self._manager._daemons:
+                    info = self._manager._daemons[daemon_type]
+                    if info.state == DaemonState.RUNNING:
+                        try:
+                            await self._manager.stop(daemon_type)
+                            paused_count += 1
+                            logger.info(f"[SPLIT_BRAIN] Paused {daemon_type.value}")
+                        except Exception as stop_err:
+                            logger.warning(f"[SPLIT_BRAIN] Failed to pause {daemon_type.value}: {stop_err}")
+
+            if paused_count > 0:
+                logger.warning(
+                    f"[SPLIT_BRAIN] Paused {paused_count} non-critical daemons. "
+                    f"Will resume when SPLIT_BRAIN_RESOLVED is received."
+                )
+
+            # Emit alert for cluster-wide awareness
+            await self._emit_cluster_alert(
+                alert_type="split_brain",
+                config_key="cluster",
+                message=f"Split-brain detected: {len(leaders_seen)} leaders seen",
+                severity="critical",
+                leaders_seen=leaders_seen,
+                paused_daemons=paused_count,
+            )
+
+        except (RuntimeError, OSError, ConnectionError, ImportError) as e:
+            logger.error(f"[DaemonEventHandlers] Error handling SPLIT_BRAIN_DETECTED: {e}")
 
     # =========================================================================
     # Helper Methods

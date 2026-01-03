@@ -1127,9 +1127,25 @@ class WorkQueue:
 
         Raises:
             RuntimeError: If queue is at hard limit and force=False
+            RuntimeError: If cluster is in critical state and force=False
 
         Jan 2, 2026: Refactored to use Strategy pattern backend.
+        Jan 3, 2026: Added ClusterCircuitBreaker check for cascade prevention.
         """
+        # Jan 3, 2026: Check cluster health before adding work
+        if not force:
+            try:
+                from app.coordination.node_circuit_breaker import get_cluster_circuit_breaker
+                cluster_cb = get_cluster_circuit_breaker()
+                if cluster_cb.should_pause_new_work():
+                    status = cluster_cb.get_status()
+                    raise RuntimeError(
+                        f"[CLUSTER_CRITICAL] Cluster in critical state ({status.failure_ratio:.0%} nodes failing). "
+                        f"Work item {item.work_id} rejected. Wait for cluster recovery or use force=True."
+                    )
+            except ImportError:
+                pass  # ClusterCircuitBreaker not available
+
         with self.lock:
             # Dec 28, 2025: Check backpressure before adding
             pending = sum(1 for i in self.items.values() if i.status == WorkStatus.PENDING)
@@ -1186,6 +1202,7 @@ class WorkQueue:
 
         December 29, 2025: Added for batch performance optimization.
         Uses executemany() for efficient bulk inserts instead of individual writes.
+        Jan 3, 2026: Added ClusterCircuitBreaker check for cascade prevention.
 
         Args:
             items: List of work items to add
@@ -1196,9 +1213,24 @@ class WorkQueue:
 
         Raises:
             RuntimeError: If queue is at hard limit and force=False
+            RuntimeError: If cluster is in critical state and force=False
         """
         if not items:
             return []
+
+        # Jan 3, 2026: Check cluster health before adding batch
+        if not force:
+            try:
+                from app.coordination.node_circuit_breaker import get_cluster_circuit_breaker
+                cluster_cb = get_cluster_circuit_breaker()
+                if cluster_cb.should_pause_new_work():
+                    status = cluster_cb.get_status()
+                    raise RuntimeError(
+                        f"[CLUSTER_CRITICAL] Cluster in critical state ({status.failure_ratio:.0%} nodes failing). "
+                        f"Batch of {len(items)} work items rejected. Wait for cluster recovery or use force=True."
+                    )
+            except ImportError:
+                pass  # ClusterCircuitBreaker not available
 
         added_ids: list[str] = []
 
