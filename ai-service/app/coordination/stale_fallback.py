@@ -271,10 +271,26 @@ class TrainingFallbackController:
 
         if should_fallback:
             state.record_fallback()
+
+            # Jan 3, 2026: Enhanced logging for better observability
+            # Calculate how long this config has been experiencing sync issues
+            time_in_fallback = 0.0
+            if state.first_failure_time > 0:
+                time_in_fallback = now - state.first_failure_time
+
             logger.warning(
                 f"[StaleFallback] Allowing stale training for {config_key}: {reason} "
-                f"(data_age={data_age_hours:.1f}h, games={games_available})"
+                f"(data_age={data_age_hours:.1f}h, games={games_available}, "
+                f"fallback_count={state.fallback_count}, "
+                f"sync_issue_duration={time_in_fallback:.0f}s)"
             )
+
+            # Additional info-level context for debugging
+            if state.fallback_count > 1:
+                logger.info(
+                    f"[StaleFallback] Config {config_key} has used fallback "
+                    f"{state.fallback_count} times. Consider investigating sync issues."
+                )
 
             # Emit event if configured
             if StaleFallbackDefaults.EMIT_FALLBACK_EVENTS:

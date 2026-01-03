@@ -3337,29 +3337,46 @@ class QualityGateDefaults:
     4-player configs have higher variance, so they need stricter quality
     thresholds to ensure training data is meaningful.
 
+    January 3, 2026 (Sprint 10): Added board-type-specific adjustments.
+    Larger/more complex boards need higher quality data for effective training:
+    - hex8: Simplest board (61 cells) - lowest threshold
+    - square8: Medium complexity (64 cells) - medium threshold
+    - square19: Large board (361 cells) - higher threshold
+    - hexagonal: Most complex (469 cells) - highest threshold
+
     Used by: training_trigger_daemon.py, quality_monitor_daemon.py
     """
     # Default quality threshold (used if config not in QUALITY_GATES)
     DEFAULT_THRESHOLD: float = _env_float("RINGRIFT_DEFAULT_QUALITY_THRESHOLD", 0.50)
 
-    # Quality thresholds by config - higher player counts need higher quality
-    # Thresholds represent minimum data quality score (0.0 - 1.0) for training
+    # Board complexity adjustments (applied on top of player count threshold)
+    # Sprint 10: More complex boards need higher quality training data
+    BOARD_COMPLEXITY_ADJUSTMENTS: dict = {
+        "hex8": 0.0,        # Simplest board - baseline
+        "square8": 0.02,    # Slightly more complex
+        "square19": 0.05,   # Large board - higher quality needed
+        "hexagonal": 0.08,  # Most complex - highest quality needed
+    }
+
+    # Quality thresholds by config - combines player count + board complexity
+    # Sprint 10: Thresholds now vary by BOTH board type AND player count
+    # Base: 2p=0.50, 3p=0.55, 4p=0.65, then add board complexity adjustment
     QUALITY_GATES: dict = {
-        # 2-player configs - baseline quality
-        "hex8_2p": 0.50,
-        "square8_2p": 0.50,
-        "square19_2p": 0.50,
-        "hexagonal_2p": 0.50,
-        # 3-player configs - moderate increase
-        "hex8_3p": 0.55,
-        "square8_3p": 0.55,
-        "square19_3p": 0.55,
-        "hexagonal_3p": 0.55,
-        # 4-player configs - highest quality required
-        "hex8_4p": 0.65,
-        "square8_4p": 0.65,
-        "square19_4p": 0.65,
-        "hexagonal_4p": 0.65,
+        # 2-player configs - baseline + board adjustment
+        "hex8_2p": 0.50,         # 0.50 + 0.00
+        "square8_2p": 0.52,      # 0.50 + 0.02
+        "square19_2p": 0.55,     # 0.50 + 0.05
+        "hexagonal_2p": 0.58,    # 0.50 + 0.08
+        # 3-player configs - moderate + board adjustment
+        "hex8_3p": 0.55,         # 0.55 + 0.00
+        "square8_3p": 0.57,      # 0.55 + 0.02
+        "square19_3p": 0.60,     # 0.55 + 0.05
+        "hexagonal_3p": 0.63,    # 0.55 + 0.08
+        # 4-player configs - highest + board adjustment
+        "hex8_4p": 0.65,         # 0.65 + 0.00
+        "square8_4p": 0.67,      # 0.65 + 0.02
+        "square19_4p": 0.70,     # 0.65 + 0.05
+        "hexagonal_4p": 0.73,    # 0.65 + 0.08
     }
 
     @classmethod
@@ -3373,6 +3390,21 @@ class QualityGateDefaults:
             Quality threshold (0.0 - 1.0)
         """
         return cls.QUALITY_GATES.get(config_key, cls.DEFAULT_THRESHOLD)
+
+    @classmethod
+    def get_board_complexity_adjustment(cls, board_type: str) -> float:
+        """Get quality threshold adjustment for board complexity.
+
+        January 3, 2026 (Sprint 10): Returns the quality threshold adjustment
+        for the given board type. Larger/more complex boards get higher adjustments.
+
+        Args:
+            board_type: Board type like "hex8", "square19", "hexagonal"
+
+        Returns:
+            Adjustment value (0.0 - 0.10) to add to base threshold
+        """
+        return cls.BOARD_COMPLEXITY_ADJUSTMENTS.get(board_type, 0.0)
 
 
 # =============================================================================

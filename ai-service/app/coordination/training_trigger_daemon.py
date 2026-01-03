@@ -2426,9 +2426,14 @@ class TrainingTriggerDaemon(HandlerBase):
             - (True, "quality ok (X.XX)") if quality >= threshold
             - (False, "quality too low (X.XX < threshold)") if quality < threshold
         """
-        # Quality gate threshold - minimum acceptable quality for training
-        # Default 0.4 = allow training if 40%+ of data passes quality checks
-        quality_threshold = 0.4
+        # January 3, 2026 (Sprint 10): Use board-specific quality thresholds
+        # Larger/more complex boards need higher quality data for effective training
+        # See QualityGateDefaults.QUALITY_GATES for per-config thresholds
+        try:
+            from app.config.coordination_defaults import QualityGateDefaults
+            quality_threshold = QualityGateDefaults.get_quality_threshold(config_key)
+        except ImportError:
+            quality_threshold = 0.50  # Fallback to default
 
         try:
             from app.coordination.quality_monitor_daemon import get_quality_monitor
@@ -3306,6 +3311,28 @@ class TrainingTriggerDaemon(HandlerBase):
             grace_seconds: Time to wait between SIGTERM and SIGKILL
         """
         try:
+            # Jan 3, 2026: Emit TRAINING_TIMEOUT_REACHED before killing to allow
+            # other systems (curriculum, feedback loop) to react
+            try:
+                from app.coordination.event_router import emit_event
+                from app.distributed.data_events import DataEventType
+
+                emit_event(
+                    DataEventType.TRAINING_TIMEOUT_REACHED,
+                    {
+                        "config_key": config_key,
+                        "pid": pid,
+                        "timeout_hours": self.config.training_timeout_hours,
+                        "grace_seconds": grace_seconds,
+                        "timestamp": time.time(),
+                    },
+                )
+                logger.debug(
+                    f"[TrainingTriggerDaemon] Emitted TRAINING_TIMEOUT_REACHED for {config_key}"
+                )
+            except Exception as e:
+                logger.warning(f"[TrainingTriggerDaemon] Failed to emit timeout event: {e}")
+
             # First, send SIGTERM for graceful shutdown
             os.kill(pid, signal.SIGTERM)
             logger.info(

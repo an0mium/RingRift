@@ -121,6 +121,7 @@ class DataEventType(Enum):
     TRAINING_FAILED = "training_failed"
     TRAINING_LOCK_ACQUIRED = "training_lock_acquired"  # Dec 30, 2025: Training lock acquired for config
     TRAINING_SLOT_UNAVAILABLE = "training_slot_unavailable"  # Dec 30, 2025: Training slot not available
+    TRAINING_TIMEOUT_REACHED = "training_timeout_reached"  # Jan 3, 2026: Training exceeded time limit
 
     # Evaluation events
     EVALUATION_STARTED = "evaluation_started"

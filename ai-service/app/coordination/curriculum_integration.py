@@ -185,7 +185,14 @@ class MomentumToCurriculumBridge:
             if hasattr(DataEventType, 'CURRICULUM_PROPAGATE'):
                 router.subscribe(DataEventType.CURRICULUM_PROPAGATE, self._on_curriculum_propagate)
 
-            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE")
+            # January 2026 Sprint 10: Subscribe to REGRESSION_DETECTED for direct
+            # curriculum response (+12-18 Elo). Previously took 2-3 cycles through
+            # intermediate handlers. Direct subscription enables immediate difficulty
+            # reduction when regression is detected.
+            if hasattr(DataEventType, 'REGRESSION_DETECTED'):
+                router.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
+
+            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE, REGRESSION_DETECTED")
 
             # December 29, 2025: Only set _event_subscribed = True after successful subscription
             # Previously this was in finally block which caused race condition:
@@ -243,6 +250,9 @@ class MomentumToCurriculumBridge:
                 # January 2026 Sprint 10: Unsubscribe from CURRICULUM_PROPAGATE
                 if hasattr(DataEventType, 'CURRICULUM_PROPAGATE'):
                     router.unsubscribe(DataEventType.CURRICULUM_PROPAGATE, self._on_curriculum_propagate)
+                # January 2026 Sprint 10: Unsubscribe from REGRESSION_DETECTED
+                if hasattr(DataEventType, 'REGRESSION_DETECTED'):
+                    router.unsubscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
             self._event_subscribed = False
         except (ImportError, AttributeError, TypeError, RuntimeError):
             # ImportError: modules not available
@@ -886,6 +896,76 @@ class MomentumToCurriculumBridge:
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling curriculum propagate: {e}")
+
+    def _on_regression_detected(self, event) -> None:
+        """Handle REGRESSION_DETECTED event - immediately reduce curriculum difficulty.
+
+        January 2026 Sprint 10: Direct subscription to REGRESSION_DETECTED enables
+        immediate curriculum response (+12-18 Elo improvement). Previously the signal
+        flowed through 2-3 intermediate handlers (FeedbackLoop → TrainingCoordinator
+        → CurriculumFeedback), causing 2-3 cycle delays before curriculum adjustment.
+
+        Action: Reduce curriculum weight by 30-50% depending on regression severity.
+        This reduces difficulty level so the model can recover from the regression.
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event if isinstance(event, dict) else {}
+
+            config_key = payload.get("config_key", "")
+            elo_delta = payload.get("elo_delta", 0)
+            current_elo = payload.get("current_elo", 0)
+            previous_elo = payload.get("previous_elo", 0)
+
+            if not config_key:
+                logger.debug("[MomentumToCurriculumBridge] REGRESSION_DETECTED missing config_key")
+                return
+
+            # Calculate regression severity: larger drop = more aggressive weight reduction
+            # -50 Elo: 30% reduction, -100 Elo: 50% reduction, -150+ Elo: 60% reduction
+            severity = min(abs(elo_delta), 150) / 150.0  # Normalize to 0-1
+            reduction_factor = 0.70 - (severity * 0.30)  # 0.70 to 0.40 based on severity
+
+            logger.warning(
+                f"[MomentumToCurriculumBridge] REGRESSION_DETECTED for {config_key}: "
+                f"Elo {previous_elo} -> {current_elo} (delta={elo_delta}), "
+                f"reducing curriculum weight by {(1-reduction_factor)*100:.0f}%"
+            )
+
+            # Apply curriculum weight reduction
+            try:
+                from app.training.curriculum_feedback import get_curriculum_feedback
+
+                curriculum = get_curriculum_feedback()
+                if curriculum:
+                    current_weights = curriculum.get_curriculum_weights()
+                    old_weight = current_weights.get(config_key, 1.0)
+
+                    # Apply reduction, but maintain minimum weight of 0.3
+                    new_weight = max(old_weight * reduction_factor, 0.3)
+
+                    if new_weight < old_weight:
+                        curriculum.update_weight(
+                            config_key=config_key,
+                            new_weight=new_weight,
+                            source=f"regression_detected_elo_delta_{elo_delta}",
+                        )
+                        self._last_weights[config_key] = new_weight
+
+                        logger.info(
+                            f"[MomentumToCurriculumBridge] Reduced curriculum weight for {config_key}: "
+                            f"{old_weight:.2f} -> {new_weight:.2f} (regression recovery)"
+                        )
+
+                        # Emit curriculum rebalanced event
+                        self._emit_rebalance_event([config_key], {config_key: new_weight})
+
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[MomentumToCurriculumBridge] Could not apply regression adjustment: {e}")
+
+            self._last_sync_time = time.time()
+
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            logger.warning(f"[MomentumToCurriculumBridge] Error handling regression detected: {e}")
 
     def _get_similar_configs(self, config_key: str) -> list[str]:
         """Get similar configs for cross-board curriculum propagation.

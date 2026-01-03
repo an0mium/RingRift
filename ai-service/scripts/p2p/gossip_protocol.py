@@ -1382,12 +1382,41 @@ class GossipProtocolMixin(P2PMixinBase):
 
         Dec 30, 2025: Uses asyncio.to_thread() for decompression to avoid
         blocking the event loop on large payloads.
+
+        Jan 3, 2026: Added robust error handling for corrupted gzip payloads.
+        Returns empty dict on corruption to allow gossip to continue with other peers.
         """
+        import hashlib
+        import zlib
+
         content_encoding = resp.headers.get("Content-Encoding", "")
         if content_encoding == "gzip":
             response_bytes = await resp.read()
-            decompressed = await asyncio.to_thread(gzip.decompress, response_bytes)
-            return json.loads(decompressed.decode("utf-8"))
+            try:
+                decompressed = await asyncio.to_thread(gzip.decompress, response_bytes)
+                return json.loads(decompressed.decode("utf-8"))
+            except (gzip.BadGzipFile, zlib.error, OSError) as e:
+                # Log corruption with payload hash for debugging
+                payload_hash = hashlib.sha256(response_bytes).hexdigest()[:16]
+                self._log_warning(
+                    f"Gossip payload corruption detected: {type(e).__name__}: {e}, "
+                    f"payload_hash={payload_hash}, size={len(response_bytes)} bytes"
+                )
+                # Emit event for monitoring (safe emit won't crash if unavailable)
+                self._safe_emit_event(
+                    "GOSSIP_CORRUPTION_DETECTED",
+                    {
+                        "error_type": type(e).__name__,
+                        "payload_hash": payload_hash,
+                        "payload_size": len(response_bytes),
+                        "timestamp": time.time(),
+                    },
+                )
+                return {}  # Return empty dict to allow gossip to continue
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                # Decompressed but invalid JSON/encoding
+                self._log_warning(f"Gossip payload decode error: {type(e).__name__}: {e}")
+                return {}
         else:
             return await resp.json()
 

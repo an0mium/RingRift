@@ -2120,6 +2120,9 @@ class SelfplayScheduler(HandlerBase):
             # Backpressure events
             ("BACKPRESSURE_ACTIVATED", self._on_backpressure_activated),
             ("BACKPRESSURE_RELEASED", self._on_backpressure_released),
+            # Jan 2026 Sprint 10: Evaluation-specific backpressure
+            ("EVALUATION_BACKPRESSURE", self._on_evaluation_backpressure),
+            ("EVALUATION_BACKPRESSURE_RELEASED", self._on_backpressure_released),
             ("NODE_OVERLOADED", self._on_node_overloaded),
             # Elo velocity tracking
             ("ELO_UPDATED", self._on_elo_updated),
@@ -2240,6 +2243,12 @@ class SelfplayScheduler(HandlerBase):
                 _safe_subscribe(DataEventType.BACKPRESSURE_ACTIVATED, self._on_backpressure_activated, "BACKPRESSURE_ACTIVATED")
             if hasattr(DataEventType, 'BACKPRESSURE_RELEASED'):
                 _safe_subscribe(DataEventType.BACKPRESSURE_RELEASED, self._on_backpressure_released, "BACKPRESSURE_RELEASED")
+            # Jan 2026 Sprint 10: Subscribe to evaluation-specific backpressure
+            # When evaluation queue is backlogged, slow down selfplay to reduce queue pressure
+            if hasattr(DataEventType, 'EVALUATION_BACKPRESSURE'):
+                _safe_subscribe(DataEventType.EVALUATION_BACKPRESSURE, self._on_evaluation_backpressure, "EVALUATION_BACKPRESSURE")
+            if hasattr(DataEventType, 'EVALUATION_BACKPRESSURE_RELEASED'):
+                _safe_subscribe(DataEventType.EVALUATION_BACKPRESSURE_RELEASED, self._on_backpressure_released, "EVALUATION_BACKPRESSURE_RELEASED")
             # Dec 29, 2025: Subscribe to NODE_OVERLOADED for per-node backpressure
             if hasattr(DataEventType, 'NODE_OVERLOADED'):
                 _safe_subscribe(DataEventType.NODE_OVERLOADED, self._on_node_overloaded, "NODE_OVERLOADED")
@@ -3480,26 +3489,75 @@ class SelfplayScheduler(HandlerBase):
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling backpressure activated: {e}")
 
+    def _on_evaluation_backpressure(self, event: Any) -> None:
+        """Handle EVALUATION_BACKPRESSURE - reduce selfplay rate when evaluation queue is backlogged.
+
+        January 2026 Sprint 10: When evaluation queue exceeds threshold, reduce selfplay
+        rate to prevent generating more games that will just add to evaluation backlog.
+        This complements BACKPRESSURE_ACTIVATED (work queue) with evaluation-specific handling.
+
+        Args:
+            event: Event with payload containing queue_depth, threshold
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            queue_depth = payload.get("queue_depth", 0)
+            threshold = payload.get("threshold", 70)
+
+            # Track evaluation backpressure state separately
+            if not hasattr(self, "_eval_backpressure_active"):
+                self._eval_backpressure_active = False
+            self._eval_backpressure_active = True
+
+            # Calculate reduction factor: more aggressive for evaluation backpressure
+            # since evaluation is a harder bottleneck than work queue
+            overage = queue_depth - threshold
+            reduction_factor = max(0.3, 1.0 - (overage / threshold) * 0.7)
+
+            # Apply reduction to exploration boost
+            if hasattr(self, "_exploration_boost"):
+                old_boost = self._exploration_boost
+                self._exploration_boost = max(0.3, self._exploration_boost * reduction_factor)
+                logger.warning(
+                    f"[SelfplayScheduler] Evaluation backpressure: "
+                    f"queue_depth={queue_depth}, exploration_boost {old_boost:.2f} -> {self._exploration_boost:.2f}"
+                )
+            else:
+                logger.warning(
+                    f"[SelfplayScheduler] Evaluation backpressure: queue_depth={queue_depth}"
+                )
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling evaluation backpressure: {e}")
+
     def _on_backpressure_released(self, event: Any) -> None:
-        """Handle BACKPRESSURE_RELEASED - restore normal selfplay rate.
+        """Handle BACKPRESSURE_RELEASED and EVALUATION_BACKPRESSURE_RELEASED - restore normal selfplay rate.
 
         Dec 29, 2025: When work queue drains below recovery threshold,
         restore normal selfplay allocation rates.
 
+        Jan 2026 Sprint 10: Also handles EVALUATION_BACKPRESSURE_RELEASED to restore
+        selfplay rate when evaluation queue drains.
+
         Args:
-            event: Event with payload containing pending_count, recovery_threshold
+            event: Event with payload containing pending_count or queue_depth
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
-            pending_count = payload.get("pending_count", 0)
+            # Support both work queue and evaluation queue payloads
+            pending_count = payload.get("pending_count", payload.get("queue_depth", 0))
 
-            # Track backpressure state
+            # Track backpressure state (both types)
             if not hasattr(self, "_backpressure_active"):
                 self._backpressure_active = False
+            if not hasattr(self, "_eval_backpressure_active"):
+                self._eval_backpressure_active = False
 
-            if self._backpressure_active:
-                self._backpressure_active = False
+            was_active = self._backpressure_active or self._eval_backpressure_active
+            self._backpressure_active = False
+            self._eval_backpressure_active = False
 
+            if was_active:
                 # Restore exploration boost gradually
                 if hasattr(self, "_exploration_boost") and self._exploration_boost < 1.0:
                     old_boost = self._exploration_boost
