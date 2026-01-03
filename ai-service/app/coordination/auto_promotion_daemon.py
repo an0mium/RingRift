@@ -916,6 +916,9 @@ class AutoPromotionDaemon:
                 # Dec 29, 2025: Emit unified PROMOTION_COMPLETED for curriculum
                 await self._emit_promotion_completed(candidate, success=True)
 
+                # Jan 3, 2026: Record lineage for tracking model history
+                await self._record_lineage(candidate)
+
                 # Clear results after successful emission
                 candidate.consecutive_passes = 0
                 candidate.evaluation_results.clear()
@@ -1087,6 +1090,78 @@ class AutoPromotionDaemon:
                 )
         except Exception as e:  # noqa: BLE001
             logger.error(f"[AutoPromotion] Failed to emit PROMOTION_COMPLETED event: {e}")
+
+    async def _record_lineage(self, candidate: PromotionCandidate) -> None:
+        """Record promoted model in the lineage database.
+
+        Jan 3, 2026: Tracks model history for debugging performance regressions
+        and understanding model evolution.
+
+        Args:
+            candidate: PromotionCandidate that was promoted
+        """
+        try:
+            import asyncio
+            from pathlib import Path
+
+            from scripts.model_lineage import register_model, update_performance
+
+            # Parse config key
+            parts = candidate.config_key.rsplit("_", 1)
+            if len(parts) == 2:
+                board_type = parts[0]
+                num_players = int(parts[1].rstrip("p"))
+            else:
+                board_type = candidate.config_key
+                num_players = 2
+
+            # Register model in lineage database
+            model_id = await asyncio.to_thread(
+                register_model,
+                model_path=candidate.model_path,
+                board_type=board_type,
+                num_players=num_players,
+                architecture="unknown",  # Could be enhanced to detect
+                tags=["auto_promoted"],
+            )
+
+            # Record performance metrics
+            vs_random = candidate.evaluation_results.get("RANDOM", 0.0)
+            vs_heuristic = candidate.evaluation_results.get("HEURISTIC", 0.0)
+
+            if vs_random > 0:
+                await asyncio.to_thread(
+                    update_performance,
+                    model_id,
+                    "vs_random",
+                    vs_random,
+                    context="auto_promotion",
+                )
+            if vs_heuristic > 0:
+                await asyncio.to_thread(
+                    update_performance,
+                    model_id,
+                    "vs_heuristic",
+                    vs_heuristic,
+                    context="auto_promotion",
+                )
+            if candidate.estimated_elo > 0:
+                await asyncio.to_thread(
+                    update_performance,
+                    model_id,
+                    "elo",
+                    candidate.estimated_elo,
+                    context="auto_promotion",
+                )
+
+            logger.info(
+                f"[AutoPromotion] Recorded lineage for {candidate.config_key}: "
+                f"model_id={model_id}"
+            )
+        except ImportError:
+            logger.debug("[AutoPromotion] model_lineage module not available, skipping lineage")
+        except (OSError, ValueError) as e:
+            logger.warning(f"[AutoPromotion] Failed to record lineage: {e}")
 
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""

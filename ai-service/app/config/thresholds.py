@@ -1276,17 +1276,20 @@ def should_promote_model(
     current_best_elo: float | None = None,
     model_elo: float | None = None,
     game_count: int | None = None,
+    current_vs_heuristic_rate: float | None = None,
 ) -> tuple[bool, str]:
-    """Determine if a model should be promoted using four-tier system.
+    """Determine if a model should be promoted using five-tier system.
 
     December 30, 2025: Added Elo-adaptive thresholds as first tier.
     December 31, 2025: Added game-count graduated thresholds as second tier.
+    January 3, 2026: Added significant improvement tier (3.5) for faster iteration.
     Bootstrap models (low Elo or low game count) get easier thresholds.
 
     Promotion criteria (in order of precedence):
     1. If model_elo provided and meets ELO-ADAPTIVE thresholds -> promote (bootstrap)
     2. If game_count provided and meets GAME-COUNT GRADUATED thresholds -> promote
     3. If model meets ASPIRATIONAL thresholds -> promote (strong model)
+    3.5. If SIGNIFICANT_IMPROVEMENT (>10% vs heuristic) and floor met -> promote
     4. If PROMOTION_RELATIVE_ENABLED and beats_current_best:
        - Safety check: If current best Elo < 1200, require aspirational thresholds
        - If model meets MINIMUM floor -> promote (incremental improvement)
@@ -1300,6 +1303,7 @@ def should_promote_model(
         current_best_elo: Elo rating of current best model (for safety check)
         model_elo: Model's current Elo rating (enables Elo-adaptive thresholds)
         game_count: Training game count (enables game-count graduated thresholds)
+        current_vs_heuristic_rate: Current best model's win rate vs heuristic (enables significant improvement check)
 
     Returns:
         Tuple of (should_promote, reason)
@@ -1347,6 +1351,20 @@ def should_promote_model(
     # Check aspirational thresholds
     if vs_random_rate >= aspirational["vs_random"] and vs_heuristic_rate >= aspirational["vs_heuristic"]:
         return True, f"Meets aspirational targets (vs_random={vs_random_rate:.1%} >= {aspirational['vs_random']:.0%}, vs_heuristic={vs_heuristic_rate:.1%} >= {aspirational['vs_heuristic']:.0%})"
+
+    # Tier 3.5 - Significant improvement over current canonical
+    # January 3, 2026: Allows promotion when model is >10% better than current
+    # even if it doesn't meet aspirational thresholds. Prevents pipeline stalls.
+    SIGNIFICANT_IMPROVEMENT_THRESHOLD = 0.10  # 10% improvement required
+    SIGNIFICANT_IMPROVEMENT_FLOOR = 0.70  # Minimum 70% vs random
+    if current_vs_heuristic_rate is not None:
+        improvement = vs_heuristic_rate - current_vs_heuristic_rate
+        if improvement >= SIGNIFICANT_IMPROVEMENT_THRESHOLD and vs_random_rate >= SIGNIFICANT_IMPROVEMENT_FLOOR:
+            return True, (
+                f"Significant improvement over current ({improvement:.1%} better vs heuristic: "
+                f"{vs_heuristic_rate:.1%} vs {current_vs_heuristic_rate:.1%}). "
+                f"Floor met (vs_random={vs_random_rate:.1%} >= {SIGNIFICANT_IMPROVEMENT_FLOOR:.0%})"
+            )
 
     # Tier 4 - Check relative promotion
     if PROMOTION_RELATIVE_ENABLED and beats_current_best:

@@ -253,8 +253,51 @@ class PipelineCircuitBreaker:
             return self._breaker.get_state(self.PIPELINE_TARGET)
         return self._fallback_state
 
+    # Auto-recovery timeout in hours (Jan 3, 2026)
+    AUTO_RECOVERY_HOURS = 24
+
+    def _check_auto_recovery(self) -> bool:
+        """Check if circuit should auto-recover based on time since last failure.
+
+        Jan 3, 2026: Added to prevent indefinite circuit blocking.
+        If the circuit is OPEN and it's been >24 hours since the last failure,
+        automatically reset to CLOSED to allow the pipeline to retry.
+
+        Returns:
+            True if auto-recovery was triggered, False otherwise.
+        """
+        if not self.is_open:
+            return False
+
+        # Get last failure time
+        if self._breaker:
+            status = self._breaker.get_status(self.PIPELINE_TARGET)
+            last_failure_time = status.last_failure_time or 0.0
+        else:
+            last_failure_time = self._fallback_last_failure_time
+
+        if last_failure_time <= 0:
+            return False
+
+        hours_since_failure = (time.time() - last_failure_time) / 3600
+        if hours_since_failure >= self.AUTO_RECOVERY_HOURS:
+            logger.info(
+                f"[PipelineCircuitBreaker] Auto-recovering after {hours_since_failure:.1f} hours "
+                f"(threshold: {self.AUTO_RECOVERY_HOURS}h)"
+            )
+            self.reset()
+            return True
+
+        return False
+
     def can_execute(self) -> bool:
-        """Check if a request can be executed."""
+        """Check if a request can be executed.
+
+        Jan 3, 2026: Added auto-recovery check before returning.
+        """
+        # Check for auto-recovery first
+        self._check_auto_recovery()
+
         if self._breaker:
             return self._breaker.can_execute(self.PIPELINE_TARGET)
         return self._fallback_state != CircuitBreakerState.OPEN
