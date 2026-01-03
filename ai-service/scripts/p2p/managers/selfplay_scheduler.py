@@ -1230,6 +1230,8 @@ class SelfplayScheduler(EventSubscriptionMixin):
             "EVALUATION_BACKPRESSURE_RELEASED": self._on_evaluation_backpressure_released,
             # January 2026 - Sprint 10: Quality-blocked training feedback
             "TRAINING_BLOCKED_BY_QUALITY": self._on_training_blocked_by_quality,
+            # January 2026 - Sprint 10: Hyperparameter updates affect selfplay quality
+            "HYPERPARAMETER_UPDATED": self._on_hyperparameter_updated,
         }
 
     async def _on_selfplay_rate_changed(self, event) -> None:
@@ -1683,6 +1685,71 @@ class SelfplayScheduler(EventSubscriptionMixin):
             return 1.0
 
         return boost_factor
+
+    async def _on_hyperparameter_updated(self, event) -> None:
+        """Handle HYPERPARAMETER_UPDATED events - adjust selfplay strategy.
+
+        Jan 2026 Sprint 10: When training hyperparameters change (e.g., from
+        GauntletFeedbackController), adjust selfplay quality and exploration
+        to match the new training configuration.
+
+        Key hyperparameters we respond to:
+        - exploration_boost: Adjust temperature/exploration in selfplay
+        - quality_threshold: Adjust Gumbel budget and quality mode ratio
+        - learning_rate_multiplier: Higher LR = need more diverse data
+        - batch_reduction: Smaller batches = can handle higher quality data
+
+        Args:
+            event: Event with payload containing param_name, new_value, config
+        """
+        payload = self._extract_event_payload(event)
+        config_key = payload.get("config", payload.get("config_key", ""))
+        param_name = payload.get("param_name", "")
+        new_value = payload.get("new_value", 0.0)
+        reason = payload.get("reason", "hyperparameter_update")
+
+        if not config_key or not param_name:
+            return
+
+        self._log_info(
+            f"Hyperparameter update for {config_key}: {param_name}={new_value} ({reason})"
+        )
+
+        # Handle specific hyperparameter changes
+        if param_name == "exploration_boost":
+            # Direct exploration boost from gauntlet feedback
+            boost_duration = 1800  # 30 minutes
+            self.set_exploration_boost(config_key, float(new_value), boost_duration)
+
+        elif param_name == "quality_threshold":
+            # Quality threshold raised = need higher quality selfplay
+            threshold = float(new_value)
+            if threshold >= 0.8:
+                # High quality threshold - boost quality mode ratio
+                quality_boost = 1.5
+                expiry = time.time() + 1800
+                self._quality_blocked_configs[config_key] = (quality_boost, expiry)
+                self._log_info(
+                    f"Quality boost {quality_boost:.2f}x for {config_key} "
+                    f"(high threshold: {threshold:.2f})"
+                )
+
+        elif param_name == "learning_rate_multiplier":
+            # Higher LR needs more diverse data to prevent overfitting
+            lr_mult = float(new_value)
+            if lr_mult > 1.2:
+                # High LR - boost exploration slightly
+                exploration = min(1.3, lr_mult * 0.9)
+                self.set_exploration_boost(config_key, exploration, 1800)
+
+        elif param_name == "batch_reduction":
+            # Smaller batches can handle higher quality data
+            batch_factor = float(new_value)
+            if batch_factor < 0.8:
+                # Significantly smaller batches - we can afford higher quality
+                quality_boost = 1.0 + (1.0 - batch_factor)  # e.g., 0.7 batch → 1.3 boost
+                expiry = time.time() + 1800
+                self._quality_blocked_configs[config_key] = (quality_boost, expiry)
 
     def _emit_selfplay_target_updated(
         self,

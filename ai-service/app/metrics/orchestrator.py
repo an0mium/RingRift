@@ -917,3 +917,231 @@ def get_pipeline_iterations(orchestrator: str = "unified_ai_loop") -> float:
     except (AttributeError, KeyError, ValueError):
         logger.debug("Failed to get pipeline iterations metric", exc_info=True)
         return 0.0
+
+
+# =============================================================================
+# GPU Metrics (Jan 2026 - Phase 3.3)
+# =============================================================================
+
+GPU_UTILIZATION_PERCENT: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_gpu_utilization_percent",
+    "GPU utilization percentage per node.",
+    labelnames=("node", "gpu_index"),
+)
+
+GPU_MEMORY_USED_GB: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_gpu_memory_used_gb",
+    "GPU memory used in GB per node.",
+    labelnames=("node", "gpu_index"),
+)
+
+GPU_MEMORY_TOTAL_GB: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_gpu_memory_total_gb",
+    "Total GPU memory in GB per node.",
+    labelnames=("node", "gpu_index"),
+)
+
+GPU_TEMPERATURE_CELSIUS: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_gpu_temperature_celsius",
+    "GPU temperature in Celsius.",
+    labelnames=("node", "gpu_index"),
+)
+
+SELFPLAY_GAMES_PER_HOUR: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_selfplay_games_per_hour",
+    "Selfplay throughput in games per hour per node/config.",
+    labelnames=("node", "config_key"),
+)
+
+GPU_POWER_WATTS: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_gpu_power_watts",
+    "GPU power consumption in watts.",
+    labelnames=("node", "gpu_index"),
+)
+
+
+def record_gpu_metrics(
+    node: str,
+    gpu_index: int = 0,
+    utilization_percent: float | None = None,
+    memory_used_gb: float | None = None,
+    memory_total_gb: float | None = None,
+    temperature_celsius: float | None = None,
+    power_watts: float | None = None,
+) -> None:
+    """Record GPU metrics for a node.
+
+    Bridges P2P metrics SQLite data to Prometheus for centralized monitoring.
+
+    Args:
+        node: Node identifier (e.g., "gh200-1")
+        gpu_index: GPU index (default 0 for single GPU)
+        utilization_percent: GPU utilization percentage (0-100)
+        memory_used_gb: GPU memory used in GB
+        memory_total_gb: Total GPU memory in GB
+        temperature_celsius: GPU temperature in Celsius
+        power_watts: GPU power consumption in watts
+    """
+    idx = str(gpu_index)
+
+    if utilization_percent is not None:
+        GPU_UTILIZATION_PERCENT.labels(node, idx).set(utilization_percent)
+
+    if memory_used_gb is not None:
+        GPU_MEMORY_USED_GB.labels(node, idx).set(memory_used_gb)
+
+    if memory_total_gb is not None:
+        GPU_MEMORY_TOTAL_GB.labels(node, idx).set(memory_total_gb)
+
+    if temperature_celsius is not None:
+        GPU_TEMPERATURE_CELSIUS.labels(node, idx).set(temperature_celsius)
+
+    if power_watts is not None:
+        GPU_POWER_WATTS.labels(node, idx).set(power_watts)
+
+
+def record_selfplay_throughput(
+    node: str,
+    config_key: str,
+    games_per_hour: float,
+) -> None:
+    """Record selfplay throughput for a node/config.
+
+    Args:
+        node: Node identifier
+        config_key: Config key (e.g., "hex8_2p")
+        games_per_hour: Games completed per hour
+    """
+    SELFPLAY_GAMES_PER_HOUR.labels(node, config_key).set(games_per_hour)
+
+
+# =============================================================================
+# Event Handler Latency Metrics (Jan 2026 - Phase 3.4)
+# =============================================================================
+
+EVENT_HANDLER_DURATION: Final[Histogram] = _safe_metric(Histogram,
+    "ringrift_event_handler_duration_seconds",
+    "Duration of event handler execution.",
+    labelnames=("event_type", "handler"),
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
+EVENT_HANDLER_ERRORS: Final[Counter] = _safe_metric(Counter,
+    "ringrift_event_handler_errors_total",
+    "Total errors in event handlers.",
+    labelnames=("event_type", "handler", "error_type"),
+)
+
+EVENT_EMISSIONS_TOTAL: Final[Counter] = _safe_metric(Counter,
+    "ringrift_event_emissions_total",
+    "Total events emitted by type.",
+    labelnames=("event_type", "emitter"),
+)
+
+EVENT_QUEUE_SIZE: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_event_queue_size",
+    "Current size of the event queue.",
+    labelnames=("queue_type",),
+)
+
+EVENT_PROCESSING_LAG: Final[Gauge] = _safe_metric(Gauge,
+    "ringrift_event_processing_lag_seconds",
+    "Lag between event emission and processing.",
+    labelnames=("event_type",),
+)
+
+
+def record_event_handler_duration(
+    event_type: str,
+    handler: str,
+    duration_seconds: float,
+) -> None:
+    """Record event handler execution duration.
+
+    Args:
+        event_type: Type of event (e.g., "TRAINING_COMPLETED")
+        handler: Handler name (e.g., "FeedbackLoopController")
+        duration_seconds: Execution duration in seconds
+    """
+    EVENT_HANDLER_DURATION.labels(event_type, handler).observe(duration_seconds)
+
+
+def record_event_handler_error(
+    event_type: str,
+    handler: str,
+    error_type: str,
+) -> None:
+    """Record an event handler error.
+
+    Args:
+        event_type: Type of event
+        handler: Handler name
+        error_type: Type of error (e.g., "TimeoutError")
+    """
+    EVENT_HANDLER_ERRORS.labels(event_type, handler, error_type).inc()
+
+
+def record_event_emission(
+    event_type: str,
+    emitter: str,
+) -> None:
+    """Record an event emission.
+
+    Args:
+        event_type: Type of event emitted
+        emitter: Name of the emitter module/class
+    """
+    EVENT_EMISSIONS_TOTAL.labels(event_type, emitter).inc()
+
+
+def update_event_queue_size(
+    queue_type: str,
+    size: int,
+) -> None:
+    """Update event queue size metric.
+
+    Args:
+        queue_type: Type of queue (e.g., "main", "dlq")
+        size: Current queue size
+    """
+    EVENT_QUEUE_SIZE.labels(queue_type).set(size)
+
+
+def record_event_processing_lag(
+    event_type: str,
+    lag_seconds: float,
+) -> None:
+    """Record event processing lag.
+
+    Args:
+        event_type: Type of event
+        lag_seconds: Lag between emission and processing
+    """
+    EVENT_PROCESSING_LAG.labels(event_type).set(lag_seconds)
+
+
+@contextmanager
+def time_event_handler(
+    event_type: str,
+    handler: str,
+) -> Generator[None]:
+    """Context manager to time an event handler.
+
+    Usage:
+        with time_event_handler("TRAINING_COMPLETED", "FeedbackLoopController"):
+            process_event(event)
+
+    Automatically records duration and errors.
+    """
+    start = time.time()
+    error_type = None
+
+    try:
+        yield
+    except Exception as e:
+        error_type = type(e).__name__
+        record_event_handler_error(event_type, handler, error_type)
+        raise
+    finally:
+        duration = time.time() - start
+        record_event_handler_duration(event_type, handler, duration)
