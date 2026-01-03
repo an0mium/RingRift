@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 
 if TYPE_CHECKING:
     from scripts.p2p.managers.state_manager import ImprovementLoopState
@@ -81,6 +82,7 @@ class ImprovementHandlersMixin(BaseP2PHandler):
     improvement_loop_state: dict
     improvement_cycle_manager: Any
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_improvement_start(self, request: web.Request) -> web.Response:
         """POST /improvement/start - Start an improvement loop (AlphaZero-style training cycle).
 
@@ -174,6 +176,7 @@ class ImprovementHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_improvement_status(self, request: web.Request) -> web.Response:
         """GET /improvement/status - Get status of improvement loops.
 
@@ -199,6 +202,7 @@ class ImprovementHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_improvement_phase_complete(self, request: web.Request) -> web.Response:
         """POST /improvement/phase_complete - Notify that a phase of the improvement loop is complete.
 
@@ -250,6 +254,7 @@ class ImprovementHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_improvement_cycles_status(self, request: web.Request) -> web.Response:
         """GET /improvement_cycles/status - Get status of all improvement cycles.
 
@@ -281,6 +286,7 @@ class ImprovementHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)})
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_improvement_cycles_leaderboard(self, request: web.Request) -> web.Response:
         """GET /improvement_cycles/leaderboard - Get Elo leaderboard.
 
@@ -318,6 +324,7 @@ class ImprovementHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)})
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_improvement_training_complete(self, request: web.Request) -> web.Response:
         """POST /improvement_cycles/training_complete - Report training completion.
 
@@ -360,6 +367,7 @@ class ImprovementHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)})
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_improvement_evaluation_complete(self, request: web.Request) -> web.Response:
         """POST /improvement_cycles/evaluation_complete - Report evaluation completion.
 

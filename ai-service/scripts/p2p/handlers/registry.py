@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 
 if TYPE_CHECKING:
     pass
@@ -46,6 +47,7 @@ class RegistryHandlersMixin(BaseP2PHandler):
     Inherits from BaseP2PHandler for consistent response formatting.
     """
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_registry_status(self, request: web.Request) -> web.Response:
         """GET /registry/status - Get dynamic registry status for all nodes.
 
@@ -74,6 +76,7 @@ class RegistryHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_registry_update_vast(self, request: web.Request) -> web.Response:
         """POST /registry/update_vast - Refresh Vast instance IPs in the dynamic registry.
 
@@ -96,6 +99,7 @@ class RegistryHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_registry_update_aws(self, request: web.Request) -> web.Response:
         """POST /registry/update_aws - Refresh AWS instance IPs in the dynamic registry.
 
@@ -112,6 +116,7 @@ class RegistryHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_registry_update_tailscale(self, request: web.Request) -> web.Response:
         """POST /registry/update_tailscale - Discover Tailscale IPs in the dynamic registry.
 
@@ -128,6 +133,7 @@ class RegistryHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_registry_save_yaml(self, request: web.Request) -> web.Response:
         """POST /registry/save_yaml - Write dynamic IPs back to YAML config.
 

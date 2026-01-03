@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from .base import BaseP2PHandler
+from .timeout_decorator import handler_timeout, HANDLER_TIMEOUT_GOSSIP
 
 if TYPE_CHECKING:
     pass
@@ -50,6 +51,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Elo Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_elo_table(self, request: web.Request) -> web.Response:
         """GET /elo/table - Elo leaderboard in flat table format for Grafana Infinity.
 
@@ -238,6 +240,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Holdout Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_holdout_table(self, request: web.Request) -> web.Response:
         """GET /holdout/table - Holdout validation data in table format for Grafana Infinity.
 
@@ -268,6 +271,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # MCTS Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_mcts_table(self, request: web.Request) -> web.Response:
         """GET /mcts/table - MCTS stats in table format for Grafana Infinity.
 
@@ -309,6 +313,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Matchup Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_matchup_table(self, request: web.Request) -> web.Response:
         """GET /matchups/table - Matchups in table format for Grafana Infinity."""
         try:
@@ -332,6 +337,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Model Lineage Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_model_lineage_table(self, request: web.Request) -> web.Response:
         """GET /models/lineage/table - Model lineage in table format for Grafana Infinity."""
         try:
@@ -353,6 +359,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Data Quality Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_data_quality_table(self, request: web.Request) -> web.Response:
         """GET /data/quality/table - Data quality in table format for Grafana Infinity."""
         try:
@@ -381,6 +388,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Training Efficiency Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_training_efficiency_table(self, request: web.Request) -> web.Response:
         """GET /training/efficiency/table - Efficiency in table format for Grafana Infinity."""
         try:
@@ -403,6 +411,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # A/B Test Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_abtest_table(self, request: web.Request) -> web.Response:
         """GET /abtest/table - A/B tests in table format for Grafana Infinity.
 
@@ -460,6 +469,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Autoscale Recommendations Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_autoscale_recommendations(self, request: web.Request) -> web.Response:
         """GET /autoscale/recommendations - Autoscaling recommendations table."""
         try:
@@ -485,6 +495,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Rollback Candidates Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_rollback_candidates(self, request: web.Request) -> web.Response:
         """GET /rollback/candidates - Rollback candidates in table format."""
         try:
@@ -504,6 +515,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Data Quality Issues Table
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_data_quality_issues(self, request: web.Request) -> web.Response:
         """GET /data/quality/issues - Data quality issues in table format."""
         try:
@@ -516,6 +528,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Nodes Table (Phase 8 - Dec 28, 2025)
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_nodes_table(self, request: web.Request) -> web.Response:
         """GET /nodes/table - Node status in flat table format for Grafana Infinity.
 
@@ -590,6 +603,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Victory Table (Phase 8 - Dec 28, 2025)
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_victory_table(self, request: web.Request) -> web.Response:
         """GET /victory/table - Victory type breakdown for Grafana Infinity.
 
@@ -656,6 +670,7 @@ class TableHandlersMixin(BaseP2PHandler):
     # Trends Table (Phase 8 - Dec 28, 2025)
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_trends_table(self, request: web.Request) -> web.Response:
         """GET /trends/table - Historical trends in table format for Grafana Infinity.
 

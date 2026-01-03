@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_DELIVERY
 
 if TYPE_CHECKING:
     pass
@@ -139,6 +140,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
             )
             self.canonical_gate_jobs[job_id] = job
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_health(self, request: web.Request) -> web.Response:
         """GET /api/canonical/health - List canonical gate summary JSONs found on this node."""
         try:
@@ -193,6 +195,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_jobs_list(self, request: web.Request) -> web.Response:
         """GET /api/canonical/jobs - List canonical gate jobs started from this node."""
         try:
@@ -214,6 +217,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_job_get(self, request: web.Request) -> web.Response:
         """GET /api/canonical/jobs/{job_id} - Get details for a canonical gate job."""
         try:
@@ -231,6 +235,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_job_log(self, request: web.Request) -> web.Response:
         """GET /api/canonical/jobs/{job_id}/log - Tail the log file for a canonical gate job."""
         try:
@@ -254,6 +259,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_logs_list(self, request: web.Request) -> web.Response:
         """GET /api/canonical/logs - List canonical gate log files on this node.
 
@@ -298,6 +304,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_log_tail(self, request: web.Request) -> web.Response:
         """GET /api/canonical/logs/{log_name}/tail - Tail a specific canonical gate log file by name."""
         try:
@@ -334,6 +341,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_generate(self, request: web.Request) -> web.Response:
         """POST /api/canonical/generate - Start a canonical selfplay+gate run (leader-only, dashboard-triggered).
 
@@ -469,6 +477,7 @@ class CanonicalGateHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_api_canonical_job_cancel(self, request: web.Request) -> web.Response:
         """POST /api/canonical/jobs/{job_id}/cancel - Cancel a running canonical gate job."""
         if not self._is_leader() and request.query.get("local") != "1":

@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_GOSSIP
 
 if TYPE_CHECKING:
     pass
@@ -181,6 +182,7 @@ class NetworkDiscoveryMixin(BaseP2PHandler):
     # HTTP Handlers
     # ===========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_connectivity_diagnose(self, request: web.Request) -> web.Response:
         """Diagnose connectivity to a specific node.
 
@@ -221,6 +223,7 @@ class NetworkDiscoveryMixin(BaseP2PHandler):
             logger.warning(f"Connectivity diagnosis failed: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
     async def handle_network_status(self, request: web.Request) -> web.Response:
         """Get network topology status.
 

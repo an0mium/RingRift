@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeRole
@@ -69,6 +70,7 @@ class CMAESHandlersMixin(BaseP2PHandler):
     peers_lock: Any
     distributed_cmaes_state: dict
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_cmaes_start(self, request: web.Request) -> web.Response:
         """Start a distributed CMA-ES optimization job.
 
@@ -146,6 +148,7 @@ class CMAESHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_cmaes_evaluate(self, request: web.Request) -> web.Response:
         """Request evaluation of weights from workers.
 
@@ -184,6 +187,7 @@ class CMAESHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_cmaes_status(self, request: web.Request) -> web.Response:
         """Get status of distributed CMA-ES jobs."""
         try:
@@ -203,6 +207,7 @@ class CMAESHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_cmaes_result(self, request: web.Request) -> web.Response:
         """Receive evaluation result from a worker."""
         try:

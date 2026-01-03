@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 
 if TYPE_CHECKING:
     from scripts.p2p.models import NodeRole
@@ -66,6 +67,7 @@ class SSHTournamentHandlersMixin(BaseP2PHandler):
     ssh_tournament_runs: dict
     ssh_tournament_lock: Any
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_ssh_tournament_start(self, request: web.Request) -> web.Response:
         """Start an SSH-distributed difficulty-tier tournament (leader only).
 
@@ -204,6 +206,7 @@ class SSHTournamentHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_ssh_tournament_status(self, request: web.Request) -> web.Response:
         """Get status of SSH-distributed tournaments."""
         try:
@@ -222,6 +225,7 @@ class SSHTournamentHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_ssh_tournament_cancel(self, request: web.Request) -> web.Response:
         """Cancel a running SSH tournament (best-effort)."""
         from scripts.p2p.types import NodeRole

@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 # Dec 2025: Use consolidated handler utilities
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
@@ -60,6 +61,7 @@ class GauntletHandlersMixin(BaseP2PHandler):
     node_id: str
     ringrift_path: str
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_gauntlet_execute(self, request: web.Request) -> web.Response:
         """POST /gauntlet/execute - Execute a batch of gauntlet games.
 
@@ -361,6 +363,7 @@ class GauntletHandlersMixin(BaseP2PHandler):
                 "error": str(e),
             }
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_gauntlet_status(self, request: web.Request) -> web.Response:
         """GET /gauntlet/status - Get current gauntlet execution status.
 
@@ -374,6 +377,7 @@ class GauntletHandlersMixin(BaseP2PHandler):
             "cpu_count": self.self_info.cpu_count if hasattr(self.self_info, "cpu_count") else 0,
         })
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_gauntlet_quick_eval(self, request: web.Request) -> web.Response:
         """POST /gauntlet/quick-eval - Run quick gauntlet evaluation.
 

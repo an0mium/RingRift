@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Protocol
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
 if TYPE_CHECKING:
@@ -122,6 +123,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             error_code="WORK_QUEUE_UNAVAILABLE",
         )
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_add(self, request: web.Request) -> web.Response:
         """Add work to the centralized queue (leader only)."""
         try:
@@ -177,6 +179,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error adding work: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_add_batch(self, request: web.Request) -> web.Response:
         """Add multiple work items to the queue in a single request (leader only).
 
@@ -251,6 +254,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error adding batch work: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_claim(self, request: web.Request) -> web.Response:
         """Claim available work from the queue."""
         try:
@@ -282,6 +286,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error claiming work: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_start(self, request: web.Request) -> web.Response:
         """Mark work as started (running)."""
         try:
@@ -309,6 +314,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error starting work: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_complete(self, request: web.Request) -> web.Response:
         """Mark work as completed successfully."""
         try:
@@ -395,6 +401,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error completing work: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_fail(self, request: web.Request) -> web.Response:
         """Mark work as failed (may retry based on attempts)."""
         try:
@@ -443,6 +450,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error failing work: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_status(self, request: web.Request) -> web.Response:
         """Get work queue status."""
         try:
@@ -466,6 +474,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error getting work status: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_populator_status(self, request: web.Request) -> web.Response:
         """Get queue populator status for monitoring."""
         try:
@@ -482,6 +491,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error getting populator status: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_for_node(self, request: web.Request) -> web.Response:
         """Get all work assigned to a specific node."""
         try:
@@ -503,6 +513,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error getting work for node: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_cancel(self, request: web.Request) -> web.Response:
         """Cancel a pending or claimed work item."""
         try:
@@ -530,6 +541,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error cancelling work: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_history(self, request: web.Request) -> web.Response:
         """Get work history from the database."""
         try:
@@ -551,6 +563,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error getting work history: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_dispatch_stats(self, request: web.Request) -> web.Response:
         """Get dispatch/claim rejection statistics for debugging job dispatch issues.
 
@@ -592,6 +605,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.error(f"Error getting dispatch stats: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_clear_stale_targets(self, request: web.Request) -> web.Response:
         """Clear target_node from jobs targeted at non-existent nodes.
 

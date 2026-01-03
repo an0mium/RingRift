@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 
 if TYPE_CHECKING:
     pass
@@ -62,6 +63,7 @@ class ABTestHandlersMixin(BaseP2PHandler):
     ab_tests: dict
     notifier: object
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_abtest_create(self, request: web.Request) -> web.Response:
         """POST /abtest/create - Create a new A/B test between two models.
 
@@ -137,6 +139,7 @@ class ABTestHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_abtest_result(self, request: web.Request) -> web.Response:
         """POST /abtest/result - Submit a game result for an A/B test.
 
@@ -240,6 +243,7 @@ class ABTestHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_abtest_status(self, request: web.Request) -> web.Response:
         """GET /abtest/status - Get status of an A/B test.
 
@@ -284,6 +288,7 @@ class ABTestHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_abtest_list(self, request: web.Request) -> web.Response:
         """GET /abtest/list - List all A/B tests.
 
@@ -338,6 +343,7 @@ class ABTestHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_abtest_cancel(self, request: web.Request) -> web.Response:
         """POST /abtest/cancel - Cancel a running A/B test.
 
@@ -375,6 +381,7 @@ class ABTestHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_abtest_run(self, request: web.Request) -> web.Response:
         """POST /abtest/run - Start running games for an A/B test using the cluster.
 

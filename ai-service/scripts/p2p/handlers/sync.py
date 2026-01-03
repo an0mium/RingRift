@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Any
 from aiohttp import web
 
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_DELIVERY
 
 if TYPE_CHECKING:
     from scripts.p2p.models import DataManifest, SyncJob, SyncPlan
@@ -111,6 +112,7 @@ class SyncHandlersMixin(BaseP2PHandler):
     # Sync Handlers
     # =========================================================================
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_start(self, request: web.Request) -> web.Response:
         """POST /sync/start - Leader initiates a cluster-wide data sync.
 
@@ -134,6 +136,7 @@ class SyncHandlersMixin(BaseP2PHandler):
             traceback.print_exc()
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_status(self, request: web.Request) -> web.Response:
         """GET /sync/status - Get current sync status.
 
@@ -166,6 +169,7 @@ class SyncHandlersMixin(BaseP2PHandler):
             logger.error(f"in handle_sync_status: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_push(self, request: web.Request) -> web.Response:
         """POST /sync/push - Receive pushed data from GPU node.
 
@@ -430,6 +434,7 @@ class SyncHandlersMixin(BaseP2PHandler):
             logger.error(f"in handle_sync_push: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_receipt(self, request: web.Request) -> web.Response:
         """POST /sync/receipt - Request sync receipt verification.
 
@@ -515,6 +520,7 @@ class SyncHandlersMixin(BaseP2PHandler):
             logger.error(f"in handle_sync_receipt: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_receipts_status(self, request: web.Request) -> web.Response:
         """GET /sync/receipts - Get sync receipts statistics.
 
@@ -543,6 +549,7 @@ class SyncHandlersMixin(BaseP2PHandler):
             logger.error(f"in handle_sync_receipts_status: {e}")
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_pull(self, request: web.Request) -> web.Response:
         """POST /sync/pull - Handle incoming request to pull files from a source node.
 
@@ -618,6 +625,7 @@ class SyncHandlersMixin(BaseP2PHandler):
             traceback.print_exc()
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_file(self, request: web.Request) -> web.StreamResponse:
         """GET /sync/file?path=<relative_path> - Stream a data file to a peer.
 
@@ -666,6 +674,7 @@ class SyncHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
     async def handle_sync_job_update(self, request: web.Request) -> web.Response:
         """POST /sync/job_update - Worker reports sync job status back to leader.
 

@@ -32,6 +32,7 @@ from aiohttp import web
 
 # Dec 2025: Use consolidated handler utilities
 from scripts.p2p.handlers.base import BaseP2PHandler
+from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
 if TYPE_CHECKING:
@@ -62,6 +63,7 @@ class EloSyncHandlersMixin(BaseP2PHandler):
     elo_sync_manager: Any  # Optional[EloSyncManager]
     sync_in_progress: bool
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_elo_sync_status(self, request: web.Request) -> web.Response:
         """GET /elo/sync/status - Get Elo database sync status."""
         try:
@@ -79,6 +81,7 @@ class EloSyncHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_elo_sync_trigger(self, request: web.Request) -> web.Response:
         """POST /elo/sync/trigger - Manually trigger Elo database sync."""
         try:
@@ -95,6 +98,7 @@ class EloSyncHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_elo_sync_download(self, request: web.Request) -> web.Response:
         """GET /elo/sync/db - Download unified_elo.db for cluster sync."""
         try:
@@ -119,6 +123,7 @@ class EloSyncHandlersMixin(BaseP2PHandler):
         except Exception as e:
             return self.error_response(str(e), status=500)
 
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_elo_sync_upload(self, request: web.Request) -> web.Response:
         """POST /elo/sync/upload - Upload/merge unified_elo.db from another node.
 
