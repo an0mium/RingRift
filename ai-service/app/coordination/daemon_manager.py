@@ -41,6 +41,20 @@ from __future__ import annotations
 import asyncio
 import atexit
 import contextlib
+
+# Python 3.10 compatibility shim for asyncio.timeout (added in 3.11)
+try:
+    from asyncio import timeout as async_timeout
+except ImportError:
+    # Python 3.10 fallback using async-timeout library or simple wrapper
+    try:
+        from async_timeout import timeout as async_timeout
+    except ImportError:
+        # Minimal fallback - no actual timeout enforcement
+        @contextlib.asynccontextmanager
+        async def async_timeout(seconds: float):
+            """Compatibility shim for asyncio.timeout (Python 3.11+)."""
+            yield
 import importlib
 import json
 import logging
@@ -3298,7 +3312,7 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
             try:
                 # Overall timeout for entire status collection
-                async with asyncio.timeout(5.0):
+                async with async_timeout(5.0):
                     summary = self.health_summary()
                     # Dec 2025: Fixed to use self._daemons instead of undefined _daemon_states
                     # and self._factories (which contains Callables, not DaemonInfo)
@@ -3318,7 +3332,7 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
                         try:
                             # Individual timeout per daemon (1 second each)
-                            async with asyncio.timeout(1.0):
+                            async with async_timeout(1.0):
                                 summary["daemons"][daemon_name] = {
                                     "state": info.state.value,
                                     "auto_restart": info.auto_restart,
