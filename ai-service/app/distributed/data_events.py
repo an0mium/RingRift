@@ -67,6 +67,9 @@ __all__ = [
     "emit_p2p_restarted",  # Dec 30, 2025: P2P restart completed
     # Task lifecycle emitters (December 2025 Wave 2)
     "emit_task_abandoned",
+    # Job spawn verification emitters (January 2026 - Sprint 6)
+    "emit_job_spawn_verified",
+    "emit_job_spawn_failed",
     # Disk space management emitters (December 2025)
     "emit_disk_space_low",
     # Leader heartbeat monitoring (P0 Dec 2025)
@@ -356,6 +359,11 @@ class DataEventType(Enum):
     TASK_FAILED = "task_failed"
     TASK_ORPHANED = "task_orphaned"
     TASK_CANCELLED = "task_cancelled"
+
+    # Job spawn verification events (January 2026 - Sprint 6)
+    # Used by SelfplayScheduler to track spawn success/failure for capacity estimation
+    JOB_SPAWN_VERIFIED = "job_spawn_verified"  # Job confirmed running within timeout
+    JOB_SPAWN_FAILED = "job_spawn_failed"  # Job not confirmed running, spawn failed
 
     # Capacity/Resource events (December 2025)
     CLUSTER_CAPACITY_CHANGED = "cluster_capacity_changed"
@@ -2419,6 +2427,78 @@ async def emit_task_abandoned(
             "component": component,
             "node_id": node_id,
             "timestamp": timestamp or time.time(),
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
+# Job Spawn Verification Events (January 2026 - Sprint 6)
+# =============================================================================
+
+
+async def emit_job_spawn_verified(
+    job_id: str,
+    node_id: str,
+    config_key: str,
+    verification_time_seconds: float,
+    source: str = "",
+) -> None:
+    """Emit a JOB_SPAWN_VERIFIED event when a job is confirmed running.
+
+    January 2026 - Sprint 6: Added for job spawn verification loop.
+    Used by SelfplayScheduler to track spawn success rates and adjust capacity estimates.
+
+    Args:
+        job_id: The job ID that was verified
+        node_id: Node where the job is running
+        config_key: Board configuration key (e.g., "hex8_2p")
+        verification_time_seconds: Time taken to verify the spawn
+        source: Event source identifier
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.JOB_SPAWN_VERIFIED,
+        payload={
+            "job_id": job_id,
+            "node_id": node_id,
+            "config_key": config_key,
+            "verification_time_seconds": verification_time_seconds,
+            "timestamp": time.time(),
+        },
+        source=source,
+    ))
+
+
+async def emit_job_spawn_failed(
+    job_id: str,
+    node_id: str,
+    config_key: str,
+    timeout_seconds: float,
+    reason: str = "verification_timeout",
+    source: str = "",
+) -> None:
+    """Emit a JOB_SPAWN_FAILED event when job spawn verification fails.
+
+    January 2026 - Sprint 6: Added for job spawn verification loop.
+    Used by SelfplayScheduler to detect spawn failures and adjust node capacity.
+
+    Args:
+        job_id: The job ID that failed to spawn
+        node_id: Node where spawn was attempted
+        config_key: Board configuration key (e.g., "hex8_2p")
+        timeout_seconds: Verification timeout that was exceeded
+        reason: Why verification failed (e.g., "verification_timeout", "job_not_found")
+        source: Event source identifier
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.JOB_SPAWN_FAILED,
+        payload={
+            "job_id": job_id,
+            "node_id": node_id,
+            "config_key": config_key,
+            "timeout_seconds": timeout_seconds,
+            "reason": reason,
+            "timestamp": time.time(),
         },
         source=source,
     ))

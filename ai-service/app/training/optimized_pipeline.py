@@ -463,6 +463,7 @@ class OptimizedTrainingPipeline:
             "--sample-every", str(settings["sample_every"]),
             "--require-completed",
             "--use-cache",
+            "--allow-noncanonical",  # Jan 2026: Allow non-registry databases
         ]
 
         if settings["max_games"]:

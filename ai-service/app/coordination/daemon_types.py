@@ -382,6 +382,17 @@ class DaemonType(Enum):
     # =========================================================================
     S3_PUSH = "s3_push"
 
+    # =========================================================================
+    # Cluster Consolidation Daemon (January 2026)
+    # =========================================================================
+    # CRITICAL: Bridges distributed selfplay with training pipeline.
+    # Pulls selfplay games from 30+ cluster nodes into canonical databases.
+    # Fixes the handoff failure where games stay on cluster nodes and never
+    # reach the coordinator for training.
+    # Event-driven: responds to NEW_GAMES_AVAILABLE, SELFPLAY_COMPLETE.
+    # =========================================================================
+    CLUSTER_CONSOLIDATION = "cluster_consolidation"
+
 
 class DaemonState(Enum):
     """State of a daemon."""
@@ -612,6 +623,7 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.TRAINING_DATA_SYNC: DaemonCategory.SYNC,
     DaemonType.OWC_IMPORT: DaemonCategory.SYNC,
     DaemonType.SYNC_PUSH: DaemonCategory.SYNC,
+    DaemonType.CLUSTER_CONSOLIDATION: DaemonCategory.SYNC,  # Jan 2026: Pull games from cluster
 
     # PIPELINE category - data pipeline (high threshold, exempt from global)
     DaemonType.DATA_PIPELINE: DaemonCategory.PIPELINE,
@@ -829,6 +841,12 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     DaemonType.GOSSIP_SYNC: {DaemonType.EVENT_ROUTER},
     DaemonType.P2P_BACKEND: set(),  # Runs independently
     DaemonType.P2P_AUTO_DEPLOY: {DaemonType.EVENT_ROUTER},
+
+    # Cluster consolidation (pulls games from cluster nodes to canonical DBs)
+    DaemonType.CLUSTER_CONSOLIDATION: {
+        DaemonType.EVENT_ROUTER,
+        DaemonType.DATA_PIPELINE,
+    },
 
     # Monitoring daemons
     DaemonType.CLUSTER_MONITOR: {DaemonType.EVENT_ROUTER},

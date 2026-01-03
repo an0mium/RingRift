@@ -520,6 +520,15 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE),
         category="pipeline",
     ),
+    # Cluster Consolidation (January 2026) - Pull games from cluster nodes
+    # CRITICAL: Bridges distributed selfplay with training pipeline
+    # Note: Daemon internally checks coordinator_only flag from config
+    DaemonType.CLUSTER_CONSOLIDATION: DaemonSpec(
+        runner_name="create_cluster_consolidation",
+        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.DATA_PIPELINE),
+        category="sync",
+        health_check_interval=300.0,  # 5 minutes (matches sync cycle)
+    ),
     # NPZ Combination (December 2025) - quality-weighted NPZ combination
     DaemonType.NPZ_COMBINATION: DaemonSpec(
         runner_name="create_npz_combination",

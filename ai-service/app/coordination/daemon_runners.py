@@ -554,6 +554,13 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         style=InstantiationStyle.FACTORY,
         factory_func="get_consolidation_daemon",
     ),
+    "cluster_consolidation": RunnerSpec(
+        module="app.coordination.cluster_consolidation_daemon",
+        class_name="ClusterConsolidationDaemon",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_cluster_consolidation_daemon",
+        notes="Jan 2026: Pulls games from cluster nodes into canonical DBs for training",
+    ),
     "npz_combination": RunnerSpec(
         module="app.coordination.npz_combination_daemon",
         class_name="NPZCombinationDaemon",
@@ -2282,6 +2289,33 @@ async def create_data_consolidation() -> None:
         raise
 
 
+async def create_cluster_consolidation() -> None:
+    """Create and run cluster consolidation daemon (January 2026).
+
+    Pulls selfplay games from cluster nodes into canonical databases.
+    Critical for training pipeline: bridges distributed selfplay with training.
+
+    Flow:
+        1. Discovers alive cluster nodes via P2P
+        2. Syncs selfplay.db from each node via Tailscale/SSH
+        3. Merges games into canonical_*.db databases
+        4. Emits CONSOLIDATION_COMPLETE event for training trigger
+
+    Runs on coordinator only (configurable).
+    """
+    try:
+        from app.coordination.cluster_consolidation_daemon import (
+            get_cluster_consolidation_daemon,
+        )
+
+        daemon = get_cluster_consolidation_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"ClusterConsolidationDaemon not available: {e}")
+        raise
+
+
 async def create_npz_combination() -> None:
     """Create and run NPZ combination daemon (December 2025).
 
@@ -2741,6 +2775,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.P2P_AUTO_DEPLOY.name: create_p2p_auto_deploy,
         DaemonType.METRICS_ANALYSIS.name: create_metrics_analysis,
         DaemonType.DATA_CONSOLIDATION.name: create_data_consolidation,
+        DaemonType.CLUSTER_CONSOLIDATION.name: create_cluster_consolidation,
         DaemonType.INTEGRITY_CHECK.name: create_integrity_check,
         # Cluster Availability Manager (December 28, 2025)
         DaemonType.AVAILABILITY_NODE_MONITOR.name: create_availability_node_monitor,

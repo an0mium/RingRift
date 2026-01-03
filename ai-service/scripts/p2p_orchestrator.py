@@ -1956,6 +1956,16 @@ class P2POrchestrator(
         # Wave 7 Phase 1.1: Use retry mechanism for reliable subscription
         self.job_manager.subscribe_to_events_with_retry()
 
+        # January 2026 Sprint 6: Wire job spawn verification between JobManager and SelfplayScheduler
+        # This enables tracking of dispatched jobs to verify they actually start running
+        self.job_manager.set_spawn_registration_callback(
+            self.selfplay_scheduler.register_pending_spawn
+        )
+        self.selfplay_scheduler.set_job_status_callback(
+            self.job_manager.get_job_status
+        )
+        logger.info("[P2P] Spawn verification wired: JobManager <-> SelfplayScheduler")
+
         # Phase 2B Refactoring: TrainingCoordinator for training dispatch and completion
         self.training_coordinator = TrainingCoordinator(
             ringrift_path=Path(self.ringrift_path),
@@ -2108,8 +2118,11 @@ class P2POrchestrator(
                 QueuePopulatorLoop,
                 EloSyncLoop,
                 JobReaperLoop,
+                JobReassignmentLoop,
                 IdleDetectionLoop,
                 AutoScalingLoop,
+                SpawnVerificationLoop,
+                PredictiveScalingLoop,
                 WorkQueueMaintenanceLoop,
                 NATManagementLoop,
                 ManifestCollectionLoop,
@@ -2154,6 +2167,51 @@ class P2POrchestrator(
                 on_zombie_detected=self._handle_zombie_detected,
             )
             manager.register(idle_detection)
+
+            # SpawnVerificationLoop - verifies dispatched jobs actually start running
+            # January 2026 Sprint 6: Addresses 10-15% wasted capacity from unconfirmed spawns
+            # Runs on leader only - verifies pending job spawns and emits events
+            if self.selfplay_scheduler is not None:
+                spawn_verification = SpawnVerificationLoop(
+                    verify_pending_spawns=self.selfplay_scheduler.verify_pending_spawns,
+                    get_spawn_stats=lambda: {
+                        "per_node": {
+                            node_id: self.selfplay_scheduler.get_spawn_success_rate(node_id)
+                            for node_id in list(self.peers.keys())[:20]  # Limit to avoid overhead
+                        } if self.peers else {},
+                    },
+                )
+                manager.register(spawn_verification)
+                logger.info("[P2P] SpawnVerificationLoop enabled for job spawn tracking")
+            else:
+                logger.debug("[P2P] SpawnVerificationLoop skipped: no selfplay_scheduler")
+
+            # PredictiveScalingLoop - spawns jobs BEFORE nodes become idle
+            # January 2026 Sprint 6: Addresses 5-10 minute launch latency from reactive-only scheduling
+            # Monitors queue depth and node "approaching idle" status to spawn preemptively
+            predictive_scaling = PredictiveScalingLoop(
+                get_role=lambda: self.role,
+                get_peers=lambda: self.peers,
+                get_queue_depth=self._get_work_queue_depth,
+                get_pending_jobs_for_node=self._get_pending_jobs_for_node,
+                spawn_preemptive_job=self._spawn_preemptive_selfplay_job,
+            )
+            manager.register(predictive_scaling)
+            logger.info("[P2P] PredictiveScalingLoop enabled for proactive job spawning")
+
+            # JobReassignmentLoop - automatically reassigns orphaned jobs (P1 Sprint 6, Jan 2026)
+            # Detects jobs without heartbeats and reassigns within 5 min (vs 1 hour for JobReaper)
+            # Uses JobManager.check_and_reassign_stale_jobs() with exponential backoff
+            if self.job_manager is not None:
+                job_reassignment = JobReassignmentLoop(
+                    get_role=lambda: self.role,
+                    check_and_reassign=self.job_manager.check_and_reassign_stale_jobs,
+                    get_healthy_nodes=self._get_healthy_node_ids_for_reassignment,
+                )
+                manager.register(job_reassignment)
+                logger.info("[P2P] JobReassignmentLoop enabled for faster orphaned job recovery")
+            else:
+                logger.debug("[P2P] JobReassignmentLoop skipped: no job_manager")
 
             # AutoScalingLoop - provision/deprovision cloud instances
             # December 28, 2025 (Wave 7 Phase 2.2): Enabled with CompositeScaleAdapter
@@ -18259,6 +18317,160 @@ print(json.dumps(result))
 
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Auto-start request failed for {peer.node_id}: {e}")
+
+    # =========================================================================
+    # PREDICTIVE SCALING HELPERS (January 2026 Sprint 6)
+    # Support methods for PredictiveScalingLoop - proactive job spawning
+    # =========================================================================
+
+    def _get_work_queue_depth(self) -> int:
+        """Get current work queue depth for predictive scaling decisions.
+
+        Returns the number of pending work items in the queue. Used by
+        PredictiveScalingLoop to determine when to spawn preemptive jobs.
+
+        Returns:
+            Number of pending work items, or 0 if queue unavailable.
+        """
+        try:
+            wq = get_work_queue()
+            if wq is None:
+                return 0
+            return wq.get_pending_count()
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to get work queue depth: {e}")
+            return 0
+
+    def _get_pending_jobs_for_node(self, node_id: str) -> int:
+        """Get count of pending/running jobs assigned to a specific node.
+
+        Used by PredictiveScalingLoop to skip nodes that already have
+        work pending, avoiding over-allocation.
+
+        Args:
+            node_id: The node identifier to check.
+
+        Returns:
+            Number of pending/running jobs for this node.
+        """
+        try:
+            if self.job_manager is None:
+                return 0
+            # Count jobs that are pending or running for this node
+            jobs = self.job_manager.get_jobs_for_node(node_id)
+            return len([j for j in jobs if j.get("status") in ("pending", "running", "claimed")])
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Failed to get pending jobs for {node_id}: {e}")
+            return 0
+
+    async def _spawn_preemptive_selfplay_job(self, peer_info: dict[str, Any]) -> bool:
+        """Spawn a preemptive selfplay job on a node approaching idle.
+
+        Called by PredictiveScalingLoop when it detects a node with low
+        GPU utilization and no pending work. This spawns a job BEFORE
+        the node becomes fully idle to minimize launch latency.
+
+        Args:
+            peer_info: Peer information dict with node_id, gpu_utilization, etc.
+
+        Returns:
+            True if job was successfully spawned, False otherwise.
+        """
+        try:
+            node_id = peer_info.get("node_id", "unknown")
+            logger.info(f"[PredictiveScaling] Spawning preemptive job on {node_id}")
+
+            # Use selfplay scheduler to pick the best config for this node
+            if self.selfplay_scheduler is None:
+                logger.debug("[PredictiveScaling] No selfplay scheduler, cannot spawn")
+                return False
+
+            # Get node-specific job recommendation
+            job_recommendation = await self.selfplay_scheduler.get_job_for_node(node_id)
+            if job_recommendation is None:
+                logger.debug(f"[PredictiveScaling] No job recommendation for {node_id}")
+                return False
+
+            # Dispatch the job
+            board_type = job_recommendation.get("board_type", "hex8")
+            num_players = job_recommendation.get("num_players", 2)
+            num_games = job_recommendation.get("num_games", 100)
+
+            # Use job manager for dispatch
+            if self.job_manager is None:
+                logger.debug("[PredictiveScaling] No job manager, cannot dispatch")
+                return False
+
+            job_id = f"preemptive-{node_id}-{int(time.time())}"
+            result = await self.job_manager.dispatch_selfplay_job(
+                node_id=node_id,
+                job_id=job_id,
+                board_type=board_type,
+                num_players=num_players,
+                num_games=num_games,
+                preemptive=True,  # Mark as preemptive for tracking
+            )
+
+            if result.get("success"):
+                logger.info(
+                    f"[PredictiveScaling] Spawned preemptive job {job_id} on {node_id} "
+                    f"({board_type}_{num_players}p, {num_games} games)"
+                )
+                return True
+            else:
+                logger.debug(f"[PredictiveScaling] Failed to spawn on {node_id}: {result.get('error')}")
+                return False
+
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[PredictiveScaling] Exception spawning preemptive job: {e}")
+            return False
+
+    # =========================================================================
+    # Support methods for JobReassignmentLoop - orphaned job recovery (Sprint 6)
+    # =========================================================================
+
+    def _get_healthy_node_ids_for_reassignment(self) -> list[str]:
+        """Get list of healthy node IDs that can accept reassigned jobs.
+
+        Used by JobReassignmentLoop to find nodes for orphaned job reassignment.
+        A healthy node is one that:
+        - Is currently alive in the peer list
+        - Has recent health check data
+        - Is not overloaded (CPU < 90%, GPU mem < 95%)
+
+        Returns:
+            List of node IDs suitable for job reassignment.
+        """
+        try:
+            healthy_nodes = []
+            for node_id, peer_info in self.peers.items():
+                # Skip nodes that are marked as offline or failing
+                status = peer_info.get("status", "unknown")
+                if status in ("offline", "failing", "retired"):
+                    continue
+
+                # Check basic health metrics
+                cpu_percent = peer_info.get("cpu_percent", 0.0)
+                gpu_mem_percent = peer_info.get("gpu_memory_percent", 0.0)
+
+                # Skip overloaded nodes
+                if cpu_percent > 90.0:
+                    continue
+                if gpu_mem_percent > 95.0:
+                    continue
+
+                # Skip nodes without recent heartbeat
+                last_seen = peer_info.get("last_seen", 0.0)
+                if time.time() - last_seen > 120:  # 2 minutes stale
+                    continue
+
+                healthy_nodes.append(node_id)
+
+            return healthy_nodes
+
+        except Exception as e:
+            logger.debug(f"[JobReassignment] Error getting healthy nodes: {e}")
+            return []
 
     # =========================================================================
     # AUTOMATION LOOPS (2024-12)

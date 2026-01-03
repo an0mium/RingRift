@@ -298,6 +298,10 @@ class DatabaseSyncManager(SyncManagerBase):
         # Node tracking
         self.nodes: dict[str, SyncNodeInfo] = {}
 
+        # January 2026: Periodic node refresh to handle dynamic cluster membership
+        self._last_discovery_time: float = 0.0
+        self._discovery_interval: float = 300.0  # Re-discover nodes every 5 minutes
+
         # Callbacks
         self._on_sync_complete_callbacks: list[Callable] = []
         self._on_sync_failed_callbacks: list[Callable] = []
@@ -370,6 +374,9 @@ class DatabaseSyncManager(SyncManagerBase):
 
     async def _do_sync(self, node: str) -> bool:
         """Perform sync with a specific node using transport failover."""
+        # January 2026: Refresh nodes if stale before syncing
+        await self._ensure_nodes_fresh()
+
         node_info = self.nodes.get(node)
         if not node_info:
             logger.warning(f"[{self.db_type}] No node info for {node}")
@@ -408,6 +415,25 @@ class DatabaseSyncManager(SyncManagerBase):
     def _get_nodes(self) -> list[str]:
         """Get list of nodes to sync with."""
         return list(self.nodes.keys())
+
+    async def _ensure_nodes_fresh(self) -> None:
+        """Ensure node list is fresh, re-discovering if stale.
+
+        January 2026: Added periodic node refresh to handle dynamic cluster membership.
+        Nodes are considered stale after _discovery_interval seconds (default 300s).
+        This prevents sync failures due to outdated node lists.
+        """
+        now = time.time()
+        is_stale = (now - self._last_discovery_time) > self._discovery_interval
+        is_empty = len(self.nodes) == 0
+
+        if is_stale or is_empty:
+            logger.debug(
+                f"[{self.db_type}] Refreshing nodes "
+                f"(stale={is_stale}, empty={is_empty})"
+            )
+            await self.discover_nodes()
+            self._last_discovery_time = now
 
     # =========================================================================
     # Transport methods (reusable across subclasses)

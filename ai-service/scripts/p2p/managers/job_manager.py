@@ -410,6 +410,173 @@ class JobManager(EventSubscriptionMixin):
         self._job_heartbeats: dict[str, tuple[float, int, float]] = {}
         self._heartbeats_lock = threading.Lock()
 
+        # January 2026 Sprint 6: Spawn verification callback for SelfplayScheduler integration
+        # Called when a job is spawned to register it for verification tracking
+        self._spawn_registration_callback: Callable[[str, str, str], None] | None = None
+
+    # =========================================================================
+    # Spawn Verification (January 2026 Sprint 6)
+    # =========================================================================
+
+    def set_spawn_registration_callback(
+        self, callback: Callable[[str, str, str], None] | None
+    ) -> None:
+        """Set the callback for registering pending job spawns.
+
+        January 2026 Sprint 6: Part of the Job Spawn Verification system.
+
+        The callback is called when a job is successfully spawned with:
+        - job_id: The unique job identifier
+        - node_id: The node the job was dispatched to
+        - config_key: The config key (e.g., "hex8_2p")
+
+        Args:
+            callback: The callback function, or None to disable registration
+        """
+        self._spawn_registration_callback = callback
+
+    def _register_spawn(self, job_id: str, node_id: str, config_key: str) -> None:
+        """Register a pending job spawn for verification tracking.
+
+        January 2026 Sprint 6: Called when a job is spawned to register it
+        with the SelfplayScheduler for verification tracking.
+
+        Args:
+            job_id: The unique job identifier
+            node_id: The node the job was dispatched to
+            config_key: The config key (e.g., "hex8_2p")
+        """
+        if self._spawn_registration_callback is not None:
+            try:
+                self._spawn_registration_callback(job_id, node_id, config_key)
+            except Exception as e:
+                logger.warning(f"Failed to register spawn for job {job_id}: {e}")
+
+    def get_job_status(self, job_id: str) -> dict[str, Any] | None:
+        """Get the status of a job by ID.
+
+        January 2026 Sprint 6: Used by spawn verification to check if jobs are running.
+
+        Args:
+            job_id: The job ID to look up
+
+        Returns:
+            Job info dict with 'status' field, or None if not found
+        """
+        with self.jobs_lock:
+            for job_type, jobs in self.active_jobs.items():
+                if job_id in jobs:
+                    return jobs[job_id]
+        return None
+
+    def get_jobs_for_node(self, node_id: str) -> list[dict[str, Any]]:
+        """Get all jobs assigned to a specific node.
+
+        January 2026 Sprint 6: Used by PredictiveScalingLoop to check if a node
+        has pending work before spawning preemptive jobs.
+
+        Args:
+            node_id: The node identifier to filter by
+
+        Returns:
+            List of job info dicts assigned to this node
+        """
+        result = []
+        with self.jobs_lock:
+            for job_type, jobs in self.active_jobs.items():
+                for job_id, job_info in jobs.items():
+                    job_node = job_info.get("node_id") or job_info.get("worker_id")
+                    if job_node == node_id:
+                        result.append({
+                            **job_info,
+                            "job_id": job_id,
+                            "job_type": job_type,
+                        })
+        return result
+
+    async def dispatch_selfplay_job(
+        self,
+        node_id: str,
+        job_id: str,
+        board_type: str,
+        num_players: int,
+        num_games: int,
+        preemptive: bool = False,
+    ) -> dict[str, Any]:
+        """Dispatch a selfplay job to a specific node.
+
+        January 2026 Sprint 6: Used by PredictiveScalingLoop for preemptive job spawning.
+
+        Args:
+            node_id: The target node identifier
+            job_id: Unique job identifier
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players (2, 3, or 4)
+            num_games: Number of games to generate
+            preemptive: Whether this is a preemptive spawn (for tracking)
+
+        Returns:
+            Dict with 'success' bool and optional 'error' message
+        """
+        try:
+            # Find peer info for the node
+            with self.peers_lock:
+                peer = self.peers.get(node_id)
+
+            if peer is None:
+                return {"success": False, "error": f"Node {node_id} not found in peers"}
+
+            # Construct the selfplay request
+            config = {
+                "board_type": board_type,
+                "num_players": num_players,
+                "num_games": num_games,
+                "auto_assigned": True,
+                "preemptive": preemptive,
+                "job_id": job_id,
+                "reason": f"preemptive_spawn_{board_type}_{num_players}p",
+            }
+
+            # Use HTTP to dispatch to the node's selfplay endpoint
+            from aiohttp import ClientSession, ClientTimeout
+
+            peer_ip = getattr(peer, "tailscale_ip", None) or getattr(peer, "public_ip", None)
+            peer_port = getattr(peer, "port", 8770)
+            if not peer_ip:
+                return {"success": False, "error": f"No IP for node {node_id}"}
+
+            url = f"http://{peer_ip}:{peer_port}/selfplay/start"
+            timeout = ClientTimeout(total=30)
+
+            async with ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=config) as resp:
+                    if resp.status == 200:
+                        # Register the spawn for verification tracking
+                        config_key = f"{board_type}_{num_players}p"
+                        self._register_spawn(job_id, node_id, config_key)
+
+                        # Track the job
+                        with self.jobs_lock:
+                            if "selfplay" not in self.active_jobs:
+                                self.active_jobs["selfplay"] = {}
+                            self.active_jobs["selfplay"][job_id] = {
+                                "node_id": node_id,
+                                "board_type": board_type,
+                                "num_players": num_players,
+                                "num_games": num_games,
+                                "status": "running",
+                                "started_at": time.time(),
+                                "preemptive": preemptive,
+                            }
+
+                        return {"success": True}
+                    else:
+                        body = await resp.text()
+                        return {"success": False, "error": f"HTTP {resp.status}: {body[:100]}"}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     # =========================================================================
     # Path Helpers (December 2025)
     # =========================================================================
@@ -2113,6 +2280,10 @@ class JobManager(EventSubscriptionMixin):
                         f"Dispatched {games} games to {worker_id} "
                         f"(attempts: {result.get('attempts', 1)})"
                     )
+                    # January 2026 Sprint 6: Register spawn for verification tracking
+                    config_key = f"{board_type}_{num_players}p"
+                    worker_job_id = f"{job_id}_{worker_id}"
+                    self._register_spawn(worker_job_id, worker_id, config_key)
 
         # Phase 15.1.7: Check for failed dispatches and escalate if needed
         failed_workers = [

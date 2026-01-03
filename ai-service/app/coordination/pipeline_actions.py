@@ -616,6 +616,11 @@ async def trigger_npz_export(
         if min_moves > 0:
             cmd.extend(["--min-moves", str(min_moves)])
 
+        # January 2026: Allow non-canonical databases for export
+        # The canonical source validation is too strict for cluster nodes that
+        # generate selfplay data in databases not registered in TRAINING_DATA_REGISTRY.md
+        cmd.append("--allow-noncanonical")
+
         # December 29, 2025: Enable pending_gate bypass for cluster nodes without npx
         # This ensures training data is exported even when parity gates are pending
         exit_code, stdout, stderr = await _run_subprocess(

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import random
 import threading
 import time
@@ -61,6 +62,22 @@ except ImportError:
     PROMOTION_PENALTY_FACTOR_CRITICAL = 0.3
     PROMOTION_PENALTY_FACTOR_MULTIPLE = 0.5
     PROMOTION_PENALTY_FACTOR_SINGLE = 0.7
+
+# Memory-aware job allocation constants (P1 - Sprint 6, Jan 2026)
+# Job-type specific memory requirements in GB
+JOB_MEMORY_REQUIREMENTS: dict[str, float] = {
+    "gpu_gumbel": 8.0,  # High-quality Gumbel MCTS on GPU
+    "gpu_policy": 6.0,  # Policy-only inference on GPU
+    "cpu_heuristic": 2.0,  # CPU heuristic selfplay
+    "cpu_gumbel": 4.0,  # CPU Gumbel MCTS
+    "training": 16.0,  # Training job (needs extra headroom)
+    "evaluation": 4.0,  # Evaluation/gauntlet job
+    "default": 4.0,  # Default for unknown job types
+}
+# System reserved memory (OS, drivers, etc.)
+SYSTEM_RESERVED_MEMORY_GB = 4.0
+# Minimum free memory to maintain after job allocation
+MIN_FREE_MEMORY_GB = 2.0
 
 
 @dataclass
@@ -392,6 +409,601 @@ class SelfplayScheduler(EventSubscriptionMixin):
         # When evaluation queue is full, pause selfplay to prevent cascading backpressure
         self._evaluation_backpressure_active = False
         self._evaluation_backpressure_start: float = 0.0
+
+        # Jan 2026 Sprint 6: Job spawn verification tracking
+        # Tracks pending jobs waiting for verification and spawn success/failure stats
+        # Pending jobs: job_id -> (node_id, config_key, spawn_time)
+        self._pending_spawn_verification: dict[str, tuple[str, str, float]] = {}
+        self._spawn_verification_lock = threading.Lock()
+        # Per-node spawn success/failure tracking for capacity estimation
+        self._spawn_success_count: dict[str, int] = {}  # node_id -> count
+        self._spawn_failure_count: dict[str, int] = {}  # node_id -> count
+        # Jan 2026: Spawn verification timeout and callback
+        self._spawn_verification_timeout: float = float(
+            os.environ.get("RINGRIFT_SPAWN_VERIFICATION_TIMEOUT", "30.0")
+        )
+        # Callback to check if a job is running (set by P2P orchestrator)
+        self._get_job_status_fn: Callable[[str], dict[str, Any] | None] | None = None
+
+    def set_job_status_callback(
+        self,
+        get_job_status_fn: Callable[[str], dict[str, Any] | None]
+    ) -> None:
+        """Set the callback function to check job status.
+
+        January 2026 - Sprint 6: Added for job spawn verification.
+        This callback is used to verify that a job is actually running.
+
+        Args:
+            get_job_status_fn: Function that takes job_id and returns job status dict
+                or None if job not found. The dict should have a 'status' key.
+        """
+        self._get_job_status_fn = get_job_status_fn
+
+    def register_pending_spawn(
+        self,
+        job_id: str,
+        node_id: str,
+        config_key: str,
+    ) -> None:
+        """Register a job for spawn verification.
+
+        January 2026 - Sprint 6: Added for job spawn verification loop.
+        Call this when dispatching a job to track it for verification.
+
+        Args:
+            job_id: The job ID being spawned
+            node_id: The node where the job is being spawned
+            config_key: Board configuration key (e.g., "hex8_2p")
+        """
+        with self._spawn_verification_lock:
+            self._pending_spawn_verification[job_id] = (
+                node_id,
+                config_key,
+                time.time(),
+            )
+            logger.debug(f"Registered job {job_id} for spawn verification on {node_id}")
+
+    async def verify_pending_spawns(self) -> tuple[int, int]:
+        """Verify pending job spawns and emit events.
+
+        January 2026 - Sprint 6: Job spawn verification loop.
+        Checks all pending spawns and verifies they are actually running.
+        Emits JOB_SPAWN_VERIFIED or JOB_SPAWN_FAILED events.
+
+        Returns:
+            Tuple of (verified_count, failed_count)
+        """
+        if self._get_job_status_fn is None:
+            logger.debug("No job status callback set, skipping spawn verification")
+            return (0, 0)
+
+        now = time.time()
+        to_verify: list[tuple[str, str, str, float]] = []
+        verified_count = 0
+        failed_count = 0
+
+        # Collect jobs to verify
+        with self._spawn_verification_lock:
+            for job_id, (node_id, config_key, spawn_time) in list(
+                self._pending_spawn_verification.items()
+            ):
+                elapsed = now - spawn_time
+                to_verify.append((job_id, node_id, config_key, spawn_time))
+
+        # Verify each job outside the lock
+        for job_id, node_id, config_key, spawn_time in to_verify:
+            elapsed = now - spawn_time
+            try:
+                job_status = self._get_job_status_fn(job_id)
+                if job_status is not None:
+                    status = job_status.get("status", "")
+                    if status in ("running", "claimed", "started"):
+                        # Job verified as running
+                        verified_count += 1
+                        verification_time = now - spawn_time
+                        await self._emit_spawn_verified(
+                            job_id, node_id, config_key, verification_time
+                        )
+                        # Update success count for node
+                        self._spawn_success_count[node_id] = (
+                            self._spawn_success_count.get(node_id, 0) + 1
+                        )
+                        # Remove from pending
+                        with self._spawn_verification_lock:
+                            self._pending_spawn_verification.pop(job_id, None)
+                        logger.debug(
+                            f"Job {job_id} verified running on {node_id} "
+                            f"(took {verification_time:.1f}s)"
+                        )
+                        continue
+
+                # Check timeout
+                if elapsed >= self._spawn_verification_timeout:
+                    # Spawn verification timed out
+                    failed_count += 1
+                    await self._emit_spawn_failed(
+                        job_id, node_id, config_key,
+                        self._spawn_verification_timeout,
+                        reason="verification_timeout" if job_status is None else "status_not_running"
+                    )
+                    # Update failure count for node
+                    self._spawn_failure_count[node_id] = (
+                        self._spawn_failure_count.get(node_id, 0) + 1
+                    )
+                    # Remove from pending
+                    with self._spawn_verification_lock:
+                        self._pending_spawn_verification.pop(job_id, None)
+                    logger.warning(
+                        f"Job {job_id} spawn verification failed on {node_id} "
+                        f"(timeout={self._spawn_verification_timeout}s)"
+                    )
+            except Exception as e:
+                logger.debug(f"Error verifying job {job_id}: {e}")
+                # On error, still respect timeout
+                if elapsed >= self._spawn_verification_timeout:
+                    failed_count += 1
+                    with self._spawn_verification_lock:
+                        self._pending_spawn_verification.pop(job_id, None)
+
+        return (verified_count, failed_count)
+
+    async def _emit_spawn_verified(
+        self,
+        job_id: str,
+        node_id: str,
+        config_key: str,
+        verification_time: float,
+    ) -> None:
+        """Emit JOB_SPAWN_VERIFIED event."""
+        try:
+            from app.distributed.data_events import emit_job_spawn_verified
+            await emit_job_spawn_verified(
+                job_id=job_id,
+                node_id=node_id,
+                config_key=config_key,
+                verification_time_seconds=verification_time,
+                source="selfplay_scheduler",
+            )
+        except ImportError:
+            logger.debug("data_events not available, skipping spawn verified event")
+        except Exception as e:
+            logger.debug(f"Failed to emit spawn verified event: {e}")
+
+    async def _emit_spawn_failed(
+        self,
+        job_id: str,
+        node_id: str,
+        config_key: str,
+        timeout: float,
+        reason: str,
+    ) -> None:
+        """Emit JOB_SPAWN_FAILED event."""
+        try:
+            from app.distributed.data_events import emit_job_spawn_failed
+            await emit_job_spawn_failed(
+                job_id=job_id,
+                node_id=node_id,
+                config_key=config_key,
+                timeout_seconds=timeout,
+                reason=reason,
+                source="selfplay_scheduler",
+            )
+        except ImportError:
+            logger.debug("data_events not available, skipping spawn failed event")
+        except Exception as e:
+            logger.debug(f"Failed to emit spawn failed event: {e}")
+
+    def get_spawn_success_rate(self, node_id: str) -> float:
+        """Get the spawn success rate for a node.
+
+        January 2026 - Sprint 6: Added for capacity estimation.
+        Used to adjust job targets based on historical spawn success.
+
+        Args:
+            node_id: Node to get success rate for
+
+        Returns:
+            Success rate as a float between 0.0 and 1.0.
+            Returns 1.0 if no data is available.
+        """
+        success = self._spawn_success_count.get(node_id, 0)
+        failure = self._spawn_failure_count.get(node_id, 0)
+        total = success + failure
+        if total == 0:
+            return 1.0  # Assume success if no data
+        return success / total
+
+    def get_pending_spawn_count(self) -> int:
+        """Get the number of jobs pending spawn verification."""
+        with self._spawn_verification_lock:
+            return len(self._pending_spawn_verification)
+
+    async def get_job_for_node(self, node_id: str) -> dict[str, Any] | None:
+        """Get a recommended selfplay job configuration for a specific node.
+
+        January 2026 Sprint 6: Used by PredictiveScalingLoop for preemptive job spawning.
+        Selects the best config based on priority-weighted allocation, with minimum
+        allocation enforcement for underserved configs.
+
+        Args:
+            node_id: The target node identifier
+
+        Returns:
+            Dict with board_type, num_players, num_games if a job is recommended,
+            or None if no job should be spawned.
+        """
+        try:
+            # Check if we should force allocation to underserved config (minimum enforcement)
+            config_key = self._get_enforced_minimum_allocation()
+
+            if config_key is None:
+                # No enforcement needed, use priority-weighted selection
+                config_key = self._pick_simple_weighted_config()
+
+            if config_key is None:
+                return None
+
+            # Parse config key
+            parts = config_key.split("_")
+            if len(parts) >= 2 and parts[-1].endswith("p"):
+                board_type = "_".join(parts[:-1])  # Handle square19, hex8, etc.
+                num_players = int(parts[-1].rstrip("p"))
+            else:
+                return None
+
+            # Determine games based on node capabilities (conservative for preemptive)
+            # Preemptive jobs should be smaller to allow quick reallocation
+            num_games = 100
+
+            return {
+                "board_type": board_type,
+                "num_players": num_players,
+                "num_games": num_games,
+                "config_key": config_key,
+            }
+
+        except Exception as e:
+            logger.debug(f"Failed to get job for node {node_id}: {e}")
+            return None
+
+    def _pick_simple_weighted_config(self) -> str | None:
+        """Pick a selfplay config key using simple priority-weighted selection.
+
+        January 2026 Sprint 6: Simplified version of pick_weighted_config for
+        use in preemptive job spawning where we don't have node info.
+
+        Returns:
+            Config key (e.g., "hex8_2p") or None if no valid config
+        """
+        # Standard configs with priority weights
+        STANDARD_CONFIGS = [
+            # High priority: Underserved/complex configs
+            ("hexagonal_3p", 8),
+            ("hexagonal_4p", 8),
+            ("square19_3p", 7),
+            ("square19_4p", 7),
+            ("hex8_3p", 6),
+            ("hex8_4p", 6),
+            # Medium priority: Standard 2-player
+            ("hex8_2p", 5),
+            ("square8_2p", 5),
+            ("hexagonal_2p", 5),
+            # Lower priority: Well-covered configs
+            ("square8_3p", 4),
+            ("square8_4p", 4),
+            ("square19_2p", 4),
+        ]
+
+        # Apply dynamic boosts from curriculum weights
+        curriculum_weights = {}
+        try:
+            curriculum_weights = self.load_curriculum_weights()
+        except Exception:
+            pass
+
+        weighted_configs = []
+        for config_key, base_priority in STANDARD_CONFIGS:
+            # Apply curriculum weight boost
+            curriculum_mult = curriculum_weights.get(config_key, 1.0)
+
+            # Apply staleness boost for underserved configs
+            staleness_boost = self._get_staleness_boost(config_key)
+
+            effective_priority = int(base_priority * curriculum_mult + staleness_boost)
+            effective_priority = max(1, effective_priority)
+
+            weighted_configs.extend([config_key] * effective_priority)
+
+        if not weighted_configs:
+            return None
+
+        return random.choice(weighted_configs)
+
+    def _get_staleness_boost(self, config_key: str) -> int:
+        """Get staleness-based priority boost for a config.
+
+        Configs that haven't had recent games get higher priority.
+        """
+        try:
+            # Initialize tracking dict if needed
+            if not hasattr(self, "_last_config_job_time"):
+                self._last_config_job_time = {}
+
+            # Check last job time for this config
+            last_job_time = self._last_config_job_time.get(config_key, 0)
+            if last_job_time == 0:
+                return 3  # Never had a job, high boost
+
+            age_hours = (time.time() - last_job_time) / 3600
+            if age_hours > 24:
+                return 3
+            elif age_hours > 12:
+                return 2
+            elif age_hours > 6:
+                return 1
+            return 0
+        except Exception:
+            return 0
+
+    def record_job_dispatched(self, config_key: str) -> None:
+        """Record that a job was dispatched for a config.
+
+        January 2026 Sprint 6: Used for staleness-based priority boosting.
+        Configs that haven't had recent jobs get higher priority.
+
+        Args:
+            config_key: Config identifier (e.g., "hex8_2p")
+        """
+        if not hasattr(self, "_last_config_job_time"):
+            self._last_config_job_time = {}
+        self._last_config_job_time[config_key] = time.time()
+
+    # =========================================================================
+    # Minimum Allocation Enforcement (January 2026 Sprint 6)
+    # =========================================================================
+
+    # Minimum allocation constants
+    MINIMUM_ALLOCATION_PERCENT = 0.20  # Reserve 20% of jobs for underserved
+    UNDERSERVED_THRESHOLD = 5000  # Configs below this game count are "underserved"
+    CRITICAL_THRESHOLD = 1000  # Configs below this get highest priority
+    MINIMUM_ENFORCE_INTERVAL = 30.0  # Seconds between enforcement checks
+
+    def _get_enforced_minimum_allocation(self) -> str | None:
+        """Check if we should force allocation to an underserved config.
+
+        January 2026 Sprint 6: Implements minimum allocation enforcement.
+        Reserves 20% of cluster capacity for underserved configs to guarantee
+        they receive games even when higher-priority configs dominate.
+
+        Returns:
+            Config key if enforcement is active, None otherwise
+        """
+        try:
+            now = time.time()
+
+            # Rate limit enforcement checks
+            if hasattr(self, "_last_enforcement_check"):
+                if now - self._last_enforcement_check < self.MINIMUM_ENFORCE_INTERVAL:
+                    return None
+            self._last_enforcement_check = now
+
+            # Random 20% chance to enforce (simulates 20% allocation)
+            if random.random() > self.MINIMUM_ALLOCATION_PERCENT:
+                return None
+
+            # Find underserved configs
+            underserved = self._get_underserved_configs()
+            if not underserved:
+                return None
+
+            # Sort by game count (lowest first = most critical)
+            underserved.sort(key=lambda x: x[1])
+
+            # Pick the most critical config (lowest game count)
+            selected_config, game_count = underserved[0]
+
+            logger.info(
+                f"[MinimumAllocation] Enforcing allocation to {selected_config} "
+                f"(only {game_count} games, threshold={self.UNDERSERVED_THRESHOLD})"
+            )
+
+            return selected_config
+
+        except Exception as e:
+            logger.debug(f"[MinimumAllocation] Enforcement check failed: {e}")
+            return None
+
+    def _get_underserved_configs(self) -> list[tuple[str, int]]:
+        """Get list of configs below the underserved threshold.
+
+        Returns:
+            List of (config_key, game_count) tuples for underserved configs
+        """
+        try:
+            # Get game counts from tracking or discovery
+            game_counts = self._get_game_counts_per_config()
+
+            underserved = []
+            all_configs = [
+                "hex8_2p", "hex8_3p", "hex8_4p",
+                "square8_2p", "square8_3p", "square8_4p",
+                "square19_2p", "square19_3p", "square19_4p",
+                "hexagonal_2p", "hexagonal_3p", "hexagonal_4p",
+            ]
+
+            for config_key in all_configs:
+                count = game_counts.get(config_key, 0)
+                if count < self.UNDERSERVED_THRESHOLD:
+                    underserved.append((config_key, count))
+
+            return underserved
+
+        except Exception as e:
+            logger.debug(f"[MinimumAllocation] Failed to get underserved configs: {e}")
+            return []
+
+    def _get_game_counts_per_config(self) -> dict[str, int]:
+        """Get current game counts for each config.
+
+        Uses cached data from P2P manifest or local database discovery.
+
+        Returns:
+            Dict mapping config_key -> game_count
+        """
+        try:
+            # First try to get counts from P2P manifest (cluster-wide view)
+            if hasattr(self, "_p2p_game_counts") and self._p2p_game_counts:
+                return dict(self._p2p_game_counts)
+
+            # Fall back to local tracking
+            if hasattr(self, "_config_game_counts"):
+                return dict(self._config_game_counts)
+
+            # Return empty dict if no data available
+            return {}
+
+        except Exception:
+            return {}
+
+    def update_config_game_count(self, config_key: str, game_count: int) -> None:
+        """Update the tracked game count for a config.
+
+        Called when game data is synced or generated.
+
+        Args:
+            config_key: Config identifier (e.g., "hex8_2p")
+            game_count: Current total game count
+        """
+        if not hasattr(self, "_config_game_counts"):
+            self._config_game_counts = {}
+        self._config_game_counts[config_key] = game_count
+
+    def update_p2p_game_counts(self, counts: dict[str, int]) -> None:
+        """Update game counts from P2P manifest data.
+
+        Called by P2P orchestrator when manifest data is refreshed.
+
+        Args:
+            counts: Dict mapping config_key -> game_count
+        """
+        self._p2p_game_counts = dict(counts)
+
+    # =========================================================================
+    # Memory-Aware Job Allocation (P1 - Sprint 6, Jan 2026)
+    # =========================================================================
+
+    def _get_job_memory_requirement(self, job_type: str) -> float:
+        """Get memory requirement in GB for a specific job type.
+
+        Args:
+            job_type: Type of job (gpu_gumbel, cpu_heuristic, training, etc.)
+
+        Returns:
+            Memory requirement in GB for this job type.
+        """
+        return JOB_MEMORY_REQUIREMENTS.get(
+            job_type, JOB_MEMORY_REQUIREMENTS["default"]
+        )
+
+    def _check_memory_available(
+        self, node: Any, job_type: str = "gpu_gumbel"
+    ) -> bool:
+        """Check if a node has enough memory for a specific job type.
+
+        This method checks CURRENT memory usage, not just total memory.
+        It accounts for:
+        - Job-type specific memory requirements
+        - System reserved memory (OS, drivers)
+        - Minimum free memory buffer
+
+        Args:
+            node: Node info object with memory_gb and memory_percent attributes.
+            job_type: Type of job being considered.
+
+        Returns:
+            True if node has sufficient memory for this job type.
+        """
+        try:
+            # Get total and current memory usage
+            total_memory_gb = float(getattr(node, "memory_gb", 0) or 0)
+            memory_percent = float(getattr(node, "memory_percent", 0.0) or 0.0)
+
+            if total_memory_gb <= 0:
+                # No memory info available - fall back to basic check
+                return True
+
+            # Calculate current memory usage
+            current_usage_gb = (memory_percent / 100.0) * total_memory_gb
+
+            # Calculate available memory after accounting for:
+            # 1. Current usage
+            # 2. System reserved memory
+            # 3. Minimum free memory buffer
+            available_gb = (
+                total_memory_gb
+                - current_usage_gb
+                - SYSTEM_RESERVED_MEMORY_GB
+                - MIN_FREE_MEMORY_GB
+            )
+
+            # Get job-specific memory requirement
+            job_memory_gb = self._get_job_memory_requirement(job_type)
+
+            # Check if we have enough available memory
+            has_enough = available_gb >= job_memory_gb
+
+            if not has_enough and self.verbose:
+                node_id = getattr(node, "node_id", "unknown")
+                logger.debug(
+                    f"Memory check failed for {node_id}: "
+                    f"available={available_gb:.1f}GB, "
+                    f"needed={job_memory_gb:.1f}GB "
+                    f"(total={total_memory_gb:.1f}GB, "
+                    f"used={memory_percent:.1f}%)"
+                )
+
+            return has_enough
+
+        except (TypeError, ValueError, AttributeError) as e:
+            # On any error, fall back to allowing the job
+            logger.debug(f"Memory check error: {e}")
+            return True
+
+    def _get_recommended_job_type(self, node: Any) -> str:
+        """Get the recommended job type based on node capabilities and memory.
+
+        Considers:
+        - GPU availability
+        - Current memory usage
+        - GPU memory usage
+
+        Args:
+            node: Node info object with hardware attributes.
+
+        Returns:
+            Recommended job type string.
+        """
+        has_gpu = bool(getattr(node, "has_gpu", False))
+        gpu_mem_percent = float(getattr(node, "gpu_memory_percent", 0.0) or 0.0)
+
+        if has_gpu:
+            # GPU node - check GPU memory for job type
+            if gpu_mem_percent < 50:
+                # Plenty of GPU memory - can run high-quality Gumbel
+                return "gpu_gumbel"
+            elif gpu_mem_percent < 80:
+                # Moderate GPU memory - use policy-only
+                return "gpu_policy"
+            else:
+                # GPU memory constrained - fall back to CPU
+                return "cpu_heuristic"
+        else:
+            # CPU-only node
+            if self._check_memory_available(node, "cpu_gumbel"):
+                return "cpu_gumbel"
+            else:
+                return "cpu_heuristic"
 
     def get_elo_based_priority_boost(self, board_type: str, num_players: int) -> int:
         """Get priority boost based on ELO performance for this config.
@@ -1557,8 +2169,22 @@ class SelfplayScheduler(EventSubscriptionMixin):
         if memory_gb > 0 and memory_gb < MIN_MEMORY_GB_FOR_TASKS:
             return 0
 
-        # Extract node metrics
+        # Memory-aware job allocation (P1 - Sprint 6, Jan 2026)
+        # Check current memory usage, not just total memory
         has_gpu = bool(getattr(node, "has_gpu", False))
+        recommended_job_type = self._get_recommended_job_type(node)
+        if not self._check_memory_available(node, recommended_job_type):
+            # Not enough memory for even the lightest job type
+            if not self._check_memory_available(node, "cpu_heuristic"):
+                if self.verbose:
+                    node_id = getattr(node, "node_id", "unknown")
+                    logger.debug(
+                        f"Node {node_id} has insufficient memory even for cpu_heuristic, "
+                        f"skipping job allocation"
+                    )
+                return 0
+
+        # Extract node metrics
         cpu_count = int(getattr(node, "cpu_count", 0) or 0)
         cpu_percent = float(getattr(node, "cpu_percent", 0.0) or 0.0)
         mem_percent = float(getattr(node, "memory_percent", 0.0) or 0.0)

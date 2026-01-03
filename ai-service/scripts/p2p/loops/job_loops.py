@@ -31,14 +31,42 @@ from .base import BaseLoop
 logger = logging.getLogger(__name__)
 
 
+# Job-type specific stale thresholds (P1 - Sprint 6, Jan 2026)
+# GPU jobs fail fast, CPU jobs can wait longer
+DEFAULT_STALE_THRESHOLDS: dict[str, float] = {
+    "gpu_gumbel": 600.0,      # 10 min - expensive GPU, fail fast
+    "gpu_policy": 600.0,      # 10 min - GPU inference
+    "gpu_selfplay": 600.0,    # 10 min - general GPU selfplay
+    "training": 1800.0,       # 30 min - training can take longer to init
+    "evaluation": 900.0,      # 15 min - evaluation is time-bounded
+    "cpu_heuristic": 1800.0,  # 30 min - CPU is cheap, can wait
+    "cpu_gumbel": 1200.0,     # 20 min - CPU MCTS
+    "selfplay": 900.0,        # 15 min - generic selfplay
+    "default": 1800.0,        # 30 min fallback (reduced from 1 hour)
+}
+
+
 @dataclass
 class JobReaperConfig:
-    """Configuration for job reaper loop."""
+    """Configuration for job reaper loop.
 
-    stale_job_threshold_seconds: float = 3600.0  # 1 hour
+    Supports job-type-specific thresholds via stale_thresholds_by_type.
+    GPU jobs use faster thresholds (10-15 min) since issues surface quickly.
+    CPU jobs can wait longer (30 min) since they're cheaper.
+    """
+
+    # Default fallback threshold (used if job type not in stale_thresholds_by_type)
+    stale_job_threshold_seconds: float = 1800.0  # 30 min (reduced from 1 hour)
     stuck_job_threshold_seconds: float = 7200.0  # 2 hours
     max_jobs_to_reap_per_cycle: int = 10
     check_interval_seconds: float = 300.0  # 5 minutes
+
+    # Job-type-specific stale thresholds (P1 - Sprint 6, Jan 2026)
+    # Keys: gpu_gumbel, gpu_policy, gpu_selfplay, training, evaluation,
+    #       cpu_heuristic, cpu_gumbel, selfplay, default
+    stale_thresholds_by_type: dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_STALE_THRESHOLDS)
+    )
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -46,12 +74,40 @@ class JobReaperConfig:
             raise ValueError("stale_job_threshold_seconds must be > 0")
         if self.stuck_job_threshold_seconds <= 0:
             raise ValueError("stuck_job_threshold_seconds must be > 0")
-        if self.stale_job_threshold_seconds > self.stuck_job_threshold_seconds:
-            raise ValueError("stale_job_threshold_seconds must be <= stuck_job_threshold_seconds")
+        # Removed: stale < stuck validation since stale thresholds are now per-type
         if self.max_jobs_to_reap_per_cycle <= 0:
             raise ValueError("max_jobs_to_reap_per_cycle must be > 0")
         if self.check_interval_seconds <= 0:
             raise ValueError("check_interval_seconds must be > 0")
+
+    def get_stale_threshold(self, job_type: str) -> float:
+        """Get the stale threshold for a specific job type.
+
+        Args:
+            job_type: Type of job (e.g., 'gpu_gumbel', 'cpu_heuristic')
+
+        Returns:
+            Stale threshold in seconds for this job type.
+        """
+        # Check for exact match first
+        if job_type in self.stale_thresholds_by_type:
+            return self.stale_thresholds_by_type[job_type]
+
+        # Check for prefix matches (e.g., "gpu_gumbel_hex8" matches "gpu_gumbel")
+        for known_type in self.stale_thresholds_by_type:
+            if job_type.startswith(known_type):
+                return self.stale_thresholds_by_type[known_type]
+
+        # Check if it's a GPU or CPU job for category fallback
+        if "gpu" in job_type.lower():
+            return self.stale_thresholds_by_type.get("gpu_selfplay", 600.0)
+        if "cpu" in job_type.lower():
+            return self.stale_thresholds_by_type.get("cpu_heuristic", 1800.0)
+
+        # Use default
+        return self.stale_thresholds_by_type.get(
+            "default", self.stale_job_threshold_seconds
+        )
 
 
 class JobReaperLoop(BaseLoop):
@@ -95,7 +151,13 @@ class JobReaperLoop(BaseLoop):
         }
 
     async def _run_once(self) -> None:
-        """Check for and clean up problematic jobs."""
+        """Check for and clean up problematic jobs.
+
+        Uses job-type-specific thresholds (P1 - Sprint 6, Jan 2026):
+        - GPU jobs (gpu_gumbel, gpu_policy): 10 min threshold
+        - Evaluation jobs: 15 min threshold
+        - CPU jobs: 30 min threshold
+        """
         active_jobs = self._get_active_jobs()
         if not active_jobs:
             return
@@ -105,6 +167,10 @@ class JobReaperLoop(BaseLoop):
         jobs_to_reap: list[tuple[str, str]] = []  # (job_id, reason)
 
         for job_id, job_info in active_jobs.items():
+            # Get job type for threshold lookup
+            job_type = job_info.get("job_type", job_info.get("type", "default"))
+            stale_threshold = self.config.get_stale_threshold(job_type)
+
             # Check for stale jobs (claimed but not started)
             started_at = job_info.get("started_at", 0)
             claimed_at = job_info.get("claimed_at", 0)
@@ -112,8 +178,12 @@ class JobReaperLoop(BaseLoop):
 
             if status == "claimed" and not started_at:
                 age = now - claimed_at if claimed_at else now
-                if age > self.config.stale_job_threshold_seconds:
+                if age > stale_threshold:
                     jobs_to_reap.append((job_id, "stale"))
+                    logger.debug(
+                        f"[JobReaper] {job_id} stale: age={age:.0f}s > threshold={stale_threshold:.0f}s "
+                        f"(type={job_type})"
+                    )
                     continue
 
             # Check for stuck jobs (running too long)
@@ -123,12 +193,16 @@ class JobReaperLoop(BaseLoop):
                     jobs_to_reap.append((job_id, "stuck"))
                     continue
 
-            # Check for abandoned jobs (no heartbeat)
+            # Check for abandoned jobs (no heartbeat) - uses job-type threshold
             if job_id in heartbeats:
                 last_heartbeat = heartbeats[job_id]
                 silence = now - last_heartbeat
-                if silence > self.config.stale_job_threshold_seconds:
+                if silence > stale_threshold:
                     jobs_to_reap.append((job_id, "abandoned"))
+                    logger.debug(
+                        f"[JobReaper] {job_id} abandoned: silence={silence:.0f}s > threshold={stale_threshold:.0f}s "
+                        f"(type={job_type})"
+                    )
 
         # Reap jobs up to limit
         reaped_count = 0
@@ -388,6 +462,220 @@ class IdleDetectionLoop(BaseLoop):
             "skipped_not_leader": self._skipped_not_leader,
             "idle_nodes": list(self._idle_since.keys()),
             "zombie_nodes": list(self._zombie_since.keys()),
+            **self.stats.to_dict(),
+        }
+
+
+@dataclass
+class PredictiveScalingConfig:
+    """Configuration for predictive idle scaling loop.
+
+    January 2026 Sprint 6: Spawns jobs BEFORE nodes become idle to minimize launch latency.
+    Addresses 5-10 min launch lag from reactive-only idle detection.
+    """
+
+    check_interval_seconds: float = 30.0  # Check every 30 seconds
+    queue_depth_threshold: int = 50  # Start preemptive spawning when queue > this
+    approaching_idle_threshold_percent: float = 20.0  # GPU util below this = approaching idle
+    approaching_idle_duration_seconds: float = 30.0  # How long at low util before considered approaching
+    min_jobs_to_spawn_preemptively: int = 1  # Minimum jobs to spawn per cycle
+    max_jobs_to_spawn_preemptively: int = 5  # Maximum jobs to spawn per cycle
+    skip_nodes_with_pending_jobs: bool = True  # Don't spawn to nodes with pending work
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.check_interval_seconds <= 0:
+            raise ValueError("check_interval_seconds must be > 0")
+        if self.queue_depth_threshold < 0:
+            raise ValueError("queue_depth_threshold must be >= 0")
+        if self.approaching_idle_threshold_percent <= 0:
+            raise ValueError("approaching_idle_threshold_percent must be > 0")
+        if self.approaching_idle_threshold_percent > 100:
+            raise ValueError("approaching_idle_threshold_percent must be <= 100")
+        if self.approaching_idle_duration_seconds <= 0:
+            raise ValueError("approaching_idle_duration_seconds must be > 0")
+        if self.min_jobs_to_spawn_preemptively <= 0:
+            raise ValueError("min_jobs_to_spawn_preemptively must be > 0")
+        if self.max_jobs_to_spawn_preemptively < self.min_jobs_to_spawn_preemptively:
+            raise ValueError("max_jobs_to_spawn_preemptively must be >= min_jobs_to_spawn_preemptively")
+
+
+class PredictiveScalingLoop(BaseLoop):
+    """Background loop that spawns jobs preemptively before nodes become idle.
+
+    January 2026 Sprint 6: Part of the Predictive Idle Scaling system.
+
+    Unlike IdleDetectionLoop which reacts AFTER nodes are idle, this loop:
+    1. Monitors queue depth to see if there's enough work
+    2. Identifies nodes "approaching idle" (low GPU, no pending work)
+    3. Preemptively spawns jobs to those nodes to minimize launch latency
+
+    Expected impact: -5-10 min launch latency reduction.
+    """
+
+    def __init__(
+        self,
+        get_role: Callable[[], str] | None = None,
+        get_peers: Callable[[], dict[str, Any]] | None = None,
+        get_queue_depth: Callable[[], int] | None = None,
+        get_pending_jobs_for_node: Callable[[str], int] | None = None,
+        spawn_preemptive_job: Callable[[Any], Coroutine[Any, Any, bool]] | None = None,
+        config: PredictiveScalingConfig | None = None,
+    ):
+        """Initialize predictive scaling loop.
+
+        Args:
+            get_role: Callback returning node role ("leader", "follower", etc.)
+            get_peers: Callback returning dict of node_id -> peer info
+            get_queue_depth: Callback returning current work queue depth
+            get_pending_jobs_for_node: Callback returning pending job count for a node
+            spawn_preemptive_job: Async callback to spawn a preemptive job on a node
+            config: Scaling configuration
+        """
+        self.config = config or PredictiveScalingConfig()
+        super().__init__(
+            name="predictive_scaling",
+            interval=self.config.check_interval_seconds,
+        )
+        self._get_role = get_role
+        self._get_peers = get_peers
+        self._get_queue_depth = get_queue_depth
+        self._get_pending_jobs_for_node = get_pending_jobs_for_node
+        self._spawn_preemptive_job = spawn_preemptive_job
+
+        # Track nodes approaching idle state
+        self._approaching_idle_since: dict[str, float] = {}
+
+        # Statistics
+        self._preemptive_spawns = 0
+        self._skipped_low_queue = 0
+        self._skipped_not_leader = 0
+
+    async def _run_once(self) -> None:
+        """Check for nodes approaching idle and spawn jobs preemptively."""
+        # Only run on leader
+        if self._get_role:
+            role = self._get_role()
+            if role != "leader":
+                self._skipped_not_leader += 1
+                return
+
+        # Check queue depth - only preemptively spawn if queue has work
+        queue_depth = 0
+        if self._get_queue_depth:
+            try:
+                queue_depth = self._get_queue_depth()
+            except Exception as e:
+                logger.debug(f"[PredictiveScaling] Queue depth check failed: {e}")
+                return
+
+        if queue_depth < self.config.queue_depth_threshold:
+            self._skipped_low_queue += 1
+            return
+
+        # Get peer metrics
+        if not self._get_peers:
+            return
+
+        peers = self._get_peers()
+        if not peers:
+            return
+
+        now = time.time()
+        nodes_approaching_idle: list[tuple[str, Any, float]] = []
+
+        # Find nodes approaching idle state
+        for node_id, peer_info in peers.items():
+            # Extract GPU metrics
+            if hasattr(peer_info, "has_gpu"):
+                has_gpu = peer_info.has_gpu
+                gpu_util = getattr(peer_info, "gpu_percent", 0) or 0
+                selfplay_jobs = getattr(peer_info, "selfplay_jobs", 0) or 0
+            else:
+                has_gpu = peer_info.get("has_gpu", False)
+                gpu_util = peer_info.get("gpu_percent", 0) or peer_info.get("gpu_utilization", 0) or 0
+                selfplay_jobs = peer_info.get("selfplay_jobs", 0) or 0
+
+            if not has_gpu:
+                continue
+
+            # Check for pending jobs (jobs dispatched but not yet started)
+            pending_jobs = 0
+            if self.config.skip_nodes_with_pending_jobs and self._get_pending_jobs_for_node:
+                try:
+                    pending_jobs = self._get_pending_jobs_for_node(node_id)
+                except Exception:
+                    pending_jobs = 0
+
+            # Node is approaching idle if:
+            # 1. GPU util is low (but not zero, which means idle)
+            # 2. Currently running a job (selfplay_jobs > 0)
+            # 3. No pending jobs waiting to be started
+            is_approaching_idle = (
+                0 < gpu_util < self.config.approaching_idle_threshold_percent
+                and selfplay_jobs > 0
+                and pending_jobs == 0
+            )
+
+            if is_approaching_idle:
+                if node_id not in self._approaching_idle_since:
+                    self._approaching_idle_since[node_id] = now
+                    logger.debug(
+                        f"[PredictiveScaling] Node {node_id} approaching idle "
+                        f"(GPU: {gpu_util}%, jobs: {selfplay_jobs})"
+                    )
+
+                approaching_duration = now - self._approaching_idle_since[node_id]
+                if approaching_duration >= self.config.approaching_idle_duration_seconds:
+                    nodes_approaching_idle.append((node_id, peer_info, approaching_duration))
+            else:
+                # Clear tracking if no longer approaching idle
+                if node_id in self._approaching_idle_since:
+                    del self._approaching_idle_since[node_id]
+
+        # Spawn preemptive jobs to nodes approaching idle
+        if nodes_approaching_idle and self._spawn_preemptive_job:
+            # Sort by how long they've been approaching idle (longest first)
+            nodes_approaching_idle.sort(key=lambda x: x[2], reverse=True)
+
+            # Limit spawns per cycle
+            max_spawns = min(
+                self.config.max_jobs_to_spawn_preemptively,
+                len(nodes_approaching_idle),
+                queue_depth // 10 + 1,  # Scale with queue depth
+            )
+
+            spawned_count = 0
+            for node_id, peer, duration in nodes_approaching_idle[:max_spawns]:
+                try:
+                    success = await self._spawn_preemptive_job(peer)
+                    if success:
+                        spawned_count += 1
+                        self._preemptive_spawns += 1
+                        # Clear from approaching tracking since we spawned
+                        if node_id in self._approaching_idle_since:
+                            del self._approaching_idle_since[node_id]
+                        logger.info(
+                            f"[PredictiveScaling] Preemptively spawned job on {node_id} "
+                            f"(approaching idle for {duration:.0f}s)"
+                        )
+                except Exception as e:
+                    logger.warning(f"[PredictiveScaling] Failed to spawn on {node_id}: {e}")
+
+            if spawned_count > 0:
+                logger.info(
+                    f"[PredictiveScaling] Spawned {spawned_count} preemptive jobs "
+                    f"(queue depth: {queue_depth})"
+                )
+
+    def get_scaling_stats(self) -> dict[str, Any]:
+        """Get predictive scaling statistics."""
+        return {
+            "preemptive_spawns": self._preemptive_spawns,
+            "skipped_low_queue": self._skipped_low_queue,
+            "skipped_not_leader": self._skipped_not_leader,
+            "nodes_approaching_idle": len(self._approaching_idle_since),
+            "approaching_idle_nodes": list(self._approaching_idle_since.keys()),
             **self.stats.to_dict(),
         }
 
@@ -712,11 +1000,313 @@ class WorkQueueMaintenanceLoop(BaseLoop):
         }
 
 
+@dataclass
+class SpawnVerificationConfig:
+    """Configuration for spawn verification loop.
+
+    January 2026 Sprint 6: Verifies that dispatched jobs actually start running.
+    Addresses 10-15% wasted capacity from unconfirmed job spawns.
+    """
+
+    check_interval_seconds: float = 5.0  # Fast checks for quick verification
+    verification_timeout_seconds: float = 30.0  # Default per-job timeout
+    log_stats_interval_runs: int = 12  # Log stats every N runs (~1 minute at 5s interval)
+    min_spawns_for_rate_calc: int = 10  # Minimum spawns before reporting success rate
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.check_interval_seconds <= 0:
+            raise ValueError("check_interval_seconds must be > 0")
+        if self.verification_timeout_seconds <= 0:
+            raise ValueError("verification_timeout_seconds must be > 0")
+        if self.log_stats_interval_runs <= 0:
+            raise ValueError("log_stats_interval_runs must be > 0")
+
+
+class SpawnVerificationLoop(BaseLoop):
+    """Background loop that verifies job spawns completed successfully.
+
+    January 2026 Sprint 6: Part of the Job Spawn Verification system.
+
+    This loop:
+    1. Periodically calls SelfplayScheduler.verify_pending_spawns()
+    2. Tracks spawn success/failure rates per node
+    3. Emits JOB_SPAWN_VERIFIED / JOB_SPAWN_FAILED events
+    4. Logs statistics for capacity estimation
+
+    The verification data helps the scheduler:
+    - Avoid dispatching to nodes with high spawn failure rates
+    - Adjust capacity estimates based on actual spawn success
+    - Identify nodes with resource or configuration issues
+    """
+
+    def __init__(
+        self,
+        verify_pending_spawns: Callable[[], Coroutine[Any, Any, dict[str, int]]],
+        get_spawn_stats: Callable[[], dict[str, Any]] | None = None,
+        config: SpawnVerificationConfig | None = None,
+    ):
+        """Initialize spawn verification loop.
+
+        Args:
+            verify_pending_spawns: Async callback that verifies pending spawns.
+                Returns dict with 'verified', 'failed', 'pending' counts.
+            get_spawn_stats: Optional callback returning spawn statistics.
+            config: Loop configuration
+        """
+        self.config = config or SpawnVerificationConfig()
+        super().__init__(
+            name="spawn_verification",
+            interval=self.config.check_interval_seconds,
+        )
+        self._verify_pending_spawns = verify_pending_spawns
+        self._get_spawn_stats = get_spawn_stats
+
+        # Statistics
+        self._total_verified = 0
+        self._total_failed = 0
+        self._runs_since_stats_log = 0
+
+    async def _run_once(self) -> None:
+        """Verify pending job spawns and track results."""
+        try:
+            result = await self._verify_pending_spawns()
+        except Exception as e:
+            logger.warning(f"[SpawnVerification] Error verifying spawns: {e}")
+            return
+
+        verified = result.get("verified", 0)
+        failed = result.get("failed", 0)
+        pending = result.get("pending", 0)
+
+        self._total_verified += verified
+        self._total_failed += failed
+        self._runs_since_stats_log += 1
+
+        if verified > 0 or failed > 0:
+            logger.info(
+                f"[SpawnVerification] Cycle: verified={verified}, failed={failed}, pending={pending}"
+            )
+
+        # Periodically log aggregate statistics
+        if self._runs_since_stats_log >= self.config.log_stats_interval_runs:
+            self._log_aggregate_stats()
+            self._runs_since_stats_log = 0
+
+    def _log_aggregate_stats(self) -> None:
+        """Log aggregate spawn verification statistics."""
+        total = self._total_verified + self._total_failed
+        if total == 0:
+            return
+
+        success_rate = (self._total_verified / total) * 100.0
+        logger.info(
+            f"[SpawnVerification] Aggregate: verified={self._total_verified}, "
+            f"failed={self._total_failed}, success_rate={success_rate:.1f}%"
+        )
+
+        # Log per-node stats if available
+        if self._get_spawn_stats:
+            try:
+                stats = self._get_spawn_stats()
+                if stats.get("per_node"):
+                    low_success_nodes = [
+                        node_id for node_id, rate in stats.get("per_node", {}).items()
+                        if rate < 0.7  # Less than 70% success rate
+                    ]
+                    if low_success_nodes:
+                        logger.warning(
+                            f"[SpawnVerification] Low success rate nodes: {low_success_nodes}"
+                        )
+            except Exception as e:
+                logger.debug(f"[SpawnVerification] Could not get per-node stats: {e}")
+
+    def get_verification_stats(self) -> dict[str, Any]:
+        """Get spawn verification statistics."""
+        total = self._total_verified + self._total_failed
+        success_rate = (self._total_verified / total) * 100.0 if total > 0 else 100.0
+
+        return {
+            "total_verified": self._total_verified,
+            "total_failed": self._total_failed,
+            "success_rate": success_rate,
+            **self.stats.to_dict(),
+        }
+
+
+# =============================================================================
+# Job Reassignment Loop (P1 - Sprint 6, Jan 2026)
+# =============================================================================
+
+
+@dataclass
+class JobReassignmentConfig:
+    """Configuration for job reassignment loop.
+
+    Automatically reassigns orphaned jobs to healthy nodes.
+    This loop detects jobs that haven't received heartbeats and
+    reassigns them to other available nodes.
+    """
+
+    # How often to check for orphaned jobs (default: 60 seconds)
+    check_interval_seconds: float = 60.0
+
+    # How long a job can go without heartbeat before reassignment (default: 5 min)
+    # This is faster than the 1-hour reaper threshold
+    orphan_threshold_seconds: float = 300.0
+
+    # Max jobs to reassign per cycle (prevent thundering herd)
+    max_reassignments_per_cycle: int = 5
+
+    # Only leaders should run reassignment
+    leader_only: bool = True
+
+    # Initial delay before first check (allow cluster to stabilize)
+    initial_delay_seconds: float = 60.0
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.check_interval_seconds <= 0:
+            raise ValueError("check_interval_seconds must be > 0")
+        if self.orphan_threshold_seconds <= 0:
+            raise ValueError("orphan_threshold_seconds must be > 0")
+        if self.max_reassignments_per_cycle <= 0:
+            raise ValueError("max_reassignments_per_cycle must be > 0")
+        if self.initial_delay_seconds < 0:
+            raise ValueError("initial_delay_seconds must be >= 0")
+
+
+class JobReassignmentLoop(BaseLoop):
+    """Background loop that automatically reassigns orphaned jobs.
+
+    This loop detects jobs that have stopped sending heartbeats and
+    attempts to reassign them to healthy nodes. This is more aggressive
+    than the JobReaperLoop (which only cleans up after 1 hour).
+
+    Key differences from JobReaperLoop:
+    - Faster detection (5 min vs 1 hour)
+    - Reassigns to healthy nodes instead of just cancelling
+    - Tracks reassignment success/failure rates
+    - Only runs on leader node
+
+    Integration with JobManager:
+    - Uses check_and_reassign_stale_jobs() for the actual reassignment
+    - Respects exponential backoff for retry limits
+    - Emits JOB_REASSIGNED events for monitoring
+    """
+
+    def __init__(
+        self,
+        get_role: Callable[[], Any],
+        check_and_reassign: Callable[[], Coroutine[Any, Any, int]],
+        get_healthy_nodes: Callable[[], list[str]] | None = None,
+        config: JobReassignmentConfig | None = None,
+    ):
+        """Initialize job reassignment loop.
+
+        Args:
+            get_role: Callback returning current node role (must have .is_leader)
+            check_and_reassign: Async callback to check and reassign stale jobs
+                               (from JobManager.check_and_reassign_stale_jobs)
+            get_healthy_nodes: Optional callback returning list of healthy node IDs
+            config: Loop configuration
+        """
+        self.config = config or JobReassignmentConfig()
+        super().__init__(
+            name="job_reassignment",
+            interval=self.config.check_interval_seconds,
+        )
+        self._get_role = get_role
+        self._check_and_reassign = check_and_reassign
+        self._get_healthy_nodes = get_healthy_nodes
+
+        # Statistics
+        self._total_reassigned = 0
+        self._cycles_run = 0
+        self._last_reassignment_time: float = 0.0
+        self._skipped_not_leader = 0
+        self._skipped_no_healthy_nodes = 0
+
+        # Initial delay flag
+        self._initial_delay_done = False
+        self._start_time = time.time()
+
+    async def _run_once(self) -> None:
+        """Check for orphaned jobs and reassign them."""
+        self._cycles_run += 1
+
+        # Apply initial delay
+        if not self._initial_delay_done:
+            elapsed = time.time() - self._start_time
+            if elapsed < self.config.initial_delay_seconds:
+                logger.debug(
+                    f"[JobReassignment] Waiting for initial delay: "
+                    f"{self.config.initial_delay_seconds - elapsed:.0f}s remaining"
+                )
+                return
+            self._initial_delay_done = True
+            logger.info("[JobReassignment] Initial delay complete, starting checks")
+
+        # Only leader runs reassignment
+        if self.config.leader_only:
+            role = self._get_role()
+            is_leader = getattr(role, "is_leader", False) if role else False
+            if hasattr(role, "name"):
+                is_leader = role.name == "LEADER"
+
+            if not is_leader:
+                self._skipped_not_leader += 1
+                return
+
+        # Optional: Check if we have healthy nodes to reassign to
+        if self._get_healthy_nodes:
+            try:
+                healthy_nodes = self._get_healthy_nodes()
+                if len(healthy_nodes) < 2:  # Need at least 2 nodes
+                    self._skipped_no_healthy_nodes += 1
+                    logger.debug(
+                        f"[JobReassignment] Skipping: only {len(healthy_nodes)} healthy nodes"
+                    )
+                    return
+            except Exception as e:
+                logger.debug(f"[JobReassignment] Could not get healthy nodes: {e}")
+
+        # Run the actual reassignment check
+        try:
+            reassigned = await self._check_and_reassign()
+            if reassigned > 0:
+                self._total_reassigned += reassigned
+                self._last_reassignment_time = time.time()
+                logger.info(
+                    f"[JobReassignment] Reassigned {reassigned} jobs "
+                    f"(total: {self._total_reassigned})"
+                )
+        except Exception as e:
+            logger.warning(f"[JobReassignment] Error during reassignment check: {e}")
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get reassignment statistics."""
+        return {
+            "total_reassigned": self._total_reassigned,
+            "cycles_run": self._cycles_run,
+            "last_reassignment_time": self._last_reassignment_time,
+            "skipped_not_leader": self._skipped_not_leader,
+            "skipped_no_healthy_nodes": self._skipped_no_healthy_nodes,
+            **self.stats.to_dict(),
+        }
+
+
 __all__ = [
     "IdleDetectionConfig",
     "IdleDetectionLoop",
     "JobReaperConfig",
     "JobReaperLoop",
+    "JobReassignmentConfig",
+    "JobReassignmentLoop",
+    "PredictiveScalingConfig",
+    "PredictiveScalingLoop",
+    "SpawnVerificationConfig",
+    "SpawnVerificationLoop",
     "WorkerPullConfig",
     "WorkerPullLoop",
     "WorkQueueMaintenanceConfig",

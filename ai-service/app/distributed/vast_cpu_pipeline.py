@@ -319,9 +319,9 @@ class VastCpuPipelineDaemon:
 
             cmd = (
                 f"cd {ringrift_path} && "
-                f"PYTHONPATH=. python scripts/export_replay_dataset.py "
+                f"PYTHONPATH=. RINGRIFT_ALLOW_PENDING_GATE=true python scripts/export_replay_dataset.py "
                 f"--board-type {board_type} --num-players {num_players} "
-                f"--output {output_path}"
+                f"--output {output_path} --allow-noncanonical"
             )
             if db_path:
                 cmd += f" --db {db_path}"
