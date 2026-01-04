@@ -1,6 +1,6 @@
 version: '1.0'
 generated: January 2026 (Sprint 14)
-total_events: 253
+total_events: 263
 events:
   ADAPTIVE_PARAMS_CHANGED:
     value: adaptive_params_changed
@@ -9,7 +9,7 @@ events:
       config_key:
         type: any
     emitters:
-      - app/coordination/feedback_loop_controller.py:1993
+      - app/coordination/feedback_loop_controller.py:2052
   ARCHITECTURE_WEIGHTS_UPDATED:
     value: architecture_weights_updated
     category: other
@@ -84,6 +84,40 @@ events:
   CLUSTER_CAPACITY_CHANGED:
     value: cluster_capacity_changed
     category: p2p
+  CLUSTER_HEALTH_CHANGED:
+    value: cluster_health_changed
+    category: health
+    description: Emitted when overall cluster health level changes (Sprint 15)
+    payload:
+      overall_health:
+        type: string
+        description: Health level (HEALTHY, WARNING, DEGRADED, CRITICAL)
+      overall_score:
+        type: float
+        description: Numeric health score 0.0-1.0
+      quorum_health:
+        type: string
+        description: Quorum health level
+      alive_peers:
+        type: int
+        description: Number of alive peers
+      open_circuits:
+        type: int
+        description: Number of open circuit breakers
+      is_degraded:
+        type: bool
+        description: Whether cluster is in degraded state
+      is_critical:
+        type: bool
+        description: Whether cluster is in critical state
+      leader_id:
+        type: string
+        description: Current leader node ID
+      node_id:
+        type: string
+        description: Node ID that emitted this event
+    emitters:
+      - scripts/p2p/health_coordinator.py:697
   CLUSTER_P2P_RECOVERY_COMPLETED:
     value: cluster_p2p_recovery_completed
     category: health
@@ -354,8 +388,20 @@ events:
   EVALUATION_PROGRESS:
     value: evaluation_progress
     category: evaluation
+  EVALUATION_QUEUED:
+    value: evaluation_queued
+    category: evaluation
+  EVALUATION_RECOVERED:
+    value: evaluation_recovered
+    category: evaluation
+  EVALUATION_REQUESTED:
+    value: evaluation_requested
+    category: evaluation
   EVALUATION_STARTED:
     value: evaluation_started
+    category: evaluation
+  EVALUATION_STUCK:
+    value: evaluation_stuck
     category: evaluation
   EXPLORATION_ADJUSTED:
     value: exploration_adjusted
@@ -516,6 +562,9 @@ events:
   MODEL_EVALUATION_BLOCKED:
     value: model_evaluation_blocked
     category: evaluation
+  MODEL_IMPORTED:
+    value: model_imported
+    category: model
   MODEL_PROMOTED:
     value: model_promoted
     category: model
@@ -661,6 +710,9 @@ events:
   ORPHAN_GAMES_REGISTERED:
     value: orphan_games_registered
     category: selfplay
+  OWC_MODELS_DISCOVERED:
+    value: owc_models_discovered
+    category: model
   P2P_CLUSTER_HEALTHY:
     value: p2p_cluster_healthy
     category: health
@@ -786,7 +838,7 @@ events:
       velocity:
         type: number
     emitters:
-      - app/coordination/selfplay_scheduler.py:3798
+      - app/coordination/selfplay_scheduler.py:3849
   PROGRESS_RECOVERED:
     value: progress_recovered
     category: health
@@ -928,7 +980,7 @@ events:
     value: selfplay_allocation_updated
     category: selfplay
     emitters:
-      - app/coordination/selfplay_scheduler.py:4138
+      - app/coordination/selfplay_scheduler.py:4189
   SELFPLAY_COMPLETE:
     value: selfplay_complete
     category: selfplay
@@ -948,7 +1000,7 @@ events:
         type: string
     emitters:
       - app/coordination/selfplay_scheduler.py:2027
-      - app/coordination/selfplay_scheduler.py:2897
+      - app/coordination/selfplay_scheduler.py:2902
   SELFPLAY_TARGET_UPDATED:
     value: selfplay_target_updated
     category: selfplay
@@ -986,9 +1038,9 @@ events:
       velocity:
         type: number
     emitters:
-      - app/coordination/feedback_loop_controller.py:1896
-      - app/coordination/feedback_loop_controller.py:2065
-      - app/coordination/selfplay_scheduler.py:2617
+      - app/coordination/feedback_loop_controller.py:1955
+      - app/coordination/feedback_loop_controller.py:2124
+      - app/coordination/selfplay_scheduler.py:2622
   SOCKET_LEAK_DETECTED:
     value: socket_leak_detected
     category: other
@@ -1166,6 +1218,12 @@ events:
         type: string
     emitters:
       - scripts/p2p_orchestrator.py:3967
+  TRAINING_DATA_RECOVERED:
+    value: training_data_recovered
+    category: training
+  TRAINING_DATA_RECOVERY_FAILED:
+    value: training_data_recovery_failed
+    category: training
   TRAINING_EARLY_STOPPED:
     value: training_early_stopped
     category: training
@@ -1229,7 +1287,10 @@ events:
       timestamp:
         type: timestamp
     emitters:
-      - app/coordination/training_trigger_daemon.py:3599
+      - app/coordination/training_trigger_daemon.py:3646
+  UNEVALUATED_MODELS_FOUND:
+    value: unevaluated_models_found
+    category: model
   VOTER_DEMOTED:
     value: voter_demoted
     category: other

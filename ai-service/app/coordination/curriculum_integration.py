@@ -997,6 +997,15 @@ class MomentumToCurriculumBridge:
                         # Emit curriculum rebalanced event
                         self._emit_rebalance_event([config_key], {config_key: new_weight})
 
+                        # Sprint 16.1 (Jan 3, 2026): Emit rollback confirmation for observability
+                        self._emit_rollback_completed(
+                            config_key=config_key,
+                            old_weight=old_weight,
+                            new_weight=new_weight,
+                            elo_delta=elo_delta,
+                            trigger_reason="regression_detected",
+                        )
+
             except (ImportError, AttributeError) as e:
                 logger.debug(f"[MomentumToCurriculumBridge] Could not apply regression adjustment: {e}")
 
@@ -1075,10 +1084,88 @@ class MomentumToCurriculumBridge:
             except (ImportError, AttributeError) as e:
                 logger.debug(f"[MomentumToCurriculumBridge] Could not apply loss anomaly adjustment: {e}")
 
+            # Sprint 16.1 (Jan 3, 2026): Add severity-weighted exploration boost
+            # Higher severity anomalies get larger exploration boosts to help escape bad regions
+            exploration_boost = self._compute_exploration_boost_from_anomaly(payload)
+            if exploration_boost > 0.1:  # Only apply meaningful boosts
+                self._apply_exploration_boost_for_anomaly(config_key, exploration_boost)
+
             self._last_sync_time = time.time()
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling loss anomaly: {e}")
+
+    def _compute_exploration_boost_from_anomaly(self, anomaly: dict) -> float:
+        """Compute exploration boost based on anomaly severity.
+
+        Sprint 16.1 (Jan 3, 2026): Scale exploration boost by how far the loss
+        exceeds the expected threshold. Larger anomalies indicate worse data quality
+        issues that require more exploration to escape.
+
+        Args:
+            anomaly: Event payload with magnitude and threshold info
+
+        Returns:
+            Boost factor to apply (0.1 to 0.3 range)
+        """
+        try:
+            # Extract magnitude (actual loss value or deviation)
+            magnitude = anomaly.get("magnitude") or anomaly.get("loss_value", 0)
+            threshold = anomaly.get("threshold") or anomaly.get("expected_loss", 1.0)
+
+            if threshold <= 0:
+                threshold = 1.0  # Avoid division by zero
+
+            # Severity = how far above threshold (normalized)
+            severity = max(0, (magnitude - threshold) / threshold)
+
+            # Base boost 0.1, scaled by severity (capped at 0.3)
+            # severity 0 -> 0.1, severity 1 -> 0.2, severity 2+ -> 0.3
+            boost = min(0.1 + (severity * 0.1), 0.3)
+
+            logger.debug(
+                f"[MomentumToCurriculumBridge] Anomaly exploration boost: "
+                f"magnitude={magnitude:.4f}, threshold={threshold:.4f}, "
+                f"severity={severity:.2f}, boost={boost:.2f}"
+            )
+
+            return boost
+
+        except (ValueError, TypeError) as e:
+            logger.debug(f"[MomentumToCurriculumBridge] Error computing exploration boost: {e}")
+            return 0.1  # Default minimum boost
+
+    def _apply_exploration_boost_for_anomaly(self, config_key: str, boost_factor: float) -> None:
+        """Apply exploration boost for loss anomaly.
+
+        Sprint 16.1 (Jan 3, 2026): Temporarily boost exploration to help escape
+        training loss anomaly regions.
+
+        Args:
+            config_key: Config identifier
+            boost_factor: Amount to boost exploration (0.1-0.3)
+        """
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            if router:
+                # Emit exploration boost event for handlers to pick up
+                router.emit(
+                    "EXPLORATION_BOOST",
+                    {
+                        "config_key": config_key,
+                        "boost_factor": 1.0 + boost_factor,  # Convert to multiplier
+                        "source": "loss_anomaly",
+                        "duration_games": 200,  # Shorter duration for anomaly recovery
+                    },
+                )
+                logger.info(
+                    f"[MomentumToCurriculumBridge] Emitted exploration boost for {config_key}: "
+                    f"+{boost_factor*100:.0f}% (loss anomaly recovery)"
+                )
+        except (ImportError, AttributeError) as e:
+            logger.debug(f"[MomentumToCurriculumBridge] Could not emit exploration boost: {e}")
 
     def _on_quorum_recovery(self, event) -> None:
         """Handle QUORUM_RECOVERY_STARTED event - boost selfplay priority during recovery.
@@ -1556,6 +1643,39 @@ class MomentumToCurriculumBridge:
             # TypeError: invalid event arguments
             # RuntimeError: publish failed
             logger.debug(f"Failed to emit rebalance event: {e}")
+
+    def _emit_rollback_completed(
+        self,
+        config_key: str,
+        old_weight: float,
+        new_weight: float,
+        elo_delta: float,
+        trigger_reason: str = "regression_detected",
+    ) -> None:
+        """Emit CURRICULUM_ROLLBACK_COMPLETED event for observability.
+
+        Sprint 16.1 (Jan 3, 2026): Confirmation event when curriculum weight is
+        rolled back due to regression. Enables monitoring dashboards and alerts.
+        """
+        try:
+            from app.coordination.event_router import get_router
+
+            router = get_router()
+            router.publish_sync(
+                "CURRICULUM_ROLLBACK_COMPLETED",
+                {
+                    "config_key": config_key,
+                    "old_weight": old_weight,
+                    "new_weight": new_weight,
+                    "elo_delta": elo_delta,
+                    "trigger_reason": trigger_reason,
+                    "weight_reduction_pct": (1 - new_weight / old_weight) * 100 if old_weight > 0 else 0,
+                    "timestamp": time.time(),
+                },
+                source="momentum_curriculum_bridge",
+            )
+        except (ImportError, AttributeError, TypeError, RuntimeError) as e:
+            logger.debug(f"Failed to emit rollback completed event: {e}")
 
     def force_sync(self) -> dict[str, float]:
         """Force immediate weight sync."""

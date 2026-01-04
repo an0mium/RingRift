@@ -288,6 +288,15 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         depends_on=(DaemonType.EVENT_ROUTER,),
         category="evaluation",
     ),
+    # Sprint 15 (Jan 3, 2026): Backlog evaluation daemon
+    # Discovers OWC models, queues for evaluation with rate limiting
+    DaemonType.BACKLOG_EVALUATION: DaemonSpec(
+        runner_name="create_backlog_evaluation",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="evaluation",
+        health_check_interval=300.0,  # 5 minutes
+        auto_restart=True,
+    ),
     # =========================================================================
     # Distribution
     # =========================================================================

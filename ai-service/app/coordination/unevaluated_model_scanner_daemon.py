@@ -216,6 +216,121 @@ class UnevaluatedModelScannerDaemon(HandlerBase):
         return self._elo_service
 
     # =========================================================================
+    # Event Subscriptions
+    # =========================================================================
+
+    def _get_subscriptions(self) -> dict[Any, Any]:
+        """Return event subscriptions for this daemon.
+
+        Subscribes to MODEL_IMPORTED to immediately queue newly imported models
+        for evaluation instead of waiting for the next scan cycle.
+        """
+        return {
+            DataEventType.MODEL_IMPORTED: self._on_model_imported,
+        }
+
+    async def _on_model_imported(self, event: dict[str, Any]) -> None:
+        """Handle MODEL_IMPORTED events from OWCModelImportDaemon.
+
+        When a model is imported from OWC, immediately queue it for evaluation
+        instead of waiting for the next periodic scan cycle.
+
+        Args:
+            event: Event payload with model_path, board_type, num_players, etc.
+        """
+        try:
+            model_path = event.get("model_path")
+            if not model_path:
+                logger.warning("[Scanner] MODEL_IMPORTED event missing model_path")
+                return
+
+            board_type = event.get("board_type")
+            num_players = event.get("num_players")
+            config_key = event.get("config_key")
+
+            if not board_type or not num_players:
+                logger.debug(
+                    f"[Scanner] MODEL_IMPORTED missing config: {model_path}"
+                )
+                return
+
+            # Skip if already has Elo
+            elo_service = self._get_elo_service()
+            if elo_service:
+                file_name = Path(model_path).name
+                rating = elo_service.get_rating(file_name, config_key or f"{board_type}_{num_players}p")
+                if rating is not None:
+                    logger.debug(f"[Scanner] Skipping {file_name} - already has Elo")
+                    self._stats.models_skipped_has_elo += 1
+                    return
+
+            # Compute priority with OWC import bonus
+            priority = self._daemon_config.base_priority
+
+            # 4-player bonus
+            if num_players == 4:
+                priority += PRIORITY_BOOST_4_PLAYER
+
+            # Underserved config bonus
+            if board_type in ("hexagonal",) or num_players == 4:
+                priority += PRIORITY_BOOST_UNDERSERVED
+
+            # Recent import bonus (always applies for MODEL_IMPORTED)
+            priority += PRIORITY_BOOST_RECENT
+
+            # Add to evaluation queue
+            queue = self._get_eval_queue()
+            request_id = queue.add_request(
+                model_path=model_path,
+                board_type=board_type,
+                num_players=num_players,
+                priority=priority,
+                source="owc_import_event",
+            )
+
+            if request_id:
+                self._stats.models_queued += 1
+
+                # Emit EVALUATION_REQUESTED for EvaluationDaemon
+                await self._emit_evaluation_requested_from_import(
+                    model_path, board_type, num_players, config_key, priority, request_id
+                )
+
+                logger.info(
+                    f"[Scanner] Queued imported model for evaluation: "
+                    f"{Path(model_path).name} (priority={priority})"
+                )
+
+        except Exception as e:
+            logger.error(f"[Scanner] Error handling MODEL_IMPORTED: {e}")
+
+    async def _emit_evaluation_requested_from_import(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        config_key: str | None,
+        priority: int,
+        request_id: str,
+    ) -> None:
+        """Emit EVALUATION_REQUESTED event for an imported model."""
+        payload = {
+            "request_id": request_id,
+            "model_path": model_path,
+            "board_type": board_type,
+            "num_players": num_players,
+            "config_key": config_key or make_config_key(board_type, num_players),
+            "priority": priority,
+            "source": "owc_import_event",
+            "timestamp": time.time(),
+        }
+
+        try:
+            safe_emit_event(DataEventType.EVALUATION_REQUESTED, payload)
+        except Exception as e:
+            logger.debug(f"[Scanner] Failed to emit eval request: {e}")
+
+    # =========================================================================
     # Model Discovery
     # =========================================================================
 

@@ -5,16 +5,17 @@ Automatically cleans up poor quality game databases by:
 - Deleting databases with quality < 10% (non-recoverable, logged)
 - Logging all cleanup actions to audit file
 
+January 2026: Migrated to HandlerBase for unified lifecycle and event handling.
+
 Usage:
     from app.coordination.data_cleanup_daemon import DataCleanupDaemon
 
-    daemon = DataCleanupDaemon()
+    daemon = DataCleanupDaemon.get_instance()
     await daemon.start()
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import shutil
@@ -24,15 +25,9 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from app.coordination.protocols import (
-    CoordinatorStatus,
-    HealthCheckResult,
-    register_coordinator,
-    unregister_coordinator,
-)
-from app.core.async_context import safe_create_task
+from app.coordination.handler_base import HandlerBase, HealthCheckResult, CoordinatorStatus
 # December 2025: Use consolidated daemon stats base class
 from app.coordination.daemon_stats import CleanupDaemonStats
 
@@ -142,7 +137,7 @@ class CleanupStats(CleanupDaemonStats):
             self.games_deleted += games
 
 
-class DataCleanupDaemon:
+class DataCleanupDaemon(HandlerBase):
     """Daemon that automatically cleans up poor quality game databases.
 
     Quality thresholds:
@@ -151,138 +146,67 @@ class DataCleanupDaemon:
     - < 10% move coverage: Quarantine (likely corrupted)
 
     All actions are logged to cleanup_audit.jsonl for review.
+
+    January 2026: Migrated to HandlerBase for unified lifecycle, event
+    handling, singleton management, and health checks.
     """
 
     def __init__(self, config: CleanupConfig | None = None):
-        self.config = config or CleanupConfig()
-        self.node_id = socket.gethostname()
-        self._running = False
-        self._stats = CleanupStats()
-        self._scan_task: asyncio.Task | None = None
+        daemon_config = config or CleanupConfig()
 
-        # CoordinatorProtocol state
-        self._coordinator_status = CoordinatorStatus.INITIALIZING
-        self._start_time: float = 0.0
-        self._events_processed: int = 0
-        self._errors_count: int = 0
-        self._last_error: str = ""
+        super().__init__(
+            name="DataCleanupDaemon",
+            config=daemon_config,
+            cycle_interval=float(daemon_config.scan_interval_seconds),
+        )
+
+        self.node_id = socket.gethostname()
+        self._cleanup_stats = CleanupStats()
 
         # Resolve directories
         base_dir = Path(__file__).resolve().parent.parent.parent
-        self._data_dir = base_dir / self.config.data_dir
-        self._quarantine_dir = self._data_dir / self.config.quarantine_subdir
+        self._data_dir = base_dir / daemon_config.data_dir
+        self._quarantine_dir = self._data_dir / daemon_config.quarantine_subdir
         self._audit_path = self._data_dir / "cleanup_audit.jsonl"
 
         logger.info(
             f"DataCleanupDaemon initialized: "
-            f"delete_threshold={self.config.quality_threshold_delete}, "
-            f"quarantine_threshold={self.config.quality_threshold_quarantine}"
+            f"delete_threshold={daemon_config.quality_threshold_delete}, "
+            f"quarantine_threshold={daemon_config.quality_threshold_quarantine}"
         )
 
     # =========================================================================
-    # CoordinatorProtocol Implementation
+    # HandlerBase Overrides
     # =========================================================================
 
-    @property
-    def name(self) -> str:
-        """Unique name identifying this coordinator."""
-        return "DataCleanupDaemon"
+    def _get_event_subscriptions(self) -> dict[str, Callable[[dict[str, Any]], Any]]:
+        """Return event subscriptions for reactive cleanup.
 
-    @property
-    def status(self) -> CoordinatorStatus:
-        """Current status of the coordinator."""
-        return self._coordinator_status
-
-    @property
-    def uptime_seconds(self) -> float:
-        """Time since daemon started, in seconds."""
-        if self._start_time <= 0:
-            return 0.0
-        return time.time() - self._start_time
-
-    def is_running(self) -> bool:
-        """Check if the daemon is running."""
-        return self._running
-
-    async def start(self) -> None:
-        """Start the cleanup daemon."""
-        if not self.config.enabled:
-            self._coordinator_status = CoordinatorStatus.STOPPED
-            logger.info("DataCleanupDaemon disabled by config")
-            return
-
-        if self._coordinator_status == CoordinatorStatus.RUNNING:
-            return  # Already running
-
-        self._running = True
-        self._coordinator_status = CoordinatorStatus.RUNNING
-        self._start_time = time.time()
-
-        # Create quarantine directory
-        self._quarantine_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Starting DataCleanupDaemon on {self.node_id}")
-
-        # December 2025: Subscribe to events for reactive cleanup
-        await self._subscribe_to_events()
-
-        # Start scan loop
-        self._scan_task = safe_create_task(
-            self._scan_loop(),
-            name="data_cleanup_loop",
-        )
-
-        # Register with coordinator registry
-        register_coordinator(self)
-
-        logger.info(
-            f"DataCleanupDaemon started: "
-            f"interval={self.config.scan_interval_seconds}s, "
-            f"data_dir={self._data_dir}"
-        )
-
-    async def stop(self) -> None:
-        """Stop the cleanup daemon."""
-        if self._coordinator_status == CoordinatorStatus.STOPPED:
-            return
-
-        self._coordinator_status = CoordinatorStatus.STOPPING
-        logger.info("Stopping DataCleanupDaemon...")
-        self._running = False
-
-        if self._scan_task:
-            self._scan_task.cancel()
-            try:
-                await self._scan_task
-            except asyncio.CancelledError:
-                pass
-
-        unregister_coordinator(self.name)
-        self._coordinator_status = CoordinatorStatus.STOPPED
-        logger.info("DataCleanupDaemon stopped")
-
-    async def _subscribe_to_events(self) -> None:
-        """Subscribe to events for reactive cleanup.
-
-        December 2025: Added event-driven cleanup triggers for better
-        integration with the data pipeline. The daemon responds to:
+        January 2026: Migrated from _subscribe_to_events() to HandlerBase pattern.
+        The daemon responds to:
         - DATA_QUALITY_ALERT: Immediate scan when quality issues detected
         - DATA_SYNC_COMPLETED: Scan new data after sync completes
         """
-        try:
-            from app.coordination.event_router import get_event_router
-            from app.distributed.data_events import DataEventType
+        return {
+            "data_quality_alert": self._on_quality_alert,
+            "data_sync_completed": self._on_sync_completed,
+        }
 
-            router = get_event_router()
-            router.subscribe(DataEventType.DATA_QUALITY_ALERT, self._on_quality_alert)
-            router.subscribe(DataEventType.DATA_SYNC_COMPLETED, self._on_sync_completed)
-            logger.info(
-                "[DataCleanupDaemon] Subscribed to DATA_QUALITY_ALERT, DATA_SYNC_COMPLETED"
-            )
-        except ImportError:
-            logger.debug("[DataCleanupDaemon] Event router not available")
-        except Exception as e:
-            logger.warning(f"[DataCleanupDaemon] Failed to subscribe to events: {e}")
+    async def _on_start(self) -> None:
+        """Called when daemon starts. Create quarantine directory."""
+        self._quarantine_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            f"[{self.name}] Started: interval={self._cycle_interval}s, "
+            f"data_dir={self._data_dir}"
+        )
+
+    async def _run_cycle(self) -> None:
+        """Main work loop - scan and cleanup databases."""
+        if not self._config.enabled:
+            return
+
+        await self._scan_and_cleanup()
+        self._cleanup_stats.last_scan_time = time.time()
 
     async def _on_quality_alert(self, event: Any) -> None:
         """Handle DATA_QUALITY_ALERT - trigger immediate scan.
@@ -291,20 +215,21 @@ class DataCleanupDaemon:
         We immediately trigger a cleanup scan instead of waiting.
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            payload = self._get_payload(event)
             db_path = payload.get("database") or payload.get("db_path")
             quality_score = payload.get("quality_score", 0.0)
 
             logger.info(
-                f"[DataCleanupDaemon] Quality alert received: "
+                f"[{self.name}] Quality alert received: "
                 f"db={db_path}, quality={quality_score:.1%}"
             )
 
             # Trigger immediate scan
             if self._running:
                 await self._scan_and_cleanup()
-        except Exception as e:
-            logger.debug(f"[DataCleanupDaemon] Error handling quality alert: {e}")
+                self._record_success()
+        except (KeyError, TypeError, ValueError) as e:
+            self._record_error(f"Error handling quality alert: {e}")
 
     async def _on_sync_completed(self, event: Any) -> None:
         """Handle DATA_SYNC_COMPLETED - scan for quality after sync.
@@ -313,37 +238,19 @@ class DataCleanupDaemon:
         received databases.
         """
         try:
-            payload = event.payload if hasattr(event, "payload") else event
+            payload = self._get_payload(event)
             games_synced = payload.get("games_synced", 0)
 
             if games_synced > 100:  # Only scan if significant data was synced
                 logger.info(
-                    f"[DataCleanupDaemon] Sync completed ({games_synced} games), "
+                    f"[{self.name}] Sync completed ({games_synced} games), "
                     "triggering quality scan"
                 )
                 if self._running:
                     await self._scan_and_cleanup()
-        except Exception as e:
-            logger.debug(f"[DataCleanupDaemon] Error handling sync completed: {e}")
-
-    async def _scan_loop(self) -> None:
-        """Main scan loop."""
-        # Initial delay to let other systems stabilize
-        await asyncio.sleep(60)
-
-        while self._running:
-            try:
-                await self._scan_and_cleanup()
-                self._stats.last_scan_time = time.time()
-            except asyncio.CancelledError:
-                break
-            except (RuntimeError, OSError) as e:
-                self._errors_count += 1
-                self._last_error = str(e)
-                self._stats.last_error = str(e)
-                logger.error(f"Cleanup scan error: {e}")
-
-            await asyncio.sleep(self.config.scan_interval_seconds)
+                    self._record_success()
+        except (KeyError, TypeError, ValueError) as e:
+            self._record_error(f"Error handling sync completed: {e}")
 
     async def _scan_and_cleanup(self) -> None:
         """Scan all databases and cleanup poor quality ones."""
@@ -373,17 +280,17 @@ class DataCleanupDaemon:
         for db_path in databases:
             try:
                 assessment = self._assess_database(db_path)
-                self._stats.record_database_scan()
+                self._cleanup_stats.record_database_scan()
 
                 # Skip canonical databases if configured
-                if self.config.require_canonical_pattern:
+                if self._config.require_canonical_pattern:
                     if db_path.name.startswith("canonical_"):
                         logger.debug(f"Skipping canonical database: {db_path.name}")
                         continue
 
                 # Check deletion threshold
-                if assessment.quality_score < self.config.quality_threshold_delete:
-                    if assessment.total_games >= self.config.min_games_before_delete:
+                if assessment.quality_score < self._config.quality_threshold_delete:
+                    if assessment.total_games >= self._config.min_games_before_delete:
                         await self._delete_database(db_path, assessment)
                         deleted += 1
                         continue
@@ -394,13 +301,13 @@ class DataCleanupDaemon:
                         )
 
                 # Check quarantine threshold
-                if assessment.quality_score < self.config.quality_threshold_quarantine:
+                if assessment.quality_score < self._config.quality_threshold_quarantine:
                     await self._quarantine_database(db_path, assessment)
                     quarantined += 1
                     continue
 
                 # Check move coverage threshold
-                if assessment.move_coverage < self.config.move_coverage_threshold:
+                if assessment.move_coverage < self._config.move_coverage_threshold:
                     await self._quarantine_database(
                         db_path,
                         assessment,
@@ -458,7 +365,7 @@ class DataCleanupDaemon:
                 ORDER BY created_at DESC
                 LIMIT ?
             """,
-                (self.config.quality_sample_size,),
+                (self._config.quality_sample_size,),
             )
             games = cursor.fetchall()
 
@@ -472,7 +379,7 @@ class DataCleanupDaemon:
                     ORDER BY g.created_at DESC
                     LIMIT ?
                 """,
-                    (self.config.quality_sample_size,),
+                    (self._config.quality_sample_size,),
                 )
                 games_with_moves = cursor.fetchone()[0]
                 move_coverage = games_with_moves / max(len(games), 1)
@@ -511,9 +418,9 @@ class DataCleanupDaemon:
             avg_quality = sum(quality_scores) / max(len(quality_scores), 1)
 
             # Add issues for low scores
-            if avg_quality < self.config.quality_threshold_quarantine:
+            if avg_quality < self._config.quality_threshold_quarantine:
                 issues.append(f"Low quality: {avg_quality:.2f}")
-            if move_coverage < self.config.move_coverage_threshold:
+            if move_coverage < self._config.move_coverage_threshold:
                 issues.append(f"Low move coverage: {move_coverage:.1%}")
             if valid_victory_pct < 0.5:
                 issues.append(f"Low valid victory types: {valid_victory_pct:.1%}")
@@ -563,8 +470,8 @@ class DataCleanupDaemon:
         # Log to audit file
         self._log_audit_action("quarantine", db_path, assessment, reason)
 
-        self._stats.record_database_quarantine(databases=1, games=assessment.total_games)
-        self._events_processed += 1
+        self._cleanup_stats.record_database_quarantine(databases=1, games=assessment.total_games)
+        self._record_success()
 
     async def _delete_database(
         self,
@@ -581,9 +488,9 @@ class DataCleanupDaemon:
         # Delete the file
         db_path.unlink()
 
-        self._stats.databases_deleted += 1
-        self._stats.games_deleted += assessment.total_games
-        self._events_processed += 1
+        self._cleanup_stats.databases_deleted += 1
+        self._cleanup_stats.games_deleted += assessment.total_games
+        self._record_success()
 
     def _log_audit_action(
         self,
@@ -617,26 +524,24 @@ class DataCleanupDaemon:
 
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""
+        base_status = super().get_status()
         return {
+            **base_status,
             "node_id": self.node_id,
-            "running": self._running,
-            "status": self._coordinator_status.value,
-            "uptime_seconds": self.uptime_seconds,
             "config": {
-                "enabled": self.config.enabled,
-                "scan_interval_seconds": self.config.scan_interval_seconds,
-                "quality_threshold_delete": self.config.quality_threshold_delete,
-                "quality_threshold_quarantine": self.config.quality_threshold_quarantine,
-                "move_coverage_threshold": self.config.move_coverage_threshold,
+                "enabled": self._config.enabled,
+                "scan_interval_seconds": self._config.scan_interval_seconds,
+                "quality_threshold_delete": self._config.quality_threshold_delete,
+                "quality_threshold_quarantine": self._config.quality_threshold_quarantine,
+                "move_coverage_threshold": self._config.move_coverage_threshold,
             },
-            "stats": {
-                "databases_scanned": self._stats.databases_scanned,
-                "databases_quarantined": self._stats.databases_quarantined,
-                "databases_deleted": self._stats.databases_deleted,
-                "games_quarantined": self._stats.games_quarantined,
-                "games_deleted": self._stats.games_deleted,
-                "last_scan_time": self._stats.last_scan_time,
-                "last_error": self._stats.last_error,
+            "cleanup_stats": {
+                "databases_scanned": self._cleanup_stats.databases_scanned,
+                "databases_quarantined": self._cleanup_stats.databases_quarantined,
+                "databases_deleted": self._cleanup_stats.databases_deleted,
+                "games_quarantined": self._cleanup_stats.games_quarantined,
+                "games_deleted": self._cleanup_stats.games_deleted,
+                "last_scan_time": self._cleanup_stats.last_scan_time,
             },
             "directories": {
                 "data_dir": str(self._data_dir),
@@ -647,37 +552,28 @@ class DataCleanupDaemon:
 
     def get_metrics(self) -> dict[str, Any]:
         """Get daemon metrics in protocol-compliant format."""
+        base_metrics = self._get_health_details()
         return {
-            "name": self.name,
-            "status": self._coordinator_status.value,
-            "uptime_seconds": self.uptime_seconds,
-            "start_time": self._start_time,
-            "events_processed": self._events_processed,
-            "errors_count": self._errors_count,
-            "last_error": self._last_error,
+            **base_metrics,
             # Cleanup-specific metrics
-            "databases_scanned": self._stats.databases_scanned,
-            "databases_quarantined": self._stats.databases_quarantined,
-            "databases_deleted": self._stats.databases_deleted,
-            "games_quarantined": self._stats.games_quarantined,
-            "games_deleted": self._stats.games_deleted,
+            "databases_scanned": self._cleanup_stats.databases_scanned,
+            "databases_quarantined": self._cleanup_stats.databases_quarantined,
+            "databases_deleted": self._cleanup_stats.databases_deleted,
+            "games_quarantined": self._cleanup_stats.games_quarantined,
+            "games_deleted": self._cleanup_stats.games_deleted,
         }
 
     def health_check(self) -> HealthCheckResult:
-        """Check daemon health."""
-        if self._coordinator_status == CoordinatorStatus.ERROR:
-            return HealthCheckResult.unhealthy(
-                f"Daemon in error state: {self._last_error}"
-            )
+        """Check daemon health.
 
-        if self._coordinator_status == CoordinatorStatus.STOPPED:
-            return HealthCheckResult(
-                healthy=True,
-                status=CoordinatorStatus.STOPPED,
-                message="Daemon is stopped",
-            )
+        January 2026: Migrated to use HandlerBase patterns.
+        """
+        # Use base class for common checks
+        base_result = super().health_check()
+        if not base_result.healthy:
+            return base_result
 
-        if not self.config.enabled:
+        if not self._config.enabled:
             return HealthCheckResult(
                 healthy=True,
                 status=CoordinatorStatus.STOPPED,
@@ -685,22 +581,29 @@ class DataCleanupDaemon:
             )
 
         # Check for stale scan
-        if self._stats.last_scan_time > 0:
-            scan_age = time.time() - self._stats.last_scan_time
-            if scan_age > self.config.scan_interval_seconds * 3:
-                return HealthCheckResult.degraded(
-                    f"No scan in {scan_age:.0f}s (interval: {self.config.scan_interval_seconds}s)",
-                    seconds_since_last_scan=scan_age,
+        if self._cleanup_stats.last_scan_time > 0:
+            scan_age = time.time() - self._cleanup_stats.last_scan_time
+            if scan_age > self._config.scan_interval_seconds * 3:
+                return HealthCheckResult(
+                    healthy=True,
+                    status=CoordinatorStatus.DEGRADED,
+                    message=f"No scan in {scan_age:.0f}s (interval: {self._config.scan_interval_seconds}s)",
+                    details={
+                        **base_result.details,
+                        "seconds_since_last_scan": scan_age,
+                    },
                 )
 
+        # Return healthy with cleanup-specific details
         return HealthCheckResult(
             healthy=True,
-            status=self._coordinator_status,
+            status=self._status,
+            message="Operating normally",
             details={
-                "uptime_seconds": self.uptime_seconds,
-                "databases_scanned": self._stats.databases_scanned,
-                "databases_quarantined": self._stats.databases_quarantined,
-                "databases_deleted": self._stats.databases_deleted,
+                **base_result.details,
+                "databases_scanned": self._cleanup_stats.databases_scanned,
+                "databases_quarantined": self._cleanup_stats.databases_quarantined,
+                "databases_deleted": self._cleanup_stats.databases_deleted,
             },
         )
 
@@ -711,17 +614,17 @@ class DataCleanupDaemon:
             Dict with scan results (scanned, quarantined, deleted counts).
         """
         before = (
-            self._stats.databases_scanned,
-            self._stats.databases_quarantined,
-            self._stats.databases_deleted,
+            self._cleanup_stats.databases_scanned,
+            self._cleanup_stats.databases_quarantined,
+            self._cleanup_stats.databases_deleted,
         )
 
         await self._scan_and_cleanup()
 
         after = (
-            self._stats.databases_scanned,
-            self._stats.databases_quarantined,
-            self._stats.databases_deleted,
+            self._cleanup_stats.databases_scanned,
+            self._cleanup_stats.databases_quarantined,
+            self._cleanup_stats.databases_deleted,
         )
 
         return {
@@ -731,22 +634,25 @@ class DataCleanupDaemon:
         }
 
 
-# Module-level instance for singleton access
-_cleanup_daemon: DataCleanupDaemon | None = None
+# ============================================================================
+# Singleton Access (HandlerBase provides get_instance/reset_instance)
+# ============================================================================
 
 
 def get_cleanup_daemon() -> DataCleanupDaemon:
-    """Get the singleton DataCleanupDaemon instance."""
-    global _cleanup_daemon
-    if _cleanup_daemon is None:
-        _cleanup_daemon = DataCleanupDaemon()
-    return _cleanup_daemon
+    """Get the singleton DataCleanupDaemon instance.
+
+    January 2026: Now uses HandlerBase singleton pattern.
+    """
+    return DataCleanupDaemon.get_instance()
 
 
 def reset_cleanup_daemon() -> None:
-    """Reset the singleton (for testing)."""
-    global _cleanup_daemon
-    _cleanup_daemon = None
+    """Reset the singleton (for testing).
+
+    January 2026: Now uses HandlerBase singleton pattern.
+    """
+    DataCleanupDaemon.reset_instance()
 
 
 __all__ = [

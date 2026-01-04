@@ -363,7 +363,7 @@ python -c "from app.coordination import *"
 
 ## 11. Daemon Development Patterns
 
-The coordination layer has 104 daemon types (96 active, 8 deprecated). When creating new daemons, follow these patterns.
+The coordination layer has 109 daemon types (103 active, 6 deprecated). When creating new daemons, follow these patterns.
 
 ### 11.1 Daemon Lifecycle
 
@@ -482,6 +482,53 @@ DaemonType.MY_DAEMON: DaemonSpec(
 - **Specifications**: `app/coordination/daemon_registry.py`
 - **Factory runners**: `app/coordination/daemon_runners.py`
 - **Base classes**: `app/coordination/handler_base.py` (550 LOC, 45 tests)
+
+### 11.6 Advanced Patterns (Sprint 16.1)
+
+**Scheduled Recheck Pattern** - When blocking on a condition (e.g., quality gate), schedule automatic rechecks:
+
+```python
+def _schedule_quality_recheck(
+    self, config_key: str, delay_seconds: float = 300, max_rechecks: int = 6
+) -> None:
+    """Schedule automatic recheck after delay instead of waiting for full cycle."""
+    # Cancel existing recheck for this config (avoid duplicates)
+    if config_key in self._pending_quality_rechecks:
+        old_task = self._pending_quality_rechecks.pop(config_key)
+        if not old_task.done():
+            old_task.cancel()
+
+    # Check recheck count to avoid infinite loops
+    current_count = self._quality_recheck_counts.get(config_key, 0)
+    if current_count >= max_rechecks:
+        return  # Give up, wait for external update
+
+    task = asyncio.create_task(
+        self._run_quality_recheck(config_key, delay_seconds, max_rechecks)
+    )
+    self._pending_quality_rechecks[config_key] = task
+```
+
+**Confirmation Event Pattern** - After important state changes, emit confirmation events for observability:
+
+```python
+def _emit_rollback_completed(
+    self, config_key: str, old_weight: float, new_weight: float, elo_delta: float
+) -> None:
+    """Emit confirmation event for monitoring dashboards and alerts."""
+    router.publish_sync(
+        "CURRICULUM_ROLLBACK_COMPLETED",
+        {
+            "config_key": config_key,
+            "old_weight": old_weight,
+            "new_weight": new_weight,
+            "elo_delta": elo_delta,
+            "weight_reduction_pct": (1 - new_weight / old_weight) * 100,
+            "timestamp": time.time(),
+        },
+        source="my_component",
+    )
+```
 
 ---
 

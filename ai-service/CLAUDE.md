@@ -58,12 +58,27 @@ Three parallel exploration agents completed infrastructure assessment:
 | Metric                | Count | Notes                                   |
 | --------------------- | ----- | --------------------------------------- |
 | Daemon Types          | 109   | DaemonType enum members                 |
-| Event Types           | 270   | DataEventType enum members              |
+| Event Types           | 271   | DataEventType enum members              |
 | Coordination Modules  | 306   | In app/coordination/                    |
 | Test Files            | 1,044 | Comprehensive coverage                  |
 | Health Checks (coord) | 162   | Modules with health_check() methods     |
 | Health Checks (P2P)   | 31    | P2P modules with health_check() methods |
 | Retry Infrastructure  | 26    | Files using RetryConfig                 |
+
+**Sprint 16.1 Minor Improvements (Jan 3, 2026):**
+
+Targeted improvements based on comprehensive assessment:
+
+| Phase | Improvement                         | Location                     | Impact                                    |
+| ----- | ----------------------------------- | ---------------------------- | ----------------------------------------- |
+| 1.1   | Gossip convergence validation       | `partition_healer.py`        | Validate peer injection propagated        |
+| 1.2   | TCP network isolation detection     | `p2p_recovery_daemon.py`     | Avoid false positives on Tailscale outage |
+| 1.3   | Health score weight documentation   | `CLAUDE.md`                  | Rationale for 40/20/20/20 weighting       |
+| 2.1   | Severity-weighted exploration boost | `curriculum_integration.py`  | Scale boost by anomaly magnitude          |
+| 2.2   | Training blocked recheck timer      | `training_trigger_daemon.py` | 5-min auto-recheck vs 30-min cycle wait   |
+| 2.3   | Curriculum rollback confirmation    | `curriculum_integration.py`  | `CURRICULUM_ROLLBACK_COMPLETED` event     |
+
+**New Event Type**: `CURRICULUM_ROLLBACK_COMPLETED` - Confirmation event for observability when curriculum weight is reduced due to regression. Enables monitoring dashboards and alert systems.
 
 **Sprint 15 Assessment (Jan 3, 2026):**
 
@@ -278,6 +293,13 @@ IMPORTANT: Exploration agents reported gaps that were **already implemented**:
 - **HealthCoordinator** (`scripts/p2p/health_coordinator.py`, ~600 LOC): Unified P2P cluster health monitoring
   - Aggregates: GossipHealthTracker, NodeCircuitBreaker, QuorumHealthLevel, DaemonHealthSummary
   - Weighted scoring: 40% quorum, 20% gossip, 20% circuit breaker, 20% daemon health
+  - **Weight Tuning Rationale** (Sprint 16.1, Jan 3, 2026):
+    - **Quorum (40%)**: Cluster cannot function without voter quorum. Losing quorum is immediate CRITICAL.
+    - **Gossip (20%)**: Network connectivity indicator. Degraded gossip may indicate partitioning.
+    - **Circuit Breaker (20%)**: Node-level failure tracking. High open ratio indicates widespread issues.
+    - **Daemon (20%)**: Background process health. Failed daemons affect data pipeline.
+    - Design principle: Only quorum loss alone can trigger CRITICAL (0.40 < 0.45 threshold).
+      Other components must combine with degraded quorum to reach CRITICAL.
   - Health levels: CRITICAL (<0.45), DEGRADED (<0.65), WARNING (<0.85), HEALTHY (≥0.85)
   - Recovery actions: RESTART_P2P, TRIGGER_ELECTION, HEAL_PARTITIONS, RESET_CIRCUITS, NONE
   - Auto-integrates with existing CircuitBreakerRegistry

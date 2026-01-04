@@ -1088,6 +1088,57 @@ class TransportCascade:
             },
         }
 
+    def health_check(self) -> dict[str, Any]:
+        """Return health status for DaemonManager integration.
+
+        Sprint 15 (Jan 3, 2026): Added for unified health monitoring.
+        """
+        # Calculate overall transport health
+        total_successes = 0
+        total_failures = 0
+        transport_count = 0
+
+        for target_health in self._health.values():
+            for health in target_health.values():
+                total_successes += health.successes
+                total_failures += health.failures
+                transport_count += 1
+
+        total = total_successes + total_failures
+        success_rate = total_successes / total if total > 0 else 1.0
+
+        # Check circuit breaker state
+        cb_open = False
+        if self._global_circuit_breaker:
+            cb_open = self._global_circuit_breaker._state.state == "open"
+
+        # Determine health status
+        if cb_open:
+            status = "critical"
+            healthy = False
+        elif success_rate < 0.5:
+            status = "degraded"
+            healthy = True  # Still functioning
+        else:
+            status = "healthy"
+            healthy = True
+
+        return {
+            "healthy": healthy,
+            "status": status,
+            "details": {
+                "enabled": self._enabled,
+                "total_transports": len(self._transports),
+                "targets_tracked": len(self._health),
+                "total_requests": total,
+                "success_rate": round(success_rate, 3),
+                "circuit_breaker_open": cb_open,
+                "adaptive_timeouts_enabled": self._adaptive_timeouts_enabled,
+                "min_tier": self._min_tier,
+                "max_tier": self._max_tier,
+            },
+        }
+
 
 @dataclass
 class GlobalCircuitState:

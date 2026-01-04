@@ -145,6 +145,16 @@ class DaemonType(Enum):
     # Queues them for evaluation with curriculum-aware priority
     UNEVALUATED_MODEL_SCANNER = "unevaluated_model_scanner"
 
+    # Stale evaluation daemon (Sprint 13 Session 4 - Jan 3, 2026)
+    # Re-evaluates models with old Elo ratings (>30 days) to maintain accuracy
+    # Runs at lower priority than new model evaluation
+    STALE_EVALUATION = "stale_evaluation"
+
+    # Backlog evaluation daemon (Sprint 15 - Jan 3, 2026)
+    # Discovers models on OWC drive and queues them for Elo evaluation
+    # Rate-limited, respects backpressure from EvaluationDaemon
+    BACKLOG_EVALUATION = "backlog_evaluation"
+
     # DEPRECATED (Dec 2025): Use AutoSyncDaemon(strategy="ephemeral") - removal Q2 2026
     EPHEMERAL_SYNC = "ephemeral_sync"
 
@@ -716,6 +726,7 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.UNIFIED_PROMOTION: DaemonCategory.EVALUATION,
     DaemonType.TOURNAMENT_DAEMON: DaemonCategory.EVALUATION,
     DaemonType.GAUNTLET_FEEDBACK: DaemonCategory.EVALUATION,
+    DaemonType.BACKLOG_EVALUATION: DaemonCategory.EVALUATION,  # Sprint 15
 
     # DISTRIBUTION category - model/data distribution
     DaemonType.MODEL_DISTRIBUTION: DaemonCategory.DISTRIBUTION,
@@ -969,6 +980,8 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # Tournament/evaluation daemons
     DaemonType.TOURNAMENT_DAEMON: {DaemonType.EVENT_ROUTER},
     DaemonType.GAUNTLET_FEEDBACK: {DaemonType.EVENT_ROUTER, DaemonType.EVALUATION},
+    # Sprint 15: Backlog evaluation depends on EVENT_ROUTER for backpressure signals
+    DaemonType.BACKLOG_EVALUATION: {DaemonType.EVENT_ROUTER},
 
     # Data management daemons
     DaemonType.ORPHAN_DETECTION: {DaemonType.EVENT_ROUTER},

@@ -2,9 +2,9 @@
 
 Generated: January 2026 (Sprint 14)
 
-Total events: 263
+Total events: 270
 Previously documented: 23
-Newly documented: 240
+Newly documented: 247
 
 ---
 
@@ -74,15 +74,22 @@ Newly documented: 240
 
 **Payload Fields**:
 
-| Field        | Type          |
-| ------------ | ------------- |
-| `config_key` | any           |
-| `final_loss` | any           |
-| `model_path` | string (path) |
-| `source`     | string        |
+| Field          | Type          |
+| -------------- | ------------- |
+| `architecture` | any           |
+| `board_type`   | any           |
+| `config_key`   | any           |
+| `epochs`       | integer       |
+| `final_loss`   | any           |
+| `job_id`       | any           |
+| `model_path`   | string (path) |
+| `num_players`  | any           |
+| `source`       | string        |
+| `timestamp`    | timestamp     |
 
 **Emitters**:
 
+- `app/coordination/backlog_evaluation_daemon.py:608`
 - `scripts/p2p_orchestrator.py:3967`
 
 ---
@@ -356,7 +363,7 @@ Newly documented: 240
 
 ---
 
-## Evaluation Events (15)
+## Evaluation Events (18)
 
 ### ELO_SIGNIFICANT_CHANGE 🆕
 
@@ -370,7 +377,19 @@ Newly documented: 240
 
 **Value**: `elo_updated`
 
-**Payload**: (no fields detected)
+**Payload Fields**:
+
+| Field        | Type    |
+| ------------ | ------- |
+| `config_key` | string  |
+| `delta`      | integer |
+| `new_elo`    | integer |
+| `velocity`   | number  |
+
+**Emitters**:
+
+- `tests/integration/coordination/test_five_feedback_loops.py:165`
+- `tests/integration/coordination/test_five_feedback_loops.py:183`
 
 ---
 
@@ -493,7 +512,31 @@ Newly documented: 240
 
 ---
 
-## Model Events (13)
+### OWC_MODEL_EVALUATION_COMPLETED 🆕
+
+**Value**: `owc_model_evaluation_completed`
+
+**Payload**: (no fields detected)
+
+---
+
+### OWC_MODEL_EVALUATION_FAILED 🆕
+
+**Value**: `owc_model_evaluation_failed`
+
+**Payload**: (no fields detected)
+
+---
+
+### OWC_MODEL_EVALUATION_STARTED 🆕
+
+**Value**: `owc_model_evaluation_started`
+
+**Payload**: (no fields detected)
+
+---
+
+## Model Events (15)
 
 ### CHECKPOINT_LOADED 🆕
 
@@ -578,6 +621,36 @@ Newly documented: 240
 ### OWC_MODELS_DISCOVERED 🆕
 
 **Value**: `owc_models_discovered`
+
+**Payload**: (no fields detected)
+
+---
+
+### OWC_MODEL_BACKLOG_QUEUED 🆕
+
+**Value**: `owc_model_backlog_queued`
+
+**Payload Fields**:
+
+| Field         | Type      |
+| ------------- | --------- |
+| `board_type`  | any       |
+| `config_key`  | any       |
+| `model_name`  | any       |
+| `model_path`  | any       |
+| `num_players` | any       |
+| `source`      | string    |
+| `timestamp`   | timestamp |
+
+**Emitters**:
+
+- `app/coordination/backlog_evaluation_daemon.py:584`
+
+---
+
+### OWC_MODEL_DISCOVERED 🆕
+
+**Value**: `owc_model_discovered`
 
 **Payload**: (no fields detected)
 
@@ -939,7 +1012,18 @@ Newly documented: 240
 
 **Value**: `curriculum_rebalanced`
 
-**Payload**: (no fields detected)
+**Payload Fields**:
+
+| Field            | Type   |
+| ---------------- | ------ |
+| `trigger_reason` | string |
+| `weights`        | object |
+
+**Emitters**:
+
+- `tests/integration/coordination/test_five_feedback_loops.py:349`
+- `tests/integration/coordination/test_five_feedback_loops.py:366`
+- `tests/integration/coordination/test_five_feedback_loops.py:400`
 
 ---
 
@@ -1192,7 +1276,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `app/coordination/p2p_recovery_daemon.py:1368`
+- `app/coordination/p2p_recovery_daemon.py:1522`
 
 ---
 
@@ -1211,7 +1295,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `scripts/p2p/partition_healer.py:855`
+- `scripts/p2p/partition_healer.py:1071`
 
 ---
 
@@ -1236,7 +1320,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `scripts/p2p/partition_healer.py:797`
+- `scripts/p2p/partition_healer.py:1013`
 
 ---
 
@@ -1276,7 +1360,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `app/coordination/p2p_recovery_daemon.py:339`
+- `app/coordination/p2p_recovery_daemon.py:375`
 
 ---
 
@@ -1594,7 +1678,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `app/coordination/p2p_recovery_daemon.py:1295`
+- `app/coordination/p2p_recovery_daemon.py:1449`
 
 ---
 
@@ -1721,7 +1805,19 @@ Newly documented: 240
 
 **Value**: `regression_detected`
 
-**Payload**: (no fields detected)
+**Payload Fields**:
+
+| Field        | Type   |
+| ------------ | ------ |
+| `config_key` | string |
+| `elo_drop`   | any    |
+| `severity`   | string |
+
+**Emitters**:
+
+- `tests/integration/coordination/test_five_feedback_loops.py:213`
+- `tests/integration/coordination/test_five_feedback_loops.py:230`
+- `tests/integration/coordination/test_five_feedback_loops.py:254`
 
 ---
 
@@ -1819,7 +1915,7 @@ Newly documented: 240
 
 ---
 
-## Other Events (92)
+## Other Events (94)
 
 ### ADAPTIVE_PARAMS_CHANGED 🆕
 
@@ -1852,6 +1948,27 @@ Newly documented: 240
 **Emitters**:
 
 - `app/coordination/architecture_feedback_controller.py:353`
+
+---
+
+### BACKLOG_DISCOVERY_COMPLETED 🆕
+
+**Value**: `backlog_discovery_completed`
+
+**Payload Fields**:
+
+| Field                   | Type      |
+| ----------------------- | --------- |
+| `discovery_cycles`      | any       |
+| `evaluations_completed` | any       |
+| `evaluations_failed`    | any       |
+| `queued`                | any       |
+| `timestamp`             | timestamp |
+| `total_models`          | any       |
+
+**Emitters**:
+
+- `app/coordination/backlog_evaluation_daemon.py:564`
 
 ---
 
@@ -2051,7 +2168,17 @@ Newly documented: 240
 
 **Value**: `exploration_boost`
 
-**Payload**: (no fields detected)
+**Payload Fields**:
+
+| Field          | Type   |
+| -------------- | ------ |
+| `boost_factor` | any    |
+| `config_key`   | any    |
+| `reason`       | string |
+
+**Emitters**:
+
+- `tests/integration/coordination/test_five_feedback_loops.py:298`
 
 ---
 
@@ -2225,7 +2352,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `app/coordination/p2p_recovery_daemon.py:1406`
+- `app/coordination/p2p_recovery_daemon.py:1560`
 
 ---
 
@@ -2261,7 +2388,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `app/coordination/p2p_recovery_daemon.py:1352`
+- `app/coordination/p2p_recovery_daemon.py:1506`
 
 ---
 
@@ -2297,7 +2424,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `scripts/p2p/partition_healer.py:663`
+- `scripts/p2p/partition_healer.py:879`
 
 ---
 
@@ -2313,7 +2440,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `scripts/p2p/partition_healer.py:784`
+- `scripts/p2p/partition_healer.py:1000`
 
 ---
 
@@ -2579,6 +2706,18 @@ Newly documented: 240
 
 ---
 
+### VOTER_FLAPPING 🆕
+
+**Value**: `voter_flapping`
+
+**Payload**: (no fields detected)
+
+**Emitters**:
+
+- `app/coordination/p2p_recovery_daemon.py:1878`
+
+---
+
 ### VOTER_OFFLINE 🆕
 
 **Value**: `voter_offline`
@@ -2587,7 +2726,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `app/coordination/p2p_recovery_daemon.py:393`
+- `app/coordination/p2p_recovery_daemon.py:431`
 - `app/coordination/voter_health_daemon.py:530`
 
 ---
@@ -2600,7 +2739,7 @@ Newly documented: 240
 
 **Emitters**:
 
-- `app/coordination/p2p_recovery_daemon.py:404`
+- `app/coordination/p2p_recovery_daemon.py:444`
 - `app/coordination/voter_health_daemon.py:547`
 
 ---

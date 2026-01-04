@@ -50,6 +50,8 @@ except ImportError:
 
 # Import config key parsing utility (December 2025)
 from app.coordination.event_utils import parse_config_key
+from app.coordination.contracts import CoordinatorStatus
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.utils.retry import RetryConfig
 
 
@@ -93,7 +95,7 @@ class OrphanInfo:
     num_players: int | None = None
 
 
-class OrphanDetectionDaemon:
+class OrphanDetectionDaemon(HandlerBase):
     """Daemon that detects and handles orphaned game databases.
 
     Scans for .db files not registered in ClusterManifest and either:
@@ -103,6 +105,8 @@ class OrphanDetectionDaemon:
 
     This solves the gap where games generated on nodes may not be tracked
     in the central manifest, leading to "invisible" training data.
+
+    January 3, 2026: Migrated to HandlerBase for unified lifecycle management.
     """
 
     # P0.2 Dec 2025: Retry settings for orphan registration
@@ -110,15 +114,26 @@ class OrphanDetectionDaemon:
     _REGISTRATION_BACKOFF_BASE = 30.0  # seconds: 30, 60, 120
 
     def __init__(self, config: OrphanDetectionConfig | None = None):
-        self.config = config or OrphanDetectionConfig()
-        self._running = False
+        self._daemon_config = config or OrphanDetectionConfig()
+
+        # Initialize HandlerBase with scan interval as cycle interval
+        super().__init__(
+            name="OrphanDetectionDaemon",
+            config=self._daemon_config,
+            cycle_interval=self._daemon_config.scan_interval_seconds,
+        )
+
         self._last_scan_time: float = 0.0
         self._orphan_history: list[dict[str, Any]] = []
-        self._event_subscription = None
         # P0.2 Dec 2025: Track registration failures for health check
         self._registration_errors: int = 0
-        self._failed_orphans_db = Path(self.config.games_dir) / ".failed_orphans.db"
+        self._failed_orphans_db = Path(self._daemon_config.games_dir) / ".failed_orphans.db"
         self._init_failed_orphans_db()
+
+    @property
+    def config(self) -> OrphanDetectionConfig:
+        """Get daemon configuration."""
+        return self._daemon_config
 
     def _init_failed_orphans_db(self) -> None:
         """Initialize SQLite table for failed orphan registrations.
@@ -185,88 +200,56 @@ class OrphanDetectionDaemon:
         except Exception as e:
             logger.debug(f"Failed to clear orphan from failed table: {e}")
 
-    async def start(self) -> None:
-        """Start the daemon."""
-        logger.info("OrphanDetectionDaemon starting...")
-        self._running = True
+    # =========================================================================
+    # HandlerBase Interface
+    # =========================================================================
 
-        # Phase 4A.3: Subscribe to DATABASE_CREATED events for immediate registration
-        await self._subscribe_to_database_events()
+    def _get_subscriptions(self) -> dict[Any, Any]:
+        """Get event subscriptions for HandlerBase.
 
-        while self._running:
-            try:
-                # Run scan if interval has passed
-                if time.time() - self._last_scan_time > self.config.scan_interval_seconds:
-                    await self._run_scan()
-                    self._last_scan_time = time.time()
-
-                await asyncio.sleep(60.0)  # Check every minute
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in orphan detection loop: {e}")
-                await asyncio.sleep(60.0)
-
-        logger.info("OrphanDetectionDaemon stopped")
-
-    async def stop(self) -> None:
-        """Stop the daemon gracefully.
-
-        December 2025: Added proper cleanup to unsubscribe from events.
-        """
-        self._running = False
-
-        # Dec 2025: Unsubscribe from events on shutdown
-        if self._event_subscription is not None:
-            try:
-                from app.coordination.event_router import unsubscribe, DataEventType
-                unsubscribe(DataEventType.DATABASE_CREATED, self._event_subscription)
-                logger.debug("[OrphanDetection] Unsubscribed from DATABASE_CREATED events")
-            except Exception as e:
-                logger.debug(f"[OrphanDetection] Failed to unsubscribe: {e}")
-            self._event_subscription = None
-
-    async def _subscribe_to_database_events(self) -> None:
-        """Subscribe to DATABASE_CREATED events for immediate registration.
-
-        Phase 4A.3 (December 2025): Enables immediate database visibility
-        instead of waiting for the 5-minute periodic scan.
+        January 3, 2026: Migrated from _subscribe_to_database_events().
         """
         try:
-            from app.coordination.event_router import subscribe, DataEventType
-
-            def on_database_created(event):
-                """Handle DATABASE_CREATED event - register immediately."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    db_path = payload.get("db_path")
-                    node_id = payload.get("node_id")
-                    config_key = payload.get("config_key")
-                    board_type = payload.get("board_type")
-                    num_players = payload.get("num_players")
-                    engine_mode = payload.get("engine_mode")
-
-                    if db_path and node_id:
-                        # Register in ClusterManifest
-                        asyncio.create_task(
-                            self._register_database_from_event(
-                                db_path, node_id, config_key, board_type, num_players, engine_mode
-                            )
-                        )
-                        logger.info(f"[OrphanDetection] Immediate registration: {db_path}")
-                except Exception as e:
-                    logger.debug(f"[OrphanDetection] Failed to handle DATABASE_CREATED: {e}")
-
-            subscribe(DataEventType.DATABASE_CREATED, on_database_created)
-            # Dec 2025: Store callback reference for cleanup in stop()
-            self._event_subscription = on_database_created
-            logger.info("[OrphanDetection] Subscribed to DATABASE_CREATED events")
-
+            from app.distributed.data_events import DataEventType
+            return {
+                DataEventType.DATABASE_CREATED: self._on_database_created,
+            }
         except ImportError:
-            logger.debug("[OrphanDetection] Event system not available")
+            return {}
+
+    async def _on_database_created(self, event: dict[str, Any]) -> None:
+        """Handle DATABASE_CREATED event - register immediately.
+
+        Phase 4A.3 (December 2025): Enables immediate database visibility
+        instead of waiting for the periodic scan.
+        """
+        try:
+            payload = event.get("payload", event)
+            db_path = payload.get("db_path")
+            node_id = payload.get("node_id")
+            config_key = payload.get("config_key")
+            board_type = payload.get("board_type")
+            num_players = payload.get("num_players")
+            engine_mode = payload.get("engine_mode")
+
+            if db_path and node_id:
+                await self._register_database_from_event(
+                    db_path, node_id, config_key, board_type, num_players, engine_mode
+                )
+                logger.info(f"[OrphanDetection] Immediate registration: {db_path}")
         except Exception as e:
-            logger.warning(f"[OrphanDetection] Failed to subscribe to events: {e}")
+            logger.debug(f"[OrphanDetection] Failed to handle DATABASE_CREATED: {e}")
+
+    async def _run_cycle(self) -> None:
+        """Run one orphan detection cycle.
+
+        January 3, 2026: HandlerBase calls this at cycle_interval.
+        """
+        await self._run_scan()
+        self._last_scan_time = time.time()
+
+    # NOTE: _subscribe_to_database_events removed - now using _get_subscriptions()
+    # January 3, 2026: HandlerBase handles event subscription lifecycle automatically
 
     async def _register_database_from_event(
         self,
@@ -584,14 +567,13 @@ class OrphanDetectionDaemon:
         """Force an immediate orphan scan."""
         return await self._run_scan()
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Check daemon health status.
 
         December 2025: Added to satisfy CoordinatorProtocol for unified health monitoring.
         December 2025 Session 2: Added exception handling.
+        January 3, 2026: Updated to use HandlerBase HealthCheckResult.
         """
-        from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
-
         try:
             if not self._running:
                 return HealthCheckResult(

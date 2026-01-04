@@ -624,10 +624,18 @@ class HealthCoordinator:
         """Calculate overall health score (0.0-1.0).
 
         Weighted average of component health scores:
-            - Quorum health: 35%
-            - Gossip health: 25%
-            - Circuit breaker health: 20%
-            - Daemon health: 20%
+            - Quorum health: 40% (WEIGHT_QUORUM) - Most critical, cluster cannot function without quorum
+            - Gossip health: 20% (WEIGHT_GOSSIP) - Indicates network connectivity between nodes
+            - Circuit breaker health: 20% (WEIGHT_CIRCUIT) - Tracks node-level failures
+            - Daemon health: 20% (WEIGHT_DAEMON) - Background process health
+
+        Rationale (Sprint 16.1, Jan 3, 2026):
+            Quorum is weighted highest because without voter quorum, the cluster cannot
+            elect a leader or make consensus decisions. Losing quorum is an immediate
+            CRITICAL state. The remaining 60% is split evenly between gossip (network
+            health), circuit breakers (node health), and daemons (process health).
+            This ensures no single component other than quorum can drive the cluster
+            to CRITICAL by itself.
         """
         # Quorum score
         quorum_scores = {

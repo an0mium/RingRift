@@ -219,7 +219,7 @@ class TestAutoSyncDaemonInit:
         assert daemon.config.enabled is True
         assert daemon.node_id is not None
         assert daemon._running is False
-        assert daemon._stats.total_syncs == 0
+        assert daemon._sync_stats.total_syncs == 0
 
     def test_init_with_custom_config(self, custom_config):
         """Test initialization with custom config."""
@@ -738,9 +738,9 @@ class TestHealthCheck:
     def test_health_check_healthy(self, daemon):
         """Test health check returns healthy when running normally."""
         daemon._coordinator_status = CoordinatorStatus.RUNNING
-        daemon._stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
-        daemon._stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
-        daemon._stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
 
         result = daemon.health_check()
 
@@ -781,10 +781,10 @@ class TestHealthCheck:
     def test_health_check_high_failure_rate(self, daemon):
         """Test health check returns degraded on high failure rate."""
         daemon._coordinator_status = CoordinatorStatus.RUNNING
-        daemon._stats.syncs_completed = 5  # Dec 2025: Use mutable field, not property
-        daemon._stats.syncs_failed = 10  # Dec 2025: Use mutable field, not property
-        daemon._stats.operations_attempted = 15  # Dec 2025: Use mutable field, not property
-        daemon._stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.syncs_completed = 5  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.syncs_failed = 10  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.operations_attempted = 15  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
 
         result = daemon.health_check()
 
@@ -794,9 +794,9 @@ class TestHealthCheck:
     def test_health_check_stale_sync(self, daemon):
         """Test health check returns degraded on stale sync."""
         daemon._coordinator_status = CoordinatorStatus.RUNNING
-        daemon._stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
-        daemon._stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
-        daemon._stats.last_check_time = time.time() - 1000  # Very old sync
+        daemon._sync_stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.last_check_time = time.time() - 1000  # Very old sync
         daemon.config.interval_seconds = 60
 
         result = daemon.health_check()
@@ -807,11 +807,11 @@ class TestHealthCheck:
     def test_health_check_high_verification_failure(self, daemon):
         """Test health check returns degraded on high verification failure rate."""
         daemon._coordinator_status = CoordinatorStatus.RUNNING
-        daemon._stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
-        daemon._stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
-        daemon._stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
-        daemon._stats.databases_verified = 10
-        daemon._stats.databases_verification_failed = 5  # 50% failure rate
+        daemon._sync_stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
+        daemon._sync_stats.databases_verified = 10
+        daemon._sync_stats.databases_verification_failed = 5  # 50% failure rate
 
         result = daemon.health_check()
 
@@ -844,9 +844,9 @@ class TestMetrics:
         """Test get_status returns comprehensive status information."""
         daemon._running = True
         # Dec 2025: Use mutable fields, not read-only properties
-        daemon._stats.operations_attempted = 10
-        daemon._stats.syncs_completed = 8
-        daemon._stats.syncs_failed = 2
+        daemon._sync_stats.operations_attempted = 10
+        daemon._sync_stats.syncs_completed = 8
+        daemon._sync_stats.syncs_failed = 2
 
         status = daemon.get_status()
 

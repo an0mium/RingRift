@@ -155,6 +155,7 @@ class DataEventType(Enum):
     CURRICULUM_ADVANCED = "curriculum_advanced"  # Move to harder curriculum tier
     CURRICULUM_ADVANCEMENT_NEEDED = "curriculum_advancement_needed"  # Dec 29, 2025: Signal to advance curriculum (from stagnant Elo)
     CURRICULUM_PROPAGATE = "curriculum_propagate"  # Jan 2026: Propagate curriculum advancement to similar configs
+    CURRICULUM_ROLLBACK_COMPLETED = "curriculum_rollback_completed"  # Sprint 16.1: Confirm curriculum weight rollback after regression
     WEIGHT_UPDATED = "weight_updated"
     ELO_SIGNIFICANT_CHANGE = "elo_significant_change"  # Triggers curriculum rebalance
 
@@ -1039,6 +1040,7 @@ CROSS_PROCESS_EVENT_TYPES = {
     DataEventType.EVALUATION_COMPLETED,
     DataEventType.CURRICULUM_REBALANCED,
     DataEventType.CURRICULUM_ADVANCED,  # Curriculum tier progression
+    DataEventType.CURRICULUM_ROLLBACK_COMPLETED,  # Sprint 16.1: Rollback confirmation
     DataEventType.SELFPLAY_TARGET_UPDATED,  # Dynamic selfplay scaling
     DataEventType.ELO_SIGNIFICANT_CHANGE,
     DataEventType.P2P_MODEL_SYNCED,
@@ -3086,6 +3088,44 @@ async def emit_curriculum_advanced(
             "elo": elo,
             "win_rate": win_rate,
             "games_at_tier": games_at_tier,
+        },
+        source=source,
+    ))
+
+
+async def emit_curriculum_rollback_completed(
+    config_key: str,
+    old_weight: float,
+    new_weight: float,
+    elo_delta: float,
+    trigger_reason: str = "regression_detected",
+    source: str = "curriculum_integration",
+) -> None:
+    """Emit a CURRICULUM_ROLLBACK_COMPLETED event when curriculum weight is reduced.
+
+    Sprint 16.1 (Jan 3, 2026): Confirmation event for observability when curriculum
+    weight is rolled back due to regression or other quality issues. Enables:
+    - Monitoring dashboards to track rollback frequency
+    - SelfplayScheduler to adjust priorities after rollback
+    - Alert systems to notify on repeated rollbacks
+
+    Args:
+        config_key: Board configuration (e.g., "hex8_2p")
+        old_weight: Previous curriculum weight (0.0-1.0)
+        new_weight: New reduced weight (0.0-1.0)
+        elo_delta: Elo change that triggered rollback (negative for regression)
+        trigger_reason: What triggered the rollback (e.g., "regression_detected")
+        source: Component that triggered rollback
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.CURRICULUM_ROLLBACK_COMPLETED,
+        payload={
+            "config_key": config_key,
+            "old_weight": old_weight,
+            "new_weight": new_weight,
+            "elo_delta": elo_delta,
+            "trigger_reason": trigger_reason,
+            "weight_reduction_pct": (1 - new_weight / old_weight) * 100 if old_weight > 0 else 0,
         },
         source=source,
     ))

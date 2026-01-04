@@ -96,10 +96,11 @@ ai-service/venv/
 # AI service training data / generated artifacts
 ai-service/app/training/data/
 ai-service/app/training/**/data/
-# Note: ai-service/app/models/ contains Python code - .pth files excluded by *.pth pattern below
+# Note: ai-service/app/models/ contains Python code - unignore it
+!ai-service/app/models/
 
 # AI service models and eval pools (large files - use Git LFS if versioning needed)
-models/
+/models/
 ai-service/models/
 ai-service/models_essential/
 ai-service/data/eval_pools/

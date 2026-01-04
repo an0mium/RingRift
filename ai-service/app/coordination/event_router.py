@@ -2286,6 +2286,28 @@ def safe_emit_event(
         return False
 
 
+def emit_event(
+    event_type: str | Any,  # Can be string or DataEventType enum
+    payload: dict[str, Any] | None = None,
+    source: str = "unknown",
+) -> bool:
+    """Emit an event to the event system.
+
+    Convenience wrapper around safe_emit_event that handles enum types.
+
+    Args:
+        event_type: Event type string or DataEventType enum
+        payload: Event payload dict (default: empty dict)
+        source: Source identifier for logging
+
+    Returns:
+        True if event was emitted successfully, False otherwise
+    """
+    # Convert enum to string if needed
+    event_type_str = event_type.value if hasattr(event_type, "value") else str(event_type)
+    return safe_emit_event(event_type_str, payload, source)
+
+
 async def emit_training_started(
     config_key: str,
     node_name: str = "",

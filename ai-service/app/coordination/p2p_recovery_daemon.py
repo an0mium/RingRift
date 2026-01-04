@@ -21,10 +21,12 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
+from app.coordination.coordinator_persistence import StatePersistenceMixin
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +84,11 @@ class P2PRecoveryConfig:
     isolation_check_enabled: bool = True
     min_peer_ratio: float = 0.5  # Trigger if P2P sees < 50% of Tailscale peers
     isolation_consecutive_checks: int = 3  # Require 3 checks (~3 min) before action
+    # Sprint 16.1 (Jan 3, 2026): TCP validation to avoid false-positive isolation
+    # on Tailscale outage. If TCP ping reaches voters, not isolated.
+    tcp_validation_enabled: bool = True
+    tcp_ping_timeout: float = 5.0  # Timeout for each TCP ping attempt
+    tcp_min_reachable: int = 2  # Minimum voters reachable via TCP to clear isolation
     # Dec 29, 2025: Self-healing for quorum and leader gaps
     max_leader_gap_seconds: int = 10  # Jan 3, 2026: Reduced from 45s for faster failover
     quorum_recovery_enabled: bool = True
@@ -166,7 +173,7 @@ class P2PRecoveryConfig:
 # =============================================================================
 
 
-class P2PRecoveryDaemon(HandlerBase):
+class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
     """Daemon that monitors P2P cluster health and triggers auto-recovery.
 
     Workflow:
@@ -178,7 +185,16 @@ class P2PRecoveryDaemon(HandlerBase):
     Events Emitted:
     - P2P_RESTART_TRIGGERED: When restart is initiated
     - P2P_HEALTH_RECOVERED: When P2P becomes healthy after being unhealthy
+
+    Jan 3, 2026 (Sprint 15.1): Added StatePersistenceMixin for voter health persistence.
+    Voter state is now persisted across restarts for:
+    - Faster quorum recovery (knows which voters were recently online)
+    - Voter flapping detection (identifies unstable voters)
     """
+
+    # Jan 3, 2026 (Sprint 15.1): Voter flapping detection thresholds
+    FLAP_WINDOW_SECONDS = 600.0  # 10 minute window for flapping detection
+    FLAP_THRESHOLD = 3  # 3+ state changes in window = flapping
 
     def __init__(self, config: P2PRecoveryConfig | None = None):
         self._daemon_config = config or P2PRecoveryConfig.from_env()
@@ -218,6 +234,26 @@ class P2PRecoveryDaemon(HandlerBase):
         self._healing_timeout_seconds = 300.0  # 5 minute timeout (Session 9)
         self._consecutive_healing_failures = 0  # Track failures for escalation (Session 9)
         self._recovery_attempts = 0  # Total P2P recovery attempts
+
+        # Jan 3, 2026 (Sprint 15.1): Voter state history for flapping detection
+        # Maps voter_id -> list of (timestamp, is_online) state changes
+        self._voter_state_history: dict[str, list[tuple[float, bool]]] = {}
+        self._flapping_voters: set[str] = set()  # Currently flapping voters
+
+        # Initialize persistence for voter health state
+        try:
+            db_path = Path("data/state/p2p_recovery_daemon.db")
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            self.init_persistence(
+                db_path,
+                auto_snapshot=True,
+                snapshot_interval=60.0,  # Snapshot every minute for voter state
+                max_snapshots=5,
+            )
+            self._restore_voter_state()
+            logger.info(f"[P2PRecovery] Voter health persistence initialized: {db_path}")
+        except Exception as e:
+            logger.warning(f"[P2PRecovery] Failed to initialize voter persistence: {e}")
 
     @property
     def config(self) -> P2PRecoveryConfig:
@@ -377,6 +413,8 @@ class P2PRecoveryDaemon(HandlerBase):
         Jan 2026 Session 8: Compares current online voters with previous state
         and emits individual events for each voter that changed state.
 
+        Jan 3, 2026 (Sprint 15.1): Also records state changes for flapping detection.
+
         Args:
             current_online_voters: Set of currently online voter IDs
         """
@@ -396,6 +434,8 @@ class P2PRecoveryDaemon(HandlerBase):
                     reason="quorum_check",
                     source="P2PRecoveryDaemon",
                 )
+                # Jan 3, 2026 (Sprint 15.1): Record for flapping detection
+                self._record_voter_state_change(voter_id, is_online=False)
 
             # Find voters that came online (were offline, now online)
             newly_online = current_online_voters - self._last_online_voters
@@ -407,6 +447,8 @@ class P2PRecoveryDaemon(HandlerBase):
                     reason="quorum_check",
                     source="P2PRecoveryDaemon",
                 )
+                # Jan 3, 2026 (Sprint 15.1): Record for flapping detection
+                self._record_voter_state_change(voter_id, is_online=True)
 
         except Exception as e:
             logger.debug(f"Failed to emit voter state change events: {e}")
@@ -790,10 +832,20 @@ class P2PRecoveryDaemon(HandlerBase):
         try:
             import aiohttp
 
+            # Jan 3, 2026 (Sprint 15.1): Use adaptive timeout based on system load
+            try:
+                from app.config.coordination_defaults import get_adaptive_health_timeout
+                timeout_seconds = max(
+                    get_adaptive_health_timeout(),
+                    self.config.health_timeout_seconds,
+                )
+            except ImportError:
+                timeout_seconds = self.config.health_timeout_seconds
+
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     self.config.health_endpoint,
-                    timeout=aiohttp.ClientTimeout(total=self.config.health_timeout_seconds),
+                    timeout=aiohttp.ClientTimeout(total=timeout_seconds),
                 ) as resp:
                     if resp.status != 200:
                         return False, {"error": f"HTTP {resp.status}"}
@@ -904,7 +956,109 @@ class P2PRecoveryDaemon(HandlerBase):
                 )
             self._consecutive_isolation_checks = 0
 
+        # Sprint 16.1 (Jan 3, 2026): TCP validation to avoid false-positive on Tailscale outage
+        if is_isolated and self.config.tcp_validation_enabled:
+            tcp_reachable = await self._tcp_ping_voters()
+            details["tcp_reachable_voters"] = tcp_reachable
+            details["tcp_min_required"] = self.config.tcp_min_reachable
+
+            if tcp_reachable >= self.config.tcp_min_reachable:
+                # TCP can reach voters - this is likely a Tailscale outage, not isolation
+                logger.info(
+                    f"TCP validation: {tcp_reachable} voters reachable via TCP "
+                    f"(>= {self.config.tcp_min_reachable}), clearing isolation flag"
+                )
+                is_isolated = False
+                details["is_isolated"] = False
+                details["isolation_cleared_by_tcp"] = True
+                self._consecutive_isolation_checks = 0
+            else:
+                logger.warning(
+                    f"TCP validation confirms isolation: only {tcp_reachable} voters "
+                    f"reachable via TCP (< {self.config.tcp_min_reachable} required)"
+                )
+                details["tcp_confirms_isolation"] = True
+
         return is_isolated, details
+
+    async def _tcp_ping_voters(self) -> int:
+        """Check TCP connectivity to voter nodes.
+
+        Sprint 16.1 (Jan 3, 2026): Secondary signal for network isolation detection.
+        Attempts TCP connection to P2P port on each voter node to determine
+        if nodes are truly unreachable or if it's a Tailscale-specific outage.
+
+        Returns:
+            Number of voters reachable via TCP connection.
+        """
+        try:
+            from app.config.cluster_config import get_p2p_voters, ClusterConfigCache
+            import socket
+
+            voters = get_p2p_voters()
+            if not voters:
+                logger.debug("No voters configured for TCP ping")
+                return 0
+
+            cache = ClusterConfigCache.get_config_cache()
+            config = cache.get_config()
+
+            reachable_count = 0
+            p2p_port = 8770  # Default P2P port
+
+            async def try_tcp_connect(voter_id: str) -> bool:
+                """Attempt TCP connection to voter."""
+                try:
+                    # Get voter's IP from config
+                    voter_config = config.hosts.get(voter_id)
+                    if not voter_config:
+                        return False
+
+                    # Try Tailscale IP first, then SSH host
+                    ip = voter_config.get("tailscale_ip") or voter_config.get("ssh_host")
+                    if not ip:
+                        return False
+
+                    # Try TCP connection with timeout
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(self.config.tcp_ping_timeout)
+                    try:
+                        result = await asyncio.get_event_loop().run_in_executor(
+                            None,
+                            lambda: sock.connect_ex((ip, p2p_port))
+                        )
+                        return result == 0
+                    finally:
+                        sock.close()
+                except Exception as e:
+                    logger.debug(f"TCP ping to {voter_id} failed: {e}")
+                    return False
+
+            # Run TCP pings in parallel with overall timeout
+            tasks = [try_tcp_connect(voter) for voter in voters]
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=self.config.tcp_ping_timeout * 2,  # 2x single timeout for all
+                )
+                for i, result in enumerate(results):
+                    if result is True:
+                        reachable_count += 1
+                        logger.debug(f"TCP ping: {voters[i]} reachable")
+                    elif isinstance(result, Exception):
+                        logger.debug(f"TCP ping: {voters[i]} error: {result}")
+            except asyncio.TimeoutError:
+                logger.warning("TCP ping overall timeout, returning partial count")
+
+            logger.info(f"TCP ping: {reachable_count}/{len(voters)} voters reachable")
+            return reachable_count
+
+        except ImportError as e:
+            logger.debug(f"TCP ping unavailable (import error): {e}")
+            return 0
+        except Exception as e:
+            logger.debug(f"TCP ping failed: {e}")
+            return 0
 
     async def _check_voter_quorum(self, status: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
         """Check voter quorum health proactively.
@@ -1600,6 +1754,145 @@ class P2PRecoveryDaemon(HandlerBase):
         Jan 2026: Uses NAT-aware threshold for healthiness check.
         """
         return self._consecutive_failures < self._get_effective_restart_threshold()
+
+    # =========================================================================
+    # Voter State Persistence (Sprint 15.1 - Jan 3, 2026)
+    # =========================================================================
+
+    def _get_state_for_persistence(self) -> dict[str, Any]:
+        """Return voter health state for persistence.
+
+        Jan 3, 2026 (Sprint 15.1): Required by StatePersistenceMixin.
+        Persists voter state for faster quorum recovery after restart.
+        """
+        return {
+            "last_online_voters": list(self._last_online_voters),
+            "voter_state_history": {
+                voter_id: [(ts, online) for ts, online in history]
+                for voter_id, history in self._voter_state_history.items()
+            },
+            "flapping_voters": list(self._flapping_voters),
+            "quorum_recovery_attempts": self._quorum_recovery_attempts,
+            "quorum_recovery_triggered": self._quorum_recovery_triggered,
+            "last_voter_quorum_check": self._last_voter_quorum_check,
+            "persisted_at": time.time(),
+        }
+
+    def _restore_state_from_persistence(self, state: dict[str, Any]) -> None:
+        """Restore voter health state from persistence.
+
+        Jan 3, 2026 (Sprint 15.1): Required by StatePersistenceMixin.
+        """
+        self._last_online_voters = set(state.get("last_online_voters", []))
+
+        # Restore voter state history (prune old entries)
+        raw_history = state.get("voter_state_history", {})
+        cutoff = time.time() - self.FLAP_WINDOW_SECONDS * 2
+        self._voter_state_history = {}
+        for voter_id, history in raw_history.items():
+            pruned = [(ts, online) for ts, online in history if ts > cutoff]
+            if pruned:
+                self._voter_state_history[voter_id] = pruned
+
+        self._flapping_voters = set(state.get("flapping_voters", []))
+        self._quorum_recovery_attempts = state.get("quorum_recovery_attempts", 0)
+        self._quorum_recovery_triggered = state.get("quorum_recovery_triggered", 0)
+        self._last_voter_quorum_check = state.get("last_voter_quorum_check", {})
+
+        # Log restoration summary
+        persisted_at = state.get("persisted_at", 0)
+        age_seconds = time.time() - persisted_at if persisted_at else float("inf")
+        logger.info(
+            f"[P2PRecovery] Restored voter state: "
+            f"{len(self._last_online_voters)} voters, "
+            f"{len(self._flapping_voters)} flapping, "
+            f"age={age_seconds:.1f}s"
+        )
+
+    def _restore_voter_state(self) -> None:
+        """Restore voter state from last snapshot.
+
+        Jan 3, 2026 (Sprint 15.1): Called during __init__.
+        """
+        try:
+            if hasattr(self, "_restore_latest_snapshot"):
+                self._restore_latest_snapshot()
+        except Exception as e:
+            logger.debug(f"[P2PRecovery] No voter state to restore: {e}")
+
+    def _record_voter_state_change(self, voter_id: str, is_online: bool) -> None:
+        """Record a voter state change for flapping detection.
+
+        Jan 3, 2026 (Sprint 15.1): Tracks state changes to detect flapping.
+        A voter is considered flapping if it changes state >= FLAP_THRESHOLD
+        times within FLAP_WINDOW_SECONDS.
+        """
+        now = time.time()
+
+        # Initialize history for new voters
+        if voter_id not in self._voter_state_history:
+            self._voter_state_history[voter_id] = []
+
+        # Add new state change
+        history = self._voter_state_history[voter_id]
+        history.append((now, is_online))
+
+        # Prune old entries outside the flapping window
+        cutoff = now - self.FLAP_WINDOW_SECONDS
+        self._voter_state_history[voter_id] = [
+            (ts, state) for ts, state in history if ts > cutoff
+        ]
+
+        # Count state changes (transitions, not just entries)
+        transitions = 0
+        pruned_history = self._voter_state_history[voter_id]
+        for i in range(1, len(pruned_history)):
+            if pruned_history[i][1] != pruned_history[i-1][1]:
+                transitions += 1
+
+        # Update flapping status
+        was_flapping = voter_id in self._flapping_voters
+        is_flapping = transitions >= self.FLAP_THRESHOLD
+
+        if is_flapping and not was_flapping:
+            self._flapping_voters.add(voter_id)
+            logger.warning(
+                f"[P2PRecovery] Voter {voter_id} is flapping: "
+                f"{transitions} state changes in {self.FLAP_WINDOW_SECONDS}s"
+            )
+            # Emit flapping event
+            self._emit_voter_flapping_event(voter_id, transitions)
+        elif not is_flapping and was_flapping:
+            self._flapping_voters.discard(voter_id)
+            logger.info(f"[P2PRecovery] Voter {voter_id} stabilized (no longer flapping)")
+
+    def _emit_voter_flapping_event(self, voter_id: str, transitions: int) -> None:
+        """Emit event when voter is detected as flapping.
+
+        Jan 3, 2026 (Sprint 15.1): Alerts monitoring systems to unstable voters.
+        """
+        try:
+            from app.distributed.data_events import DataEventType, emit_event
+
+            asyncio.create_task(
+                emit_event(
+                    DataEventType.VOTER_FLAPPING,
+                    voter_id=voter_id,
+                    transitions=transitions,
+                    window_seconds=self.FLAP_WINDOW_SECONDS,
+                    threshold=self.FLAP_THRESHOLD,
+                )
+            )
+        except Exception as e:
+            logger.debug(f"[P2PRecovery] Failed to emit VOTER_FLAPPING event: {e}")
+
+    def get_flapping_voters(self) -> set[str]:
+        """Get the set of currently flapping voters.
+
+        Jan 3, 2026 (Sprint 15.1): Useful for excluding unstable voters
+        from quorum calculations or prioritizing their investigation.
+        """
+        return self._flapping_voters.copy()
 
 
 # =============================================================================

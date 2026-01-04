@@ -496,6 +496,39 @@ class EloDatabase:
 
             CREATE INDEX IF NOT EXISTS idx_participant_aliases_hash
                 ON participant_aliases(content_sha256);
+
+            -- Sprint 15 (Jan 3, 2026): Model evaluation status tracking
+            -- Tracks evaluation status for all models (local, OWC, S3) to enable
+            -- comprehensive backlog evaluation automation
+            CREATE TABLE IF NOT EXISTS model_evaluation_status (
+                id INTEGER PRIMARY KEY,
+                model_sha256 TEXT NOT NULL,           -- Content hash for deduplication
+                model_path TEXT NOT NULL,             -- Canonical path (relative or absolute)
+                board_type TEXT NOT NULL,
+                num_players INTEGER NOT NULL,
+                harness_type TEXT DEFAULT 'default',  -- Multi-harness support
+                status TEXT DEFAULT 'pending',        -- pending/queued/running/evaluated/failed/stale
+                elo_rating REAL,
+                games_evaluated INTEGER DEFAULT 0,
+                first_seen_at REAL NOT NULL,
+                last_evaluated_at REAL,
+                evaluation_error TEXT,                -- Last error message if failed
+                source TEXT DEFAULT 'local',          -- local/owc/s3/cluster
+                priority INTEGER DEFAULT 100,         -- Lower = higher priority (0-200)
+                UNIQUE(model_sha256, board_type, num_players, harness_type)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_model_eval_status_pending
+                ON model_evaluation_status(status, priority) WHERE status = 'pending';
+
+            CREATE INDEX IF NOT EXISTS idx_model_eval_status_config
+                ON model_evaluation_status(board_type, num_players, status);
+
+            CREATE INDEX IF NOT EXISTS idx_model_eval_status_source
+                ON model_evaluation_status(source, status);
+
+            CREATE INDEX IF NOT EXISTS idx_model_eval_status_stale
+                ON model_evaluation_status(last_evaluated_at) WHERE status = 'evaluated';
         """)
         conn.commit()
 

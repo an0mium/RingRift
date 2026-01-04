@@ -1,12 +1,39 @@
-# Circuit Breaker Guide
+# Circuit Breaker Architecture Guide
 
-**Last Updated**: December 30, 2025
+**Last Updated**: January 3, 2026 (Sprint 15)
 
 This guide documents the circuit breaker patterns used in the RingRift AI-service coordination layer.
 
 ## Overview
 
 Circuit breakers prevent cascading failures by temporarily blocking operations to unhealthy components. When failures exceed a threshold, the circuit "opens" and requests are blocked until the component recovers.
+
+## Circuit Breaker Hierarchy (10 Types)
+
+RingRift uses multiple circuit breaker types serving different failure domains. These are intentionally separate - do NOT consolidate them further.
+
+| Type                         | Location                         | Failure Domain        | Purpose                        |
+| ---------------------------- | -------------------------------- | --------------------- | ------------------------------ |
+| `CircuitBreakerBase`         | `circuit_breaker_base.py`        | Abstract              | Base class for custom breakers |
+| `OperationCircuitBreaker`    | `circuit_breaker_base.py`        | Per-operation         | Generic operation isolation    |
+| `NodeCircuitBreaker`         | `node_circuit_breaker.py`        | Per-node              | Node health isolation          |
+| `ClusterCircuitBreaker`      | `node_circuit_breaker.py`        | Cluster-wide          | Global cluster protection      |
+| `DaemonStatusCircuitBreaker` | `daemon_manager.py`              | Per-daemon            | Daemon restart throttling      |
+| `PipelineCircuitBreaker`     | `data_pipeline_orchestrator.py`  | Per-pipeline-stage    | Pipeline stage protection      |
+| Per-transport CB             | `cluster_transport.py`           | Per-(node, transport) | Transport failover             |
+| `CircuitBreaker`             | `distributed/circuit_breaker.py` | Registry              | Centralized CB registry        |
+| `GlobalCircuitBreaker`       | `transport_cascade.py`           | Cross-transport       | Transport cascade protection   |
+| Component CB                 | `safeguards.py`                  | Per-component         | Pipeline component isolation   |
+
+### Why Different Types?
+
+Each CB type protects a different failure domain:
+
+- **Per-node** (`NodeCircuitBreaker`): Isolates failing nodes without affecting healthy ones
+- **Per-transport** (cluster_transport.py): Allows SSH to fail while HTTP continues
+- **Per-daemon** (`DaemonStatusCircuitBreaker`): Prevents restart storms for specific daemons
+- **Cluster-wide** (`ClusterCircuitBreaker`): Emergency brake for catastrophic failures
+- **Per-pipeline-stage** (`PipelineCircuitBreaker`): Allows export to continue when training fails
 
 ## Circuit Breaker Types
 

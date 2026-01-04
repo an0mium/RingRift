@@ -94,11 +94,10 @@ from app.coordination.sync_strategies import (
     DEFAULT_MIN_MOVES,
 )
 from app.db.write_lock import is_database_safe_to_sync
-from app.coordination.protocols import (
-    CoordinatorStatus,
+from app.coordination.handler_base import (
+    HandlerBase,
     HealthCheckResult,
-    register_coordinator,
-    unregister_coordinator,
+    CoordinatorStatus,
 )
 from app.coordination.sync_integrity import check_sqlite_integrity, quarantine_corrupted_db
 from app.coordination.sync_mutex import acquire_sync_lock, release_sync_lock
@@ -156,6 +155,7 @@ except ImportError:
 
 
 class AutoSyncDaemon(
+    HandlerBase,
     SyncEventMixin,
     SyncPushMixin,
     SyncPullMixin,
@@ -185,27 +185,44 @@ class AutoSyncDaemon(
     - SyncEphemeralMixin: Ephemeral host/WAL handling
     """
 
+    @property
+    def config(self) -> AutoSyncConfig:
+        """Get daemon configuration (backward compatibility property).
+
+        January 2026: HandlerBase migration - provides public access to config.
+        """
+        return self._config
+
+    @property
+    def stats(self) -> SyncStats:
+        """Get sync statistics (backward compatibility property).
+
+        January 2026: HandlerBase migration - provides public access to sync stats.
+        Note: HandlerBase uses _stats for HandlerStats; we use _sync_stats for SyncStats.
+        """
+        return self._sync_stats
+
     def __init__(self, config: AutoSyncConfig | None = None):
-        self.config = config or AutoSyncConfig.from_config_file()
+        daemon_config = config or AutoSyncConfig.from_config_file()
+
+        # Initialize HandlerBase with event-driven cycle interval
+        super().__init__(
+            name="AutoSyncDaemon",
+            config=daemon_config,
+            cycle_interval=float(daemon_config.interval_seconds),
+        )
+
         self.node_id = socket.gethostname()
-        self._running = False
-        self._stats = SyncStats()
+        self._sync_stats = SyncStats()
         self._progress = SyncProgress()  # December 2025: Real-time sync progress tracking
         self._sync_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
         self._gossip_daemon = None
-        self._semaphore = asyncio.Semaphore(self.config.max_concurrent_syncs)
-
-        # CoordinatorProtocol state (December 2025 - Phase 14)
-        self._coordinator_status = CoordinatorStatus.INITIALIZING
-        self._start_time: float = 0.0
-        self._events_processed: int = 0
-        self._errors_count: int = 0
-        self._last_error: str = ""
+        self._semaphore = asyncio.Semaphore(daemon_config.max_concurrent_syncs)
 
         # ClusterManifest integration
         self._cluster_manifest: ClusterManifest | None = None
-        if self.config.use_cluster_manifest:
+        if self._config.use_cluster_manifest:
             self._init_cluster_manifest()
 
         # Detect provider type
@@ -221,7 +238,7 @@ class AutoSyncDaemon(
         self._pending_games: list[dict[str, Any]] = []  # For ephemeral mode
         self._push_lock = asyncio.Lock()
         self._wal_initialized = False
-        if self._is_ephemeral and self.config.ephemeral_wal_enabled:
+        if self._is_ephemeral and self._config.ephemeral_wal_enabled:
             self._init_ephemeral_wal()
 
         # December 2025: Retry queue for failed write-through pushes
@@ -244,15 +261,15 @@ class AutoSyncDaemon(
         # Configurable via env var RINGRIFT_MIN_SYNC_INTERVAL or config
         _default_interval = float(os.getenv("RINGRIFT_MIN_SYNC_INTERVAL", "2.0"))
         self._min_sync_interval: float = (
-            self.config.min_sync_interval_seconds
-            if hasattr(self.config, 'min_sync_interval_seconds')
+            self._config.min_sync_interval_seconds
+            if hasattr(self._config, 'min_sync_interval_seconds')
             else _default_interval
         )
 
         # Quality extraction for training data prioritization (December 2025)
         self._quality_config: Any = None
         self._elo_lookup: Any = None
-        if self.config.enable_quality_extraction:
+        if self._config.enable_quality_extraction:
             if HAS_QUALITY_EXTRACTION:
                 try:
                     self._quality_config = QualityExtractorConfig()
@@ -260,14 +277,14 @@ class AutoSyncDaemon(
                     logger.info("Quality extraction enabled for training data prioritization")
                 except (RuntimeError, OSError, ValueError, KeyError) as e:
                     logger.warning(f"Failed to initialize quality extraction: {e}")
-                    self.config.enable_quality_extraction = False
+                    self._config.enable_quality_extraction = False
             else:
                 # December 2025: Log warning when quality extraction is requested but unavailable
                 logger.warning(
                     "[AutoSyncDaemon] Quality extraction requested but module unavailable. "
                     "Install quality_extractor dependencies or set enable_quality_extraction=False"
                 )
-                self.config.enable_quality_extraction = False
+                self._config.enable_quality_extraction = False
 
         # Circuit breaker for node-level fault tolerance (December 2025)
         self._circuit_breaker: CircuitBreaker | None = None
@@ -296,7 +313,7 @@ class AutoSyncDaemon(
         Returns:
             One of SyncStrategy.HYBRID, EPHEMERAL, or BROADCAST
         """
-        strategy = self.config.strategy
+        strategy = self._config.strategy
 
         # If explicit strategy specified, use it
         if strategy != SyncStrategy.AUTO:
@@ -507,29 +524,8 @@ class AutoSyncDaemon(
             return False, f"OS error: {e}"
 
     # =========================================================================
-    # CoordinatorProtocol Implementation (December 2025 - Phase 14)
+    # HandlerBase Overrides (Sprint 16 Migration)
     # =========================================================================
-
-    @property
-    def name(self) -> str:
-        """Unique name identifying this coordinator."""
-        return "AutoSyncDaemon"
-
-    @property
-    def status(self) -> CoordinatorStatus:
-        """Current status of the coordinator."""
-        return self._coordinator_status
-
-    @property
-    def uptime_seconds(self) -> float:
-        """Time since daemon started, in seconds."""
-        if self._start_time <= 0:
-            return 0.0
-        return time.time() - self._start_time
-
-    def is_running(self) -> bool:
-        """Check if the daemon is running."""
-        return self._running
 
     async def sync_now(self) -> int:
         """Trigger an immediate sync cycle.
@@ -566,19 +562,32 @@ class AutoSyncDaemon(
             )
             return 0
 
-    async def start(self) -> None:
-        """Start the auto sync daemon."""
-        if not self.config.enabled:
-            self._coordinator_status = CoordinatorStatus.STOPPED
-            logger.info("AutoSyncDaemon disabled by config")
-            return
+    def _get_event_subscriptions(self) -> dict[str, Any]:
+        """Return event subscriptions for HandlerBase to wire.
 
-        if self._coordinator_status == CoordinatorStatus.RUNNING:
-            return  # Already running
+        Sprint 16: Events are now wired via HandlerBase infrastructure.
+        Handler methods are provided by SyncEventMixin.
+        """
+        from app.distributed.data_events import DataEventType
 
-        self._running = True
-        self._coordinator_status = CoordinatorStatus.RUNNING
-        self._start_time = time.time()
+        subscriptions = {}
+
+        # Events this daemon subscribes to (see SyncEventMixin for handlers)
+        if hasattr(self, "_on_new_games_available"):
+            subscriptions[DataEventType.NEW_GAMES_AVAILABLE.value] = self._on_new_games_available
+        if hasattr(self, "_on_training_started"):
+            subscriptions[DataEventType.TRAINING_STARTED.value] = self._on_training_started
+        if hasattr(self, "_on_node_recovered"):
+            subscriptions[DataEventType.NODE_RECOVERED.value] = self._on_node_recovered
+        if hasattr(self, "_on_sync_request"):
+            subscriptions["sync_request"] = self._on_sync_request
+        if hasattr(self, "_on_data_stale"):
+            subscriptions[DataEventType.DATA_STALE.value] = self._on_data_stale
+
+        return subscriptions
+
+    async def _on_start(self) -> None:
+        """Hook called when daemon starts - setup daemon-specific resources."""
         logger.info(f"Starting AutoSyncDaemon on {self.node_id}")
 
         # December 2025: Clean up stale disk space reservations from crashed processes
@@ -593,17 +602,8 @@ class AutoSyncDaemon(
         if self._is_ephemeral:
             self._setup_termination_handlers()
 
-        # Phase 9: Subscribe to DATA_STALE events to trigger urgent sync
-        self._subscribe_to_events()
-
         # Start gossip sync daemon
         await self._start_gossip_sync()
-
-        # Start main sync loop
-        self._sync_task = safe_create_task(
-            self._sync_loop(),
-            name="auto_sync_loop",
-        )
 
         # December 2025: Start pending writes retry processor
         self._pending_writes_task = safe_create_task(
@@ -611,14 +611,21 @@ class AutoSyncDaemon(
             name="pending_writes_processor",
         )
 
-        # Register with coordinator registry
-        register_coordinator(self)
-
         logger.info(
             f"AutoSyncDaemon started: "
-            f"interval={self.config.interval_seconds}s, "
-            f"exclude={self.config.exclude_hosts}"
+            f"interval={self._config.interval_seconds}s, "
+            f"exclude={self._config.exclude_hosts}"
         )
+
+    async def start(self) -> None:
+        """Start the auto sync daemon."""
+        if not self._config.enabled:
+            self._status = CoordinatorStatus.STOPPED
+            logger.info("AutoSyncDaemon disabled by config")
+            return
+
+        # Use HandlerBase's start() which calls _on_start() and starts main loop
+        await super().start()
 
     def _setup_termination_handlers(self) -> None:
         """Setup signal handlers for termination (ephemeral mode).
@@ -772,20 +779,9 @@ class AutoSyncDaemon(
     # Event handling methods now inherited from SyncEventMixin
     # =========================================================================
 
-    async def stop(self) -> None:
-        """Stop the auto sync daemon."""
-        if self._coordinator_status == CoordinatorStatus.STOPPED:
-            return  # Already stopped
-
-        self._coordinator_status = CoordinatorStatus.STOPPING
+    async def _on_stop(self) -> None:
+        """Hook called when daemon stops - cleanup daemon-specific resources."""
         logger.info("Stopping AutoSyncDaemon...")
-        self._running = False
-
-        # Stop sync task
-        if self._sync_task:
-            self._sync_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._sync_task
 
         # December 2025: Stop pending writes processor
         if self._pending_writes_task:
@@ -797,11 +793,12 @@ class AutoSyncDaemon(
         if self._gossip_daemon:
             await self._gossip_daemon.stop()
 
-        # Unregister from coordinator registry
-        unregister_coordinator(self.name)
-
-        self._coordinator_status = CoordinatorStatus.STOPPED
         logger.info("AutoSyncDaemon stopped")
+
+    async def stop(self) -> None:
+        """Stop the auto sync daemon."""
+        # Use HandlerBase's stop() which calls _on_stop()
+        await super().stop()
 
     async def _start_gossip_sync(self) -> None:
         """Initialize and start the gossip sync daemon."""
@@ -826,7 +823,7 @@ class AutoSyncDaemon(
                 node_id=self.node_id,
                 data_dir=data_dir,
                 peers_config=peers,
-                exclude_hosts=self.config.exclude_hosts,
+                exclude_hosts=self._config.exclude_hosts,
             )
 
             await self._gossip_daemon.start()
@@ -850,7 +847,7 @@ class AutoSyncDaemon(
             await emit_data_sync_failed(
                 host=self.node_id,
                 error=error,
-                retry_count=self._stats.failed_syncs,
+                retry_count=self._sync_stats.failed_syncs,
                 source="AutoSyncDaemon",
             )
         except (RuntimeError, OSError, ConnectionError, TypeError) as e:
@@ -879,8 +876,8 @@ class AutoSyncDaemon(
                         "node_id": self.node_id,
                         "games_synced": games_synced,
                         "bytes_transferred": bytes_transferred,
-                        "total_syncs": self._stats.total_syncs,
-                        "successful_syncs": self._stats.successful_syncs,
+                        "total_syncs": self._sync_stats.total_syncs,
+                        "successful_syncs": self._sync_stats.successful_syncs,
                         # January 2026: Added for UnifiedBackupDaemon integration
                         "db_path": db_path,
                         "config_key": config_key,
@@ -892,6 +889,23 @@ class AutoSyncDaemon(
                 )
         except (RuntimeError, OSError, ConnectionError) as e:
             logger.debug(f"Could not emit DATA_SYNC_COMPLETED: {e}")
+
+    async def _run_cycle(self) -> None:
+        """Implement abstract method from HandlerBase.
+
+        January 2026: This is required by HandlerBase but not directly called
+        since we override _main_loop() for event-driven sync. The actual work
+        is done in _sync_cycle().
+        """
+        await self._sync_cycle()
+
+    async def _main_loop(self) -> None:
+        """Override HandlerBase._main_loop() to use event-driven sync pattern.
+
+        January 2026: HandlerBase migration - delegate to _sync_loop which
+        implements the event-driven wake pattern with throttling.
+        """
+        await self._sync_loop()
 
     async def _sync_loop(self) -> None:
         """Main sync loop - event-driven with throttling.
@@ -911,7 +925,7 @@ class AutoSyncDaemon(
                 try:
                     await asyncio.wait_for(
                         self._sync_wake_event.wait(),
-                        timeout=self.config.interval_seconds
+                        timeout=self._config.interval_seconds
                     )
                     self._sync_wake_event.clear()
                 except asyncio.TimeoutError:
@@ -922,7 +936,7 @@ class AutoSyncDaemon(
             try:
                 await asyncio.wait_for(
                     self._sync_wake_event.wait(),
-                    timeout=self.config.interval_seconds
+                    timeout=self._config.interval_seconds
                 )
                 self._sync_wake_event.clear()
                 logger.debug("[AutoSyncDaemon] Woke from event trigger")
@@ -943,9 +957,9 @@ class AutoSyncDaemon(
                 games_synced = await self._sync_cycle()
                 self._last_sync_time = time.time()  # Update for throttling
                 # Use actual field names, not readonly property aliases
-                self._stats.operations_attempted += 1
-                self._stats.syncs_completed += 1
-                self._stats.last_check_time = time.time()
+                self._sync_stats.operations_attempted += 1
+                self._sync_stats.syncs_completed += 1
+                self._sync_stats.last_check_time = time.time()
                 # Emit DATA_SYNC_COMPLETED event for feedback loop
                 if games_synced and games_synced > 0:
                     fire_and_forget(
@@ -955,8 +969,8 @@ class AutoSyncDaemon(
             except asyncio.CancelledError:
                 break
             except (RuntimeError, OSError, ConnectionError) as e:
-                self._stats.syncs_failed += 1
-                self._stats.last_error = str(e)
+                self._sync_stats.syncs_failed += 1
+                self._sync_stats.last_error = str(e)
                 logger.error(f"Sync cycle error: {e}")
 
     def trigger_sync(self) -> None:
@@ -1078,13 +1092,13 @@ class AutoSyncDaemon(
                 return result
 
             # Skip if NFS node and skip_nfs_sync is enabled
-            if self._is_nfs_node and self.config.skip_nfs_sync:
+            if self._is_nfs_node and self._config.skip_nfs_sync:
                 logger.debug("Skipping sync cycle (NFS node)")
                 self._complete_progress(success=True)
                 return 0
 
             # Skip if this node is excluded
-            if self.node_id in self.config.exclude_hosts:
+            if self.node_id in self._config.exclude_hosts:
                 logger.debug("Skipping sync cycle (excluded host)")
                 self._complete_progress(success=True)
                 return 0
@@ -1109,7 +1123,7 @@ class AutoSyncDaemon(
             # Check for pending data to sync
             self._update_progress(phase="checking_pending_data")
             pending = await self._get_pending_sync_data()
-            if pending < self.config.min_games_to_sync:
+            if pending < self._config.min_games_to_sync:
                 logger.debug(f"Skipping sync: only {pending} games pending")
                 self._complete_progress(success=True)
                 return 0
@@ -1159,19 +1173,19 @@ class AutoSyncDaemon(
         # Update and check capacity
         capacity = self._cluster_manifest.update_local_capacity()
 
-        if capacity.usage_percent >= self.config.max_disk_usage_percent:
+        if capacity.usage_percent >= self._config.max_disk_usage_percent:
             logger.warning(
                 f"Disk usage {capacity.usage_percent:.1f}% exceeds threshold "
-                f"({self.config.max_disk_usage_percent}%), triggering cleanup"
+                f"({self._config.max_disk_usage_percent}%), triggering cleanup"
             )
 
             # Run cleanup if enabled
-            if self.config.auto_cleanup_enabled:
+            if self._config.auto_cleanup_enabled:
                 await self._run_disk_cleanup()
 
                 # Check again after cleanup
                 capacity = self._cluster_manifest.update_local_capacity()
-                if capacity.usage_percent >= self.config.max_disk_usage_percent:
+                if capacity.usage_percent >= self._config.max_disk_usage_percent:
                     logger.error(
                         f"Disk still at {capacity.usage_percent:.1f}% after cleanup, "
                         "skipping sync"
@@ -1191,8 +1205,8 @@ class AutoSyncDaemon(
             from app.distributed.cluster_manifest import DiskCleanupPolicy
 
             policy = DiskCleanupPolicy(
-                trigger_usage_percent=self.config.max_disk_usage_percent,
-                target_usage_percent=self.config.target_disk_usage_percent,
+                trigger_usage_percent=self._config.max_disk_usage_percent,
+                target_usage_percent=self._config.target_disk_usage_percent,
                 min_age_days=7,
                 min_replicas_before_delete=2,
                 preserve_canonical=True,
@@ -1228,7 +1242,7 @@ class AutoSyncDaemon(
         Returns:
             Average quality score (0.0-1.0), or 0.0 if extraction fails
         """
-        if not self.config.enable_quality_extraction or not HAS_QUALITY_EXTRACTION:
+        if not self._config.enable_quality_extraction or not HAS_QUALITY_EXTRACTION:
             return 0.0
 
         cache_key = str(db_path)
@@ -1272,12 +1286,12 @@ class AutoSyncDaemon(
             avg_quality = sum(q.quality_score for q in game_qualities) / len(game_qualities)
 
             # Update stats
-            self._stats.games_quality_extracted += len(game_qualities)
+            self._sync_stats.games_quality_extracted += len(game_qualities)
 
             # Add high-quality games to priority queue
             high_quality_count = 0
             for quality in game_qualities:
-                if quality.quality_score >= self.config.min_quality_score_for_priority:
+                if quality.quality_score >= self._config.min_quality_score_for_priority:
                     await self._update_priority_queue(
                         config_key=f"{db_path.stem}",
                         quality_score=quality.quality_score,
@@ -1285,7 +1299,7 @@ class AutoSyncDaemon(
                     )
                     high_quality_count += 1
 
-            self._stats.games_added_to_priority += high_quality_count
+            self._sync_stats.games_added_to_priority += high_quality_count
 
             logger.info(
                 f"Extracted quality from {db_path.name}: "
@@ -1373,7 +1387,7 @@ class AutoSyncDaemon(
         Returns:
             Tuple of (should_sync, reason_message)
         """
-        if not self.config.quality_filter_enabled:
+        if not self._config.quality_filter_enabled:
             return True, "Quality filter disabled"
 
         import sqlite3
@@ -1390,7 +1404,7 @@ class AutoSyncDaemon(
                     FROM games
                     ORDER BY created_at DESC
                     LIMIT ?
-                """, (self.config.quality_sample_size,))
+                """, (self._config.quality_sample_size,))
                 games = cursor.fetchall()
 
             if len(games) < 5:
@@ -1419,11 +1433,11 @@ class AutoSyncDaemon(
                 return False, "No quality scores computed, skip sync"
 
             avg_quality = sum(qualities) / len(qualities)
-            self._stats.databases_quality_checked += 1
+            self._sync_stats.databases_quality_checked += 1
 
-            if avg_quality < self.config.min_quality_for_sync:
-                self._stats.databases_skipped_quality += 1
-                return False, f"Low quality: {avg_quality:.2f} < {self.config.min_quality_for_sync}"
+            if avg_quality < self._config.min_quality_for_sync:
+                self._sync_stats.databases_skipped_quality += 1
+                return False, f"Low quality: {avg_quality:.2f} < {self._config.min_quality_for_sync}"
 
             return True, f"Quality OK: {avg_quality:.2f}"
 
@@ -1506,7 +1520,7 @@ class AutoSyncDaemon(
                     registered += count
 
                     # Extract quality scores after successful registration
-                    if self.config.enable_quality_extraction:
+                    if self._config.enable_quality_extraction:
                         fire_and_forget(self._extract_quality_from_synced_db(db_path))
 
             except (OSError, RuntimeError) as e:
@@ -1566,7 +1580,7 @@ class AutoSyncDaemon(
         # Gossip daemon handles this automatically
         if self._gossip_daemon:
             status = self._gossip_daemon.get_status()
-            self._stats.games_synced = status.get("total_pulled", 0)
+            self._sync_stats.games_synced = status.get("total_pulled", 0)
             logger.debug(
                 f"Gossip status: {status['known_games']} known, "
                 f"{status['total_pushed']} pushed, {status['total_pulled']} pulled"
@@ -1645,9 +1659,9 @@ class AutoSyncDaemon(
                 logger.debug(f"[AutoSyncDaemon] Could not verify {db_path.name}: {e}")
 
         # Update stats
-        self._stats.databases_verified += verified_count
-        self._stats.databases_verification_failed += failed_count
-        self._stats.last_verification_time = time.time()
+        self._sync_stats.databases_verified += verified_count
+        self._sync_stats.databases_verification_failed += failed_count
+        self._sync_stats.last_verification_time = time.time()
 
         elapsed = time.time() - start_time
         if verified_count > 0 or failed_count > 0:
@@ -1672,8 +1686,8 @@ class AutoSyncDaemon(
                         "db_name": db_name,
                         "error": error,
                         "verification_failed": True,
-                        "total_verified": self._stats.databases_verified,
-                        "total_failed": self._stats.databases_verification_failed,
+                        "total_verified": self._sync_stats.databases_verified,
+                        "total_failed": self._sync_stats.databases_verification_failed,
                     },
                     source="AutoSyncDaemon:verification",
                 )
@@ -1714,38 +1728,38 @@ class AutoSyncDaemon(
             "provider": self._provider,
             "is_nfs_node": self._is_nfs_node,
             "config": {
-                "enabled": self.config.enabled,
-                "interval_seconds": self.config.interval_seconds,
-                "exclude_hosts": self.config.exclude_hosts,
-                "max_disk_usage_percent": self.config.max_disk_usage_percent,
-                "auto_cleanup_enabled": self.config.auto_cleanup_enabled,
+                "enabled": self._config.enabled,
+                "interval_seconds": self._config.interval_seconds,
+                "exclude_hosts": self._config.exclude_hosts,
+                "max_disk_usage_percent": self._config.max_disk_usage_percent,
+                "auto_cleanup_enabled": self._config.auto_cleanup_enabled,
             },
             "stats": {
-                "total_syncs": self._stats.total_syncs,
-                "successful_syncs": self._stats.successful_syncs,
-                "failed_syncs": self._stats.failed_syncs,
-                "games_synced": self._stats.games_synced,
-                "last_sync_time": self._stats.last_sync_time,
-                "last_error": self._stats.last_error,
-                "databases_quality_checked": self._stats.databases_quality_checked,
-                "databases_skipped_quality": self._stats.databases_skipped_quality,
-                "games_quality_extracted": self._stats.games_quality_extracted,
-                "games_added_to_priority": self._stats.games_added_to_priority,
+                "total_syncs": self._sync_stats.total_syncs,
+                "successful_syncs": self._sync_stats.successful_syncs,
+                "failed_syncs": self._sync_stats.failed_syncs,
+                "games_synced": self._sync_stats.games_synced,
+                "last_sync_time": self._sync_stats.last_sync_time,
+                "last_error": self._sync_stats.last_error,
+                "databases_quality_checked": self._sync_stats.databases_quality_checked,
+                "databases_skipped_quality": self._sync_stats.databases_skipped_quality,
+                "games_quality_extracted": self._sync_stats.games_quality_extracted,
+                "games_added_to_priority": self._sync_stats.games_added_to_priority,
                 # December 2025 - Gap 4 fix: Verification stats
-                "databases_verified": self._stats.databases_verified,
-                "databases_verification_failed": self._stats.databases_verification_failed,
-                "last_verification_time": self._stats.last_verification_time,
+                "databases_verified": self._sync_stats.databases_verified,
+                "databases_verification_failed": self._sync_stats.databases_verification_failed,
+                "last_verification_time": self._sync_stats.last_verification_time,
             },
             "quality_filter": {
-                "enabled": self.config.quality_filter_enabled,
-                "min_quality": self.config.min_quality_for_sync,
-                "sample_size": self.config.quality_sample_size,
+                "enabled": self._config.quality_filter_enabled,
+                "min_quality": self._config.min_quality_for_sync,
+                "sample_size": self._config.quality_sample_size,
             },
             "quality_extraction": {
-                "enabled": self.config.enable_quality_extraction,
-                "min_quality_for_priority": self.config.min_quality_score_for_priority,
-                "games_extracted": self._stats.games_quality_extracted,
-                "games_prioritized": self._stats.games_added_to_priority,
+                "enabled": self._config.enable_quality_extraction,
+                "min_quality_for_priority": self._config.min_quality_score_for_priority,
+                "games_extracted": self._sync_stats.games_quality_extracted,
+                "games_prioritized": self._sync_stats.games_added_to_priority,
             },
             "gossip": gossip_status,
             "manifest": manifest_status,
@@ -1759,7 +1773,7 @@ class AutoSyncDaemon(
         """
         return {
             "name": self.name,
-            "status": self._coordinator_status.value,
+            "status": self._status.value,
             "uptime_seconds": self.uptime_seconds,
             "start_time": self._start_time,
             "events_processed": self._events_processed,
@@ -1769,16 +1783,16 @@ class AutoSyncDaemon(
             "node_id": self.node_id,
             "provider": self._provider,
             "is_nfs_node": self._is_nfs_node,
-            "total_syncs": self._stats.total_syncs,
-            "successful_syncs": self._stats.successful_syncs,
-            "failed_syncs": self._stats.failed_syncs,
-            "games_synced": self._stats.games_synced,
-            "bytes_transferred": self._stats.bytes_transferred,
-            "last_sync_time": self._stats.last_sync_time,
+            "total_syncs": self._sync_stats.total_syncs,
+            "successful_syncs": self._sync_stats.successful_syncs,
+            "failed_syncs": self._sync_stats.failed_syncs,
+            "games_synced": self._sync_stats.games_synced,
+            "bytes_transferred": self._sync_stats.bytes_transferred,
+            "last_sync_time": self._sync_stats.last_sync_time,
             # December 2025 - Gap 4 fix: Verification metrics
-            "databases_verified": self._stats.databases_verified,
-            "databases_verification_failed": self._stats.databases_verification_failed,
-            "last_verification_time": self._stats.last_verification_time,
+            "databases_verified": self._sync_stats.databases_verified,
+            "databases_verification_failed": self._sync_stats.databases_verification_failed,
+            "last_verification_time": self._sync_stats.last_verification_time,
             # December 2025: Real-time sync progress
             "sync_progress": self._progress.to_dict(),
         }
@@ -1883,13 +1897,13 @@ class AutoSyncDaemon(
             Health check result with status and sync details.
         """
         # Check for error state
-        if self._coordinator_status == CoordinatorStatus.ERROR:
+        if self._status == CoordinatorStatus.ERROR:
             return HealthCheckResult.unhealthy(
                 f"Daemon in error state: {self._last_error}"
             )
 
         # Check if stopped
-        if self._coordinator_status == CoordinatorStatus.STOPPED:
+        if self._status == CoordinatorStatus.STOPPED:
             return HealthCheckResult(
                 healthy=True,
                 status=CoordinatorStatus.STOPPED,
@@ -1897,7 +1911,7 @@ class AutoSyncDaemon(
             )
 
         # Check if disabled by config
-        if not self.config.enabled:
+        if not self._config.enabled:
             return HealthCheckResult(
                 healthy=True,
                 status=CoordinatorStatus.STOPPED,
@@ -1905,48 +1919,48 @@ class AutoSyncDaemon(
             )
 
         # Check sync health
-        if self._stats.failed_syncs > self._stats.successful_syncs * 0.5:
+        if self._sync_stats.failed_syncs > self._sync_stats.successful_syncs * 0.5:
             return HealthCheckResult.degraded(
-                f"High failure rate: {self._stats.failed_syncs} failures, "
-                f"{self._stats.successful_syncs} successes",
-                failure_rate=self._stats.failed_syncs / max(self._stats.total_syncs, 1),
+                f"High failure rate: {self._sync_stats.failed_syncs} failures, "
+                f"{self._sync_stats.successful_syncs} successes",
+                failure_rate=self._sync_stats.failed_syncs / max(self._sync_stats.total_syncs, 1),
             )
 
         # December 2025 - Gap 4 fix: Check verification health
-        if self._stats.databases_verified > 0:
+        if self._sync_stats.databases_verified > 0:
             verification_failure_rate = (
-                self._stats.databases_verification_failed /
-                max(self._stats.databases_verified + self._stats.databases_verification_failed, 1)
+                self._sync_stats.databases_verification_failed /
+                max(self._sync_stats.databases_verified + self._sync_stats.databases_verification_failed, 1)
             )
             if verification_failure_rate > 0.1:  # More than 10% failure rate
                 return HealthCheckResult.degraded(
-                    f"High verification failure rate: {self._stats.databases_verification_failed} failed, "
-                    f"{self._stats.databases_verified} passed ({verification_failure_rate*100:.1f}%)",
+                    f"High verification failure rate: {self._sync_stats.databases_verification_failed} failed, "
+                    f"{self._sync_stats.databases_verified} passed ({verification_failure_rate*100:.1f}%)",
                     verification_failure_rate=verification_failure_rate,
                 )
 
         # Check for stale sync
-        if self._stats.last_sync_time > 0:
-            sync_age = time.time() - self._stats.last_sync_time
-            if sync_age > self.config.interval_seconds * 3:
+        if self._sync_stats.last_sync_time > 0:
+            sync_age = time.time() - self._sync_stats.last_sync_time
+            if sync_age > self._config.interval_seconds * 3:
                 return HealthCheckResult.degraded(
-                    f"No sync in {sync_age:.0f}s (interval: {self.config.interval_seconds}s)",
+                    f"No sync in {sync_age:.0f}s (interval: {self._config.interval_seconds}s)",
                     seconds_since_last_sync=sync_age,
                 )
 
         # Healthy
         return HealthCheckResult(
             healthy=True,
-            status=self._coordinator_status,
+            status=self._status,
             details={
                 "uptime_seconds": self.uptime_seconds,
-                "total_syncs": self._stats.total_syncs,
-                "games_synced": self._stats.games_synced,
+                "total_syncs": self._sync_stats.total_syncs,
+                "games_synced": self._sync_stats.games_synced,
                 "gossip_active": self._gossip_daemon is not None,
                 "manifest_active": self._cluster_manifest is not None,
                 # December 2025 - Gap 4 fix: Verification stats
-                "databases_verified": self._stats.databases_verified,
-                "databases_verification_failed": self._stats.databases_verification_failed,
+                "databases_verified": self._sync_stats.databases_verified,
+                "databases_verification_failed": self._sync_stats.databases_verification_failed,
             },
         )
 

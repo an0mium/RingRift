@@ -2589,7 +2589,16 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
         """
         daemons_to_restart: list[DaemonType] = []
         daemons_to_check: list[tuple[DaemonType, DaemonInfo]] = []
-        health_check_timeout = DaemonHealthDefaults.HEALTH_CHECK_TIMEOUT
+
+        # Jan 3, 2026 (Sprint 15.1): Use adaptive timeout based on system load
+        try:
+            from app.config.coordination_defaults import get_adaptive_health_timeout
+            health_check_timeout = max(
+                get_adaptive_health_timeout(),
+                DaemonHealthDefaults.HEALTH_CHECK_TIMEOUT,
+            )
+        except ImportError:
+            health_check_timeout = DaemonHealthDefaults.HEALTH_CHECK_TIMEOUT
 
         # Phase 1: Collect daemons needing checks (under lock with timeout)
         # December 30, 2025: Added timeout to prevent indefinite blocking

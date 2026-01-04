@@ -423,6 +423,8 @@ class TrainingTriggerDaemon(HandlerBase):
         self._training_states: dict[str, ConfigTrainingState] = {}
         self._training_semaphore = asyncio.Semaphore(self._daemon_config.max_concurrent_training)
         self._active_training_tasks: dict[str, asyncio.Task] = {}
+        # Sprint 16.1 (Jan 3, 2026): Track pending quality rechecks to avoid duplicates
+        self._pending_quality_rechecks: dict[str, asyncio.Task] = {}
         # Track whether we should skip due to coordinator mode (DEPRECATED - use _dispatch_to_queue)
         self._coordinator_skip = False
         # Dec 30, 2025: When True, dispatch training to work queue instead of running locally
@@ -1486,8 +1488,124 @@ class TrainingTriggerDaemon(HandlerBase):
                     f"Consider: 1) increasing Gumbel budget, 2) checking selfplay for issues, "
                     f"3) verifying training data pipeline"
                 )
+
+            # Sprint 16.1 (Jan 3, 2026): Schedule automatic recheck instead of waiting for full cycle
+            # This allows faster recovery when quality improves
+            self._schedule_quality_recheck(config_key, delay_seconds=300)
+
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling training blocked: {e}")
+
+    def _schedule_quality_recheck(
+        self, config_key: str, delay_seconds: float = 300, max_rechecks: int = 6
+    ) -> None:
+        """Schedule an automatic quality recheck after a delay.
+
+        Sprint 16.1 (Jan 3, 2026): When training is blocked by quality gate, schedule
+        an automatic recheck instead of waiting for the next full cycle. This reduces
+        recovery time from potentially 30+ minutes to 5 minutes.
+
+        Args:
+            config_key: The config to recheck (e.g., "hex8_2p")
+            delay_seconds: How long to wait before rechecking (default: 5 minutes)
+            max_rechecks: Maximum recheck attempts before giving up (default: 6 = 30 min)
+        """
+        # Cancel existing recheck for this config (avoid duplicates)
+        if config_key in self._pending_quality_rechecks:
+            old_task = self._pending_quality_rechecks.pop(config_key)
+            if not old_task.done():
+                old_task.cancel()
+
+        # Check recheck count to avoid infinite loops
+        if not hasattr(self, "_quality_recheck_counts"):
+            self._quality_recheck_counts: dict[str, int] = {}
+        current_count = self._quality_recheck_counts.get(config_key, 0)
+        if current_count >= max_rechecks:
+            logger.info(
+                f"[TrainingTriggerDaemon] {config_key}: max quality rechecks ({max_rechecks}) "
+                f"reached, waiting for external quality update"
+            )
+            self._quality_recheck_counts[config_key] = 0  # Reset for next block
+            return
+
+        # Schedule the recheck task
+        task = asyncio.create_task(
+            self._run_quality_recheck(config_key, delay_seconds, max_rechecks)
+        )
+        self._pending_quality_rechecks[config_key] = task
+
+        # Track recheck count
+        self._quality_recheck_counts[config_key] = current_count + 1
+
+        logger.debug(
+            f"[TrainingTriggerDaemon] {config_key}: scheduled quality recheck "
+            f"in {delay_seconds}s (attempt {current_count + 1}/{max_rechecks})"
+        )
+
+    async def _run_quality_recheck(
+        self, config_key: str, delay_seconds: float, max_rechecks: int
+    ) -> None:
+        """Execute a delayed quality recheck.
+
+        Sprint 16.1 (Jan 3, 2026): After waiting, check if quality has improved.
+        If so, update intensity and potentially trigger training. If not,
+        schedule another recheck.
+        """
+        try:
+            # Wait for the specified delay
+            await asyncio.sleep(delay_seconds)
+
+            # Check if we're still blocked (state may have changed)
+            state = self._training_states.get(config_key)
+            if not state or state.training_intensity != "paused":
+                logger.debug(
+                    f"[TrainingTriggerDaemon] {config_key}: quality recheck skipped, "
+                    f"intensity is now {state.training_intensity if state else 'unknown'}"
+                )
+                # Clear recheck count since we're no longer blocked
+                if hasattr(self, "_quality_recheck_counts"):
+                    self._quality_recheck_counts.pop(config_key, None)
+                return
+
+            # Recheck quality gate
+            quality_ok, reason = await self._check_quality_gate(config_key)
+
+            if quality_ok:
+                # Quality improved - update intensity and log success
+                decayed_quality = self._get_decayed_quality_score(state)
+                new_intensity = self._intensity_from_quality(decayed_quality, config_key)
+                state.training_intensity = new_intensity
+
+                logger.info(
+                    f"[TrainingTriggerDaemon] {config_key}: quality recheck PASSED, "
+                    f"quality={decayed_quality:.3f}, intensity={new_intensity}"
+                )
+
+                # Clear recheck count since we're no longer blocked
+                if hasattr(self, "_quality_recheck_counts"):
+                    self._quality_recheck_counts.pop(config_key, None)
+
+                # Optionally trigger training check in the next cycle
+                # (the regular cycle will pick this up, no need for immediate trigger)
+            else:
+                # Still blocked - schedule another recheck
+                logger.debug(
+                    f"[TrainingTriggerDaemon] {config_key}: quality recheck still blocked, "
+                    f"reason={reason}, scheduling another recheck"
+                )
+                self._schedule_quality_recheck(config_key, delay_seconds, max_rechecks)
+
+        except asyncio.CancelledError:
+            logger.debug(
+                f"[TrainingTriggerDaemon] {config_key}: quality recheck cancelled"
+            )
+        except Exception as e:
+            logger.error(
+                f"[TrainingTriggerDaemon] {config_key}: quality recheck error: {e}"
+            )
+        finally:
+            # Remove from pending dict
+            self._pending_quality_rechecks.pop(config_key, None)
 
     async def _on_evaluation_completed(self, event: Any) -> None:
         """Handle gauntlet evaluation completion - adjust training parameters (Dec 2025).

@@ -330,6 +330,27 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         module="app.coordination.evaluation_daemon",
         class_name="EvaluationDaemon",
     ),
+    # January 3, 2026: Scans for models without Elo ratings and queues them for evaluation
+    "unevaluated_model_scanner": RunnerSpec(
+        module="app.coordination.unevaluated_model_scanner_daemon",
+        class_name="UnevaluatedModelScannerDaemon",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_unevaluated_model_scanner_daemon",
+    ),
+    # January 3, 2026: Imports model files from OWC external drive for Elo evaluation
+    "owc_model_import": RunnerSpec(
+        module="app.coordination.owc_model_import_daemon",
+        class_name="OWCModelImportDaemon",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_owc_model_import_daemon",
+    ),
+    # January 3, 2026: Re-evaluates models with stale Elo ratings (>30 days old)
+    "stale_evaluation": RunnerSpec(
+        module="app.coordination.stale_evaluation_daemon",
+        class_name="StaleEvaluationDaemon",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_stale_evaluation_daemon",
+    ),
     "auto_promotion": RunnerSpec(
         module="app.coordination.auto_promotion_daemon",
         class_name="AutoPromotionDaemon",
@@ -1024,6 +1045,64 @@ async def create_owc_import() -> None:
         raise
 
 
+async def create_owc_model_import() -> None:
+    """Create and run OWC model import daemon (January 3, 2026 - Sprint 13 Session 4).
+
+    Imports MODEL FILES (.pth) from OWC external drive on mac-studio.
+    Unlike OWCImportDaemon (which imports databases), this daemon imports
+    trained models that need Elo evaluation.
+
+    Features:
+    - SSH-based discovery of models on OWC drive
+    - Cross-reference with EloService to skip already-rated models
+    - Rsync-based model transfer
+    - Emits MODEL_IMPORTED and OWC_MODELS_DISCOVERED events
+    - Adds models to PersistentEvaluationQueue for evaluation
+
+    Environment variables:
+    - OWC_HOST: Remote host with OWC drive (default: mac-studio)
+    - OWC_BASE_PATH: Base path on OWC drive (default: /Volumes/RingRift-Data)
+    """
+    try:
+        from app.coordination.owc_model_import_daemon import (
+            get_owc_model_import_daemon,
+        )
+
+        daemon = get_owc_model_import_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"OWCModelImportDaemon not available: {e}")
+        raise
+
+
+async def create_unevaluated_model_scanner() -> None:
+    """Create and run unevaluated model scanner daemon (January 3, 2026 - Sprint 13 Session 4).
+
+    Scans all model sources (local, OWC, cluster, registry) for models
+    without Elo ratings. Adds them to the evaluation queue with
+    curriculum-aware priority.
+
+    Features:
+    - Scans local models/ directory for .pth files
+    - Cross-references with EloService (unified_elo.db)
+    - Computes priority based on curriculum weights
+    - Emits EVALUATION_REQUESTED and UNEVALUATED_MODELS_FOUND events
+    - Adds models to PersistentEvaluationQueue
+    """
+    try:
+        from app.coordination.unevaluated_model_scanner_daemon import (
+            get_unevaluated_model_scanner_daemon,
+        )
+
+        daemon = get_unevaluated_model_scanner_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"UnevaluatedModelScannerDaemon not available: {e}")
+        raise
+
+
 async def create_ephemeral_sync() -> None:
     """Create and run ephemeral sync daemon (Phase 4, December 2025).
 
@@ -1632,6 +1711,24 @@ async def create_gauntlet_feedback() -> None:
         await _wait_for_daemon(controller)
     except ImportError as e:
         logger.error(f"GauntletFeedbackController not available: {e}")
+        raise
+
+
+async def create_backlog_evaluation() -> None:
+    """Create and run backlog evaluation daemon (Sprint 15 - Jan 3, 2026).
+
+    Discovers OWC models and queues them for Elo evaluation.
+    """
+    try:
+        from app.coordination.backlog_evaluation_daemon import (
+            BacklogEvaluationDaemon,
+        )
+
+        daemon = BacklogEvaluationDaemon.get_instance()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"BacklogEvaluationDaemon not available: {e}")
         raise
 
 
@@ -2974,6 +3071,9 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.TRAINING_DATA_SYNC.name: create_training_data_sync,
         DaemonType.TRAINING_DATA_RECOVERY.name: create_training_data_recovery,
         DaemonType.OWC_IMPORT.name: create_owc_import,
+        # January 3, 2026 (Sprint 13 Session 4): Model evaluation automation
+        DaemonType.OWC_MODEL_IMPORT.name: create_owc_model_import,
+        DaemonType.UNEVALUATED_MODEL_SCANNER.name: create_unevaluated_model_scanner,
         DaemonType.EPHEMERAL_SYNC.name: create_ephemeral_sync,
         DaemonType.GOSSIP_SYNC.name: create_gossip_sync,
         DaemonType.EVENT_ROUTER.name: create_event_router,

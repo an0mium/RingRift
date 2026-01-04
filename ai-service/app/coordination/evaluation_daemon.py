@@ -261,6 +261,11 @@ class EvaluationDaemon(BaseEventHandler):
             "retries_exhausted": 0,
         }
 
+        # January 3, 2026 (Sprint 13 Session 4): Persistent evaluation queue
+        # Provides SQLite-backed persistence, stuck detection, and startup scan
+        self._persistent_queue: PersistentEvaluationQueue | None = None
+        self._stuck_check_task: asyncio.Task | None = None
+
     def _get_subscriptions(self) -> Dict[Any, Callable]:
         """Return event subscriptions for BaseEventHandler.
 
@@ -283,13 +288,24 @@ class EvaluationDaemon(BaseEventHandler):
         if not success:
             return False
 
+        # January 3, 2026 (Sprint 13 Session 4): Initialize persistent queue
+        self._persistent_queue = get_evaluation_queue()
+
         # Start the evaluation worker and store task for proper cleanup
         self._worker_task = asyncio.create_task(self._evaluation_worker())
+
+        # January 3, 2026: Start stuck evaluation check task
+        self._stuck_check_task = asyncio.create_task(self._stuck_evaluation_check_loop())
+
+        # January 3, 2026: Run startup scan for unevaluated models
+        if self.config.startup_scan_enabled:
+            asyncio.create_task(self._startup_scan_for_unevaluated_models())
 
         logger.info(
             f"[EvaluationDaemon] Started. "
             f"Games per baseline: {self.config.games_per_baseline}, "
-            f"Early stopping: {self.config.early_stopping_enabled}"
+            f"Early stopping: {self.config.early_stopping_enabled}, "
+            f"Startup scan: {self.config.startup_scan_enabled}"
         )
         return True
 
@@ -300,6 +316,14 @@ class EvaluationDaemon(BaseEventHandler):
             self._worker_task.cancel()
             try:
                 await self._worker_task
+            except asyncio.CancelledError:
+                pass  # Expected on cancellation
+
+        # January 3, 2026: Cancel stuck check task
+        if self._stuck_check_task and not self._stuck_check_task.done():
+            self._stuck_check_task.cancel()
+            try:
+                await self._stuck_check_task
             except asyncio.CancelledError:
                 pass  # Expected on cancellation
 
@@ -402,7 +426,11 @@ class EvaluationDaemon(BaseEventHandler):
         return last_eval is not None and now - last_eval < self.config.dedup_cooldown_seconds
 
     async def _on_training_complete(self, event: Any) -> None:
-        """Handle TRAINING_COMPLETE event."""
+        """Handle TRAINING_COMPLETE event.
+
+        Sprint 15 (Jan 3, 2026): Added support for backlog evaluation sources.
+        Events with source="backlog_*" are queued with lower priority.
+        """
         try:
             # December 30, 2025: Use consolidated extraction helpers from HandlerBase
             metadata = self._get_payload(event)
@@ -412,6 +440,16 @@ class EvaluationDaemon(BaseEventHandler):
             if not model_path:
                 logger.warning("[EvaluationDaemon] No checkpoint_path/model_path in TRAINING_COMPLETE event")
                 return
+
+            # Sprint 15: Detect backlog evaluation source
+            source = metadata.get("source", "training")
+            is_backlog = source.startswith("backlog_")
+
+            # Set priority: 0-50 for fresh training, 100-200 for backlog
+            if is_backlog:
+                priority = 150  # Lower priority for backlog models
+            else:
+                priority = 25  # Higher priority for fresh training
 
             # December 2025: Deduplication checks
             # Check 1: Content hash deduplication (same event from multiple sources)
@@ -452,18 +490,21 @@ class EvaluationDaemon(BaseEventHandler):
             if queue_depth >= self.config.backpressure_threshold and not self._backpressure_active:
                 self._emit_backpressure(queue_depth, activate=True)
 
-            # Queue the evaluation
+            # Queue the evaluation with source and priority
             await self._evaluation_queue.put({
                 "model_path": model_path,
                 "board_type": board_type,
                 "num_players": num_players,
                 "timestamp": time.time(),
+                "source": source,
+                "priority": priority,
             })
 
             self._eval_stats.evaluations_triggered += 1
+            source_info = f" (source={source}, priority={priority})" if is_backlog else ""
             logger.info(
                 f"[EvaluationDaemon] Queued evaluation for {model_path} "
-                f"({board_type}_{num_players}p), queue_depth={queue_depth + 1}"
+                f"({board_type}_{num_players}p), queue_depth={queue_depth + 1}{source_info}"
             )
 
         except (ValueError, KeyError, TypeError) as e:
@@ -591,11 +632,35 @@ class EvaluationDaemon(BaseEventHandler):
                     await asyncio.sleep(1.0)
                     continue
 
+                # Sprint 15 (Jan 3, 2026): Download OWC models before evaluation
+                source = request.get("source", "")
+                local_path = model_path
+
+                if source == "backlog_owc" and not Path(model_path).exists():
+                    # Model is on OWC, need to download it first
+                    download_path = await self._download_owc_model(model_path)
+                    if download_path:
+                        local_path = str(download_path)
+                        request["local_path"] = local_path
+                        logger.info(f"[EvaluationDaemon] Downloaded OWC model to: {local_path}")
+                    else:
+                        logger.error(f"[EvaluationDaemon] Failed to download OWC model: {model_path}")
+                        safe_emit_event(
+                            DataEventType.OWC_MODEL_EVALUATION_FAILED,
+                            {
+                                "model_path": model_path,
+                                "reason": "download_failed",
+                                "source": source,
+                            },
+                        )
+                        self._eval_stats.evaluations_failed += 1
+                        continue
+
                 # January 3, 2026: Check model exists before evaluation
                 from pathlib import Path
-                if not Path(model_path).exists():
+                if not Path(local_path).exists():
                     logger.warning(
-                        f"[EvaluationDaemon] Model not found: {model_path}"
+                        f"[EvaluationDaemon] Model not found: {local_path}"
                     )
                     safe_emit_event(
                         DataEventType.EVALUATION_FAILED,
@@ -1308,7 +1373,7 @@ class EvaluationDaemon(BaseEventHandler):
 
     def get_stats(self) -> dict:
         """Get daemon statistics."""
-        return {
+        stats = {
             "running": self._running,
             "evaluations_triggered": self._eval_stats.evaluations_triggered,
             "evaluations_completed": self._eval_stats.evaluations_completed,
@@ -1328,6 +1393,13 @@ class EvaluationDaemon(BaseEventHandler):
             "retries_succeeded": self._retry_stats["retries_succeeded"],
             "retries_exhausted": self._retry_stats["retries_exhausted"],
         }
+
+        # January 3, 2026: Add persistent queue stats
+        if self._persistent_queue:
+            queue_status = self._persistent_queue.get_queue_status()
+            stats["persistent_queue"] = queue_status
+
+        return stats
 
     def health_check(self) -> "HealthCheckResult":
         """Check daemon health (December 2025: CoordinatorProtocol compliance).
@@ -1363,6 +1435,329 @@ class EvaluationDaemon(BaseEventHandler):
             message=f"Evaluation daemon running ({self._eval_stats.evaluations_completed} completed)",
             details=self.get_stats(),
         )
+
+    # =========================================================================
+    # January 3, 2026 (Sprint 13 Session 4): Persistent Queue Integration
+    # =========================================================================
+
+    async def _startup_scan_for_unevaluated_models(self) -> None:
+        """Scan for canonical models without Elo ratings on startup.
+
+        January 3, 2026: Ensures all canonical models get evaluated.
+        This catches models that were trained but never evaluated due to
+        daemon restarts, event drops, or system failures.
+        """
+        from pathlib import Path
+
+        logger.info("[EvaluationDaemon] Starting scan for unevaluated canonical models...")
+        scanned = 0
+        queued = 0
+
+        try:
+            models_dir = Path("models")
+            if not models_dir.exists():
+                logger.warning("[EvaluationDaemon] Models directory not found")
+                return
+
+            # Scan all canonical models
+            for model_path in models_dir.glob("canonical_*.pth"):
+                scanned += 1
+
+                # Extract board_type and num_players from filename
+                # Format: canonical_{board_type}_{n}p.pth
+                stem = model_path.stem  # e.g., "canonical_hex8_2p"
+                parts = stem.split("_")
+
+                if len(parts) < 3:
+                    logger.debug(f"[EvaluationDaemon] Skipping unrecognized filename: {model_path}")
+                    continue
+
+                board_type = parts[1]
+                players_part = parts[2]
+
+                # Handle architectures like canonical_hex8_2p_v5heavy.pth
+                if not players_part.endswith("p"):
+                    continue
+
+                try:
+                    num_players = int(players_part[:-1])
+                except ValueError:
+                    continue
+
+                # Check if model has Elo rating
+                if self._has_elo_rating(str(model_path)):
+                    logger.debug(
+                        f"[EvaluationDaemon] Already has Elo: {model_path.name}"
+                    )
+                    continue
+
+                # Add to persistent queue with high priority
+                if self._persistent_queue:
+                    request_id = self._persistent_queue.add_request(
+                        model_path=str(model_path),
+                        board_type=board_type,
+                        num_players=num_players,
+                        priority=self.config.startup_scan_canonical_priority,
+                        source="startup_scan",
+                    )
+
+                    if request_id:
+                        queued += 1
+                        logger.info(
+                            f"[EvaluationDaemon] Queued unevaluated model: {model_path.name} "
+                            f"({board_type}_{num_players}p)"
+                        )
+
+            logger.info(
+                f"[EvaluationDaemon] Startup scan complete: "
+                f"{scanned} models scanned, {queued} queued for evaluation"
+            )
+
+        except Exception as e:
+            logger.error(f"[EvaluationDaemon] Startup scan failed: {e}")
+
+    def _has_elo_rating(self, model_path: str) -> bool:
+        """Check if a model has an Elo rating in EloService.
+
+        January 3, 2026: Used by startup scan to skip already-rated models.
+
+        Args:
+            model_path: Path to the model file
+
+        Returns:
+            True if model has an Elo rating, False otherwise
+        """
+        try:
+            from app.training.elo_service import get_elo_service
+            from pathlib import Path
+
+            elo_service = get_elo_service()
+            model_name = Path(model_path).stem
+
+            # Try to get rating - returns None if not found
+            rating = elo_service.get_rating(model_name)
+            return rating is not None
+
+        except ImportError:
+            logger.debug("[EvaluationDaemon] EloService not available for Elo check")
+            return False
+        except Exception as e:
+            logger.debug(f"[EvaluationDaemon] Elo check failed: {e}")
+            return False
+
+    async def _stuck_evaluation_check_loop(self) -> None:
+        """Periodically check for and recover stuck evaluations.
+
+        January 3, 2026: Runs every stuck_check_interval_seconds to detect
+        RUNNING evaluations that have exceeded their timeout.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(self.config.stuck_check_interval_seconds)
+
+                if not self._persistent_queue:
+                    continue
+
+                # Get stuck evaluations
+                stuck = self._persistent_queue.get_stuck_evaluations()
+
+                if not stuck:
+                    continue
+
+                logger.warning(
+                    f"[EvaluationDaemon] Found {len(stuck)} stuck evaluations"
+                )
+
+                # Process each stuck evaluation
+                for request in stuck:
+                    if request.attempts < request.max_attempts:
+                        # Reset to pending for retry
+                        self._persistent_queue.reset_stuck(request.request_id)
+
+                        # Emit recovery event
+                        safe_emit_event(
+                            DataEventType.EVALUATION_RECOVERED,
+                            {
+                                "request_id": request.request_id,
+                                "model_path": request.model_path,
+                                "config_key": request.config_key,
+                                "attempts": request.attempts,
+                                "stuck_duration_seconds": time.time() - request.started_at,
+                            },
+                        )
+
+                        logger.info(
+                            f"[EvaluationDaemon] Recovered stuck evaluation: {request.model_path} "
+                            f"(attempt {request.attempts}/{request.max_attempts})"
+                        )
+                    else:
+                        # Max retries exceeded, mark as failed
+                        self._persistent_queue.fail(
+                            request.request_id,
+                            f"Stuck timeout exceeded after {request.max_attempts} attempts",
+                        )
+
+                        # Emit stuck event (not recovered)
+                        safe_emit_event(
+                            DataEventType.EVALUATION_STUCK,
+                            {
+                                "request_id": request.request_id,
+                                "model_path": request.model_path,
+                                "config_key": request.config_key,
+                                "attempts": request.attempts,
+                                "stuck_duration_seconds": time.time() - request.started_at,
+                            },
+                        )
+
+                        logger.error(
+                            f"[EvaluationDaemon] Evaluation permanently stuck: {request.model_path}"
+                        )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"[EvaluationDaemon] Stuck check error: {e}")
+                await asyncio.sleep(60)  # Back off on error
+
+    def _track_in_persistent_queue(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        priority: int = 50,
+        source: str = "training",
+    ) -> str | None:
+        """Track an evaluation request in the persistent queue.
+
+        January 3, 2026: Called when adding to the in-memory queue.
+        This provides persistence and deduplication via SQLite.
+
+        Args:
+            model_path: Path to the model file
+            board_type: Board type
+            num_players: Number of players
+            priority: Priority (higher = sooner)
+            source: Source of the request
+
+        Returns:
+            Request ID if added, None if duplicate
+        """
+        if not self._persistent_queue:
+            return None
+
+        return self._persistent_queue.add_request(
+            model_path=model_path,
+            board_type=board_type,
+            num_players=num_players,
+            priority=priority,
+            source=source,
+        )
+
+    async def _download_owc_model(self, owc_path: str) -> "Path | None":
+        """Download a model from OWC external drive to local storage.
+
+        Sprint 15 (Jan 3, 2026): Called by _evaluation_worker when evaluating
+        backlog models that exist on OWC but not locally.
+
+        Args:
+            owc_path: Path to the model on OWC (relative or absolute)
+
+        Returns:
+            Local Path on success, None on failure
+        """
+        from pathlib import Path
+        import os
+
+        try:
+            # Get OWC configuration
+            owc_host = os.environ.get("RINGRIFT_OWC_HOST", "mac-studio")
+            owc_base_path = os.environ.get(
+                "RINGRIFT_OWC_DRIVE_PATH", "/Volumes/RingRift-Data"
+            )
+
+            # Construct full remote path if not absolute
+            if not owc_path.startswith("/"):
+                # owc_path might be relative like "models/canonical_hex8_2p.pth"
+                remote_path = f"{owc_base_path}/{owc_path}"
+            else:
+                remote_path = owc_path
+
+            # Create local destination path
+            # Put downloaded OWC models in a dedicated directory
+            model_filename = Path(owc_path).name
+            local_dir = Path("models/owc_downloads")
+            local_dir.mkdir(parents=True, exist_ok=True)
+            local_path = local_dir / model_filename
+
+            # Skip if already exists locally
+            if local_path.exists():
+                logger.debug(
+                    f"[EvaluationDaemon] OWC model already downloaded: {local_path}"
+                )
+                return local_path
+
+            logger.info(
+                f"[EvaluationDaemon] Downloading OWC model: {owc_host}:{remote_path} "
+                f"-> {local_path}"
+            )
+
+            # Use rsync for reliable transfer
+            rsync_cmd = [
+                "rsync",
+                "-avz",
+                "--progress",
+                "--timeout=120",
+                f"{owc_host}:{remote_path}",
+                str(local_path),
+            ]
+
+            proc = await asyncio.create_subprocess_exec(
+                *rsync_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=300.0,  # 5 minute timeout for large models
+            )
+
+            if proc.returncode == 0:
+                # Verify the file exists and has content
+                if local_path.exists() and local_path.stat().st_size > 0:
+                    logger.info(
+                        f"[EvaluationDaemon] OWC download complete: {local_path} "
+                        f"({local_path.stat().st_size / 1024 / 1024:.1f} MB)"
+                    )
+                    return local_path
+                else:
+                    logger.error(
+                        f"[EvaluationDaemon] OWC download produced empty file: {local_path}"
+                    )
+                    return None
+            else:
+                stderr_text = stderr.decode() if stderr else "Unknown error"
+                logger.error(
+                    f"[EvaluationDaemon] OWC rsync failed (code {proc.returncode}): "
+                    f"{stderr_text[:500]}"
+                )
+                return None
+
+        except asyncio.TimeoutError:
+            logger.error(
+                f"[EvaluationDaemon] OWC download timed out: {owc_path}"
+            )
+            return None
+        except FileNotFoundError:
+            logger.error(
+                f"[EvaluationDaemon] rsync not found - cannot download OWC model"
+            )
+            return None
+        except (OSError, RuntimeError) as e:
+            logger.error(
+                f"[EvaluationDaemon] OWC download error: {owc_path}: {e}"
+            )
+            return None
 
 
 def get_evaluation_daemon(config: EvaluationConfig | None = None) -> EvaluationDaemon:

@@ -1329,11 +1329,19 @@ class GossipProtocolMixin(P2PMixinBase):
         # Load persisted peer states
         persisted_states = self._load_persisted_gossip_states()
         if persisted_states:
-            # Merge with any existing states (prefer fresher data)
-            for node_id, state in persisted_states.items():
-                existing = self._gossip_peer_states.get(node_id)
-                if existing is None or state.get("timestamp", 0) > existing.get("timestamp", 0):
-                    self._gossip_peer_states[node_id] = state
+            # Jan 3, 2026 (Sprint 15.1): Use sync lock for thread safety during restore
+            lock = getattr(self, "_gossip_state_sync_lock", None)
+            if lock is not None:
+                lock.acquire()
+            try:
+                # Merge with any existing states (prefer fresher data)
+                for node_id, state in persisted_states.items():
+                    existing = self._gossip_peer_states.get(node_id)
+                    if existing is None or state.get("timestamp", 0) > existing.get("timestamp", 0):
+                        self._gossip_peer_states[node_id] = state
+            finally:
+                if lock is not None:
+                    lock.release()
 
         # Load persisted endpoints
         persisted_endpoints = self._load_persisted_endpoints()
@@ -2582,37 +2590,48 @@ class GossipProtocolMixin(P2PMixinBase):
                 continue
 
     def _process_anti_entropy_response(self, response_data: dict, now: float) -> int:
-        """Process anti-entropy response and return number of updates."""
+        """Process anti-entropy response and return number of updates.
+
+        Jan 3, 2026 (Sprint 15.1): Added lock to prevent race with cleanup.
+        """
         peer_states = response_data.get("all_known_states", {})
         updates = 0
 
-        for node_id, state in peer_states.items():
-            if node_id == self.node_id:
-                continue
-            existing = self._gossip_peer_states.get(node_id, {})
-            if state.get("version", 0) > existing.get("version", 0):
-                self._gossip_peer_states[node_id] = state
-                updates += 1
-                self._record_gossip_metrics("update", node_id)
-
-        # Check for stale states we have that peer doesn't know
-        our_nodes = set(self._gossip_peer_states.keys())
-        peer_nodes = set(peer_states.keys())
-        stale_candidates = our_nodes - peer_nodes - {self.node_id}
-
-        # Jan 3, 2026: Use centralized stale state threshold
+        # Jan 3, 2026: Use sync lock to prevent race with cleanup
+        lock = getattr(self, "_gossip_state_sync_lock", None)
+        if lock is not None:
+            lock.acquire()
         try:
-            from app.config.coordination_defaults import GossipDefaults
-            stale_threshold = GossipDefaults.STALE_STATE_SECONDS
-        except ImportError:
-            stale_threshold = 600  # 10 minutes default
+            for node_id, state in peer_states.items():
+                if node_id == self.node_id:
+                    continue
+                existing = self._gossip_peer_states.get(node_id, {})
+                if state.get("version", 0) > existing.get("version", 0):
+                    self._gossip_peer_states[node_id] = state
+                    updates += 1
+                    self._record_gossip_metrics("update", node_id)
 
-        for stale_node in stale_candidates:
-            stale_state = self._gossip_peer_states.get(stale_node, {})
-            # If state is older than threshold and peer doesn't know it,
-            # the node might be offline - mark as stale
-            if stale_state.get("timestamp", 0) < now - stale_threshold:
-                self._record_gossip_metrics("stale", stale_node)
+            # Check for stale states we have that peer doesn't know
+            our_nodes = set(self._gossip_peer_states.keys())
+            peer_nodes = set(peer_states.keys())
+            stale_candidates = our_nodes - peer_nodes - {self.node_id}
+
+            # Jan 3, 2026: Use centralized stale state threshold
+            try:
+                from app.config.coordination_defaults import GossipDefaults
+                stale_threshold = GossipDefaults.STALE_STATE_SECONDS
+            except ImportError:
+                stale_threshold = 600  # 10 minutes default
+
+            for stale_node in stale_candidates:
+                stale_state = self._gossip_peer_states.get(stale_node, {})
+                # If state is older than threshold and peer doesn't know it,
+                # the node might be offline - mark as stale
+                if stale_state.get("timestamp", 0) < now - stale_threshold:
+                    self._record_gossip_metrics("stale", stale_node)
+        finally:
+            if lock is not None:
+                lock.release()
 
         return updates
 

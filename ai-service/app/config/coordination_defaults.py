@@ -1244,6 +1244,17 @@ class PartitionHealingDefaults:
         "RINGRIFT_PARTITION_HEALING_TOTAL_TIMEOUT", 300.0
     )
 
+    # Sprint 16.1 (Jan 3, 2026): Gossip propagation validation after T0 injection
+    # Timeout for checking if injected peers are visible (per-batch, not full convergence)
+    INJECTION_PROPAGATION_TIMEOUT: float = _env_float(
+        "RINGRIFT_PARTITION_HEALING_INJECTION_PROPAGATION_TIMEOUT", 30.0
+    )
+
+    # Minimum ratio of target nodes that must see injected peers for success
+    INJECTION_VISIBILITY_THRESHOLD: float = _env_float(
+        "RINGRIFT_PARTITION_HEALING_INJECTION_VISIBILITY_THRESHOLD", 0.5
+    )
+
 
 # =============================================================================
 # Export Validation Defaults (Sprint 4 - January 2, 2026)
@@ -1808,6 +1819,58 @@ class DaemonHealthDefaults:
     # Dependency wait timeout (seconds) - max time to wait for a dependency
     # Previously hardcoded as 30.0 in daemon_manager.py:1193
     DEPENDENCY_WAIT_TIMEOUT: float = _env_float("RINGRIFT_DAEMON_DEPENDENCY_TIMEOUT", 30.0)
+
+    # Jan 3, 2026 (Sprint 15.1): Adaptive health check timeout settings
+    # Base timeout used when system is idle/low load
+    ADAPTIVE_TIMEOUT_BASE: float = _env_float("RINGRIFT_HEALTH_TIMEOUT_BASE", 5.0)
+
+    # Timeout when system is under moderate load
+    ADAPTIVE_TIMEOUT_MODERATE: float = _env_float("RINGRIFT_HEALTH_TIMEOUT_MODERATE", 10.0)
+
+    # Timeout when system is under high load
+    ADAPTIVE_TIMEOUT_HIGH: float = _env_float("RINGRIFT_HEALTH_TIMEOUT_HIGH", 15.0)
+
+    # CPU threshold (fraction 0-1) for moderate load
+    CPU_THRESHOLD_MODERATE: float = _env_float("RINGRIFT_CPU_THRESHOLD_MODERATE", 0.6)
+
+    # CPU threshold (fraction 0-1) for high load
+    CPU_THRESHOLD_HIGH: float = _env_float("RINGRIFT_CPU_THRESHOLD_HIGH", 0.85)
+
+
+def get_adaptive_health_timeout() -> float:
+    """Get adaptive health check timeout based on current system load.
+
+    Jan 3, 2026 (Sprint 15.1): Health checks may fail under load due to
+    5s timeout being too aggressive. This function returns a timeout
+    that scales with system load:
+
+    - Idle/low load (CPU < 60%): 5s (default)
+    - Moderate load (CPU 60-85%): 10s
+    - High load (CPU > 85%): 15s
+
+    Returns:
+        Appropriate timeout value in seconds.
+
+    Note:
+        Requires psutil for CPU monitoring. Falls back to base timeout
+        if psutil is unavailable or on error.
+    """
+    try:
+        import psutil
+        cpu_percent = psutil.cpu_percent(interval=0.1) / 100.0
+
+        if cpu_percent >= DaemonHealthDefaults.CPU_THRESHOLD_HIGH:
+            return DaemonHealthDefaults.ADAPTIVE_TIMEOUT_HIGH
+        elif cpu_percent >= DaemonHealthDefaults.CPU_THRESHOLD_MODERATE:
+            return DaemonHealthDefaults.ADAPTIVE_TIMEOUT_MODERATE
+        else:
+            return DaemonHealthDefaults.ADAPTIVE_TIMEOUT_BASE
+    except ImportError:
+        # psutil not available - use base timeout
+        return DaemonHealthDefaults.ADAPTIVE_TIMEOUT_BASE
+    except Exception:
+        # Any error - use base timeout
+        return DaemonHealthDefaults.ADAPTIVE_TIMEOUT_BASE
 
 
 # =============================================================================
@@ -3524,6 +3587,145 @@ class PromotionGameDefaults:
         return rate_map.get(num_players, cls.WIN_RATE_2P)
 
 
+# =============================================================================
+# OWC Model Import Defaults (January 3, 2026 - Sprint 13 Session 4)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class OWCModelImportDefaults:
+    """Default values for OWC model import daemon.
+
+    January 3, 2026 (Sprint 13 Session 4): Imports model files (.pth) from
+    OWC external drive on mac-studio for Elo evaluation.
+
+    Used by: app/coordination/owc_model_import_daemon.py
+    """
+    # Check interval for discovering new models (seconds)
+    # 2 hours by default to avoid excessive SSH operations
+    CHECK_INTERVAL: float = _env_float("RINGRIFT_OWC_MODEL_IMPORT_INTERVAL", 7200.0)
+
+    # Maximum models to import per cycle
+    # Limits concurrent imports to avoid overloading coordinator
+    MAX_MODELS_PER_CYCLE: int = _env_int("RINGRIFT_OWC_MODEL_IMPORT_MAX_MODELS", 10)
+
+    # Minimum model file size (bytes) to consider valid
+    # Filters out corrupted or partial model files
+    MIN_MODEL_SIZE_BYTES: int = _env_int("RINGRIFT_OWC_MODEL_MIN_SIZE", 1_000_000)
+
+    # Maximum model file size (bytes) to import
+    # Prevents importing unexpectedly large files
+    MAX_MODEL_SIZE_BYTES: int = _env_int("RINGRIFT_OWC_MODEL_MAX_SIZE", 1_000_000_000)
+
+    # SSH timeout for OWC operations (seconds)
+    SSH_TIMEOUT: float = _env_float("RINGRIFT_OWC_MODEL_SSH_TIMEOUT", 60.0)
+
+    # Enable/disable OWC model import daemon
+    ENABLED: bool = _env_bool("RINGRIFT_OWC_MODEL_IMPORT_ENABLED", True)
+
+
+# =============================================================================
+# Unevaluated Model Scanner Defaults (January 3, 2026 - Sprint 13 Session 4)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class UnevaluatedScannerDefaults:
+    """Default values for unevaluated model scanner daemon.
+
+    January 3, 2026 (Sprint 13 Session 4): Scans all model sources for models
+    without Elo ratings and queues them for evaluation.
+
+    Used by: app/coordination/unevaluated_model_scanner_daemon.py
+    """
+    # Scan interval (seconds)
+    # 1 hour by default - balance between freshness and load
+    SCAN_INTERVAL: float = _env_float("RINGRIFT_UNEVALUATED_SCAN_INTERVAL", 3600.0)
+
+    # Maximum models to queue per cycle
+    # Prevents flooding evaluation queue
+    MAX_QUEUE_PER_CYCLE: int = _env_int("RINGRIFT_UNEVALUATED_MAX_QUEUE", 20)
+
+    # Priority boost for 4-player models (underserved configs)
+    PRIORITY_BOOST_4PLAYER: int = _env_int("RINGRIFT_UNEVALUATED_PRIORITY_4P", 30)
+
+    # Priority boost for underserved configs (hexagonal, square19)
+    PRIORITY_BOOST_UNDERSERVED: int = _env_int("RINGRIFT_UNEVALUATED_PRIORITY_UNDERSERVED", 50)
+
+    # Priority boost for canonical models
+    PRIORITY_BOOST_CANONICAL: int = _env_int("RINGRIFT_UNEVALUATED_PRIORITY_CANONICAL", 20)
+
+    # Priority boost for recent training (within 24h)
+    PRIORITY_BOOST_RECENT: int = _env_int("RINGRIFT_UNEVALUATED_PRIORITY_RECENT", 30)
+
+    # Base priority for all models
+    BASE_PRIORITY: int = _env_int("RINGRIFT_UNEVALUATED_BASE_PRIORITY", 50)
+
+    # Enable/disable scanner daemon
+    ENABLED: bool = _env_bool("RINGRIFT_UNEVALUATED_SCANNER_ENABLED", True)
+
+
+# =============================================================================
+# Evaluation Queue Defaults (January 3, 2026 - Sprint 13 Session 4)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class EvaluationQueueDefaults:
+    """Default values for persistent evaluation queue.
+
+    January 3, 2026 (Sprint 13 Session 4): SQLite-backed priority queue for
+    model evaluation that survives daemon restarts.
+
+    Used by: app/coordination/evaluation_queue.py, evaluation_daemon.py
+    """
+    # Database path for persistent queue
+    DB_PATH: str = "data/coordination/evaluation_queue.db"
+
+    # Stuck detection interval (seconds)
+    # Check for stuck evaluations every 30 minutes
+    STUCK_DETECTION_INTERVAL: float = _env_float(
+        "RINGRIFT_EVAL_QUEUE_STUCK_INTERVAL", 1800.0
+    )
+
+    # Maximum retry attempts for failed evaluations
+    MAX_ATTEMPTS: int = _env_int("RINGRIFT_EVAL_QUEUE_MAX_ATTEMPTS", 3)
+
+    # Board-specific stuck timeouts (seconds)
+    # Different board sizes have different expected evaluation times
+    STUCK_TIMEOUT_HEX8: float = _env_float("RINGRIFT_EVAL_STUCK_HEX8", 3600.0)  # 1 hour
+    STUCK_TIMEOUT_SQUARE8: float = _env_float("RINGRIFT_EVAL_STUCK_SQUARE8", 7200.0)  # 2 hours
+    STUCK_TIMEOUT_SQUARE19: float = _env_float("RINGRIFT_EVAL_STUCK_SQUARE19", 10800.0)  # 3 hours
+    STUCK_TIMEOUT_HEXAGONAL: float = _env_float("RINGRIFT_EVAL_STUCK_HEXAGONAL", 14400.0)  # 4 hours
+
+    # Default stuck timeout for unknown board types
+    STUCK_TIMEOUT_DEFAULT: float = _env_float("RINGRIFT_EVAL_STUCK_DEFAULT", 7200.0)  # 2 hours
+
+    # Retry backoff multiplier (exponential)
+    RETRY_BACKOFF_MULTIPLIER: float = _env_float("RINGRIFT_EVAL_RETRY_BACKOFF", 2.0)
+
+    # Initial retry delay (seconds)
+    RETRY_DELAY_INITIAL: float = _env_float("RINGRIFT_EVAL_RETRY_DELAY", 60.0)
+
+    @classmethod
+    def get_stuck_timeout(cls, board_type: str) -> float:
+        """Get stuck timeout for board type.
+
+        Args:
+            board_type: Board type (hex8, square8, square19, hexagonal)
+
+        Returns:
+            Timeout in seconds
+        """
+        timeouts = {
+            "hex8": cls.STUCK_TIMEOUT_HEX8,
+            "square8": cls.STUCK_TIMEOUT_SQUARE8,
+            "square19": cls.STUCK_TIMEOUT_SQUARE19,
+            "hexagonal": cls.STUCK_TIMEOUT_HEXAGONAL,
+        }
+        return timeouts.get(board_type, cls.STUCK_TIMEOUT_DEFAULT)
+
+
 __all__ = [
     # Config classes (alphabetical)
     "BackpressureDefaults",
@@ -3541,6 +3743,7 @@ __all__ = [
     "DurationDefaults",
     "EphemeralDefaults",
     "EphemeralGuardDefaults",
+    "EvaluationQueueDefaults",  # January 2026 - Sprint 13 Session 4
     "FrozenLeaderDefaults",  # January 2026
     "HealthCheckOrchestratorDefaults",  # December 28, 2025
     "HealthDefaults",
@@ -3558,6 +3761,7 @@ __all__ = [
     "OperationTimeouts",
     "OptimizationDefaults",
     "OrphanDetectionDefaults",
+    "OWCModelImportDefaults",  # January 2026 - Sprint 13 Session 4
     "P2PDefaults",
     "P2PRecoveryDefaults",  # January 2026
     "PartitionHealingDefaults",  # January 2026
@@ -3583,6 +3787,7 @@ __all__ = [
     "TaskLifecycleDefaults",
     "TrainingDefaults",
     "TransportDefaults",
+    "UnevaluatedScannerDefaults",  # January 2026 - Sprint 13 Session 4
     "UtilizationDefaults",
     "WorkQueueMonitorDefaults",
     # Utility functions
