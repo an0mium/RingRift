@@ -1317,6 +1317,168 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
         else:
             return len(queue)
 
+    # -------------------------------------------------------------------------
+    # SQLite Async Safety Helpers (Sprint 17.3 - January 4, 2026)
+    # -------------------------------------------------------------------------
+
+    async def _sqlite_query(
+        self,
+        func: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a blocking SQLite read operation in thread pool.
+
+        January 4, 2026 (Sprint 17.3): Provides async-safe SQLite query execution.
+        Wraps blocking sqlite3 operations in asyncio.to_thread() to prevent
+        event loop blocking.
+
+        Args:
+            func: Callable that performs the SQLite operation (e.g., cursor.execute)
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            Result of the function call
+
+        Example:
+            # Before (blocking):
+            cursor.execute("SELECT * FROM games WHERE config_key = ?", (key,))
+            rows = cursor.fetchall()
+
+            # After (async-safe):
+            rows = await self._sqlite_query(
+                lambda: cursor.execute("SELECT * FROM games WHERE config_key = ?", (key,)).fetchall()
+            )
+
+            # Or with connection:
+            async def get_games(self, config_key: str) -> list:
+                def _query():
+                    conn = sqlite3.connect(self._db_path)
+                    try:
+                        cursor = conn.execute(
+                            "SELECT * FROM games WHERE config_key = ?",
+                            (config_key,)
+                        )
+                        return cursor.fetchall()
+                    finally:
+                        conn.close()
+                return await self._sqlite_query(_query)
+        """
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    async def _sqlite_execute(
+        self,
+        func: Callable[..., Any],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a blocking SQLite write operation in thread pool.
+
+        January 4, 2026 (Sprint 17.3): Provides async-safe SQLite write execution.
+        Alias for _sqlite_query() but semantically indicates a write operation.
+        Use this for INSERT, UPDATE, DELETE, and other modifying operations.
+
+        Args:
+            func: Callable that performs the SQLite operation
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            Result of the function call
+
+        Example:
+            # Insert with commit:
+            async def save_result(self, config_key: str, elo: int) -> None:
+                def _insert():
+                    conn = sqlite3.connect(self._db_path)
+                    try:
+                        conn.execute(
+                            "INSERT INTO results (config_key, elo) VALUES (?, ?)",
+                            (config_key, elo)
+                        )
+                        conn.commit()
+                    finally:
+                        conn.close()
+                await self._sqlite_execute(_insert)
+
+            # Transaction with rollback:
+            async def update_batch(self, updates: list) -> int:
+                def _update():
+                    conn = sqlite3.connect(self._db_path)
+                    try:
+                        cursor = conn.cursor()
+                        for item in updates:
+                            cursor.execute("UPDATE ...", item)
+                        conn.commit()
+                        return cursor.rowcount
+                    except Exception:
+                        conn.rollback()
+                        raise
+                    finally:
+                        conn.close()
+                return await self._sqlite_execute(_update)
+        """
+        return await asyncio.to_thread(func, *args, **kwargs)
+
+    async def _sqlite_with_connection(
+        self,
+        db_path: str,
+        func: Callable[[Any], Any],
+        readonly: bool = False,
+    ) -> Any:
+        """Execute a function with a managed SQLite connection.
+
+        January 4, 2026 (Sprint 17.3): Higher-level helper that manages
+        connection lifecycle. Opens connection, executes function, handles
+        commit/rollback, and closes connection - all in thread pool.
+
+        Args:
+            db_path: Path to SQLite database file
+            func: Callable that takes a connection and returns a result
+            readonly: If True, opens in read-only mode (no commit needed)
+
+        Returns:
+            Result of the function call
+
+        Example:
+            # Read operation:
+            result = await self._sqlite_with_connection(
+                "data/games.db",
+                lambda conn: conn.execute("SELECT COUNT(*) FROM games").fetchone()[0],
+                readonly=True
+            )
+
+            # Write operation (auto-commits):
+            await self._sqlite_with_connection(
+                "data/games.db",
+                lambda conn: conn.execute("DELETE FROM games WHERE stale = 1")
+            )
+        """
+        import sqlite3
+
+        def _execute() -> Any:
+            # Open connection (read-only mode if specified)
+            if readonly:
+                uri = f"file:{db_path}?mode=ro"
+                conn = sqlite3.connect(uri, uri=True)
+            else:
+                conn = sqlite3.connect(db_path)
+
+            try:
+                result = func(conn)
+                if not readonly:
+                    conn.commit()
+                return result
+            except Exception:
+                if not readonly:
+                    conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        return await asyncio.to_thread(_execute)
+
 
 # =============================================================================
 # Backward-Compatible Config (from base_event_handler.py)
