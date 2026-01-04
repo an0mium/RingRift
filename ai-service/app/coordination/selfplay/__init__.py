@@ -19,15 +19,11 @@ Usage:
     from app.coordination.selfplay_scheduler import SelfplayScheduler
 """
 
-# Re-export main class for backward compatibility
-# During decomposition, we still import from the monolith
-from app.coordination.selfplay_scheduler import (
-    SelfplayScheduler,
-    get_selfplay_scheduler,
-    reset_selfplay_scheduler,
-)
+from __future__ import annotations
 
-# Types are in selfplay_priority_types.py
+from typing import TYPE_CHECKING
+
+# Types are in selfplay_priority_types.py - these don't cause circular imports
 from app.coordination.selfplay_priority_types import (
     ConfigPriority,
     DynamicWeights,
@@ -40,6 +36,8 @@ from app.coordination.priority_calculator import (
 
 # Mixin classes for decomposed functionality
 from app.coordination.selfplay.status_monitoring import StatusMonitoringMixin
+from app.coordination.selfplay.quality_signal_handler import SelfplayQualitySignalMixin
+from app.coordination.selfplay.velocity_mixin import SelfplayVelocityMixin
 
 # Event handler documentation and registry
 from app.coordination.selfplay.event_handlers import (
@@ -55,6 +53,33 @@ from app.coordination.selfplay.event_handlers import (
     is_event_handled,
 )
 
+# Lazy import for SelfplayScheduler to avoid circular imports
+# When quality_signal_handler.py imports from this package, the scheduler
+# hasn't been fully loaded yet
+if TYPE_CHECKING:
+    from app.coordination.selfplay_scheduler import (
+        SelfplayScheduler,
+        get_selfplay_scheduler,
+        reset_selfplay_scheduler,
+    )
+
+
+def __getattr__(name: str):
+    """Lazy import for SelfplayScheduler and related functions."""
+    if name in ("SelfplayScheduler", "get_selfplay_scheduler", "reset_selfplay_scheduler"):
+        from app.coordination.selfplay_scheduler import (
+            SelfplayScheduler,
+            get_selfplay_scheduler,
+            reset_selfplay_scheduler,
+        )
+        return {
+            "SelfplayScheduler": SelfplayScheduler,
+            "get_selfplay_scheduler": get_selfplay_scheduler,
+            "reset_selfplay_scheduler": reset_selfplay_scheduler,
+        }[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = [
     "SelfplayScheduler",
     "get_selfplay_scheduler",
@@ -64,8 +89,10 @@ __all__ = [
     "PriorityInputs",
     "DynamicWeights",
     "ClusterState",
-    # Mixins (Sprint 17.3)
+    # Mixins (Sprint 17.3+)
     "StatusMonitoringMixin",
+    "SelfplayQualitySignalMixin",
+    "SelfplayVelocityMixin",
     # Event registry (Sprint 17.3)
     "CORE_EVENTS",
     "QUALITY_EVENTS",

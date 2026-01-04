@@ -2,7 +2,7 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.9 - Session 17.8)
+**Last Updated**: January 4, 2026 (Sprint 17.9 - Session 17.9)
 
 ## Infrastructure Health Status (Verified Jan 4, 2026)
 
@@ -49,20 +49,30 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 
 **Sprint 17.9 / Session 17.8 (Jan 4, 2026) - Improvement Verification & Consolidation:**
 
-| Task                             | Status      | Evidence                                                               |
-| -------------------------------- | ----------- | ---------------------------------------------------------------------- |
-| Event Emission Consolidation     | ✅ COMPLETE | safe_event_emitter delegates to event_emission_helpers                 |
-| selfplay_scheduler Decomposition | ✅ VERIFIED | 2,696 LOC already extracted (priority_calculator, orchestrator, types) |
-| FeedbackLoopController Split     | ✅ VERIFIED | 5,346 LOC already extracted (8 specialized modules)                    |
-| Unified Retry/Backoff Strategy   | ✅ VERIFIED | 18 coordination files using centralized RetryConfig                    |
-| Cluster Health                   | ✅ GREEN    | 28 active peers, mac-studio leader                                     |
+| Task                             | Status      | Evidence                                                                                  |
+| -------------------------------- | ----------- | ----------------------------------------------------------------------------------------- |
+| Event Emission Consolidation     | ✅ COMPLETE | safe_event_emitter delegates to event_emission_helpers                                    |
+| selfplay_scheduler Decomposition | ✅ COMPLETE | 3,649 LOC extracted (5 modules: priority_calculator, orchestrator, types, cache, quality) |
+| FeedbackLoopController Split     | ✅ VERIFIED | 5,346 LOC already extracted (8 specialized modules)                                       |
+| Unified Retry/Backoff Strategy   | ✅ VERIFIED | 18 coordination files using centralized RetryConfig                                       |
+| Cluster Health                   | ✅ GREEN    | 28 active peers, mac-studio leader                                                        |
 
-**Decomposition Verification (Session 17.8):**
+**Decomposition Verification (Session 17.9):**
 
-| Component                | Main File LOC | Extracted LOC | Extracted Modules                                                      |
-| ------------------------ | ------------- | ------------- | ---------------------------------------------------------------------- |
-| selfplay_scheduler.py    | 4,743         | 2,696         | priority_calculator (639), selfplay_orchestrator (1783), types (274)   |
-| feedback_loop_controller | 4,200         | 5,346         | 8 modules: unified_feedback, gauntlet_feedback, quality/curriculum/etc |
+| Component                | Main File LOC | Extracted LOC | Extracted Modules                                                                                                                                |
+| ------------------------ | ------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| selfplay_scheduler.py    | 4,230         | 3,649         | priority_calculator (639), selfplay_orchestrator (1783), selfplay_priority_types (274), config_state_cache (356), selfplay_quality_manager (597) |
+| feedback_loop_controller | 4,200         | 5,346         | 8 modules: unified_feedback, gauntlet_feedback, quality/curriculum/etc                                                                           |
+
+**Session 17.9 Additions:**
+
+- Created `selfplay_quality_manager.py` (597 LOC) - Quality caching + diversity tracking
+  - `OpponentDiversityTracker` class for diversity maximization
+  - `QualityManager` class combining quality + diversity
+  - 39 unit tests (all passing)
+- Verified `config_state_cache.py` (356 LOC) already exists for TTL-based caching
+- Assessed allocation engine (~450 LOC) - tightly coupled to scheduler state, extraction deferred
+- Assessed event handlers (30+ `_on_*` methods) - tightly coupled, extraction deferred
 
 **Key Finding**: Most P0 improvements from plan were already implemented in previous sessions. The improvement roadmap (5,000-7,500 LOC savings) was largely completed.
 
