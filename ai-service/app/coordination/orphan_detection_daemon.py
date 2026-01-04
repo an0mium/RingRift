@@ -425,7 +425,8 @@ class OrphanDetectionDaemon(HandlerBase):
                 if success:
                     registered_count += 1
                     registered_orphans.append(orphan)
-                    self._clear_failed_orphan(orphan.path)
+                    # Jan 4, 2026: Wrap blocking SQLite in thread pool
+                    await asyncio.to_thread(self._clear_failed_orphan, orphan.path)
 
             # Emit registration event if any orphans were registered
             if registered_count > 0:
@@ -441,7 +442,8 @@ class OrphanDetectionDaemon(HandlerBase):
             )
             self._registration_errors += 1
             for orphan in orphans:
-                self._persist_failed_orphan(orphan, str(e))
+                # Jan 4, 2026: Wrap blocking SQLite in thread pool
+                await asyncio.to_thread(self._persist_failed_orphan, orphan, str(e))
 
         return registered_count
 
@@ -499,7 +501,8 @@ class OrphanDetectionDaemon(HandlerBase):
             f"{retry_config.max_attempts} attempts: {last_error}"
         )
         self._registration_errors += 1
-        self._persist_failed_orphan(orphan, last_error)
+        # Jan 4, 2026: Wrap blocking SQLite in thread pool
+        await asyncio.to_thread(self._persist_failed_orphan, orphan, last_error)
         return False
 
     async def _emit_registration_event(self, registered: list[OrphanInfo]) -> None:

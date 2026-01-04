@@ -8997,13 +8997,25 @@ class P2POrchestrator(
                 board_type_files[board_key] = []
             board_type_files[board_key].append((jsonl_file, file_key))
 
-        # Convert each board type to a consolidated DB (chunked reading)
-        for board_key, files in board_type_files.items():
-            if not files:
-                continue
+        # Helper function to convert one board type's files to DB - runs in thread pool
+        def _convert_board_type_to_db(
+            board_key: str,
+            files: list[tuple[Path, str]],
+            games_dir: Path,
+            chunk_size: int,
+        ) -> tuple[int, list[str]]:
+            """Convert one board type's JSONL files to SQLite DB.
 
+            Runs in thread pool via asyncio.to_thread() to avoid blocking event loop.
+
+            Returns:
+                (games_added, newly_converted_file_keys)
+            """
             db_path = games_dir / f"jsonl_converted_{board_key}.db"
             conn = None
+            games_added = 0
+            converted = []
+
             try:
                 conn = sqlite3.connect(str(db_path), timeout=30.0)
                 conn.execute("PRAGMA journal_mode=WAL")
@@ -9024,7 +9036,6 @@ class P2POrchestrator(
                 """)
                 conn.commit()
 
-                games_added = 0
                 for jsonl_file, file_key in files:
                     try:
                         # Read file in chunks to avoid memory issues
@@ -9051,7 +9062,7 @@ class P2POrchestrator(
                                     ))
 
                                     # Flush chunk when buffer is full
-                                    if len(chunk_buffer) >= CHUNK_SIZE:
+                                    if len(chunk_buffer) >= chunk_size:
                                         conn.executemany("""
                                             INSERT OR IGNORE INTO games
                                             (game_id, board_type, num_players, winner, move_count,
@@ -9074,13 +9085,12 @@ class P2POrchestrator(
                             """, chunk_buffer)
                             games_added += len(chunk_buffer)
 
-                        newly_converted.append(file_key)
+                        converted.append(file_key)
                     except Exception as e:  # noqa: BLE001
                         logger.error(f"converting {jsonl_file.name}: {e}")
                         continue
 
                 conn.commit()
-                total_converted += games_added
 
                 if games_added > 0:
                     logger.info(f"Converted {games_added} games to {db_path.name}")
@@ -9090,6 +9100,24 @@ class P2POrchestrator(
             finally:
                 if conn:
                     conn.close()
+
+            return games_added, converted
+
+        # Convert each board type to a consolidated DB (chunked reading)
+        # Jan 4, 2026: Run blocking SQLite ops in thread pool to avoid blocking event loop
+        for board_key, files in board_type_files.items():
+            if not files:
+                continue
+
+            games_added, converted = await asyncio.to_thread(
+                _convert_board_type_to_db,
+                board_key,
+                files,
+                games_dir,
+                CHUNK_SIZE,
+            )
+            total_converted += games_added
+            newly_converted.extend(converted)
 
         # Update converted files marker
         if newly_converted:
