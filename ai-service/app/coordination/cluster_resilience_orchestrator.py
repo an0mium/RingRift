@@ -569,9 +569,14 @@ class ClusterResilienceOrchestrator(CoordinatorBase, SingletonMixin):
             from app.coordination.daemon_manager import get_daemon_manager
 
             dm = get_daemon_manager()
-            health = dm.get_all_daemon_health()
+            # Use health_summary() which returns score, running, failed, total
+            summary = dm.health_summary()
 
-            total = len(health)
+            total = summary.get("total", 0)
+            running = summary.get("running", 0)
+            failed = summary.get("failed", 0)
+            score = summary.get("score", 1.0)
+
             if total == 0:
                 return ComponentHealth(
                     name="daemon",
@@ -581,27 +586,18 @@ class ClusterResilienceOrchestrator(CoordinatorBase, SingletonMixin):
                     last_check_time=time.time(),
                 )
 
-            healthy_count = sum(
-                1 for h in health.values()
-                if h.get("status") in ("healthy", "running")
-            )
-            score = healthy_count / total
             is_healthy = score >= 0.8
-
-            unhealthy = [
-                name for name, h in health.items()
-                if h.get("status") not in ("healthy", "running")
-            ]
 
             return ComponentHealth(
                 name="daemon",
                 score=score,
                 is_healthy=is_healthy,
-                message=f"{healthy_count}/{total} daemons healthy",
+                message=f"{running}/{total} daemons healthy ({failed} failed)",
                 details={
                     "total": total,
-                    "healthy": healthy_count,
-                    "unhealthy": unhealthy[:5],  # First 5
+                    "running": running,
+                    "failed": failed,
+                    "status": summary.get("status", "unknown"),
                 },
                 last_check_time=time.time(),
             )

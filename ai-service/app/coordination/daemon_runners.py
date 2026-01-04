@@ -1153,6 +1153,32 @@ async def create_unevaluated_model_scanner() -> None:
         raise
 
 
+async def create_stale_evaluation() -> None:
+    """Create and run stale evaluation daemon (January 4, 2026 - Sprint 17).
+
+    Re-evaluates models with Elo ratings older than a configured threshold
+    (default 30 days). This ensures model rankings stay accurate as the
+    training landscape evolves.
+
+    Features:
+    - Scans EloService for models with old evaluation timestamps
+    - Adds to evaluation queue with appropriate priority
+    - Prevents unnecessary re-evaluation with configurable cooldowns
+    - Emits EVALUATION_REQUESTED events
+    """
+    try:
+        from app.coordination.stale_evaluation_daemon import (
+            get_stale_evaluation_daemon,
+        )
+
+        daemon = get_stale_evaluation_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"StaleEvaluationDaemon not available: {e}")
+        raise
+
+
 async def create_ephemeral_sync() -> None:
     """Create and run ephemeral sync daemon (Phase 4, December 2025).
 
@@ -3178,6 +3204,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         # January 3, 2026 (Sprint 13 Session 4): Model evaluation automation
         DaemonType.OWC_MODEL_IMPORT.name: create_owc_model_import,
         DaemonType.UNEVALUATED_MODEL_SCANNER.name: create_unevaluated_model_scanner,
+        DaemonType.STALE_EVALUATION.name: create_stale_evaluation,  # Jan 4, 2026: Sprint 17
         DaemonType.EPHEMERAL_SYNC.name: create_ephemeral_sync,
         DaemonType.GOSSIP_SYNC.name: create_gossip_sync,
         DaemonType.EVENT_ROUTER.name: create_event_router,

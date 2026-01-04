@@ -826,6 +826,60 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         category="sync",
         health_check_interval=300.0,  # 5 minutes
     ),
+    # Jan 4, 2026: P2P Cluster Resilience - Phase 3
+    DaemonType.UNDERUTILIZATION_RECOVERY: DaemonSpec(
+        runner_name="create_underutilization_recovery",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="autonomous",
+        health_check_interval=60.0,
+    ),
+    # Jan 4, 2026: P2P Cluster Resilience - Phase 4
+    DaemonType.FAST_FAILURE_DETECTOR: DaemonSpec(
+        runner_name="create_fast_failure_detector",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="autonomous",
+        health_check_interval=60.0,
+    ),
+    # Jan 2026: Socket leak detection and recovery
+    DaemonType.SOCKET_LEAK_RECOVERY: DaemonSpec(
+        runner_name="create_socket_leak_recovery",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="autonomous",
+        health_check_interval=120.0,
+    ),
+    # Jan 2026: Training data recovery after corruption
+    DaemonType.TRAINING_DATA_RECOVERY: DaemonSpec(
+        runner_name="create_training_data_recovery",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="autonomous",
+        health_check_interval=120.0,
+    ),
+    # Jan 4, 2026: Training watchdog for stuck processes
+    DaemonType.TRAINING_WATCHDOG: DaemonSpec(
+        runner_name="create_training_watchdog",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="autonomous",
+        health_check_interval=60.0,
+    ),
+    # Model evaluation and promotion daemons
+    DaemonType.OWC_MODEL_IMPORT: DaemonSpec(
+        runner_name="create_owc_model_import",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="sync",
+        health_check_interval=300.0,
+    ),
+    DaemonType.UNEVALUATED_MODEL_SCANNER: DaemonSpec(
+        runner_name="create_unevaluated_model_scanner",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="evaluation",
+        health_check_interval=300.0,
+    ),
+    DaemonType.STALE_EVALUATION: DaemonSpec(
+        runner_name="create_stale_evaluation",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="evaluation",
+        health_check_interval=300.0,
+    ),
 }
 
 
