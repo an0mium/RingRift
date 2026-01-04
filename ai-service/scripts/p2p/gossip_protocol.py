@@ -342,6 +342,23 @@ class GossipProtocolMixin(P2PMixinBase):
         os.environ.get("RINGRIFT_PREEMPTIVE_CB_TTL", "60.0")
     )
 
+    # Jan 3, 2026 Sprint 13: Adaptive gossip intervals for faster partition recovery
+    # When partitions are detected, we reduce the gossip interval to speed up healing.
+    # When stable, we use a longer interval to reduce network overhead.
+    GOSSIP_INTERVAL_PARTITION = float(
+        os.environ.get("RINGRIFT_GOSSIP_INTERVAL_PARTITION", "5.0")
+    )  # Fast interval during partition (5s)
+    GOSSIP_INTERVAL_RECOVERY = float(
+        os.environ.get("RINGRIFT_GOSSIP_INTERVAL_RECOVERY", "10.0")
+    )  # Medium interval during recovery (10s)
+    GOSSIP_INTERVAL_STABLE = float(
+        os.environ.get("RINGRIFT_GOSSIP_INTERVAL_STABLE", "30.0")
+    )  # Normal interval when stable (30s)
+    # Threshold for "stable" status (consecutive healthy checks)
+    GOSSIP_STABILITY_THRESHOLD = int(
+        os.environ.get("RINGRIFT_GOSSIP_STABILITY_THRESHOLD", "5")
+    )
+
     def _init_gossip_protocol(self) -> None:
         """Initialize gossip protocol state and metrics.
 
@@ -400,6 +417,16 @@ class GossipProtocolMixin(P2PMixinBase):
         # Used for TTL decay - don't re-apply if already applied within TTL
         if not hasattr(self, "_preemptive_cb_applied"):
             self._preemptive_cb_applied: dict[str, float] = {}
+
+        # Jan 3, 2026 Sprint 13: Adaptive gossip interval state
+        # Track consecutive healthy checks to determine stability
+        if not hasattr(self, "_gossip_consecutive_healthy"):
+            self._gossip_consecutive_healthy: int = 0
+        if not hasattr(self, "_gossip_last_partition_status"):
+            self._gossip_last_partition_status: str = "unknown"
+        if not hasattr(self, "_gossip_adaptive_interval"):
+            # Start with medium interval, will adapt based on partition status
+            self._gossip_adaptive_interval: float = self.GOSSIP_INTERVAL_RECOVERY
 
         # Dec 29, 2025: Restore persisted gossip state on startup
         # This allows faster cluster state recovery after P2P restarts
@@ -1135,11 +1162,19 @@ class GossipProtocolMixin(P2PMixinBase):
 
         now = time.time()
 
-        # Rate limit: gossip interval configurable via RINGRIFT_GOSSIP_INTERVAL
+        # Rate limit: use adaptive gossip interval based on partition status
+        # Sprint 13 (Jan 3, 2026): Interval adapts to cluster health:
+        # - Partition: 5s for fast recovery
+        # - Recovery: 10s during stabilization
+        # - Stable: 30s for normal operation
         last_gossip = getattr(self, "_last_gossip_time", 0)
-        if now - last_gossip < self.GOSSIP_INTERVAL_SECONDS:
+        current_interval = self.get_adaptive_gossip_interval()
+        if now - last_gossip < current_interval:
             return
         self._last_gossip_time = now
+
+        # Update adaptive interval for next round based on current partition status
+        self._update_adaptive_gossip_interval()
 
         # Prepare our state to share
         # Dec 30, 2025: Use async version to avoid blocking event loop with subprocess calls
@@ -2498,6 +2533,98 @@ class GossipProtocolMixin(P2PMixinBase):
             "alive_peers": alive_peers[:10],  # Limit for response size
             "dead_peers": dead_peers[:10],
             "suspected_peers": suspected_peers[:10],
+        }
+
+    # =========================================================================
+    # Adaptive Gossip Intervals (Sprint 13 - Jan 3, 2026)
+    # =========================================================================
+
+    def _update_adaptive_gossip_interval(self) -> float:
+        """Update and return the adaptive gossip interval based on partition status.
+
+        Sprint 13 (Jan 3, 2026): Adaptive gossip intervals for faster partition recovery.
+
+        The interval is adjusted based on cluster health:
+        - Partition (isolated/minority): 5s - Fast gossip for rapid recovery
+        - Recovery (healthy but recently partitioned): 10s - Medium interval
+        - Stable (consistently healthy): 30s - Normal interval to reduce overhead
+
+        Stability is determined by consecutive healthy checks exceeding the threshold.
+        This prevents oscillation between intervals when health briefly fluctuates.
+
+        Returns:
+            The current adaptive gossip interval in seconds.
+        """
+        status, _ = self.detect_partition_status()
+
+        # Track status changes for logging
+        if hasattr(self, "_gossip_last_partition_status"):
+            last_status = self._gossip_last_partition_status
+        else:
+            last_status = "unknown"
+            self._gossip_last_partition_status = "unknown"
+            self._gossip_consecutive_healthy = 0
+
+        old_interval = getattr(self, "_gossip_adaptive_interval", self.GOSSIP_INTERVAL_SECONDS)
+
+        if status in ("isolated", "minority"):
+            # Partition detected - use fast interval
+            self._gossip_consecutive_healthy = 0
+            self._gossip_adaptive_interval = self.GOSSIP_INTERVAL_PARTITION
+            if last_status == "healthy":
+                self._log_warning(
+                    f"Partition detected ({status}), reducing gossip interval: "
+                    f"{old_interval:.1f}s → {self._gossip_adaptive_interval:.1f}s"
+                )
+        elif status == "healthy":
+            # Healthy - increment stability counter
+            self._gossip_consecutive_healthy += 1
+
+            if self._gossip_consecutive_healthy >= self.GOSSIP_STABILITY_THRESHOLD:
+                # Stable - use normal interval
+                self._gossip_adaptive_interval = self.GOSSIP_INTERVAL_STABLE
+                if old_interval != self.GOSSIP_INTERVAL_STABLE:
+                    self._log_info(
+                        f"Cluster stable ({self._gossip_consecutive_healthy} healthy checks), "
+                        f"increasing gossip interval: {old_interval:.1f}s → {self._gossip_adaptive_interval:.1f}s"
+                    )
+            else:
+                # Recovering - use medium interval
+                self._gossip_adaptive_interval = self.GOSSIP_INTERVAL_RECOVERY
+                if last_status != "healthy" and old_interval != self.GOSSIP_INTERVAL_RECOVERY:
+                    self._log_info(
+                        f"Cluster recovering, using medium gossip interval: "
+                        f"{old_interval:.1f}s → {self._gossip_adaptive_interval:.1f}s"
+                    )
+
+        self._gossip_last_partition_status = status
+        return self._gossip_adaptive_interval
+
+    def get_adaptive_gossip_interval(self) -> float:
+        """Get the current adaptive gossip interval without updating state.
+
+        Returns:
+            The current adaptive gossip interval in seconds.
+        """
+        return getattr(self, "_gossip_adaptive_interval", self.GOSSIP_INTERVAL_SECONDS)
+
+    def get_adaptive_gossip_status(self) -> dict[str, Any]:
+        """Get detailed adaptive gossip interval status for monitoring.
+
+        Returns:
+            Dict with current interval, partition status, and stability info.
+        """
+        status, ratio = self.detect_partition_status()
+        return {
+            "current_interval": getattr(self, "_gossip_adaptive_interval", self.GOSSIP_INTERVAL_SECONDS),
+            "partition_status": status,
+            "health_ratio": round(ratio, 3),
+            "consecutive_healthy": getattr(self, "_gossip_consecutive_healthy", 0),
+            "stability_threshold": self.GOSSIP_STABILITY_THRESHOLD,
+            "is_stable": getattr(self, "_gossip_consecutive_healthy", 0) >= self.GOSSIP_STABILITY_THRESHOLD,
+            "interval_partition": self.GOSSIP_INTERVAL_PARTITION,
+            "interval_recovery": self.GOSSIP_INTERVAL_RECOVERY,
+            "interval_stable": self.GOSSIP_INTERVAL_STABLE,
         }
 
     # =========================================================================
