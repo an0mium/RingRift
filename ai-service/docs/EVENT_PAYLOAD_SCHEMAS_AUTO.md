@@ -2,13 +2,13 @@
 
 Generated: January 2026 (Sprint 14)
 
-Total events: 253
+Total events: 263
 Previously documented: 23
-Newly documented: 230
+Newly documented: 240
 
 ---
 
-## Training Events (16)
+## Training Events (18)
 
 ### RESOURCE_CONSTRAINT 🆕
 
@@ -84,6 +84,22 @@ Newly documented: 230
 **Emitters**:
 
 - `scripts/p2p_orchestrator.py:3967`
+
+---
+
+### TRAINING_DATA_RECOVERED 🆕
+
+**Value**: `training_data_recovered`
+
+**Payload**: (no fields detected)
+
+---
+
+### TRAINING_DATA_RECOVERY_FAILED 🆕
+
+**Value**: `training_data_recovery_failed`
+
+**Payload**: (no fields detected)
 
 ---
 
@@ -205,7 +221,7 @@ Newly documented: 230
 
 **Emitters**:
 
-- `app/coordination/training_trigger_daemon.py:3553`
+- `app/coordination/training_trigger_daemon.py:3646`
 
 ---
 
@@ -274,7 +290,7 @@ Newly documented: 230
 
 **Emitters**:
 
-- `app/coordination/selfplay_scheduler.py:4138`
+- `app/coordination/selfplay_scheduler.py:4189`
 
 ---
 
@@ -303,7 +319,7 @@ Newly documented: 230
 **Emitters**:
 
 - `app/coordination/selfplay_scheduler.py:2027`
-- `app/coordination/selfplay_scheduler.py:2897`
+- `app/coordination/selfplay_scheduler.py:2902`
 
 ---
 
@@ -334,13 +350,13 @@ Newly documented: 230
 
 **Emitters**:
 
-- `app/coordination/feedback_loop_controller.py:1896`
-- `app/coordination/feedback_loop_controller.py:2065`
-- `app/coordination/selfplay_scheduler.py:2617`
+- `app/coordination/feedback_loop_controller.py:1955`
+- `app/coordination/feedback_loop_controller.py:2124`
+- `app/coordination/selfplay_scheduler.py:2622`
 
 ---
 
-## Evaluation Events (11)
+## Evaluation Events (15)
 
 ### ELO_SIGNIFICANT_CHANGE 🆕
 
@@ -417,9 +433,41 @@ Newly documented: 230
 
 ---
 
+### EVALUATION_QUEUED 🆕
+
+**Value**: `evaluation_queued`
+
+**Payload**: (no fields detected)
+
+---
+
+### EVALUATION_RECOVERED 🆕
+
+**Value**: `evaluation_recovered`
+
+**Payload**: (no fields detected)
+
+---
+
+### EVALUATION_REQUESTED 🆕
+
+**Value**: `evaluation_requested`
+
+**Payload**: (no fields detected)
+
+---
+
 ### EVALUATION_STARTED 🆕
 
 **Value**: `evaluation_started`
+
+**Payload**: (no fields detected)
+
+---
+
+### EVALUATION_STUCK 🆕
+
+**Value**: `evaluation_stuck`
 
 **Payload**: (no fields detected)
 
@@ -445,7 +493,7 @@ Newly documented: 230
 
 ---
 
-## Model Events (10)
+## Model Events (13)
 
 ### CHECKPOINT_LOADED 🆕
 
@@ -495,6 +543,14 @@ Newly documented: 230
 
 ---
 
+### MODEL_IMPORTED 🆕
+
+**Value**: `model_imported`
+
+**Payload**: (no fields detected)
+
+---
+
 ### MODEL_PROMOTED
 
 **Value**: `model_promoted`
@@ -519,9 +575,25 @@ Newly documented: 230
 
 ---
 
+### OWC_MODELS_DISCOVERED 🆕
+
+**Value**: `owc_models_discovered`
+
+**Payload**: (no fields detected)
+
+---
+
 ### P2P_MODEL_SYNCED 🆕
 
 **Value**: `p2p_model_synced`
+
+**Payload**: (no fields detected)
+
+---
+
+### UNEVALUATED_MODELS_FOUND 🆕
+
+**Value**: `unevaluated_models_found`
 
 **Payload**: (no fields detected)
 
@@ -913,7 +985,15 @@ Newly documented: 230
 
 ---
 
-## Health Events (36)
+## Health Events (37)
+
+### CLUSTER_HEALTH_CHANGED 🆕
+
+**Value**: `cluster_health_changed`
+
+**Payload**: (no fields detected)
+
+---
 
 ### CLUSTER_P2P_RECOVERY_COMPLETED 🆕
 
@@ -1753,7 +1833,7 @@ Newly documented: 230
 
 **Emitters**:
 
-- `app/coordination/feedback_loop_controller.py:1993`
+- `app/coordination/feedback_loop_controller.py:2052`
 
 ---
 
@@ -2295,7 +2375,7 @@ Newly documented: 230
 
 **Emitters**:
 
-- `app/coordination/selfplay_scheduler.py:3798`
+- `app/coordination/selfplay_scheduler.py:3849`
 
 ---
 

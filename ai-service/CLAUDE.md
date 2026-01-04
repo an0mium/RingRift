@@ -2,28 +2,39 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 3, 2026 (Sprint 12 Session 11)
+**Last Updated**: January 3, 2026 (Sprint 15)
 
 ## Infrastructure Health Status (Verified Jan 3, 2026)
 
 | Component           | Status  | Evidence                                                  |
 | ------------------- | ------- | --------------------------------------------------------- |
-| **P2P Network**     | GREEN   | 31 health mechanisms, 6 recovery daemons, 25+ alive peers |
-| **Training Loop**   | GREEN   | 99.5% complete, 256 event types, all critical flows wired |
+| **P2P Network**     | GREEN   | 32 health mechanisms, 7 recovery daemons, 28+ alive peers |
+| **Training Loop**   | GREEN   | Sprint 15 fixes deployed, feedback recording wired        |
 | **Code Quality**    | GREEN   | 95% consolidated, ~4,000 LOC saved through refactoring    |
 | **Leader Election** | WORKING | Bully algorithm with voter quorum, split-brain detection  |
 | **Work Queue**      | HEALTHY | 1000+ items maintained, QueuePopulatorLoop working        |
 
-**Comprehensive Assessment (Jan 3, 2026 - Sprint 13 Session 4):**
+**Sprint 15 Assessment (Jan 3, 2026):**
 
-| Assessment Area      | Grade | Score  | Verified Status                                                         |
-| -------------------- | ----- | ------ | ----------------------------------------------------------------------- |
-| P2P Network          | A-    | 91/100 | 32 health mechanisms, 10 CB types, 7 recovery daemons, election latency |
-| Training Loop        | A     | 96/100 | 7/7 stages, 5/5 feedback loops, 242 event types, data recovery          |
-| HandlerBase Adoption | -     | 26.5%  | 79/298 daemon files (Session 11 exploration)                            |
-| Test Coverage        | 99%+  | -      | 307 test files for 298 coordination modules (107% ratio)                |
-| Consolidation        | -     | 95%    | CurriculumSignalBridge base class, 235K LOC coordination layer          |
-| Daemon Types         | -     | 122    | DaemonType enum verified, +1 TRAINING_DATA_RECOVERY                     |
+| Assessment Area      | Grade | Score  | Verified Status                                                       |
+| -------------------- | ----- | ------ | --------------------------------------------------------------------- |
+| P2P Network          | A-    | 91/100 | 10 alive voters, quorum satisfied, 18 health files, 10 CB types       |
+| Training Loop        | B+    | 85/100 | Feedback recording wired, allocation rebalanced, dispatch retry added |
+| HandlerBase Adoption | -     | 26.5%  | 79/298 daemon files                                                   |
+| Test Coverage        | 99%+  | -      | 307 test files for 298 coordination modules (107% ratio)              |
+| Consolidation        | -     | 95%    | 2,660-3,490 LOC savings identified, 68-93 hours effort remaining      |
+| Daemon Types         | -     | 122+   | DaemonType enum verified                                              |
+| Event Types          | -     | 240+   | DataEventType enum verified                                           |
+
+**Sprint 15 Fixes Deployed (Jan 3, 2026):**
+
+| Fix                             | Description                                                         | Files Modified                              |
+| ------------------------------- | ------------------------------------------------------------------- | ------------------------------------------- |
+| Training feedback recording     | `record_training_feedback()` method + FeedbackLoopController wiring | elo_service.py, feedback_loop_controller.py |
+| Selfplay allocation rebalancing | STALENESS_WEIGHT 0.30→0.15, ELO_VELOCITY_WEIGHT 0.20→0.10           | coordination_defaults.py                    |
+| Starvation multipliers          | ULTRA 200x, EMERGENCY 50x, CRITICAL 20x                             | coordination_defaults.py                    |
+| Training dispatch retry         | MAX_DISPATCH_RETRIES=3 with fallback nodes                          | training_coordinator.py                     |
+| NAT-blocked node timeouts       | ssh_timeout: 30, probe_timeout: 15, retry_count: 3                  | distributed_hosts.yaml                      |
 
 **Sprint 12 Session 11 Assessment (Jan 3, 2026):**
 

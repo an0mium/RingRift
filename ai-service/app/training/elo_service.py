@@ -2539,6 +2539,121 @@ class EloService:
 
         return rankings
 
+    def get_unevaluated_models(
+        self,
+        models_directory: Path | str | None = None,
+        include_subdirs: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Find model files that don't have Elo ratings in the database.
+
+        January 3, 2026: Added for ModelDiscoveryDaemon to find models needing evaluation.
+
+        Args:
+            models_directory: Directory to scan for .pth files.
+                Defaults to 'models/' directory relative to ai-service.
+            include_subdirs: Whether to scan subdirectories recursively.
+
+        Returns:
+            List of dicts with model info:
+                - model_path: str - Full path to model file
+                - board_type: str - Extracted board type (hex8, square8, etc.)
+                - num_players: int - Extracted player count
+                - file_size_mb: float - File size in MB
+                - modified_at: float - Last modified timestamp
+        """
+        if models_directory is None:
+            # Default to models/ relative to this file's location
+            from app.utils.paths import MODELS_DIR
+            models_directory = MODELS_DIR
+
+        models_dir = Path(models_directory)
+        if not models_dir.exists():
+            logger.warning(f"Models directory not found: {models_dir}")
+            return []
+
+        # Find all .pth files
+        if include_subdirs:
+            model_files = list(models_dir.rglob("*.pth"))
+        else:
+            model_files = list(models_dir.glob("*.pth"))
+
+        if not model_files:
+            logger.debug(f"No .pth files found in {models_dir}")
+            return []
+
+        # Known board types for parsing
+        BOARD_TYPES = {"hex8", "square8", "square19", "hexagonal"}
+
+        unevaluated = []
+        for model_path in model_files:
+            # Parse filename to extract board_type and num_players
+            # Pattern: canonical_hex8_2p.pth or hex8_2p_v5heavy.pth
+            model_name = model_path.stem.lower()
+            board_type = None
+            num_players = None
+
+            # Extract board type
+            for bt in BOARD_TYPES:
+                if bt in model_name:
+                    board_type = bt
+                    break
+
+            # Extract player count (e.g., "2p", "3p", "4p")
+            import re
+            player_match = re.search(r"(\d)p", model_name)
+            if player_match:
+                num_players = int(player_match.group(1))
+
+            if not board_type or not num_players:
+                logger.debug(
+                    f"Could not parse config from filename: {model_path.name}"
+                )
+                continue
+
+            # Check if this model has an Elo rating
+            # Try to find by model path first
+            model_path_str = str(model_path)
+            conn = self._get_connection()
+
+            # Check if participant exists with this model_path
+            cursor = conn.execute("""
+                SELECT p.participant_id, e.rating, e.games_played
+                FROM participants p
+                LEFT JOIN elo_ratings e ON p.participant_id = e.participant_id
+                    AND e.board_type = ? AND e.num_players = ?
+                WHERE p.model_path = ?
+            """, (board_type, num_players, model_path_str))
+
+            row = cursor.fetchone()
+
+            # Model needs evaluation if:
+            # 1. Not in participants table at all, OR
+            # 2. In participants but no Elo rating, OR
+            # 3. In participants but games_played = 0
+            needs_evaluation = (
+                row is None or
+                row["rating"] is None or
+                (row["games_played"] is not None and row["games_played"] == 0)
+            )
+
+            if needs_evaluation:
+                stat = model_path.stat()
+                unevaluated.append({
+                    "model_path": model_path_str,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "file_size_mb": round(stat.st_size / (1024 * 1024), 2),
+                    "modified_at": stat.st_mtime,
+                })
+
+        # Sort by modified time (newest first) so newer models get evaluated first
+        unevaluated.sort(key=lambda x: x["modified_at"], reverse=True)
+
+        logger.info(
+            f"Found {len(unevaluated)} unevaluated models out of {len(model_files)} total"
+        )
+        return unevaluated
+
 
 def get_elo_service(db_path: Path | None = None) -> EloService:
     """Get the singleton EloService instance."""

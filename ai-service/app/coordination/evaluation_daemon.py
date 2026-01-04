@@ -71,6 +71,13 @@ from app.utils.game_discovery import get_game_counts_summary
 # December 30, 2025: Architecture extraction for multi-architecture support
 from app.training.architecture_tracker import extract_architecture_from_model_path
 
+# January 3, 2026 (Sprint 13 Session 4): Persistent evaluation queue
+from app.coordination.evaluation_queue import (
+    PersistentEvaluationQueue,
+    get_evaluation_queue,
+    RequestStatus,
+)
+
 __all__ = [
     "EvaluationConfig",
     "EvaluationDaemon",
@@ -191,6 +198,11 @@ class EvaluationConfig:
     enable_multi_harness: bool = True  # Use MultiHarnessGauntlet for richer evaluation
     multi_harness_max_harnesses: int = 3  # Max harnesses to evaluate (limit for speed)
 
+    # January 3, 2026 (Sprint 13 Session 4): Stuck evaluation recovery
+    stuck_check_interval_seconds: float = 1800.0  # 30 minutes
+    startup_scan_enabled: bool = True  # Scan for unevaluated models on startup
+    startup_scan_canonical_priority: int = 75  # Priority for canonical models
+
 
 class EvaluationDaemon(BaseEventHandler):
     """Daemon that auto-evaluates models after training completes.
@@ -257,6 +269,7 @@ class EvaluationDaemon(BaseEventHandler):
         """
         return {
             DataEventType.TRAINING_COMPLETED: self._on_training_complete,
+            DataEventType.EVALUATION_REQUESTED: self._on_evaluation_requested,
         }
 
     async def start(self) -> bool:
@@ -457,6 +470,100 @@ class EvaluationDaemon(BaseEventHandler):
             logger.warning(f"[EvaluationDaemon] Invalid event data: {e}")
         except OSError as e:
             logger.error(f"[EvaluationDaemon] I/O error handling training complete: {e}")
+
+    async def _on_evaluation_requested(self, event: Any) -> None:
+        """Handle EVALUATION_REQUESTED event from model discovery daemons.
+
+        January 3, 2026: Added to enable automated evaluation of discovered models.
+        Sources include ModelDiscoveryDaemon, OWCModelEvaluationDaemon, StaleEvaluationDaemon.
+
+        Expected payload:
+            model_path: str - Path to the model file
+            board_type: str - Board type (hex8, square8, etc.)
+            num_players: int - Number of players (2, 3, 4)
+            source: str - Source daemon (discovery, owc, stale)
+            priority: int - Priority level (0=high, 1=normal, 2=low)
+        """
+        try:
+            metadata = self._get_payload(event)
+            model_path = metadata.get("model_path")
+            board_type = metadata.get("board_type")
+            num_players = metadata.get("num_players")
+            source = metadata.get("source", "unknown")
+            priority = metadata.get("priority", 1)
+
+            if not model_path:
+                logger.warning("[EvaluationDaemon] No model_path in EVALUATION_REQUESTED event")
+                return
+
+            if not board_type or not num_players:
+                # Try to extract from model path filename
+                from pathlib import Path
+                model_name = Path(model_path).stem
+                # Pattern: canonical_hex8_2p or similar
+                parts = model_name.split("_")
+                if len(parts) >= 2:
+                    for part in parts:
+                        if part.endswith("p") and part[:-1].isdigit():
+                            num_players = int(part[:-1])
+                        elif part in ("hex8", "square8", "square19", "hexagonal"):
+                            board_type = part
+
+            if not board_type or not num_players:
+                logger.warning(
+                    f"[EvaluationDaemon] Cannot determine config from EVALUATION_REQUESTED: {model_path}"
+                )
+                return
+
+            # Deduplication checks (same as _on_training_complete)
+            event_hash = self._compute_event_hash(model_path, board_type, num_players)
+            if self._is_duplicate_event(event_hash):
+                self._dedup_stats["content_hash_skips"] += 1
+                logger.debug(f"[EvaluationDaemon] Skipping duplicate (content hash): {model_path}")
+                return
+
+            if self._is_in_cooldown(model_path):
+                self._dedup_stats["cooldown_skips"] += 1
+                logger.debug(f"[EvaluationDaemon] Skipping model in cooldown: {model_path}")
+                return
+
+            if model_path in self._active_evaluations:
+                self._dedup_stats["concurrent_skips"] += 1
+                logger.debug(f"[EvaluationDaemon] Skipping already-evaluating model: {model_path}")
+                return
+
+            # Backpressure check
+            queue_depth = self._evaluation_queue.qsize()
+            if queue_depth >= self.config.max_queue_depth:
+                self._backpressure_stats["queue_full_rejections"] += 1
+                logger.warning(
+                    f"[EvaluationDaemon] Queue full ({queue_depth}), rejecting: {model_path}"
+                )
+                return
+
+            if queue_depth >= self.config.backpressure_threshold and not self._backpressure_active:
+                self._emit_backpressure(queue_depth, activate=True)
+
+            # Queue the evaluation
+            await self._evaluation_queue.put({
+                "model_path": model_path,
+                "board_type": board_type,
+                "num_players": num_players,
+                "timestamp": time.time(),
+                "source": source,
+                "priority": priority,
+            })
+
+            self._eval_stats.evaluations_triggered += 1
+            logger.info(
+                f"[EvaluationDaemon] Queued evaluation (source={source}) for {model_path} "
+                f"({board_type}_{num_players}p), queue_depth={queue_depth + 1}"
+            )
+
+        except (ValueError, KeyError, TypeError) as e:
+            logger.warning(f"[EvaluationDaemon] Invalid EVALUATION_REQUESTED data: {e}")
+        except OSError as e:
+            logger.error(f"[EvaluationDaemon] I/O error handling evaluation requested: {e}")
 
     async def _evaluation_worker(self) -> None:
         """Worker that processes evaluation requests from the queue."""
