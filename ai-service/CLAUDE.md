@@ -2,18 +2,19 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.3)
+**Last Updated**: January 4, 2026 (Sprint 17.4 - Session 16.6)
 
 ## Infrastructure Health Status (Verified Jan 4, 2026)
 
-| Component            | Status    | Evidence                                                   |
-| -------------------- | --------- | ---------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (91/100), 32+ health mechanisms, 8 recovery daemons     |
-| **Training Loop**    | GREEN     | A+ (96/100), 5/5 feedback loops wired, 6/6 pipeline stages |
-| **Code Quality**     | GREEN     | 99% consolidated, 326 coordination modules, 1044+ tests    |
-| **Leader Election**  | WORKING   | Bully algorithm with voter quorum, split-brain detection   |
-| **Work Queue**       | HEALTHY   | 30 alive peers, 7/7 voters, nebius-backbone-1 as leader    |
-| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline     |
+| Component            | Status    | Evidence                                                         |
+| -------------------- | --------- | ---------------------------------------------------------------- |
+| **P2P Network**      | GREEN     | A- (91/100), 211+ health_check(), 9 recovery daemons, <2.5m MTTR |
+| **Training Loop**    | GREEN     | A+ (96/100), 5/5 feedback loops wired, 6/6 pipeline stages       |
+| **Code Quality**     | GREEN     | 99% consolidated, 327 coordination modules, 63+ HandlerBase      |
+| **Leader Election**  | WORKING   | Bully algorithm with voter quorum, split-brain detection         |
+| **Work Queue**       | HEALTHY   | 25 alive peers, quorum confirmed, nebius-h100-1 as leader        |
+| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline           |
+| **SQLite Async**     | FIXED     | Critical P2P paths wrapped in asyncio.to_thread()                |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -44,6 +45,15 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Early Quorum Escalation   | Skip to P2P restart after 2 failed healing attempts with quorum lost | `p2p_recovery_daemon.py`      |
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
+
+**Sprint 17.4 / Session 16.6 (Jan 4, 2026):**
+
+| Fix                       | Purpose                                                  | Files                        |
+| ------------------------- | -------------------------------------------------------- | ---------------------------- |
+| SQLite Async Orchestrator | Wrapped \_convert_jsonl_to_db() blocking ops             | `p2p_orchestrator.py`        |
+| Orphan Detection Async    | Wrapped 3 blocking SQLite call sites                     | `orphan_detection_daemon.py` |
+| Comprehensive Assessment  | P2P A- (91/100), Training A+ (96/100), Consolidation 99% | Parallel agent analysis      |
+| Cluster Deployment        | 21 nodes updated, 19 P2P restarted                       | All cluster nodes            |
 
 **Sprint 17.3 Session (Jan 4, 2026):**
 
