@@ -194,6 +194,14 @@ class AutoSyncDaemon(
         return self._config
 
     @property
+    def status(self) -> "CoordinatorStatus":
+        """Get current coordinator status (backward compatibility property).
+
+        January 2026: HandlerBase migration - provides public access to status.
+        """
+        return self._status
+
+    @property
     def stats(self) -> SyncStats:
         """Get sync statistics (backward compatibility property).
 
@@ -249,6 +257,10 @@ class AutoSyncDaemon(
         # Phase 9: Event subscription for DATA_STALE triggers
         self._subscribed = False
         self._urgent_sync_pending: dict[str, float] = {}  # config_key -> request_time
+
+        # January 2026: Event tracking for SyncEventMixin (HandlerBase migration)
+        self._events_processed: int = 0
+        self._errors_count: int = 0
 
         # December 28, 2025: Backpressure handling - pause sync during high load
         self._sync_paused = False
@@ -1775,10 +1787,12 @@ class AutoSyncDaemon(
             "name": self.name,
             "status": self._status.value,
             "uptime_seconds": self.uptime_seconds,
-            "start_time": self._start_time,
+            # January 2026: HandlerBase uses _stats.started_at, not _start_time
+            "start_time": self._stats.started_at,
             "events_processed": self._events_processed,
             "errors_count": self._errors_count,
-            "last_error": self._last_error,
+            # January 2026: HandlerBase uses _stats.last_error, not _last_error
+            "last_error": self._stats.last_error,
             # Sync-specific metrics
             "node_id": self.node_id,
             "provider": self._provider,

@@ -236,8 +236,10 @@ class TestAutoSyncDaemonInit:
         reset_auto_sync_daemon()
 
     def test_init_sets_coordinator_status(self, daemon):
-        """Test initialization sets coordinator status to INITIALIZING."""
-        assert daemon._coordinator_status == CoordinatorStatus.INITIALIZING
+        """Test initialization sets coordinator status to STOPPED (HandlerBase pattern)."""
+        # January 2026: HandlerBase migration - STOPPED is the initial state
+        # before start() is called, not INITIALIZING
+        assert daemon._status == CoordinatorStatus.STOPPED
 
     def test_name_property(self, daemon):
         """Test name property returns correct value."""
@@ -245,11 +247,13 @@ class TestAutoSyncDaemonInit:
 
     def test_status_property(self, daemon):
         """Test status property reflects internal state."""
-        assert daemon.status == CoordinatorStatus.INITIALIZING
+        # January 2026: HandlerBase migration - STOPPED is initial state
+        assert daemon.status == CoordinatorStatus.STOPPED
 
     def test_is_running_initially_false(self, daemon):
         """Test is_running returns False before start."""
-        assert daemon.is_running() is False
+        # January 2026: HandlerBase migration - is_running is a property, not a method
+        assert daemon.is_running is False
 
 
 # ============================================
@@ -455,15 +459,16 @@ class TestLifecycle:
     @pytest.mark.asyncio
     async def test_start_sets_running_state(self, daemon):
         """Test start() sets running state correctly."""
+        # January 2026: HandlerBase migration - mock internal methods
         with patch.object(daemon, "_subscribe_to_events"):
             with patch.object(daemon, "_start_gossip_sync"):
-                with patch("app.coordination.auto_sync_daemon.safe_create_task", return_value=MagicMock()):
-                    with patch("app.coordination.auto_sync_daemon.register_coordinator"):
-                        await daemon.start()
+                with patch.object(daemon, "_main_loop", new_callable=AsyncMock):
+                    await daemon.start()
 
         assert daemon._running is True
-        assert daemon._coordinator_status == CoordinatorStatus.RUNNING
-        assert daemon._start_time > 0
+        assert daemon._status == CoordinatorStatus.RUNNING
+        # January 2026: HandlerBase uses _stats.started_at, not _start_time
+        assert daemon._stats.started_at > 0
 
     @pytest.mark.asyncio
     async def test_start_when_disabled(self, daemon):
@@ -473,37 +478,37 @@ class TestLifecycle:
         await daemon.start()
 
         assert daemon._running is False
-        assert daemon._coordinator_status == CoordinatorStatus.STOPPED
+        assert daemon._status == CoordinatorStatus.STOPPED
 
     @pytest.mark.asyncio
     async def test_start_is_idempotent(self, daemon):
         """Test start() is idempotent."""
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
+        daemon._status = CoordinatorStatus.RUNNING
 
         await daemon.start()
 
         # Should not have changed anything
-        assert daemon._coordinator_status == CoordinatorStatus.RUNNING
+        assert daemon._status == CoordinatorStatus.RUNNING
 
     @pytest.mark.asyncio
     async def test_stop_sets_stopped_state(self, daemon):
         """Test stop() sets stopped state correctly."""
         daemon._running = True
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
-        daemon._sync_task = None
+        daemon._status = CoordinatorStatus.RUNNING
         daemon._gossip_daemon = None
+        daemon._pending_writes_task = None
 
-        with patch("app.coordination.auto_sync_daemon.unregister_coordinator"):
-            await daemon.stop()
+        # January 2026: HandlerBase migration - no more register/unregister
+        await daemon.stop()
 
         assert daemon._running is False
-        assert daemon._coordinator_status == CoordinatorStatus.STOPPED
+        assert daemon._status == CoordinatorStatus.STOPPED
 
     @pytest.mark.asyncio
     async def test_stop_cancels_sync_task(self, daemon):
-        """Test stop() cancels the sync task."""
+        """Test stop() cancels pending writes task."""
         daemon._running = True
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
+        daemon._status = CoordinatorStatus.RUNNING
         daemon._gossip_daemon = None
 
         # Create an actual cancelled asyncio.Task for proper await semantics
@@ -511,12 +516,12 @@ class TestLifecycle:
         async def cancelled_coro():
             raise asyncio.CancelledError()
 
-        # Create a real task and cancel it
+        # Create a real task and set as pending writes task
         task = asyncio.create_task(cancelled_coro())
-        daemon._sync_task = task
+        daemon._pending_writes_task = task
 
-        with patch("app.coordination.auto_sync_daemon.unregister_coordinator"):
-            await daemon.stop()
+        # January 2026: HandlerBase migration - no more register/unregister
+        await daemon.stop()
 
         # Task should be in cancelled state
         assert task.cancelled() or task.done()
@@ -524,11 +529,11 @@ class TestLifecycle:
     @pytest.mark.asyncio
     async def test_stop_is_idempotent(self, daemon):
         """Test stop() is idempotent."""
-        daemon._coordinator_status = CoordinatorStatus.STOPPED
+        daemon._status = CoordinatorStatus.STOPPED
 
         await daemon.stop()
 
-        assert daemon._coordinator_status == CoordinatorStatus.STOPPED
+        assert daemon._status == CoordinatorStatus.STOPPED
 
 
 # ============================================
@@ -737,7 +742,7 @@ class TestHealthCheck:
 
     def test_health_check_healthy(self, daemon):
         """Test health check returns healthy when running normally."""
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
+        daemon._status = CoordinatorStatus.RUNNING
         daemon._sync_stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
@@ -749,7 +754,7 @@ class TestHealthCheck:
 
     def test_health_check_stopped(self, daemon):
         """Test health check returns healthy but stopped."""
-        daemon._coordinator_status = CoordinatorStatus.STOPPED
+        daemon._status = CoordinatorStatus.STOPPED
 
         result = daemon.health_check()
 
@@ -760,7 +765,7 @@ class TestHealthCheck:
     def test_health_check_disabled(self, daemon):
         """Test health check when disabled."""
         daemon.config.enabled = False
-        daemon._coordinator_status = CoordinatorStatus.STOPPED
+        daemon._status = CoordinatorStatus.STOPPED
 
         result = daemon.health_check()
 
@@ -770,7 +775,7 @@ class TestHealthCheck:
 
     def test_health_check_error_state(self, daemon):
         """Test health check returns unhealthy in error state."""
-        daemon._coordinator_status = CoordinatorStatus.ERROR
+        daemon._status = CoordinatorStatus.ERROR
         daemon._last_error = "Test error"
 
         result = daemon.health_check()
@@ -780,7 +785,7 @@ class TestHealthCheck:
 
     def test_health_check_high_failure_rate(self, daemon):
         """Test health check returns degraded on high failure rate."""
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
+        daemon._status = CoordinatorStatus.RUNNING
         daemon._sync_stats.syncs_completed = 5  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.syncs_failed = 10  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.operations_attempted = 15  # Dec 2025: Use mutable field, not property
@@ -793,7 +798,7 @@ class TestHealthCheck:
 
     def test_health_check_stale_sync(self, daemon):
         """Test health check returns degraded on stale sync."""
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
+        daemon._status = CoordinatorStatus.RUNNING
         daemon._sync_stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.last_check_time = time.time() - 1000  # Very old sync
@@ -806,7 +811,7 @@ class TestHealthCheck:
 
     def test_health_check_high_verification_failure(self, daemon):
         """Test health check returns degraded on high verification failure rate."""
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
+        daemon._status = CoordinatorStatus.RUNNING
         daemon._sync_stats.syncs_completed = 10  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.syncs_failed = 1  # Dec 2025: Use mutable field, not property
         daemon._sync_stats.last_check_time = time.time()  # Dec 2025: Use mutable field, not property
@@ -829,8 +834,9 @@ class TestMetrics:
 
     def test_get_metrics_returns_dict(self, daemon):
         """Test get_metrics returns a dictionary."""
-        daemon._coordinator_status = CoordinatorStatus.RUNNING
-        daemon._start_time = time.time() - 100
+        daemon._status = CoordinatorStatus.RUNNING
+        # January 2026: HandlerBase uses _stats.started_at, not _start_time
+        daemon._stats.started_at = time.time() - 100
 
         metrics = daemon.get_metrics()
 
@@ -861,13 +867,15 @@ class TestMetrics:
 
     def test_uptime_seconds_before_start(self, daemon):
         """Test uptime_seconds returns 0 before start."""
-        daemon._start_time = 0.0
+        # January 2026: HandlerBase uses _stats.started_at, not _start_time
+        daemon._stats.started_at = 0.0
 
         assert daemon.uptime_seconds == 0.0
 
     def test_uptime_seconds_after_start(self, daemon):
         """Test uptime_seconds returns correct value after start."""
-        daemon._start_time = time.time() - 100
+        # January 2026: HandlerBase uses _stats.started_at, not _start_time
+        daemon._stats.started_at = time.time() - 100
 
         uptime = daemon.uptime_seconds
         assert uptime >= 100
