@@ -704,6 +704,7 @@ class UnifiedDistributionDaemon(HandlerBase):
 
         December 2025: Added retry logic for distribution failures.
         Re-enqueues failed distributions up to max_retries times.
+        January 2026: Uses config retry settings instead of hardcoded values.
         """
         payload = getattr(event, "payload", event) if hasattr(event, "payload") else event
         error = payload.get("error", "unknown_error")
@@ -714,8 +715,8 @@ class UnifiedDistributionDaemon(HandlerBase):
         self._errors_count += 1
         self._last_error = str(error)
 
-        # Maximum 3 retries per distribution
-        max_retries = 3
+        # Use config settings for retry limits
+        max_retries = self.config.retry_count
         if retry_count >= max_retries:
             logger.error(
                 f"MODEL_DISTRIBUTION_FAILED (final, {retry_count} retries): "
@@ -723,9 +724,12 @@ class UnifiedDistributionDaemon(HandlerBase):
             )
             return
 
-        # Re-enqueue for retry with exponential backoff
+        # Re-enqueue for retry with exponential backoff using config settings
         if model_name and expected_path:
-            retry_delay = 2 ** retry_count * 10  # 10s, 20s, 40s
+            # Calculate delay using config: base_delay * (multiplier ^ attempt)
+            retry_delay = self.config.retry_delay_seconds * (
+                self.config.retry_backoff_multiplier ** retry_count
+            )
             item = {
                 "data_type": DataType.MODEL,
                 "path": expected_path,
@@ -737,7 +741,7 @@ class UnifiedDistributionDaemon(HandlerBase):
             self._enqueue_item(item)
             logger.warning(
                 f"MODEL_DISTRIBUTION_FAILED (retry {retry_count + 1}/{max_retries}): "
-                f"{model_name} - {error} - retrying in {retry_delay}s"
+                f"{model_name} - {error} - retrying in {retry_delay:.0f}s"
             )
         else:
             logger.warning(f"MODEL_DISTRIBUTION_FAILED (no retry - missing info): {error}")
