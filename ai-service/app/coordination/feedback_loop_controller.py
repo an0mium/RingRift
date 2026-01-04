@@ -2185,6 +2185,64 @@ class FeedbackLoopController(HandlerBase):
             except (AttributeError, TypeError, RuntimeError) as e:
                 logger.debug(f"[FeedbackLoopController] Failed to emit EXPLORATION_BOOST: {e}")
 
+            # January 3, 2026 (Sprint 12 P1): Curriculum tier rollback for major regressions
+            # When Elo drops significantly, roll back to a previous curriculum tier to allow
+            # the model to relearn from simpler positions before advancing again.
+            if elo_drop > 50 and state.curriculum_tier > 0:
+                old_tier = state.curriculum_tier
+                new_tier = max(0, old_tier - 1)  # Roll back one tier
+                state.curriculum_tier = new_tier
+
+                tier_names = ["Beginner", "Intermediate", "Advanced", "Expert"]
+                logger.warning(
+                    f"[FeedbackLoopController] Curriculum rollback for {config_key}: "
+                    f"{tier_names[old_tier]} → {tier_names[new_tier]} "
+                    f"(elo_drop={elo_drop:.0f} > 50 threshold)"
+                )
+
+                # Emit CURRICULUM_ROLLBACK event for downstream consumers
+                try:
+                    from app.coordination.event_router import DataEventType, get_event_bus
+
+                    bus = get_event_bus()
+                    if bus:
+                        from app.coordination.event_router import DataEvent
+
+                        event = DataEvent(
+                            event_type=DataEventType.CURRICULUM_ROLLBACK
+                            if hasattr(DataEventType, "CURRICULUM_ROLLBACK")
+                            else DataEventType.CURRICULUM_ADVANCED,
+                            payload={
+                                "config_key": config_key,
+                                "old_tier": old_tier,
+                                "new_tier": new_tier,
+                                "trigger": "regression_detected",
+                                "elo_drop": elo_drop,
+                                "consecutive_regressions": consecutive_regressions,
+                                "direction": "rollback",
+                                "source": "FeedbackLoopController",
+                            },
+                            source="FeedbackLoopController",
+                        )
+                        _safe_create_task(
+                            bus.publish(event),
+                            context=f"emit_curriculum_rollback:{config_key}",
+                        )
+                        logger.info(
+                            f"[FeedbackLoopController] Emitted CURRICULUM_ROLLBACK for {config_key}"
+                        )
+                except (AttributeError, TypeError, ImportError, RuntimeError) as emit_err:
+                    logger.debug(
+                        f"[FeedbackLoopController] Failed to emit curriculum event: {emit_err}"
+                    )
+
+                # Trigger gauntlet evaluation against all baselines to reassess model strength
+                # This ensures we have fresh Elo data after the regression
+                try:
+                    self._trigger_gauntlet_all_baselines(config_key)
+                except (AttributeError, TypeError, RuntimeError) as e:
+                    logger.debug(f"[FeedbackLoopController] Failed to trigger gauntlet: {e}")
+
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling regression detected: {e}")
 
@@ -2877,6 +2935,51 @@ class FeedbackLoopController(HandlerBase):
             logger.debug("[FeedbackLoopController] trigger_evaluation not available for fallback")
         except Exception as e:
             logger.error(f"[FeedbackLoopController] Single-harness fallback failed: {e}")
+
+    def _trigger_gauntlet_all_baselines(self, config_key: str) -> None:
+        """Trigger gauntlet evaluation against all baselines after regression.
+
+        January 3, 2026 (Sprint 12 P1): When a major regression is detected,
+        we trigger a comprehensive gauntlet evaluation against ALL baseline
+        opponents (random, heuristic, and any other canonical models) to
+        reassess the model's true strength.
+
+        This helps detect if the regression was a fluke or if the model
+        genuinely needs more training. Fresh Elo data guides curriculum
+        and training decisions.
+        """
+        logger.info(
+            f"[FeedbackLoopController] Triggering all-baseline gauntlet for {config_key} "
+            f"(post-regression reassessment)"
+        )
+
+        try:
+            parsed = parse_config_key(config_key)
+            if not parsed:
+                logger.warning(f"[FeedbackLoopController] Invalid config_key format: {config_key}")
+                return
+            board_type = parsed.board_type
+            num_players = parsed.num_players
+
+            # Find the current canonical model for this config
+            try:
+                from app.models.discovery import get_canonical_model_path
+
+                model_path = get_canonical_model_path(board_type, num_players)
+                if not model_path:
+                    logger.debug(
+                        f"[FeedbackLoopController] No canonical model found for {config_key}"
+                    )
+                    return
+            except ImportError:
+                logger.debug("[FeedbackLoopController] Model discovery not available")
+                return
+
+            # Use _trigger_evaluation which handles multi-harness gauntlet
+            self._trigger_evaluation(config_key, str(model_path))
+
+        except (AttributeError, TypeError, ValueError) as e:
+            logger.debug(f"[FeedbackLoopController] Failed to trigger gauntlet: {e}")
 
     def _record_training_in_curriculum(self, config_key: str) -> None:
         """Record training completion in curriculum."""

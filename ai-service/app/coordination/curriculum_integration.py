@@ -199,7 +199,14 @@ class MomentumToCurriculumBridge:
             if hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
                 router.subscribe(DataEventType.TRAINING_LOSS_ANOMALY, self._on_loss_anomaly)
 
-            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE, REGRESSION_DETECTED, TRAINING_LOSS_ANOMALY")
+            # January 2026 Sprint 12: Subscribe to QUORUM_RECOVERY_STARTED for
+            # curriculum adjustment during quorum recovery. When quorum is lost and
+            # recovery starts, boost selfplay priority for affected configs to help
+            # the cluster recover faster with fresh training data.
+            if hasattr(DataEventType, 'QUORUM_RECOVERY_STARTED'):
+                router.subscribe(DataEventType.QUORUM_RECOVERY_STARTED, self._on_quorum_recovery)
+
+            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE, REGRESSION_DETECTED, TRAINING_LOSS_ANOMALY, QUORUM_RECOVERY_STARTED")
 
             # December 29, 2025: Only set _event_subscribed = True after successful subscription
             # Previously this was in finally block which caused race condition:
@@ -263,6 +270,9 @@ class MomentumToCurriculumBridge:
                 # January 2026 Sprint 12: Unsubscribe from TRAINING_LOSS_ANOMALY
                 if hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
                     router.unsubscribe(DataEventType.TRAINING_LOSS_ANOMALY, self._on_loss_anomaly)
+                # January 2026 Sprint 12: Unsubscribe from QUORUM_RECOVERY_STARTED
+                if hasattr(DataEventType, 'QUORUM_RECOVERY_STARTED'):
+                    router.unsubscribe(DataEventType.QUORUM_RECOVERY_STARTED, self._on_quorum_recovery)
             self._event_subscribed = False
         except (ImportError, AttributeError, TypeError, RuntimeError):
             # ImportError: modules not available
@@ -1051,6 +1061,73 @@ class MomentumToCurriculumBridge:
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling loss anomaly: {e}")
+
+    def _on_quorum_recovery(self, event) -> None:
+        """Handle QUORUM_RECOVERY_STARTED event - boost selfplay priority during recovery.
+
+        January 2026 Sprint 12: When quorum is lost and recovery starts, we need
+        to generate fresh training data quickly to help the cluster recover.
+        This handler boosts curriculum weights for all active configs to increase
+        selfplay allocation during recovery.
+
+        Action: Temporarily boost curriculum weights by 20% for all configs.
+        This effect decays naturally over time as the cluster recovers.
+        """
+        try:
+            payload = event.payload if hasattr(event, 'payload') else event if isinstance(event, dict) else {}
+
+            severity = payload.get("severity", "unknown")
+            source_node = payload.get("source_node", "unknown")
+            recovery_reason = payload.get("reason", "quorum_recovery")
+
+            logger.info(
+                f"[MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity={severity}, "
+                f"source={source_node}, reason={recovery_reason}"
+            )
+
+            # Boost curriculum weights for all active configs to accelerate recovery
+            # This is a temporary boost that helps generate fresh training data
+            boost_factor = 1.20  # 20% boost during recovery
+
+            try:
+                from app.coordination.curriculum import get_curriculum
+                curriculum = get_curriculum()
+                if curriculum:
+                    # Get all active configs
+                    config_keys = list(curriculum.get_all_weights().keys())
+
+                    for config_key in config_keys:
+                        old_weight = curriculum.get_weight(config_key)
+                        if old_weight is None:
+                            continue
+
+                        # Apply temporary boost (capped at 1.0)
+                        new_weight = min(old_weight * boost_factor, 1.0)
+
+                        # Only apply if there's meaningful change
+                        if new_weight > old_weight + 0.01:
+                            curriculum.update_weight(
+                                config_key=config_key,
+                                weight=new_weight,
+                                source="quorum_recovery_boost",
+                            )
+                            self._last_weights[config_key] = new_weight
+
+                    logger.info(
+                        f"[MomentumToCurriculumBridge] Applied {boost_factor:.0%} curriculum boost "
+                        f"to {len(config_keys)} configs during quorum recovery"
+                    )
+
+                    # Emit curriculum rebalanced event
+                    self._emit_rebalance_event(config_keys, {k: boost_factor for k in config_keys})
+
+            except (ImportError, AttributeError) as e:
+                logger.debug(f"[MomentumToCurriculumBridge] Could not apply quorum recovery boost: {e}")
+
+            self._last_sync_time = time.time()
+
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            logger.warning(f"[MomentumToCurriculumBridge] Error handling quorum recovery: {e}")
 
     def _get_similar_configs(self, config_key: str) -> list[str]:
         """Get similar configs for cross-board curriculum propagation.

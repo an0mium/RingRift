@@ -2,7 +2,7 @@
 
 ## Overview
 
-RingRift uses a daemon-based architecture for background automation. The `DaemonManager` orchestrates 89 daemon types that handle selfplay, training, sync, health monitoring, and cluster coordination.
+RingRift uses a daemon-based architecture for background automation. The `DaemonManager` orchestrates 120 daemon types that handle selfplay, training, sync, health monitoring, and cluster coordination.
 
 ## Quick Start
 
@@ -24,7 +24,7 @@ python scripts/launch_daemons.py --status
 ```
 MasterLoopController
 ├── DaemonManager: Lifecycle for all daemons
-│   ├── DaemonType enum (89 types)
+│   ├── DaemonType enum (120 types)
 │   ├── DaemonState (INITIALIZING, RUNNING, PAUSED, SHUTTING_DOWN)
 │   └── DaemonAdapter wrappers
 ├── ClusterMonitor: Real-time cluster health

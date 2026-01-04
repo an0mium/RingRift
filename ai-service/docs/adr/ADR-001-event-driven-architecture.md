@@ -4,7 +4,7 @@
 **Date**: December 2025
 **Author**: RingRift AI Team
 
-> **Note:** This ADR reflects Dec 2025 counts. Current `DataEventType` has 211 events; see `../EVENT_SYSTEM_REFERENCE.md`.
+> **Note:** This ADR reflects Dec 2025 counts. Current `DataEventType` has 237 events; see `../EVENT_SYSTEM_REFERENCE.md`.
 
 ## Context
 

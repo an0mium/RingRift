@@ -48,6 +48,7 @@ from typing import Any
 # December 2025: Import WorkStatus from canonical source
 from app.coordination.types import WorkStatus  # noqa: E402
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult  # noqa: E402
+from app.utils.retry import RetryConfig  # noqa: E402
 from app.utils.disk_utils import is_enospc_error, handle_enospc_error
 from app.coordination.event_utils import parse_config_key
 from app.config.thresholds import SQLITE_CONNECT_TIMEOUT, SQLITE_SHORT_TIMEOUT
@@ -740,11 +741,13 @@ class WorkQueue:
 
         Uses context manager to ensure connection is properly closed even if
         exceptions occur during initialization (December 2025 resource leak fix).
-        """
-        max_retries = 3
-        retry_delay = 0.5
 
-        for attempt in range(max_retries):
+        Jan 2026: Migrated to RetryConfig for centralized retry behavior.
+        """
+        # Jan 2026: Use RetryConfig for centralized retry pattern
+        retry_config = RetryConfig(max_attempts=3, base_delay=0.5, max_delay=4.0)
+
+        for attempt in retry_config.attempts():
             try:
                 os.makedirs(self.db_path.parent, exist_ok=True)
 
@@ -835,12 +838,14 @@ class WorkQueue:
                 return
 
             except sqlite3.OperationalError as e:
-                if "locked" in str(e).lower() and attempt < max_retries - 1:
-                    logger.warning(f"Database locked, retrying in {retry_delay}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
+                if "locked" in str(e).lower() and attempt.should_retry:
+                    logger.warning(
+                        f"Database locked, retrying in {attempt.delay:.1f}s "
+                        f"(attempt {attempt.number}/{retry_config.max_attempts})"
+                    )
+                    attempt.wait()
                 else:
-                    logger.error(f"Failed to initialize work queue database after {attempt + 1} attempts: {e}")
+                    logger.error(f"Failed to initialize work queue database after {attempt.number} attempts: {e}")
             except (sqlite3.Error, OSError, PermissionError) as e:
                 logger.error(f"Failed to initialize work queue database: {e}")
                 break

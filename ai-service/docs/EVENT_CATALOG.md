@@ -6,7 +6,7 @@ This document catalogs all events in the RingRift AI-Service event system.
 
 ## Overview
 
-Events are defined in `app/distributed/data_events.py` as `DataEventType` enum values (211 total).
+Events are defined in `app/distributed/data_events.py` as `DataEventType` enum values (237 total).
 The unified event router (`app/coordination/event_router.py`) handles publishing and subscribing.
 
 ## Critical Events (Pipeline Flow)

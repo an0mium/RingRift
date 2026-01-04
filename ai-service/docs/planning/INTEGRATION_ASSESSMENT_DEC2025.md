@@ -9,7 +9,7 @@ Comprehensive architectural assessment of RingRift AI-Service covering:
 
 - **367K lines** of Python across 42 app subdirectories
 - **35 distributed modules** managing 70+ cluster nodes
-- **3 event buses** with 211+ event types (consolidated)
+- **3 event buses** with 237+ event types (consolidated)
 - **30+ scripts** with patterns consolidated
 
 ### Key Findings (Updated Dec 30, 2025)
@@ -17,7 +17,7 @@ Comprehensive architectural assessment of RingRift AI-Service covering:
 | Area                   | Original Status                     | Resolution (Dec 30)                                          |
 | ---------------------- | ----------------------------------- | ------------------------------------------------------------ |
 | Training Pipeline      | Components exist, poorly integrated | ✅ **COMPLETE** - All 4 pipeline gaps resolved, event-driven |
-| Event Systems          | Sophisticated but fragmented        | ✅ **COMPLETE** - 211 events, DLQ, event normalization       |
+| Event Systems          | Sophisticated but fragmented        | ✅ **COMPLETE** - 237 events, DLQ, event normalization       |
 | Code Duplication       | Some consolidation done             | ✅ **COMPLETE** - HandlerBase, P2PMixinBase, ~930 LOC saved  |
 | Cluster Infrastructure | Production-ready                    | ✅ **COMPLETE** - Full feedback loop to training decisions   |
 | Valuable Patterns      | 14+ patterns identified             | ✅ **COMPLETE** - All patterns now used consistently         |

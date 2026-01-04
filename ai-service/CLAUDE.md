@@ -9,10 +9,50 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | Component           | Status  | Evidence                                                  |
 | ------------------- | ------- | --------------------------------------------------------- |
 | **P2P Network**     | GREEN   | 31 health mechanisms, 6 recovery daemons, 25+ alive peers |
-| **Training Loop**   | GREEN   | 99.5% complete, 248 event types, all critical flows wired |
+| **Training Loop**   | GREEN   | 99.5% complete, 237 event types, all critical flows wired |
 | **Code Quality**    | GREEN   | 95% consolidated, ~4,000 LOC saved through refactoring    |
 | **Leader Election** | WORKING | Bully algorithm with voter quorum, split-brain detection  |
 | **Work Queue**      | HEALTHY | 1000+ items maintained, QueuePopulatorLoop working        |
+
+**Comprehensive Assessment (Jan 3, 2026 - Sprint 12 Session 5 Final):**
+
+| Assessment Area      | Grade | Score  | Verified Status                                                           |
+| -------------------- | ----- | ------ | ------------------------------------------------------------------------- |
+| P2P Network          | A-    | 92/100 | 31 health mechanisms, 5 CB types, all Sprint 12 improvements verified     |
+| Training Loop        | A     | 99.5%  | 7/7 stages, 5/5 feedback loops, 248 event types, all critical flows wired |
+| HandlerBase Adoption | -     | 14.2%  | 42/296 modules, target 40%, top 10 candidates identified                  |
+| Test Coverage        | 107%  | -      | 307 test files for 285 modules                                            |
+
+**Sprint 13 Consolidation Priorities** (targeting HandlerBase 14% → 40%):
+
+| Priority | File                          | LOC   | Est. Savings | Complexity |
+| -------- | ----------------------------- | ----- | ------------ | ---------- |
+| P0       | auto_promotion_daemon.py      | 1,250 | 250-400      | Low        |
+| P1       | maintenance_daemon.py         | 1,045 | 200-350      | Low        |
+| P1       | selfplay_upload_daemon.py     | 983   | 200-300      | Low        |
+| P1       | s3_node_sync_daemon.py        | 1,140 | 250-400      | Medium     |
+| P2       | tournament_daemon.py          | 1,505 | 300-500      | High       |
+| P2       | unified_replication_daemon.py | 1,400 | 300-450      | Medium     |
+
+**Top 3 Training Loop Improvements** (identified in assessment):
+
+| Improvement                                   | Elo Impact | Hours | Status  |
+| --------------------------------------------- | ---------- | ----- | ------- |
+| Dynamic loss anomaly thresholds               | +8-12      | 8-12  | Pending |
+| Curriculum hierarchy with sibling propagation | +12-18     | 12-16 | Pending |
+| Quality-weighted batch prioritization         | +5-8       | 8-10  | Pending |
+
+**Total Potential**: 3,300-5,050 LOC savings, +25-38 Elo, 65-92 hours
+
+**Key Improvements (Jan 3, 2026 - Sprint 12 Session 5):**
+
+- **Quorum recovery → curriculum boost** handler (+5-8 Elo, `curriculum_integration.py:1065-1130`)
+- **Loss anomaly → curriculum feedback** handler (+10-15 Elo, `curriculum_integration.py`)
+- **Extended event_utils** with 3 new extraction helpers (~800 LOC savings potential)
+- **CB TTL decay** for gossip-replicated circuit breaker failures (stability)
+- Fire-and-forget task helpers added to `HandlerBase` (`_safe_create_task`, `_try_emit_event`)
+- P2P Prometheus metrics for partition healing and quorum health (11 new metrics)
+- Config key migration to canonical `make_config_key()` utility (25 files)
 
 **Key Improvements (Jan 3, 2026 - Sprint 11):**
 
@@ -29,9 +69,6 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 - Quality-score confidence decay (stale quality scores decay toward 0.5 floor over 1h half-life)
 - Regression amplitude scaling (proportional response based on Elo drop magnitude)
 - Narrowed P2P exception handlers (4 handlers in gossip_protocol.py)
-- **Fire-and-forget task helpers** added to `HandlerBase` (`_safe_create_task`, `_try_emit_event`)
-- **P2P Prometheus metrics** for partition healing and quorum health (11 new metrics)
-- **Config key migration** to canonical `make_config_key()` utility (25 files)
 
 **Consolidated Base Classes:**
 | Class | LOC | Purpose |
@@ -110,14 +147,14 @@ python scripts/update_all_nodes.py --restart-p2p
 - `get_config_version()` - Get ConfigVersion for gossip state sync
 - Avoids repeated YAML parsing across modules
 
-### Coordination Infrastructure (260 modules)
+### Coordination Infrastructure (296 modules)
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`                    | Lifecycle for 240 daemon types (~2,000 LOC)       |
+| `daemon_manager.py`                    | Lifecycle for 124 daemon types (~2,000 LOC)       |
 | `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)   |
-| `daemon_runners.py`                    | 240 async runner functions                        |
-| `event_router.py`                      | Unified event bus (248 event types, SHA256 dedup) |
+| `daemon_runners.py`                    | 124 async runner functions                        |
+| `event_router.py`                      | Unified event bus (237 event types, SHA256 dedup) |
 | `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)   |
 | `budget_calculator.py`                 | Gumbel budget tiers, target games calculation     |
 | `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation      |
@@ -511,11 +548,11 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-240 daemon types (229 active, 11 deprecated). Three-layer architecture:
+124 daemon types (113 active, 11 deprecated). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 240 async runner functions
+3. **`daemon_runners.py`** - 124 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
@@ -573,11 +610,11 @@ Automatic retry for transient failures (GPU OOM, timeouts):
 
 **Integration Status**: 99.5% COMPLETE (Jan 3, 2026)
 
-248 event types defined in DataEventType enum. All critical event flows are fully wired.
+237 event types defined in DataEventType enum. All critical event flows are fully wired.
 Only 2 minor informational gaps remain (SELFPLAY_ALLOCATION_UPDATED undercoverage,
 NODE_CAPACITY_UPDATED dual emitters) - neither affects core pipeline operation.
 
-248 event types across 3 layers:
+237 event types across 3 layers:
 
 1. **In-memory EventBus** - Local daemon communication
 2. **Stage events** - Pipeline stage completion

@@ -477,7 +477,7 @@ DaemonType.MY_DAEMON: DaemonSpec(
 
 ### 11.5 Reference Documentation
 
-- **Full registry**: `docs/DAEMON_REGISTRY.md` (89 daemons, dependencies, categories)
+- **Full registry**: `docs/DAEMON_REGISTRY.md` (124 daemons, dependencies, categories)
 - **Types and state**: `app/coordination/daemon_types.py`
 - **Specifications**: `app/coordination/daemon_registry.py`
 - **Factory runners**: `app/coordination/daemon_runners.py`

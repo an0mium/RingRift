@@ -3,9 +3,9 @@
 This document provides a comprehensive reference for all daemons managed by the RingRift AI service `DaemonManager`.
 
 **Last updated:** December 30, 2025 (availability + connectivity daemons)
-**Total Daemon Types:** 89 (89 async runners in `daemon_runners.py`, 78 active, 11 deprecated as of Dec 30, 2025)
+**Total Daemon Types:** 89 (120 async runners in `daemon_runners.py`, 78 active, 11 deprecated as of Dec 30, 2025)
 **Startup Order:** 24 daemons in `DAEMON_STARTUP_ORDER` (see `daemon_types.py`)
-**Dependencies:** Canonical dependencies live in `DAEMON_REGISTRY` (89 entries); `DAEMON_DEPENDENCIES` covers 85 legacy entries
+**Dependencies:** Canonical dependencies live in `DAEMON_REGISTRY` (120 entries); `DAEMON_DEPENDENCIES` covers 85 legacy entries
 
 > **Architecture Note (December 2025):** Factory methods have been extracted from `daemon_manager.py` to `daemon_runners.py`. Factory methods named `create_*()` are in `daemon_runners.py`; methods named `_create_*()` remain in `daemon_manager.py` for legacy or special cases.
 
@@ -34,7 +34,7 @@ This document provides a comprehensive reference for all daemons managed by the 
 
 ## Overview
 
-The `DaemonManager` coordinates the lifecycle of 89 daemon types across the RingRift cluster. Daemons are organized into profiles based on node roles (coordinator, training_node, ephemeral, selfplay).
+The `DaemonManager` coordinates the lifecycle of 124 daemon types across the RingRift cluster. Daemons are organized into profiles based on node roles (coordinator, training_node, ephemeral, selfplay).
 It also listens for backpressure events (`BACKPRESSURE_ACTIVATED`/`BACKPRESSURE_RELEASED`) and
 pauses or resumes non-essential daemons when supported to reduce cluster load.
 
@@ -1083,7 +1083,7 @@ print('✓ Valid' if valid else f'✗ Errors: {errors}')
 ## See Also
 
 - `daemon_manager.py` - Main daemon lifecycle management
-- `daemon_runners.py` - 89 async runner functions for daemon types
+- `daemon_runners.py` - 120 async runner functions for daemon types
 - `daemon_types.py` - Type definitions and enums
 - `daemon_factory.py` - Centralized daemon creation factory
 - `daemon_adapters.py` - Daemon wrappers for legacy code

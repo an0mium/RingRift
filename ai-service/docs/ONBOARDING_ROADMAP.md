@@ -305,7 +305,7 @@ curl -X POST http://localhost:8770/dispatch_selfplay \
 
 1. `CLAUDE.md` - Full AI service context
 2. `runbooks/DAEMON_FAILURE_RECOVERY.md` - Daemon operations
-3. `app/coordination/daemon_registry.py` - All 89 daemon types
+3. `app/coordination/daemon_registry.py` - All 120 daemon types
 
 **Key daemon concepts:**
 

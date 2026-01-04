@@ -219,7 +219,7 @@ async def _create_my_daemon(self) -> None:
 | File                                            | Purpose                                                         |
 | ----------------------------------------------- | --------------------------------------------------------------- |
 | `app/coordination/daemon_manager.py`            | Main DaemonManager implementation (~2,000 LOC)                  |
-| `app/coordination/daemon_runners.py`            | 89 async runner functions for each daemon type (Dec 2025)       |
+| `app/coordination/daemon_runners.py`            | 120 async runner functions for each daemon type (Dec 2025)      |
 | `app/coordination/daemon_registry.py`           | Declarative DaemonSpec registry for all daemon types (Dec 2025) |
 | `app/coordination/daemon_adapters.py`           | Adapters for existing daemons                                   |
 | `app/coordination/data_consolidation_daemon.py` | Consolidates scattered games into canonical DBs                 |

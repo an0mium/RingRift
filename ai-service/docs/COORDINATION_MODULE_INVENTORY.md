@@ -56,7 +56,7 @@ Daemon lifecycle and factory modules.
 | Module                              | LOC    | Status | Purpose                                                |
 | ----------------------------------- | ------ | ------ | ------------------------------------------------------ |
 | `daemon_manager.py`                 | ~2,000 | Active | Main DaemonManager class, lifecycle, health monitoring |
-| `daemon_runners.py`                 | ~1,100 | Active | 89 async runner functions for all daemon types         |
+| `daemon_runners.py`                 | ~1,100 | Active | 120 async runner functions for all daemon types        |
 | `daemon_registry.py`                | ~150   | Active | Declarative DaemonSpec registry                        |
 | `daemon_factory.py`                 | ~300   | Active | Factory pattern for daemon creation                    |
 | `daemon_factory_implementations.py` | ~200   | Active | Factory method implementations                         |

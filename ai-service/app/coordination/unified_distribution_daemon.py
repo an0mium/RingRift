@@ -51,6 +51,7 @@ from app.coordination.protocols import (
     register_coordinator,
     unregister_coordinator,
 )
+from app.utils.retry import RetryConfig  # Jan 2026: Centralized retry pattern
 from app.coordination.event_utils import make_config_key
 
 # Delivery ledger for persistent tracking (Dec 2025 Phase 3)
@@ -603,12 +604,16 @@ class UnifiedDistributionDaemon:
         December 28, 2025: Added retry logic with exponential backoff for
         robustness during startup when event bus may not be ready.
 
+        Jan 2026: Migrated to RetryConfig for centralized retry behavior.
+
         Args:
             max_retries: Maximum retry attempts before falling back to polling
         """
-        import time as time_module
+        # Jan 2026: Use RetryConfig for centralized retry pattern
+        # Exponential backoff: 1s, 2s, 4s (base_delay=1.0)
+        retry_config = RetryConfig(max_attempts=max_retries, base_delay=1.0, max_delay=8.0)
 
-        for attempt in range(max_retries):
+        for attempt in retry_config.attempts():
             try:
                 from app.coordination.event_router import DataEventType, subscribe
 
@@ -644,16 +649,15 @@ class UnifiedDistributionDaemon:
                 return
 
             except ImportError as e:
-                if attempt < max_retries - 1:
-                    backoff = 2 ** attempt  # 1s, 2s, 4s
+                if attempt.should_retry:
                     logger.warning(
-                        f"Event system not ready, retry {attempt + 1}/{max_retries} "
-                        f"in {backoff}s: {e}"
+                        f"Event system not ready, retry {attempt.number}/{retry_config.max_attempts} "
+                        f"in {attempt.delay:.1f}s: {e}"
                     )
-                    time_module.sleep(backoff)
+                    attempt.wait()
                 else:
                     logger.warning(
-                        f"Event system not available after {max_retries} attempts ({e}), "
+                        f"Event system not available after {retry_config.max_attempts} attempts ({e}), "
                         "will poll for new files"
                     )
             except Exception as e:

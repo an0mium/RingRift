@@ -162,7 +162,7 @@ manager = DaemonManager(config=config)
 
 ### Daemon Types
 
-The system supports 89 daemon types organized by category:
+The system supports 124 daemon types organized by category:
 
 | Category       | Key Daemons                                                  | Purpose                      |
 | -------------- | ------------------------------------------------------------ | ---------------------------- |
@@ -335,7 +335,7 @@ history = list(router._event_history)  # Last 1000 events
 | **Feedback**   | `ELO_VELOCITY_CHANGED`, `PLATEAU_DETECTED`    | Training feedback        |
 | **Health**     | `NODE_RECOVERED`, `HOST_OFFLINE`              | Cluster health           |
 
-See `EVENT_SYSTEM_REFERENCE.md` for the complete event catalog (211 event types).
+See `EVENT_SYSTEM_REFERENCE.md` for the complete event catalog (237 event types).
 
 ---
 

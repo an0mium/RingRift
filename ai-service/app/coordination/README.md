@@ -7,7 +7,7 @@ Counts are snapshots; run `find app/coordination -name "*.py" | wc -l` to refres
 
 **Last Updated**: December 30, 2025
 
-> **Architecture Status**: Production-ready. Major consolidation completed Dec 2025 - see `archive/deprecated_coordination/` for historical modules. Current architecture uses 89 daemon types (78 active, 11 deprecated) managed by `DaemonManager`.
+> **Architecture Status**: Production-ready. Major consolidation completed Dec 2025 - see `archive/deprecated_coordination/` for historical modules. Current architecture uses 124 daemon types (78 active, 11 deprecated) managed by `DaemonManager`.
 
 ## Quick Start
 
@@ -137,7 +137,7 @@ await shutdown_all_coordinators()
 
 #### Daemon Types Reference
 
-Representative daemon types organized by category (89 total; see `docs/DAEMON_REGISTRY.md` for the full list):
+Representative daemon types organized by category (120 total; see `docs/DAEMON_REGISTRY.md` for the full list):
 
 **Core Infrastructure:**
 | Daemon Type | Purpose | Critical | Auto-Restart | Dependencies |

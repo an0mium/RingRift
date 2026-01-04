@@ -1,6 +1,6 @@
 # Event System Reference
 
-The RingRift coordination infrastructure uses an event-driven architecture with 211 event types defined in `DataEventType`. This document provides a comprehensive reference for the event system; for the canonical list and mappings, see `EVENT_CATALOG.md`. `EVENT_REFERENCE_AUTO.md` is an exhaustive scan of event strings across code/tests and includes non-canonical or test-only events, so its total count can exceed `DataEventType`.
+The RingRift coordination infrastructure uses an event-driven architecture with 237 event types defined in `DataEventType`. This document provides a comprehensive reference for the event system; for the canonical list and mappings, see `EVENT_CATALOG.md`. `EVENT_REFERENCE_AUTO.md` is an exhaustive scan of event strings across code/tests and includes non-canonical or test-only events, so its total count can exceed `DataEventType`.
 
 **Created**: December 2025 (Wave 4 Phase 2)
 **Updated**: December 30, 2025 (Event wiring + count refresh)
@@ -84,72 +84,72 @@ This section provides essential payload fields for the most commonly used events
 
 ### Training Pipeline Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
-| `TRAINING_COMPLETED` | `config_key`, `model_path`, `epochs`, `final_loss` | `extract_training_data()` |
-| `TRAINING_STARTED` | `config_key`, `model_path`, `node_id` | `extract_training_data()` |
-| `TRAINING_FAILED` | `config_key`, `error`, `node_id` | `extract_training_data()` |
-| `TRAINING_THRESHOLD_REACHED` | `config_key`, `sample_count`, `quality_score` | `parse_config_key()` |
-| `NEW_GAMES_AVAILABLE` | `config_key`, `game_count`, `db_path` | `parse_config_key()` |
+| Event                        | Essential Fields                                   | Extraction Utility        |
+| ---------------------------- | -------------------------------------------------- | ------------------------- |
+| `TRAINING_COMPLETED`         | `config_key`, `model_path`, `epochs`, `final_loss` | `extract_training_data()` |
+| `TRAINING_STARTED`           | `config_key`, `model_path`, `node_id`              | `extract_training_data()` |
+| `TRAINING_FAILED`            | `config_key`, `error`, `node_id`                   | `extract_training_data()` |
+| `TRAINING_THRESHOLD_REACHED` | `config_key`, `sample_count`, `quality_score`      | `parse_config_key()`      |
+| `NEW_GAMES_AVAILABLE`        | `config_key`, `game_count`, `db_path`              | `parse_config_key()`      |
 
 ### Evaluation Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
+| Event                  | Essential Fields                                              | Extraction Utility          |
+| ---------------------- | ------------------------------------------------------------- | --------------------------- |
 | `EVALUATION_COMPLETED` | `config_key`, `model_path`, `elo`, `win_rate`, `games_played` | `extract_evaluation_data()` |
-| `EVALUATION_FAILED` | `config_key`, `model_path`, `error` | `extract_evaluation_data()` |
-| `ELO_UPDATED` | `config_key`, `new_elo`, `old_elo`, `delta` | `parse_config_key()` |
+| `EVALUATION_FAILED`    | `config_key`, `model_path`, `error`                           | `extract_evaluation_data()` |
+| `ELO_UPDATED`          | `config_key`, `new_elo`, `old_elo`, `delta`                   | `parse_config_key()`        |
 
 ### Model Lifecycle Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
-| `MODEL_PROMOTED` | `config_key`, `model_path`, `elo`, `canonical_path` | `extract_config_from_path()` |
-| `MODEL_DISTRIBUTION_COMPLETE` | `config_key`, `model_path`, `nodes_synced` | `extract_config_from_path()` |
-| `REGRESSION_DETECTED` | `config_key`, `severity`, `elo_drop`, `model_path` | `parse_config_key()` |
-| `REGRESSION_CRITICAL` | `config_key`, `elo_drop`, `recommended_action` | `parse_config_key()` |
+| Event                         | Essential Fields                                    | Extraction Utility           |
+| ----------------------------- | --------------------------------------------------- | ---------------------------- |
+| `MODEL_PROMOTED`              | `config_key`, `model_path`, `elo`, `canonical_path` | `extract_config_from_path()` |
+| `MODEL_DISTRIBUTION_COMPLETE` | `config_key`, `model_path`, `nodes_synced`          | `extract_config_from_path()` |
+| `REGRESSION_DETECTED`         | `config_key`, `severity`, `elo_drop`, `model_path`  | `parse_config_key()`         |
+| `REGRESSION_CRITICAL`         | `config_key`, `elo_drop`, `recommended_action`      | `parse_config_key()`         |
 
 ### Sync & Data Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
-| `DATA_SYNC_COMPLETED` | `config_key`, `files_synced`, `bytes_transferred`, `duration_sec` | `parse_config_key()` |
-| `DATA_SYNC_STARTED` | `sync_type`, `source_node`, `target_nodes` | - |
-| `CONSOLIDATION_COMPLETE` | `config_key`, `games_merged`, `db_path` | `parse_config_key()` |
+| Event                    | Essential Fields                                                  | Extraction Utility   |
+| ------------------------ | ----------------------------------------------------------------- | -------------------- |
+| `DATA_SYNC_COMPLETED`    | `config_key`, `files_synced`, `bytes_transferred`, `duration_sec` | `parse_config_key()` |
+| `DATA_SYNC_STARTED`      | `sync_type`, `source_node`, `target_nodes`                        | -                    |
+| `CONSOLIDATION_COMPLETE` | `config_key`, `games_merged`, `db_path`                           | `parse_config_key()` |
 
 ### Cluster Health Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
-| `HOST_ONLINE` | `node_id`, `ip`, `gpu_count`, `role` | - |
-| `HOST_OFFLINE` | `node_id`, `reason`, `last_seen` | - |
-| `BACKPRESSURE_ACTIVATED` | `level`, `queue_depth`, `reason` | - |
-| `BACKPRESSURE_RELEASED` | `level`, `queue_depth` | - |
+| Event                    | Essential Fields                     | Extraction Utility |
+| ------------------------ | ------------------------------------ | ------------------ |
+| `HOST_ONLINE`            | `node_id`, `ip`, `gpu_count`, `role` | -                  |
+| `HOST_OFFLINE`           | `node_id`, `reason`, `last_seen`     | -                  |
+| `BACKPRESSURE_ACTIVATED` | `level`, `queue_depth`, `reason`     | -                  |
+| `BACKPRESSURE_RELEASED`  | `level`, `queue_depth`               | -                  |
 
 ### Curriculum Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
-| `CURRICULUM_REBALANCED` | `config_weights`, `reason`, `triggered_by` | - |
-| `WEIGHT_UPDATED` | `config_key`, `old_weight`, `new_weight`, `reason` | `parse_config_key()` |
-| `PROGRESS_STALL_DETECTED` | `config_key`, `stall_hours`, `last_elo_change` | `parse_config_key()` |
-| `PROGRESS_RECOVERED` | `config_key`, `elo_gain`, `recovery_hours` | `parse_config_key()` |
+| Event                     | Essential Fields                                   | Extraction Utility   |
+| ------------------------- | -------------------------------------------------- | -------------------- |
+| `CURRICULUM_REBALANCED`   | `config_weights`, `reason`, `triggered_by`         | -                    |
+| `WEIGHT_UPDATED`          | `config_key`, `old_weight`, `new_weight`, `reason` | `parse_config_key()` |
+| `PROGRESS_STALL_DETECTED` | `config_key`, `stall_hours`, `last_elo_change`     | `parse_config_key()` |
+| `PROGRESS_RECOVERED`      | `config_key`, `elo_gain`, `recovery_hours`         | `parse_config_key()` |
 
 ### Quality Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
-| `QUALITY_DEGRADED` | `config_key`, `score`, `previous_score`, `reason` | `parse_config_key()` |
-| `TRAINING_BLOCKED_BY_QUALITY` | `config_key`, `quality_score`, `threshold` | `parse_config_key()` |
-| `EXPLORATION_BOOST` | `config_key`, `boost_factor`, `duration_hours` | `parse_config_key()` |
+| Event                         | Essential Fields                                  | Extraction Utility   |
+| ----------------------------- | ------------------------------------------------- | -------------------- |
+| `QUALITY_DEGRADED`            | `config_key`, `score`, `previous_score`, `reason` | `parse_config_key()` |
+| `TRAINING_BLOCKED_BY_QUALITY` | `config_key`, `quality_score`, `threshold`        | `parse_config_key()` |
+| `EXPLORATION_BOOST`           | `config_key`, `boost_factor`, `duration_hours`    | `parse_config_key()` |
 
 ### Work Queue Events
 
-| Event | Essential Fields | Extraction Utility |
-|-------|------------------|-------------------|
-| `WORK_QUEUED` | `job_type`, `config_key`, `priority`, `job_id` | `parse_config_key()` |
+| Event            | Essential Fields                                 | Extraction Utility   |
+| ---------------- | ------------------------------------------------ | -------------------- |
+| `WORK_QUEUED`    | `job_type`, `config_key`, `priority`, `job_id`   | `parse_config_key()` |
 | `WORK_COMPLETED` | `job_id`, `config_key`, `duration_sec`, `result` | `parse_config_key()` |
-| `WORK_FAILED` | `job_id`, `config_key`, `error`, `retries_left` | `parse_config_key()` |
+| `WORK_FAILED`    | `job_id`, `config_key`, `error`, `retries_left`  | `parse_config_key()` |
 
 ### Using Extraction Utilities
 

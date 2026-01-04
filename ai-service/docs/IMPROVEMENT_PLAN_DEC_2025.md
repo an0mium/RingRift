@@ -206,7 +206,7 @@ Could extract common patterns into enhanced `HandlerBase`.
 
 | Component                | Status                       |
 | ------------------------ | ---------------------------- |
-| Event Wiring             | 100% (211 events, all wired) |
+| Event Wiring             | 100% (237 events, all wired) |
 | Daemon Health Checks     | 85%+                         |
 | Daemon Factory Functions | 100%                         |
 | Critical Event Flows     | 100%                         |

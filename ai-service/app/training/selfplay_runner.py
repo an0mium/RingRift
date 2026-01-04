@@ -951,6 +951,41 @@ class SelfplayRunner(ABC):
                     f"[momentum: {momentum_state}]"
                 )
 
+            def on_exploration_boost(event):
+                """Handle EXPLORATION_BOOST events from FeedbackLoopController.
+
+                January 3, 2026 (Sprint 12): Closes the feedback loop from training
+                anomalies (loss spikes, divergence, stalls) to selfplay exploration.
+
+                When exploration boost is applied, temperature is increased to encourage
+                more diverse game play, helping break out of local minima and plateaus.
+
+                The boost_factor is applied multiplicatively to temperature in get_temperature().
+                A boost of 1.5 means 50% higher temperature during opening moves.
+                """
+                payload = event.payload if hasattr(event, "payload") else event
+                event_config = payload.get("config_key", payload.get("config", ""))
+
+                if event_config != config_key:
+                    return
+
+                boost_factor = payload.get("boost_factor", 1.0)
+                reason = payload.get("reason", "unknown")
+                anomaly_count = payload.get("anomaly_count", 0)
+
+                # Store the exploration boost for use in get_temperature()
+                old_val = getattr(self, "_adaptive_exploration_boost", 0.0)
+                # Convert boost_factor to additive form: boost_factor=1.5 → boost=0.5
+                new_boost = max(0.0, boost_factor - 1.0)
+                self._adaptive_exploration_boost = new_boost
+
+                if abs(new_boost - old_val) > 0.05:  # Only log significant changes
+                    logger.info(
+                        f"[ExplorationBoost] {config_key}: exploration_boost "
+                        f"{old_val:.2f} → {new_boost:.2f} (factor={boost_factor:.2f}, "
+                        f"reason={reason}, anomalies={anomaly_count})"
+                    )
+
             # Subscribe to feedback events using DataEventType enums
             subscribe(DataEventType.CURRICULUM_ADVANCED, on_curriculum_advanced)
             subscribe(DataEventType.SELFPLAY_TARGET_UPDATED, on_selfplay_target_updated)
@@ -961,6 +996,7 @@ class SelfplayRunner(ABC):
             subscribe(DataEventType.QUALITY_PENALTY_APPLIED, on_quality_penalty_applied)
             subscribe(DataEventType.ADAPTIVE_PARAMS_CHANGED, on_adaptive_params_changed)  # Phase 5
             subscribe(DataEventType.SELFPLAY_RATE_CHANGED, on_selfplay_rate_changed)  # Phase 1.3 Dec 2025
+            subscribe(DataEventType.EXPLORATION_BOOST, on_exploration_boost)  # Sprint 12 Jan 2026
 
             logger.debug(f"[SelfplayRunner] Subscribed to feedback events for {config_key}")
 

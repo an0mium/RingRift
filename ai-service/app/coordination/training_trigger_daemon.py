@@ -780,6 +780,93 @@ class TrainingTriggerDaemon(HandlerBase):
 
         return params
 
+    def _apply_velocity_amplification(
+        self,
+        base_params: tuple[int, int, float],
+        elo_velocity: float,
+        velocity_trend: str,
+    ) -> tuple[int, int, float]:
+        """Apply Elo velocity-based amplification to training parameters.
+
+        January 3, 2026: Sprint 12 P1 improvement - Wire Elo velocity to training
+        intensity for dynamic parameter adjustment based on improvement rate.
+
+        Velocity thresholds:
+          - velocity > 2.0: Fast improvement → increase epochs/batch for momentum
+          - velocity > 1.0: Good progress → slight boost
+          - velocity < 0.5: Slow improvement → reduce LR for more careful updates
+          - velocity < 0.0: Regression → even lower LR, more epochs
+
+        The velocity_trend ("accelerating", "stable", "decelerating", "plateauing")
+        provides secondary signal for fine-tuning.
+
+        Args:
+            base_params: (epochs, batch_size, lr_multiplier) from intensity mapping
+            elo_velocity: Elo gain per hour (can be negative during regression)
+            velocity_trend: Trend indicator from Elo tracking
+
+        Returns:
+            Adjusted (epochs, batch_size, lr_multiplier)
+        """
+        epochs, batch_size, lr_mult = base_params
+
+        # Fast improvement: Capitalize on momentum with more aggressive training
+        if elo_velocity > 2.0:
+            # High velocity: 1.5x epochs, bump batch size to 512+, 1.3x LR
+            epochs = int(epochs * 1.5)
+            batch_size = max(batch_size, 512)
+            lr_mult = lr_mult * 1.3
+            logger.debug(
+                f"[TrainingTriggerDaemon] Velocity amplification (fast): "
+                f"velocity={elo_velocity:.2f} → epochs={epochs}, batch={batch_size}, lr_mult={lr_mult:.2f}"
+            )
+
+        elif elo_velocity > 1.0:
+            # Good velocity: 1.2x epochs, slight batch boost
+            epochs = int(epochs * 1.2)
+            batch_size = max(batch_size, 384)
+            lr_mult = lr_mult * 1.1
+            logger.debug(
+                f"[TrainingTriggerDaemon] Velocity amplification (good): "
+                f"velocity={elo_velocity:.2f} → epochs={epochs}, batch={batch_size}, lr_mult={lr_mult:.2f}"
+            )
+
+        elif elo_velocity < 0.0:
+            # Negative velocity (regression): Very careful training
+            # More epochs but lower LR to avoid overcorrection
+            epochs = int(epochs * 1.3)
+            lr_mult = lr_mult * 0.6
+            logger.debug(
+                f"[TrainingTriggerDaemon] Velocity amplification (regression): "
+                f"velocity={elo_velocity:.2f} → epochs={epochs}, lr_mult={lr_mult:.2f}"
+            )
+
+        elif elo_velocity < 0.5:
+            # Slow improvement: Reduce LR for more careful updates
+            lr_mult = lr_mult * 0.8
+            logger.debug(
+                f"[TrainingTriggerDaemon] Velocity amplification (slow): "
+                f"velocity={elo_velocity:.2f} → lr_mult={lr_mult:.2f}"
+            )
+
+        # Secondary adjustment based on trend
+        if velocity_trend == "accelerating" and elo_velocity > 0.5:
+            # Accelerating improvement: slight LR boost to maintain momentum
+            lr_mult = lr_mult * 1.05
+        elif velocity_trend == "plateauing":
+            # Plateauing: increase epochs to break through
+            epochs = int(epochs * 1.15)
+        elif velocity_trend == "decelerating" and elo_velocity > 0.5:
+            # Slowing down but still positive: be slightly more conservative
+            lr_mult = lr_mult * 0.95
+
+        # Clamp to reasonable bounds
+        epochs = max(10, min(epochs, 150))  # 10-150 epochs
+        batch_size = max(128, min(batch_size, 2048))  # 128-2048 batch
+        lr_mult = max(0.3, min(lr_mult, 2.5))  # 0.3x-2.5x LR multiplier
+
+        return epochs, batch_size, lr_mult
+
     def _get_game_aggregator(self):
         """Get or create the UnifiedGameAggregator instance.
 
@@ -3081,6 +3168,15 @@ class TrainingTriggerDaemon(HandlerBase):
                     state.training_intensity
                 )
 
+                # January 3, 2026 (Sprint 12): Apply Elo velocity-based amplification
+                # High velocity configs get more aggressive training to capitalize on momentum
+                # Low velocity configs get more conservative LR to avoid overshooting
+                epochs, batch_size, lr_mult = self._apply_velocity_amplification(
+                    (epochs, batch_size, lr_mult),
+                    state.elo_velocity,
+                    state.elo_velocity_trend,
+                )
+
                 # December 30, 2025: Apply architecture-specific overrides
                 if arch.epochs is not None:
                     epochs = arch.epochs
@@ -3091,7 +3187,8 @@ class TrainingTriggerDaemon(HandlerBase):
                     f"[TrainingTriggerDaemon] Starting training for {config_key} "
                     f"with architecture {arch.name} "
                     f"({state.npz_sample_count} samples, intensity={state.training_intensity}, "
-                    f"epochs={epochs}, batch={batch_size}, lr_mult={lr_mult:.1f})"
+                    f"velocity={state.elo_velocity:.2f}, trend={state.elo_velocity_trend}, "
+                    f"epochs={epochs}, batch={batch_size}, lr_mult={lr_mult:.2f})"
                 )
 
                 # Build training command
