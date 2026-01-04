@@ -2633,50 +2633,44 @@ class DataPipelineOrchestrator(
 
         Sprint 4 (Jan 2, 2026): Part of orphan game recovery pipeline.
         """
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            emit_event(
-                DataEventType.SYNC_TRIGGERED,
-                {
-                    "host": host,
-                    "paths": orphan_paths[:10],  # Limit payload size
-                    "game_count": total_games,
-                    "trigger": "orphan_recovery",
-                    "source": "data_pipeline_orchestrator",
-                    "timestamp": time.time(),
-                },
-            )
-            logger.debug(
-                f"[DataPipelineOrchestrator] Emitted SYNC_TRIGGERED for orphan recovery"
-            )
-        except (AttributeError, ImportError, RuntimeError) as e:
-            logger.debug(f"[DataPipelineOrchestrator] Failed to emit sync trigger: {e}")
+        safe_emit_event(
+            DataEventType.SYNC_TRIGGERED,
+            {
+                "host": host,
+                "paths": orphan_paths[:10],  # Limit payload size
+                "game_count": total_games,
+                "trigger": "orphan_recovery",
+                "source": "data_pipeline_orchestrator",
+                "timestamp": time.time(),
+            },
+            log_after="Emitted SYNC_TRIGGERED for orphan recovery",
+            context="DataPipelineOrchestrator",
+            source="data_pipeline_orchestrator",
+        )
 
     def _emit_export_trigger(self, config_key: str, source: str) -> None:
         """Emit event to trigger NPZ export for a config.
 
         Sprint 4 (Jan 2, 2026): Part of orphan game recovery pipeline.
         """
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            emit_event(
-                DataEventType.NEW_GAMES_AVAILABLE,
-                {
-                    "config_key": config_key,
-                    "source": source,
-                    "trigger": "orphan_recovery",
-                    "timestamp": time.time(),
-                },
-            )
-            logger.debug(
-                f"[DataPipelineOrchestrator] Emitted NEW_GAMES_AVAILABLE for {config_key}"
-            )
-        except (AttributeError, ImportError, RuntimeError) as e:
-            logger.debug(f"[DataPipelineOrchestrator] Failed to emit export trigger: {e}")
+        safe_emit_event(
+            DataEventType.NEW_GAMES_AVAILABLE,
+            {
+                "config_key": config_key,
+                "source": source,
+                "trigger": "orphan_recovery",
+                "timestamp": time.time(),
+            },
+            log_after=f"Emitted NEW_GAMES_AVAILABLE for {config_key}",
+            context="DataPipelineOrchestrator",
+            source="data_pipeline_orchestrator",
+        )
 
     def _extract_config_from_db_path(self, path: str) -> str | None:
         """Extract config key from database path.

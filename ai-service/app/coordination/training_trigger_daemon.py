@@ -1971,7 +1971,8 @@ class TrainingTriggerDaemon(HandlerBase):
                     )
 
             # Mark state as needing persistence
-            self._save_state()
+            # January 2026 Sprint 17.4: Wrap blocking SQLite I/O with asyncio.to_thread()
+            await asyncio.to_thread(self._save_state)
 
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             logger.debug(f"[TrainingTriggerDaemon] Error handling ELO_VELOCITY_CHANGED: {e}")
@@ -2048,7 +2049,8 @@ class TrainingTriggerDaemon(HandlerBase):
                         f"({old_intensity} -> reduced)"
                     )
 
-            self._save_state()
+            # January 2026 Sprint 17.4: Wrap blocking SQLite I/O with asyncio.to_thread()
+            await asyncio.to_thread(self._save_state)
 
         except (ValueError, KeyError, TypeError, AttributeError) as e:
             logger.debug(f"[TrainingTriggerDaemon] Error handling TRAINING_FAILED: {e}")
@@ -2118,7 +2120,8 @@ class TrainingTriggerDaemon(HandlerBase):
 
                 # Track regression event
                 state.consecutive_failures += 1
-                self._save_state()
+                # January 2026 Sprint 17.4: Wrap blocking SQLite I/O with asyncio.to_thread()
+                await asyncio.to_thread(self._save_state)
             else:
                 logger.info(
                     f"[TrainingTriggerDaemon] REGRESSION_DETECTED: {config_key} "
@@ -3907,7 +3910,8 @@ class TrainingTriggerDaemon(HandlerBase):
         # December 29, 2025 (Phase 3): Periodically save state
         now = time.time()
         if now - self._last_state_save >= self.config.state_save_interval_seconds:
-            self._save_state()
+            # January 2026 Sprint 17.4: Wrap blocking SQLite I/O with asyncio.to_thread()
+            await asyncio.to_thread(self._save_state)
 
     async def _check_backpressure_recovery_timeout(self) -> None:
         """Check if evaluation backpressure has exceeded max duration and auto-release.
