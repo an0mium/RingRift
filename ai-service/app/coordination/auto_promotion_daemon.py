@@ -13,11 +13,14 @@ The daemon:
 Usage:
     from app.coordination.auto_promotion_daemon import AutoPromotionDaemon
 
-    daemon = AutoPromotionDaemon()
+    daemon = AutoPromotionDaemon.get_instance()
     await daemon.start()
 
 Integration with DaemonManager:
     DaemonType.AUTO_PROMOTION factory creates and manages this daemon.
+
+January 2026 (Sprint 12.2): Migrated to HandlerBase for unified lifecycle,
+event subscription, health checks, and fire-and-forget helpers.
 """
 
 from __future__ import annotations
@@ -26,11 +29,13 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from app.config.coordination_defaults import PromotionGameDefaults
 from app.config.thresholds import AUTO_PROMOTION_MIN_QUALITY
 from app.coordination.event_utils import parse_config_key
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.coordination.contracts import CoordinatorStatus
 from app.utils.game_discovery import count_games_for_config
 from app.utils.retry import RetryConfig
 
@@ -98,57 +103,76 @@ class PromotionCandidate:
     training_game_count: int = 0  # Total training games for this config
 
 
-class AutoPromotionDaemon:
+class AutoPromotionDaemon(HandlerBase):
     """Daemon that auto-promotes models based on evaluation results.
 
     Subscribes to EVALUATION_COMPLETED events and promotes models that
     meet win rate thresholds against RANDOM and HEURISTIC baselines.
+
+    January 2026 (Sprint 12.2): Migrated to HandlerBase for unified:
+    - Singleton management (get_instance/reset_instance)
+    - Event subscription via _get_event_subscriptions()
+    - Lifecycle management (start/stop)
+    - Health checks
+    - Fire-and-forget task helpers (_safe_create_task, _try_emit_event)
     """
 
+    # Event source identifier for SafeEventEmitterMixin
+    _event_source = "AutoPromotionDaemon"
+
     def __init__(self, config: AutoPromotionConfig | None = None):
+        # Long cycle interval since this daemon is purely event-driven
+        super().__init__(name="auto_promotion", cycle_interval=300.0)
         self.config = config or AutoPromotionConfig()
-        self._running = False
         self._candidates: dict[str, PromotionCandidate] = {}
         self._promotion_history: list[dict[str, Any]] = []
-        self._subscribed = False
+        # Background subscription retry task (for resilience when router starts late)
+        self._subscription_retry_task: asyncio.Task | None = None
 
-    @property
-    def is_running(self) -> bool:
-        """Check if daemon is currently running."""
-        return self._running
+    def _get_event_subscriptions(self) -> dict[str, Callable[[dict[str, Any]], Any]]:
+        """Return event subscriptions for HandlerBase.
 
-    async def start(self) -> None:
-        """Start the auto-promotion daemon."""
-        if self._running:
-            return
+        January 2026: Migrated from manual _subscribe_to_events() to use
+        HandlerBase's declarative subscription system.
+        """
+        return {
+            "evaluation_completed": self._on_evaluation_completed,
+        }
 
-        self._running = True
-        self._subscription_task: asyncio.Task | None = None
-        await self._subscribe_to_events()
+    async def _on_start(self) -> None:
+        """Hook called when daemon starts.
 
-        # Dec 29, 2025: Start background subscription retry if initial failed
-        # This handles the case where router becomes available after daemon starts
-        if not self._subscribed:
-            self._subscription_task = asyncio.create_task(
-                self._periodic_subscription_retry()
+        If initial subscription fails, start background retry task
+        to handle case where router becomes available later.
+        """
+        # If HandlerBase subscription didn't succeed, start retry task
+        if not self._event_subscribed:
+            logger.info("[AutoPromotion] Initial subscription pending, starting retry task")
+            self._subscription_retry_task = self._safe_create_task(
+                self._periodic_subscription_retry(),
+                context="subscription_retry",
             )
 
-        logger.info("[AutoPromotion] Daemon started")
-
-    async def stop(self) -> None:
-        """Stop the daemon."""
-        self._running = False
-
+    async def _on_stop(self) -> None:
+        """Hook called when daemon stops."""
         # Cancel background subscription task if running
-        if hasattr(self, "_subscription_task") and self._subscription_task:
-            self._subscription_task.cancel()
+        if self._subscription_retry_task and not self._subscription_retry_task.done():
+            self._subscription_retry_task.cancel()
             try:
-                await self._subscription_task
+                await self._subscription_retry_task
             except asyncio.CancelledError:
                 pass
-            self._subscription_task = None
+            self._subscription_retry_task = None
 
-        logger.info("[AutoPromotion] Daemon stopped")
+    async def _run_cycle(self) -> None:
+        """Main work loop - minimal for this event-driven daemon.
+
+        The daemon is purely event-driven (handles EVALUATION_COMPLETED),
+        so the run cycle just checks subscription health.
+        """
+        # If not subscribed yet, try again
+        if not self._event_subscribed:
+            self._subscribe_all_events()
 
     async def _periodic_subscription_retry(self) -> None:
         """Periodically retry event subscription until successful.
@@ -165,68 +189,18 @@ class AutoPromotionDaemon:
 
             await asyncio.sleep(retry_interval)
 
-            if self._subscribed:
+            if self._event_subscribed:
                 logger.debug("[AutoPromotion] Already subscribed, stopping retry loop")
                 return
 
             logger.debug(f"[AutoPromotion] Subscription retry attempt {attempt + 1}/{max_attempts}")
-            await self._subscribe_to_events()
+            self._subscribe_all_events()
 
-            if self._subscribed:
+            if self._event_subscribed:
                 logger.info("[AutoPromotion] Subscription succeeded on retry")
                 return
 
         logger.warning("[AutoPromotion] Gave up on subscription after max retries")
-
-    async def _subscribe_to_events(self) -> None:
-        """Subscribe to EVALUATION_COMPLETED events with retry logic.
-
-        Uses RetryConfig for exponential backoff if the router
-        is not immediately available.
-        """
-        if self._subscribed:
-            return
-
-        # Jan 3, 2026: Migrated to RetryConfig for centralized retry behavior
-        retry_config = RetryConfig(max_attempts=3, base_delay=0.5, max_delay=4.0)
-
-        for attempt in retry_config.attempts():
-            try:
-                from app.coordination.event_router import DataEventType, get_router
-
-                # Dec 29, 2025: Check if DataEventType is available (None if data_events failed to import)
-                if DataEventType is None:
-                    logger.warning("[AutoPromotion] DataEventType unavailable (data_events not imported)")
-                    self._subscribed = False
-                    return
-
-                router = get_router()
-                if not router:
-                    if attempt.is_last:
-                        logger.warning("[AutoPromotion] Router unavailable after retries")
-                        self._subscribed = False
-                        return
-                    await attempt.wait_async()
-                    continue
-
-                # December 29, 2025: router.subscribe() is synchronous, not async
-                router.subscribe(
-                    DataEventType.EVALUATION_COMPLETED,
-                    self._on_evaluation_completed,
-                )
-                self._subscribed = True
-                logger.info("[AutoPromotion] Subscribed to EVALUATION_COMPLETED")
-                return
-            except ImportError as e:
-                logger.warning(f"[AutoPromotion] Event system not available: {e}")
-                self._subscribed = False
-                return
-            except (RuntimeError, AttributeError, TypeError) as e:
-                if attempt.is_last:
-                    logger.warning(f"[AutoPromotion] Failed to subscribe after retries: {e}")
-                    self._subscribed = False
-                else:
-                    logger.debug(f"[AutoPromotion] Subscription attempt {attempt.number} failed: {e}")
 
     async def _on_evaluation_completed(self, event: Any) -> None:
         """Handle EVALUATION_COMPLETED event.
@@ -1186,7 +1160,7 @@ class AutoPromotionDaemon:
         """Get daemon status."""
         return {
             "running": self._running,
-            "subscribed": self._subscribed,
+            "subscribed": self._event_subscribed,
             "enabled": self.config.enabled,
             "dry_run": self.config.dry_run,
             "candidates": {
@@ -1204,50 +1178,56 @@ class AutoPromotionDaemon:
             "recent_promotions": self._promotion_history[-5:] if self._promotion_history else [],
         }
 
-    def health_check(self) -> "HealthCheckResult":
-        """Check daemon health (December 2025: CoordinatorProtocol compliance).
+    def health_check(self) -> HealthCheckResult:
+        """Check daemon health.
+
+        January 2026 (Sprint 12.2): Enhanced to use HandlerBase health details
+        while preserving domain-specific checks.
 
         Returns:
             HealthCheckResult with status and details
         """
-        from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        # Get base health check from HandlerBase
+        base_health = super().health_check()
 
-        if not self._running:
+        # Add domain-specific check: subscription status
+        if self._running and not self._event_subscribed:
             return HealthCheckResult(
-                healthy=False,
-                status=CoordinatorStatus.STOPPED,
-                message="AutoPromotion daemon not running",
-            )
-
-        if not self._subscribed:
-            return HealthCheckResult(
-                healthy=False,
+                healthy=True,  # Still healthy, just degraded
                 status=CoordinatorStatus.DEGRADED,
-                message="AutoPromotion daemon not subscribed to events",
-                details=self.get_status(),
+                message="AutoPromotion daemon not subscribed to events (retry pending)",
+                details={**base_health.details, **self.get_status()},
             )
 
-        return HealthCheckResult(
-            healthy=True,
-            status=CoordinatorStatus.RUNNING,
-            message=f"AutoPromotion daemon running ({len(self._promotion_history)} promotions)",
-            details=self.get_status(),
-        )
+        # Enhance message with promotion count
+        if base_health.healthy:
+            return HealthCheckResult(
+                healthy=True,
+                status=base_health.status,
+                message=f"AutoPromotion daemon running ({len(self._promotion_history)} promotions)",
+                details={**base_health.details, **self.get_status()},
+            )
+
+        return base_health
 
 
-# Module-level singleton
-_auto_promotion_daemon: AutoPromotionDaemon | None = None
+# =============================================================================
+# Module-Level Singleton Accessors (January 2026: Delegates to HandlerBase)
+# =============================================================================
 
 
 def get_auto_promotion_daemon() -> AutoPromotionDaemon:
-    """Get the singleton AutoPromotionDaemon instance."""
-    global _auto_promotion_daemon
-    if _auto_promotion_daemon is None:
-        _auto_promotion_daemon = AutoPromotionDaemon()
-    return _auto_promotion_daemon
+    """Get the singleton AutoPromotionDaemon instance.
+
+    January 2026: Now delegates to HandlerBase.get_instance() for
+    thread-safe singleton management.
+    """
+    return AutoPromotionDaemon.get_instance()
 
 
 def reset_auto_promotion_daemon() -> None:
-    """Reset the singleton (for testing)."""
-    global _auto_promotion_daemon
-    _auto_promotion_daemon = None
+    """Reset the singleton (for testing).
+
+    January 2026: Now delegates to HandlerBase.reset_instance().
+    """
+    AutoPromotionDaemon.reset_instance()

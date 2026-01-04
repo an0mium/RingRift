@@ -50,6 +50,9 @@ from app.coordination.daemon_stats import CleanupDaemonStats
 from app.coordination.event_utils import parse_config_key
 from app.config.thresholds import SQLITE_CONNECT_TIMEOUT
 
+# January 2026: Import HandlerBase for standardized daemon patterns
+from app.coordination.handler_base import HandlerBase
+
 
 @dataclass
 class MaintenanceConfig:
@@ -148,7 +151,7 @@ class MaintenanceStats(CleanupDaemonStats):
         self.last_archive_run = time.time()
 
 
-class MaintenanceDaemon:
+class MaintenanceDaemon(HandlerBase):
     """Daemon for automated system maintenance.
 
     Runs scheduled maintenance tasks:
@@ -156,34 +159,65 @@ class MaintenanceDaemon:
     - Database VACUUM (weekly)
     - Game archival (daily)
     - DLQ cleanup (weekly)
+
+    January 2026: Migrated to HandlerBase for standardized patterns:
+    - Singleton via get_instance() (backward-compat get_maintenance_daemon() still works)
+    - Event subscription via _get_event_subscriptions()
+    - Cycle management via _run_cycle()
+    - Health check via health_check()
     """
 
+    # Event source for safe event emission
+    _event_source = "MaintenanceDaemon"
+
     def __init__(self, config: MaintenanceConfig | None = None):
+        # Initialize HandlerBase with 10-minute cycle interval
+        super().__init__(name="maintenance_daemon", config=config, cycle_interval=600.0)
         self.config = config or MaintenanceConfig()
-        self._running = False
-        self._stats = MaintenanceStats()
+        self._maintenance_stats = MaintenanceStats()
         self._ai_service_dir = Path(__file__).parent.parent.parent
 
+    def _get_event_subscriptions(self) -> dict[str, Any]:
+        """Return event subscriptions for HandlerBase.
+
+        January 2026: Migrated from _subscribe_to_disk_events().
+        """
+        return {
+            "DISK_SPACE_LOW": self._on_disk_space_low,
+        }
+
+    async def _run_cycle(self) -> None:
+        """Main work loop iteration - required by HandlerBase.
+
+        January 2026: Delegates to existing _run_maintenance_cycle().
+        """
+        await self._run_maintenance_cycle()
+
+    async def _on_start(self) -> None:
+        """Called before main loop starts - HandlerBase hook.
+
+        January 2026: Initialize maintenance stats timing.
+        """
+        now = time.time()
+        self._maintenance_stats.last_log_rotation = now
+        self._maintenance_stats.last_db_vacuum = now
+        self._maintenance_stats.last_archive_run = now
+        self._maintenance_stats.last_dlq_cleanup = now
+        self._maintenance_stats.last_queue_cleanup = now
+        self._maintenance_stats.last_orphan_detection = now
+        logger.info("[Maintenance] Daemon initialized timing stats")
+
     async def start(self) -> None:
-        """Start the maintenance daemon."""
+        """Start the maintenance daemon.
+
+        January 2026: Now calls HandlerBase.start() for standardized lifecycle.
+        """
         if self._running:
             return
 
-        self._running = True
-        logger.info("[Maintenance] Daemon started")
-
-        # Initialize last run times
-        now = time.time()
-        self._stats.last_log_rotation = now
-        self._stats.last_db_vacuum = now
-        self._stats.last_archive_run = now
-        self._stats.last_dlq_cleanup = now
-
-        # December 2025: Subscribe to disk space events
-        await self._subscribe_to_disk_events()
-
-        # Run initial maintenance check
-        await self._run_maintenance_cycle()
+        # Call parent start which handles subscription and loop
+        await super().start()
+        logger.info("[Maintenance] Daemon started via HandlerBase")
 
     async def _subscribe_to_disk_events(self) -> None:
         """Subscribe to disk space events for reactive cleanup.
@@ -257,8 +291,8 @@ class MaintenanceDaemon:
 
             logger.info(
                 f"[Maintenance] Cleanup completed for disk space event. "
-                f"Stats: logs_rotated={self._stats.logs_rotated}, "
-                f"bytes_reclaimed={self._stats.bytes_reclaimed}"
+                f"Stats: logs_rotated={self._maintenance_stats.logs_rotated}, "
+                f"bytes_reclaimed={self._maintenance_stats.bytes_reclaimed}"
             )
 
         except (RuntimeError, OSError, AttributeError) as e:
@@ -292,50 +326,50 @@ class MaintenanceDaemon:
         tasks_run = []
 
         # Hourly: Log rotation
-        hours_since_log_rotation = (now - self._stats.last_log_rotation) / 3600
+        hours_since_log_rotation = (now - self._maintenance_stats.last_log_rotation) / 3600
         if hours_since_log_rotation >= self.config.log_rotation_interval_hours:
             await self._rotate_logs()
-            self._stats.last_log_rotation = now
+            self._maintenance_stats.last_log_rotation = now
             tasks_run.append("log_rotation")
 
         # Daily: Archive old games
-        hours_since_archive = (now - self._stats.last_archive_run) / 3600
+        hours_since_archive = (now - self._maintenance_stats.last_archive_run) / 3600
         if hours_since_archive >= self.config.archive_interval_hours:
             if self.config.archive_enabled:
                 await self._archive_old_games()
                 tasks_run.append("archive")
-            self._stats.last_archive_run = now
+            self._maintenance_stats.last_archive_run = now
 
         # Weekly: VACUUM databases
-        hours_since_vacuum = (now - self._stats.last_db_vacuum) / 3600
+        hours_since_vacuum = (now - self._maintenance_stats.last_db_vacuum) / 3600
         if hours_since_vacuum >= self.config.db_vacuum_interval_hours:
             if self.config.db_maintenance_enabled:
                 await self._vacuum_databases()
                 tasks_run.append("vacuum")
-            self._stats.last_db_vacuum = now
+            self._maintenance_stats.last_db_vacuum = now
 
         # Weekly: DLQ cleanup
-        hours_since_dlq = (now - self._stats.last_dlq_cleanup) / 3600
+        hours_since_dlq = (now - self._maintenance_stats.last_dlq_cleanup) / 3600
         if hours_since_dlq >= self.config.dlq_cleanup_interval_hours:
             await self._cleanup_dlq()
-            self._stats.last_dlq_cleanup = now
+            self._maintenance_stats.last_dlq_cleanup = now
             tasks_run.append("dlq_cleanup")
 
         # Hourly: Work queue stale item cleanup (December 2025)
-        hours_since_queue = (now - self._stats.last_queue_cleanup) / 3600
+        hours_since_queue = (now - self._maintenance_stats.last_queue_cleanup) / 3600
         if hours_since_queue >= self.config.queue_cleanup_interval_hours:
             if self.config.queue_cleanup_enabled:
                 await self._cleanup_stale_queue_items()
                 tasks_run.append("queue_cleanup")
-            self._stats.last_queue_cleanup = now
+            self._maintenance_stats.last_queue_cleanup = now
 
         # Daily: Orphan file detection (December 2025)
-        hours_since_orphan = (now - self._stats.last_orphan_detection) / 3600
+        hours_since_orphan = (now - self._maintenance_stats.last_orphan_detection) / 3600
         if hours_since_orphan >= self.config.orphan_detection_interval_hours:
             if self.config.orphan_detection_enabled:
                 await self._detect_orphan_files()
                 tasks_run.append("orphan_detection")
-            self._stats.last_orphan_detection = now
+            self._maintenance_stats.last_orphan_detection = now
 
         # December 2025: Emit event if any maintenance tasks ran
         if tasks_run:
@@ -361,13 +395,13 @@ class MaintenanceDaemon:
                 payload={
                     "tasks": tasks_run,
                     "duration_seconds": duration,
-                    "bytes_reclaimed": self._stats.bytes_reclaimed,
-                    "logs_rotated": self._stats.logs_rotated,
-                    "databases_vacuumed": self._stats.databases_vacuumed,
-                    "games_archived": self._stats.games_archived,
-                    "dlq_entries_cleaned": self._stats.dlq_entries_cleaned,
-                    "queue_items_cleaned": self._stats.queue_items_cleaned,
-                    "orphan_dbs_recovered": self._stats.orphan_dbs_recovered,
+                    "bytes_reclaimed": self._maintenance_stats.bytes_reclaimed,
+                    "logs_rotated": self._maintenance_stats.logs_rotated,
+                    "databases_vacuumed": self._maintenance_stats.databases_vacuumed,
+                    "games_archived": self._maintenance_stats.games_archived,
+                    "dlq_entries_cleaned": self._maintenance_stats.dlq_entries_cleaned,
+                    "queue_items_cleaned": self._maintenance_stats.queue_items_cleaned,
+                    "orphan_dbs_recovered": self._maintenance_stats.orphan_dbs_recovered,
                 },
                 source="maintenance_daemon",
             )
@@ -437,8 +471,8 @@ class MaintenanceDaemon:
             logger.error(f"[Maintenance] Log rotation error: {e}")
 
         if rotated:
-            self._stats.logs_rotated += rotated
-            self._stats.bytes_reclaimed_logs += bytes_saved
+            self._maintenance_stats.logs_rotated += rotated
+            self._maintenance_stats.bytes_reclaimed_logs += bytes_saved
             logger.info(f"[Maintenance] Rotated {rotated} logs, reclaimed {bytes_saved / 1024 / 1024:.1f} MB")
 
     async def _vacuum_databases(self) -> None:
@@ -483,7 +517,7 @@ class MaintenanceDaemon:
             except (sqlite3.Error, OSError, RuntimeError) as e:
                 logger.warning(f"[Maintenance] Failed to VACUUM {db_path}: {e}")
 
-        self._stats.databases_vacuumed += vacuumed
+        self._maintenance_stats.databases_vacuumed += vacuumed
         if vacuumed:
             logger.info(f"[Maintenance] VACUUM completed: {vacuumed} databases")
 
@@ -540,7 +574,7 @@ class MaintenanceDaemon:
                     )
                     if success:
                         archived_count += 1
-                        self._stats.games_archived += db_info.game_count
+                        self._maintenance_stats.games_archived += db_info.game_count
                         logger.info(
                             f"[Maintenance] Archived {db_path.name} "
                             f"({db_info.game_count} games, {age_days:.1f} days old)"
@@ -551,7 +585,7 @@ class MaintenanceDaemon:
             if archived_count > 0:
                 logger.info(
                     f"[Maintenance] Archival complete: {archived_count} databases, "
-                    f"{self._stats.games_archived} games total"
+                    f"{self._maintenance_stats.games_archived} games total"
                 )
 
         except ImportError:
@@ -656,7 +690,7 @@ class MaintenanceDaemon:
 
             cleaned = manifest.cleanup_old_dead_letters(days=self.config.dlq_retention_days)
             if cleaned:
-                self._stats.dlq_entries_cleaned += cleaned
+                self._maintenance_stats.dlq_entries_cleaned += cleaned
                 logger.info(f"[Maintenance] Cleaned {cleaned} old DLQ entries")
 
         except ImportError:
@@ -700,8 +734,8 @@ class MaintenanceDaemon:
             reset = result.get("reset_stale_claimed", 0)
 
             if removed or reset:
-                self._stats.queue_items_cleaned += removed
-                self._stats.queue_items_reset += reset
+                self._maintenance_stats.queue_items_cleaned += removed
+                self._maintenance_stats.queue_items_reset += reset
                 logger.info(
                     f"[Maintenance] Queue cleanup: removed {removed} stale pending, "
                     f"reset {reset} stale claimed"
@@ -710,7 +744,7 @@ class MaintenanceDaemon:
             # Also cleanup completed items older than 24h
             old_cleaned = queue.cleanup_old_items(max_age_seconds=86400.0)
             if old_cleaned:
-                self._stats.queue_items_cleaned += old_cleaned
+                self._maintenance_stats.queue_items_cleaned += old_cleaned
                 logger.info(f"[Maintenance] Cleaned {old_cleaned} old completed queue items")
 
         except ImportError:
@@ -770,9 +804,9 @@ class MaintenanceDaemon:
                         orphan_models.append(model_file)
 
             # Update stats
-            self._stats.orphan_dbs_found = len(orphan_dbs)
-            self._stats.orphan_npz_found = len(orphan_npz)
-            self._stats.orphan_models_found = len(orphan_models)
+            self._maintenance_stats.orphan_dbs_found = len(orphan_dbs)
+            self._maintenance_stats.orphan_npz_found = len(orphan_npz)
+            self._maintenance_stats.orphan_models_found = len(orphan_models)
 
             total_orphans = len(orphan_dbs) + len(orphan_npz) + len(orphan_models)
 
@@ -796,7 +830,7 @@ class MaintenanceDaemon:
                 # December 2025: Auto-recovery of orphan databases (preferred over cleanup)
                 if self.config.orphan_auto_recovery and not self.config.dry_run and orphan_dbs:
                     recovered = await self._recover_orphan_databases(manifest, orphan_dbs)
-                    self._stats.orphan_dbs_recovered = recovered
+                    self._maintenance_stats.orphan_dbs_recovered = recovered
                     if recovered > 0:
                         logger.info(f"[Maintenance] Recovered {recovered} orphan databases to manifest")
 
@@ -953,25 +987,25 @@ class MaintenanceDaemon:
             "enabled": self.config.enabled,
             "dry_run": self.config.dry_run,
             "stats": {
-                "logs_rotated": self._stats.logs_rotated,
-                "bytes_reclaimed_logs_mb": self._stats.bytes_reclaimed_logs / 1024 / 1024,
-                "databases_vacuumed": self._stats.databases_vacuumed,
-                "games_archived": self._stats.games_archived,
-                "dlq_entries_cleaned": self._stats.dlq_entries_cleaned,
-                "queue_items_cleaned": self._stats.queue_items_cleaned,  # December 2025
-                "queue_items_reset": self._stats.queue_items_reset,  # December 2025
-                "orphan_dbs_found": self._stats.orphan_dbs_found,  # December 2025
-                "orphan_npz_found": self._stats.orphan_npz_found,  # December 2025
-                "orphan_models_found": self._stats.orphan_models_found,  # December 2025
-                "orphan_dbs_recovered": self._stats.orphan_dbs_recovered,  # December 2025
+                "logs_rotated": self._maintenance_stats.logs_rotated,
+                "bytes_reclaimed_logs_mb": self._maintenance_stats.bytes_reclaimed_logs / 1024 / 1024,
+                "databases_vacuumed": self._maintenance_stats.databases_vacuumed,
+                "games_archived": self._maintenance_stats.games_archived,
+                "dlq_entries_cleaned": self._maintenance_stats.dlq_entries_cleaned,
+                "queue_items_cleaned": self._maintenance_stats.queue_items_cleaned,  # December 2025
+                "queue_items_reset": self._maintenance_stats.queue_items_reset,  # December 2025
+                "orphan_dbs_found": self._maintenance_stats.orphan_dbs_found,  # December 2025
+                "orphan_npz_found": self._maintenance_stats.orphan_npz_found,  # December 2025
+                "orphan_models_found": self._maintenance_stats.orphan_models_found,  # December 2025
+                "orphan_dbs_recovered": self._maintenance_stats.orphan_dbs_recovered,  # December 2025
             },
             "last_runs": {
-                "log_rotation": self._stats.last_log_rotation,
-                "db_vacuum": self._stats.last_db_vacuum,
-                "archive": self._stats.last_archive_run,
-                "dlq_cleanup": self._stats.last_dlq_cleanup,
-                "queue_cleanup": self._stats.last_queue_cleanup,  # December 2025
-                "orphan_detection": self._stats.last_orphan_detection,  # December 2025
+                "log_rotation": self._maintenance_stats.last_log_rotation,
+                "db_vacuum": self._maintenance_stats.last_db_vacuum,
+                "archive": self._maintenance_stats.last_archive_run,
+                "dlq_cleanup": self._maintenance_stats.last_dlq_cleanup,
+                "queue_cleanup": self._maintenance_stats.last_queue_cleanup,  # December 2025
+                "orphan_detection": self._maintenance_stats.last_orphan_detection,  # December 2025
             },
             "config": {
                 "log_max_size_mb": self.config.log_max_size_mb,
@@ -999,8 +1033,8 @@ class MaintenanceDaemon:
 
         # Calculate time since last maintenance runs
         now = time.time()
-        hours_since_log = (now - self._stats.last_log_rotation) / 3600 if self._stats.last_log_rotation else float('inf')
-        hours_since_vacuum = (now - self._stats.last_db_vacuum) / 3600 if self._stats.last_db_vacuum else float('inf')
+        hours_since_log = (now - self._maintenance_stats.last_log_rotation) / 3600 if self._maintenance_stats.last_log_rotation else float('inf')
+        hours_since_vacuum = (now - self._maintenance_stats.last_db_vacuum) / 3600 if self._maintenance_stats.last_db_vacuum else float('inf')
 
         # Warning if maintenance tasks are overdue
         if hours_since_log > self.config.log_rotation_interval_hours * 3:
@@ -1022,24 +1056,26 @@ class MaintenanceDaemon:
         return HealthCheckResult(
             healthy=True,
             status=CoordinatorStatus.RUNNING,
-            message=f"Maintenance daemon running (logs: {self._stats.logs_rotated}, vacuums: {self._stats.databases_vacuumed})",
+            message=f"Maintenance daemon running (logs: {self._maintenance_stats.logs_rotated}, vacuums: {self._maintenance_stats.databases_vacuumed})",
             details=self.get_status(),
         )
 
 
-# Module-level singleton
-_maintenance_daemon: MaintenanceDaemon | None = None
+# January 2026: Module-level singleton now uses HandlerBase.get_instance()
+# Backward-compat functions retained for existing callers
 
 
 def get_maintenance_daemon() -> MaintenanceDaemon:
-    """Get the singleton MaintenanceDaemon instance."""
-    global _maintenance_daemon
-    if _maintenance_daemon is None:
-        _maintenance_daemon = MaintenanceDaemon()
-    return _maintenance_daemon
+    """Get the singleton MaintenanceDaemon instance.
+
+    January 2026: Now delegates to HandlerBase.get_instance() for consistency.
+    """
+    return MaintenanceDaemon.get_instance()
 
 
 def reset_maintenance_daemon() -> None:
-    """Reset the singleton (for testing)."""
-    global _maintenance_daemon
-    _maintenance_daemon = None
+    """Reset the singleton (for testing).
+
+    January 2026: Now uses HandlerBase.reset_instance() pattern.
+    """
+    MaintenanceDaemon.reset_instance()

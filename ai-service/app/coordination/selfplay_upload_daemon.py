@@ -28,7 +28,7 @@ Usage:
     )
 
     # Get singleton instance
-    daemon = get_selfplay_upload_daemon()
+    daemon = SelfplayUploadDaemon.get_instance()
     await daemon.start()
 
     # Or create with custom config
@@ -37,6 +37,8 @@ Usage:
     await daemon.start()
 
 January 2026: Created as part of multi-source game discovery and sync infrastructure.
+January 2026 (Sprint 12.2): Migrated to HandlerBase for unified lifecycle,
+event subscription, health checks, and fire-and-forget helpers.
 """
 
 from __future__ import annotations
@@ -52,7 +54,9 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +172,7 @@ class UploadStats:
 # =============================================================================
 
 
-class SelfplayUploadDaemon:
+class SelfplayUploadDaemon(HandlerBase):
     """Daemon that uploads selfplay databases to OWC and S3.
 
     This daemon periodically scans for new selfplay databases and uploads
@@ -180,7 +184,12 @@ class SelfplayUploadDaemon:
     - Retry queue with exponential backoff
     - Progress tracking
     - Event integration
+
+    Inherits from HandlerBase for unified lifecycle, singleton management,
+    event subscription, and health check infrastructure.
     """
+
+    _event_source = "SelfplayUploadDaemon"
 
     def __init__(self, config: SelfplayUploadConfig | None = None):
         """Initialize the upload daemon.
@@ -188,11 +197,15 @@ class SelfplayUploadDaemon:
         Args:
             config: Upload configuration (defaults to env-based config)
         """
-        self._config = config or SelfplayUploadConfig.from_env()
+        # Use _upload_config to avoid collision with HandlerBase._config
+        self._upload_config = config or SelfplayUploadConfig.from_env()
+        # Initialize HandlerBase with upload interval as cycle interval
+        super().__init__(
+            name="selfplay_upload",
+            cycle_interval=float(self._upload_config.upload_interval_seconds),
+        )
         self._node_id = socket.gethostname()
-        self._running = False
         self._stats = UploadStats()
-        self._upload_task: asyncio.Task | None = None
         self._retry_task: asyncio.Task | None = None
 
         # Track uploaded files to avoid duplicates
@@ -206,113 +219,124 @@ class SelfplayUploadDaemon:
         self._state_path = Path("data/state/selfplay_upload_daemon.json")
 
     # =========================================================================
-    # Lifecycle
+    # HandlerBase Lifecycle Hooks
     # =========================================================================
 
-    async def start(self) -> None:
-        """Start the upload daemon."""
-        if self._running:
-            logger.warning("[SelfplayUploadDaemon] Already running")
-            return
+    def _get_event_subscriptions(self) -> dict[str, Callable[[dict[str, Any]], Any]]:
+        """Return event subscriptions for the daemon.
 
-        if not self._config.enabled:
+        Subscribes to events indicating new games are available for upload.
+        """
+        return {
+            "new_games_available": self._on_new_games,
+            "selfplay_complete": self._on_new_games,
+        }
+
+    async def _on_start(self) -> None:
+        """Initialize daemon on startup.
+
+        Loads previous state and starts the retry loop background task.
+        The main upload loop is handled by HandlerBase._run_cycle().
+        """
+        if not self._upload_config.enabled:
             logger.info("[SelfplayUploadDaemon] Disabled by configuration")
             return
 
-        self._running = True
         logger.info(
-            f"[SelfplayUploadDaemon] Starting (interval={self._config.upload_interval_seconds}s, "
-            f"s3={self._config.upload_to_s3}, owc={self._config.upload_to_owc})"
+            f"[SelfplayUploadDaemon] Starting (interval={self._upload_config.upload_interval_seconds}s, "
+            f"s3={self._upload_config.upload_to_s3}, owc={self._upload_config.upload_to_owc})"
         )
 
         # Load previous state
         await self._load_state()
 
-        # Wire to events
-        self._wire_to_events()
+        # Start retry loop as background task (main upload loop is _run_cycle)
+        self._retry_task = self._safe_create_task(
+            self._retry_loop(), context="retry_loop"
+        )
 
-        # Start background loops
-        self._upload_task = asyncio.create_task(self._upload_loop())
-        self._retry_task = asyncio.create_task(self._retry_loop())
-
-    async def stop(self) -> None:
-        """Stop the upload daemon gracefully."""
-        if not self._running:
-            return
-
+    async def _on_stop(self) -> None:
+        """Cleanup on daemon shutdown."""
         logger.info("[SelfplayUploadDaemon] Stopping...")
-        self._running = False
 
-        # Cancel background tasks
-        for task in [self._upload_task, self._retry_task]:
-            if task and not task.done():
-                task.cancel()
-                try:
-                    await asyncio.wait_for(task, timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
+        # Cancel retry task
+        if self._retry_task and not self._retry_task.done():
+            self._retry_task.cancel()
+            try:
+                await asyncio.wait_for(self._retry_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
 
         # Save state
         await self._save_state()
 
         logger.info("[SelfplayUploadDaemon] Stopped")
 
-    def health_check(self) -> dict[str, Any]:
+    async def _run_cycle(self) -> None:
+        """Run a single upload cycle (called by HandlerBase every cycle_interval)."""
+        if not self._upload_config.enabled:
+            return
+        await self._run_upload_cycle()
+
+    def health_check(self) -> HealthCheckResult:
         """Return health check information.
 
         Returns:
-            Dict with health status and metrics
+            HealthCheckResult with health status and metrics
         """
-        return {
-            "status": "healthy" if self._running else "stopped",
-            "running": self._running,
-            "stats": {
-                "total_uploads_attempted": self._stats.total_uploads_attempted,
-                "s3_uploads_success": self._stats.s3_uploads_success,
-                "s3_uploads_failed": self._stats.s3_uploads_failed,
-                "owc_uploads_success": self._stats.owc_uploads_success,
-                "owc_uploads_failed": self._stats.owc_uploads_failed,
-                "total_games_uploaded": self._stats.total_games_uploaded,
-                "retry_queue_size": len(self._retry_queue),
+        # Use base class health check and add domain-specific details
+        base_result = super().health_check()
+
+        # Determine health status based on error rates
+        failure_rate = 0.0
+        total_attempts = self._stats.total_uploads_attempted
+        if total_attempts > 0:
+            total_failures = (
+                self._stats.s3_uploads_failed + self._stats.owc_uploads_failed
+            )
+            failure_rate = total_failures / total_attempts
+
+        # Mark unhealthy if failure rate exceeds 50% (with min 5 attempts)
+        healthy = base_result.healthy and (
+            total_attempts < 5 or failure_rate < 0.5
+        )
+
+        status = "healthy" if healthy else "degraded"
+        if not self._running:
+            status = "stopped"
+
+        return HealthCheckResult(
+            healthy=healthy,
+            status=status,
+            message=f"SelfplayUploadDaemon: {self._stats.total_games_uploaded} games uploaded",
+            details={
+                "running": self._running,
+                "stats": {
+                    "total_uploads_attempted": self._stats.total_uploads_attempted,
+                    "s3_uploads_success": self._stats.s3_uploads_success,
+                    "s3_uploads_failed": self._stats.s3_uploads_failed,
+                    "owc_uploads_success": self._stats.owc_uploads_success,
+                    "owc_uploads_failed": self._stats.owc_uploads_failed,
+                    "total_games_uploaded": self._stats.total_games_uploaded,
+                    "retry_queue_size": len(self._retry_queue),
+                    "failure_rate": failure_rate,
+                },
+                "config": {
+                    "s3_enabled": self._upload_config.upload_to_s3,
+                    "owc_enabled": self._upload_config.upload_to_owc,
+                    "interval": self._upload_config.upload_interval_seconds,
+                },
+                "last_upload_time": self._stats.last_upload_time,
+                "last_error": self._stats.last_error,
+                **base_result.details,
             },
-            "config": {
-                "s3_enabled": self._config.upload_to_s3,
-                "owc_enabled": self._config.upload_to_owc,
-                "interval": self._config.upload_interval_seconds,
-            },
-            "last_upload_time": self._stats.last_upload_time,
-            "last_error": self._stats.last_error,
-        }
+        )
 
     # =========================================================================
-    # Event Integration
+    # Event Handlers
     # =========================================================================
 
-    def _wire_to_events(self) -> None:
-        """Subscribe to relevant events."""
-        try:
-            from app.coordination.event_router import get_event_router
-            from app.coordination.data_events import DataEventType
-
-            router = get_event_router()
-
-            # Subscribe to events that indicate new games
-            events_to_watch = [
-                DataEventType.NEW_GAMES_AVAILABLE,
-                DataEventType.SELFPLAY_COMPLETE,
-            ]
-
-            for event_type in events_to_watch:
-                router.subscribe(event_type, self._on_new_games)
-
-            logger.info("[SelfplayUploadDaemon] Wired to data events")
-
-        except ImportError:
-            logger.debug("[SelfplayUploadDaemon] Event router not available")
-        except Exception as e:
-            logger.warning(f"[SelfplayUploadDaemon] Failed to wire events: {e}")
-
-    def _on_new_games(self, event: object) -> None:
+    def _on_new_games(self, event: dict[str, Any] | object) -> None:
         """Handle new games event - queue immediate upload check."""
         try:
             db_path = getattr(event, "db_path", None)
@@ -367,26 +391,8 @@ class SelfplayUploadDaemon:
             logger.debug(f"[SelfplayUploadDaemon] Failed to emit event: {e}")
 
     # =========================================================================
-    # Background Loops
+    # Background Retry Loop
     # =========================================================================
-
-    async def _upload_loop(self) -> None:
-        """Main upload loop - periodically scan and upload databases."""
-        logger.info("[SelfplayUploadDaemon] Upload loop started")
-
-        while self._running:
-            try:
-                await self._run_upload_cycle()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"[SelfplayUploadDaemon] Upload cycle error: {e}")
-                self._stats.last_error = str(e)
-
-            # Wait for next cycle
-            await asyncio.sleep(self._config.upload_interval_seconds)
-
-        logger.info("[SelfplayUploadDaemon] Upload loop stopped")
 
     async def _retry_loop(self) -> None:
         """Retry loop - process failed uploads with backoff."""
@@ -441,12 +447,12 @@ class SelfplayUploadDaemon:
 
             for job in self._retry_queue:
                 # Calculate backoff delay
-                backoff = self._config.retry_backoff_base * (2 ** job.retry_count)
+                backoff = self._upload_config.retry_backoff_base * (2 ** job.retry_count)
                 next_retry = job.created_at + backoff
 
-                if now >= next_retry and job.retry_count < self._config.max_retries:
+                if now >= next_retry and job.retry_count < self._upload_config.max_retries:
                     jobs_to_retry.append(job)
-                elif job.retry_count >= self._config.max_retries:
+                elif job.retry_count >= self._upload_config.max_retries:
                     logger.warning(
                         f"[SelfplayUploadDaemon] Max retries exceeded for {job.db_path}"
                     )
@@ -460,7 +466,7 @@ class SelfplayUploadDaemon:
             job.retry_count += 1
             logger.info(
                 f"[SelfplayUploadDaemon] Retrying upload for {job.db_path} "
-                f"(attempt {job.retry_count}/{self._config.max_retries})"
+                f"(attempt {job.retry_count}/{self._upload_config.max_retries})"
             )
             await self._upload_database(
                 {
@@ -485,7 +491,7 @@ class SelfplayUploadDaemon:
         """
         databases = []
 
-        for pattern in self._config.db_patterns:
+        for pattern in self._upload_config.db_patterns:
             db_files = list(Path(".").glob(pattern))
 
             for db_path in db_files:
@@ -495,7 +501,7 @@ class SelfplayUploadDaemon:
 
                 # Check database has enough games
                 db_info = await self._get_database_info(db_path)
-                if db_info and db_info["game_count"] >= self._config.min_games_for_upload:
+                if db_info and db_info["game_count"] >= self._upload_config.min_games_for_upload:
                     databases.append(db_info)
 
         return databases
@@ -590,7 +596,7 @@ class SelfplayUploadDaemon:
         errors = []
 
         # Upload to S3
-        if self._config.upload_to_s3:
+        if self._upload_config.upload_to_s3:
             if retry_job and retry_job.s3_uploaded:
                 s3_success = True
             else:
@@ -604,7 +610,7 @@ class SelfplayUploadDaemon:
                     errors.append("S3 upload failed")
 
         # Upload to OWC
-        if self._config.upload_to_owc:
+        if self._upload_config.upload_to_owc:
             if retry_job and retry_job.owc_uploaded:
                 owc_success = True
             else:
@@ -647,7 +653,7 @@ class SelfplayUploadDaemon:
             elif retry_job:
                 # Update existing job
                 retry_job.last_error = error_msg
-                if retry_job.retry_count < self._config.max_retries:
+                if retry_job.retry_count < self._upload_config.max_retries:
                     await self._queue_for_retry(retry_job)
 
             self._emit_upload_event(
@@ -671,7 +677,7 @@ class SelfplayUploadDaemon:
             db_name = db_path.name
 
             # Build S3 key with config-based organization
-            s3_key = f"s3://{self._config.s3_bucket}/{self._config.s3_prefix}{config_key}/{db_name}"
+            s3_key = f"s3://{self._upload_config.s3_bucket}/{self._upload_config.s3_prefix}{config_key}/{db_name}"
 
             # Use aws s3 cp command
             cmd = [
@@ -686,7 +692,7 @@ class SelfplayUploadDaemon:
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=self._config.aws_timeout,
+                timeout=self._upload_config.aws_timeout,
             )
 
             if result.returncode == 0:
@@ -720,7 +726,7 @@ class SelfplayUploadDaemon:
         """
         try:
             config_key = db_info["config_key"]
-            ssh_key_path = Path(self._config.owc_ssh_key).expanduser()
+            ssh_key_path = Path(self._upload_config.owc_ssh_key).expanduser()
 
             if not ssh_key_path.exists():
                 logger.warning(
@@ -729,13 +735,13 @@ class SelfplayUploadDaemon:
                 return False
 
             # Build destination path with config-based organization
-            dest_dir = f"{self._config.owc_path}/{config_key}"
-            dest_path = f"{self._config.owc_user}@{self._config.owc_host}:{dest_dir}/"
+            dest_dir = f"{self._upload_config.owc_path}/{config_key}"
+            dest_path = f"{self._upload_config.owc_user}@{self._upload_config.owc_host}:{dest_dir}/"
 
             # Ensure destination directory exists
             mkdir_cmd = (
-                f"ssh -i {ssh_key_path} -o ConnectTimeout={self._config.ssh_timeout} "
-                f"-o BatchMode=yes {self._config.owc_user}@{self._config.owc_host} "
+                f"ssh -i {ssh_key_path} -o ConnectTimeout={self._upload_config.ssh_timeout} "
+                f"-o BatchMode=yes {self._upload_config.owc_user}@{self._upload_config.owc_host} "
                 f"'mkdir -p {dest_dir}'"
             )
 
@@ -757,7 +763,7 @@ class SelfplayUploadDaemon:
             # Use rsync for upload with checksum verification
             rsync_cmd = [
                 "rsync", "-avz", "--checksum",
-                "-e", f"ssh -i {ssh_key_path} -o ConnectTimeout={self._config.ssh_timeout} -o BatchMode=yes",
+                "-e", f"ssh -i {ssh_key_path} -o ConnectTimeout={self._upload_config.ssh_timeout} -o BatchMode=yes",
                 str(db_path),
                 dest_path,
             ]
@@ -767,7 +773,7 @@ class SelfplayUploadDaemon:
                 rsync_cmd,
                 capture_output=True,
                 text=True,
-                timeout=self._config.aws_timeout,  # Same timeout as S3
+                timeout=self._upload_config.aws_timeout,  # Same timeout as S3
             )
 
             if result.returncode == 0:
@@ -797,7 +803,7 @@ class SelfplayUploadDaemon:
         """
         async with self._retry_lock:
             # Check queue size limit
-            if len(self._retry_queue) >= self._config.max_retry_queue_size:
+            if len(self._retry_queue) >= self._upload_config.max_retry_queue_size:
                 # Remove oldest job
                 self._retry_queue.pop(0)
                 logger.warning(
@@ -903,11 +909,8 @@ class SelfplayUploadDaemon:
 
 
 # =============================================================================
-# Singleton Management
+# Singleton Management (delegates to HandlerBase)
 # =============================================================================
-
-_daemon_instance: SelfplayUploadDaemon | None = None
-_daemon_lock = asyncio.Lock()
 
 
 def get_selfplay_upload_daemon(
@@ -915,24 +918,23 @@ def get_selfplay_upload_daemon(
 ) -> SelfplayUploadDaemon:
     """Get or create the singleton SelfplayUploadDaemon instance.
 
+    Delegates to HandlerBase.get_instance() for thread-safe singleton management.
+
     Args:
         config: Optional configuration (only used on first call)
 
     Returns:
         SelfplayUploadDaemon instance
     """
-    global _daemon_instance
-
-    if _daemon_instance is None:
-        _daemon_instance = SelfplayUploadDaemon(config)
-
-    return _daemon_instance
+    return SelfplayUploadDaemon.get_instance(config=config)
 
 
 def reset_selfplay_upload_daemon() -> None:
-    """Reset the singleton instance (for testing)."""
-    global _daemon_instance
-    _daemon_instance = None
+    """Reset the singleton instance (for testing).
+
+    Delegates to HandlerBase.reset_instance().
+    """
+    SelfplayUploadDaemon.reset_instance()
 
 
 # =============================================================================

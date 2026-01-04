@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app.coordination.handler_base import HandlerBase
+from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +320,63 @@ class S3PushDaemon(HandlerBase):
                 await self._push_if_modified(
                     npz_path, f"consolidated/training/{npz_path.name}"
                 )
+
+    def health_check(self) -> HealthCheckResult:
+        """Return health check information for the S3 push daemon.
+
+        Returns:
+            HealthCheckResult with health status and S3 push metrics.
+        """
+        # Use base class health check and add domain-specific details
+        base_result = super().health_check()
+
+        # Determine health based on error rate and AWS credentials
+        has_credentials = self._check_aws_credentials()
+        error_rate = 0.0
+        total_ops = self._push_stats.total_files_pushed + self._push_stats.push_errors
+        if total_ops > 0:
+            error_rate = self._push_stats.push_errors / total_ops
+
+        # Mark degraded if no credentials or high error rate
+        healthy = base_result.healthy
+        if not has_credentials and self.config.enabled:
+            healthy = False
+        if error_rate > 0.5 and total_ops >= 5:
+            healthy = False
+
+        status = "healthy"
+        if not healthy:
+            status = "degraded"
+        if not self._running:
+            status = "stopped"
+        if not self.config.enabled:
+            status = "disabled"
+
+        return HealthCheckResult(
+            healthy=healthy,
+            status=status,
+            message=f"S3PushDaemon: {self._push_stats.total_files_pushed} files pushed to S3",
+            details={
+                "running": self._running,
+                "enabled": self.config.enabled,
+                "has_aws_credentials": has_credentials,
+                "bucket": self.config.bucket,
+                "push_interval": self.config.push_interval,
+                "stats": {
+                    "total_files_pushed": self._push_stats.total_files_pushed,
+                    "total_bytes_pushed": self._push_stats.total_bytes_pushed,
+                    "total_mb_pushed": round(
+                        self._push_stats.total_bytes_pushed / (1024 * 1024), 2
+                    ),
+                    "push_errors": self._push_stats.push_errors,
+                    "error_rate": round(error_rate, 3),
+                    "tracked_files": len(self._last_push_times),
+                },
+                "last_push_time": self._push_stats.last_push_time,
+                "last_error": self._push_stats.last_error,
+                **base_result.details,
+            },
+        )
 
     def get_stats(self) -> dict[str, Any]:
         """Get current daemon statistics."""

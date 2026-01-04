@@ -30,8 +30,9 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
+from app.coordination.handler_base import HealthCheckResult
 from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
@@ -347,6 +348,30 @@ class ReservationManager(SingletonMixin):
             training_count=len(training_nodes),
             gauntlet_nodes=gauntlet_nodes,
             training_nodes=training_nodes,
+        )
+
+    def health_check(self) -> HealthCheckResult:
+        """Return health check information for the reservation manager.
+
+        The reservation manager is always healthy as long as it's callable.
+        We report reservation stats as details.
+
+        Returns:
+            HealthCheckResult with health status and reservation stats.
+        """
+        stats = self.get_stats()
+
+        return HealthCheckResult(
+            healthy=True,
+            status="healthy",
+            message=f"ReservationManager: {stats.total_reserved} nodes reserved",
+            details={
+                "gauntlet_count": stats.gauntlet_count,
+                "training_count": stats.training_count,
+                "total_reserved": stats.total_reserved,
+                "gauntlet_nodes": list(stats.gauntlet_nodes),
+                "training_nodes": list(stats.training_nodes),
+            },
         )
 
     def release_all(self) -> tuple[int, int]:
