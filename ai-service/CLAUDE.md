@@ -8,18 +8,20 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 
 | Component           | Status  | Evidence                                                  |
 | ------------------- | ------- | --------------------------------------------------------- |
-| **P2P Network**     | GREEN   | 31 health mechanisms, 6 recovery daemons, 20+ alive peers |
-| **Training Loop**   | GREEN   | 99.5% complete, 116 event types, all critical flows wired |
-| **Code Quality**    | GREEN   | 90% consolidated, ~3,000 LOC saved through refactoring    |
-| **Leader Election** | WORKING | Bully algorithm with voter quorum, self-recognition fixed |
+| **P2P Network**     | GREEN   | 31 health mechanisms, 6 recovery daemons, 25+ alive peers |
+| **Training Loop**   | GREEN   | 99.5% complete, 237 event types, all critical flows wired |
+| **Code Quality**    | GREEN   | 95% consolidated, ~4,000 LOC saved through refactoring    |
+| **Leader Election** | WORKING | Bully algorithm with voter quorum, split-brain detection  |
 | **Work Queue**      | HEALTHY | 1000+ items maintained, QueuePopulatorLoop working        |
 
-**Key Improvements Since Dec 2025:**
+**Key Improvements (Jan 3, 2026):**
 
-- Leader self-recognition fix (commit `a00a54a90`)
-- Frozen leader detection with automatic alerting
-- 5 independent feedback loops fully wired
-- Expected Elo improvement: +28-45 across all configurations
+- Gossip state race condition fixed (`_gossip_state_sync_lock`)
+- Leader lease epoch split-brain detection (`_epoch_leader_claims`)
+- Quorum health monitoring (`QuorumHealthLevel` enum)
+- Circuit breaker gossip replication (cluster-wide failure awareness)
+- Loop ordering via Kahn's algorithm (LoopManager)
+- 4-tier circuit breaker auto-recovery (Phase 15.1.8)
 
 **Consolidated Base Classes:**
 | Class | LOC | Purpose |
@@ -98,14 +100,14 @@ python scripts/update_all_nodes.py --restart-p2p
 - `get_config_version()` - Get ConfigVersion for gossip state sync
 - Avoids repeated YAML parsing across modules
 
-### Coordination Infrastructure (260 modules)
+### Coordination Infrastructure (296 modules)
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`                    | Lifecycle for 89 daemon types (~2,000 LOC)        |
+| `daemon_manager.py`                    | Lifecycle for 119 daemon types (~2,000 LOC)       |
 | `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)   |
-| `daemon_runners.py`                    | 89 async runner functions                         |
-| `event_router.py`                      | Unified event bus (211 event types, SHA256 dedup) |
+| `daemon_runners.py`                    | 119 async runner functions                        |
+| `event_router.py`                      | Unified event bus (237 event types, SHA256 dedup) |
 | `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)   |
 | `budget_calculator.py`                 | Gumbel budget tiers, target games calculation     |
 | `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation      |
@@ -499,11 +501,11 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-89 daemon types (78 active, 11 deprecated). Three-layer architecture:
+119 daemon types (108 active, 11 deprecated). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
-3. **`daemon_runners.py`** - 89 async runner functions
+3. **`daemon_runners.py`** - 119 async runner functions
 
 ```python
 from app.coordination.daemon_manager import get_daemon_manager
@@ -559,13 +561,13 @@ Automatic retry for transient failures (GPU OOM, timeouts):
 
 ## Event System
 
-**Integration Status**: 99.5% COMPLETE (Dec 30, 2025)
+**Integration Status**: 99.5% COMPLETE (Jan 3, 2026)
 
-211 event types defined in DataEventType enum. All critical event flows are fully wired.
+237 event types defined in DataEventType enum. All critical event flows are fully wired.
 Only 2 minor informational gaps remain (SELFPLAY_ALLOCATION_UPDATED undercoverage,
 NODE_CAPACITY_UPDATED dual emitters) - neither affects core pipeline operation.
 
-211 event types across 3 layers:
+237 event types across 3 layers:
 
 1. **In-memory EventBus** - Local daemon communication
 2. **Stage events** - Pipeline stage completion
@@ -891,6 +893,40 @@ Recent stability improvements to the P2P orchestrator:
 - Heartbeat interval reduced: 30s → 15s (faster peer discovery)
 - Peer timeout reduced: 90s → 60s (faster dead node detection)
 
+## P2P Stability Fixes (Jan 3, 2026)
+
+Critical stability improvements for long-term cluster operation:
+
+### Gossip State Race Condition Fix
+
+**Problem**: Concurrent gossip handlers could corrupt shared `_gossip_peer_states` dict.
+
+**Solution**: Added `_gossip_state_sync_lock` (threading.RLock) in:
+
+- `scripts/p2p/gossip_protocol.py` - protects state dict during cleanup
+- `scripts/p2p/handlers/gossip.py:246-263` - sync lock in anti-entropy handler
+
+### Leader Lease Epoch Split-Brain Detection
+
+**Problem**: Network partitions could cause two nodes to become leaders with same epoch.
+
+**Solution**: Added epoch collision tracking to `scripts/p2p/leadership_state_machine.py`:
+
+- `_epoch_leader_claims: dict[int, tuple[str, float]]` - tracks claims per epoch
+- `_claim_grace_period = 30.0` - rejects concurrent claims within grace period
+- Detects and logs split-brain scenarios
+
+### Quorum Health Monitoring
+
+**Problem**: Quorum degradation went unnoticed until complete failure.
+
+**Solution**: Added to `scripts/p2p/leader_election.py`:
+
+- `QuorumHealthLevel` enum: HEALTHY, DEGRADED, MINIMUM, LOST
+- `_check_quorum_health()` - proactive monitoring
+- `_on_quorum_health_changed()` - event emission on state transitions
+- Provides early warning before quorum loss
+
 ## Circuit Breaker Gossip Replication (Jan 3, 2026)
 
 **New Feature**: Circuit breaker states are now replicated via the P2P gossip protocol.
@@ -1058,7 +1094,7 @@ Comprehensive exploration using 4 parallel agents identified the following:
 | Event chains                     | ✅ Complete | All critical flows wired                                |
 | Feedback loops                   | ✅ Complete | Quality, Elo, curriculum connected                      |
 | Loss anomaly → exploration boost | ✅ Complete | feedback_loop_controller.py:1048                        |
-| 224 coordination modules         | ✅ Active   | 190K+ LOC                                               |
+| 296 coordination modules         | ✅ Active   | 222K+ LOC                                               |
 | NPZ_COMBINATION_COMPLETE         | ✅ Wired    | training_trigger_daemon.py:446,640 → \_maybe_trigger()  |
 | TRAINING_BLOCKED_BY_QUALITY      | ✅ Wired    | 4+ subscribers (training_trigger, selfplay_scheduler)   |
 | EVALUATION_COMPLETED → Scheduler | ✅ Wired    | Via ELO_UPDATED at selfplay_scheduler.py:2221           |
