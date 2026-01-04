@@ -119,13 +119,16 @@ class TournamentCheckpoint:
 
 
 def parse_config_key(config_key: str) -> tuple[str, int]:
-    """Parse config key like 'hex8_2p' into (board_type, num_players)."""
-    parts = config_key.rsplit("_", 1)
-    if len(parts) != 2 or not parts[1].endswith("p"):
+    """Parse config key like 'hex8_2p' into (board_type, num_players).
+
+    Note: Delegates to canonical app.coordination.config_key module.
+    """
+    from app.coordination.config_key import ConfigKey
+
+    result = ConfigKey.parse(config_key)
+    if result is None:
         raise ValueError(f"Invalid config key: {config_key}")
-    board_type = parts[0]
-    num_players = int(parts[1][:-1])
-    return board_type, num_players
+    return result.to_tuple()
 
 
 def print_dedup_report(models: list[UniqueModel], deduplicator: ModelDeduplicator) -> None:

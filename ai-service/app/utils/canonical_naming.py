@@ -195,6 +195,9 @@ def make_config_key(board_type: str | BoardType, num_players: int) -> str:
 def parse_config_key(config_key: str) -> tuple[str, int]:
     """Parse a config key into board type and player count.
 
+    Note: Delegates parsing to canonical app.coordination.config_key module.
+    Adds board type normalization for canonical naming consistency.
+
     Args:
         config_key: Config key string (e.g., "square8_2p", "hexagonal_4p")
 
@@ -210,22 +213,18 @@ def parse_config_key(config_key: str) -> tuple[str, int]:
         >>> parse_config_key("hex8_3p")
         ('hex8', 3)
     """
-    # Match patterns like "square8_2p", "hexagonal_4p", etc.
-    match = re.match(r"^(.+?)_(\d+)p$", config_key.lower().strip())
-    if not match:
+    from app.coordination.config_key import ConfigKey
+
+    result = ConfigKey.parse(config_key)
+    if result is None:
         raise ValueError(
             f"Invalid config key format: '{config_key}'. "
             "Expected format: '{board_type}_{num_players}p'"
         )
 
-    board_part = match.group(1)
-    num_players = int(match.group(2))
-
-    if not 2 <= num_players <= 4:
-        raise ValueError(f"Invalid player count in config key: {num_players}")
-
-    canonical = normalize_board_type(board_part)
-    return canonical, num_players
+    # Apply canonical normalization
+    canonical = normalize_board_type(result.board_type)
+    return canonical, result.num_players
 
 
 def is_valid_board_type(board_type: str) -> bool:

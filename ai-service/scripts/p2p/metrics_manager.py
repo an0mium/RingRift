@@ -20,6 +20,7 @@ Usage as mixin (in P2POrchestrator):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -385,6 +386,89 @@ class MetricsManager:
             },
         }
 
+    # =========================================================================
+    # Async Wrapper Methods (January 2026)
+    # =========================================================================
+    # These methods wrap blocking SQLite operations with asyncio.to_thread()
+    # for safe use from async contexts (e.g., P2P loops, async handlers).
+
+    async def async_flush(self) -> int:
+        """Async wrapper for flush() - flushes buffered metrics to database.
+
+        Returns:
+            Number of entries flushed
+        """
+        return await asyncio.to_thread(self.flush)
+
+    async def async_get_history(
+        self,
+        metric_type: str,
+        board_type: str | None = None,
+        num_players: int | None = None,
+        hours: float = 24,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """Async wrapper for get_history() - retrieves metrics history.
+
+        Args:
+            metric_type: Type of metric to query
+            board_type: Optional board type filter
+            num_players: Optional player count filter
+            hours: Hours of history to retrieve
+            limit: Maximum entries to return
+
+        Returns:
+            List of metric entries
+        """
+        return await asyncio.to_thread(
+            self.get_history, metric_type, board_type, num_players, hours, limit
+        )
+
+    async def async_get_summary(self, hours: float = 24) -> dict[str, Any]:
+        """Async wrapper for get_summary() - retrieves metrics summary.
+
+        Args:
+            hours: Hours of data to summarize
+
+        Returns:
+            Summary dictionary with aggregated metrics
+        """
+        return await asyncio.to_thread(self.get_summary, hours)
+
+    async def async_record_metric(
+        self,
+        metric_type: str,
+        value: float,
+        board_type: str | None = None,
+        num_players: int | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Async wrapper for record_metric().
+
+        Note: The actual record_metric() only buffers in memory and calls
+        flush() when threshold is reached. This async version ensures the
+        flush is non-blocking when it triggers.
+        """
+        # Buffer the metric (fast, in-memory operation)
+        entry = (
+            time.time(),
+            metric_type,
+            board_type,
+            num_players,
+            value,
+            json.dumps(metadata) if metadata else None,
+        )
+
+        with self._metrics_buffer_lock:
+            self._metrics_buffer.append(entry)
+            should_flush = (
+                len(self._metrics_buffer) >= self._metrics_max_buffer
+                or time.time() - self._metrics_last_flush > self._metrics_flush_interval
+            )
+
+        if should_flush:
+            await self.async_flush()
+
 
 class MetricsManagerMixin:
     """Mixin class for adding metrics functionality to P2POrchestrator.
@@ -438,3 +522,41 @@ class MetricsManagerMixin:
     def metrics_health_check(self) -> dict[str, Any]:
         """Return health status for metrics subsystem (delegates to MetricsManager)."""
         return self._metrics_manager.health_check()
+
+    # =========================================================================
+    # Async Mixin Methods (January 2026)
+    # =========================================================================
+
+    async def async_record_metric(
+        self,
+        metric_type: str,
+        value: float,
+        board_type: str | None = None,
+        num_players: int | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Async version of record_metric (delegates to MetricsManager)."""
+        await self._metrics_manager.async_record_metric(
+            metric_type, value, board_type, num_players, metadata
+        )
+
+    async def async_flush_metrics_buffer(self) -> int:
+        """Async version of _flush_metrics_buffer (delegates to MetricsManager)."""
+        return await self._metrics_manager.async_flush()
+
+    async def async_get_metrics_history(
+        self,
+        metric_type: str,
+        board_type: str | None = None,
+        num_players: int | None = None,
+        hours: float = 24,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """Async version of get_metrics_history (delegates to MetricsManager)."""
+        return await self._metrics_manager.async_get_history(
+            metric_type, board_type, num_players, hours, limit
+        )
+
+    async def async_get_metrics_summary(self, hours: float = 24) -> dict[str, Any]:
+        """Async version of get_metrics_summary (delegates to MetricsManager)."""
+        return await self._metrics_manager.async_get_summary(hours)

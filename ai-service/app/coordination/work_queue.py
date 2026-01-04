@@ -2459,6 +2459,203 @@ class WorkQueue:
             )
 
     # =========================================================================
+    # Async Wrappers for Event Loop Safety (Sprint 17.3 - January 2026)
+    # =========================================================================
+    #
+    # These async methods wrap synchronous WorkQueue operations using
+    # asyncio.to_thread() to prevent blocking the event loop. Use these
+    # from HandlerBase subclasses and other async code paths.
+    #
+    # The underlying sync methods are unchanged for backward compatibility.
+
+    async def add_work_async(self, item: WorkItem, force: bool = False) -> str:
+        """Async wrapper for add_work().
+
+        Adds work to the queue without blocking the event loop.
+
+        Args:
+            item: The work item to add
+            force: If True, bypass backpressure limits
+
+        Returns:
+            work_id on success
+
+        Raises:
+            RuntimeError: If queue is at hard limit and force=False
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work queue access.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.add_work, item, force)
+
+    async def add_work_batch_async(
+        self, items: list[WorkItem], force: bool = False
+    ) -> list[str]:
+        """Async wrapper for add_work_batch().
+
+        Adds multiple work items efficiently without blocking the event loop.
+
+        Args:
+            items: List of work items to add
+            force: If True, bypass backpressure limits
+
+        Returns:
+            List of work_ids for successfully added items
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe batch operations.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.add_work_batch, items, force)
+
+    async def claim_work_async(
+        self, node_id: str, capabilities: list[str] | None = None
+    ) -> WorkItem | None:
+        """Async wrapper for claim_work().
+
+        Claims work for a node without blocking the event loop.
+
+        Args:
+            node_id: The node claiming work
+            capabilities: Work types this node can handle
+
+        Returns:
+            WorkItem if work was claimed, None otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work claiming.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.claim_work, node_id, capabilities)
+
+    async def start_work_async(self, work_id: str) -> bool:
+        """Async wrapper for start_work().
+
+        Marks work as started without blocking the event loop.
+
+        Args:
+            work_id: The work item ID to start
+
+        Returns:
+            True if work was started, False otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work status updates.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.start_work, work_id)
+
+    async def complete_work_async(
+        self, work_id: str, result: dict[str, Any] | None = None
+    ) -> bool:
+        """Async wrapper for complete_work().
+
+        Marks work as completed without blocking the event loop.
+
+        Args:
+            work_id: The work item ID to complete
+            result: Optional result data
+
+        Returns:
+            True if work was completed, False otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work completion.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.complete_work, work_id, result)
+
+    async def fail_work_async(self, work_id: str, error: str = "") -> bool:
+        """Async wrapper for fail_work().
+
+        Marks work as failed without blocking the event loop.
+
+        Args:
+            work_id: The work item ID to mark as failed
+            error: Error message describing the failure
+
+        Returns:
+            True if work was marked as failed, False otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work failure reporting.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.fail_work, work_id, error)
+
+    async def get_work_async(self, work_id: str) -> WorkItem | None:
+        """Get a work item by ID without blocking the event loop.
+
+        Args:
+            work_id: The work item ID to retrieve
+
+        Returns:
+            WorkItem if found, None otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work retrieval.
+        """
+        import asyncio
+
+        def _get_work() -> WorkItem | None:
+            with self.lock:
+                return self.items.get(work_id)
+
+        return await asyncio.to_thread(_get_work)
+
+    async def cancel_work_async(self, work_id: str, reason: str = "") -> bool:
+        """Async wrapper for cancel_work().
+
+        Cancels a work item without blocking the event loop.
+
+        Args:
+            work_id: The work item ID to cancel
+            reason: Optional reason for cancellation
+
+        Returns:
+            True if work was cancelled, False otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work cancellation.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.cancel_work, work_id, reason)
+
+    async def get_pending_work_async(
+        self, work_type: WorkType | None = None
+    ) -> list[WorkItem]:
+        """Get all pending work items without blocking the event loop.
+
+        Args:
+            work_type: Optional filter by work type
+
+        Returns:
+            List of pending work items sorted by priority (highest first)
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe work queue queries.
+        """
+        import asyncio
+
+        def _get_pending() -> list[WorkItem]:
+            with self.lock:
+                pending = [
+                    item for item in self.items.values()
+                    if item.status == WorkStatus.PENDING
+                    and (work_type is None or item.work_type == work_type)
+                ]
+                # Sort by priority (highest first)
+                pending.sort(key=lambda x: -x.priority)
+                return pending
+
+        return await asyncio.to_thread(_get_pending)
+
+    async def health_check_async(self) -> HealthCheckResult:
+        """Async wrapper for health_check().
+
+        Returns health status without blocking the event loop.
+
+        Returns:
+            HealthCheckResult with queue status and metrics
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe health checks.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.health_check)
+
+    # =========================================================================
     # Lifecycle Management (December 2025)
     # =========================================================================
 
