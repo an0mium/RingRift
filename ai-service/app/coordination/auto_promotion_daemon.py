@@ -32,6 +32,7 @@ from app.config.coordination_defaults import PromotionGameDefaults
 from app.config.thresholds import AUTO_PROMOTION_MIN_QUALITY
 from app.coordination.event_utils import parse_config_key
 from app.utils.game_discovery import count_games_for_config
+from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -180,14 +181,16 @@ class AutoPromotionDaemon:
     async def _subscribe_to_events(self) -> None:
         """Subscribe to EVALUATION_COMPLETED events with retry logic.
 
-        Retries up to 3 times with exponential backoff if the router
+        Uses RetryConfig for exponential backoff if the router
         is not immediately available.
         """
         if self._subscribed:
             return
 
-        max_retries = 3
-        for attempt in range(max_retries):
+        # Jan 3, 2026: Migrated to RetryConfig for centralized retry behavior
+        retry_config = RetryConfig(max_attempts=3, base_delay=0.5, max_delay=4.0)
+
+        for attempt in retry_config.attempts():
             try:
                 from app.coordination.event_router import DataEventType, get_router
 
@@ -199,11 +202,11 @@ class AutoPromotionDaemon:
 
                 router = get_router()
                 if not router:
-                    if attempt == max_retries - 1:
+                    if attempt.is_last:
                         logger.warning("[AutoPromotion] Router unavailable after retries")
                         self._subscribed = False
                         return
-                    await asyncio.sleep(0.5 * (2 ** attempt))
+                    await attempt.wait_async()
                     continue
 
                 # December 29, 2025: router.subscribe() is synchronous, not async
@@ -219,11 +222,11 @@ class AutoPromotionDaemon:
                 self._subscribed = False
                 return
             except (RuntimeError, AttributeError, TypeError) as e:
-                if attempt == max_retries - 1:
+                if attempt.is_last:
                     logger.warning(f"[AutoPromotion] Failed to subscribe after retries: {e}")
                     self._subscribed = False
                 else:
-                    logger.debug(f"[AutoPromotion] Subscription attempt {attempt+1} failed: {e}")
+                    logger.debug(f"[AutoPromotion] Subscription attempt {attempt.number} failed: {e}")
 
     async def _on_evaluation_completed(self, event: Any) -> None:
         """Handle EVALUATION_COMPLETED event.

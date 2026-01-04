@@ -50,6 +50,7 @@ except ImportError:
 
 # Import config key parsing utility (December 2025)
 from app.coordination.event_utils import parse_config_key
+from app.utils.retry import RetryConfig
 
 
 @dataclass
@@ -472,7 +473,14 @@ class OrphanDetectionDaemon:
         node_id = os.environ.get("RINGRIFT_NODE_ID", "local")
         last_error = ""
 
-        for attempt in range(self._REGISTRATION_MAX_RETRIES):
+        # Jan 3, 2026: Migrated to RetryConfig for centralized retry behavior
+        retry_config = RetryConfig(
+            max_attempts=self._REGISTRATION_MAX_RETRIES,
+            base_delay=self._REGISTRATION_BACKOFF_BASE,
+            max_delay=120.0,
+        )
+
+        for attempt in retry_config.attempts():
             try:
                 if hasattr(manifest, "register_database"):
                     manifest.register_database(
@@ -485,7 +493,7 @@ class OrphanDetectionDaemon:
                     logger.info(
                         f"Registered orphan: {orphan.path.name} "
                         f"({orphan.game_count} games)"
-                        + (f" [attempt {attempt + 1}]" if attempt > 0 else "")
+                        + (f" [attempt {attempt.number}]" if not attempt.is_first else "")
                     )
                     return True
                 else:
@@ -494,19 +502,18 @@ class OrphanDetectionDaemon:
 
             except Exception as e:
                 last_error = str(e)
-                backoff = self._REGISTRATION_BACKOFF_BASE * (2 ** attempt)
                 logger.warning(
-                    f"Orphan registration attempt {attempt + 1}/{self._REGISTRATION_MAX_RETRIES} "
+                    f"Orphan registration attempt {attempt.number}/{retry_config.max_attempts} "
                     f"failed for {orphan.path.name}: {e}. "
-                    f"Retrying in {backoff:.0f}s..."
+                    f"Retrying in {attempt.delay:.0f}s..."
                 )
-                if attempt < self._REGISTRATION_MAX_RETRIES - 1:
-                    await asyncio.sleep(backoff)
+                if attempt.should_retry:
+                    await attempt.wait_async()
 
         # All retries exhausted - persist for later
         logger.error(
             f"Failed to register orphan {orphan.path.name} after "
-            f"{self._REGISTRATION_MAX_RETRIES} attempts: {last_error}"
+            f"{retry_config.max_attempts} attempts: {last_error}"
         )
         self._registration_errors += 1
         self._persist_failed_orphan(orphan, last_error)

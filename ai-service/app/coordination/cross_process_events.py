@@ -72,6 +72,7 @@ except ImportError:
 # Event retention/timeout (December 27, 2025: Centralized in coordination_defaults.py)
 from app.config.coordination_defaults import CrossProcessDefaults
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+from app.utils.retry import RetryConfig
 
 DEFAULT_RETENTION_HOURS = CrossProcessDefaults.RETENTION_HOURS
 SUBSCRIBER_TIMEOUT_SECONDS = CrossProcessDefaults.SUBSCRIBER_TIMEOUT
@@ -213,9 +214,9 @@ class CrossProcessEventQueue:
         Args:
             _from_init: Internal flag to skip _ensure_db() when called from _init_db().
                         This prevents circular recursion: _ensure_db -> _init_db -> _get_connection -> _ensure_db.
-        """
-        import random
 
+        January 3, 2026: Migrated to RetryConfig for centralized retry behavior.
+        """
         # Ensure database is initialized (lazy init)
         # Skip when called from _init_db to prevent recursion (December 2025 fix)
         if not _from_init:
@@ -223,10 +224,14 @@ class CrossProcessEventQueue:
 
         if not hasattr(self._local, "conn") or self._local.conn is None:
             # Retry with jitter to prevent thundering herd
-            max_retries = 3
-            base_delay = 0.1
+            retry_config = RetryConfig(
+                max_attempts=3,
+                base_delay=0.1,
+                max_delay=0.8,
+                jitter=0.5,  # 50% jitter for thundering herd prevention
+            )
 
-            for attempt in range(max_retries):
+            for attempt in retry_config.attempts():
                 try:
                     self._local.conn = sqlite3.connect(
                         str(self.db_path),
@@ -243,11 +248,9 @@ class CrossProcessEventQueue:
                     self._local.conn.execute('PRAGMA cache_size=-4000')  # 4MB cache
                     break
                 except sqlite3.OperationalError as e:
-                    if "database is locked" in str(e) and attempt < max_retries - 1:
-                        # Add jitter: base_delay * (1 + random 0-1)
-                        delay = base_delay * (2 ** attempt) * (1 + random.random())
-                        logger.warning(f"Database locked, retry {attempt + 1} after {delay:.2f}s")
-                        time.sleep(delay)
+                    if "database is locked" in str(e) and attempt.should_retry:
+                        logger.warning(f"Database locked, retry {attempt.number} after {attempt.delay:.2f}s")
+                        attempt.wait()
                     else:
                         raise
         return self._local.conn
@@ -314,13 +317,22 @@ class CrossProcessEventQueue:
 
         Returns:
             The event_id of the published event, or -1 if database is readonly
+
+        January 3, 2026: Migrated to RetryConfig for centralized retry behavior.
         """
         # Skip if readonly mode (December 2025: Lazy init)
         if self._readonly_mode:
             logger.debug(f"[CrossProcessEventQueue] Cannot publish {event_type} (readonly mode)")
             return -1
-        last_error = None
-        for attempt in range(max_retries):
+
+        retry_config = RetryConfig(
+            max_attempts=max_retries,
+            base_delay=0.1,
+            max_delay=1.6,
+        )
+        last_error: Exception | None = None
+
+        for attempt in retry_config.attempts():
             try:
                 conn = self._get_connection()
                 cursor = conn.execute(
@@ -341,12 +353,13 @@ class CrossProcessEventQueue:
                 return event_id
             except sqlite3.OperationalError as e:
                 last_error = e
-                if "locked" in str(e).lower() and attempt < max_retries - 1:
-                    # Exponential backoff: 0.1s, 0.2s, 0.4s, 0.8s, 1.6s
-                    time.sleep(0.1 * (2 ** attempt))
+                if "locked" in str(e).lower() and attempt.should_retry:
+                    attempt.wait()
                     continue
                 raise
-        raise last_error
+        if last_error:
+            raise last_error
+        return -1  # Should not reach here
 
     def subscribe(
         self,

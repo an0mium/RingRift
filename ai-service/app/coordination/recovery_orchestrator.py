@@ -56,6 +56,7 @@ from app.coordination.health_check_orchestrator import (
     get_health_orchestrator,
 )
 from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,11 @@ logger = logging.getLogger(__name__)
 SSH_MAX_RETRIES = 3
 SSH_BASE_DELAY = 1.0  # seconds
 SSH_MAX_DELAY = 4.0  # seconds
+
+# Pre-configured retry for SSH operations
+RETRY_SSH_COMMAND = lambda: RetryConfig(
+    max_attempts=SSH_MAX_RETRIES, base_delay=SSH_BASE_DELAY, max_delay=SSH_MAX_DELAY
+)
 
 
 class SystemRecoveryAction(str, Enum):
@@ -254,6 +260,8 @@ class RecoveryOrchestrator:
         December 29, 2025: Added to fix single SSH failure causing permanent
         recovery failure. Uses exponential backoff (1s, 2s, 4s).
 
+        January 3, 2026: Migrated to RetryConfig for centralized retry behavior.
+
         Args:
             manager: Provider manager with run_ssh_command method
             instance: Target instance
@@ -267,7 +275,13 @@ class RecoveryOrchestrator:
         last_error = None
         last_result = (1, "", "No attempts made")
 
-        for attempt in range(max_retries):
+        retry_config = RetryConfig(
+            max_attempts=max_retries,
+            base_delay=SSH_BASE_DELAY,
+            max_delay=SSH_MAX_DELAY,
+        )
+
+        for attempt in retry_config.attempts():
             try:
                 code, stdout, stderr = await manager.run_ssh_command(
                     instance, cmd, timeout=timeout
@@ -276,9 +290,9 @@ class RecoveryOrchestrator:
 
                 # Success - return immediately
                 if code == 0:
-                    if attempt > 0:
+                    if not attempt.is_first:
                         logger.info(
-                            f"[RecoveryOrchestrator] SSH succeeded on attempt {attempt + 1}"
+                            f"[RecoveryOrchestrator] SSH succeeded on attempt {attempt.number}"
                         )
                     return code, stdout, stderr
 
@@ -291,22 +305,21 @@ class RecoveryOrchestrator:
 
             except Exception as e:
                 last_error = e
-                delay = min(SSH_BASE_DELAY * (2 ** attempt), SSH_MAX_DELAY)
 
-                if attempt < max_retries - 1:
+                if attempt.should_retry:
                     logger.warning(
-                        f"[RecoveryOrchestrator] SSH attempt {attempt + 1}/{max_retries} "
-                        f"failed: {e}. Retrying in {delay:.1f}s..."
+                        f"[RecoveryOrchestrator] SSH attempt {attempt.number}/{retry_config.max_attempts} "
+                        f"failed: {e}. Retrying in {attempt.delay:.1f}s..."
                     )
-                    await asyncio.sleep(delay)
+                    await attempt.wait_async()
                 else:
                     logger.error(
-                        f"[RecoveryOrchestrator] SSH failed after {max_retries} attempts: {e}"
+                        f"[RecoveryOrchestrator] SSH failed after {retry_config.max_attempts} attempts: {e}"
                     )
 
         # All retries exhausted
         error_msg = str(last_error) if last_error else last_result[2]
-        return 1, "", f"SSH failed after {max_retries} attempts: {error_msg}"
+        return 1, "", f"SSH failed after {retry_config.max_attempts} attempts: {error_msg}"
 
     def _get_next_action(
         self,

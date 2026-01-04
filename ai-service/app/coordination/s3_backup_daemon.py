@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.utils.retry import RetryConfig
+
 logger = logging.getLogger(__name__)
 
 # Add parent to path for imports
@@ -308,8 +310,14 @@ class S3BackupDaemon:
 
             logger.info(f"Running S3 backup for {len(promotions)} promoted models")
 
-            # Run backup
-            for attempt in range(self.config.retry_count):
+            # Run backup with retry (Jan 3, 2026: Migrated to RetryConfig)
+            retry_config = RetryConfig(
+                max_attempts=self.config.retry_count,
+                base_delay=self.config.retry_delay_seconds,
+                exponential=False,  # Keep original linear delay behavior
+            )
+
+            for attempt in retry_config.attempts():
                 try:
                     result = await self._run_backup()
                     if result.success:
@@ -326,18 +334,18 @@ class S3BackupDaemon:
                             await self._emit_backup_complete(promotions, result)
                         return
                     else:
-                        logger.warning(f"S3 backup attempt {attempt + 1} failed")
+                        logger.warning(f"S3 backup attempt {attempt.number} failed")
 
                 except Exception as e:
-                    logger.error(f"S3 backup attempt {attempt + 1} failed: {e}")
+                    logger.error(f"S3 backup attempt {attempt.number} failed: {e}")
 
-                if attempt < self.config.retry_count - 1:
-                    await asyncio.sleep(self.config.retry_delay_seconds)
+                if attempt.should_retry:
+                    await attempt.wait_async()
 
             # All attempts failed
             self._failed_backups += 1
             logger.error(
-                f"S3 backup failed after {self.config.retry_count} attempts"
+                f"S3 backup failed after {retry_config.max_attempts} attempts"
             )
 
     async def _run_backup(self) -> BackupResult:

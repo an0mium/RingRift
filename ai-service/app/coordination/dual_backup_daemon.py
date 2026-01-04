@@ -46,6 +46,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.protocols import CoordinatorStatus
+from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -287,10 +288,20 @@ class DualBackupDaemon(HandlerBase):
         file_path: Path,
         destination: BackupDestination,
     ) -> BackupResult:
-        """Backup a file with retry logic."""
+        """Backup a file with retry logic.
+
+        Jan 3, 2026: Migrated to RetryConfig for centralized retry behavior.
+        """
         last_result = None
 
-        for attempt in range(self.config.max_retries):
+        # Create retry config matching original exponential backoff behavior
+        retry_config = RetryConfig(
+            max_attempts=self.config.max_retries,
+            base_delay=self.config.retry_delay,
+            max_delay=self.config.retry_delay * (self.config.retry_backoff ** self.config.max_retries),
+        )
+
+        for attempt in retry_config.attempts():
             if destination == BackupDestination.S3:
                 result = await self._backup_to_s3(file_path)
             else:
@@ -302,13 +313,12 @@ class DualBackupDaemon(HandlerBase):
                 return result
 
             # Wait before retry with exponential backoff
-            if attempt < self.config.max_retries - 1:
-                delay = self.config.retry_delay * (self.config.retry_backoff ** attempt)
+            if attempt.should_retry:
                 logger.warning(
                     f"[DualBackup] Backup failed for {file_path.name} to {destination.value}, "
-                    f"retrying in {delay:.0f}s (attempt {attempt + 1}/{self.config.max_retries})"
+                    f"retrying in {attempt.delay:.0f}s (attempt {attempt.number}/{retry_config.max_attempts})"
                 )
-                await asyncio.sleep(delay)
+                await attempt.wait_async()
 
         return last_result or BackupResult(
             file_path=str(file_path),
