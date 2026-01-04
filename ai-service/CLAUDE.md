@@ -14,14 +14,21 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | **Leader Election** | WORKING | Bully algorithm with voter quorum, split-brain detection  |
 | **Work Queue**      | HEALTHY | 1000+ items maintained, QueuePopulatorLoop working        |
 
-**Key Improvements (Jan 3, 2026):**
+**Key Improvements (Jan 3, 2026 - Sprint 12):**
 
 - Gossip state race condition fixed (`_gossip_state_sync_lock`)
 - Leader lease epoch split-brain detection (`_epoch_leader_claims`)
 - Quorum health monitoring (`QuorumHealthLevel` enum)
-- Circuit breaker gossip replication (cluster-wide failure awareness)
+- Circuit breaker gossip replication (cluster-wide failure awareness ~15s)
 - Loop ordering via Kahn's algorithm (LoopManager)
 - 4-tier circuit breaker auto-recovery (Phase 15.1.8)
+- P2P_RECOVERY_NEEDED event handler (triggers orchestrator restart at max escalation)
+- Gossip CB replication unit tests (19 tests, full coverage)
+- Per-message gossip timeouts (5s per URL, prevents slow URLs from blocking gossip rounds)
+- Gossip retry backoff (exponential backoff 1s→16s for failing peers)
+- Quality-score confidence decay (stale quality scores decay toward 0.5 floor over 1h half-life)
+- Regression amplitude scaling (proportional response based on Elo drop magnitude)
+- Narrowed P2P exception handlers (4 handlers in gossip_protocol.py)
 
 **Consolidated Base Classes:**
 | Class | LOC | Purpose |
@@ -957,6 +964,30 @@ This led to duplicated work and slower cluster-wide failure adaptation.
 - Faster recovery from network partitions
 
 **Configuration**: Uses existing GossipDefaults from coordination_defaults.py.
+
+**Test Coverage**: 19 unit tests in `tests/unit/p2p/test_gossip_circuit_breaker.py`:
+
+- `_get_circuit_breaker_gossip_state()` state collection (5 tests)
+- `_process_circuit_breaker_states()` preemptive failure application (6 tests)
+- Preemptive flag behavior (3 tests)
+- Fresh circuits filter (2 tests)
+- Serialization and multi-operation types (3 tests)
+
+## P2P Recovery Event Handler (Jan 3, 2026)
+
+**New Handler**: `P2P_RECOVERY_NEEDED` event is now handled in `p2p_recovery_daemon.py`.
+
+**Problem Solved**: The partition healer escalation system emits `P2P_RECOVERY_NEEDED` when
+gossip convergence fails repeatedly and max escalation (tier 5) is reached. Previously,
+this event had no subscriber, leaving 5-30 minute manual intervention gaps.
+
+**Solution**: `P2PRecoveryDaemon._on_p2p_recovery_needed()` handler:
+
+1. Logs critical alert with escalation context
+2. Triggers automated P2P orchestrator restart via `_trigger_p2p_restart(force=True)`
+3. Emits `P2P_RECOVERY_STARTED` event for external monitoring
+
+**Location**: `app/coordination/p2p_recovery_daemon.py:_get_event_subscriptions()`
 
 ## See Also
 

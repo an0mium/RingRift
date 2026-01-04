@@ -281,15 +281,19 @@ class P2PRecoveryDaemon(HandlerBase):
     # =========================================================================
 
     def _get_event_subscriptions(self) -> dict:
-        """Return event subscriptions for voter health events.
+        """Return event subscriptions for voter health and P2P recovery events.
 
         Dec 30, 2025: Subscribe to voter health events from VoterHealthMonitorDaemon
         to coordinate emergency quorum recovery.
+
+        Jan 3, 2026: Subscribe to P2P_RECOVERY_NEEDED from partition_healer.py
+        when gossip convergence fails repeatedly at max escalation.
         """
         return {
             "QUORUM_LOST": self._on_quorum_lost,
             "QUORUM_AT_RISK": self._on_quorum_at_risk,
             "VOTER_OFFLINE": self._on_voter_offline,
+            "P2P_RECOVERY_NEEDED": self._on_p2p_recovery_needed,
         }
 
     async def _on_quorum_lost(self, event: Any) -> None:
@@ -351,6 +355,62 @@ class P2PRecoveryDaemon(HandlerBase):
         voter_id = event.get("voter_id", "unknown")
         reason = event.get("reason", "unknown")
         logger.warning(f"Voter {voter_id} went offline: {reason}")
+
+    async def _on_p2p_recovery_needed(self, event: Any) -> None:
+        """Handle P2P_RECOVERY_NEEDED event - max escalation reached in partition healing.
+
+        Jan 3, 2026: Called when partition_healer.py has exhausted escalation tiers
+        after repeated gossip convergence failures. At this point:
+        - Normal healing has failed multiple times
+        - Escalation backoffs have been applied
+        - Manual or automated intervention is required
+
+        Actions taken:
+        1. Log critical alert with full context
+        2. Attempt automated P2P orchestrator restart
+        3. Emit alert event for external monitoring (PagerDuty, etc.)
+        """
+        reason = event.get("reason", "unknown")
+        escalation_level = event.get("escalation_level", 0)
+        consecutive_failures = event.get("consecutive_failures", 0)
+
+        logger.critical(
+            f"P2P_RECOVERY_NEEDED received - partition healing exhausted. "
+            f"reason={reason}, escalation_level={escalation_level}, "
+            f"consecutive_failures={consecutive_failures}"
+        )
+
+        # Track for health reporting
+        self._recovery_attempts += 1
+
+        # Attempt automated recovery: restart P2P orchestrator
+        try:
+            await self._trigger_p2p_restart(
+                reason=f"P2P_RECOVERY_NEEDED: {reason}",
+                force=True,  # Force restart at max escalation
+            )
+            logger.info(
+                f"[P2PRecovery] Triggered P2P orchestrator restart "
+                f"after P2P_RECOVERY_NEEDED (level={escalation_level})"
+            )
+        except Exception as e:
+            logger.error(f"[P2PRecovery] Failed to restart P2P orchestrator: {e}")
+
+        # Emit alert for external monitoring
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                DataEventType.P2P_RECOVERY_STARTED,
+                trigger="p2p_recovery_needed_event",
+                reason=reason,
+                escalation_level=escalation_level,
+                consecutive_failures=consecutive_failures,
+                action="p2p_restart_triggered",
+                source="P2PRecoveryDaemon",
+            )
+        except Exception as e:
+            logger.debug(f"Failed to emit P2P_RECOVERY_STARTED: {e}")
 
     # =========================================================================
     # Main Cycle
