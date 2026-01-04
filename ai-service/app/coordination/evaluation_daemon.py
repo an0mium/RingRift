@@ -1404,10 +1404,10 @@ class EvaluationDaemon(BaseEventHandler):
             return False
 
         # December 30, 2025: Use RetryConfig for consistent delay calculation
+        # January 4, 2026 (Sprint 17.5): Use consolidated HandlerBase helper
         delay = self._retry_config.get_delay(attempts)
-        next_retry = time.time() + delay
-
-        self._retry_queue.append((model_path, board_type, num_players, attempts, next_retry))
+        item = (model_path, board_type, num_players, attempts)
+        self._add_to_retry_queue(self._retry_queue, item, delay_seconds=delay)
         self._retry_stats["retries_queued"] += 1
 
         logger.info(
@@ -1421,29 +1421,15 @@ class EvaluationDaemon(BaseEventHandler):
 
         December 29, 2025: Called at the start of each worker iteration
         to re-attempt failed evaluations with exponential backoff.
+
+        January 4, 2026 (Sprint 17.5): Uses consolidated HandlerBase helpers.
         """
         if not self._retry_queue:
             return
 
-        now = time.time()
-        ready_for_retry: list[tuple[str, str, int, int]] = []
-
-        # Collect items ready for retry (next_retry_time has passed)
-        # Use a temporary list to avoid modifying deque during iteration
-        remaining: list[tuple[str, str, int, int, float]] = []
-
-        while self._retry_queue:
-            item = self._retry_queue.popleft()
-            model_path, board_type, num_players, attempts, next_retry_time = item
-
-            if next_retry_time <= now:
-                ready_for_retry.append((model_path, board_type, num_players, attempts))
-            else:
-                remaining.append(item)
-
-        # Put back items not yet ready
-        for item in remaining:
-            self._retry_queue.append(item)
+        # January 4, 2026: Use consolidated helper - separates ready items
+        # and automatically puts remaining items back in queue
+        ready_for_retry = self._process_retry_queue_items(self._retry_queue)
 
         # Process ready items
         for model_path, board_type, num_players, attempts in ready_for_retry:
