@@ -2,19 +2,20 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.5 - Session 16.8)
+**Last Updated**: January 4, 2026 (Sprint 17.5 - Session 16.9)
 
-## Infrastructure Health Status (Verified Jan 4, 2026)
+## Infrastructure Health Status (Verified Jan 4, 2026 04:37 UTC)
 
-| Component            | Status    | Evidence                                                          |
-| -------------------- | --------- | ----------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (91/100), 168+ health_check(), 11 recovery daemons, <2.5m MTTR |
-| **Training Loop**    | GREEN     | A (95/100), 5/5 feedback loops wired, 6/6 pipeline stages         |
-| **Code Quality**     | GREEN     | 98% consolidated, 327 coordination modules, 77+ HandlerBase       |
-| **Leader Election**  | WORKING   | Bully algorithm with voter quorum, split-brain detection          |
-| **Work Queue**       | HEALTHY   | 37 alive peers (74%), quorum OK, nebius-h100-1 as leader          |
-| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline            |
-| **SQLite Async**     | FIXED     | Metrics, WorkQueue, P2P paths wrapped in asyncio.to_thread()      |
+| Component            | Status    | Evidence                                                      |
+| -------------------- | --------- | ------------------------------------------------------------- |
+| **P2P Network**      | GREEN     | A- (91/100), 33 alive peers, nebius-backbone-1 as leader      |
+| **Training Loop**    | GREEN     | A (95/100), 5/5 feedback loops wired, 6/6 pipeline stages     |
+| **Code Quality**     | GREEN     | 85-90% consolidated, 330 coordination modules, 66 HandlerBase |
+| **Leader Election**  | WORKING   | Bully algorithm with voter quorum, split-brain detection      |
+| **Work Queue**       | HEALTHY   | 33 alive peers (82%), quorum OK, nebius-backbone-1 as leader  |
+| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline        |
+| **SQLite Async**     | FIXED     | Metrics, WorkQueue, P2P paths wrapped in asyncio.to_thread()  |
+| **Multi-Arch Train** | ENABLED   | Architectures sorted by priority, v5→v4→v5-heavy-large→v2→v3  |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -46,23 +47,24 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
 
-**Sprint 17.5 / Session 16.8 (Jan 4, 2026):**
+**Sprint 17.5 / Session 16.9 (Jan 4, 2026):**
 
-| Fix                           | Purpose                                                        | Files                         |
-| ----------------------------- | -------------------------------------------------------------- | ----------------------------- |
-| Multi-architecture Training   | Added architecture field for multi-arch support                | `training_coordinator.py`     |
-| Architecture Priority Sorting | Sorted architectures by priority (v5: 35%, v4: 20%, etc.)      | `training_trigger_daemon.py`  |
-| P2P Recovery Stats Fix        | Added missing total_run_duration field for avg calculation     | `remote_p2p_recovery_loop.py` |
-| Cluster Deployment            | Updated 20 nodes to commit 785e2749e with P2P restart          | All cluster nodes             |
-| Comprehensive Assessment      | 3 parallel exploration agents for P2P, Training, Consolidation | See detailed breakdown below  |
+| Fix                           | Purpose                                                        | Files                              |
+| ----------------------------- | -------------------------------------------------------------- | ---------------------------------- |
+| Multi-architecture Training   | Added architecture field for multi-arch support                | `training_coordinator.py`          |
+| Architecture Priority Sorting | Sorted architectures by priority (v5: 35%, v4: 20%, etc.)      | `training_trigger_daemon.py`       |
+| P2P Recovery Stats Fix        | Added missing total_run_duration field for avg calculation     | `remote_p2p_recovery_loop.py`      |
+| Cluster Deployment            | Updated 21 nodes to commit 00a74217e with P2P restart          | All cluster nodes                  |
+| Comprehensive Assessment      | 3 parallel exploration agents for P2P, Training, Consolidation | See detailed breakdown below       |
+| Eval Script Added             | Batch canonical model evaluation utility                       | `scripts/eval_canonical_models.py` |
 
-**Session 16.8 Assessment Results (Jan 4, 2026):**
+**Session 16.9 Assessment Results (Jan 4, 2026):**
 
 | Assessment Area | Grade | Score  | Key Findings                                         |
 | --------------- | ----- | ------ | ---------------------------------------------------- |
 | P2P Network     | A-    | 91/100 | 168+ health_check(), 11 recovery daemons, 9 CB types |
-| Training Loop   | A     | 95/100 | 6 pipeline stages, 5 feedback loops, 44+ event types |
-| Consolidation   | A     | 98%    | 3,350-5,450 LOC potential savings identified         |
+| Training Loop   | A     | 95/100 | 6 pipeline stages, 5 feedback loops, 700+ event subs |
+| Consolidation   | A-    | 85-90% | 4,680-7,100 LOC potential savings (P1-P3)            |
 
 **P2P Network Details (A-, 91/100):**
 
@@ -79,17 +81,18 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 - 44+ event types with emitters AND subscribers
 - Quality gates with confidence weighting
 
-**Consolidation Opportunities (3,350-5,450 LOC potential savings):**
+**Consolidation Opportunities (4,680-7,100 LOC potential savings):**
 
-| Opportunity                         | Hours | LOC Saved   | ROI (LOC/hr) | Priority |
-| ----------------------------------- | ----- | ----------- | ------------ | -------- |
-| selfplay_scheduler.py decomposition | 16-20 | 1,000-1,500 | 62-75        | P0       |
-| Event emission consolidation        | 12-16 | 450-650     | 36-43        | P0       |
-| Mixin consolidation                 | 8-12  | 350-500     | 35-43        | P1       |
-| Queue management consolidation      | 6-10  | 300-450     | 38-50        | P1       |
-| daemon_runners.py decomposition     | 10-14 | 600-900     | 50-60        | P1       |
-| Configuration parsing migration     | 4-6   | 150-250     | 30-40        | P2       |
-| Singleton standardization           | 4-6   | 100-200     | 20-35        | P2       |
+| Priority | Opportunity                  | Hours | LOC Saved | ROI (LOC/hr) | Status    |
+| -------- | ---------------------------- | ----- | --------- | ------------ | --------- |
+| P1       | Event emission consolidation | 4-6   | 150-200   | 30-40        | Pending   |
+| P1       | Queue helper consolidation   | 6-8   | 300-450   | 40-60        | Pending   |
+| P1       | Retry helper standardization | 3-4   | 100-150   | 25-50        | Pending   |
+| P2       | Mixin consolidation          | 12-16 | 600-900   | 40-75        | Pending   |
+| P2       | Config key standardization   | 4-6   | 200-300   | 40-60        | Pending   |
+| P2       | Base class migration (206)   | 40-60 | 3000-4500 | 50-110       | Long-term |
+| P3       | Async safety audit           | 8-12  | 150-250   | 15-30        | Optional  |
+| P3       | Singleton standardization    | 4-6   | 100-200   | 20-40        | Optional  |
 
 **Top 3 P2P Improvements Identified:**
 
