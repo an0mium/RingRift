@@ -1528,9 +1528,10 @@ class TrainingTriggerDaemon(HandlerBase):
             self._quality_recheck_counts[config_key] = 0  # Reset for next block
             return
 
-        # Schedule the recheck task
-        task = asyncio.create_task(
-            self._run_quality_recheck(config_key, delay_seconds, max_rechecks)
+        # Schedule the recheck task with safe error handling (Sprint 17.4)
+        task = self._safe_create_task(
+            self._run_quality_recheck(config_key, delay_seconds, max_rechecks),
+            context=f"quality_recheck:{config_key}",
         )
         self._pending_quality_rechecks[config_key] = task
 
@@ -2542,12 +2543,15 @@ class TrainingTriggerDaemon(HandlerBase):
                 )
                 continue
 
-            # Trigger training for this architecture
+            # Trigger training for this architecture with safe error handling (Sprint 17.4)
             logger.info(
                 f"[TrainingTriggerDaemon] Triggering training for {config_key} "
                 f"with architecture {arch.name}"
             )
-            task = asyncio.create_task(self._run_training(config_key, arch))
+            task = self._safe_create_task(
+                self._run_training(config_key, arch),
+                context=f"run_training:{config_key}:{arch.name}",
+            )
             task.add_done_callback(
                 lambda t, ck=config_key, a=arch.name: self._on_training_task_done(t, ck, a)
             )
@@ -2619,9 +2623,10 @@ class TrainingTriggerDaemon(HandlerBase):
                     f"(age={data_age_hours:.1f}h > {very_stale_threshold:.1f}h threshold). "
                     f"Triggering background sync."
                 )
-                # Trigger background sync (don't wait for it)
-                asyncio.create_task(
-                    self._trigger_priority_sync(config_key, state.board_type, state.num_players)
+                # Trigger background sync with safe error handling (Sprint 17.4)
+                self._safe_create_task(
+                    self._trigger_priority_sync(config_key, state.board_type, state.num_players),
+                    context=f"priority_sync_very_stale:{config_key}",
                 )
                 # Continue with training (data will be fresher next time)
             elif self.config.enforce_freshness_with_sync:
@@ -2635,8 +2640,10 @@ class TrainingTriggerDaemon(HandlerBase):
                 )
             else:
                 # Not enforcing with sync - just trigger background sync and block
-                asyncio.create_task(
-                    self._trigger_priority_sync(config_key, state.board_type, state.num_players)
+                # Use safe task creation for error handling (Sprint 17.4)
+                self._safe_create_task(
+                    self._trigger_priority_sync(config_key, state.board_type, state.num_players),
+                    context=f"priority_sync_stale:{config_key}",
                 )
                 return False, f"data stale ({data_age_hours:.1f}h), sync triggered"
 

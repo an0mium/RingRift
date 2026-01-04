@@ -313,8 +313,12 @@ class EvaluationDaemon(BaseEventHandler):
         self._stuck_check_task = asyncio.create_task(self._stuck_evaluation_check_loop())
 
         # January 3, 2026: Run startup scan for unevaluated models
+        # Sprint 17.4: Use safe task creation for error handling
         if self.config.startup_scan_enabled:
-            asyncio.create_task(self._startup_scan_for_unevaluated_models())
+            self._safe_create_task(
+                self._startup_scan_for_unevaluated_models(),
+                context="startup_scan_unevaluated",
+            )
 
         logger.info(
             f"[EvaluationDaemon] Started. "

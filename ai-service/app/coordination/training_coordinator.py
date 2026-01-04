@@ -2117,6 +2117,111 @@ class TrainingCoordinator:
             "jobs": active_jobs,
         }
 
+    # =========================================================================
+    # Async Wrappers for Event Loop Safety (Sprint 17.3 - January 2026)
+    # =========================================================================
+    #
+    # These async methods wrap synchronous TrainingCoordinator operations using
+    # asyncio.to_thread() to prevent blocking the event loop. Use these from
+    # HandlerBase subclasses and other async code paths.
+
+    async def can_start_training_async(
+        self, board_type: str, num_players: int
+    ) -> bool:
+        """Async wrapper for can_start_training().
+
+        Checks if training can start without blocking the event loop.
+
+        Args:
+            board_type: The board type (e.g., "hex8", "square8")
+            num_players: Number of players (2, 3, or 4)
+
+        Returns:
+            True if training can start, False otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe training coordination.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.can_start_training, board_type, num_players)
+
+    async def start_training_async(
+        self,
+        board_type: str,
+        num_players: int,
+        node_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Async wrapper for start_training().
+
+        Starts training without blocking the event loop.
+
+        Args:
+            board_type: The board type
+            num_players: Number of players
+            node_name: Optional node name override
+            metadata: Optional training metadata
+
+        Returns:
+            Job ID if training started, None otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe training coordination.
+        """
+        import asyncio
+        return await asyncio.to_thread(
+            self.start_training, board_type, num_players, node_name, metadata
+        )
+
+    async def complete_training_async(
+        self,
+        job_id: str,
+        success: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        """Async wrapper for complete_training().
+
+        Completes training without blocking the event loop.
+
+        Args:
+            job_id: The training job ID
+            success: Whether training completed successfully
+            metadata: Optional completion metadata
+
+        Returns:
+            True if training was completed, False otherwise
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe training coordination.
+        """
+        import asyncio
+        return await asyncio.to_thread(
+            self.complete_training, job_id, success, metadata
+        )
+
+    async def get_status_async(self) -> dict[str, Any]:
+        """Async wrapper for get_status().
+
+        Gets training coordination status without blocking the event loop.
+
+        Returns:
+            Dictionary with training coordination status
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe status queries.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.get_status)
+
+    async def health_check_async(self) -> HealthCheckResult:
+        """Async wrapper for health_check().
+
+        Gets health status without blocking the event loop.
+
+        Returns:
+            HealthCheckResult with training coordinator health
+
+        Sprint 17.3 (Jan 4, 2026): Added for async-safe health checks.
+        """
+        import asyncio
+        return await asyncio.to_thread(self.health_check)
+
     def close(self) -> None:
         """Close database connection."""
         if hasattr(self._local, "conn") and self._local.conn:

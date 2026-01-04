@@ -314,10 +314,7 @@ class TestCancelWorkAsync:
         """Test basic async work cancellation."""
         await work_queue.add_work_async(sample_work_item)
 
-        result = await work_queue.cancel_work_async(
-            sample_work_item.work_id,
-            reason="User requested cancellation",
-        )
+        result = await work_queue.cancel_work_async(sample_work_item.work_id)
         assert result is True
 
         # Verify status changed

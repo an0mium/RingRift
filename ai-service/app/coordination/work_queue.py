@@ -2597,14 +2597,13 @@ class WorkQueue:
 
         return await asyncio.to_thread(_get_work)
 
-    async def cancel_work_async(self, work_id: str, reason: str = "") -> bool:
+    async def cancel_work_async(self, work_id: str) -> bool:
         """Async wrapper for cancel_work().
 
         Cancels a work item without blocking the event loop.
 
         Args:
             work_id: The work item ID to cancel
-            reason: Optional reason for cancellation
 
         Returns:
             True if work was cancelled, False otherwise
@@ -2612,7 +2611,7 @@ class WorkQueue:
         Sprint 17.3 (Jan 4, 2026): Added for async-safe work cancellation.
         """
         import asyncio
-        return await asyncio.to_thread(self.cancel_work, work_id, reason)
+        return await asyncio.to_thread(self.cancel_work, work_id)
 
     async def get_pending_work_async(
         self, work_type: WorkType | None = None
