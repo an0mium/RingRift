@@ -746,7 +746,7 @@ class GossipProtocolMixin(P2PMixinBase):
                 self._per_peer_locks[peer_id] = asyncio.Lock()
             return self._per_peer_locks[peer_id]
 
-    async def _with_peer_lock(self, peer_id: str, timeout: float = 5.0) -> bool:
+    async def _with_peer_lock(self, peer_id: str, timeout: float | None = None) -> bool:
         """Acquire peer lock with timeout, returning success status.
 
         Use this in async contexts where you need to serialize message handling
@@ -754,11 +754,17 @@ class GossipProtocolMixin(P2PMixinBase):
 
         Args:
             peer_id: The peer's node ID
-            timeout: Maximum seconds to wait for lock (default: 5.0)
+            timeout: Maximum seconds to wait for lock (uses GossipDefaults.STATE_LOCK_TIMEOUT if None)
 
         Returns:
             True if lock was acquired, False on timeout
         """
+        if timeout is None:
+            try:
+                from app.config.coordination_defaults import GossipDefaults
+                timeout = GossipDefaults.STATE_LOCK_TIMEOUT
+            except ImportError:
+                timeout = 5.0  # Fallback
         lock = self._get_peer_lock(peer_id)
         try:
             await asyncio.wait_for(lock.acquire(), timeout=timeout)

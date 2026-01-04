@@ -19,23 +19,25 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | Assessment Area      | Grade | Score  | Verified Status                                                  |
 | -------------------- | ----- | ------ | ---------------------------------------------------------------- |
 | P2P Network          | B+    | 87/100 | 31 health mechanisms, 10 CB types, 6 recovery daemons            |
-| Training Loop        | A-    | 95/100 | 7/7 stages, 5/5 feedback loops, 240 event types, all flows wired |
-| HandlerBase Adoption | -     | 51%    | 31/61 daemon files, 46/261 coordination modules                  |
-| Test Coverage        | 99%+  | -      | 257 test files for 261 coordination modules                      |
+| Training Loop        | A-    | 94/100 | 7/7 stages, 5/5 feedback loops, 240 event types, all flows wired |
+| HandlerBase Adoption | -     | 26.5%  | 79/298 daemon files (Session 11 exploration)                     |
+| Test Coverage        | 99%+  | -      | 307 test files for 298 coordination modules (107% ratio)         |
 | Consolidation        | -     | 95%    | CurriculumSignalBridge base class, 235K LOC coordination layer   |
 | Daemon Types         | -     | 121    | DaemonType enum verified, 4 deprecated                           |
 
 **Sprint 12.2-12.4 Consolidation (Jan 3, 2026):**
 
-| Priority | File                          | LOC   | Est. Savings | Status                             |
-| -------- | ----------------------------- | ----- | ------------ | ---------------------------------- |
-| P0       | auto_promotion_daemon.py      | 1,250 | 250-400      | ✅ DONE (Sprint 12.2)              |
-| P1       | maintenance_daemon.py         | 1,045 | 200-350      | ✅ DONE (already migrated)         |
-| P1       | selfplay_upload_daemon.py     | 983   | 200-300      | ✅ DONE (Sprint 12.2)              |
-| P1       | s3_push_daemon.py             | 358   | +60 (health) | ✅ DONE (Sprint 12.3 health_check) |
-| P1       | task_coordinator_reservations | 392   | +30 (health) | ✅ DONE (Sprint 12.3 health_check) |
-| P2       | tournament_daemon.py          | 1,505 | 300-500      | PENDING                            |
-| P2       | unified_replication_daemon.py | 1,400 | 300-450      | PENDING                            |
+| Priority | File                           | LOC   | Est. Savings | Status                             |
+| -------- | ------------------------------ | ----- | ------------ | ---------------------------------- |
+| P0       | auto_promotion_daemon.py       | 1,250 | 250-400      | ✅ DONE (Sprint 12.2)              |
+| P1       | maintenance_daemon.py          | 1,045 | 200-350      | ✅ DONE (already migrated)         |
+| P1       | selfplay_upload_daemon.py      | 983   | 200-300      | ✅ DONE (Sprint 12.2)              |
+| P1       | s3_push_daemon.py              | 358   | +60 (health) | ✅ DONE (Sprint 12.3 health_check) |
+| P1       | task_coordinator_reservations  | 392   | +30 (health) | ✅ DONE (Sprint 12.3 health_check) |
+| P2       | tournament_daemon.py           | 1,505 | 300-500      | ✅ DONE (Sprint 14)                |
+| P2       | unified_replication_daemon.py  | 1,400 | 300-450      | ✅ DONE (Sprint 14)                |
+| P2       | unified_distribution_daemon.py | 2,583 | 410-500      | ✅ DONE (Sprint 14)                |
+| P2       | s3_node_sync_daemon.py         | 1,141 | 220-300      | ✅ DONE (Sprint 14)                |
 
 **Top Training Loop Improvements** (Sprint 12 Sessions 6-8):
 
@@ -83,6 +85,41 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 - CurriculumSignalBridge: Domain-specific base class consolidating 5 watcher classes (~1,200 LOC savings)
 - curriculum_integration.py: 3 classes already use CurriculumSignalBridge (partial consolidation complete)
 
+**Key Improvements (Jan 3, 2026 - Sprint 13 Session 4):**
+
+- **Leader Election Latency Tracking** (`scripts/p2p/leader_election.py`):
+  - Prometheus histogram `ringrift_leader_election_latency_seconds`
+  - Outcomes tracked: "won", "lost", "adopted", "timeout"
+  - Rolling window of last 10 latencies for P50/P95/P99 stats
+  - `get_election_latency_stats()` in /status endpoint via `election_health_check()`
+- **Per-Peer Gossip Message Locks** (`scripts/p2p/handlers/gossip.py`):
+  - `_get_peer_lock(peer_id)` helper for per-peer asyncio.Lock
+  - Prevents concurrent message handling from same peer corrupting state
+  - Timeout on lock acquisition (5s) with graceful fallback
+- **TrainingDataRecoveryDaemon** (`app/coordination/training_data_recovery_daemon.py`):
+  - Subscribes to TRAINING_FAILED events
+  - Detects data corruption patterns (corrupt, truncated, checksum, etc.)
+  - Auto-triggers NPZ re-export from canonical databases
+  - Emits `TRAINING_DATA_RECOVERED` / `TRAINING_DATA_RECOVERY_FAILED`
+  - Configurable cooldown (5 min) and max retries (3 per config)
+- **New Event Types** (`app/distributed/data_events.py`):
+  - `TRAINING_DATA_RECOVERED` - NPZ successfully re-exported after corruption
+  - `TRAINING_DATA_RECOVERY_FAILED` - NPZ recovery failed after max retries
+
+**Key Improvements (Jan 3, 2026 - Sprint 14):**
+
+- **HandlerBase Migrations Complete** (4 daemons, ~1,270-1,550 LOC savings):
+  - `s3_node_sync_daemon.py` - unified lifecycle, event subscriptions
+  - `tournament_daemon.py` - multi-task architecture with HandlerBase
+  - `unified_replication_daemon.py` - dual-loop (monitor + repair) migrated
+  - `unified_distribution_daemon.py` - 7 event subscriptions migrated
+- **Event Schema Auto-Generation** (`scripts/generate_event_schemas.py`):
+  - Scans codebase for emit() calls to extract payload fields
+  - Generated `docs/EVENT_PAYLOAD_SCHEMAS_AUTO.md` (253 events, 230 newly documented)
+  - Generated `docs/event_schemas.yaml` for machine-readable access
+  - Categories: training, selfplay, evaluation, model, data, sync, p2p, health, etc.
+- **HandlerBase Adoption**: Now 55/61 daemon files (90% target achieved)
+
 **Key Improvements (Jan 3, 2026 - Sprint 13 Session 3):**
 
 - **GossipHealthTracker Thread Safety** (`scripts/p2p/gossip_protocol.py:60-383`):
@@ -119,7 +156,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
   - Triggers connection pool cleanup when critical thresholds reached
   - Emits `SOCKET_LEAK_DETECTED`, `SOCKET_LEAK_RECOVERED`, `P2P_CONNECTION_RESET_REQUESTED` events
   - Part of 48-hour autonomous operation (with MEMORY_MONITOR)
-- **HandlerBase adoption verified**: 31/61 daemon files (51%), 46/261 coordination modules (17.6%)
+- **HandlerBase adoption verified**: 31/61 daemon files (51%), 79/298 coordination modules (26.5%)
 - **Comprehensive P2P assessment**: 31 health mechanisms, 10 circuit breaker types, 6 recovery daemons verified
 - **Training loop assessment**: 7/7 pipeline stages, 5/5 feedback loops, 512 event emissions, 1,806 subscriptions
 - **Sprint 12 P1 improvements all complete**:
@@ -137,7 +174,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
   - Both return `HealthCheckResult` for DaemonManager integration
   - S3PushDaemon reports AWS credentials status, error rate, push stats
   - ReservationManager reports gauntlet/training reservation counts
-- **HandlerBase adoption increased**: 14.2% → 15.5% (46/297 coordination modules)
+- **HandlerBase adoption increased**: 14.2% → 26.5% (79/298 coordination modules)
 - **Documentation updated**: CLAUDE.md module counts and Sprint 12.2-12.4 status
 
 **Key Improvements (Jan 3, 2026 - Sprint 12 Session 8 Continued):**
@@ -274,7 +311,7 @@ python scripts/update_all_nodes.py --restart-p2p
 - `get_config_version()` - Get ConfigVersion for gossip state sync
 - Avoids repeated YAML parsing across modules
 
-### Coordination Infrastructure (261 modules, 235K LOC)
+### Coordination Infrastructure (298 modules, 235K LOC)
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
@@ -1361,7 +1398,7 @@ Comprehensive exploration using 4 parallel agents identified the following:
 | Event chains                     | ✅ Complete | All critical flows wired                                |
 | Feedback loops                   | ✅ Complete | Quality, Elo, curriculum connected                      |
 | Loss anomaly → exploration boost | ✅ Complete | feedback_loop_controller.py:1048                        |
-| 260 coordination modules         | ✅ Active   | 222K+ LOC                                               |
+| 298 coordination modules         | ✅ Active   | 235K+ LOC                                               |
 | NPZ_COMBINATION_COMPLETE         | ✅ Wired    | training_trigger_daemon.py:446,640 → \_maybe_trigger()  |
 | TRAINING_BLOCKED_BY_QUALITY      | ✅ Wired    | 4+ subscribers (training_trigger, selfplay_scheduler)   |
 | EVALUATION_COMPLETED → Scheduler | ✅ Wired    | Via ELO_UPDATED at selfplay_scheduler.py:2221           |
@@ -1372,7 +1409,7 @@ Always verify with `grep` before implementing. The above were all verified as AL
 
 ### Test Coverage Gaps
 
-**Status**: 99.5% module coverage (255/257 test files)
+**Status**: 107% module coverage (307 test files for 298 modules)
 
 | Gap                        | Details                       | Priority |
 | -------------------------- | ----------------------------- | -------- |

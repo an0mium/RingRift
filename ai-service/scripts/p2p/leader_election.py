@@ -117,6 +117,43 @@ PROM_ALIVE_VOTERS = _get_or_create_gauge(
     ["node_id"],
 )
 
+
+# Jan 3, 2026 Sprint 13.3: Leader election latency tracking
+def _get_or_create_histogram(
+    name: str,
+    documentation: str,
+    labelnames: list[str],
+    buckets: tuple[float, ...],
+) -> Any:
+    """Get an existing Prometheus histogram or create a new one."""
+    if not HAS_PROMETHEUS:
+        return None
+    try:
+        from prometheus_client import Histogram
+        # Try to get existing metric
+        return REGISTRY._names_to_collectors.get(name)
+    except (AttributeError, KeyError):
+        pass
+    try:
+        from prometheus_client import Histogram
+        return Histogram(name, documentation, labelnames, buckets=buckets)
+    except ValueError:
+        # Already registered - get from registry
+        for collector in REGISTRY._names_to_collectors.values():
+            if hasattr(collector, "_name") and collector._name == name:
+                return collector
+        return None
+
+
+# Leader election latency histogram
+# Buckets: 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s, 30s, 60s
+PROM_ELECTION_LATENCY = _get_or_create_histogram(
+    "ringrift_leader_election_latency_seconds",
+    "Time taken for leader election to complete",
+    ["node_id", "outcome"],  # outcome: won, lost, timeout, adopted
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
+)
+
 PROM_TOTAL_VOTERS = _get_or_create_gauge(
     "ringrift_quorum_total_voters",
     "Total number of configured voters in the cluster",
@@ -331,6 +368,106 @@ class LeaderElectionMixin(P2PMixinBase):
 
     # Jan 2026: Circuit breaker for voter promotion (singleton per mixin instance)
     _voter_promotion_cb: VoterPromotionCircuitBreaker | None = None
+
+    # Jan 3, 2026 Sprint 13.3: Leader election latency tracking
+    _election_started_at: float = 0.0
+    _last_election_latency_seconds: float = 0.0
+    _election_latencies: list[float] = []  # Rolling window of last 10 latencies
+    _elections_completed: int = 0
+    _elections_won: int = 0
+    _elections_lost: int = 0
+    _elections_timeout: int = 0
+
+    def _start_election_timing(self) -> None:
+        """Mark the start of an election for latency tracking.
+
+        Jan 3, 2026 Sprint 13.3: Call this at the beginning of _start_election().
+        """
+        self._election_started_at = time.time()
+
+    def _record_election_latency(self, outcome: str) -> float:
+        """Record election completion and calculate latency.
+
+        Jan 3, 2026 Sprint 13.3: Call this when election completes.
+
+        Args:
+            outcome: One of 'won', 'lost', 'timeout', 'adopted'
+
+        Returns:
+            The election latency in seconds, or 0.0 if no start time recorded.
+        """
+        if self._election_started_at <= 0:
+            return 0.0
+
+        latency = time.time() - self._election_started_at
+        self._last_election_latency_seconds = latency
+        self._election_started_at = 0.0  # Reset for next election
+
+        # Update rolling window (keep last 10)
+        if not hasattr(self, "_election_latencies") or self._election_latencies is None:
+            self._election_latencies = []
+        self._election_latencies.append(latency)
+        if len(self._election_latencies) > 10:
+            self._election_latencies = self._election_latencies[-10:]
+
+        # Update counters
+        self._elections_completed = getattr(self, "_elections_completed", 0) + 1
+        if outcome == "won":
+            self._elections_won = getattr(self, "_elections_won", 0) + 1
+        elif outcome == "lost":
+            self._elections_lost = getattr(self, "_elections_lost", 0) + 1
+        elif outcome == "timeout":
+            self._elections_timeout = getattr(self, "_elections_timeout", 0) + 1
+
+        # Record Prometheus metric
+        if HAS_PROMETHEUS and PROM_ELECTION_LATENCY is not None:
+            try:
+                node_id = getattr(self, "node_id", "unknown")
+                PROM_ELECTION_LATENCY.labels(node_id=node_id, outcome=outcome).observe(latency)
+            except Exception:
+                pass  # Don't let metrics failures affect elections
+
+        self._log_info(
+            f"[Election] Completed in {latency:.2f}s, outcome={outcome}"
+        )
+        return latency
+
+    def get_election_latency_stats(self) -> dict[str, Any]:
+        """Get election latency statistics for /status endpoint.
+
+        Jan 3, 2026 Sprint 13.3: Returns latency stats for observability.
+
+        Returns:
+            Dict with last latency, average, min, max, and counts.
+        """
+        latencies = getattr(self, "_election_latencies", []) or []
+
+        stats = {
+            "last_latency_seconds": getattr(self, "_last_election_latency_seconds", 0.0),
+            "elections_completed": getattr(self, "_elections_completed", 0),
+            "elections_won": getattr(self, "_elections_won", 0),
+            "elections_lost": getattr(self, "_elections_lost", 0),
+            "elections_timeout": getattr(self, "_elections_timeout", 0),
+            "election_in_progress": getattr(self, "_election_started_at", 0.0) > 0,
+        }
+
+        if latencies:
+            stats["avg_latency_seconds"] = sum(latencies) / len(latencies)
+            stats["min_latency_seconds"] = min(latencies)
+            stats["max_latency_seconds"] = max(latencies)
+            stats["latency_samples"] = len(latencies)
+        else:
+            stats["avg_latency_seconds"] = 0.0
+            stats["min_latency_seconds"] = 0.0
+            stats["max_latency_seconds"] = 0.0
+            stats["latency_samples"] = 0
+
+        # Add current election duration if in progress
+        started_at = getattr(self, "_election_started_at", 0.0)
+        if started_at > 0:
+            stats["current_election_duration_seconds"] = time.time() - started_at
+
+        return stats
 
     def _get_voter_promotion_cb(self) -> VoterPromotionCircuitBreaker:
         """Get or create the voter promotion circuit breaker."""
@@ -548,7 +685,11 @@ class LeaderElectionMixin(P2PMixinBase):
         lease_epoch = int(getattr(self, "_lease_epoch", 0) or 0)
 
         cleared_count = 0
-        timeout = ClientTimeout(total=3)
+        # Jan 2026: Use centralized timeout for election requests
+        try:
+            timeout = ClientTimeout(total=LoopTimeouts.ELECTION_REQUEST)
+        except NameError:
+            timeout = ClientTimeout(total=3)  # Fallback if import failed
 
         # Jan 3, 2026: Copy peers under lock before async operations
         # This prevents race conditions when peers dict is modified concurrently
@@ -833,7 +974,11 @@ class LeaderElectionMixin(P2PMixinBase):
         from aiohttp import ClientTimeout
 
         notified = 0
-        timeout = ClientTimeout(total=5)
+        # Jan 2026: Use centralized timeout for leader probes
+        try:
+            timeout = ClientTimeout(total=LoopTimeouts.LEADER_PROBE)
+        except NameError:
+            timeout = ClientTimeout(total=5)  # Fallback if import failed
 
         payload = {
             "action": action,
@@ -1437,6 +1582,9 @@ class LeaderElectionMixin(P2PMixinBase):
         # Add Raft leader info if available
         if using_raft:
             result["raft_leader_node_id"] = self._get_raft_leader_node_id()
+
+        # Jan 3, 2026 Sprint 13.3: Add election latency stats
+        result["election_latency"] = self.get_election_latency_stats()
 
         return result
 
