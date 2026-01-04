@@ -80,27 +80,28 @@ This orchestrates:
 - **FeedbackLoopController**: Training feedback signals and curriculum adjustments
 - **DataPipelineOrchestrator**: Export → training → evaluation → promotion
 
-**Sprint 17.6 Status (Jan 4, 2026):**
+**Sprint 17.8 Status (Jan 4, 2026 - Session 17.3):**
 
-- P2P Network: A- (91/100) - 37 alive peers (74%), 11 recovery daemons, <2.5 min MTTR
-- Training Loop: A+ (98/100) - All 6 pipeline stages, 5 feedback loops, 728+ event subscriptions
-- Code Quality: 95-98% consolidated, 129 daemon types, 100% HandlerBase migration
-- Multi-Arch Training: FIXED - Bug fix enables v2/v3/v4/v5/v5-heavy-large training (commit 2d8cf6a90)
+- P2P Network: A- (91/100) - 23 alive peers, 233+ health checks, 11 recovery daemons, <2.5 min MTTR
+- Training Loop: A (95/100) - All 6 pipeline stages, 5 feedback loops, 292 event types
+- Code Quality: 95-98% consolidated, 75/90 HandlerBase adoption (83%)
+- Multi-Arch Training: FIXED - Bug fix enables v2/v3/v4/v5/v5-heavy-large training
 - 48h Autonomous: VERIFIED - All 4 autonomous daemons functional, cluster deployed
+- LeaderProbeLoop: NEW - Fast leader recovery (10s probes, 60s failover)
 
-**Sprint 17.6 Key Fixes (Jan 4, 2026):**
+**Session 17.3 Key Additions (Jan 4, 2026):**
 
-- **Multi-Architecture Training Bug**: Fixed two root causes preventing multi-arch training
-  1. Architecture not passed to work queue (training_trigger_daemon.py:3337)
-  2. Training execution was NO-OP (p2p_orchestrator.py:18488-18560)
-- Work Queue: Now includes `model_version` parameter for architecture selection
-- Training Execution: Implements actual subprocess via asyncio.create_subprocess_exec()
+- **LeaderProbeLoop**: Active leader health probing, triggers election after 6 failures (60s)
+- **Retry Queue Helpers**: 3 new HandlerBase methods for consolidating queue patterns
+- **Cluster Deployment**: Lambda GH200-1/2 updated with P2P restart
+- **Comprehensive Assessment**: P2P (91/100), Training (95/100), Consolidation (95-98%)
 
 **Remaining Improvements** (medium priority):
 
-- P0: selfplay_scheduler.py decomposition (4,743 LOC → 5 modules)
+- P0: selfplay_scheduler.py decomposition (4,743 LOC → 1,200-1,500 LOC savings)
 - P0: Event emission consolidation (450-650 LOC savings)
-- P1: daemon_runners.py decomposition (600-900 LOC savings)
+- P1: feedback_loop_controller.py decomposition (800-1,000 LOC savings)
+- P1: training_trigger_daemon.py decomposition (700-900 LOC savings)
 
 ## Board Configurations
 

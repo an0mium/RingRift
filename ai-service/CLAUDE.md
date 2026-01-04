@@ -2,20 +2,20 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.7 - Session 17.2)
+**Last Updated**: January 4, 2026 (Sprint 17.8 - Session 17.3)
 
 ## Infrastructure Health Status (Verified Jan 4, 2026)
 
-| Component            | Status    | Evidence                                                     |
-| -------------------- | --------- | ------------------------------------------------------------ |
-| **P2P Network**      | GREEN     | A- (91/100), 26 alive peers (65%), mac-studio as leader      |
-| **Training Loop**    | GREEN     | A (95/100), 5/5 feedback loops wired, 6/6 pipeline stages    |
-| **Code Quality**     | GREEN     | 95-98% consolidated, 3,800-5,800 LOC remaining opportunities |
-| **Leader Election**  | WORKING   | Bully algorithm + LeaderProbeLoop (10s probes, 60s failover) |
-| **Work Queue**       | HEALTHY   | Quorum OK, 11 recovery daemons active, <2.5min MTTR          |
-| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline       |
-| **SQLite Async**     | FIXED     | 249 asyncio.to_thread usages, 95%+ async safe                |
-| **Multi-Arch Train** | FIXED     | Bug fixed: architecture now passed to work queue + execution |
+| Component            | Status    | Evidence                                                        |
+| -------------------- | --------- | --------------------------------------------------------------- |
+| **P2P Network**      | GREEN     | A- (91/100), 23 alive peers, 233+ health checks, 11 recovery    |
+| **Training Loop**    | GREEN     | A (95/100), 5/5 feedback loops, 6/6 pipeline stages, 292 events |
+| **Code Quality**     | GREEN     | 95-98% consolidated, 3,800-5,800 LOC remaining opportunities    |
+| **Leader Election**  | WORKING   | Bully algorithm + LeaderProbeLoop (10s probes, 60s failover)    |
+| **Work Queue**       | HEALTHY   | 11 recovery daemons, <2.5min MTTR                               |
+| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline          |
+| **SQLite Async**     | FIXED     | 249 asyncio.to_thread usages, 95%+ async safe                   |
+| **Multi-Arch Train** | FIXED     | Bug fixed: architecture now passed to work queue + execution    |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -46,6 +46,48 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Early Quorum Escalation   | Skip to P2P restart after 2 failed healing attempts with quorum lost | `p2p_recovery_daemon.py`      |
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
+
+**Sprint 17.8 / Session 17.3 (Jan 4, 2026) - Comprehensive Assessment & Deployment:**
+
+| Fix                          | Purpose                                                   | Files                                      |
+| ---------------------------- | --------------------------------------------------------- | ------------------------------------------ |
+| LeaderProbeLoop Registration | Registered in LoopManager for fast leader recovery        | `p2p_orchestrator.py:_init_loop_manager()` |
+| Retry Queue Helpers          | 3 new helpers in HandlerBase for queue consolidation      | `handler_base.py:1324-1429`                |
+| Cluster Deployment           | Updated Lambda GH200-1/2 with P2P restart                 | git pull + p2p_orchestrator restart        |
+| Comprehensive Assessment     | 3 parallel agents: P2P (91), Training (95), Consolidation | See Session 17.3 results below             |
+
+**Session 17.3 Assessment Results (Jan 4, 2026):**
+
+| Assessment Area | Grade | Score  | Key Findings                                                |
+| --------------- | ----- | ------ | ----------------------------------------------------------- |
+| P2P Network     | A-    | 91/100 | 233+ health_check(), 11 recovery daemons, <2.5min MTTR      |
+| Training Loop   | A     | 95/100 | 6/6 pipeline stages, 5/5 feedback loops, 292 event types    |
+| Consolidation   | A     | 95-98% | 3,800-5,800 LOC potential, 75/90 HandlerBase adoption (83%) |
+
+**P2P Network Details (Session 17.3):**
+
+- **Health checks**: 233+ methods (31 in scripts/p2p/, 202+ in app/coordination/)
+- **Recovery daemons**: 11 active (P2PRecovery, PartitionHealer, ProgressWatchdog, etc.)
+- **Circuit breakers**: 9+ types with 4-tier escalation
+- **Event wiring**: 8/8 critical flows verified complete
+- **MTTR**: <2.5 min (with LeaderProbeLoop: 60s leader failover)
+
+**Training Loop Details (Session 17.3):**
+
+- **Pipeline stages**: All 6 verified (SELFPLAY → SYNC → NPZ_EXPORT → NPZ_COMBINATION → TRAINING → EVALUATION)
+- **Feedback loops**: 5/5 bidirectionally wired (Quality→Training, Elo→Selfplay, Loss→Exploration, Regression→Curriculum, Promotion→Curriculum)
+- **Event types**: 292 DataEventType members
+- **Architecture support**: model_version passed through entire pipeline (v2, v3, v4, v5, v5-heavy-large)
+
+**Consolidation Roadmap (Session 17.3 Priorities):**
+
+| Priority | Opportunity                  | Hours | LOC Saved   | ROI (LOC/hr) |
+| -------- | ---------------------------- | ----- | ----------- | ------------ |
+| P0       | selfplay_scheduler decompose | 16-20 | 1,200-1,500 | 62-75        |
+| P0       | Event emission consolidation | 12-16 | 450-650     | 30-43        |
+| P1       | feedback_loop_controller     | 10-12 | 800-1,000   | 66-83        |
+| P1       | training_trigger_daemon      | 10-12 | 700-900     | 58-75        |
+| P2       | Mixin consolidation          | 8-12  | 350-500     | 35-43        |
 
 **Sprint 17.7 / Session 17.2 (Jan 4, 2026) - Queue Helper Consolidation:**
 
