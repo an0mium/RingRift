@@ -1,6 +1,6 @@
 # Event System Reference
 
-The RingRift coordination infrastructure uses an event-driven architecture with 255 event types defined in `DataEventType`. This document provides a comprehensive reference for the event system; for the canonical list and mappings, see `EVENT_CATALOG.md`. `EVENT_REFERENCE_AUTO.md` is an exhaustive scan of event strings across code/tests and includes non-canonical or test-only events, so its total count can exceed `DataEventType`.
+The RingRift coordination infrastructure uses an event-driven architecture with 256 event types defined in `DataEventType`. This document provides a comprehensive reference for the event system; for the canonical list and mappings, see `EVENT_CATALOG.md`. `EVENT_REFERENCE_AUTO.md` is an exhaustive scan of event strings across code/tests and includes non-canonical or test-only events, so its total count can exceed `DataEventType`.
 
 **Created**: December 2025 (Wave 4 Phase 2)
 **Updated**: December 30, 2025 (Event wiring + count refresh)

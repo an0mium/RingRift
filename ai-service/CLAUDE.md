@@ -9,7 +9,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | Component           | Status  | Evidence                                                  |
 | ------------------- | ------- | --------------------------------------------------------- |
 | **P2P Network**     | GREEN   | 31 health mechanisms, 6 recovery daemons, 25+ alive peers |
-| **Training Loop**   | GREEN   | 99.5% complete, 255 event types, all critical flows wired |
+| **Training Loop**   | GREEN   | 99.5% complete, 256 event types, all critical flows wired |
 | **Code Quality**    | GREEN   | 95% consolidated, ~4,000 LOC saved through refactoring    |
 | **Leader Election** | WORKING | Bully algorithm with voter quorum, split-brain detection  |
 | **Work Queue**      | HEALTHY | 1000+ items maintained, QueuePopulatorLoop working        |
@@ -334,7 +334,7 @@ python scripts/update_all_nodes.py --restart-p2p
 | `daemon_manager.py`                    | Lifecycle for 105 daemon types (~2,000 LOC)       |
 | `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)   |
 | `daemon_runners.py`                    | 124 async runner functions                        |
-| `event_router.py`                      | Unified event bus (255 event types, SHA256 dedup) |
+| `event_router.py`                      | Unified event bus (256 event types, SHA256 dedup) |
 | `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)   |
 | `budget_calculator.py`                 | Gumbel budget tiers, target games calculation     |
 | `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation      |
@@ -790,10 +790,10 @@ Automatic retry for transient failures (GPU OOM, timeouts):
 
 **Integration Status**: 99.5% COMPLETE (Jan 3, 2026)
 
-255 event types defined in DataEventType enum. All critical event flows are fully wired.
+256 event types defined in DataEventType enum. All critical event flows are fully wired.
 5/5 feedback loops verified functional. Only minor informational gaps remain.
 
-255 event types across 3 layers:
+256 event types across 3 layers:
 
 1. **In-memory EventBus** - Local daemon communication
 2. **Stage events** - Pipeline stage completion

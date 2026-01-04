@@ -68,6 +68,16 @@ except ImportError:
     get_node_circuit_breaker = None  # type: ignore
     get_circuit_registry = None  # type: ignore
 
+# Import event system for CLUSTER_HEALTH_CHANGED emission
+try:
+    from app.distributed.data_events import DataEventType
+    from app.coordination.event_router import get_event_bus
+    HAS_EVENT_SYSTEM = True
+except ImportError:
+    HAS_EVENT_SYSTEM = False
+    DataEventType = None  # type: ignore
+    get_event_bus = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -663,7 +673,35 @@ class HealthCoordinator:
             return OverallHealthLevel.HEALTHY
 
     def _notify_health_change(self, state: ClusterHealthState) -> None:
-        """Notify callbacks of health state change."""
+        """Notify callbacks of health state change and emit event."""
+        # Emit CLUSTER_HEALTH_CHANGED event via event bus
+        if HAS_EVENT_SYSTEM:
+            try:
+                bus = get_event_bus()
+                if bus is not None:
+                    bus.emit(
+                        DataEventType.CLUSTER_HEALTH_CHANGED.value,
+                        {
+                            "overall_health": state.overall_health.value,
+                            "overall_score": state.overall_score,
+                            "quorum_health": state.quorum_health.value,
+                            "alive_peers": state.alive_peers,
+                            "open_circuits": state.open_circuits,
+                            "is_degraded": state.overall_health != OverallHealthLevel.HEALTHY,
+                            "is_critical": state.overall_health == OverallHealthLevel.CRITICAL,
+                            "leader_id": state.leader_id,
+                            "node_id": self._node_id,
+                        },
+                    )
+                    logger.debug(
+                        "[HealthCoordinator] Emitted CLUSTER_HEALTH_CHANGED: %s (score=%.2f)",
+                        state.overall_health.value,
+                        state.overall_score,
+                    )
+            except Exception as e:
+                logger.debug("[HealthCoordinator] Event emission failed: %s", e)
+
+        # Notify registered callbacks
         for callback in self._on_health_change:
             try:
                 callback(state)

@@ -335,7 +335,7 @@ history = list(router._event_history)  # Last 1000 events
 | **Feedback**   | `ELO_VELOCITY_CHANGED`, `PLATEAU_DETECTED`    | Training feedback        |
 | **Health**     | `NODE_RECOVERED`, `HOST_OFFLINE`              | Cluster health           |
 
-See `EVENT_SYSTEM_REFERENCE.md` for the complete event catalog (255 event types).
+See `EVENT_SYSTEM_REFERENCE.md` for the complete event catalog (256 event types).
 
 ---
 

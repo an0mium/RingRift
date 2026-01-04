@@ -244,6 +244,7 @@ class DataEventType(Enum):
     DISTRIBUTION_INCOMPLETE = "distribution_incomplete"  # Dec 2025 Phase 3: Model not on enough nodes
     P2P_CLUSTER_HEALTHY = "p2p_cluster_healthy"
     P2P_CLUSTER_UNHEALTHY = "p2p_cluster_unhealthy"
+    CLUSTER_HEALTH_CHANGED = "cluster_health_changed"  # January 2026: Unified cluster health state change
     SYNC_STALLED = "sync_stalled"  # December 2025: Sync operation stalled/timed out
     SYNC_CHECKSUM_FAILED = "sync_checksum_failed"  # December 2025: Checksum mismatch after sync
     SYNC_NODE_UNREACHABLE = "sync_node_unreachable"  # December 2025: Node unreachable for sync
