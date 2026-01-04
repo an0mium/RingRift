@@ -2709,7 +2709,7 @@ class P2POrchestrator(
                 # all nodes from trying to restart each other simultaneously
                 remote_recovery = RemoteP2PRecoveryLoop(
                     get_alive_peer_ids=_get_alive_peer_ids_for_recovery,
-                    is_leader=lambda: self.is_leader(),
+                    is_leader=lambda: self.is_leader,  # is_leader is a property, not a method
                 )
                 manager.register(remote_recovery)
                 logger.info(f"[LoopManager] RemoteP2PRecoveryLoop registered (node: {self.node_id}, leader-only execution)")

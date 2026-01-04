@@ -199,6 +199,7 @@ class AutonomousQueuePopulationLoop:
     # Class-level attributes for LoopManager registration
     name: str = "autonomous_queue_population"
     depends_on: list[str] = []  # No dependencies - this loop is a fallback
+    enabled: bool = True  # Whether the loop is enabled
 
     def __init__(
         self,
@@ -219,11 +220,23 @@ class AutonomousQueuePopulationLoop:
         self._running = False
         self._task: asyncio.Task | None = None
         self._startup_time = time.time()
+        self._total_runs = 0
+        self._errors = 0
 
     @property
     def is_activated(self) -> bool:
         """Check if autonomous mode is currently active."""
         return self._state.activated
+
+    @property
+    def running(self) -> bool:
+        """Check if the loop is currently running (for LoopManager compatibility)."""
+        return self._running
+
+    @property
+    def enabled(self) -> bool:
+        """Check if the loop is enabled (for LoopManager compatibility)."""
+        return self._config.enabled
 
     @property
     def local_queue_depth(self) -> int:
@@ -249,6 +262,15 @@ class AutonomousQueuePopulationLoop:
             f"check_interval={self._config.check_interval_seconds}s"
         )
 
+    def start_background(self) -> asyncio.Task | None:
+        """Start the loop as a background task (for LoopManager compatibility).
+
+        Returns:
+            The asyncio.Task running the loop, or None if disabled/already running
+        """
+        self.start()
+        return self._task
+
     async def stop(self) -> None:
         """Stop the autonomous queue loop."""
         self._running = False
@@ -264,6 +286,35 @@ class AutonomousQueuePopulationLoop:
             self._state.deactivate("loop_stopped")
 
         logger.info("[AutonomousQueue] Stopped")
+
+    async def stop_async(self, timeout: float = 5.0) -> bool:
+        """Async stop with timeout (for LoopManager compatibility)."""
+        await self.stop()
+        return True
+
+    @property
+    def stats(self) -> Any:
+        """Get loop statistics (for LoopManager compatibility)."""
+        # Return a minimal stats-like object
+        class MinimalStats:
+            def __init__(self, total_runs: int, failed_runs: int):
+                self.total_runs = total_runs
+                self.failed_runs = failed_runs
+                self.consecutive_errors = 0
+                self.last_run_time = 0.0
+        return MinimalStats(self._total_runs, self._errors)
+
+    def get_status(self) -> dict[str, Any]:
+        """Get status for LoopManager health checks."""
+        return {
+            "name": self.name,
+            "running": self._running,
+            "enabled": self.enabled,
+            "activated": self._state.activated,
+            "activation_reason": self._state.activation_reason,
+            "items_populated": self._state.items_populated,
+            "local_queue_depth": len(self._local_queue),
+        }
 
     async def _run_loop(self) -> None:
         """Main loop that checks conditions and populates queue."""
