@@ -1318,6 +1318,9 @@ class TrainingTriggerDaemon(HandlerBase):
         January 3, 2026: Now stores quality score and timestamp for confidence decay.
         When quality scores become stale (no updates), they decay toward a floor value,
         potentially unblocking training that was blocked by high quality gates.
+
+        Sprint 12 Session 8: Added confidence weighting based on games_assessed.
+        Quality scores from small samples are weighted toward neutral (0.5).
         """
         try:
             payload = getattr(event, "payload", {})
@@ -1325,18 +1328,34 @@ class TrainingTriggerDaemon(HandlerBase):
             if not config_key:
                 return
 
-            quality_score = float(payload.get("quality_score", 0.0))
+            raw_quality_score = float(payload.get("quality_score", 0.0))
+            games_assessed = int(payload.get("games_assessed", 0))
             state = self._get_or_create_state(config_key)
 
-            # Jan 3, 2026: Store quality score and timestamp for decay calculation
-            state.last_quality_score = quality_score
+            # Sprint 12 Session 8: Apply confidence weighting based on sample size
+            # Small samples are biased toward neutral (0.5) to avoid overconfident decisions
+            if games_assessed > 0:
+                adjusted_quality = self._apply_confidence_weighting(
+                    raw_quality_score, games_assessed
+                )
+            else:
+                adjusted_quality = raw_quality_score
+
+            # Store raw quality score and metadata for decay calculation
+            state.last_quality_score = adjusted_quality
             state.last_quality_update = time.time()
+            state.games_assessed = games_assessed
 
-            state.training_intensity = self._intensity_from_quality(quality_score, config_key)
+            state.training_intensity = self._intensity_from_quality(
+                adjusted_quality, config_key
+            )
 
+            confidence = self._compute_quality_confidence(games_assessed)
             logger.debug(
                 f"[TrainingTriggerDaemon] {config_key}: "
-                f"quality={quality_score:.2f} → intensity={state.training_intensity}"
+                f"raw_quality={raw_quality_score:.2f}, games={games_assessed}, "
+                f"confidence={confidence:.0%}, adjusted={adjusted_quality:.2f} → "
+                f"intensity={state.training_intensity}"
             )
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling quality update: {e}")
