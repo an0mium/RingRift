@@ -965,13 +965,12 @@ class DatabaseSyncManager(SyncManagerBase):
     async def discover_nodes(self) -> None:
         """Discover cluster nodes from P2P status or YAML config.
 
-        January 2026: Added retry with backoff for P2P discovery.
-        Tries P2P 3 times with 2s/4s/8s delays before falling back to YAML.
+        January 2026: Migrated to RetryConfig for centralized retry behavior.
+        Tries P2P 3 times with exponential backoff before falling back to YAML.
         """
-        max_retries = 3
-        base_delay = 2.0
+        retry_config = RetryConfig(max_attempts=3, base_delay=2.0, max_delay=16.0)
 
-        for attempt in range(max_retries):
+        for attempt in retry_config.attempts():
             try:
                 # Try P2P discovery
                 import aiohttp
@@ -1018,16 +1017,15 @@ class DatabaseSyncManager(SyncManagerBase):
             except (OSError, asyncio.TimeoutError, ValueError, KeyError) as e:
                 # OSError: network errors, TimeoutError: request timeout
                 # ValueError/KeyError: malformed P2P response
-                delay = base_delay * (2 ** attempt)
-                if attempt < max_retries - 1:
+                if attempt.should_retry:
                     logger.debug(
-                        f"[{self.db_type}] P2P discovery attempt {attempt + 1}/{max_retries} "
-                        f"failed: {e}, retrying in {delay:.1f}s"
+                        f"[{self.db_type}] P2P discovery attempt {attempt.number}/{retry_config.max_attempts} "
+                        f"failed: {e}, retrying in {attempt.delay:.1f}s"
                     )
-                    await asyncio.sleep(delay)
+                    await attempt.wait_async()
                 else:
                     logger.debug(
-                        f"[{self.db_type}] P2P discovery failed after {max_retries} attempts: {e}"
+                        f"[{self.db_type}] P2P discovery failed after {retry_config.max_attempts} attempts: {e}"
                     )
 
         # Fallback to YAML config

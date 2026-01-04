@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.config.ports import P2P_DEFAULT_PORT
+from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
@@ -315,11 +316,20 @@ class TransportManager:
         )
 
         # Try each transport in chain
+        # Jan 3, 2026: Migrated to RetryConfig for centralized retry behavior
         all_errors: list[str] = []
         retries = 0
 
+        retry_config = RetryConfig(
+            max_attempts=self.config.max_retries,
+            base_delay=self.config.retry_delay_seconds,
+            max_delay=self.config.retry_delay_seconds * (
+                self.config.retry_backoff_multiplier ** self.config.max_retries
+            ),
+        )
+
         for transport in available_chain:
-            for attempt in range(self.config.max_retries):
+            for attempt in retry_config.attempts():
                 try:
                     result = await self._execute_transfer(
                         transport=transport,
@@ -368,11 +378,8 @@ class TransportManager:
                     retries += 1
 
                 # Retry delay with backoff
-                if attempt < self.config.max_retries - 1:
-                    delay = self.config.retry_delay_seconds * (
-                        self.config.retry_backoff_multiplier**attempt
-                    )
-                    await asyncio.sleep(delay)
+                if attempt.should_retry:
+                    await attempt.wait_async()
 
             # Transport exhausted, record failure
             self._record_transport_failure(transport)
