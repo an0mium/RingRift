@@ -128,6 +128,9 @@ from app.coordination.protocols import HealthCheckResult
 from app.coordination.handler_base import HandlerBase
 from app.coordination.event_handler_utils import extract_config_key
 
+# January 2026 Sprint 17.4: Health monitoring extracted to mixin
+from app.coordination.selfplay_health_monitor import SelfplayHealthMonitorMixin
+
 # December 30, 2025: Extracted cache and metrics classes
 from app.coordination.config_state_cache import ConfigStateCache
 from app.coordination.scheduler_metrics import SchedulerMetricsCollector
@@ -243,7 +246,7 @@ from app.coordination.selfplay_priority_types import ConfigPriority, DynamicWeig
 # (January 2, 2026 extraction - ~200 LOC moved to separate module)
 
 
-class SelfplayScheduler(HandlerBase):
+class SelfplayScheduler(SelfplayHealthMonitorMixin, HandlerBase):
     """Priority-based selfplay scheduler across cluster nodes.
 
     Responsibilities:
@@ -255,6 +258,8 @@ class SelfplayScheduler(HandlerBase):
 
     December 30, 2025: Now inherits from HandlerBase for unified event handling,
     singleton management, and health check patterns.
+
+    January 2026 Sprint 17.4: P2P health handlers extracted to SelfplayHealthMonitorMixin.
     """
 
     def __init__(
@@ -297,6 +302,9 @@ class SelfplayScheduler(HandlerBase):
             cycle_interval=300.0,  # 5 min - priorities refreshed on events, not cycles
             dedup_enabled=True,
         )
+
+        # January 2026 Sprint 17.4: Initialize health monitor state from mixin
+        self._init_health_monitor_state()
 
         # Store callbacks (Dec 2025)
         self._get_cluster_elo_fn = get_cluster_elo_fn
