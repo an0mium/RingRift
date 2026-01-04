@@ -14,14 +14,14 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | **Leader Election** | WORKING | Bully algorithm with voter quorum, split-brain detection  |
 | **Work Queue**      | HEALTHY | 1000+ items maintained, QueuePopulatorLoop working        |
 
-**Comprehensive Assessment (Jan 3, 2026 - Sprint 12 Session 5 Final):**
+**Comprehensive Assessment (Jan 3, 2026 - Sprint 12 Session 7):**
 
-| Assessment Area      | Grade | Score  | Verified Status                                                           |
-| -------------------- | ----- | ------ | ------------------------------------------------------------------------- |
-| P2P Network          | A-    | 92/100 | 31 health mechanisms, 5 CB types, all Sprint 12 improvements verified     |
-| Training Loop        | A     | 99.5%  | 7/7 stages, 5/5 feedback loops, 248 event types, all critical flows wired |
-| HandlerBase Adoption | -     | 14.2%  | 42/296 modules, target 40%, top 10 candidates identified                  |
-| Test Coverage        | 107%  | -      | 307 test files for 285 modules                                            |
+| Assessment Area      | Grade | Score  | Verified Status                                                        |
+| -------------------- | ----- | ------ | ---------------------------------------------------------------------- |
+| P2P Network          | B+    | 87/100 | 31 health mechanisms, 5 CB types, partition healing coordination added |
+| Training Loop        | A-    | 92/100 | 7/7 stages, 5/5 feedback loops, 303 event types, curriculum hierarchy  |
+| HandlerBase Adoption | -     | 14.2%  | 42/296 modules, target 40%, top 10 candidates identified               |
+| Test Coverage        | 107%  | -      | 307 test files for 285 modules                                         |
 
 **Sprint 13 Consolidation Priorities** (targeting HandlerBase 14% → 40%):
 
@@ -36,13 +36,22 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 
 **Top 3 Training Loop Improvements** (identified in assessment):
 
-| Improvement                                   | Elo Impact | Hours | Status  |
-| --------------------------------------------- | ---------- | ----- | ------- |
-| Dynamic loss anomaly thresholds               | +8-12      | 8-12  | Pending |
-| Curriculum hierarchy with sibling propagation | +12-18     | 12-16 | Pending |
-| Quality-weighted batch prioritization         | +5-8       | 8-10  | Pending |
+| Improvement                                   | Elo Impact | Hours | Status              |
+| --------------------------------------------- | ---------- | ----- | ------------------- |
+| Dynamic loss anomaly thresholds               | +8-12      | 8-12  | Pending             |
+| Curriculum hierarchy with sibling propagation | +12-18     | 12-16 | ✅ DONE (Session 7) |
+| Quality-weighted batch prioritization         | +5-8       | 8-10  | Pending             |
 
-**Total Potential**: 3,300-5,050 LOC savings, +25-38 Elo, 65-92 hours
+**Total Potential**: 3,300-5,050 LOC savings, +13-20 Elo remaining, 65-92 hours
+
+**Key Improvements (Jan 3, 2026 - Sprint 12 Session 7):**
+
+- **Partition healing coordination** with P2PRecoveryDaemon (`p2p_recovery_daemon.py:422-466`)
+- **Curriculum hierarchy propagation** with weighted similarity (`curriculum_integration.py:800-900`)
+  - Same board family: 80% strength propagation
+  - Cross-board: 40% strength with Elo guard
+  - Sibling player count: 60% strength
+- **Startup grace period** verified at 30s (prevents premature restarts)
 
 **Key Improvements (Jan 3, 2026 - Sprint 12 Session 5):**
 
