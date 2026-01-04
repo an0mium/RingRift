@@ -49,8 +49,9 @@ DEFAULT_CULL_THRESHOLD = 100  # Cull when > 100 models per config
 DEFAULT_KEEP_FRACTION = 0.25  # Keep top 25%
 MIN_KEEP_COUNT = 25  # Always keep at least 25 models
 
-# All 9 game configurations
+# All 12 game configurations
 CONFIG_KEYS = [
+    ("hex8", 2), ("hex8", 3), ("hex8", 4),
     ("square8", 2), ("square8", 3), ("square8", 4),
     ("square19", 2), ("square19", 3), ("square19", 4),
     ("hexagonal", 2), ("hexagonal", 3), ("hexagonal", 4),

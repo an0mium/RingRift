@@ -33,8 +33,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# All 9 config keys
+# All 12 config keys
 CONFIG_KEYS = [
+    "hex8_2p", "hex8_3p", "hex8_4p",
     "square8_2p", "square8_3p", "square8_4p",
     "square19_2p", "square19_3p", "square19_4p",
     "hexagonal_2p", "hexagonal_3p", "hexagonal_4p",

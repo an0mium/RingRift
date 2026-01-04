@@ -44,8 +44,9 @@ except ImportError:
     get_hybrid_transport = None
     HybridTransport = None
 
-# Config keys for all 9 board/player combinations
+# Config keys for all 12 board/player combinations
 CONFIG_KEYS = [
+    "hex8_2p", "hex8_3p", "hex8_4p",
     "square8_2p", "square8_3p", "square8_4p",
     "square19_2p", "square19_3p", "square19_4p",
     "hexagonal_2p", "hexagonal_3p", "hexagonal_4p",
@@ -53,6 +54,7 @@ CONFIG_KEYS = [
 
 # Theoretical max moves per config for complete games
 MAX_MOVES = {
+    "hex8_2p": 400, "hex8_3p": 500, "hex8_4p": 600,
     "square8_2p": 500, "square8_3p": 600, "square8_4p": 700,
     "square19_2p": 1500, "square19_3p": 2000, "square19_4p": 2500,
     "hexagonal_2p": 2000, "hexagonal_3p": 3000, "hexagonal_4p": 4000,
