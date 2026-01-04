@@ -80,19 +80,27 @@ This orchestrates:
 - **FeedbackLoopController**: Training feedback signals and curriculum adjustments
 - **DataPipelineOrchestrator**: Export → training → evaluation → promotion
 
-**Sprint 17.3 Status (Jan 4, 2026):**
+**Sprint 17.6 Status (Jan 4, 2026):**
 
-- P2P Network: A- (91/100) - 37 alive peers (74%), 7 recovery daemons, <2.5 min MTTR
-- Training Loop: A (95/100) - 488 games across configs, all 12 canonical models trained
-- Code Quality: 100% HandlerBase migration, async SQLite helpers added (commit 87a3d17)
+- P2P Network: A- (91/100) - 37 alive peers (74%), 11 recovery daemons, <2.5 min MTTR
+- Training Loop: A+ (98/100) - All 6 pipeline stages, 5 feedback loops, 728+ event subscriptions
+- Code Quality: 95-98% consolidated, 129 daemon types, 100% HandlerBase migration
+- Multi-Arch Training: FIXED - Bug fix enables v2/v3/v4/v5/v5-heavy-large training (commit 2d8cf6a90)
 - 48h Autonomous: VERIFIED - All 4 autonomous daemons functional, cluster deployed
 
-**Sprint 17.3 Improvement Plan** (see `ai-service/SPRINT_17.3_PLAN.md`):
+**Sprint 17.6 Key Fixes (Jan 4, 2026):**
 
-- Priority 1: SQLite async safety (1,847 ops → asyncio.to_thread wrapping)
-- Priority 2: Large file decomposition (selfplay_scheduler 4,743 LOC → 5 modules)
-- Priority 3: Handler consolidation (89 handlers → unified patterns)
-- Async utilities: `app/utils/async_utils.py` (async_sqlite_execute, async_sqlite_fetchall)
+- **Multi-Architecture Training Bug**: Fixed two root causes preventing multi-arch training
+  1. Architecture not passed to work queue (training_trigger_daemon.py:3337)
+  2. Training execution was NO-OP (p2p_orchestrator.py:18488-18560)
+- Work Queue: Now includes `model_version` parameter for architecture selection
+- Training Execution: Implements actual subprocess via asyncio.create_subprocess_exec()
+
+**Remaining Improvements** (medium priority):
+
+- P0: selfplay_scheduler.py decomposition (4,743 LOC → 5 modules)
+- P0: Event emission consolidation (450-650 LOC savings)
+- P1: daemon_runners.py decomposition (600-900 LOC savings)
 
 ## Board Configurations
 

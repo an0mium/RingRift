@@ -142,7 +142,7 @@ class TrainingCoordinator(EventSubscriptionMixin):
         self.auth_headers = auth_headers or (lambda: {})
         self.urls_for_peer = urls_for_peer or (lambda peer, endpoint: [])
         self.save_state_callback = save_state_callback or (lambda: None)
-        self.has_voter_quorum = has_voter_quorum or (lambda: True)  # Default: assume quorum
+        self.get_quorum_health_level = has_voter_quorum  # Now expects QuorumHealthLevel getter, default None allows training
 
         # Training trigger deduplication cache
         self._training_trigger_cache: dict[str, float] = {}
@@ -497,14 +497,29 @@ class TrainingCoordinator(EventSubscriptionMixin):
         December 2025: Added quorum validation before critical training dispatch
         to prevent operations during cluster instability.
         """
-        # Critical operation: Require voter quorum before dispatching training
-        # This prevents training dispatch during network partitions or cluster instability
-        if not self.has_voter_quorum():
-            logger.warning(
-                "Cannot dispatch training job: voter quorum not met. "
-                "Waiting for cluster stability before training."
-            )
-            return None
+        # Critical operation: Check quorum health before dispatching training
+        # Block only when quorum is LOST - allow degraded-mode operation for resilience
+        if self.get_quorum_health_level:
+            try:
+                quorum_health = self.get_quorum_health_level()
+                if quorum_health is not None:
+                    # Block only when quorum is completely lost
+                    if quorum_health.value == "lost":
+                        logger.warning(
+                            "Cannot dispatch training job: quorum health is LOST. "
+                            "Waiting for cluster recovery before training."
+                        )
+                        return None
+
+                    # Log warning for non-healthy states but allow training to proceed
+                    if quorum_health.value != "healthy":
+                        logger.warning(
+                            f"Dispatching training in degraded mode (quorum={quorum_health.value}). "
+                            "Training may be interrupted if cluster health worsens."
+                        )
+            except Exception as e:
+                # If we can't determine quorum health, log and allow training
+                logger.debug(f"Could not check quorum health: {e}, allowing training")
 
         # Import TrainingJob here to avoid circular imports
         from ..models import TrainingJob

@@ -1994,7 +1994,7 @@ class P2POrchestrator(
             auth_headers=lambda: self._auth_headers(),
             urls_for_peer=lambda node_id, endpoint: self._urls_for_peer(node_id, endpoint),
             save_state_callback=lambda: self._save_state(),
-            has_voter_quorum=lambda: self._has_voter_quorum(),
+            has_voter_quorum=lambda: self._check_quorum_health(),  # Now returns QuorumHealthLevel for degraded-mode training
         )
         # December 2025: Subscribe to training-relevant events
         # (SELFPLAY_COMPLETE, DATA_SYNC_COMPLETED, EVALUATION_COMPLETED, REGRESSION_DETECTED)

@@ -35,6 +35,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from .base import BaseLoop, LoopStats
+
 if TYPE_CHECKING:
     pass
 
@@ -182,7 +184,7 @@ class AutonomousQueueState:
         return time.time() - self.queue_starved_since
 
 
-class AutonomousQueuePopulationLoop:
+class AutonomousQueuePopulationLoop(BaseLoop):
     """Fallback queue population when leader is unavailable.
 
     This loop runs on ALL nodes and activates as a fallback when:
@@ -194,12 +196,13 @@ class AutonomousQueuePopulationLoop:
     even during network partitions or leader election failures.
 
     The loop automatically deactivates when conditions return to normal.
+
+    Jan 4, 2026: Refactored to inherit from BaseLoop for consistent lifecycle
+    management, statistics tracking, and LoopManager compatibility.
     """
 
     # Class-level attributes for LoopManager registration
-    name: str = "autonomous_queue_population"
     depends_on: list[str] = []  # No dependencies - this loop is a fallback
-    enabled: bool = True  # Whether the loop is enabled
 
     def __init__(
         self,
@@ -212,16 +215,22 @@ class AutonomousQueuePopulationLoop:
             orchestrator: P2POrchestrator instance (provides leader_id, work_queue access)
             config: Configuration for the loop (defaults to env-based config)
         """
-        self._orchestrator = orchestrator
         self._config = config or AutonomousQueueConfig.from_env()
+
+        # Call BaseLoop __init__ with proper parameters
+        super().__init__(
+            name="autonomous_queue_population",
+            interval=self._config.check_interval_seconds,
+            enabled=self._config.enabled,
+            depends_on=[],  # No dependencies - this is a fallback
+        )
+
+        self._orchestrator = orchestrator
         self._state = AutonomousQueueState()
         self._local_queue: list[dict[str, Any]] = []
         self._local_queue_lock = asyncio.Lock()
-        self._running = False
-        self._task: asyncio.Task | None = None
         self._startup_time = time.time()
-        self._total_runs = 0
-        self._errors = 0
+        self._grace_period_complete = False
 
     @property
     def is_activated(self) -> bool:
@@ -229,38 +238,9 @@ class AutonomousQueuePopulationLoop:
         return self._state.activated
 
     @property
-    def running(self) -> bool:
-        """Check if the loop is currently running (for LoopManager compatibility)."""
-        return self._running
-
-    @property
-    def enabled(self) -> bool:
-        """Check if the loop is enabled (for LoopManager compatibility)."""
-        return self._config.enabled
-
-    @property
     def local_queue_depth(self) -> int:
         """Get current depth of local queue."""
         return len(self._local_queue)
-
-    def start(self) -> None:
-        """Start the autonomous queue loop."""
-        if not self._config.enabled:
-            logger.info("[AutonomousQueue] Disabled via config, not starting")
-            return
-
-        if self._running:
-            return
-
-        self._running = True
-        self._startup_time = time.time()
-        self._task = asyncio.create_task(self._run_loop())
-        logger.info(
-            f"[AutonomousQueue] Started with config: "
-            f"no_leader_threshold={self._config.no_leader_threshold_seconds}s, "
-            f"starvation_threshold={self._config.queue_starvation_threshold}, "
-            f"check_interval={self._config.check_interval_seconds}s"
-        )
 
     def start_background(self) -> asyncio.Task | None:
         """Start the loop as a background task (for LoopManager compatibility).
@@ -268,41 +248,24 @@ class AutonomousQueuePopulationLoop:
         Returns:
             The asyncio.Task running the loop, or None if disabled/already running
         """
-        self.start()
+        if not self.enabled:
+            logger.info("[AutonomousQueue] Disabled via config, not starting")
+            return None
+        # Use parent class start method
+        self._task = asyncio.create_task(self.run_forever())
+        logger.info(
+            f"[AutonomousQueue] Started with config: "
+            f"no_leader_threshold={self._config.no_leader_threshold_seconds}s, "
+            f"starvation_threshold={self._config.queue_starvation_threshold}, "
+            f"check_interval={self._config.check_interval_seconds}s"
+        )
         return self._task
 
-    async def stop(self) -> None:
-        """Stop the autonomous queue loop."""
-        self._running = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
-
+    async def _on_stop(self) -> None:
+        """Called when the loop stops - deactivate if active."""
         if self._state.activated:
             self._state.deactivate("loop_stopped")
-
         logger.info("[AutonomousQueue] Stopped")
-
-    async def stop_async(self, timeout: float = 5.0) -> bool:
-        """Async stop with timeout (for LoopManager compatibility)."""
-        await self.stop()
-        return True
-
-    @property
-    def stats(self) -> Any:
-        """Get loop statistics (for LoopManager compatibility)."""
-        # Return a minimal stats-like object
-        class MinimalStats:
-            def __init__(self, total_runs: int, failed_runs: int):
-                self.total_runs = total_runs
-                self.failed_runs = failed_runs
-                self.consecutive_errors = 0
-                self.last_run_time = 0.0
-        return MinimalStats(self._total_runs, self._errors)
 
     def get_status(self) -> dict[str, Any]:
         """Get status for LoopManager health checks."""
