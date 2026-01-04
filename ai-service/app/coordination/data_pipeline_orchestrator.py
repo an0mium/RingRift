@@ -960,25 +960,22 @@ class DataPipelineOrchestrator(
             config_key: The configuration key
             error: The error that caused the failure
         """
-        try:
-            from app.coordination.event_router import emit_event
-            from app.coordination.data_events import DataEventType
+        from app.coordination.event_emission_helpers import safe_emit_event_async
+        from app.coordination.data_events import DataEventType
 
-            await emit_event(
-                DataEventType.PIPELINE_FAILED,
-                {
-                    "stage": stage.value,
-                    "config_key": config_key,
-                    "error": str(error),
-                    "retries_exhausted": True,
-                    "max_retries": MAX_STAGE_RETRIES,
-                    "timestamp": time.time(),
-                },
-            )
-        except ImportError:
-            logger.debug("[DataPipelineOrchestrator] Event emission not available")
-        except Exception as e:
-            logger.warning(f"[DataPipelineOrchestrator] Failed to emit PIPELINE_FAILED: {e}")
+        await safe_emit_event_async(
+            DataEventType.PIPELINE_FAILED,
+            {
+                "stage": stage.value,
+                "config_key": config_key,
+                "error": str(error),
+                "retries_exhausted": True,
+                "max_retries": MAX_STAGE_RETRIES,
+                "timestamp": time.time(),
+            },
+            context="DataPipelineOrchestrator",
+            source="pipeline_retry_manager",
+        )
 
     def reset_stage_retry_count(self, stage: PipelineStage, config_key: str) -> None:
         """Reset retry count for a stage/config after successful completion.
@@ -2194,20 +2191,19 @@ class DataPipelineOrchestrator(
                     f"[DataPipelineOrchestrator] Auto-trigger blocked by health manager: {reason}"
                 )
                 # Emit event for monitoring/alerting
-                try:
-                    from app.distributed.data_events import DataEventType, emit_event
+                from app.coordination.event_emission_helpers import safe_emit_event
+                from app.distributed.data_events import DataEventType
 
-                    emit_event(
-                        DataEventType.TRAINING_BLOCKED_BY_QUALITY,  # Reuse existing event type
-                        payload={
-                            "reason": reason,
-                            "blocked_by": "health_manager",
-                            "source": "data_pipeline_orchestrator",
-                        },
-                    )
-                except (RuntimeError, AttributeError, ValueError) as emit_err:
-                    # Dec 2025: Event emission is best-effort but log for debugging
-                    logger.debug(f"[DataPipelineOrchestrator] Event emission failed: {emit_err}")
+                safe_emit_event(
+                    DataEventType.TRAINING_BLOCKED_BY_QUALITY,  # Reuse existing event type
+                    payload={
+                        "reason": reason,
+                        "blocked_by": "health_manager",
+                        "source": "data_pipeline_orchestrator",
+                    },
+                    context="DataPipelineOrchestrator",
+                    source="health_manager_check",
+                )
                 return False
         except ImportError:
             pass  # UnifiedHealthManager not available, skip this check
@@ -2835,39 +2831,35 @@ class DataPipelineOrchestrator(
             quality_score: The quality score that triggered the block
             db_path: Path to the orphan database
         """
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            # Calculate quality deficit for boost strength
-            min_quality = float(
-                os.environ.get("RINGRIFT_ORPHAN_QUALITY_MIN", "0.4")
-            )
-            quality_deficit = max(0.0, min_quality - quality_score)
+        # Calculate quality deficit for boost strength
+        min_quality = float(
+            os.environ.get("RINGRIFT_ORPHAN_QUALITY_MIN", "0.4")
+        )
+        quality_deficit = max(0.0, min_quality - quality_score)
 
-            emit_event(
-                DataEventType.TRAINING_BLOCKED_BY_QUALITY,
-                {
-                    "config_key": config_key,
-                    "quality_score": quality_score,
-                    "threshold": min_quality,
-                    "quality_deficit": quality_deficit,
-                    "source": "orphan_quality_check",
-                    "db_path": db_path,
-                    "reason": "orphan_games_low_quality",
-                    "recommendation": "boost_selfplay_quality",
-                    "timestamp": time.time(),
-                },
-            )
-            logger.info(
-                f"[DataPipelineOrchestrator] Emitted TRAINING_BLOCKED_BY_QUALITY "
-                f"for orphan games {config_key} (score={quality_score:.2f})"
-            )
-
-        except (AttributeError, ImportError, RuntimeError) as e:
-            logger.debug(
-                f"[DataPipelineOrchestrator] Failed to emit orphan quality event: {e}"
-            )
+        safe_emit_event(
+            DataEventType.TRAINING_BLOCKED_BY_QUALITY,
+            {
+                "config_key": config_key,
+                "quality_score": quality_score,
+                "threshold": min_quality,
+                "quality_deficit": quality_deficit,
+                "source": "orphan_quality_check",
+                "db_path": db_path,
+                "reason": "orphan_games_low_quality",
+                "recommendation": "boost_selfplay_quality",
+                "timestamp": time.time(),
+            },
+            log_after=(
+                f"Emitted TRAINING_BLOCKED_BY_QUALITY for orphan games "
+                f"{config_key} (score={quality_score:.2f})"
+            ),
+            context="DataPipelineOrchestrator",
+            source="orphan_quality_check",
+        )
 
     def _update_selfplay_scheduler_targets(self, config_key: str) -> None:
         """Update SelfplayScheduler with training sample targets.
@@ -3125,28 +3117,22 @@ class DataPipelineOrchestrator(
             # After partition healing, trigger priority sync to resynchronize data
             # across the previously partitioned nodes
             if partitions_healed > 0:
-                try:
-                    from app.coordination.event_router import emit_event
-                    from app.distributed.data_events import DataEventType
+                from app.coordination.event_emission_helpers import safe_emit_event
+                from app.distributed.data_events import DataEventType
 
-                    emit_event(
-                        DataEventType.SYNC_TRIGGERED,
-                        {
-                            "reason": "partition_healed",
-                            "priority": "high",
-                            "partitions_healed": partitions_healed,
-                            "nodes_reconnected": nodes_reconnected,
-                            "timestamp": time.time(),
-                        },
-                    )
-                    logger.debug(
-                        f"[DataPipelineOrchestrator] Triggered priority sync "
-                        f"after partition healing"
-                    )
-                except ImportError:
-                    logger.debug("Event emission not available for sync trigger")
-                except Exception as e:
-                    logger.warning(f"Failed to trigger sync after partition heal: {e}")
+                safe_emit_event(
+                    DataEventType.SYNC_TRIGGERED,
+                    {
+                        "reason": "partition_healed",
+                        "priority": "high",
+                        "partitions_healed": partitions_healed,
+                        "nodes_reconnected": nodes_reconnected,
+                        "timestamp": time.time(),
+                    },
+                    log_after="Triggered priority sync after partition healing",
+                    context="DataPipelineOrchestrator",
+                    source="partition_healer",
+                )
 
             self._record_event_processed()
         except (AttributeError, KeyError, TypeError) as e:

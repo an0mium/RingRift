@@ -273,12 +273,14 @@ class MemoryPressureController:
 
     def _emit_event(self, event_type: str, payload: dict[str, Any]) -> None:
         """Emit event for external monitoring."""
-        try:
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
 
-            emit_event(event_type, payload)
-        except Exception as e:
-            logger.debug(f"[MemoryPressure] Event emission failed: {e}")
+        safe_emit_event(
+            event_type,
+            payload,
+            context="MemoryPressure",
+            source="memory_pressure_controller",
+        )
 
     async def _handle_caution_tier(self) -> None:
         """Handle CAUTION tier - logging and monitoring only."""

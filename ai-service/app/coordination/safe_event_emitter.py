@@ -1,5 +1,8 @@
 """Unified safe event emission mixin.
 
+Jan 4, 2026 - Sprint 17.9: Now delegates to event_emission_helpers.py for
+consolidated implementation with optional logging support.
+
 Consolidates 6 duplicate `_safe_emit_event()` implementations across:
 - availability/node_monitor.py
 - availability/recovery_engine.py
@@ -17,6 +20,15 @@ Usage:
         def do_something(self):
             self._safe_emit_event("MY_EVENT", {"key": "value"})
 
+        # With logging (new in Sprint 17.9):
+        def do_something_with_logging(self):
+            self._safe_emit_event(
+                "MY_EVENT",
+                {"key": "value"},
+                log_before="Starting operation",
+                log_after="Event emitted",
+            )
+
     class MyAsyncDaemon(SafeEventEmitterMixin):
         _event_source = "MyAsyncDaemon"
 
@@ -26,7 +38,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any, ClassVar
 
@@ -84,15 +95,20 @@ class SafeEventEmitterMixin:
         self,
         event_type: str,
         payload: dict[str, Any] | None = None,
+        *,
+        log_before: str | None = None,
+        log_after: str | None = None,
     ) -> bool:
         """Safely emit an event via the event router.
 
         Wraps event emission in try-catch to prevent event failures
-        from crashing the caller.
+        from crashing the caller. Delegates to event_emission_helpers.
 
         Args:
             event_type: Event type string to emit (e.g., "TRAINING_COMPLETED")
             payload: Optional event payload dict
+            log_before: Optional message to log before emission
+            log_after: Optional message to log after successful emission
 
         Returns:
             True if event was scheduled successfully, False otherwise
@@ -102,97 +118,88 @@ class SafeEventEmitterMixin:
                 "HOST_OFFLINE",
                 {"node_id": peer_id, "reason": "timeout"},
             )
-        """
-        try:
-            # Lazy imports to avoid circular dependencies
-            from app.coordination.event_router import get_event_bus
-            from app.distributed.data_events import DataEvent
 
-            bus = get_event_bus()
-            if bus is None:
-                logger.debug(f"[{self._event_source}] Event bus unavailable")
-                return False
-
-            event = DataEvent(
-                event_type=event_type,
-                payload=payload or {},
-                source=self._event_source,
+            # With logging:
+            self._safe_emit_event(
+                "SYNC_COMPLETED",
+                {"files": 42},
+                log_before="Finishing sync",
+                log_after="Sync event emitted",
             )
+        """
+        # Delegate to consolidated implementation
+        from app.coordination.event_emission_helpers import (
+            safe_emit_event as _consolidated_emit,
+        )
 
-            # bus.publish() is async - schedule it properly
-            # Use fire-and-forget if there's a running loop
-            try:
-                loop = asyncio.get_running_loop()
-                # Schedule as fire-and-forget task
-                task = loop.create_task(bus.publish(event))
-                # Add error callback to log failures without crashing
-                task.add_done_callback(
-                    lambda t: (
-                        logger.debug(
-                            f"[{self._event_source}] Event publish failed: {t.exception()}"
-                        )
-                        if t.exception()
-                        else None
-                    )
-                )
-                return True
-            except RuntimeError:
-                # No running event loop - can't schedule async publish
-                # This is acceptable in pure sync contexts
-                logger.debug(
-                    f"[{self._event_source}] No event loop, event not published"
-                )
-                return False
-
-        except (AttributeError, ImportError, TypeError) as e:
-            # AttributeError - event bus missing attribute
-            # ImportError - module unavailable during shutdown
-            # TypeError - wrong DataEvent signature
-            logger.debug(f"[{self._event_source}] Event emission failed: {e}")
-            return False
+        return _consolidated_emit(
+            event_type,
+            payload,
+            log_before=log_before,
+            log_after=log_after,
+            context=self._event_source,
+            source=self._event_source,
+        )
 
     async def _safe_emit_event_async(
         self,
         event_type: str,
         payload: dict[str, Any] | None = None,
+        *,
+        log_before: str | None = None,
+        log_after: str | None = None,
     ) -> bool:
         """Async version of safe event emission.
 
         For use in async contexts where blocking on the event bus
-        could cause issues.
+        could cause issues. Delegates to event_emission_helpers.
 
         Args:
             event_type: Event type string to emit
             payload: Optional event payload dict
+            log_before: Optional message to log before emission
+            log_after: Optional message to log after successful emission
 
         Returns:
             True if event was emitted successfully, False otherwise
         """
-        try:
-            return await asyncio.to_thread(
-                self._safe_emit_event,
-                event_type,
-                payload,
-            )
-        except RuntimeError:
-            # No event loop available - fall back to sync
-            return self._safe_emit_event(event_type, payload)
+        from app.coordination.event_emission_helpers import (
+            safe_emit_event_async as _consolidated_emit_async,
+        )
+
+        return await _consolidated_emit_async(
+            event_type,
+            payload,
+            log_before=log_before,
+            log_after=log_after,
+            context=self._event_source,
+            source=self._event_source,
+        )
 
 
 # Module-level helper for non-class contexts
+# Delegates to event_emission_helpers for unified implementation
 def safe_emit_event(
     event_type: str,
     payload: dict[str, Any] | None = None,
     source: str = "module",
+    *,
+    log_before: str | None = None,
+    log_after: str | None = None,
+    context: str | None = None,
 ) -> bool:
     """Module-level safe event emission.
 
     For use in module-level functions or contexts without a class.
+    Delegates to event_emission_helpers.safe_emit_event for unified implementation.
 
     Args:
         event_type: Event type string to emit
         payload: Optional event payload dict
         source: Source identifier for the event
+        log_before: Optional message to log before emission
+        log_after: Optional message to log after successful emission
+        context: Context string for error messages (default: source)
 
     Returns:
         True if event was scheduled successfully, False otherwise
@@ -202,44 +209,29 @@ def safe_emit_event(
 
         def my_function():
             safe_emit_event("MY_EVENT", {"key": "value"}, source="my_module")
-    """
-    try:
-        from app.coordination.event_router import get_event_bus
-        from app.distributed.data_events import DataEvent
 
-        bus = get_event_bus()
-        if bus is None:
-            logger.debug(f"[{source}] Event bus unavailable")
-            return False
-
-        event = DataEvent(
-            event_type=event_type,
-            payload=payload or {},
-            source=source,
+        # With logging:
+        safe_emit_event(
+            "SYNC_COMPLETED",
+            {"files": 42},
+            source="sync_module",
+            log_before="Starting sync completion",
+            log_after="Sync complete event emitted",
         )
+    """
+    # Import here to avoid circular dependencies
+    from app.coordination.event_emission_helpers import (
+        safe_emit_event as _consolidated_emit,
+    )
 
-        # bus.publish() is async - schedule it properly
-        try:
-            loop = asyncio.get_running_loop()
-            # Schedule as fire-and-forget task
-            task = loop.create_task(bus.publish(event))
-            # Add error callback to log failures without crashing
-            task.add_done_callback(
-                lambda t: (
-                    logger.debug(f"[{source}] Event publish failed: {t.exception()}")
-                    if t.exception()
-                    else None
-                )
-            )
-            return True
-        except RuntimeError:
-            # No running event loop - can't schedule async publish
-            logger.debug(f"[{source}] No event loop, event not published")
-            return False
-
-    except (AttributeError, ImportError, TypeError) as e:
-        logger.debug(f"[{source}] Event emission failed: {e}")
-        return False
+    return _consolidated_emit(
+        event_type,
+        payload,
+        log_before=log_before,
+        log_after=log_after,
+        context=context or source,
+        source=source,
+    )
 
 
 __all__ = [

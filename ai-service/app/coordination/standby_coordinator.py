@@ -526,21 +526,20 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
         self._last_takeover_time = time.time()
 
         # Emit event
-        try:
-            from app.coordination.event_router import emit_event
-            from app.distributed.data_events import DataEventType
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            emit_event(
-                DataEventType.COORDINATOR_FAILOVER,
-                {
-                    "new_primary": env.node_id,
-                    "old_primary": self._primary_host,
-                    "reason": reason.value,
-                    "takeover_count": self._takeover_count,
-                },
-            )
-        except ImportError:
-            logger.debug("Event system not available for COORDINATOR_FAILOVER")
+        safe_emit_event(
+            DataEventType.COORDINATOR_FAILOVER,
+            {
+                "new_primary": env.node_id,
+                "old_primary": self._primary_host,
+                "reason": reason.value,
+                "takeover_count": self._takeover_count,
+            },
+            context="StandbyCoordinator",
+            source="standby_coordinator",
+        )
 
         # Run takeover callbacks
         for callback in self._on_takeover:
@@ -582,20 +581,19 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
         self._last_handoff_time = time.time()
 
         # Emit event
-        try:
-            from app.coordination.event_router import emit_event
-            from app.distributed.data_events import DataEventType
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            emit_event(
-                DataEventType.COORDINATOR_HANDOFF,
-                {
-                    "new_primary": new_primary,
-                    "old_primary": env.node_id,
-                    "handoff_count": self._handoff_count,
-                },
-            )
-        except ImportError:
-            logger.debug("Event system not available for COORDINATOR_HANDOFF")
+        safe_emit_event(
+            DataEventType.COORDINATOR_HANDOFF,
+            {
+                "new_primary": new_primary,
+                "old_primary": env.node_id,
+                "handoff_count": self._handoff_count,
+            },
+            context="StandbyCoordinator",
+            source="standby_coordinator",
+        )
 
         # Run handoff callbacks
         for callback in self._on_handoff:
@@ -646,19 +644,18 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
                 "Memory emergency on PRIMARY, notifying standbys to take over"
             )
             # In emergency, we emit an event for standby to take over
-            try:
-                from app.coordination.event_router import emit_event
-                from app.distributed.data_events import DataEventType
+            from app.coordination.event_emission_helpers import safe_emit_event
+            from app.distributed.data_events import DataEventType
 
-                emit_event(
-                    DataEventType.COORDINATOR_EMERGENCY_SHUTDOWN,
-                    {
-                        "primary": env.node_id,
-                        "reason": "memory_emergency",
-                    },
-                )
-            except ImportError:
-                pass
+            safe_emit_event(
+                DataEventType.COORDINATOR_EMERGENCY_SHUTDOWN,
+                {
+                    "primary": env.node_id,
+                    "reason": "memory_emergency",
+                },
+                context="StandbyCoordinator",
+                source="standby_coordinator",
+            )
 
     # =========================================================================
     # Discovery

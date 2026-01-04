@@ -432,20 +432,20 @@ class UnderutilizationRecoveryHandler(HandlerBase):
 
     def _emit_recovery_started(self, event: dict[str, Any]) -> None:
         """Emit UTILIZATION_RECOVERY_STARTED event."""
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            emit_event(DataEventType.UTILIZATION_RECOVERY_STARTED, {
+        safe_emit_event(
+            DataEventType.UTILIZATION_RECOVERY_STARTED,
+            {
                 "reason": event.get("reason"),
                 "trigger_event": event,
                 "recovery_attempt": self._stats.total_recoveries,
                 "timestamp": time.time(),
-            })
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug(f"[UnderutilizationRecovery] Failed to emit start event: {e}")
+            },
+            context="UnderutilizationRecovery",
+            source="underutilization_handler",
+        )
 
     def _emit_recovery_completed(
         self,
@@ -454,39 +454,39 @@ class UnderutilizationRecoveryHandler(HandlerBase):
         configs: list[str],
     ) -> None:
         """Emit UTILIZATION_RECOVERY_COMPLETED event."""
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            emit_event(DataEventType.UTILIZATION_RECOVERY_COMPLETED, {
+        safe_emit_event(
+            DataEventType.UTILIZATION_RECOVERY_COMPLETED,
+            {
                 "reason": event.get("reason"),
                 "items_injected": items_injected,
                 "configs_targeted": configs,
                 "recovery_attempt": self._stats.total_recoveries,
                 "duration_seconds": time.time() - self._last_recovery_attempt,
                 "timestamp": time.time(),
-            })
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug(f"[UnderutilizationRecovery] Failed to emit completion event: {e}")
+            },
+            context="UnderutilizationRecovery",
+            source="underutilization_handler",
+        )
 
     def _emit_recovery_failed(self, event: dict[str, Any], error: str) -> None:
         """Emit UTILIZATION_RECOVERY_FAILED event."""
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
+        from app.distributed.data_events import DataEventType
 
-            emit_event(DataEventType.UTILIZATION_RECOVERY_FAILED, {
+        safe_emit_event(
+            DataEventType.UTILIZATION_RECOVERY_FAILED,
+            {
                 "reason": event.get("reason"),
                 "error": error,
                 "recovery_attempt": self._stats.total_recoveries,
                 "timestamp": time.time(),
-            })
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug(f"[UnderutilizationRecovery] Failed to emit failure event: {e}")
+            },
+            context="UnderutilizationRecovery",
+            source="underutilization_handler",
+        )
 
     def get_stats(self) -> dict[str, Any]:
         """Get recovery statistics."""
