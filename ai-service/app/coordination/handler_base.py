@@ -376,6 +376,149 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
         num_players = payload.get("num_players", 2)
         return (board_type, num_players)
 
+    def _normalize_event_payload(self, event: Any) -> dict[str, Any]:
+        """Normalize event to a consistent payload dictionary.
+
+        January 4, 2026 (Sprint 17.2): Consolidates event normalization
+        patterns found across 15+ handlers. Handles multiple event formats:
+        - Objects with .payload attribute
+        - Objects with .data attribute
+        - Objects with .metadata attribute
+        - Plain dictionaries
+        - Dataclass instances
+
+        Args:
+            event: Event object in any supported format
+
+        Returns:
+            Normalized payload dictionary
+        """
+        # Try common attribute patterns
+        if hasattr(event, "payload") and isinstance(event.payload, dict):
+            return event.payload
+        if hasattr(event, "data") and isinstance(event.data, dict):
+            return event.data
+        if hasattr(event, "metadata") and isinstance(event.metadata, dict):
+            return event.metadata
+
+        # Handle plain dictionaries
+        if isinstance(event, dict):
+            return event
+
+        # Handle dataclass instances
+        if hasattr(event, "__dataclass_fields__"):
+            from dataclasses import asdict
+            return asdict(event)
+
+        # Fallback: empty dict
+        return {}
+
+    def _extract_event_fields(
+        self,
+        event: Any,
+        fields: list[str],
+        defaults: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Extract specific fields from an event with defaults.
+
+        January 4, 2026 (Sprint 17.2): Consolidates field extraction
+        patterns that were duplicated across daemons. Provides a
+        type-safe way to extract multiple fields at once.
+
+        Args:
+            event: Event object in any supported format
+            fields: List of field names to extract
+            defaults: Optional dict of default values for missing fields
+
+        Returns:
+            Dictionary with extracted field values
+
+        Example:
+            >>> data = self._extract_event_fields(
+            ...     event,
+            ...     ["config_key", "model_path", "elo"],
+            ...     defaults={"elo": 1200}
+            ... )
+            >>> print(data["config_key"])  # Extracted or None
+            >>> print(data["elo"])  # Extracted or 1200
+        """
+        defaults = defaults or {}
+        payload = self._normalize_event_payload(event)
+        result: dict[str, Any] = {}
+
+        for field in fields:
+            if field in payload:
+                result[field] = payload[field]
+            elif field in defaults:
+                result[field] = defaults[field]
+            else:
+                result[field] = None
+
+        return result
+
+    # -------------------------------------------------------------------------
+    # Staleness Check Helpers (Sprint 17.2 - January 4, 2026)
+    # -------------------------------------------------------------------------
+
+    def _is_stale(self, timestamp: float, threshold_seconds: float) -> bool:
+        """Check if a timestamp is older than the threshold.
+
+        January 4, 2026 (Sprint 17.2): Consolidates staleness checks
+        found in p2p_recovery_daemon, training_data_sync_daemon, s3_backup_daemon.
+
+        Args:
+            timestamp: Unix timestamp to check
+            threshold_seconds: Maximum age in seconds before considered stale
+
+        Returns:
+            True if timestamp is stale (older than threshold)
+        """
+        return time.time() - timestamp > threshold_seconds
+
+    def _get_staleness_ratio(
+        self,
+        timestamp: float,
+        threshold_seconds: float,
+    ) -> float:
+        """Get how stale a timestamp is as a ratio of the threshold.
+
+        Useful for progressive degradation based on staleness.
+
+        Args:
+            timestamp: Unix timestamp to check
+            threshold_seconds: Threshold in seconds
+
+        Returns:
+            Ratio >= 0.0. Value > 1.0 means stale, < 1.0 means fresh.
+            Example: 0.5 = half as old as threshold, 2.0 = twice as old.
+        """
+        if threshold_seconds <= 0:
+            return 0.0
+        age = time.time() - timestamp
+        return max(0.0, age / threshold_seconds)
+
+    def _get_age_seconds(self, timestamp: float) -> float:
+        """Get the age of a timestamp in seconds.
+
+        Args:
+            timestamp: Unix timestamp
+
+        Returns:
+            Age in seconds (time.time() - timestamp)
+        """
+        return time.time() - timestamp
+
+    def _get_age_hours(self, timestamp: float) -> float:
+        """Get the age of a timestamp in hours.
+
+        Args:
+            timestamp: Unix timestamp
+
+        Returns:
+            Age in hours
+        """
+        return (time.time() - timestamp) / 3600.0
+
     def add_custom_stat(self, key: str, value: Any) -> None:
         """Add a custom stat (backward-compat for base_handler.py API).
 
@@ -1096,6 +1239,83 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
             ctx = f" ({context})" if context else ""
             logger.warning(f"[{self._name}] Error emitting {event_name}{ctx}: {e}")
             return False
+
+    # -------------------------------------------------------------------------
+    # Thread-Safe Queue Helpers (Sprint 17.2 - January 4, 2026)
+    # -------------------------------------------------------------------------
+
+    def _append_to_queue(
+        self,
+        queue: list,
+        item: Any,
+        lock: threading.Lock | None = None,
+    ) -> None:
+        """Append an item to a queue with optional thread-safety.
+
+        January 4, 2026 (Sprint 17.2): Consolidates queue append patterns
+        found in s3_backup_daemon, unified_idle_shutdown_daemon, and others.
+
+        Args:
+            queue: The list to append to
+            item: Item to append
+            lock: Optional threading.Lock for thread-safe access
+        """
+        if lock:
+            with lock:
+                queue.append(item)
+        else:
+            queue.append(item)
+
+    def _pop_queue_copy(
+        self,
+        queue: list,
+        lock: threading.Lock | None = None,
+        clear: bool = True,
+    ) -> list:
+        """Get a copy of queue contents, optionally clearing the original.
+
+        January 4, 2026 (Sprint 17.2): Consolidates the pattern of
+        copying queue contents under lock and clearing the original.
+
+        Args:
+            queue: The list to copy from
+            lock: Optional threading.Lock for thread-safe access
+            clear: If True, clear the original queue after copying
+
+        Returns:
+            Copy of queue contents
+        """
+        if lock:
+            with lock:
+                items = list(queue)
+                if clear:
+                    queue.clear()
+                return items
+        else:
+            items = list(queue)
+            if clear:
+                queue.clear()
+            return items
+
+    def _get_queue_length(
+        self,
+        queue: list,
+        lock: threading.Lock | None = None,
+    ) -> int:
+        """Get the length of a queue with optional thread-safety.
+
+        Args:
+            queue: The list to measure
+            lock: Optional threading.Lock for thread-safe access
+
+        Returns:
+            Length of the queue
+        """
+        if lock:
+            with lock:
+                return len(queue)
+        else:
+            return len(queue)
 
 
 # =============================================================================
