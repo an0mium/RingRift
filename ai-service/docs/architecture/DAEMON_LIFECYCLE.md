@@ -5,7 +5,7 @@
 
 ## Overview
 
-The RingRift AI service uses a daemon-based architecture with 120 daemon types managed by the `DaemonManager`. This document describes the lifecycle, health monitoring, and startup/shutdown behavior of daemons.
+The RingRift AI service uses a daemon-based architecture with 105 daemon types managed by the `DaemonManager`. This document describes the lifecycle, health monitoring, and startup/shutdown behavior of daemons.
 
 ## Daemon Architecture
 
@@ -58,7 +58,7 @@ await dm.stop(DaemonType.AUTO_SYNC)
 
 **File:** `app/coordination/daemon_registry.py`
 
-Declarative configuration for all 120 daemon types.
+Declarative configuration for all 105 daemon types.
 
 ```python
 @dataclass(frozen=True)

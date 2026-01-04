@@ -6,7 +6,7 @@ This document explains how daemon startup ordering and dependencies work in the 
 
 ## Overview
 
-The daemon manager starts 120 daemon types with specific dependencies. Incorrect startup order can cause race conditions where daemons try to use resources that aren't ready.
+The daemon manager starts 105 daemon types with specific dependencies. Incorrect startup order can cause race conditions where daemons try to use resources that aren't ready.
 
 There are two canonical dependency layers:
 

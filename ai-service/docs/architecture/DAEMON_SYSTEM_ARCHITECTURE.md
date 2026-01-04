@@ -2,7 +2,7 @@
 
 ## Overview
 
-RingRift uses a daemon-based architecture for background automation. The `DaemonManager` orchestrates 120 daemon types that handle selfplay, training, sync, health monitoring, and cluster coordination.
+RingRift uses a daemon-based architecture for background automation. The `DaemonManager` orchestrates 105 daemon types that handle selfplay, training, sync, health monitoring, and cluster coordination.
 
 ## Quick Start
 
