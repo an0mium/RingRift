@@ -18486,13 +18486,77 @@ print(json.dumps(result))
 
         try:
             if work_type == "training":
-                # Start training job
+                # Start training job - January 2026: Fixed to actually execute training
+                # Previously this was a NO-OP that just logged and returned True
                 board_type = config.get("board_type", "square8")
                 num_players = config.get("num_players", 2)
-                # Queue it for local training
-                f"pull-{work_id}-{int(time.time())}"
-                logger.info(f"Executing training work: {board_type}/{num_players}p")
-                # Simplified: trigger training via existing mechanisms
+                epochs = config.get("epochs", 50)
+                batch_size = config.get("batch_size", 256)
+                learning_rate = config.get("learning_rate", 1e-3)
+                model_version = config.get("model_version", "v5")
+
+                # Build config key and model filename
+                config_key = f"{board_type}_{num_players}p"
+                model_filename = f"canonical_{config_key}_{model_version}.pth"
+
+                # Build training command
+                cmd = [
+                    sys.executable, "-m", "app.training.train",
+                    "--board-type", board_type,
+                    "--num-players", str(num_players),
+                    "--model-version", model_version,
+                    "--epochs", str(epochs),
+                    "--batch-size", str(batch_size),
+                    "--learning-rate", str(learning_rate),
+                    "--save-path", f"models/{model_filename}",
+                    "--allow-stale-data",
+                    "--max-data-age-hours", "168",  # 7 days tolerance
+                ]
+
+                logger.info(
+                    f"Executing training work {work_id}: {config_key} with {model_version} "
+                    f"(epochs={epochs}, batch={batch_size})"
+                )
+
+                # Run training as background subprocess
+                async def _run_training_subprocess():
+                    try:
+                        proc = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT,
+                            cwd=str(Path(__file__).parent.parent),  # ai-service directory
+                        )
+                        stdout, _ = await proc.communicate()
+                        if proc.returncode == 0:
+                            logger.info(
+                                f"Training completed successfully: {config_key}/{model_version} "
+                                f"(work_id={work_id})"
+                            )
+                            # Emit training completed event
+                            try:
+                                from app.distributed.data_events import DataEventType
+                                from app.coordination.event_router import emit_event
+                                emit_event(DataEventType.TRAINING_COMPLETED, {
+                                    "config_key": config_key,
+                                    "board_type": board_type,
+                                    "num_players": num_players,
+                                    "model_version": model_version,
+                                    "model_path": f"models/{model_filename}",
+                                    "work_id": work_id,
+                                })
+                            except ImportError:
+                                pass
+                        else:
+                            output = stdout.decode()[:2000] if stdout else "no output"
+                            logger.error(
+                                f"Training failed: {config_key}/{model_version}: "
+                                f"returncode={proc.returncode}, output={output}"
+                            )
+                    except Exception as e:
+                        logger.exception(f"Training subprocess error for {config_key}: {e}")
+
+                asyncio.create_task(_run_training_subprocess())
                 return True
 
             elif work_type == "selfplay":

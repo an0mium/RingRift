@@ -3334,6 +3334,7 @@ class TrainingTriggerDaemon(HandlerBase):
                 batch_size=batch_size,
                 learning_rate=1e-3 * lr_mult,
                 config=work_config,
+                model_version=arch_name,
             )
 
             if work_id:

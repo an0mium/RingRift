@@ -131,6 +131,7 @@ class WorkDistributor:
         checkpoint_path: str | None = None,
         db_paths: list[str] | None = None,
         config: DistributedWorkConfig | None = None,
+        model_version: str = "v5",
     ) -> str | None:
         """Submit a training job to the cluster work queue.
 
@@ -143,6 +144,7 @@ class WorkDistributor:
             checkpoint_path: Optional path to resume from.
             db_paths: Optional list of database paths.
             config: Distributed work configuration.
+            model_version: Neural network architecture version (v2, v3, v4, v5, v5-heavy-large).
 
         Returns:
             Work ID if submitted successfully, None otherwise.
@@ -172,6 +174,7 @@ class WorkDistributor:
             "db_paths": db_paths or [],
             "require_gpu": config.require_gpu,
             "require_high_memory": config.require_high_memory or board != "square8",
+            "model_version": model_version,
         }
 
         item = _WorkItem(
