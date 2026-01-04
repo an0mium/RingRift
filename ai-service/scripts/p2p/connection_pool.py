@@ -247,14 +247,29 @@ class PeerConnectionPool:
                 await self._health_check_peer(peer_id)
 
     async def _health_check_peer(self, peer_id: str) -> bool:
-        """Health check connections to a specific peer."""
+        """Health check connections to a specific peer.
+
+        January 4, 2026 - Sprint 17.10: Added CB pre-check to skip
+        health checks on circuit-broken peers.
+        """
         if peer_id not in self._stats:
             self._stats[peer_id] = PeerPoolStats(peer_id=peer_id)
 
         stats = self._stats[peer_id]
         stats.last_health_check = time.time()
 
-        # For now, just mark as healthy if we have any connections
+        # Skip health check if peer has OPEN circuit breaker
+        try:
+            from scripts.p2p.health_coordinator import get_health_coordinator
+
+            coordinator = get_health_coordinator()
+            if coordinator.is_node_circuit_broken(peer_id):
+                stats.health_status = "circuit_broken"
+                return False
+        except ImportError:
+            pass  # Health coordinator not available
+
+        # Check if we have any connections
         pool = self._pools.get(peer_id)
         if pool and not pool.empty():
             stats.health_status = "healthy"

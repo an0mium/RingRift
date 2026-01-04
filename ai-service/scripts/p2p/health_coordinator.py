@@ -861,6 +861,73 @@ class HealthCoordinator:
     # Utility Methods
     # =========================================================================
 
+    def is_node_circuit_broken(self, node_id: str) -> bool:
+        """Check if a node has an OPEN circuit breaker.
+
+        Use this before performing health checks on nodes to avoid
+        wasting timeout windows on nodes known to be unavailable.
+
+        January 4, 2026 - Sprint 17.10: Added for health check optimization.
+
+        Args:
+            node_id: The node identifier to check
+
+        Returns:
+            True if node has an OPEN circuit, False otherwise
+
+        Example:
+            >>> if coordinator.is_node_circuit_broken("node-1"):
+            ...     return cached_health  # Skip health check
+            ... return await perform_health_check("node-1")
+        """
+        with self._lock:
+            # Auto-discover from registry if not explicitly set
+            breaker = self._node_circuit_breaker
+            if breaker is None and HAS_CIRCUIT_REGISTRIES and get_node_circuit_breaker is not None:
+                breaker = get_node_circuit_breaker()
+
+            if breaker is None:
+                return False
+
+            try:
+                from app.coordination.node_circuit_breaker import NodeCircuitState
+
+                circuits = getattr(breaker, "_circuits", {})
+                circuit_data = circuits.get(node_id)
+                if circuit_data is None:
+                    return False
+
+                return circuit_data.state == NodeCircuitState.OPEN
+            except Exception:
+                return False
+
+    def get_cached_node_health(self, node_id: str) -> dict[str, Any] | None:
+        """Get cached health for a circuit-broken node.
+
+        Returns minimal health info for nodes with OPEN circuits,
+        avoiding expensive health checks.
+
+        January 4, 2026 - Sprint 17.10: Added for health check optimization.
+
+        Args:
+            node_id: The node identifier
+
+        Returns:
+            Cached health dict if node is circuit-broken, None otherwise
+        """
+        if not self.is_node_circuit_broken(node_id):
+            return None
+
+        return {
+            "healthy": False,
+            "status": "circuit_broken",
+            "node_id": node_id,
+            "details": {
+                "reason": "circuit_breaker_open",
+                "skip_health_check": True,
+            },
+        }
+
     def health_check(self) -> dict[str, Any]:
         """Get health check result for daemon manager integration.
 

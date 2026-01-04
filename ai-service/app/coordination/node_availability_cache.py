@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
+from app.coordination.singleton_mixin import SingletonMixin
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,14 +104,13 @@ class NodeAvailabilityEntry:
         return (time.time() - self.last_update) > max_age_seconds
 
 
-class NodeAvailabilityCache:
+class NodeAvailabilityCache(SingletonMixin):
     """Unified cache for node availability status.
 
     Thread-safe singleton that aggregates availability signals from multiple sources.
-    """
 
-    _instance: NodeAvailabilityCache | None = None
-    _instance_lock = threading.Lock()
+    January 2026: Migrated to use SingletonMixin for consistency.
+    """
 
     def __init__(self) -> None:
         self._cache: dict[str, NodeAvailabilityEntry] = {}
@@ -123,21 +124,6 @@ class NodeAvailabilityCache:
         # Configuration
         self.stale_threshold_seconds = 300.0  # 5 minutes
         self.auto_recover_after_seconds = 600.0  # 10 minutes - auto-retry after this
-
-    @classmethod
-    def get_instance(cls) -> NodeAvailabilityCache:
-        """Get singleton instance."""
-        if cls._instance is None:
-            with cls._instance_lock:
-                if cls._instance is None:
-                    cls._instance = cls()
-        return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton (for testing)."""
-        with cls._instance_lock:
-            cls._instance = None
 
     def wire_to_events(self) -> None:
         """Subscribe to availability-related events.

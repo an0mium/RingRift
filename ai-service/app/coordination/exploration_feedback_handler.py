@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +37,7 @@ from app.config.thresholds import (
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
 from app.coordination.event_handler_utils import extract_config_key
+from app.coordination.singleton_mixin import SingletonMixin
 
 if TYPE_CHECKING:
     from app.coordination.feedback_loop_controller import FeedbackState
@@ -76,7 +76,7 @@ def _safe_create_task(coro, context: str = "") -> asyncio.Task | None:
         return None
 
 
-class ExplorationFeedbackHandler(HandlerBase):
+class ExplorationFeedbackHandler(SingletonMixin, HandlerBase):
     """Handles exploration-related feedback signals.
 
     Extracted from FeedbackLoopController to reduce file size.
@@ -88,10 +88,9 @@ class ExplorationFeedbackHandler(HandlerBase):
     - Boost exploration when training stalls
     - Gradually reduce exploration after improvement
     - Wire exploration boost to temperature schedulers
-    """
 
-    _instance: ExplorationFeedbackHandler | None = None
-    _lock = threading.Lock()
+    January 2026: Migrated to use SingletonMixin for consistency.
+    """
 
     def __init__(
         self,
@@ -115,26 +114,6 @@ class ExplorationFeedbackHandler(HandlerBase):
         self._exploration_reductions_applied = 0
         self._last_boost_time = 0.0
         self._last_cycle_time = 0.0
-
-    @classmethod
-    def get_instance(
-        cls,
-        states: dict[str, "FeedbackState"] | None = None,
-        get_or_create_state_fn: callable | None = None,
-    ) -> "ExplorationFeedbackHandler":
-        """Get singleton instance."""
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls(states, get_or_create_state_fn)
-            return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton for testing."""
-        with cls._lock:
-            if cls._instance is not None:
-                cls._instance._running = False
-            cls._instance = None
 
     def _get_event_subscriptions(self) -> dict[str, callable]:
         """Return event subscriptions for this handler."""
@@ -398,10 +377,6 @@ class ExplorationFeedbackHandler(HandlerBase):
         base_result.details["states_tracked"] = len(self._states)
 
         return base_result
-
-
-# Singleton accessor
-_handler_instance: ExplorationFeedbackHandler | None = None
 
 
 def get_exploration_feedback_handler(

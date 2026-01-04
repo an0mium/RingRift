@@ -43,6 +43,7 @@ from app.config.cluster_config import (
 )
 from app.config.coordination_defaults import build_ssh_options
 from app.coordination.protocols import HealthCheckResult, CoordinatorStatus
+from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 
@@ -94,8 +95,10 @@ class ExternalDriveSyncConfig:
 # =============================================================================
 
 
-class ExternalDriveSyncDaemon:
+class ExternalDriveSyncDaemon(SingletonMixin):
     """Daemon that pulls data from cluster nodes and S3 to external storage.
+
+    January 2026: Migrated to use SingletonMixin for consistency.
 
     This daemon:
     1. Discovers cluster nodes with game data
@@ -657,18 +660,15 @@ class ExternalDriveSyncDaemon:
 # Singleton Access
 # =============================================================================
 
-_daemon_instance: ExternalDriveSyncDaemon | None = None
-
 
 def get_external_drive_sync_daemon() -> ExternalDriveSyncDaemon:
-    """Get the singleton ExternalDriveSyncDaemon instance."""
-    global _daemon_instance
-    if _daemon_instance is None:
-        _daemon_instance = ExternalDriveSyncDaemon()
-    return _daemon_instance
+    """Get the singleton ExternalDriveSyncDaemon instance.
+
+    January 2026: Now uses SingletonMixin.get_instance() (thread-safe, sync).
+    """
+    return ExternalDriveSyncDaemon.get_instance()
 
 
 def reset_external_drive_sync_daemon() -> None:
     """Reset the singleton (for testing)."""
-    global _daemon_instance
-    _daemon_instance = None
+    ExternalDriveSyncDaemon.reset_instance()

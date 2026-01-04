@@ -36,6 +36,7 @@ from app.config.thresholds import NPZ_COMBINATION_MIN_QUALITY
 from app.coordination.contracts import HealthCheckResult
 from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.handler_base import HandlerBase, HandlerStats
+from app.coordination.singleton_mixin import SingletonMixin
 from app.distributed.data_events import DataEventType
 from app.training.npz_combiner import (
     CombineResult,
@@ -109,15 +110,14 @@ class CombinationStats:
     last_combination_by_config: dict[str, float] = field(default_factory=dict)
 
 
-class NPZCombinationDaemon(HandlerBase):
+class NPZCombinationDaemon(SingletonMixin, HandlerBase):
     """Daemon that automatically combines NPZ files after exports.
 
     Subscribes to NPZ_EXPORT_COMPLETE events and triggers quality-weighted
     combination of all available NPZ files for the config.
-    """
 
-    _instance: NPZCombinationDaemon | None = None
-    _lock: asyncio.Lock = asyncio.Lock()
+    January 2026: Migrated to use SingletonMixin for consistency.
+    """
 
     def __init__(self, config: NPZCombinationConfig | None = None) -> None:
         """Initialize NPZ combination daemon.
@@ -132,19 +132,6 @@ class NPZCombinationDaemon(HandlerBase):
         self.config = config or NPZCombinationConfig()
         self.combination_stats = CombinationStats()
         self._last_combination_results: dict[str, CombineResult] = {}
-
-    @classmethod
-    async def get_instance(cls) -> NPZCombinationDaemon:
-        """Get singleton instance (async-safe)."""
-        async with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls()
-            return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton (for testing)."""
-        cls._instance = None
 
     def _get_event_subscriptions(self) -> dict[str, Any]:
         """Return event type to handler mapping."""
@@ -447,43 +434,17 @@ class NPZCombinationDaemon(HandlerBase):
         }
 
 
-# Singleton accessor
-_daemon_instance: NPZCombinationDaemon | None = None
-_daemon_lock = asyncio.Lock()
-
-
-async def get_npz_combination_daemon() -> NPZCombinationDaemon:
+def get_npz_combination_daemon() -> NPZCombinationDaemon:
     """Get the singleton NPZ combination daemon instance.
+
+    January 2026: Now uses SingletonMixin.get_instance() (thread-safe, sync).
+    The async version was unnecessary since instance creation is fast.
 
     Returns:
         NPZCombinationDaemon singleton instance
     """
-    global _daemon_instance
-    async with _daemon_lock:
-        if _daemon_instance is None:
-            _daemon_instance = NPZCombinationDaemon()
-        return _daemon_instance
+    return NPZCombinationDaemon.get_instance()
 
 
-def get_npz_combination_daemon_sync() -> NPZCombinationDaemon:
-    """Get the singleton instance (sync version for imports).
-
-    .. deprecated::
-        This function is not thread-safe. Use get_npz_combination_daemon()
-        in async code instead. Will be removed in Q2 2026.
-
-    Note: Use get_npz_combination_daemon() in async code.
-    """
-    import warnings
-
-    warnings.warn(
-        "get_npz_combination_daemon_sync() is deprecated and not thread-safe. "
-        "Use 'await get_npz_combination_daemon()' in async code instead. "
-        "Will be removed in Q2 2026.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    global _daemon_instance
-    if _daemon_instance is None:
-        _daemon_instance = NPZCombinationDaemon()
-    return _daemon_instance
+# Backward compatibility alias
+get_npz_combination_daemon_sync = get_npz_combination_daemon

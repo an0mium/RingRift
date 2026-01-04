@@ -25,6 +25,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
+from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 
@@ -110,14 +111,14 @@ class TrainingDataRecoveryConfig:
 # =============================================================================
 
 
-class TrainingDataRecoveryDaemon(HandlerBase):
+class TrainingDataRecoveryDaemon(SingletonMixin, HandlerBase):
     """Daemon that recovers from training data corruption automatically.
 
     Subscribes to TRAINING_FAILED events and detects corruption-related failures.
     When corruption is detected, triggers NPZ re-export from canonical databases.
-    """
 
-    _instance: "TrainingDataRecoveryDaemon | None" = None
+    January 2026: Migrated to use SingletonMixin for consistency.
+    """
 
     def __init__(self, config: TrainingDataRecoveryConfig | None = None):
         """Initialize the daemon.
@@ -149,19 +150,6 @@ class TrainingDataRecoveryDaemon(HandlerBase):
             f"cooldown={self.config.cooldown_per_config_seconds}s, "
             f"max_retries={self.config.max_retries_per_config}"
         )
-
-    @classmethod
-    def get_instance(cls) -> "TrainingDataRecoveryDaemon":
-        """Get singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton instance (for testing)."""
-        if cls._instance is not None:
-            cls._instance = None
 
     # -------------------------------------------------------------------------
     # HandlerBase Interface
