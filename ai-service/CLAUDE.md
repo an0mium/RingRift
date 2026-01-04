@@ -9,7 +9,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | Component           | Status  | Evidence                                                  |
 | ------------------- | ------- | --------------------------------------------------------- |
 | **P2P Network**     | GREEN   | 31 health mechanisms, 6 recovery daemons, 25+ alive peers |
-| **Training Loop**   | GREEN   | 99.5% complete, 237 event types, all critical flows wired |
+| **Training Loop**   | GREEN   | 99.5% complete, 240 event types, all critical flows wired |
 | **Code Quality**    | GREEN   | 95% consolidated, ~4,000 LOC saved through refactoring    |
 | **Leader Election** | WORKING | Bully algorithm with voter quorum, split-brain detection  |
 | **Work Queue**      | HEALTHY | 1000+ items maintained, QueuePopulatorLoop working        |
@@ -19,11 +19,11 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | Assessment Area      | Grade | Score  | Verified Status                                                  |
 | -------------------- | ----- | ------ | ---------------------------------------------------------------- |
 | P2P Network          | B+    | 87/100 | 31 health mechanisms, 10 CB types, 6 recovery daemons            |
-| Training Loop        | A-    | 95/100 | 7/7 stages, 5/5 feedback loops, 248 event types, all flows wired |
-| HandlerBase Adoption | -     | 25%    | ~65/261 modules, target 40%                                      |
+| Training Loop        | A-    | 95/100 | 7/7 stages, 5/5 feedback loops, 240 event types, all flows wired |
+| HandlerBase Adoption | -     | 51%    | 31/61 daemon files, 46/261 coordination modules                  |
 | Test Coverage        | 99%+  | -      | 257 test files for 261 coordination modules                      |
 | Consolidation        | -     | 95%    | CurriculumSignalBridge base class, 235K LOC coordination layer   |
-| Daemon Types         | -     | 90     | DaemonType enum verified, 6 deprecated                           |
+| Daemon Types         | -     | 121    | DaemonType enum verified, 4 deprecated                           |
 
 **Sprint 12.2-12.4 Consolidation (Jan 3, 2026):**
 
@@ -55,18 +55,35 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 - CurriculumSignalBridge: Domain-specific base class consolidating 5 watcher classes (~1,200 LOC savings)
 - curriculum_integration.py: 3 classes already use CurriculumSignalBridge (partial consolidation complete)
 
+**Key Improvements (Jan 3, 2026 - Sprint 13 Session 2):**
+
+- **HealthCoordinator** (`scripts/p2p/health_coordinator.py`, ~600 LOC): Unified P2P cluster health monitoring
+  - Aggregates: GossipHealthTracker, NodeCircuitBreaker, QuorumHealthLevel, DaemonHealthSummary
+  - Weighted scoring: 40% quorum, 20% gossip, 20% circuit breaker, 20% daemon health
+  - Health levels: CRITICAL (<0.45), DEGRADED (<0.65), WARNING (<0.85), HEALTHY (≥0.85)
+  - Recovery actions: RESTART_P2P, TRIGGER_ELECTION, HEAL_PARTITIONS, RESET_CIRCUITS, NONE
+  - Auto-integrates with existing CircuitBreakerRegistry
+- **Adaptive Gossip Intervals** (`scripts/p2p/gossip_protocol.py`): Dynamic interval based on partition status
+  - Partition (isolated/minority): 5s for fast recovery
+  - Recovery (healthy but recently partitioned): 10s during stabilization
+  - Stable (consistently healthy): 30s for normal operation
+  - Configurable via env vars: `RINGRIFT_GOSSIP_INTERVAL_PARTITION`, `_RECOVERY`, `_STABLE`
+- **Test coverage**: 46 health coordinator tests + 21 adaptive gossip tests (all passing)
+
 **Key Improvements (Jan 3, 2026 - Sprint 13 Session 1):**
 
 - **SocketLeakRecoveryDaemon** (`socket_leak_recovery_daemon.py`): Monitors TIME_WAIT/CLOSE_WAIT buildup and fd exhaustion
   - Triggers connection pool cleanup when critical thresholds reached
   - Emits `SOCKET_LEAK_DETECTED`, `SOCKET_LEAK_RECOVERED`, `P2P_CONNECTION_RESET_REQUESTED` events
   - Part of 48-hour autonomous operation (with MEMORY_MONITOR)
+- **HandlerBase adoption verified**: 31/61 daemon files (51%), 46/261 coordination modules (17.6%)
 - **Comprehensive P2P assessment**: 31 health mechanisms, 10 circuit breaker types, 6 recovery daemons verified
 - **Training loop assessment**: 7/7 pipeline stages, 5/5 feedback loops, 512 event emissions, 1,806 subscriptions
-- **Consolidation opportunities identified**:
-  - 20 files with custom retry patterns → migrate to `RetryConfig`
-  - 10 circuit breaker implementations → consolidate to 2 (operation + node level)
-  - HandlerBase adoption at 14.2% → target 40%
+- **Sprint 12 P1 improvements all complete**:
+  - Elo velocity → training intensity amplification (`training_trigger_daemon.py:_apply_velocity_amplification()`)
+  - Exploration boost → temperature integration (`selfplay_runner.py:_on_exploration_boost()`)
+  - Regression → curriculum tier rollback (`feedback_loop_controller.py:_on_regression_detected()`)
+- **Event types verified**: 240 DataEventType members in data_events.py
 
 **Key Improvements (Jan 3, 2026 - Sprint 12 Session 9):**
 
@@ -125,7 +142,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 **Consolidated Base Classes:**
 | Class | LOC | Purpose |
 |-------|-----|---------|
-| `HandlerBase` | 600 | Unifies 45+ daemons, 92 tests (includes fire-and-forget helpers) |
+| `HandlerBase` | 1,195 | Unifies 31 daemons (51%), 92 tests (includes fire-and-forget helpers) |
 | `DatabaseSyncManager` | 669 | Base for sync managers, 930 LOC saved |
 | `P2PMixinBase` | 995 | Unifies 6 P2P mixins |
 | `SingletonMixin` | 503 | Canonical singleton pattern |
@@ -203,10 +220,10 @@ python scripts/update_all_nodes.py --restart-p2p
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`                    | Lifecycle for 90 daemon types (~2,000 LOC)        |
+| `daemon_manager.py`                    | Lifecycle for 121 daemon types (~2,000 LOC)       |
 | `daemon_registry.py`                   | Declarative daemon specs (DaemonSpec dataclass)   |
 | `daemon_runners.py`                    | 124 async runner functions                        |
-| `event_router.py`                      | Unified event bus (248 event types, SHA256 dedup) |
+| `event_router.py`                      | Unified event bus (240 event types, SHA256 dedup) |
 | `selfplay_scheduler.py`                | Priority-based selfplay allocation (~3,800 LOC)   |
 | `budget_calculator.py`                 | Gumbel budget tiers, target games calculation     |
 | `progress_watchdog_daemon.py`          | Stall detection for 48h autonomous operation      |
@@ -600,7 +617,7 @@ weights = tracker.get_compute_weights(board_type="hex8", num_players=2)
 
 ## Daemon System
 
-90 daemon types (84 active, 6 deprecated). Three-layer architecture:
+121 daemon types (117 active, 4 deprecated). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
@@ -662,10 +679,10 @@ Automatic retry for transient failures (GPU OOM, timeouts):
 
 **Integration Status**: 99.5% COMPLETE (Jan 3, 2026)
 
-248 event types defined in DataEventType enum. All critical event flows are fully wired.
+240 event types defined in DataEventType enum. All critical event flows are fully wired.
 5/5 feedback loops verified functional. Only minor informational gaps remain.
 
-248 event types across 3 layers:
+240 event types across 3 layers:
 
 1. **In-memory EventBus** - Local daemon communication
 2. **Stage events** - Pipeline stage completion

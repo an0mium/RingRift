@@ -363,7 +363,7 @@ python -c "from app.coordination import *"
 
 ## 11. Daemon Development Patterns
 
-The coordination layer has 90 daemon types (84 active, 6 deprecated). When creating new daemons, follow these patterns.
+The coordination layer has 104 daemon types (96 active, 8 deprecated). When creating new daemons, follow these patterns.
 
 ### 11.1 Daemon Lifecycle
 
