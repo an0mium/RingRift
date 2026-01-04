@@ -2512,7 +2512,12 @@ class TrainingTriggerDaemon(HandlerBase):
             return False
 
         # December 30, 2025: Iterate over architectures for this config
-        architectures = self._architecture_config.get_architectures_for_config(config_key)
+        # January 4, 2026: Sort by priority (highest first) for multi-architecture training
+        architectures = sorted(
+            self._architecture_config.get_architectures_for_config(config_key),
+            key=lambda a: a.priority,
+            reverse=True,  # Highest priority first (v5: 35%, v4: 20%, etc.)
+        )
         if not architectures:
             # Fallback to default v5 if no architectures configured
             architectures = [ArchitectureSpec(

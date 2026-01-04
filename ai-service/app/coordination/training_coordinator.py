@@ -1807,6 +1807,7 @@ class TrainingCoordinator:
                 epochs_completed=kwargs.get("epochs_completed", 0),
                 node_name=self._node_name,
                 status=kwargs.get("status", "completed" if success else "failed"),
+                architecture=kwargs.get("architecture"),  # Jan 4, 2026: Multi-architecture support
             )
             event_name = "TRAINING_COMPLETE" if success else "TRAINING_FAILED"
             logger.debug(f"Emitted {event_name} for job {job_id}")

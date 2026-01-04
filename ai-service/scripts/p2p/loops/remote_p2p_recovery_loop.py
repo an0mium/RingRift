@@ -137,6 +137,7 @@ class RemoteP2PRecoveryStats:
     ssh_key_missing: bool = False  # SSH key validation failed
     consecutive_errors: int = 0  # Required by LoopManager.get_status()
     successful_runs: int = 0  # Required by LoopManager.get_status()
+    total_run_duration: float = 0.0  # Required by base.py for avg_run_duration calculation
     backoff_resets: int = 0  # Jan 2026: Count of nodes that had backoff reset after stability
 
     @property
