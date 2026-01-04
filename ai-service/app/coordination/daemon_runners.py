@@ -663,6 +663,15 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         start_method=StartMethod.NONE,
         wait=WaitStyle.CUSTOM,  # Subscribes to events and runs forever loop
     ),
+    # --- Underutilization Recovery (January 4, 2026 - Phase 3 P2P Resilience) ---
+    # Handles CLUSTER_UNDERUTILIZED and WORK_QUEUE_EXHAUSTED events by injecting work items.
+    "underutilization_recovery": RunnerSpec(
+        module="app.coordination.underutilization_recovery_handler",
+        class_name="UnderutilizationRecoveryHandler",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_underutilization_handler",
+        notes="Jan 4, 2026: Phase 3 P2P Resilience - work injection on underutilization",
+    ),
     "tailscale_health": RunnerSpec(
         module="app.coordination.tailscale_health_daemon",
         class_name="TailscaleHealthDaemon",
@@ -1009,6 +1018,38 @@ async def create_training_data_recovery() -> None:
         raise
 
 
+async def create_training_watchdog() -> None:
+    """Create and run training watchdog daemon (January 2026 Sprint 17).
+
+    Monitors training processes for stalls and kills stuck processes.
+
+    Features:
+    - Tracks training process heartbeats via TRAINING_HEARTBEAT events
+    - Detects stale processes (no heartbeat for 2+ hours)
+    - Kills stale processes (SIGTERM, then SIGKILL after grace period)
+    - Releases associated training locks
+    - Emits TRAINING_PROCESS_KILLED event
+    """
+    try:
+        from app.coordination.training_watchdog_daemon import (
+            TrainingWatchdogDaemon,
+            get_training_watchdog_daemon,
+        )
+
+        daemon = get_training_watchdog_daemon()
+        await daemon.start()
+
+        # Keep running until stopped
+        while True:
+            await asyncio.sleep(60)
+            if not daemon._running:
+                break
+
+    except ImportError as e:
+        logger.error(f"TrainingWatchdogDaemon not available: {e}")
+        raise
+
+
 async def create_owc_import() -> None:
     """Create and run OWC import daemon (December 29, 2025).
 
@@ -1218,6 +1259,7 @@ async def create_cross_process_poller() -> None:
 
     Jan 3, 2026: Fixed import to use cross_process_events module.
     Jan 3, 2026: Fixed to provide required process_name argument.
+    Jan 4, 2026: Fixed await issue - start() is synchronous, not async.
     """
     try:
         from app.coordination.cross_process_events import CrossProcessEventPoller
@@ -1227,8 +1269,12 @@ async def create_cross_process_poller() -> None:
             process_name="daemon_manager",
             event_types=None,  # Subscribe to all event types
         )
-        await poller.start()
-        await _wait_for_daemon(poller)
+        # start() is synchronous - spawns background polling thread
+        poller.start()
+        # _wait_for_daemon expects async start, but we're already started
+        # Just verify the poller is running
+        if hasattr(poller, "_running") and poller._running:
+            logger.info("CrossProcessEventPoller started successfully")
     except ImportError as e:
         logger.error(f"CrossProcessEventPoller not available: {e}")
         raise
@@ -2935,6 +2981,31 @@ async def create_stale_fallback() -> None:
         raise
 
 
+async def create_underutilization_recovery() -> None:
+    """Create and run UnderutilizationRecoveryHandler.
+
+    January 4, 2026: Phase 3 of P2P Cluster Resilience plan.
+
+    Handles CLUSTER_UNDERUTILIZED and WORK_QUEUE_EXHAUSTED events by injecting
+    high-priority work items for underserved configurations.
+
+    Subscribes to: CLUSTER_UNDERUTILIZED, WORK_QUEUE_EXHAUSTED
+    Emits: UTILIZATION_RECOVERY_STARTED, UTILIZATION_RECOVERY_COMPLETED,
+           UTILIZATION_RECOVERY_FAILED
+    """
+    try:
+        from app.coordination.underutilization_recovery_handler import (
+            get_underutilization_handler,
+        )
+
+        handler = get_underutilization_handler()
+        await handler.start()
+        await _wait_for_daemon(handler)
+    except ImportError as e:
+        logger.error(f"UnderutilizationRecoveryHandler not available: {e}")
+        raise
+
+
 async def create_tailscale_health() -> None:
     """Create and run TailscaleHealthDaemon.
 
@@ -3070,6 +3141,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.TRAINING_NODE_WATCHER.name: create_training_node_watcher,
         DaemonType.TRAINING_DATA_SYNC.name: create_training_data_sync,
         DaemonType.TRAINING_DATA_RECOVERY.name: create_training_data_recovery,
+        DaemonType.TRAINING_WATCHDOG.name: create_training_watchdog,  # Jan 4, 2026: Sprint 17
         DaemonType.OWC_IMPORT.name: create_owc_import,
         # January 3, 2026 (Sprint 13 Session 4): Model evaluation automation
         DaemonType.OWC_MODEL_IMPORT.name: create_owc_model_import,
@@ -3164,6 +3236,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.MEMORY_MONITOR.name: create_memory_monitor,
         DaemonType.SOCKET_LEAK_RECOVERY.name: create_socket_leak_recovery,
         DaemonType.STALE_FALLBACK.name: create_stale_fallback,
+        DaemonType.UNDERUTILIZATION_RECOVERY.name: create_underutilization_recovery,  # Jan 4, 2026: Phase 3 P2P Resilience
         # Tailscale health monitoring (December 29, 2025)
         DaemonType.TAILSCALE_HEALTH.name: create_tailscale_health,
         # Connectivity recovery coordinator (December 29, 2025)

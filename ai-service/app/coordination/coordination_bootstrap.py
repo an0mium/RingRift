@@ -317,6 +317,34 @@ COORDINATOR_REGISTRY: dict[str, CoordinatorSpec] = {
         pattern=InitPattern.WIRE,
         func_name="wire_model_events",
     ),
+    # === Session 16 Cluster Resilience (January 2026) ===
+    # Proactive memory management with graduated response
+    "memory_pressure_controller": CoordinatorSpec(
+        name="memory_pressure_controller",
+        display_name="MemoryPressureController",
+        module_path="app.coordination.memory_pressure_controller",
+        pattern=InitPattern.GET,
+        func_name="get_memory_pressure_controller",
+        check_subscribed=False,  # Uses internal monitoring loop
+    ),
+    # Primary/standby coordinator failover
+    "standby_coordinator": CoordinatorSpec(
+        name="standby_coordinator",
+        display_name="StandbyCoordinator",
+        module_path="app.coordination.standby_coordinator",
+        pattern=InitPattern.GET,
+        func_name="get_standby_coordinator",
+        check_subscribed=False,  # Uses internal monitoring loop
+    ),
+    # Unified cluster health aggregation
+    "cluster_resilience_orchestrator": CoordinatorSpec(
+        name="cluster_resilience_orchestrator",
+        display_name="ClusterResilienceOrchestrator",
+        module_path="app.coordination.cluster_resilience_orchestrator",
+        pattern=InitPattern.GET,
+        func_name="get_resilience_orchestrator",
+        check_subscribed=False,  # Uses internal monitoring loop
+    ),
     # === Sync and training layer ===
     "sync_coordinator": CoordinatorSpec(
         name="sync_coordinator",
@@ -1255,6 +1283,129 @@ def _start_unified_feedback_orchestrator() -> bool:
         return False
 
 
+def _start_cluster_resilience_components() -> dict[str, bool]:
+    """Start Session 16 cluster resilience components and wire callbacks.
+
+    Session 16 (January 2026): This function integrates the 4-layer resilience
+    architecture that prevents cascading failures from memory exhaustion:
+
+    1. MemoryPressureController - Proactive memory management with 4 tiers
+    2. StandbyCoordinator - Primary/standby failover
+    3. ClusterResilienceOrchestrator - Unified health aggregation
+
+    The key integration is wiring the emergency callback:
+    - When memory reaches EMERGENCY tier, StandbyCoordinator.on_memory_emergency()
+      is called to trigger graceful coordinator handoff.
+
+    Returns:
+        Dict mapping component name to start success status
+    """
+    results: dict[str, bool] = {}
+
+    # 1. Start MemoryPressureController
+    try:
+        from app.coordination.memory_pressure_controller import get_memory_pressure_controller
+        import asyncio
+        from app.utils.async_utils import fire_and_forget
+
+        memory_controller = get_memory_pressure_controller()
+
+        # Handle sync/async context
+        try:
+            asyncio.get_running_loop()
+            fire_and_forget(memory_controller.start(), name="memory_pressure_start")
+            logger.info("[Bootstrap] MemoryPressureController start scheduled")
+        except RuntimeError:
+            asyncio.run(memory_controller.start())
+            logger.info("[Bootstrap] MemoryPressureController started")
+
+        results["memory_pressure_controller"] = True
+
+    except ImportError as e:
+        logger.warning(f"[Bootstrap] MemoryPressureController not available: {e}")
+        results["memory_pressure_controller"] = False
+    except (RuntimeError, AttributeError, TypeError) as e:
+        logger.error(f"[Bootstrap] Failed to start MemoryPressureController: {e}")
+        results["memory_pressure_controller"] = False
+
+    # 2. Start StandbyCoordinator
+    try:
+        from app.coordination.standby_coordinator import get_standby_coordinator
+
+        standby = get_standby_coordinator()
+
+        # StandbyCoordinator inherits start() from CoordinatorBase
+        if hasattr(standby, "start"):
+            try:
+                asyncio.get_running_loop()
+                fire_and_forget(standby.start(), name="standby_coordinator_start")
+                logger.info("[Bootstrap] StandbyCoordinator start scheduled")
+            except RuntimeError:
+                asyncio.run(standby.start())
+                logger.info("[Bootstrap] StandbyCoordinator started")
+
+        results["standby_coordinator"] = True
+
+    except ImportError as e:
+        logger.warning(f"[Bootstrap] StandbyCoordinator not available: {e}")
+        results["standby_coordinator"] = False
+    except (RuntimeError, AttributeError, TypeError) as e:
+        logger.error(f"[Bootstrap] Failed to start StandbyCoordinator: {e}")
+        results["standby_coordinator"] = False
+
+    # 3. Start ClusterResilienceOrchestrator
+    try:
+        from app.coordination.cluster_resilience_orchestrator import get_resilience_orchestrator
+
+        resilience = get_resilience_orchestrator()
+
+        # ClusterResilienceOrchestrator inherits start() from CoordinatorBase
+        if hasattr(resilience, "start"):
+            try:
+                asyncio.get_running_loop()
+                fire_and_forget(resilience.start(), name="resilience_orchestrator_start")
+                logger.info("[Bootstrap] ClusterResilienceOrchestrator start scheduled")
+            except RuntimeError:
+                asyncio.run(resilience.start())
+                logger.info("[Bootstrap] ClusterResilienceOrchestrator started")
+
+        results["cluster_resilience_orchestrator"] = True
+
+    except ImportError as e:
+        logger.warning(f"[Bootstrap] ClusterResilienceOrchestrator not available: {e}")
+        results["cluster_resilience_orchestrator"] = False
+    except (RuntimeError, AttributeError, TypeError) as e:
+        logger.error(f"[Bootstrap] Failed to start ClusterResilienceOrchestrator: {e}")
+        results["cluster_resilience_orchestrator"] = False
+
+    # 4. Wire emergency callback: MemoryPressure -> StandbyCoordinator
+    try:
+        from app.coordination.memory_pressure_controller import get_memory_pressure_controller
+        from app.coordination.standby_coordinator import get_standby_coordinator
+
+        memory_controller = get_memory_pressure_controller()
+        standby = get_standby_coordinator()
+
+        # Wire the emergency callback
+        memory_controller.register_emergency_callback(standby.on_memory_emergency)
+        logger.info("[Bootstrap] Wired MemoryPressure -> StandbyCoordinator emergency callback")
+        results["emergency_callback_wired"] = True
+
+    except ImportError as e:
+        logger.warning(f"[Bootstrap] Could not wire emergency callback: {e}")
+        results["emergency_callback_wired"] = False
+    except (AttributeError, TypeError) as e:
+        logger.error(f"[Bootstrap] Failed to wire emergency callback: {e}")
+        results["emergency_callback_wired"] = False
+
+    # Log summary
+    started = sum(1 for v in results.values() if v)
+    total = len(results)
+    logger.info(f"[Bootstrap] Cluster resilience: {started}/{total} components started")
+
+    return results
+
+
 def _initialize_event_coalescer() -> bool:
     """Initialize the EventCoalescer for high-frequency event deduplication (January 2026).
 
@@ -1543,6 +1694,10 @@ def bootstrap_coordination(
     enable_training_activity: bool = True,
     enable_curriculum_integration: bool = True,
     enable_per: bool = True,  # December 29, 2025: PER orchestrator for experience replay
+    # Session 16 Cluster Resilience (January 2026)
+    enable_memory_pressure: bool = True,  # Proactive memory management
+    enable_standby: bool = True,  # Primary/standby coordinator failover
+    enable_cluster_resilience: bool = True,  # Unified health aggregation
     pipeline_auto_trigger: bool = False,
     register_with_registry: bool = True,
     # Training config (December 2025 - CLI connection)
@@ -1675,6 +1830,10 @@ def bootstrap_coordination(
         # --- Layer 2: Infrastructure Support ---
         # UnifiedHealthManager replaces deprecated error + recovery coordinators
         ("health_manager", enable_health or enable_error),
+        # Session 16 Cluster Resilience (January 2026)
+        ("memory_pressure_controller", enable_memory_pressure),
+        ("standby_coordinator", enable_standby),
+        ("cluster_resilience_orchestrator", enable_cluster_resilience),
         ("model_coordinator", enable_model),
         # --- Layer 3: Sync and Training ---
         ("sync_coordinator", enable_sync),
@@ -1753,6 +1912,16 @@ def bootstrap_coordination(
 
     # Start unified feedback orchestrator (December 2025 - critical integration gap)
     _start_unified_feedback_orchestrator()
+
+    # Session 16 (January 2026): Start cluster resilience components
+    # Layer 2: MemoryPressureController - proactive memory management
+    # Layer 3: StandbyCoordinator - primary/standby coordinator failover
+    # Layer 4: ClusterResilienceOrchestrator - unified health aggregation
+    if enable_memory_pressure or enable_standby or enable_cluster_resilience:
+        resilience_results = _start_cluster_resilience_components()
+        if resilience_results.get("errors"):
+            for error in resilience_results["errors"]:
+                _state.errors.append(f"cluster_resilience: {error}")
 
     # January 2026: Initialize event coalescer for high-frequency event deduplication
     _initialize_event_coalescer()
