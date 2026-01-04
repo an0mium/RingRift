@@ -2,20 +2,20 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.9 - Session 17.5)
+**Last Updated**: January 4, 2026 (Sprint 17.9 - Session 17.6)
 
 ## Infrastructure Health Status (Verified Jan 4, 2026)
 
 | Component            | Status    | Evidence                                                        |
 | -------------------- | --------- | --------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (91/100), 19 alive peers, 233+ health checks, 11 recovery    |
-| **Training Loop**    | GREEN     | A (95/100), 5/5 feedback loops, 6/6 pipeline stages, 292 events |
-| **Code Quality**     | GREEN     | 95-98% consolidated, 5,000-7,500 LOC potential savings          |
-| **Leader Election**  | WORKING   | Bully algorithm + LeaderProbeLoop (10s probes, 60s failover)    |
-| **Work Queue**       | HEALTHY   | Quorum OK, 11 recovery daemons, <2.5min MTTR                    |
-| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline          |
-| **SQLite Async**     | 92%       | 249 asyncio.to_thread usages, 49 remaining blocking ops         |
-| **Multi-Arch Train** | FIXED     | Bug fixed: architecture now passed to work queue + execution    |
+| **P2P Network**      | GREEN     | A- (91/100), 16-19 alive peers, 6 GPU + 10 CPU-only nodes       |
+| **Training Loop**    | GREEN     | A (95/100), 109K games, 12 canonical models, 325 queue items    |
+| **Code Quality**     | GREEN     | 5,000-7,500 LOC potential savings, 7 improvement priorities     |
+| **Leader Election**  | WORKING   | mac-studio leader, voter quorum OK, all background loops active |
+| **Work Queue**       | HEALTHY   | 325 items, 8 selfplay jobs, all 12 configs covered              |
+| **Game Data**        | EXCELLENT | 109,744 total games (hexagonal_4p: 30K, square19_2p: 27K)       |
+| **SQLite Async**     | 92%       | 261 asyncio.to_thread usages, 49 remaining blocking ops         |
+| **Multi-Arch Train** | ACTIVE    | v2 models trained Jan 4, all configs generating data            |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -46,6 +46,43 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Early Quorum Escalation   | Skip to P2P restart after 2 failed healing attempts with quorum lost | `p2p_recovery_daemon.py`      |
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
+
+**Sprint 17.9 / Session 17.6 (Jan 4, 2026) - Deep Stability Analysis:**
+
+| Fix                        | Purpose                                            | Files                      |
+| -------------------------- | -------------------------------------------------- | -------------------------- |
+| Cluster Update             | 21 nodes updated, 18 P2P restarted                 | update_all_nodes.py        |
+| Deep Stability Analysis    | 7 improvement priorities identified, 72-94h effort | Explore agent analysis     |
+| Improvement Roadmap        | 5,000-7,500 LOC savings mapped with ROI            | See roadmap below          |
+| Unified Retry/Backoff Plan | 8-12 files standardized to RetryPolicy enum        | RetryPolicy.QUICK/STANDARD |
+
+**Session 17.6 Improvement Priorities (High ROI First):**
+
+| Priority | Improvement                    | Files | LOC Saved   | Hours | ROI   |
+| -------- | ------------------------------ | ----- | ----------- | ----- | ----- |
+| P0       | selfplay_scheduler decompose   | 1     | 1,200-1,500 | 16-20 | 62-75 |
+| P0       | Event emission consolidation   | 12-16 | 450-650     | 12-16 | 30-43 |
+| P0       | FeedbackLoopController split   | 1     | 800-1,000   | 10-12 | 66-83 |
+| P1       | TrainingTriggerDaemon split    | 1     | 700-900     | 10-12 | 58-75 |
+| P1       | Unified retry/backoff strategy | 8-12  | 600-900     | 10-14 | 50-60 |
+| P1       | daemon_runners modularization  | 1     | 600-900     | 10-14 | 50-60 |
+| P2       | Mixin consolidation            | 7     | 750-1,100   | 16-22 | 35-43 |
+|          | **TOTAL**                      | 30+   | 5,000-7,500 | 72-94 | 54-75 |
+
+**Quick Wins (Can Start Immediately):**
+
+| Task                      | Hours | Impact                                      |
+| ------------------------- | ----- | ------------------------------------------- |
+| Async Safety Audit        | 6-8   | Wrap 49 blocking ops with asyncio.to_thread |
+| Circuit Breaker TTL Decay | 3-4   | Prevents stuck CBs from blocking 24h+       |
+| Config Unification        | 6-8   | 140 env vars → organized RingRiftConfig     |
+
+**Expected Outcomes After Full Implementation:**
+
+- Manual interventions: 8-12/month → 2-4/month
+- MTTR: 25min → 8-10min (faster escalation framework)
+- Cascading failures: -20-25% (unified retry strategy)
+- Onboarding time: 40h → 15h (smaller search space)
 
 **Sprint 17.9 / Session 17.5 (Jan 4, 2026) - Comprehensive Cluster Assessment:**
 
