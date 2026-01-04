@@ -271,7 +271,7 @@ class AutonomousQueuePopulationLoop(BaseLoop):
         """Get status for LoopManager health checks."""
         return {
             "name": self.name,
-            "running": self._running,
+            "running": self.running,
             "enabled": self.enabled,
             "activated": self._state.activated,
             "activation_reason": self._state.activation_reason,
@@ -279,26 +279,22 @@ class AutonomousQueuePopulationLoop(BaseLoop):
             "local_queue_depth": len(self._local_queue),
         }
 
-    async def _run_loop(self) -> None:
-        """Main loop that checks conditions and populates queue."""
+    async def _run_once(self) -> None:
+        """Single iteration - called by BaseLoop.run_forever().
+
+        Jan 4, 2026: Refactored from _run_loop to match BaseLoop interface.
+        """
         # Grace period at startup to allow normal initialization
         grace_period = 60.0  # 1 minute grace period
-        await asyncio.sleep(min(grace_period, self._config.check_interval_seconds))
+        if not self._grace_period_complete:
+            if time.time() - self._startup_time < grace_period:
+                return  # Skip this iteration during grace period
+            self._grace_period_complete = True
 
-        while self._running:
-            try:
-                await self._check_and_update_state()
+        await self._check_and_update_state()
 
-                if self._state.activated:
-                    await self._populate_local_queue()
-
-                await asyncio.sleep(self._config.check_interval_seconds)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"[AutonomousQueue] Loop error: {e}")
-                await asyncio.sleep(self._config.check_interval_seconds)
+        if self._state.activated:
+            await self._populate_local_queue()
 
     async def _check_and_update_state(self) -> None:
         """Check activation conditions and update state."""
@@ -447,6 +443,41 @@ class AutonomousQueuePopulationLoop(BaseLoop):
         async with self._local_queue_lock:
             if self._local_queue:
                 return self._local_queue.pop(0)
+        return None
+
+    async def claim_local_work(
+        self,
+        node_id: str,
+        capabilities: list[str] | None = None
+    ) -> dict[str, Any] | None:
+        """Claim work from local autonomous queue.
+
+        Jan 4, 2026: Added for Phase 4 - pull-based training job claim.
+
+        Args:
+            node_id: ID of the node claiming work
+            capabilities: Optional list of capabilities (e.g., ["cuda", "training"])
+
+        Returns:
+            Claimed work item dict or None if no matching work available
+        """
+        if not self._state.activated:
+            return None
+
+        async with self._local_queue_lock:
+            for i, item in enumerate(self._local_queue):
+                # Check capability match if required
+                required = item.get("required_capabilities", [])
+                if required and capabilities:
+                    if not set(required).issubset(set(capabilities)):
+                        continue
+
+                # Claim the item
+                claimed = self._local_queue.pop(i)
+                claimed["claimed_by"] = node_id
+                claimed["claimed_at"] = time.time()
+                return claimed
+
         return None
 
     def get_local_queue_depth(self) -> int:

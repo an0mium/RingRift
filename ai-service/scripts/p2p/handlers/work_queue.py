@@ -294,6 +294,63 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             return self.error_response(str(e), status=500)
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
+    async def handle_work_claim_training(self, request: web.Request) -> web.Response:
+        """Pull-based training job claim - works without leader.
+
+        Jan 4, 2026: Added for Phase 4 of 48-hour autonomous operation.
+
+        GPU nodes call this to claim training work directly. Tries:
+        1. Local work queue (if leader)
+        2. Autonomous local queue (if activated)
+        3. Returns no_work_available if nothing found
+
+        This allows training to continue even during leader elections or partitions.
+        """
+        try:
+            node_id = request.query.get("node_id", "")
+            capabilities_str = request.query.get("capabilities", "")
+
+            if not node_id:
+                return self.bad_request("node_id required")
+
+            capabilities = [c.strip() for c in capabilities_str.split(",") if c.strip()] or None
+
+            # Strategy 1: Check local work queue for training jobs (if leader)
+            if self.is_leader:
+                wq = get_work_queue()
+                if wq is not None:
+                    # Try to claim training work specifically
+                    item = wq.claim_work(node_id, capabilities, work_types=["training"])
+                    if item is not None:
+                        return self.json_response({
+                            "status": "claimed",
+                            "source": "local_work_queue",
+                            "work": item.to_dict(),
+                        })
+
+            # Strategy 2: Try autonomous local queue
+            autonomous_loop = getattr(self, "_autonomous_queue_loop", None)
+            if autonomous_loop is None:
+                # Try to find it on the orchestrator
+                orchestrator = getattr(self, "_orchestrator", self)
+                autonomous_loop = getattr(orchestrator, "_autonomous_queue_loop", None)
+
+            if autonomous_loop and getattr(autonomous_loop, "is_activated", False):
+                local_item = await autonomous_loop.claim_local_work(node_id, capabilities)
+                if local_item:
+                    return self.json_response({
+                        "status": "claimed",
+                        "source": "autonomous_queue",
+                        "work": local_item,
+                    })
+
+            return self.json_response({"status": "no_work_available"})
+
+        except Exception as e:
+            logger.error(f"Error claiming training work: {e}")
+            return self.error_response(str(e), status=500)
+
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_start(self, request: web.Request) -> web.Response:
         """Mark work as started (running)."""
         try:
