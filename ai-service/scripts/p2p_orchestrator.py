@@ -2716,6 +2716,17 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"RemoteP2PRecoveryLoop: not available: {e}")
 
+            # LeaderProbeLoop - January 4, 2026
+            # Phase 5 of P2P Resilience: Fast leader health probe with forced election
+            # Probes leader every 10s, triggers election after 6 consecutive failures (60s)
+            try:
+                from scripts.p2p.loops import LeaderProbeLoop
+                leader_probe = LeaderProbeLoop(orchestrator=self)
+                manager.register(leader_probe)
+                logger.info("[LoopManager] LeaderProbeLoop registered (fast leader recovery)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"LeaderProbeLoop: not available: {e}")
+
             # PredictiveMonitoringLoop - December 28, 2025
             # Migrated from inline _predictive_monitoring_loop (~98 LOC removed)
             # Proactive monitoring and alerting for cluster health

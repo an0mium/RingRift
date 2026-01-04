@@ -62,6 +62,7 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, ClassVar
 
@@ -1316,6 +1317,117 @@ class HandlerBase(SafeEventEmitterMixin, ABC):
                 return len(queue)
         else:
             return len(queue)
+
+    # -------------------------------------------------------------------------
+    # Retry Queue Helpers (Sprint 17.5 - January 4, 2026)
+    # -------------------------------------------------------------------------
+
+    def _add_to_retry_queue(
+        self,
+        queue: deque,
+        item: tuple,
+        delay_seconds: float,
+    ) -> None:
+        """Add an item to a retry queue with calculated next_retry_time.
+
+        January 4, 2026 (Sprint 17.5): Consolidates retry queue pattern from
+        evaluation_daemon.py, training_trigger_daemon.py, selfplay_upload_daemon.py.
+
+        The item should be a tuple of domain-specific data. This method appends
+        the next_retry_time as the final element.
+
+        Args:
+            queue: The deque to append to (must be collections.deque)
+            item: Tuple of domain-specific data (e.g., (model_path, board_type, ...))
+            delay_seconds: Delay in seconds before retry should occur
+
+        Example:
+            # Domain-specific data tuple
+            item = (model_path, board_type, num_players, attempts)
+            self._add_to_retry_queue(self._retry_queue, item, delay=60.0)
+            # Queue now contains: (model_path, board_type, num_players, attempts, next_retry_time)
+        """
+        next_retry_time = time.time() + delay_seconds
+        queue.append((*item, next_retry_time))
+
+    def _get_ready_retry_items(
+        self,
+        queue: deque,
+    ) -> tuple[list[tuple], list[tuple]]:
+        """Separate ready retry items from not-yet-ready items.
+
+        January 4, 2026 (Sprint 17.5): Consolidates the pattern of iterating
+        through a retry queue and separating items based on their next_retry_time.
+
+        Items are expected to have next_retry_time as their LAST tuple element.
+        Ready items are returned WITHOUT the next_retry_time element, as they
+        are ready for processing.
+
+        Args:
+            queue: The deque containing retry items (will be modified)
+
+        Returns:
+            Tuple of (ready_items, remaining_items):
+            - ready_items: List of tuples WITHOUT next_retry_time (ready for processing)
+            - remaining_items: List of tuples WITH next_retry_time (still waiting)
+
+        Example:
+            ready, remaining = self._get_ready_retry_items(self._retry_queue)
+
+            # Put remaining items back
+            for item in remaining:
+                self._retry_queue.append(item)
+
+            # Process ready items (they don't have next_retry_time anymore)
+            for model_path, board_type, num_players, attempts in ready:
+                await self._process_retry(model_path, board_type, num_players, attempts)
+        """
+        now = time.time()
+        ready_items: list[tuple] = []
+        remaining_items: list[tuple] = []
+
+        while queue:
+            item = queue.popleft()
+            # Last element is next_retry_time
+            next_retry_time = item[-1]
+            data_without_time = item[:-1]
+
+            if next_retry_time <= now:
+                ready_items.append(data_without_time)
+            else:
+                remaining_items.append(item)  # Keep full tuple with time
+
+        return ready_items, remaining_items
+
+    def _process_retry_queue_items(
+        self,
+        queue: deque,
+    ) -> list[tuple]:
+        """Process retry queue and return items ready for retry.
+
+        January 4, 2026 (Sprint 17.5): Convenience method that handles the
+        common pattern of separating ready items and putting remaining back.
+
+        This is a simpler API than _get_ready_retry_items() when you don't
+        need access to the remaining items.
+
+        Args:
+            queue: The deque containing retry items
+
+        Returns:
+            List of tuples WITHOUT next_retry_time (ready for processing)
+
+        Example:
+            for model_path, board_type, num_players, attempts in self._process_retry_queue_items(self._retry_queue):
+                await self._process_retry(model_path, board_type, num_players, attempts)
+        """
+        ready_items, remaining_items = self._get_ready_retry_items(queue)
+
+        # Put remaining items back
+        for item in remaining_items:
+            queue.append(item)
+
+        return ready_items
 
     # -------------------------------------------------------------------------
     # SQLite Async Safety Helpers (Sprint 17.3 - January 4, 2026)

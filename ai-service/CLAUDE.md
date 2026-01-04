@@ -2,20 +2,20 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.6 - Session 17.1)
+**Last Updated**: January 4, 2026 (Sprint 17.7 - Session 17.1)
 
 ## Infrastructure Health Status (Verified Jan 4, 2026)
 
-| Component            | Status    | Evidence                                                          |
-| -------------------- | --------- | ----------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (91/100), 33 alive peers (82%), mac-studio as leader           |
-| **Training Loop**    | GREEN     | A+ (98/100), 5/5 feedback loops wired, 6/6 pipeline stages        |
-| **Code Quality**     | GREEN     | 92% HandlerBase adoption, 5,450-8,750 LOC consolidation potential |
-| **Leader Election**  | WORKING   | Bully algorithm with voter quorum, split-brain detection          |
-| **Work Queue**       | HEALTHY   | 33 alive peers, quorum OK, 11 recovery daemons active             |
-| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline            |
-| **SQLite Async**     | FIXED     | Metrics, WorkQueue, P2P paths wrapped in asyncio.to_thread()      |
-| **Multi-Arch Train** | FIXED     | Bug fixed: architecture now passed to work queue + execution      |
+| Component            | Status    | Evidence                                                     |
+| -------------------- | --------- | ------------------------------------------------------------ |
+| **P2P Network**      | GREEN     | A- (91/100), 26 alive peers (65%), mac-studio as leader      |
+| **Training Loop**    | GREEN     | A (95/100), 5/5 feedback loops wired, 6/6 pipeline stages    |
+| **Code Quality**     | GREEN     | 95-98% consolidated, 3,800-5,800 LOC remaining opportunities |
+| **Leader Election**  | WORKING   | Bully algorithm + LeaderProbeLoop (10s probes, 60s failover) |
+| **Work Queue**       | HEALTHY   | Quorum OK, 11 recovery daemons active, <2.5min MTTR          |
+| **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline       |
+| **SQLite Async**     | FIXED     | 249 asyncio.to_thread usages, 95%+ async safe                |
+| **Multi-Arch Train** | FIXED     | Bug fixed: architecture now passed to work queue + execution |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -47,15 +47,51 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
 
+**Sprint 17.7 / Session 17.1 (Jan 4, 2026) - LeaderProbeLoop & Assessment:**
+
+| Fix                      | Purpose                                                   | Files                                      |
+| ------------------------ | --------------------------------------------------------- | ------------------------------------------ |
+| LeaderProbeLoop          | Fast leader failure detection (10s probes, 60s threshold) | `scripts/p2p/loops/leader_probe_loop.py`   |
+| /work/claim_training     | Pull-based training job claim for autonomous operation    | `scripts/p2p/routes.py`                    |
+| Cluster Deployment       | Updated 5 nodes via Tailscale (26 alive, quorum OK)       | nebius-backbone-1, h100-1/3, lambda-gh200s |
+| Comprehensive Assessment | 3 parallel agents: P2P (91), Training (95), Consolidation | See results below                          |
+
+**Session 17.1 Assessment Results (Jan 4, 2026):**
+
+| Assessment Area | Grade | Score  | Key Findings                                          |
+| --------------- | ----- | ------ | ----------------------------------------------------- |
+| P2P Network     | A-    | 91/100 | 234 health_check(), 11 recovery daemons, <2.5min MTTR |
+| Training Loop   | A     | 95/100 | 6 pipeline stages, 5 feedback loops, 292 event types  |
+| Consolidation   | A     | 95-98% | 3,800-5,800 LOC potential savings, 77/208 HandlerBase |
+
+**LeaderProbeLoop (Jan 4, 2026):**
+
+- Probes leader every 10s via HTTP /health endpoint
+- After 6 consecutive failures (60s), triggers forced election
+- Reduces MTTR from 60-180s (gossip timeout) to ~60s
+- Includes 120s election cooldown to prevent storms
+- Emits LEADER_PROBE_FAILED/RECOVERED events
+
+**Consolidation Roadmap (Jan 2026):**
+
+| Phase | Opportunity                  | Hours | LOC Saved   | Priority |
+| ----- | ---------------------------- | ----- | ----------- | -------- |
+| 1     | Event emission consolidation | 12-16 | 450-650     | P0       |
+| 1     | Config parsing migration     | 4-6   | 150-250     | P0       |
+| 2     | selfplay_scheduler decompose | 16-20 | 1,000-1,500 | P0       |
+| 2     | daemon_runners decomposition | 10-14 | 600-900     | P1       |
+| 2     | Mixin consolidation          | 8-12  | 350-500     | P1       |
+| 3     | HandlerBase migration (15)   | 18-24 | 200-350     | P1       |
+| 3     | P2P gossip consolidation     | 8-10  | 300-450     | P2       |
+
 **Sprint 17.6 / Session 17.0 (Jan 4, 2026) - Multi-Architecture Training Fix:**
 
-| Fix                      | Purpose                                                        | Files                                                  |
-| ------------------------ | -------------------------------------------------------------- | ------------------------------------------------------ |
-| Work Queue model_version | Added model_version param to submit_training()                 | `work_distributor.py:124-177`                          |
-| Architecture Passing     | Pass arch_name as model_version to work queue                  | `training_trigger_daemon.py:3337`                      |
-| Training Execution Fix   | Replaced NO-OP with actual subprocess execution                | `p2p_orchestrator.py:18488-18560`                      |
-| Cluster Deployment       | Updated 6+ nodes via Tailscale, verified 23 alive peers        | nebius-backbone-1, lambda-gh200-10/11, nebius-h100-1/3 |
-| Comprehensive Assessment | 3 parallel exploration agents for P2P, Training, Consolidation | See detailed breakdown below                           |
+| Fix                      | Purpose                                                 | Files                                                  |
+| ------------------------ | ------------------------------------------------------- | ------------------------------------------------------ |
+| Work Queue model_version | Added model_version param to submit_training()          | `work_distributor.py:124-177`                          |
+| Architecture Passing     | Pass arch_name as model_version to work queue           | `training_trigger_daemon.py:3337`                      |
+| Training Execution Fix   | Replaced NO-OP with actual subprocess execution         | `p2p_orchestrator.py:18488-18560`                      |
+| Cluster Deployment       | Updated 6+ nodes via Tailscale, verified 23 alive peers | nebius-backbone-1, lambda-gh200-10/11, nebius-h100-1/3 |
 
 **Critical Bug Fixes (Session 17.0):**
 

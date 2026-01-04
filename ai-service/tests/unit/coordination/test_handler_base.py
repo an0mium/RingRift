@@ -1101,3 +1101,183 @@ class TestFireAndForgetTaskHelpers:
         )
 
         assert result is False
+
+
+class TestRetryQueueHelpers:
+    """Tests for retry queue helper methods.
+
+    January 4, 2026 (Sprint 17.5): Tests for consolidated retry queue patterns.
+    """
+
+    def test_add_to_retry_queue_appends_with_time(self):
+        """_add_to_retry_queue should append item with next_retry_time."""
+        from collections import deque
+        import time
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        item = ("model.pth", "hex8", 2, 1)  # model_path, board_type, num_players, attempts
+        before = time.time()
+        handler._add_to_retry_queue(queue, item, delay_seconds=60.0)
+        after = time.time()
+
+        assert len(queue) == 1
+        queued_item = queue[0]
+        assert len(queued_item) == 5  # Original 4 + next_retry_time
+        assert queued_item[:4] == item
+        assert before + 60.0 <= queued_item[4] <= after + 60.0
+
+    def test_add_to_retry_queue_multiple_items(self):
+        """_add_to_retry_queue should support multiple items."""
+        from collections import deque
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        handler._add_to_retry_queue(queue, ("a", 1), delay_seconds=30.0)
+        handler._add_to_retry_queue(queue, ("b", 2), delay_seconds=60.0)
+        handler._add_to_retry_queue(queue, ("c", 3), delay_seconds=90.0)
+
+        assert len(queue) == 3
+        assert queue[0][:2] == ("a", 1)
+        assert queue[1][:2] == ("b", 2)
+        assert queue[2][:2] == ("c", 3)
+
+    def test_get_ready_retry_items_separates_by_time(self):
+        """_get_ready_retry_items should separate ready from not-ready items."""
+        from collections import deque
+        import time
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        now = time.time()
+        # Ready items (past time)
+        queue.append(("a", 1, now - 10.0))  # 10 seconds ago
+        queue.append(("b", 2, now - 5.0))   # 5 seconds ago
+        # Not ready items (future time)
+        queue.append(("c", 3, now + 60.0))  # 1 minute from now
+        queue.append(("d", 4, now + 120.0)) # 2 minutes from now
+
+        ready, remaining = handler._get_ready_retry_items(queue)
+
+        # Queue should be empty after processing
+        assert len(queue) == 0
+
+        # Ready items (without time)
+        assert len(ready) == 2
+        assert ready[0] == ("a", 1)
+        assert ready[1] == ("b", 2)
+
+        # Remaining items (with time)
+        assert len(remaining) == 2
+        assert remaining[0][:2] == ("c", 3)
+        assert remaining[1][:2] == ("d", 4)
+
+    def test_get_ready_retry_items_empty_queue(self):
+        """_get_ready_retry_items should handle empty queue."""
+        from collections import deque
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        ready, remaining = handler._get_ready_retry_items(queue)
+
+        assert len(ready) == 0
+        assert len(remaining) == 0
+
+    def test_get_ready_retry_items_all_ready(self):
+        """_get_ready_retry_items should handle all items being ready."""
+        from collections import deque
+        import time
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        now = time.time()
+        queue.append(("a", now - 10.0))
+        queue.append(("b", now - 5.0))
+        queue.append(("c", now - 1.0))
+
+        ready, remaining = handler._get_ready_retry_items(queue)
+
+        assert len(ready) == 3
+        assert len(remaining) == 0
+
+    def test_get_ready_retry_items_none_ready(self):
+        """_get_ready_retry_items should handle no items being ready."""
+        from collections import deque
+        import time
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        now = time.time()
+        queue.append(("a", now + 60.0))
+        queue.append(("b", now + 120.0))
+
+        ready, remaining = handler._get_ready_retry_items(queue)
+
+        assert len(ready) == 0
+        assert len(remaining) == 2
+
+    def test_process_retry_queue_items_returns_ready_and_restores_remaining(self):
+        """_process_retry_queue_items should return ready and put remaining back."""
+        from collections import deque
+        import time
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        now = time.time()
+        queue.append(("a", 1, now - 10.0))  # Ready
+        queue.append(("b", 2, now + 60.0))  # Not ready
+
+        ready = handler._process_retry_queue_items(queue)
+
+        # Ready items returned
+        assert len(ready) == 1
+        assert ready[0] == ("a", 1)
+
+        # Remaining items put back in queue
+        assert len(queue) == 1
+        assert queue[0][:2] == ("b", 2)
+
+    def test_process_retry_queue_items_empty_queue(self):
+        """_process_retry_queue_items should handle empty queue."""
+        from collections import deque
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        ready = handler._process_retry_queue_items(queue)
+
+        assert len(ready) == 0
+        assert len(queue) == 0
+
+    def test_add_and_process_integration(self):
+        """Integration test: add items, then process them when ready."""
+        from collections import deque
+        import time
+
+        handler = ConcreteHandler()
+        queue = deque()
+
+        # Add items with short delays
+        handler._add_to_retry_queue(queue, ("a", 1), delay_seconds=0.0)  # Immediate
+        handler._add_to_retry_queue(queue, ("b", 2), delay_seconds=0.0)  # Immediate
+        handler._add_to_retry_queue(queue, ("c", 3), delay_seconds=3600.0)  # 1 hour
+
+        assert len(queue) == 3
+
+        # Process - first two should be ready
+        ready = handler._process_retry_queue_items(queue)
+
+        assert len(ready) == 2
+        assert ready[0] == ("a", 1)
+        assert ready[1] == ("b", 2)
+
+        # One item remains
+        assert len(queue) == 1
+        assert queue[0][:2] == ("c", 3)
