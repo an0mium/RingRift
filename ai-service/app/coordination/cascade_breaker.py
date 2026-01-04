@@ -36,7 +36,6 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import ClassVar
 
 from app.coordination.daemon_types import (
     CRITICAL_DAEMONS,
@@ -44,6 +43,7 @@ from app.coordination.daemon_types import (
     DaemonType,
     get_daemon_category,
 )
+from app.coordination.singleton_mixin import SingletonMixin
 
 logger = logging.getLogger(__name__)
 
@@ -232,12 +232,14 @@ class CategoryBreakerState:
 # =============================================================================
 
 
-class CascadeBreakerManager:
+class CascadeBreakerManager(SingletonMixin):
     """Hierarchical cascade circuit breaker manager.
 
     Provides per-category circuit breakers with independent thresholds and
     cooldowns, plus a global fallback breaker. Critical daemons can be
     exempted from all breakers.
+
+    January 2026: Migrated to use SingletonMixin for consistency.
 
     Architecture:
         ┌─────────────────────────────────────┐
@@ -261,9 +263,6 @@ class CascadeBreakerManager:
         ...     await restart_daemon(DaemonType.AUTO_SYNC)
         ... else:
         ...     logger.warning(f"Restart blocked: {reason}")
-    """
-
-    _instance: ClassVar[CascadeBreakerManager | None] = None
 
     def __init__(self, config: CascadeBreakerConfig | None = None) -> None:
         """Initialize the cascade breaker manager.
@@ -589,6 +588,8 @@ class CascadeBreakerManager:
 def get_cascade_breaker() -> CascadeBreakerManager:
     """Get the singleton CascadeBreakerManager instance.
 
+    January 2026: Now uses SingletonMixin.get_instance() (thread-safe, sync).
+
     Returns:
         The global CascadeBreakerManager instance.
 
@@ -596,11 +597,9 @@ def get_cascade_breaker() -> CascadeBreakerManager:
         >>> breaker = get_cascade_breaker()
         >>> allowed, reason = breaker.can_restart(DaemonType.AUTO_SYNC)
     """
-    if CascadeBreakerManager._instance is None:
-        # Check for environment variable overrides
-        config = _load_config_from_env()
-        CascadeBreakerManager._instance = CascadeBreakerManager(config)
-    return CascadeBreakerManager._instance
+    # Check for environment variable overrides on first instantiation
+    config = _load_config_from_env()
+    return CascadeBreakerManager.get_instance(config)
 
 
 def reset_cascade_breaker() -> None:
@@ -608,9 +607,9 @@ def reset_cascade_breaker() -> None:
 
     Useful for testing.
     """
-    if CascadeBreakerManager._instance is not None:
-        CascadeBreakerManager._instance.reset()
-    CascadeBreakerManager._instance = None
+    if CascadeBreakerManager.has_instance():
+        CascadeBreakerManager.get_instance().reset()
+    CascadeBreakerManager.reset_instance()
 
 
 def _load_config_from_env() -> CascadeBreakerConfig | None:
