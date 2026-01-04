@@ -156,6 +156,7 @@ from .autonomous_queue_loop import (
     AutonomousQueuePopulationLoop,
     AutonomousQueueState,
 )
+from .leader_probe_loop import LeaderProbeLoop
 
 __all__ = [
     # Base
@@ -261,4 +262,6 @@ __all__ = [
     "AutonomousQueueConfig",
     "AutonomousQueuePopulationLoop",
     "AutonomousQueueState",
+    # Leader Probe (Jan 4, 2026 - Phase 5 P2P Resilience)
+    "LeaderProbeLoop",
 ]

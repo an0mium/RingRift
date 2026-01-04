@@ -71,6 +71,7 @@ WORK_QUEUE_ROUTES = [
     Route("POST", "/work/add", "handle_work_add"),
     Route("POST", "/work/add_batch", "handle_work_add_batch"),
     Route("GET", "/work/claim", "handle_work_claim"),
+    Route("GET", "/work/claim_training", "handle_work_claim_training"),  # Jan 4, 2026: Pull-based training claim
     Route("POST", "/work/start", "handle_work_start"),
     Route("POST", "/work/complete", "handle_work_complete"),
     Route("POST", "/work/fail", "handle_work_fail"),
