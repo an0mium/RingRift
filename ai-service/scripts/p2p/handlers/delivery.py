@@ -8,6 +8,7 @@ December 2025: Created as part of Phase 3 infrastructure improvements.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -209,18 +210,26 @@ class DeliveryHandlersMixin(BaseP2PHandler):
             elif file_type == "games":
                 # Check if it's a valid SQLite database
                 try:
-                    import sqlite3
-                    conn = sqlite3.connect(str(file_path))
-                    cursor = conn.execute(
-                        "SELECT name FROM sqlite_master WHERE type='table'"
-                    )
-                    tables = [row[0] for row in cursor.fetchall()]
+                    def _validate_sqlite_db() -> tuple[list[str], int]:
+                        """Blocking SQLite validation - runs in thread pool."""
+                        conn = sqlite3.connect(str(file_path))
+                        cursor = conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        )
+                        tables = [row[0] for row in cursor.fetchall()]
+                        game_count = 0
+                        if "games" in tables:
+                            cursor = conn.execute("SELECT COUNT(*) FROM games")
+                            game_count = cursor.fetchone()[0]
+                        conn.close()
+                        return tables, game_count
+
+                    # Run blocking SQLite in thread pool
+                    tables, game_count = await asyncio.to_thread(_validate_sqlite_db)
                     validation["tables"] = tables
                     validation["has_games_table"] = "games" in tables
                     if "games" in tables:
-                        cursor = conn.execute("SELECT COUNT(*) FROM games")
-                        validation["game_count"] = cursor.fetchone()[0]
-                    conn.close()
+                        validation["game_count"] = game_count
                 except Exception as e:
                     validation["valid"] = False
                     validation["error"] = str(e)

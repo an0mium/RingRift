@@ -25,13 +25,14 @@ Requires the implementing class to have:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
@@ -106,26 +107,30 @@ class ABTestHandlersMixin(BaseP2PHandler):
                 "metadata": json.dumps(data.get("metadata", {})),
             }
 
-            # Store in database
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO ab_tests (
-                    test_id, name, description, board_type, num_players,
-                    model_a, model_b, target_games, confidence_threshold,
-                    status, winner, created_at, completed_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                test_data["test_id"], test_data["name"], test_data["description"],
-                test_data["board_type"], test_data["num_players"],
-                test_data["model_a"], test_data["model_b"],
-                test_data["target_games"], test_data["confidence_threshold"],
-                test_data["status"], test_data["winner"],
-                test_data["created_at"], test_data["completed_at"],
-                test_data["metadata"],
-            ))
-            conn.commit()
-            conn.close()
+            # Store in database - run blocking SQLite in thread pool
+            def _insert_ab_test(db_path: str, data: dict[str, Any]) -> None:
+                """Blocking SQLite insert - runs in thread pool."""
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO ab_tests (
+                        test_id, name, description, board_type, num_players,
+                        model_a, model_b, target_games, confidence_threshold,
+                        status, winner, created_at, completed_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    data["test_id"], data["name"], data["description"],
+                    data["board_type"], data["num_players"],
+                    data["model_a"], data["model_b"],
+                    data["target_games"], data["confidence_threshold"],
+                    data["status"], data["winner"],
+                    data["created_at"], data["completed_at"],
+                    data["metadata"],
+                ))
+                conn.commit()
+                conn.close()
+
+            await asyncio.to_thread(_insert_ab_test, str(self.db_path), test_data)
 
             # Store in memory
             with self.ab_test_lock:
@@ -178,34 +183,64 @@ class ABTestHandlersMixin(BaseP2PHandler):
 
             now = time.time()
 
-            # Store game result
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            # Verify test exists and insert game result in thread pool
+            def _verify_and_insert_game(
+                db_path: str,
+                tid: str,
+                gid: str,
+                result: str,
+                a_score: float,
+                b_score: float,
+                length: int | None,
+                played: float,
+                meta: str,
+            ) -> tuple[str | None, str | None, int | None, float | None]:
+                """Verify test exists and insert game - runs in thread pool.
 
-            # Verify test exists
-            cursor.execute("SELECT status, target_games, confidence_threshold FROM ab_tests WHERE test_id = ?", (test_id,))
-            row = cursor.fetchone()
-            if not row:
+                Returns:
+                    (error_msg, test_status, target_games, confidence_threshold)
+                    If error_msg is set, the other values should be ignored.
+                """
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT status, target_games, confidence_threshold FROM ab_tests WHERE test_id = ?",
+                    (tid,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    conn.close()
+                    return f"Test {tid} not found", None, None, None
+                status, target, confidence = row
+                if status != "running":
+                    conn.close()
+                    return f"Test {tid} is {status}, not running", None, None, None
+                cursor.execute("""
+                    INSERT INTO ab_test_games (
+                        test_id, game_id, model_a_result, model_a_score, model_b_score,
+                        game_length, played_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (tid, gid, result, a_score, b_score, length, played, meta))
+                conn.commit()
                 conn.close()
-                return web.json_response({"error": f"Test {test_id} not found"}, status=404)
+                return None, status, target, confidence
 
-            test_status, target_games, confidence_threshold = row
-            if test_status != "running":
-                conn.close()
-                return web.json_response({"error": f"Test {test_id} is {test_status}, not running"}, status=400)
-
-            # Insert game result
-            cursor.execute("""
-                INSERT INTO ab_test_games (
-                    test_id, game_id, model_a_result, model_a_score, model_b_score,
-                    game_length, played_at, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                test_id, game_id, model_a_result, model_a_score, model_b_score,
-                data.get("game_length"), now, json.dumps(data.get("metadata", {})),
-            ))
-            conn.commit()
-            conn.close()
+            error_msg, test_status, target_games, confidence_threshold = await asyncio.to_thread(
+                _verify_and_insert_game,
+                str(self.db_path),
+                test_id,
+                game_id,
+                model_a_result,
+                model_a_score,
+                model_b_score,
+                data.get("game_length"),
+                now,
+                json.dumps(data.get("metadata", {})),
+            )
+            if error_msg:
+                if "not found" in error_msg:
+                    return web.json_response({"error": error_msg}, status=404)
+                return web.json_response({"error": error_msg}, status=400)
 
             # Calculate updated stats
             stats = self._calculate_ab_test_stats(test_id)
@@ -217,14 +252,19 @@ class ABTestHandlersMixin(BaseP2PHandler):
 
             if should_conclude:
                 winner_model = stats.get("likely_winner")
-                conn = sqlite3.connect(str(self.db_path))
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE ab_tests SET status = 'completed', winner = ?, completed_at = ?
-                    WHERE test_id = ?
-                """, (winner_model, time.time(), test_id))
-                conn.commit()
-                conn.close()
+
+                def _complete_test(db_path: str, tid: str, winner: str | None) -> None:
+                    """Mark test as completed - runs in thread pool."""
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE ab_tests SET status = 'completed', winner = ?, completed_at = ?
+                        WHERE test_id = ?
+                    """, (winner, time.time(), tid))
+                    conn.commit()
+                    conn.close()
+
+                await asyncio.to_thread(_complete_test, str(self.db_path), test_id, winner_model)
 
                 # Notify
                 self.notifier.notify(
@@ -255,11 +295,16 @@ class ABTestHandlersMixin(BaseP2PHandler):
             if not test_id:
                 return web.json_response({"error": "Missing test_id parameter"}, status=400)
 
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM ab_tests WHERE test_id = ?", (test_id,))
-            row = cursor.fetchone()
-            conn.close()
+            def _get_test_data(db_path: str, tid: str) -> tuple[Any, ...] | None:
+                """Fetch test data - runs in thread pool."""
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM ab_tests WHERE test_id = ?", (tid,))
+                row = cursor.fetchone()
+                conn.close()
+                return row
+
+            row = await asyncio.to_thread(_get_test_data, str(self.db_path), test_id)
 
             if not row:
                 return web.json_response({"error": f"Test {test_id} not found"}, status=404)
@@ -300,24 +345,29 @@ class ABTestHandlersMixin(BaseP2PHandler):
             status_filter = request.query.get("status")
             limit = int(request.query.get("limit", "50"))
 
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            def _list_tests(
+                db_path: str, status: str | None, lim: int
+            ) -> list[tuple[Any, ...]]:
+                """Fetch test list - runs in thread pool."""
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                if status:
+                    cursor.execute(
+                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                        "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                        (status, lim),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                        "FROM ab_tests ORDER BY created_at DESC LIMIT ?",
+                        (lim,),
+                    )
+                rows = cursor.fetchall()
+                conn.close()
+                return rows
 
-            if status_filter:
-                cursor.execute(
-                    "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                    "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT ?",
-                    (status_filter, limit)
-                )
-            else:
-                cursor.execute(
-                    "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                    "FROM ab_tests ORDER BY created_at DESC LIMIT ?",
-                    (limit,)
-                )
-
-            rows = cursor.fetchall()
-            conn.close()
+            rows = await asyncio.to_thread(_list_tests, str(self.db_path), status_filter, limit)
 
             tests = []
             for row in rows:
@@ -357,25 +407,40 @@ class ABTestHandlersMixin(BaseP2PHandler):
             if not test_id:
                 return web.json_response({"error": "Missing test_id"}, status=400)
 
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute("SELECT status FROM ab_tests WHERE test_id = ?", (test_id,))
-            row = cursor.fetchone()
+            def _cancel_test(db_path: str, tid: str) -> tuple[str | None, str | None]:
+                """Cancel test if running - runs in thread pool.
 
-            if not row:
+                Returns:
+                    (error_msg, old_status) - error_msg is None on success
+                """
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT status FROM ab_tests WHERE test_id = ?", (tid,))
+                row = cursor.fetchone()
+
+                if not row:
+                    conn.close()
+                    return f"Test {tid} not found", None
+
+                old_status = row[0]
+                if old_status != "running":
+                    conn.close()
+                    return f"Test {tid} is already {old_status}", old_status
+
+                cursor.execute(
+                    "UPDATE ab_tests SET status = 'cancelled', completed_at = ? WHERE test_id = ?",
+                    (time.time(), tid),
+                )
+                conn.commit()
                 conn.close()
-                return web.json_response({"error": f"Test {test_id} not found"}, status=404)
+                return None, old_status
 
-            if row[0] != "running":
-                conn.close()
-                return web.json_response({"error": f"Test {test_id} is already {row[0]}"}, status=400)
+            error_msg, old_status = await asyncio.to_thread(_cancel_test, str(self.db_path), test_id)
 
-            cursor.execute(
-                "UPDATE ab_tests SET status = 'cancelled', completed_at = ? WHERE test_id = ?",
-                (time.time(), test_id)
-            )
-            conn.commit()
-            conn.close()
+            if error_msg:
+                if "not found" in error_msg:
+                    return web.json_response({"error": error_msg}, status=404)
+                return web.json_response({"error": error_msg}, status=400)
 
             return web.json_response({"test_id": test_id, "status": "cancelled"})
         except Exception as e:  # noqa: BLE001
@@ -398,16 +463,22 @@ class ABTestHandlersMixin(BaseP2PHandler):
             if not test_id:
                 return web.json_response({"error": "Missing test_id"}, status=400)
 
-            # Get test info
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT board_type, num_players, model_a, model_b, target_games, status "
-                "FROM ab_tests WHERE test_id = ?",
-                (test_id,)
-            )
-            row = cursor.fetchone()
-            conn.close()
+            def _get_test_info(
+                db_path: str, tid: str
+            ) -> tuple[Any, ...] | None:
+                """Fetch test info - runs in thread pool."""
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT board_type, num_players, model_a, model_b, target_games, status "
+                    "FROM ab_tests WHERE test_id = ?",
+                    (tid,),
+                )
+                row = cursor.fetchone()
+                conn.close()
+                return row
+
+            row = await asyncio.to_thread(_get_test_info, str(self.db_path), test_id)
 
             if not row:
                 return web.json_response({"error": f"Test {test_id} not found"}, status=404)

@@ -20,6 +20,7 @@ Table Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -98,25 +99,31 @@ class TableHandlersMixin(BaseP2PHandler):
         if not db_path.exists():
             return web.json_response([])
 
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        def _fetch_elo_data() -> list[tuple[Any, ...]]:
+            """Blocking SQLite query - runs in thread pool."""
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
 
-        query = """
-            SELECT model_id, rating, games_played, wins, losses
-            FROM elo_ratings
-            WHERE games_played >= 10
-        """
-        params: list[Any] = []
+            query = """
+                SELECT model_id, rating, games_played, wins, losses
+                FROM elo_ratings
+                WHERE games_played >= 10
+            """
+            params: list[Any] = []
 
-        if nn_only:
-            query += " AND (model_id LIKE '%nn%' OR model_id LIKE '%NN%' OR model_id LIKE '%baseline%')"
+            if nn_only:
+                query += " AND (model_id LIKE '%nn%' OR model_id LIKE '%NN%' OR model_id LIKE '%baseline%')"
 
-        query += " ORDER BY rating DESC LIMIT ?"
-        params.append(limit)
+            query += " ORDER BY rating DESC LIMIT ?"
+            params.append(limit)
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            conn.close()
+            return rows
+
+        # Run blocking SQLite in thread pool to avoid blocking event loop
+        rows = await asyncio.to_thread(_fetch_elo_data)
 
         table_data = []
         for rank, row in enumerate(rows, 1):
@@ -166,45 +173,51 @@ class TableHandlersMixin(BaseP2PHandler):
         if not ELO_DB_PATH or not ELO_DB_PATH.exists():
             return web.json_response([])
 
-        db = init_elo_database()
-        conn = db._get_connection()
-        cursor = conn.cursor()
+        def _fetch_tournament_data() -> list[tuple[Any, ...]]:
+            """Blocking SQLite query - runs in thread pool."""
+            db = init_elo_database()
+            conn = db._get_connection()
+            cursor = conn.cursor()
 
-        id_col = db.id_column
+            id_col = db.id_column
 
-        query = f"""
-            SELECT
-                {id_col},
-                board_type,
-                num_players,
-                rating,
-                games_played,
-                wins,
-                losses,
-                draws,
-                last_update
-            FROM elo_ratings
-            WHERE games_played >= 5
-        """
-        params: list[Any] = []
+            query = f"""
+                SELECT
+                    {id_col},
+                    board_type,
+                    num_players,
+                    rating,
+                    games_played,
+                    wins,
+                    losses,
+                    draws,
+                    last_update
+                FROM elo_ratings
+                WHERE games_played >= 5
+            """
+            params: list[Any] = []
 
-        if board_type_filter:
-            query += " AND board_type = ?"
-            params.append(board_type_filter)
+            if board_type_filter:
+                query += " AND board_type = ?"
+                params.append(board_type_filter)
 
-        if num_players_filter:
-            query += " AND num_players = ?"
-            params.append(int(num_players_filter))
+            if num_players_filter:
+                query += " AND num_players = ?"
+                params.append(int(num_players_filter))
 
-        if nn_only:
-            query += f" AND ({id_col} LIKE '%NN%' OR {id_col} LIKE '%nn%')"
+            if nn_only:
+                query += f" AND ({id_col} LIKE '%NN%' OR {id_col} LIKE '%nn%')"
 
-        query += " ORDER BY rating DESC LIMIT ?"
-        params.append(limit)
+            query += " ORDER BY rating DESC LIMIT ?"
+            params.append(limit)
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        db.close()
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            db.close()
+            return rows
+
+        # Run blocking SQLite in thread pool to avoid blocking event loop
+        rows = await asyncio.to_thread(_fetch_tournament_data)
 
         table_data = []
         for rank, row in enumerate(rows, 1):
@@ -421,23 +434,28 @@ class TableHandlersMixin(BaseP2PHandler):
         try:
             status_filter = request.query.get("status")
 
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            def _fetch_abtest_rows(
+                db_path: str, status: str | None
+            ) -> list[tuple[Any, ...]]:
+                """Fetch A/B test rows - runs in thread pool."""
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                if status:
+                    cursor.execute(
+                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                        "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT 100",
+                        (status,),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                        "FROM ab_tests ORDER BY created_at DESC LIMIT 100"
+                    )
+                rows = cursor.fetchall()
+                conn.close()
+                return rows
 
-            if status_filter:
-                cursor.execute(
-                    "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                    "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT 100",
-                    (status_filter,)
-                )
-            else:
-                cursor.execute(
-                    "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                    "FROM ab_tests ORDER BY created_at DESC LIMIT 100"
-                )
-
-            rows = cursor.fetchall()
-            conn.close()
+            rows = await asyncio.to_thread(_fetch_abtest_rows, str(self.db_path), status_filter)
 
             table_data = []
             for row in rows:

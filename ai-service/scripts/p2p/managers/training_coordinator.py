@@ -1106,14 +1106,16 @@ class TrainingCoordinator(EventSubscriptionMixin):
 
         model_id = os.path.splitext(os.path.basename(model_path))[0]
 
-        # Get median model from ELO database
-        median_model_id = self._get_median_model(config_key)
+        # Get median model from ELO database - run blocking SQLite in thread pool
+        median_model_id = await asyncio.to_thread(self._get_median_model, config_key)
         if not median_model_id:
             logger.info(f"No median model for {config_key}, skipping gauntlet")
             return True  # Pass if no baseline to compare against
 
-        # Get model path for median model
-        median_model_path = self._get_model_path_from_participant(median_model_id, config_key)
+        # Get model path for median model - run blocking SQLite in thread pool
+        median_model_path = await asyncio.to_thread(
+            self._get_model_path_from_participant, median_model_id, config_key
+        )
         if not median_model_path or not os.path.exists(median_model_path):
             logger.info(f"Median model path not found for {median_model_id}, skipping gauntlet")
             return True
@@ -1261,21 +1263,34 @@ class TrainingCoordinator(EventSubscriptionMixin):
             logger.error(f"moving model to archive: {e}")
             return
 
-        # Update ELO database to mark as archived
+        # Update ELO database to mark as archived - run blocking SQLite in thread pool
         model_id = os.path.splitext(model_name)[0]
         elo_db_path = self.ringrift_path / "ai-service" / "data" / "unified_elo.db"
 
         if elo_db_path.exists():
-            try:
-                conn = sqlite3.connect(str(elo_db_path))
+            def _update_archived_status(
+                db_path: str, mid: str, bt: str, np: int, rsn: str
+            ) -> None:
+                """Update archived status - runs in thread pool."""
+                conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE elo_ratings
                     SET archived_at = ?, archive_reason = ?
                     WHERE participant_id = ? AND board_type = ? AND num_players = ?
-                """, (time.time(), reason, model_id, board_type, num_players))
+                """, (time.time(), rsn, mid, bt, np))
                 conn.commit()
                 conn.close()
+
+            try:
+                await asyncio.to_thread(
+                    _update_archived_status,
+                    str(elo_db_path),
+                    model_id,
+                    board_type,
+                    num_players,
+                    reason,
+                )
             except Exception as e:
                 logger.error(f"updating ELO database for archived model: {e}")
 
