@@ -2,7 +2,7 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 3, 2026 (Sprint 16)
+**Last Updated**: January 4, 2026 (Sprint 16.3)
 
 ## Infrastructure Health Status (Verified Jan 3, 2026)
 
@@ -1329,6 +1329,15 @@ These architectural improvements prevent recurring issues:
 ## Cluster Resilience Architecture (Session 16 - Jan 2026)
 
 4-layer architecture for automatic recovery from coordinator failures. Prevents 4+ hour outages caused by memory exhaustion.
+
+**Integration Status (Jan 4, 2026): ✅ BOOTSTRAPPED**
+
+All Session 16 resilience components are now integrated into `coordination_bootstrap.py`:
+
+- MemoryPressureController starts automatically during bootstrap
+- StandbyCoordinator starts automatically during bootstrap
+- ClusterResilienceOrchestrator starts automatically during bootstrap
+- Emergency callback wired: memory EMERGENCY tier → standby coordinator handoff
 
 **Architecture:**
 
