@@ -715,6 +715,10 @@ class WorkerPullConfig:
     default_max_selfplay_slots: int = 8
     min_available_slots_to_claim: int = 1
 
+    # Jan 4, 2026: Autonomous queue fallback (Phase 2 P2P Resilience)
+    # When enabled, workers will try autonomous queue when leader is unavailable
+    enable_autonomous_fallback: bool = True
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
         if self.pull_interval_seconds <= 0:
@@ -759,6 +763,7 @@ class WorkerPullLoop(BaseLoop):
         execute_work: Callable[[dict[str, Any]], Coroutine[Any, Any, bool]],
         report_work_result: Callable[[dict[str, Any], bool], Coroutine[Any, Any, None]],
         get_allowed_work_types: Callable[[], list[str]] | None = None,
+        pop_autonomous_work: Callable[[], Coroutine[Any, Any, dict[str, Any] | None]] | None = None,
         config: WorkerPullConfig | None = None,
     ):
         """Initialize worker pull loop.
@@ -771,6 +776,7 @@ class WorkerPullLoop(BaseLoop):
             execute_work: Async callback to execute claimed work
             report_work_result: Async callback to report work completion/failure
             get_allowed_work_types: Optional callback returning allowed work types
+            pop_autonomous_work: Optional async callback to get work from autonomous queue (Phase 2)
             config: Loop configuration
         """
         self.config = config or WorkerPullConfig()
@@ -785,6 +791,7 @@ class WorkerPullLoop(BaseLoop):
         self._execute_work = execute_work
         self._report_result = report_work_result
         self._get_allowed_work_types = get_allowed_work_types
+        self._pop_autonomous_work = pop_autonomous_work
 
         # Statistics
         self._work_claimed = 0
@@ -792,6 +799,7 @@ class WorkerPullLoop(BaseLoop):
         self._work_failed = 0
         self._skipped_leader = 0
         self._skipped_busy = 0
+        self._autonomous_work_claimed = 0  # Jan 4, 2026: Track autonomous queue usage
 
     async def _on_start(self) -> None:
         """Initial delay for cluster stabilization."""
@@ -800,16 +808,23 @@ class WorkerPullLoop(BaseLoop):
         logger.info("Worker pull loop started")
 
     async def _run_once(self) -> None:
-        """Check if idle and pull work from leader."""
+        """Check if idle and pull work from leader or autonomous queue."""
         # Skip if we are the leader (leader pushes, doesn't pull)
         if self._is_leader():
             self._skipped_leader += 1
             return
 
-        # Skip if no leader known
+        # Check if leader is available
         leader_id = self._get_leader_id()
+        use_autonomous_fallback = False
+
         if not leader_id:
-            return
+            # Jan 4, 2026: No leader - try autonomous queue fallback
+            if self.config.enable_autonomous_fallback and self._pop_autonomous_work:
+                use_autonomous_fallback = True
+                logger.debug("[WorkerPull] No leader, trying autonomous queue fallback")
+            else:
+                return  # No fallback available
 
         # Check if we're idle enough to take on work
         metrics = self._get_self_metrics()
@@ -868,13 +883,38 @@ class WorkerPullLoop(BaseLoop):
             except (RuntimeError, ValueError, TypeError, AttributeError):
                 pass  # Use default capabilities on callback failure
 
-        # Try to claim work from the leader
-        work_item = await self._claim_work(capabilities)
+        # Try to get work from appropriate source
+        work_item: dict[str, Any] | None = None
+        work_source = "leader"
+
+        if use_autonomous_fallback:
+            # Jan 4, 2026: Use autonomous queue when leader unavailable
+            try:
+                work_item = await self._pop_autonomous_work()
+                if work_item:
+                    work_source = "autonomous"
+                    self._autonomous_work_claimed += 1
+            except Exception as e:
+                logger.debug(f"[WorkerPull] Autonomous queue error: {e}")
+        else:
+            # Normal path: claim from leader
+            work_item = await self._claim_work(capabilities)
+            if work_item:
+                self._work_claimed += 1
+            elif self.config.enable_autonomous_fallback and self._pop_autonomous_work:
+                # Jan 4, 2026: Leader available but no work - try autonomous fallback
+                try:
+                    work_item = await self._pop_autonomous_work()
+                    if work_item:
+                        work_source = "autonomous"
+                        self._autonomous_work_claimed += 1
+                except Exception as e:
+                    logger.debug(f"[WorkerPull] Autonomous fallback error: {e}")
+
         if work_item:
-            self._work_claimed += 1
             work_id = work_item.get("work_id", "unknown")
             work_type = work_item.get("work_type", "unknown")
-            logger.info(f"[WorkerPull] Claimed work {work_id}: {work_type}")
+            logger.info(f"[WorkerPull] Claimed work {work_id}: {work_type} (source: {work_source})")
 
             # Execute the work
             try:
@@ -884,12 +924,14 @@ class WorkerPullLoop(BaseLoop):
                 else:
                     self._work_failed += 1
 
-                # Report completion/failure
-                await self._report_result(work_item, success)
+                # Report completion/failure (only to leader if we have one)
+                if work_source == "leader" or leader_id:
+                    await self._report_result(work_item, success)
             except Exception as e:
                 self._work_failed += 1
                 logger.error(f"[WorkerPull] Error executing work {work_id}: {e}")
-                await self._report_result(work_item, False)
+                if work_source == "leader" or leader_id:
+                    await self._report_result(work_item, False)
 
     def get_pull_stats(self) -> dict[str, Any]:
         """Get worker pull statistics."""
@@ -899,6 +941,7 @@ class WorkerPullLoop(BaseLoop):
             "work_failed": self._work_failed,
             "skipped_leader": self._skipped_leader,
             "skipped_busy": self._skipped_busy,
+            "autonomous_work_claimed": self._autonomous_work_claimed,  # Jan 4, 2026
             **self.stats.to_dict(),
         }
 

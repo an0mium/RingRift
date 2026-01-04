@@ -1108,6 +1108,8 @@ class TrainingLockWithHeartbeat:
             # Send heartbeat
             if self._lock.heartbeat():
                 logger.debug(f"Training lock heartbeat: {self.config_key}")
+                # January 4, 2026: Emit heartbeat event for TrainingWatchdogDaemon
+                self._emit_heartbeat_event()
             else:
                 logger.warning(f"Training lock heartbeat failed: {self.config_key}")
                 self._emit_timeout_event("heartbeat_failed")
@@ -1133,6 +1135,30 @@ class TrainingLockWithHeartbeat:
             )
         except (ImportError, Exception) as e:
             logger.debug(f"Could not emit TRAINING_LOCK_TIMEOUT: {e}")
+
+    def _emit_heartbeat_event(self) -> None:
+        """Emit TRAINING_HEARTBEAT event for watchdog monitoring.
+
+        January 4, 2026: Enables TrainingWatchdogDaemon to track process liveness.
+        """
+        try:
+            import os
+            import socket
+
+            from app.distributed.data_events import DataEventType, get_event_bus
+
+            get_event_bus().emit(
+                DataEventType.TRAINING_HEARTBEAT,
+                {
+                    "config_key": self.config_key,
+                    "pid": os.getpid(),
+                    "node_id": socket.gethostname(),
+                    "timestamp": time.time(),
+                    "hold_time_seconds": time.time() - (self._lock_acquired_time or time.time()),
+                },
+            )
+        except (ImportError, Exception) as e:
+            logger.debug(f"Could not emit TRAINING_HEARTBEAT: {e}")
 
     def __enter__(self) -> "TrainingLockWithHeartbeat":
         """Context manager entry."""

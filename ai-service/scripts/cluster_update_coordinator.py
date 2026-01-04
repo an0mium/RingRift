@@ -717,6 +717,7 @@ class QuorumSafeUpdateCoordinator:
                 success=False,
                 batches_updated=0,
                 error_message="Cannot update: quorum already lost",
+                duration_seconds=time.time() - start_time,
             )
 
         if health.quorum_level == QuorumHealthLevel.MINIMUM:
@@ -740,6 +741,7 @@ class QuorumSafeUpdateCoordinator:
                 success=True,
                 batches_updated=0,
                 error_message="No nodes to update",
+                duration_seconds=time.time() - start_time,
             )
 
         logger.info(f"Calculated {len(batches)} batches:")
@@ -787,6 +789,8 @@ class QuorumSafeUpdateCoordinator:
                 result.rollback_performed = True
                 result.success = False
                 result.error_message = f"Batch {batch_num+1} failed to converge"
+                result.failed_batch = batch_num + 1
+                result.duration_seconds = time.time() - start_time
                 return result
 
             # Verify quorum still healthy
@@ -797,6 +801,8 @@ class QuorumSafeUpdateCoordinator:
                 result.rollback_performed = True
                 result.success = False
                 result.error_message = f"Quorum lost after batch {batch_num+1}"
+                result.failed_batch = batch_num + 1
+                result.duration_seconds = time.time() - start_time
                 return result
 
             result.batches_updated += 1
@@ -806,6 +812,7 @@ class QuorumSafeUpdateCoordinator:
                 logger.info(f"  Waiting {self.voter_update_delay}s before next voter...")
                 await asyncio.sleep(self.voter_update_delay)
 
+        result.duration_seconds = time.time() - start_time
         logger.info(f"\nUpdate complete: {len(result.nodes_updated)} updated, "
                    f"{len(result.nodes_failed)} failed, "
                    f"{len(result.nodes_skipped)} skipped")

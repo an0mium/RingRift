@@ -122,6 +122,8 @@ class DataEventType(Enum):
     TRAINING_FAILED = "training_failed"
     TRAINING_LOCK_ACQUIRED = "training_lock_acquired"  # Dec 30, 2025: Training lock acquired for config
     TRAINING_LOCK_TIMEOUT = "training_lock_timeout"  # Jan 4, 2026: Training lock auto-released due to TTL expiry
+    TRAINING_PROCESS_KILLED = "training_process_killed"  # Jan 4, 2026: Stuck training process killed by watchdog
+    TRAINING_HEARTBEAT = "training_heartbeat"  # Jan 4, 2026: Training process heartbeat for watchdog monitoring
     TRAINING_SLOT_UNAVAILABLE = "training_slot_unavailable"  # Dec 30, 2025: Training slot not available
     TRAINING_TIMEOUT_REACHED = "training_timeout_reached"  # Jan 3, 2026: Training exceeded time limit
     TRAINING_DATA_RECOVERED = "training_data_recovered"  # Jan 3, 2026 Sprint 13.3: NPZ re-exported after corruption
@@ -358,6 +360,21 @@ class DataEventType(Enum):
     # Jan 2026: Work queue stall detection for autonomous operation
     WORK_QUEUE_STALLED = "work_queue_stalled"  # No work dispatched for extended period
     WORK_QUEUE_RECOVERED = "work_queue_recovered"  # Work dispatch resumed after stall
+    WORK_QUEUE_EXHAUSTED = "work_queue_exhausted"  # Jan 4, 2026: Work queue completely empty
+
+    # Jan 4, 2026: Autonomous queue fallback (Phase 2 - P2P resilience)
+    AUTONOMOUS_QUEUE_ACTIVATED = "autonomous_queue_activated"  # Fallback mode enabled
+    AUTONOMOUS_QUEUE_DEACTIVATED = "autonomous_queue_deactivated"  # Normal mode restored
+
+    # Jan 4, 2026: Underutilization recovery (Phase 3 - P2P resilience)
+    UTILIZATION_RECOVERY_STARTED = "utilization_recovery_started"  # Work injection started
+    UTILIZATION_RECOVERY_COMPLETED = "utilization_recovery_completed"  # Work injection completed
+    UTILIZATION_RECOVERY_FAILED = "utilization_recovery_failed"  # Work injection failed
+
+    # Jan 4, 2026: Fast failure detection (Phase 4 - P2P resilience)
+    FAST_FAILURE_ALERT = "fast_failure_alert"  # 10-minute failure detected
+    FAST_FAILURE_RECOVERY = "fast_failure_recovery"  # 30-minute escalation triggered
+    FAST_FAILURE_RECOVERED = "fast_failure_recovered"  # Cluster returned to healthy state
 
     # Cluster status events
     CLUSTER_STATUS_CHANGED = "cluster_status_changed"

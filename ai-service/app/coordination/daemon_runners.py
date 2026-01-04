@@ -672,6 +672,15 @@ RUNNER_SPECS: dict[str, RunnerSpec] = {
         factory_func="get_underutilization_handler",
         notes="Jan 4, 2026: Phase 3 P2P Resilience - work injection on underutilization",
     ),
+    # --- Fast Failure Detector (January 4, 2026 - Phase 4 P2P Resilience) ---
+    # Tiered failure detection: 5min warning → 10min alert → 30min recovery.
+    "fast_failure_detector": RunnerSpec(
+        module="app.coordination.fast_failure_detector",
+        class_name="FastFailureDetector",
+        style=InstantiationStyle.FACTORY,
+        factory_func="get_fast_failure_detector",
+        notes="Jan 4, 2026: Phase 4 P2P Resilience - 5-10 minute failure detection",
+    ),
     "tailscale_health": RunnerSpec(
         module="app.coordination.tailscale_health_daemon",
         class_name="TailscaleHealthDaemon",
@@ -3006,6 +3015,29 @@ async def create_underutilization_recovery() -> None:
         raise
 
 
+async def create_fast_failure_detector() -> None:
+    """Create and run FastFailureDetector.
+
+    January 4, 2026: Phase 4 of P2P Cluster Resilience plan.
+
+    Detects cluster-wide failures within 5-10 minutes using tiered escalation:
+    - Tier 1 (5 min): Warning log
+    - Tier 2 (10 min): Emit FAST_FAILURE_ALERT, boost selfplay 1.5x
+    - Tier 3 (30 min): Emit FAST_FAILURE_RECOVERY, boost selfplay 2x
+
+    Emits: FAST_FAILURE_ALERT, FAST_FAILURE_RECOVERY, FAST_FAILURE_RECOVERED
+    """
+    try:
+        from app.coordination.fast_failure_detector import get_fast_failure_detector
+
+        detector = get_fast_failure_detector()
+        await detector.start()
+        await _wait_for_daemon(detector)
+    except ImportError as e:
+        logger.error(f"FastFailureDetector not available: {e}")
+        raise
+
+
 async def create_tailscale_health() -> None:
     """Create and run TailscaleHealthDaemon.
 
@@ -3237,6 +3269,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.SOCKET_LEAK_RECOVERY.name: create_socket_leak_recovery,
         DaemonType.STALE_FALLBACK.name: create_stale_fallback,
         DaemonType.UNDERUTILIZATION_RECOVERY.name: create_underutilization_recovery,  # Jan 4, 2026: Phase 3 P2P Resilience
+        DaemonType.FAST_FAILURE_DETECTOR.name: create_fast_failure_detector,  # Jan 4, 2026: Phase 4 P2P Resilience
         # Tailscale health monitoring (December 29, 2025)
         DaemonType.TAILSCALE_HEALTH.name: create_tailscale_health,
         # Connectivity recovery coordinator (December 29, 2025)

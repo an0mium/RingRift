@@ -131,6 +131,10 @@ class DaemonType(Enum):
     # Training data recovery (January 2026 Sprint 13.3) - auto-recover from NPZ corruption
     TRAINING_DATA_RECOVERY = "training_data_recovery"
 
+    # Training watchdog (January 2026 Sprint 17) - monitors training processes for stalls
+    # Kills stale processes that haven't sent heartbeats and releases their locks
+    TRAINING_WATCHDOG = "training_watchdog"
+
     # OWC external drive import (December 2025) - periodic import from OWC drive on mac-studio
     # Imports training data from external archive drive for underserved configs
     OWC_IMPORT = "owc_import"
@@ -360,6 +364,8 @@ class DaemonType(Enum):
     MEMORY_MONITOR = "memory_monitor"
     SOCKET_LEAK_RECOVERY = "socket_leak_recovery"  # Jan 2026: Socket/FD leak detection and recovery
     STALE_FALLBACK = "stale_fallback"
+    UNDERUTILIZATION_RECOVERY = "underutilization_recovery"  # Jan 4, 2026: Phase 3 P2P Resilience
+    FAST_FAILURE_DETECTOR = "fast_failure_detector"  # Jan 4, 2026: Phase 4 P2P Resilience
 
     # =========================================================================
     # Connectivity Recovery (December 29, 2025)
@@ -780,7 +786,10 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.VOTER_HEALTH_MONITOR: DaemonCategory.AUTONOMOUS,
     DaemonType.MEMORY_MONITOR: DaemonCategory.AUTONOMOUS,
     DaemonType.SOCKET_LEAK_RECOVERY: DaemonCategory.AUTONOMOUS,
+    DaemonType.TRAINING_WATCHDOG: DaemonCategory.AUTONOMOUS,  # Jan 4, 2026: Sprint 17
     DaemonType.STALE_FALLBACK: DaemonCategory.AUTONOMOUS,
+    DaemonType.UNDERUTILIZATION_RECOVERY: DaemonCategory.AUTONOMOUS,  # Jan 4, 2026: Phase 3 P2P Resilience
+    DaemonType.FAST_FAILURE_DETECTOR: DaemonCategory.AUTONOMOUS,  # Jan 4, 2026: Phase 4 P2P Resilience
     DaemonType.PARITY_VALIDATION: DaemonCategory.AUTONOMOUS,
     DaemonType.ELO_PROGRESS: DaemonCategory.AUTONOMOUS,  # Dec 31, 2025: Tracks Elo improvement
     DaemonType.MAINTENANCE: DaemonCategory.AUTONOMOUS,
@@ -969,6 +978,7 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # Node watching/recovery daemons
     DaemonType.TRAINING_NODE_WATCHER: {DaemonType.EVENT_ROUTER},
     DaemonType.TRAINING_DATA_SYNC: {DaemonType.EVENT_ROUTER},  # Pre-training data sync
+    DaemonType.TRAINING_WATCHDOG: {DaemonType.EVENT_ROUTER},  # Jan 4, 2026: Sprint 17
     # OWC import daemon (December 29, 2025) - imports from OWC external drive
     # December 30, 2025: Removed DATA_PIPELINE - not needed for file import
     DaemonType.OWC_IMPORT: {DaemonType.EVENT_ROUTER},

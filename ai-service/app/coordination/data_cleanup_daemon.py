@@ -162,19 +162,6 @@ class DataCleanupDaemon(HandlerBase):
         )
 
         self.node_id = socket.gethostname()
-
-    # =========================================================================
-    # Backward Compatibility
-    # =========================================================================
-
-    @property
-    def config(self) -> CleanupConfig:
-        """Backward-compatible config access.
-
-        January 2026: HandlerBase stores config as _config, this provides
-        the old public API for tests and external callers.
-        """
-        return self._config
         self._cleanup_stats = CleanupStats()
 
         # Resolve directories
@@ -188,6 +175,19 @@ class DataCleanupDaemon(HandlerBase):
             f"delete_threshold={daemon_config.quality_threshold_delete}, "
             f"quarantine_threshold={daemon_config.quality_threshold_quarantine}"
         )
+
+    # =========================================================================
+    # Backward Compatibility
+    # =========================================================================
+
+    @property
+    def config(self) -> CleanupConfig:
+        """Backward-compatible config access.
+
+        January 2026: HandlerBase stores config as _config, this provides
+        the old public API for tests and external callers.
+        """
+        return self._config
 
     # =========================================================================
     # HandlerBase Overrides

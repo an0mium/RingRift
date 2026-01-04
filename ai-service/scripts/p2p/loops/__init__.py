@@ -151,6 +151,11 @@ from .validation_loop import (
     ValidationConfig,
     ValidationLoop,
 )
+from .autonomous_queue_loop import (
+    AutonomousQueueConfig,
+    AutonomousQueuePopulationLoop,
+    AutonomousQueueState,
+)
 
 __all__ = [
     # Base
@@ -252,4 +257,8 @@ __all__ = [
     # Validation
     "ValidationConfig",
     "ValidationLoop",
+    # Autonomous Queue (Jan 4, 2026 - Phase 2 P2P Resilience)
+    "AutonomousQueueConfig",
+    "AutonomousQueuePopulationLoop",
+    "AutonomousQueueState",
 ]

@@ -233,6 +233,9 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         # January 4, 2026: Track quorum loss state for dynamic cooldown.
         # When True, _get_effective_cooldown() returns 60s instead of 5min.
         self._quorum_lost = False
+        # January 4, 2026: Healing attempts during quorum loss for early escalation.
+        # After 2 failed healing attempts with quorum lost, skip to immediate restart.
+        self._quorum_lost_healing_attempts = 0
         # Jan 2026 Session 8: Track previous voter state for fine-grained events
         self._last_online_voters: set[str] = set()
         # Jan 3, 2026 Session 7: Partition healing coordination
@@ -598,6 +601,10 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         Jan 3, 2026 Session 9: Track consecutive healing failures. After 3+
         consecutive failures, trigger P2P restart directly instead of waiting
         for the partition healer's escalation.
+
+        January 4, 2026: Early escalation when quorum is lost. After 2 healing
+        attempts with quorum lost, skip normal escalation and restart immediately.
+        This prevents 30+ minute delays from tier-based escalation during quorum loss.
         """
         reason = event.get("reason", "unknown")
         escalation_level = event.get("escalation_level", 0)
@@ -606,13 +613,29 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         self._healing_started_time = None  # Session 9: Clear healing timeout
         self._consecutive_healing_failures += 1  # Session 9: Track consecutive failures
 
+        # January 4, 2026: Track healing attempts during quorum loss
+        if self._quorum_lost:
+            self._quorum_lost_healing_attempts += 1
+
         logger.warning(
             f"[P2PRecovery] Partition healing failed: {reason} "
             f"(escalation_level={escalation_level}, "
-            f"consecutive_failures={self._consecutive_healing_failures})"
+            f"consecutive_failures={self._consecutive_healing_failures}, "
+            f"quorum_lost={self._quorum_lost}, "
+            f"quorum_lost_healing_attempts={self._quorum_lost_healing_attempts})"
         )
 
-        # Session 9: If 3+ consecutive healing failures, trigger P2P restart directly
+        # January 4, 2026: Early escalation when quorum is lost
+        # After 2 healing attempts with quorum lost, restart immediately (skip normal escalation)
+        if self._quorum_lost and self._quorum_lost_healing_attempts >= 2:
+            logger.error(
+                f"[P2PRecovery] QUORUM LOST + {self._quorum_lost_healing_attempts} healing "
+                f"attempts failed - triggering IMMEDIATE P2P restart (early escalation)"
+            )
+            await self._restart_p2p(force=True)
+            return
+
+        # Session 9: If 3+ consecutive healing failures (normal case), trigger P2P restart
         if self._consecutive_healing_failures >= 3:
             logger.error(
                 f"[P2PRecovery] {self._consecutive_healing_failures} consecutive healing "
@@ -1282,10 +1305,11 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
                         f"Voter quorum restored: {online_count}/{total_voters} voters online "
                         f"(was at risk for {self._quorum_at_risk_consecutive} checks)"
                     )
-                    # January 4, 2026: Clear quorum loss flag to restore normal cooldown
+                    # January 4, 2026: Clear quorum loss state to restore normal behavior
                     if self._quorum_lost:
                         logger.info("Quorum restored - reverting to normal recovery cooldown")
                         self._quorum_lost = False
+                        self._quorum_lost_healing_attempts = 0  # Reset early escalation counter
                 self._quorum_at_risk_consecutive = 0
 
             return quorum_healthy, details
@@ -1874,6 +1898,8 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
             # January 4, 2026: Dynamic cooldown state
             "quorum_lost": self._quorum_lost,
             "effective_cooldown_seconds": self._get_effective_cooldown(),
+            # January 4, 2026: Early escalation counter for quorum loss
+            "quorum_lost_healing_attempts": self._quorum_lost_healing_attempts,
         }
 
         # Jan 3, 2026: HealthCoordinator integration status
@@ -1918,6 +1944,8 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
             "last_voter_quorum_check": self._last_voter_quorum_check,
             # January 4, 2026: Persist quorum loss state for faster recovery after restart
             "quorum_lost": self._quorum_lost,
+            # January 4, 2026: Early escalation counter
+            "quorum_lost_healing_attempts": self._quorum_lost_healing_attempts,
             "persisted_at": time.time(),
         }
 
@@ -1943,6 +1971,8 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         self._last_voter_quorum_check = state.get("last_voter_quorum_check", {})
         # January 4, 2026: Restore quorum loss state for continued aggressive recovery
         self._quorum_lost = state.get("quorum_lost", False)
+        # January 4, 2026: Restore early escalation counter
+        self._quorum_lost_healing_attempts = state.get("quorum_lost_healing_attempts", 0)
 
         # Log restoration summary
         persisted_at = state.get("persisted_at", 0)

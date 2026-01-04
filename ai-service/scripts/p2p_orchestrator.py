@@ -2097,6 +2097,7 @@ class P2POrchestrator(
         # Phase 4: LoopManager for extracted loops (Dec 2025)
         self._loop_manager: LoopManager | None = None
         self._loops_registered = False
+        self._autonomous_queue_loop = None  # Jan 4, 2026: Phase 2 P2P Resilience
 
         # December 27, 2025: Validate manager health at startup
         # This catches initialization issues early rather than at first use
@@ -2552,6 +2553,18 @@ class P2POrchestrator(
 
             try:
                 from scripts.p2p.loops import WorkerPullLoop
+
+                # Jan 4, 2026: Autonomous queue fallback (Phase 2 P2P Resilience)
+                async def _pop_autonomous_work_for_pull() -> dict[str, Any] | None:
+                    """Get work from autonomous queue when leader unavailable."""
+                    loop = getattr(self, "_autonomous_queue_loop", None)
+                    if loop and hasattr(loop, "pop_local_work"):
+                        try:
+                            return await loop.pop_local_work()
+                        except Exception as e:
+                            logger.debug(f"[WorkerPull] Autonomous queue pop failed: {e}")
+                    return None
+
                 worker_pull = WorkerPullLoop(
                     is_leader=lambda: self.role == NodeRole.LEADER,
                     get_leader_id=lambda: self.leader_id,
@@ -2559,9 +2572,10 @@ class P2POrchestrator(
                     claim_work_from_leader=self._claim_work_from_leader,
                     execute_work=self._execute_claimed_work,
                     report_work_result=self._report_work_result,
+                    pop_autonomous_work=_pop_autonomous_work_for_pull,
                 )
                 manager.register(worker_pull)
-                logger.info("[LoopManager] WorkerPullLoop registered successfully")
+                logger.info("[LoopManager] WorkerPullLoop registered (with autonomous fallback)")
             except (ImportError, TypeError) as e:
                 logger.error(f"[LoopManager] WorkerPullLoop registration FAILED: {e}")
                 logger.error("[LoopManager] This node will NOT claim work from leader!")
@@ -3089,6 +3103,26 @@ class P2POrchestrator(
                 logger.info("[P2P] SplitBrainDetectionLoop registered (partition detection)")
             except (ImportError, TypeError) as e:
                 logger.debug(f"SplitBrainDetectionLoop: not available: {e}")
+
+            # AutonomousQueuePopulationLoop - January 4, 2026 (Phase 2 P2P Resilience)
+            # Fallback queue population when leader is unavailable or queue is starved.
+            # Runs on ALL nodes, activates when:
+            # - No leader for >5 minutes, OR
+            # - Queue depth <10 for >2 minutes
+            try:
+                from scripts.p2p.loops import AutonomousQueuePopulationLoop
+
+                autonomous_queue = AutonomousQueuePopulationLoop(
+                    orchestrator=self,
+                    config=None,  # Uses env-based config
+                )
+                manager.register(autonomous_queue)
+                # Store reference for worker pull loop integration
+                self._autonomous_queue_loop = autonomous_queue
+                logger.info("[P2P] AutonomousQueuePopulationLoop registered (fallback queue population)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"AutonomousQueuePopulationLoop: not available: {e}")
+                self._autonomous_queue_loop = None
 
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
