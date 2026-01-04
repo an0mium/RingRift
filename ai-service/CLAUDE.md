@@ -10,7 +10,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | -------------------- | --------- | ---------------------------------------------------------------- |
 | **P2P Network**      | GREEN     | A- (91/100), 211+ health_check(), 9 recovery daemons, <2.5m MTTR |
 | **Training Loop**    | GREEN     | A+ (96/100), 5/5 feedback loops wired, 6/6 pipeline stages       |
-| **Code Quality**     | GREEN     | 99% consolidated, 327 coordination modules, 63+ HandlerBase      |
+| **Code Quality**     | GREEN     | 99% consolidated, 276 coordination modules, 63+ HandlerBase      |
 | **Leader Election**  | WORKING   | Bully algorithm with voter quorum, split-brain detection         |
 | **Work Queue**       | HEALTHY   | 28 alive peers, quorum OK, nebius-backbone-1 as leader           |
 | **Model Evaluation** | AUTOMATED | OWC import + unevaluated scan + stale re-eval pipeline           |
@@ -327,8 +327,8 @@ Targeted improvements based on comprehensive assessment:
 | --------------------- | ----- | ------- | -------------------------------------------------------------- |
 | P2P Network           | A-    | 91/100  | 32+ health mechanisms, 7 recovery daemons, 28+ alive peers     |
 | Training Loop         | A     | 100/100 | All feedback loops wired, 7/7 pipeline stages complete         |
-| Health Check Coverage | -     | 53%     | 162/306 coordination, 31 P2P modules with health_check()       |
-| Test Coverage         | 99%+  | -       | 1,044 test files for 306 coordination modules                  |
+| Health Check Coverage | -     | 59%     | 162/276 coordination, 31 P2P modules with health_check()       |
+| Test Coverage         | 99%+  | -       | 1,044 test files for 276 coordination modules                  |
 | Consolidation         | -     | 99%     | Deprecated modules archived, retry/event patterns consolidated |
 | Daemon Types          | -     | 112     | DaemonType enum (106 active, 6 deprecated)                     |
 | Event Types           | -     | 292     | DataEventType enum verified                                    |
@@ -559,7 +559,7 @@ IMPORTANT: Exploration agents reported gaps that were **already implemented**:
   - Triggers connection pool cleanup when critical thresholds reached
   - Emits `SOCKET_LEAK_DETECTED`, `SOCKET_LEAK_RECOVERED`, `P2P_CONNECTION_RESET_REQUESTED` events
   - Part of 48-hour autonomous operation (with MEMORY_MONITOR)
-- **HandlerBase adoption verified**: 31/61 daemon files (51%), 79/298 coordination modules (26.5%)
+- **HandlerBase adoption verified**: 31/61 daemon files (51%), 79/276 coordination modules (28.6%)
 - **Comprehensive P2P assessment**: 31 health mechanisms, 10 circuit breaker types, 6 recovery daemons verified
 - **Training loop assessment**: 7/7 pipeline stages, 5/5 feedback loops, 512 event emissions, 1,806 subscriptions
 - **Sprint 12 P1 improvements all complete**:
@@ -577,7 +577,7 @@ IMPORTANT: Exploration agents reported gaps that were **already implemented**:
   - Both return `HealthCheckResult` for DaemonManager integration
   - S3PushDaemon reports AWS credentials status, error rate, push stats
   - ReservationManager reports gauntlet/training reservation counts
-- **HandlerBase adoption increased**: 14.2% → 26.5% (79/298 coordination modules)
+- **HandlerBase adoption increased**: 14.2% → 28.6% (79/276 coordination modules)
 - **Documentation updated**: CLAUDE.md module counts and Sprint 12.2-12.4 status
 
 **Key Improvements (Jan 3, 2026 - Sprint 12 Session 8 Continued):**
@@ -746,7 +746,7 @@ python scripts/update_all_nodes.py --restart-p2p
 - `get_config_version()` - Get ConfigVersion for gossip state sync
 - Avoids repeated YAML parsing across modules
 
-### Coordination Infrastructure (306 modules, 235K LOC)
+### Coordination Infrastructure (276 modules, 235K LOC)
 
 | Module                                 | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
@@ -1940,7 +1940,7 @@ Comprehensive exploration using 4 parallel agents identified the following:
 | Event chains                     | ✅ Complete | All critical flows wired                                |
 | Feedback loops                   | ✅ Complete | Quality, Elo, curriculum connected                      |
 | Loss anomaly → exploration boost | ✅ Complete | feedback_loop_controller.py:1048                        |
-| 298 coordination modules         | ✅ Active   | 235K+ LOC                                               |
+| 276 coordination modules         | ✅ Active   | 235K+ LOC                                               |
 | NPZ_COMBINATION_COMPLETE         | ✅ Wired    | training_trigger_daemon.py:446,640 → \_maybe_trigger()  |
 | TRAINING_BLOCKED_BY_QUALITY      | ✅ Wired    | 4+ subscribers (training_trigger, selfplay_scheduler)   |
 | EVALUATION_COMPLETED → Scheduler | ✅ Wired    | Via ELO_UPDATED at selfplay_scheduler.py:2221           |
