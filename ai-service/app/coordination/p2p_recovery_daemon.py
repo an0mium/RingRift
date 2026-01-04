@@ -210,6 +210,8 @@ class P2PRecoveryDaemon(HandlerBase):
         self._last_voter_quorum_check: dict[str, Any] = {}
         self._quorum_at_risk_consecutive = 0  # Consecutive checks with quorum at risk
         self._quorum_recovery_triggered = 0  # Total proactive recoveries triggered
+        # Jan 2026 Session 8: Track previous voter state for fine-grained events
+        self._last_online_voters: set[str] = set()
         # Jan 3, 2026 Session 7: Partition healing coordination
         self._healing_in_progress = False  # Pause restarts during healing
         self._recovery_attempts = 0  # Total P2P recovery attempts
@@ -365,6 +367,49 @@ class P2PRecoveryDaemon(HandlerBase):
         voter_id = event.get("voter_id", "unknown")
         reason = event.get("reason", "unknown")
         logger.warning(f"Voter {voter_id} went offline: {reason}")
+
+    async def _emit_voter_state_changes(self, current_online_voters: set[str]) -> None:
+        """Emit fine-grained VOTER_ONLINE/VOTER_OFFLINE events for state changes.
+
+        Jan 2026 Session 8: Compares current online voters with previous state
+        and emits individual events for each voter that changed state.
+
+        Args:
+            current_online_voters: Set of currently online voter IDs
+        """
+        if not current_online_voters and not self._last_online_voters:
+            return  # Nothing to compare yet
+
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            # Find voters that went offline (were online, now not)
+            newly_offline = self._last_online_voters - current_online_voters
+            for voter_id in newly_offline:
+                logger.info(f"[VoterEvents] Voter {voter_id} went offline")
+                emit_data_event(
+                    DataEventType.VOTER_OFFLINE,
+                    voter_id=voter_id,
+                    reason="quorum_check",
+                    source="P2PRecoveryDaemon",
+                )
+
+            # Find voters that came online (were offline, now online)
+            newly_online = current_online_voters - self._last_online_voters
+            for voter_id in newly_online:
+                logger.info(f"[VoterEvents] Voter {voter_id} came online")
+                emit_data_event(
+                    DataEventType.VOTER_ONLINE,
+                    voter_id=voter_id,
+                    reason="quorum_check",
+                    source="P2PRecoveryDaemon",
+                )
+
+        except Exception as e:
+            logger.debug(f"Failed to emit voter state change events: {e}")
+        finally:
+            # Update tracked state for next comparison
+            self._last_online_voters = current_online_voters.copy()
 
     async def _on_p2p_recovery_needed(self, event: Any) -> None:
         """Handle P2P_RECOVERY_NEEDED event - max escalation reached in partition healing.
@@ -751,6 +796,9 @@ class P2PRecoveryDaemon(HandlerBase):
             }
 
             self._last_voter_quorum_check = details
+
+            # Jan 2026 Session 8: Emit fine-grained voter events for state changes
+            await self._emit_voter_state_changes(online_voters)
 
             # Check if quorum is at risk (< min_voters_for_healthy_quorum)
             quorum_healthy = online_count >= self._daemon_config.min_voters_for_healthy_quorum

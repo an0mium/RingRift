@@ -38,6 +38,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import subprocess
 import sys
 import time
@@ -61,6 +62,15 @@ try:
     _PARTITION_DISCOVERY_TIMEOUT = LoopTimeouts.PARTITION_DISCOVERY
 except ImportError:
     _PARTITION_DISCOVERY_TIMEOUT = 30.0  # Fallback
+
+# Jan 2026 Session 8: Circuit breaker check before injection
+try:
+    from scripts.p2p.network import check_peer_transport_circuit
+    HAS_TRANSPORT_CB = True
+except ImportError:
+    HAS_TRANSPORT_CB = False
+    def check_peer_transport_circuit(peer_host: str, transport: str = "http") -> bool:
+        return True  # Fallback: assume transport is available
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +397,18 @@ class PartitionHealer:
         Inject a peer into a node's peer list via /admin/add_peer endpoint.
 
         This allows the target to discover the injected peer without restart.
+
+        Jan 2026 Session 8: Check circuit breaker state before attempting injection.
+        If HTTP transport to target is circuit-broken, skip injection to avoid
+        wasted attempts and faster failover to alternate bridge targets.
         """
+        # Jan 2026 Session 8: Check if HTTP transport to target is circuit-broken
+        if HAS_TRANSPORT_CB and not check_peer_transport_circuit(target_address, "http"):
+            logger.debug(
+                f"HTTP transport to {target_address} is circuit-broken, skipping injection"
+            )
+            return False
+
         url = f"http://{target_address}:{self._p2p_port}/admin/add_peer"
         payload = {
             "node_id": peer_to_inject,
@@ -694,11 +715,18 @@ class PartitionHealer:
         # Emit start event
         self._emit_healing_start_event()
 
-        # Apply delay if specified
+        # Apply delay if specified, with jitter to prevent thundering herd
+        # Jan 2026 Session 8: Add random jitter (±50% of base delay) to stagger
+        # healing triggers when multiple nodes detect partition simultaneously
         delay = delay if delay is not None else PartitionHealingDefaults.DETECTION_DELAY
         if delay > 0:
-            logger.info(f"Waiting {delay:.0f}s before starting healing pass...")
-            await asyncio.sleep(delay)
+            jitter = random.uniform(0, delay * 0.5)  # 0 to 50% of base delay
+            total_delay = delay + jitter
+            logger.info(
+                f"Waiting {total_delay:.1f}s before starting healing pass "
+                f"(base {delay:.0f}s + jitter {jitter:.1f}s)..."
+            )
+            await asyncio.sleep(total_delay)
 
         # Run the healing pass with overall timeout
         # Jan 3, 2026: Added timeout to prevent healing operations from hanging indefinitely
