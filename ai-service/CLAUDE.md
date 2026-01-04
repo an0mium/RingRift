@@ -39,16 +39,42 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 
 **Top Training Loop Improvements** (Sprint 12 Sessions 6-8):
 
-| Improvement                                   | Elo Impact | Hours | Status                 |
-| --------------------------------------------- | ---------- | ----- | ---------------------- |
-| Dynamic loss anomaly thresholds               | +8-12      | 8-12  | ✅ DONE (Session 6)    |
-| Curriculum hierarchy with sibling propagation | +12-18     | 12-16 | ✅ DONE (Session 6)    |
-| Quality-weighted batch prioritization         | +5-8       | 8-10  | ✅ ALREADY IMPLEMENTED |
-| Elo-velocity regression prevention            | +6-10      | 6-8   | ✅ ALREADY IMPLEMENTED |
-| Adaptive exploration boost decay              | +5-10      | 2     | ✅ DONE (Session 8)    |
-| Quality score confidence weighting            | +8-15      | 2     | ✅ DONE (Session 8)    |
+| Improvement                                   | Elo Impact | Hours | Status                        |
+| --------------------------------------------- | ---------- | ----- | ----------------------------- |
+| Dynamic loss anomaly thresholds               | +8-12      | 8-12  | ✅ DONE (Session 6)           |
+| Curriculum hierarchy with sibling propagation | +12-18     | 12-16 | ✅ DONE (Session 6)           |
+| Quality-weighted batch prioritization         | +5-8       | 8-10  | ✅ ALREADY IMPLEMENTED        |
+| Elo-velocity regression prevention            | +6-10      | 6-8   | ✅ ALREADY IMPLEMENTED        |
+| Adaptive exploration boost decay              | +5-10      | 2     | ✅ DONE (Session 8)           |
+| Quality score confidence weighting            | +8-15      | 2     | ✅ DONE (Session 8)           |
+| Proactive circuit recovery                    | -165s rec  | 1     | ✅ DONE (Session 8 continued) |
+| Centralized confidence thresholds             | stability  | 0.5   | ✅ DONE (Session 8 continued) |
 
-**Total Achieved**: +33-55 Elo from Sessions 6-8 improvements
+**Total Achieved**: +38-65 Elo from Sessions 6-8 improvements (including Session 8 continued)
+
+**Key Improvements (Jan 3, 2026 - Sprint 12 Session 9):**
+
+- **CIRCUIT_RESET Event Type**: Added to DataEventType enum at `data_events.py:357`
+  - Enables proper routing/subscription for proactive recovery events
+  - Previously emitted as string literal, now centralized in enum
+- **Comprehensive Assessment Completed**:
+  - P2P Network: A- (87/100) - 17 health checks, proactive recovery working
+  - Training Loop: A (95/100) - All 5 feedback loops functional
+  - Code Quality: B+ (85/100) - 56/298 HandlerBase adoption
+- **Identified 5-8K LOC consolidation potential** via HandlerBase migration and retry unification
+
+**Key Improvements (Jan 3, 2026 - Sprint 12 Session 8 Continued):**
+
+- **Proactive Health Probes** (`scripts/p2p/loops/peer_recovery_loop.py:_try_proactive_circuit_recovery()`):
+  - PeerRecoveryLoop now actively probes circuit-broken peers
+  - Reduces mean recovery time from 180s (CB timeout) to 5-15s
+  - Emits `CIRCUIT_RESET` event on successful proactive recovery
+  - Optional `reset_circuit` callback for CB reset integration
+- **Centralized Quality Confidence Thresholds** (`app/config/thresholds.py:1653-1724`):
+  - `get_quality_confidence(games_assessed)` - returns 0.5/0.75/1.0 based on sample size
+  - `apply_quality_confidence_weighting(score, games)` - biases small-sample scores toward neutral
+  - training_trigger_daemon now delegates to centralized thresholds
+  - Tier boundaries: <50 games (50% credibility), 50-500 (75%), 500+ (100%)
 
 **Session 7 Key Findings** (Jan 3, 2026):
 
@@ -56,6 +82,21 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 - Elo-velocity regression prevention: Fully implemented with `_elo_velocity` tracking, `PROGRESS_STALL_DETECTED` events
 - CurriculumSignalBridge: Domain-specific base class consolidating 5 watcher classes (~1,200 LOC savings)
 - curriculum_integration.py: 3 classes already use CurriculumSignalBridge (partial consolidation complete)
+
+**Key Improvements (Jan 3, 2026 - Sprint 13 Session 3):**
+
+- **GossipHealthTracker Thread Safety** (`scripts/p2p/gossip_protocol.py:60-383`):
+  - Added `threading.RLock` to protect shared state dictionaries
+  - All methods now thread-safe: `record_gossip_failure`, `record_gossip_success`, etc.
+  - Prevents data corruption from concurrent gossip handlers
+- **GossipHealthSummary Public API** (`scripts/p2p/gossip_protocol.py:61-120`):
+  - New dataclass for thread-safe data transfer from GossipHealthTracker
+  - Includes: failure_counts, last_success, suspected_peers, stale_peers
+  - `health_score` property calculates 0.0-1.0 score from peer health
+- **HealthCoordinator API Decoupling** (`scripts/p2p/health_coordinator.py:510-567`):
+  - Now uses `get_health_summary()` public API instead of private attributes
+  - Backward-compatible fallback for older tracker versions
+  - Eliminates coupling to `_failure_counts`, `_suspect_emitted`, etc.
 
 **Key Improvements (Jan 3, 2026 - Sprint 13 Session 2):**
 
