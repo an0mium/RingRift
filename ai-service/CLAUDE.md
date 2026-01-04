@@ -2,7 +2,7 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.7 - Session 17.1)
+**Last Updated**: January 4, 2026 (Sprint 17.7 - Session 17.2)
 
 ## Infrastructure Health Status (Verified Jan 4, 2026)
 
@@ -46,6 +46,32 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Early Quorum Escalation   | Skip to P2P restart after 2 failed healing attempts with quorum lost | `p2p_recovery_daemon.py`      |
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
+
+**Sprint 17.7 / Session 17.2 (Jan 4, 2026) - Queue Helper Consolidation:**
+
+| Fix                        | Purpose                                         | Files                                        |
+| -------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| Retry Queue Helpers        | 3 new helpers: add, get_ready, process_items    | `handler_base.py:1324-1429`                  |
+| EvaluationDaemon Migration | Migrated to use HandlerBase retry queue helpers | `evaluation_daemon.py:1406-1432`             |
+| Retry Queue Tests          | 9 unit tests for new helpers                    | `test_handler_base.py:TestRetryQueueHelpers` |
+| Consolidation Assessment   | Event emission 95%, Retry 70% consolidated      | 35+ files still using direct patterns        |
+
+**HandlerBase Retry Queue Helpers (Session 17.2):**
+
+| Helper                         | Purpose                                                |
+| ------------------------------ | ------------------------------------------------------ |
+| `_add_to_retry_queue()`        | Add item with calculated next_retry_time               |
+| `_get_ready_retry_items()`     | Separate ready (past time) from waiting items          |
+| `_process_retry_queue_items()` | Convenience: separates and restores remaining to queue |
+
+**Consolidation Status (Session 17.2):**
+
+| Area           | Status     | Details                                      |
+| -------------- | ---------- | -------------------------------------------- |
+| Queue Helpers  | ✅ 110 LOC | 3 methods + 9 tests + 1 daemon migrated      |
+| Event Emission | 95% done   | 32-42h remaining for full consolidation      |
+| Retry Helpers  | 70% done   | 21/30 files using RetryConfig                |
+| Remaining P2   | Pending    | Mixin consolidation, config key, async audit |
 
 **Sprint 17.7 / Session 17.1 (Jan 4, 2026) - LeaderProbeLoop & Assessment:**
 
