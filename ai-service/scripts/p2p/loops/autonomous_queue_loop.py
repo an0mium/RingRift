@@ -196,6 +196,10 @@ class AutonomousQueuePopulationLoop:
     The loop automatically deactivates when conditions return to normal.
     """
 
+    # Class-level attributes for LoopManager registration
+    name: str = "autonomous_queue_population"
+    depends_on: list[str] = []  # No dependencies - this loop is a fallback
+
     def __init__(
         self,
         orchestrator: Any,

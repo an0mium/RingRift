@@ -1323,6 +1323,16 @@ class UnifiedQueuePopulatorDaemon:
         elo_db_path: str | None = None,
         selfplay_scheduler: Optional["SelfplayScheduler"] = None,
     ):
+        # Jan 4, 2026: Auto-get work queue singleton if not passed
+        # Fixes "No work queue set, cannot populate" issue
+        if work_queue is None:
+            try:
+                from app.coordination.work_queue import get_work_queue
+                work_queue = get_work_queue()
+                logger.debug("[QueuePopulatorDaemon] Using singleton work queue")
+            except Exception as e:
+                logger.warning(f"[QueuePopulatorDaemon] Failed to get work queue: {e}")
+
         self._populator = UnifiedQueuePopulator(
             config=config,
             work_queue=work_queue,
