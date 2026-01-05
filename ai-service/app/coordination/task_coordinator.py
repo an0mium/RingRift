@@ -75,14 +75,9 @@ from app.coordination.task_coordinator_reservations import (
 
 logger = logging.getLogger(__name__)
 
-# Use centralized event emitters (December 2025)
-# Note: event_emitters.py handles all routing to stage_events and data_events
-try:
-    from app.coordination.event_emitters import emit_task_complete
-    HAS_CENTRALIZED_EMITTERS = True
-except ImportError:
-    HAS_CENTRALIZED_EMITTERS = False
-    emit_task_complete = None
+# January 2026: Migrated to safe_emit_event_async for consistent event handling
+from app.coordination.event_emission_helpers import safe_emit_event_async
+HAS_CENTRALIZED_EMITTERS = True
 
 # Import queue monitor for backpressure checks
 try:
@@ -729,12 +724,8 @@ class TaskHeartbeatMonitor:
         self._running = False
         self._thread: threading.Thread | None = None
 
-        # Event emission - use consolidated event_emitters
-        try:
-            from app.coordination.event_emitters import emit_task_orphaned
-            self._emit_orphaned = emit_task_orphaned
-        except ImportError:
-            self._emit_orphaned = None
+        # January 2026: Migrated to safe_emit_event_async - always available
+        self._emit_orphaned_enabled = True
 
     def start(self) -> None:
         """Start monitoring in background thread."""
@@ -776,16 +767,19 @@ class TaskHeartbeatMonitor:
             self.registry.update_task_status(task.task_id, "orphaned")
 
             # Emit event
-            if self._emit_orphaned is not None:
+            if self._emit_orphaned_enabled:
                 try:
                     import asyncio
                     last_hb = task.metadata.get('last_heartbeat', task.started_at)
-                    asyncio.get_running_loop().create_task(self._emit_orphaned(
-                        task_id=task.task_id,
-                        task_type=task.task_type.value,
-                        node_id=task.node_id,
-                        last_heartbeat_seconds_ago=time.time() - last_hb,
-                        source="heartbeat_monitor",
+                    asyncio.get_running_loop().create_task(safe_emit_event_async(
+                        "TASK_ORPHANED",
+                        {
+                            "task_id": task.task_id,
+                            "task_type": task.task_type.value,
+                            "node_id": task.node_id,
+                            "last_heartbeat_seconds_ago": time.time() - last_hb,
+                        },
+                        context="heartbeat_monitor",
                     ))
                 except RuntimeError:
                     pass  # No event loop
@@ -811,15 +805,18 @@ class TaskHeartbeatMonitor:
             self.registry.update_task_status(task.task_id, "timed_out")
 
             # Emit event (using orphaned event for now, could add dedicated event)
-            if self._emit_orphaned is not None:
+            if self._emit_orphaned_enabled:
                 try:
                     import asyncio
-                    asyncio.get_running_loop().create_task(self._emit_orphaned(
-                        task_id=task.task_id,
-                        task_type=task.task_type.value,
-                        node_id=task.node_id,
-                        last_heartbeat_seconds_ago=0,  # N/A for timeout
-                        source="timeout_monitor",
+                    asyncio.get_running_loop().create_task(safe_emit_event_async(
+                        "TASK_ORPHANED",
+                        {
+                            "task_id": task.task_id,
+                            "task_type": task.task_type.value,
+                            "node_id": task.node_id,
+                            "last_heartbeat_seconds_ago": 0,  # N/A for timeout
+                        },
+                        context="timeout_monitor",
                     ))
                 except RuntimeError:
                     pass  # No event loop
@@ -1536,10 +1533,6 @@ class TaskCoordinator(SingletonMixin):
         - evaluation → EVALUATION_COMPLETE
         - sync → SYNC_COMPLETE
         """
-        if not HAS_CENTRALIZED_EMITTERS or emit_task_complete is None:
-            logger.debug("Centralized emitters not available for task events")
-            return
-
         import asyncio
 
         duration_seconds = time.time() - task.started_at
@@ -1547,29 +1540,37 @@ class TaskCoordinator(SingletonMixin):
         try:
             loop = asyncio.get_running_loop()
             asyncio.create_task(
-                emit_task_complete(
-                    task_id=task.task_id,
-                    task_type=task.task_type.value,
-                    success=success,
-                    node_id=task.node_id,
-                    duration_seconds=duration_seconds,
-                    result_data=result_data,
+                safe_emit_event_async(
+                    "TASK_COMPLETE",
+                    {
+                        "task_id": task.task_id,
+                        "task_type": task.task_type.value,
+                        "success": success,
+                        "node_id": task.node_id,
+                        "duration_seconds": duration_seconds,
+                        "result_data": result_data,
+                    },
+                    context="task_coordinator",
                 )
             )
         except RuntimeError:
             # No event loop - run synchronously
             asyncio.run(
-                emit_task_complete(
-                    task_id=task.task_id,
-                    task_type=task.task_type.value,
-                    success=success,
-                    node_id=task.node_id,
-                    duration_seconds=duration_seconds,
-                    result_data=result_data,
+                safe_emit_event_async(
+                    "TASK_COMPLETE",
+                    {
+                        "task_id": task.task_id,
+                        "task_type": task.task_type.value,
+                        "success": success,
+                        "node_id": task.node_id,
+                        "duration_seconds": duration_seconds,
+                        "result_data": result_data,
+                    },
+                    context="task_coordinator",
                 )
             )
 
-        logger.debug(f"Emitted task event for {task.task_id} via centralized emitter")
+        logger.debug(f"Emitted TASK_COMPLETE for {task.task_id}")
 
     def _emit_task_spawned(self, task: TaskInfo) -> None:
         """Emit TASK_SPAWNED event via data_events (December 2025).
