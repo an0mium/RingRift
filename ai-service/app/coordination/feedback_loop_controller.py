@@ -742,7 +742,7 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
     # Event Handlers
     # =========================================================================
 
-    def _on_selfplay_complete(self, event: Any) -> None:
+    async def _on_selfplay_complete(self, event: Any) -> None:
         """Handle selfplay completion.
 
         Actions:
@@ -750,6 +750,9 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         2. Update training intensity based on quality
         3. Signal training readiness if quality is sufficient
         4. Track engine mode for bandit feedback (Dec 29 2025)
+
+        Sprint 17.9: Converted to async to avoid blocking event loop during
+        SQLite quality assessment.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
@@ -769,9 +772,9 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
             state.last_selfplay_engine = engine_mode
             state.last_selfplay_games += games_count  # Accumulate across batches
 
-            # Assess data quality
+            # Assess data quality (Sprint 17.9: now async to avoid blocking event loop)
             previous_quality = state.last_selfplay_quality
-            quality_score = self._assess_selfplay_quality(db_path, games_count)
+            quality_score = await self._assess_selfplay_quality_async(db_path, games_count)
             state.last_selfplay_quality = quality_score
 
             logger.info(
@@ -881,7 +884,7 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error handling rate change: {e}")
 
-    def _on_cpu_pipeline_job_completed(self, event: Any) -> None:
+    async def _on_cpu_pipeline_job_completed(self, event: Any) -> None:
         """Handle CPU_PIPELINE_JOB_COMPLETED from Vast.ai CPU selfplay jobs.
 
         December 2025: Closes integration gap - CPU selfplay completions now trigger
@@ -889,6 +892,9 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
 
         This event is emitted by VastCpuPipelineDaemon when CPU-based selfplay jobs
         complete on Vast.ai nodes. We treat these like GPU selfplay completions.
+
+        Sprint 17.9: Converted to async to avoid blocking event loop during
+        SQLite quality assessment.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
@@ -911,8 +917,8 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
                 f"{games_count} games from node={node_id}, job={job_id}"
             )
 
-            # Assess data quality (same as GPU selfplay)
-            quality_score = self._assess_selfplay_quality(db_path, games_count)
+            # Assess data quality (Sprint 17.9: now async to avoid blocking event loop)
+            quality_score = await self._assess_selfplay_quality_async(db_path, games_count)
             state.last_selfplay_quality = quality_score
 
             # Update training intensity based on quality
@@ -2663,6 +2669,23 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
             return 0.8
         else:
             return 0.95
+
+    async def _assess_selfplay_quality_async(
+        self, db_path: str, games_count: int
+    ) -> float:
+        """Async version of _assess_selfplay_quality.
+
+        Sprint 17.9: Wraps blocking SQLite operation in asyncio.to_thread()
+        to avoid blocking the event loop when called from async event handlers.
+
+        Returns:
+            Quality score 0.0-1.0
+        """
+        import asyncio
+
+        return await asyncio.to_thread(
+            self._assess_selfplay_quality, db_path, games_count
+        )
 
     def _compute_intensity_from_quality(self, quality_score: float) -> str:
         """Map continuous quality score to intensity level.

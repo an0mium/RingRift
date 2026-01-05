@@ -478,3 +478,83 @@ class PeerRecoveryLoop(BaseLoop):
                 f"[PeerRecovery] Proactive CB recovery: {recovered_count} "
                 f"circuits reset this cycle"
             )
+
+    def health_check(self) -> Any:
+        """Check loop health with peer recovery-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Reports recovery success rate and backoff status.
+
+        Returns:
+            HealthCheckResult with peer recovery status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            stats = self.get_recovery_stats()
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"PeerRecoveryLoop {'running' if self.running else 'stopped'}",
+                "details": stats,
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="PeerRecoveryLoop is stopped",
+                details={"running": False},
+            )
+
+        # Not enabled
+        if not self.config.enabled:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="PeerRecoveryLoop is disabled via config",
+                details={"enabled": False, "running": self.running},
+            )
+
+        # Get stats
+        stats = self.get_recovery_stats()
+        probes_sent = stats.get("probes_sent", 0)
+        recoveries = stats.get("recoveries", 0)
+        probe_failures = stats.get("probe_failures", 0)
+        peers_in_backoff = stats.get("peers_in_backoff", 0)
+
+        # Calculate recovery rate
+        total_attempts = probes_sent
+        recovery_rate = (recoveries / total_attempts * 100) if total_attempts > 0 else 0
+
+        # Check if too many peers stuck in backoff (degraded)
+        if peers_in_backoff > 20:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"PeerRecoveryLoop has {peers_in_backoff} peers in backoff",
+                details={
+                    "probes_sent": probes_sent,
+                    "recoveries": recoveries,
+                    "probe_failures": probe_failures,
+                    "peers_in_backoff": peers_in_backoff,
+                    "recovery_rate_pct": round(recovery_rate, 1),
+                },
+            )
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"PeerRecoveryLoop healthy ({recoveries} recovered, {recovery_rate:.1f}% rate)",
+            details={
+                "probes_sent": probes_sent,
+                "recoveries": recoveries,
+                "probe_failures": probe_failures,
+                "peers_in_backoff": peers_in_backoff,
+                "recovery_rate_pct": round(recovery_rate, 1),
+                "interval_seconds": self.config.recovery_interval_seconds,
+            },
+        )

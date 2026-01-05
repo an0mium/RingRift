@@ -2,13 +2,13 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 5, 2026 (Sprint 17.9 - Session 17.16)
+**Last Updated**: January 5, 2026 (Sprint 17.9 - Session 17.17)
 
 ## Infrastructure Health Status (Verified Jan 5, 2026)
 
 | Component            | Status    | Evidence                                                            |
 | -------------------- | --------- | ------------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (94/100), hetzner-cpu3 leader, 10 alive peers, quorum OK         |
+| **P2P Network**      | GREEN     | A- (94/100), hetzner-cpu3 leader, 11 alive peers, quorum OK         |
 | **Training Loop**    | GREEN     | A (95/100), 117K+ games, 5/5 feedback loops, 6/6 pipeline stages    |
 | **Code Quality**     | GREEN     | 341 modules, 984 tests, 99.5% coverage, all handlers on HandlerBase |
 | **Leader Election**  | WORKING   | hetzner-cpu3 leader, 10 voters alive, quorum OK                     |
@@ -16,6 +16,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 | **Game Data**        | EXCELLENT | 117K+ games across all configs (hex8: 21K, square8: 25K, etc.)      |
 | **CB TTL Decay**     | ACTIVE    | 4h TTL in node_circuit_breaker.py:249-271                           |
 | **Multi-Arch Train** | ACTIVE    | v2 models trained, all 12 canonical configs generating data         |
+| **Loop Health**      | COMPLETE  | 6 P2P loops with health_check() for DaemonManager integration       |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -81,6 +82,34 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | 751  | socket.error                     | Network errors           |
 | 754  | OSError                          | Generic OS errors        |
 | 760  | OSError, AttributeError          | Cleanup in finally block |
+
+**Sprint 17.9 / Session 17.16 (Jan 5, 2026) - P2P Loop health_check() Methods:**
+
+| Task                                  | Status      | Evidence                                                     |
+| ------------------------------------- | ----------- | ------------------------------------------------------------ |
+| health_check() for JobReaperLoop      | ✅ COMPLETE | job_loops.py:247-302 with reap statistics                    |
+| health_check() for WorkerPullLoop     | ✅ COMPLETE | job_loops.py:1055-1125 with success rate tracking            |
+| health_check() for WorkQueueMaintLoop | ✅ COMPLETE | job_loops.py:1299-1373 with stall detection (48h autonomous) |
+| Cluster Update                        | ✅ COMPLETE | 24 nodes updated to c8bd0df93, 22 P2P restarted              |
+| P2P Network                           | ✅ HEALTHY  | hetzner-cpu3 leader, 11 alive peers, quorum OK               |
+
+**P2P Loops with health_check() (Total: 6 loops):**
+
+| Loop                     | File                         | Key Metrics                                   |
+| ------------------------ | ---------------------------- | --------------------------------------------- |
+| LeaderProbeLoop          | leader_probe_loop.py:279-354 | Consecutive failures, election trigger state  |
+| EloSyncLoop              | elo_sync_loop.py:223-297     | Initialization, retry state, match counts     |
+| RemoteP2PRecoveryLoop    | remote_p2p_recovery_loop.py  | Recovery success rate, SSH validation         |
+| JobReaperLoop            | job_loops.py:247-302         | Jobs reaped (stale/stuck/abandoned)           |
+| WorkerPullLoop           | job_loops.py:1055-1125       | Work claim/completion rates, leader status    |
+| WorkQueueMaintenanceLoop | job_loops.py:1299-1373       | Stall detection (critical for 48h autonomous) |
+
+**WorkQueueMaintenanceLoop Critical for 48h Autonomous Operation:**
+
+- Returns ERROR status if queue stall detected (5+ minutes without updates)
+- Returns DEGRADED at 70% of stall threshold
+- Enables DaemonManager to trigger recovery before full pipeline stall
+- Details include: last_update_time, items_processed, stall_detection_active
 
 **Sprint 17.9 / Session 17.15 (Jan 5, 2026) - Event Emission Consolidation Phase 1:**
 

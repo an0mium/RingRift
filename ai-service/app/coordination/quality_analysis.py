@@ -365,6 +365,39 @@ def _count_based_quality(games_count: int) -> QualityResult:
     )
 
 
+async def assess_selfplay_quality_async(
+    db_path: str | Path,
+    games_count: int,
+    sample_limit: int = DEFAULT_SAMPLE_LIMIT,
+    quality_scorer_fn: Callable[[dict], float] | None = None,
+) -> QualityResult:
+    """Async version of assess_selfplay_quality.
+
+    Wraps the blocking SQLite operation in asyncio.to_thread() to avoid
+    blocking the event loop when called from async contexts (e.g., event handlers).
+
+    Sprint 17.9: Added to fix blocking SQLite operations in async contexts.
+
+    Args:
+        db_path: Path to the game database
+        games_count: Total number of games in the database
+        sample_limit: Maximum games to sample for quality assessment
+        quality_scorer_fn: Optional custom quality scorer function
+
+    Returns:
+        QualityResult with quality score and assessment metadata
+    """
+    import asyncio
+
+    return await asyncio.to_thread(
+        assess_selfplay_quality,
+        db_path,
+        games_count,
+        sample_limit,
+        quality_scorer_fn,
+    )
+
+
 def compute_intensity_from_quality(quality_score: float) -> IntensityLevel:
     """Map continuous quality score to discrete intensity level.
 
@@ -649,5 +682,6 @@ def compute_exploration_adjustment(
 
 # Aliases for easier migration
 assess_quality = assess_selfplay_quality
+assess_quality_async = assess_selfplay_quality_async  # Sprint 17.9: async version
 get_intensity = compute_intensity_from_quality
 get_urgency = compute_training_urgency

@@ -230,3 +230,99 @@ class QueuePopulatorLoop(BaseLoop):
             except Exception as e:
                 status["populator_error"] = str(e)
         return status
+
+    def health_check(self) -> Any:
+        """Check loop health with queue populator-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Reports initialization status, queue depth, and config coverage.
+
+        Returns:
+            HealthCheckResult with queue populator status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"QueuePopulatorLoop {'running' if self.running else 'stopped'}",
+                "details": self.get_status(),
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="QueuePopulatorLoop is stopped",
+                details={"running": False},
+            )
+
+        # Check if we're the leader (only leader populates)
+        from scripts.p2p.types import NodeRole
+
+        role = self._get_role()
+        if role != NodeRole.LEADER:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message="QueuePopulatorLoop idle (not leader)",
+                details={"role": role.value, "is_leader": False},
+            )
+
+        # Not initialized yet
+        if not self._initialized or self._populator is None:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message="QueuePopulatorLoop not yet initialized",
+                details={"initialized": False, "is_leader": True},
+            )
+
+        # Get populator status
+        try:
+            populator_status = self._populator.get_status()
+            queue_depth = populator_status.get("current_queue_depth", 0)
+            configs_unmet = populator_status.get("configs_unmet", 0)
+            total_configs = populator_status.get("total_configs", 12)
+            min_depth = populator_status.get("min_queue_depth", 50)
+
+            # Check if queue is dangerously low
+            if queue_depth < min_depth // 2:
+                return HealthCheckResult(
+                    healthy=True,
+                    status=CoordinatorStatus.DEGRADED,
+                    message=f"Queue depth critically low ({queue_depth}/{min_depth})",
+                    details={
+                        "queue_depth": queue_depth,
+                        "min_queue_depth": min_depth,
+                        "configs_unmet": configs_unmet,
+                        "total_configs": total_configs,
+                        "is_leader": True,
+                    },
+                )
+
+            # Healthy
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"QueuePopulatorLoop healthy (depth={queue_depth}, unmet={configs_unmet}/{total_configs})",
+                details={
+                    "queue_depth": queue_depth,
+                    "min_queue_depth": min_depth,
+                    "configs_unmet": configs_unmet,
+                    "total_configs": total_configs,
+                    "interval_seconds": self.interval,
+                    "is_leader": True,
+                },
+            )
+
+        except Exception as e:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"QueuePopulatorLoop status check failed: {e}",
+                details={"error": str(e), "is_leader": True},
+            )
