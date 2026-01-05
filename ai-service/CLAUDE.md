@@ -2,16 +2,16 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 5, 2026 (Sprint 17.9 - Session 17.14)
+**Last Updated**: January 5, 2026 (Sprint 17.9 - Session 17.15)
 
 ## Infrastructure Health Status (Verified Jan 5, 2026)
 
 | Component            | Status    | Evidence                                                         |
 | -------------------- | --------- | ---------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (94/100), mac-studio leader, 29 active peers, quorum OK       |
+| **P2P Network**      | GREEN     | A- (94/100), vultr-a100-20gb leader, 24 nodes updated, quorum OK |
 | **Training Loop**    | GREEN     | A (98/100), 117K+ games, 5/5 feedback loops, 6/6 pipeline stages |
 | **Code Quality**     | GREEN     | 17+ health_check() in P2P, exception handlers narrowed           |
-| **Leader Election**  | WORKING   | mac-studio leader, 8 voters alive, quorum OK                     |
+| **Leader Election**  | WORKING   | vultr-a100-20gb leader, voters alive, quorum OK                  |
 | **Work Queue**       | HEALTHY   | Queue active, selfplay scheduler repopulating                    |
 | **Game Data**        | EXCELLENT | 117K+ games across all configs (hex8: 21K, square8: 25K, etc.)   |
 | **CB TTL Decay**     | ACTIVE    | Hourly decay in DaemonManager health loop (6h TTL)               |
@@ -81,6 +81,37 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | 751  | socket.error                     | Network errors           |
 | 754  | OSError                          | Generic OS errors        |
 | 760  | OSError, AttributeError          | Cleanup in finally block |
+
+**Sprint 17.9 / Session 17.15 (Jan 5, 2026) - Event Emission Consolidation Phase 1:**
+
+| Task                     | Status      | Evidence                                                     |
+| ------------------------ | ----------- | ------------------------------------------------------------ |
+| Event Emission Migration | ✅ COMPLETE | 6 files migrated to safe_emit_event(), -21 LOC net reduction |
+| Cluster Update           | ✅ COMPLETE | 24 nodes updated to a8254fcfd, 22 P2P restarted              |
+| P2P Network              | ✅ HEALTHY  | vultr-a100-20gb leader, 11+ alive peers                      |
+
+**Files Migrated to safe_emit_event():**
+
+| File                        | Calls | Changes                                         |
+| --------------------------- | ----- | ----------------------------------------------- |
+| auto_export_daemon.py       | 2     | EXPORT_VALIDATION_FAILED with context           |
+| error_handling.py           | 1     | \_emit_error_event() consolidated               |
+| feedback_loop_controller.py | 2     | Quality boost and hyperparameter update events  |
+| node_data_agent.py          | 1     | LOCAL_INVENTORY_UPDATED with return value check |
+| velocity_mixin.py           | 1     | PLATEAU_DETECTED with log_level parameter       |
+| training_trigger_daemon.py  | 2     | Quality gate and timeout event emissions        |
+
+**Key Benefits of safe_emit_event():**
+
+- Consistent error handling (no try/except boilerplate)
+- Optional logging before/after emission (`log_before`, `log_after`)
+- Context parameter for debugging
+- Boolean return for conditional logic
+- Reduces code duplication across 145+ emit sites (31 files)
+
+**Commit**: `a8254fcfd` - refactor(coordination): migrate 6 files to safe_emit_event for event emission
+
+---
 
 **Sprint 17.9 / Session 17.13 (Jan 4, 2026) - Consolidation, Critical Quality Drop & Syntax Fix:**
 
