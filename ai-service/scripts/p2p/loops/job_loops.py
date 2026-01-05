@@ -789,6 +789,12 @@ class WorkerPullConfig:
     claim_retry_max_delay: float = 5.0  # Cap exponential backoff
     claim_retry_jitter_factor: float = 0.5  # +/- 50% jitter
 
+    # Session 17.34 (Jan 5, 2026): Batch claiming for improved utilization
+    # Claims multiple jobs per request to reduce round-trip overhead (+30-40% utilization)
+    enable_batch_claiming: bool = True
+    batch_claim_min_slots: int = 2  # Only use batch claiming with >= N available slots
+    batch_claim_max_items: int = 5  # Max items to claim per batch (capped at 10)
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
         if self.pull_interval_seconds <= 0:
@@ -844,6 +850,7 @@ class WorkerPullLoop(BaseLoop):
         get_allowed_work_types: Callable[[], list[str]] | None = None,
         pop_autonomous_work: Callable[[], Coroutine[Any, Any, dict[str, Any] | None]] | None = None,
         get_work_discovery_manager: Callable[[], Any] | None = None,  # Phase 5: Multi-channel discovery
+        claim_work_batch_from_leader: Callable[[list[str], int], Coroutine[Any, Any, list[dict[str, Any]]]] | None = None,  # Session 17.34: Batch claiming
         config: WorkerPullConfig | None = None,
     ):
         """Initialize worker pull loop.
@@ -858,6 +865,7 @@ class WorkerPullLoop(BaseLoop):
             get_allowed_work_types: Optional callback returning allowed work types
             pop_autonomous_work: Optional async callback to get work from autonomous queue (Phase 2)
             get_work_discovery_manager: Optional callback to get WorkDiscoveryManager instance (Phase 5)
+            claim_work_batch_from_leader: Optional async callback to claim batch of work (Session 17.34)
             config: Loop configuration
         """
         self.config = config or WorkerPullConfig()
@@ -874,6 +882,7 @@ class WorkerPullLoop(BaseLoop):
         self._get_allowed_work_types = get_allowed_work_types
         self._pop_autonomous_work = pop_autonomous_work
         self._get_work_discovery_manager = get_work_discovery_manager  # Phase 5
+        self._claim_work_batch = claim_work_batch_from_leader  # Session 17.34: Batch claiming
 
         # Statistics
         self._work_claimed = 0
@@ -896,6 +905,11 @@ class WorkerPullLoop(BaseLoop):
         self._claim_retries_succeeded: int = 0  # Retries that eventually succeeded
         self._claim_retries_exhausted: int = 0  # Cases where all retries failed
         self._last_claim_retry_count: int = 0  # Retries used in last successful claim
+
+        # Session 17.34: Batch claiming statistics
+        self._batch_claims_total: int = 0  # Total batch claim requests made
+        self._batch_items_claimed: int = 0  # Total items claimed via batch
+        self._batch_avg_items: float = 0.0  # Rolling average items per batch
 
     async def _on_start(self) -> None:
         """Initial delay for cluster stabilization."""

@@ -1948,6 +1948,41 @@ class EloService:
             ))
         return entries
 
+    def log_leaderboard(
+        self,
+        board_type: str,
+        num_players: int,
+        top_n: int = 5,
+    ) -> list[LeaderboardEntry]:
+        """Log the Elo leaderboard for a configuration.
+
+        January 5, 2026 (Session 17.34): Added for visibility into which models
+        are improving. Called after evaluations to track progress.
+
+        Args:
+            board_type: Board type (e.g., 'hex8', 'square8')
+            num_players: Number of players (2, 3, or 4)
+            top_n: Number of top models to log (default: 5)
+
+        Returns:
+            List of top leaderboard entries
+        """
+        config_key = f"{board_type}_{num_players}p"
+        entries = self.get_leaderboard(board_type, num_players, limit=top_n, min_games=1)
+
+        if not entries:
+            logger.info(f"[Elo] Leaderboard for {config_key}: (no entries with games)")
+            return entries
+
+        logger.info(f"[Elo] Leaderboard for {config_key}:")
+        for entry in entries:
+            model_name = entry.name[:30] if len(entry.name) > 30 else entry.name
+            logger.info(
+                f"  #{entry.rank}: {model_name} - Elo {entry.rating:.0f} "
+                f"({entry.wins}W/{entry.losses}L, {entry.win_rate:.0%})"
+            )
+        return entries
+
     def get_training_feedback(
         self,
         board_type: str,

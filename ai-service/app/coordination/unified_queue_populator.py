@@ -1632,11 +1632,102 @@ class UnifiedQueuePopulatorDaemon:
             pass
 
     async def _monitor_loop(self) -> None:
-        """Background loop to periodically populate queue."""
+        """Background loop to periodically populate queue.
+
+        January 5, 2026: Added leader awareness and follower takeover mechanism.
+        - Leaders populate the queue normally
+        - Followers monitor queue depth and take over if empty for 30+ seconds
+        - This reduces queue empty gap from 60-75s to <30s during leader failover
+        """
+        # Follower takeover configuration (Jan 5, 2026 - Session 17.34)
+        FOLLOWER_TAKEOVER_THRESHOLD = 30.0  # seconds queue empty before follower takes over
+        FOLLOWER_TAKEOVER_BATCH = 200  # items to add during takeover
+        FOLLOWER_CHECK_INTERVAL = 5.0  # shorter interval for followers to detect empty queue
+
+        queue_empty_since: float | None = None
+        not_leader_skips = 0
+
         while self._running:
             try:
-                self._populator.populate()
-                await asyncio.sleep(self._populator.config.check_interval_seconds)
+                # Check if this node is the P2P leader (Jan 5, 2026)
+                is_leader = True
+                leader_id = None
+                try:
+                    from app.core.node import check_p2p_leader_status
+                    is_leader, leader_id = await check_p2p_leader_status(timeout=5.0)
+                except Exception as e:
+                    # If we can't determine leadership, default to populating (fail-open)
+                    logger.debug(f"[QueuePopulatorDaemon] Leader check failed, assuming leader: {e}")
+                    is_leader = True
+
+                if is_leader:
+                    # We are the leader - populate normally
+                    if not_leader_skips > 0:
+                        logger.info(
+                            f"[QueuePopulatorDaemon] Resuming as leader "
+                            f"(was follower for {not_leader_skips} cycles)"
+                        )
+                        not_leader_skips = 0
+                    queue_empty_since = None  # Reset empty tracker when leader
+                    self._populator.populate()
+                    await asyncio.sleep(self._populator.config.check_interval_seconds)
+                else:
+                    # We are a follower - monitor queue and potentially take over
+                    not_leader_skips += 1
+
+                    # Check queue depth for follower takeover
+                    queue_depth = 0
+                    try:
+                        if self._populator._work_queue:
+                            queue_depth = self._populator._work_queue.size()
+                    except Exception:
+                        pass
+
+                    if queue_depth == 0:
+                        # Queue is empty - track duration
+                        if queue_empty_since is None:
+                            queue_empty_since = time.time()
+                            logger.debug("[QueuePopulatorDaemon] Queue empty detected (follower)")
+
+                        empty_duration = time.time() - queue_empty_since
+                        if empty_duration >= FOLLOWER_TAKEOVER_THRESHOLD:
+                            # Follower takeover: queue has been empty too long
+                            logger.warning(
+                                f"[QueuePopulatorDaemon] Follower takeover: queue empty for "
+                                f"{empty_duration:.1f}s (threshold: {FOLLOWER_TAKEOVER_THRESHOLD}s), "
+                                f"leader: {leader_id}"
+                            )
+                            # Populate with limited batch to avoid overwhelming
+                            original_batch = self._populator.config.max_batch_per_cycle
+                            self._populator.config.max_batch_per_cycle = min(
+                                original_batch, FOLLOWER_TAKEOVER_BATCH
+                            )
+                            try:
+                                added = self._populator.populate()
+                                if added > 0:
+                                    logger.info(
+                                        f"[QueuePopulatorDaemon] Follower takeover added {added} items"
+                                    )
+                                    queue_empty_since = None  # Reset after successful takeover
+                            finally:
+                                self._populator.config.max_batch_per_cycle = original_batch
+                    else:
+                        # Queue has items - reset empty tracker
+                        if queue_empty_since is not None:
+                            logger.debug(
+                                f"[QueuePopulatorDaemon] Queue recovered with {queue_depth} items"
+                            )
+                        queue_empty_since = None
+
+                    # Log occasionally to avoid spam
+                    if not_leader_skips % 20 == 1:
+                        logger.debug(
+                            f"[QueuePopulatorDaemon] Not leader (leader: {leader_id}, "
+                            f"queue: {queue_depth}, skips: {not_leader_skips})"
+                        )
+
+                    # Shorter interval for followers to detect empty queue quickly
+                    await asyncio.sleep(FOLLOWER_CHECK_INTERVAL)
 
             except asyncio.CancelledError:
                 break

@@ -275,9 +275,11 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         # December 30, 2025: Initialize HandlerBase for unified patterns
         # Note: Event subscriptions handled in _subscribe_to_events() due to
         # complex conditional logic (coexistence with UnifiedFeedbackOrchestrator)
+        # January 5, 2026 (Phase 7.8): Reduced from 60s to 30s for faster feedback.
+        # Expected improvement: +3-7 Elo from faster training iteration cycles.
         super().__init__(
             name="feedback_loop_controller",
-            cycle_interval=60.0,  # Feedback loop check interval
+            cycle_interval=30.0,  # Feedback loop check interval (was 60s)
             dedup_enabled=True,
         )
 

@@ -38,9 +38,93 @@ logger = logging.getLogger(__name__)
 # Pool configuration
 DEFAULT_MAX_CONNECTIONS_PER_PEER = 3
 DEFAULT_MAX_TOTAL_CONNECTIONS = 100
-DEFAULT_CONNECTION_TIMEOUT = 30.0  # seconds
+DEFAULT_CONNECTION_TIMEOUT = 30.0  # seconds (base timeout, multiplied by provider factor)
 DEFAULT_IDLE_TIMEOUT = 300.0  # 5 minutes
 DEFAULT_HEALTH_CHECK_INTERVAL = 60.0  # 1 minute
+
+# =============================================================================
+# Provider-Specific Connection Timeout Multipliers (Phase 7.11 - Jan 5, 2026)
+# =============================================================================
+#
+# Problem: Connection pool uses hardcoded 30s timeout while SSH transport uses
+# provider-specific multipliers. This causes timeouts on slow providers (Vast.ai,
+# Lambda NAT relay) while being overly generous on fast providers.
+#
+# Solution: Apply provider-specific multipliers to align with peer_recovery_loop.py
+# and ssh_transport.py timeout behavior for consistent network operations.
+#
+PROVIDER_TIMEOUT_MULTIPLIERS: dict[str, float] = {
+    "vast": 2.0,       # 60s - consumer networks, high variance under load
+    "lambda": 1.5,     # 45s - NAT relay adds latency (relay_primary/secondary hops)
+    "runpod": 1.5,     # 45s - container networking overhead
+    "nebius": 1.0,     # 30s - stable cloud infrastructure
+    "hetzner": 1.0,    # 30s - stable bare metal, no vGPU overhead
+    "vultr": 1.2,      # 36s - vGPU overhead and shared infrastructure
+    "local": 0.5,      # 15s - local nodes (mac-studio, local-mac)
+}
+
+# Default multiplier for unknown providers (conservative)
+DEFAULT_PROVIDER_MULTIPLIER: float = 1.2
+
+
+def _extract_provider_from_peer_id(peer_id: str) -> str:
+    """Extract provider name from peer_id prefix.
+
+    Peer IDs follow pattern: {provider}-{identifier}
+    Examples:
+        lambda-gh200-1 -> lambda
+        vast-29031159 -> vast
+        runpod-h100 -> runpod
+        nebius-backbone-1 -> nebius
+        hetzner-cpu1 -> hetzner
+        vultr-a100-20gb -> vultr
+        mac-studio -> local
+        local-mac -> local
+
+    Args:
+        peer_id: Peer identifier string
+
+    Returns:
+        Provider name in lowercase
+    """
+    if not peer_id:
+        return "unknown"
+
+    peer_lower = peer_id.lower()
+
+    # Check for known provider prefixes
+    for provider in PROVIDER_TIMEOUT_MULTIPLIERS:
+        if peer_lower.startswith(provider):
+            return provider
+
+    # Special cases for local nodes
+    if "mac-studio" in peer_lower or "mac_studio" in peer_lower:
+        return "local"
+    if "local" in peer_lower:
+        return "local"
+
+    return "unknown"
+
+
+def get_provider_connection_timeout(
+    peer_id: str, base_timeout: float = DEFAULT_CONNECTION_TIMEOUT
+) -> float:
+    """Get provider-specific connection timeout for a peer.
+
+    Phase 7.11 (Jan 5, 2026): Aligns connection pool timeouts with provider
+    multipliers used in SSH transport and peer recovery for consistent
+    behavior across all P2P operations.
+
+    Args:
+        peer_id: Peer identifier to look up provider for
+        base_timeout: Base timeout to multiply (default: DEFAULT_CONNECTION_TIMEOUT)
+
+    Returns:
+        Provider-appropriate connection timeout in seconds
+    """
+    provider = _extract_provider_from_peer_id(peer_id)
+    multiplier = PROVIDER_TIMEOUT_MULTIPLIERS.get(provider, DEFAULT_PROVIDER_MULTIPLIER)
+    return base_timeout * multiplier
 
 
 @dataclass
@@ -413,7 +497,15 @@ class PeerConnectionPool:
         peer_id: str,
         peer_address: str | None = None,
     ) -> PooledConnection:
-        """Create a new connection to a peer."""
+        """Create a new connection to a peer.
+
+        Phase 7.11 (Jan 5, 2026): Uses provider-specific timeouts for consistent
+        behavior across all P2P operations. Different providers have different
+        network characteristics:
+        - Vast.ai: 60s (consumer networks, high variance)
+        - Lambda: 45s (NAT relay latency)
+        - Nebius/Hetzner: 30s (stable cloud/bare metal)
+        """
         try:
             import aiohttp
 
@@ -424,8 +516,13 @@ class PeerConnectionPool:
                 enable_cleanup_closed=True,
             )
 
+            # Phase 7.11: Use provider-specific timeout instead of fixed value
+            provider_timeout = get_provider_connection_timeout(
+                peer_id, self._config.connection_timeout
+            )
+
             timeout = aiohttp.ClientTimeout(
-                total=self._config.connection_timeout,
+                total=provider_timeout,
                 connect=10.0,
             )
 
@@ -439,7 +536,10 @@ class PeerConnectionPool:
                 session=session,
             )
 
-            logger.debug(f"Created new connection to {peer_id}")
+            logger.debug(
+                f"Created new connection to {peer_id} "
+                f"(timeout={provider_timeout:.1f}s)"
+            )
             return conn
 
         except ImportError:

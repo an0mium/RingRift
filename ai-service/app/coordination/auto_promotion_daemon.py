@@ -94,6 +94,10 @@ class AutoPromotionConfig:
     # December 2025: Stability gate to prevent promoting volatile models
     stability_gate_enabled: bool = True
     max_volatility_score: float = 0.6  # Block models with volatility > 0.6
+    # January 5, 2026: Gauntlet verification gate - require minimum combined win rate
+    # This ensures models prove their strength in head-to-head competition before promotion
+    gauntlet_verification_enabled: bool = True
+    min_gauntlet_win_rate: float = 0.55  # Require 55% combined win rate vs all opponents
 
 
 @dataclass
@@ -862,6 +866,56 @@ class AutoPromotionDaemon(HandlerBase):
             # Don't block on stability check errors
             return True, f"stability_check_error: {e}"
 
+    async def _check_gauntlet_gate(
+        self,
+        candidate: PromotionCandidate,
+    ) -> tuple[bool, str]:
+        """Check if candidate passes gauntlet verification gate before promotion.
+
+        January 5, 2026 (Session 17.34): Added gauntlet verification to ensure models
+        prove their strength in head-to-head competition before promotion.
+
+        The gate calculates a combined win rate from all gauntlet opponents and
+        requires it to meet a minimum threshold (default: 55%).
+
+        Args:
+            candidate: PromotionCandidate to check
+
+        Returns:
+            Tuple of (passed, reason) where reason explains the gate result
+        """
+        if not self.config.gauntlet_verification_enabled:
+            return True, "gauntlet_verification_disabled"
+
+        # Calculate combined win rate from all gauntlet opponents
+        total_games = 0
+        total_wins = 0
+        opponent_rates = []
+
+        for opponent, win_rate in candidate.evaluation_results.items():
+            games = candidate.evaluation_games.get(opponent, 0)
+            if games > 0:
+                total_games += games
+                total_wins += int(win_rate * games)
+                opponent_rates.append(f"{opponent}:{win_rate:.1%}")
+
+        if total_games == 0:
+            # No evaluation data - pass through (should be caught by other checks)
+            return True, "no_gauntlet_data"
+
+        combined_win_rate = total_wins / total_games
+
+        if combined_win_rate >= self.config.min_gauntlet_win_rate:
+            return True, (
+                f"gauntlet_pass: {combined_win_rate:.1%} >= {self.config.min_gauntlet_win_rate:.0%} "
+                f"(games={total_games}, opponents={', '.join(opponent_rates)})"
+            )
+        else:
+            return False, (
+                f"gauntlet_fail: {combined_win_rate:.1%} < {self.config.min_gauntlet_win_rate:.0%} "
+                f"(games={total_games}, opponents={', '.join(opponent_rates)})"
+            )
+
     async def _promote_model(self, candidate: PromotionCandidate) -> None:
         """Promote a model that passed evaluation.
 
@@ -887,6 +941,15 @@ class AutoPromotionDaemon(HandlerBase):
                 f"[AutoPromotion] {config_key} blocked by stability gate: {stability_reason}"
             )
             await self._emit_promotion_failed(candidate, error=f"stability_gate: {stability_reason}")
+            return
+
+        # January 5, 2026: Check gauntlet verification gate
+        gauntlet_passed, gauntlet_reason = await self._check_gauntlet_gate(candidate)
+        if not gauntlet_passed:
+            logger.warning(
+                f"[AutoPromotion] {config_key} blocked by gauntlet gate: {gauntlet_reason}"
+            )
+            await self._emit_promotion_failed(candidate, error=f"gauntlet_gate: {gauntlet_reason}")
             return
 
         if self.config.dry_run:
