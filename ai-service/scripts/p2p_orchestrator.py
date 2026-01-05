@@ -10224,6 +10224,22 @@ class P2POrchestrator(
 
             peers[node_id] = d
 
+        # Jan 5, 2026 (Session 17.28): Build all_peers dict with ALL peers regardless of alive status
+        # This is required for remote job dispatch which needs to know about all configured nodes
+        all_peers: dict[str, Any] = {}
+        for peer in peers_snapshot:
+            all_peers[peer.node_id] = {
+                "node_id": peer.node_id,
+                "host": getattr(peer, "host", None),
+                "port": getattr(peer, "port", 8770),
+                "role": peer.role.value if hasattr(peer.role, "value") else str(peer.role),
+                "capabilities": getattr(peer, "capabilities", []),
+                "load_score": getattr(peer, "load_score", 0.0),
+                "status": "alive" if peer.is_alive() else "dead",
+                "is_alive": peer.is_alive(),
+                "last_heartbeat": float(getattr(peer, "last_heartbeat", 0.0) or 0.0),
+            }
+
         # Convenience diagnostics: reported leaders vs eligible leaders.
         leaders_reported = sorted(
             [p.node_id for p in peers_snapshot if p.role == NodeRole.LEADER and p.is_alive()]
@@ -10474,6 +10490,7 @@ class P2POrchestrator(
             "voter_health": self._check_voter_health(),
             "self": self.self_info.to_dict(),
             "peers": peers,
+            "all_peers": all_peers,  # Jan 5, 2026: All peers regardless of alive status for job dispatch
             "local_jobs": jobs,
             "alive_peers": len([p for p in self.peers.values() if p.is_alive()]),
             "improvement_cycle_manager": improvement_status,
