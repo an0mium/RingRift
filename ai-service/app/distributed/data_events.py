@@ -96,6 +96,7 @@ class DataEventType(Enum):
     # Data freshness events
     DATA_STALE = "data_stale"  # Training data is stale
     DATA_FRESH = "data_fresh"  # Training data is fresh
+    DATA_STARVATION_CRITICAL = "data_starvation_critical"  # Jan 5, 2026: Config has critically low game count (<20), needs priority dispatch
     SYNC_TRIGGERED = "sync_triggered"  # Sync triggered due to stale data
     SYNC_REQUEST = "sync_request"  # Explicit sync request (router-driven)
 
@@ -284,6 +285,8 @@ class DataEventType(Enum):
     NETWORK_ISOLATION_DETECTED = "network_isolation_detected"  # Dec 2025: P2P sees fewer peers than Tailscale
     QUORUM_PRIORITY_RECONNECT = "quorum_priority_reconnect"  # Dec 30, 2025: Priority reconnection order for quorum
     CLUSTER_P2P_RECOVERY_COMPLETED = "cluster_p2p_recovery_completed"  # Dec 31, 2025: Cluster-wide SSH recovery
+    REMOTE_P2P_RECOVERY_SUCCESS = "remote_p2p_recovery_success"  # Session 17.25: Node successfully recovered via SSH
+    REMOTE_P2P_RECOVERY_FAILED = "remote_p2p_recovery_failed"  # Session 17.25: Recovery attempt failed
 
     # Voter health events (December 30, 2025 - 48h autonomous operation)
     VOTER_OFFLINE = "voter_offline"  # Individual voter became unreachable

@@ -571,6 +571,20 @@ class JobManager(EventSubscriptionMixin):
             model_path = self._get_model_path_for_version(
                 board_type, num_players, effective_version
             )
+
+            # Sprint 17.9: Handle model not found - prevent cascade failures
+            if model_path is None:
+                config_key = f"{board_type}_{num_players}p"
+                logger.warning(
+                    f"[JobManager] Cannot dispatch selfplay for {config_key}: model not found"
+                )
+                return {
+                    "success": False,
+                    "error": "model_not_found",
+                    "config_key": config_key,
+                    "model_version": effective_version,
+                }
+
             config = {
                 "board_type": board_type,
                 "num_players": num_players,
@@ -692,12 +706,17 @@ class JobManager(EventSubscriptionMixin):
         board_type: str,
         num_players: int,
         model_version: str = "v5",
-    ) -> str:
+    ) -> str | None:
         """Get the model path for a specific architecture version.
 
         Session 17.22: Added for architecture selection feedback loop.
         This allows selfplay to use different architecture versions based
         on their Elo performance (tracked by ArchitectureTracker).
+
+        Sprint 17.9 (Jan 5, 2026): Added pre-flight model existence check.
+        Returns None if model not found, emits MODEL_NOT_FOUND event to
+        trigger model sync. Prevents cascade failures when stale model
+        is deleted.
 
         Args:
             board_type: Board type (hex8, square8, etc.)
@@ -705,11 +724,12 @@ class JobManager(EventSubscriptionMixin):
             model_version: Architecture version (e.g., "v5", "v2", "v5-heavy")
 
         Returns:
-            Path to the canonical model file for the given configuration.
-            Falls back to default (no version suffix) if version-specific
-            model doesn't exist.
+            Path to the canonical model file for the given configuration,
+            or None if no model exists. Falls back to default (no version
+            suffix) if version-specific model doesn't exist.
         """
         models_dir = os.path.join(self._get_ai_service_path(), "models")
+        config_key = f"{board_type}_{num_players}p"
 
         # Try version-specific model first: canonical_hex8_2p_v2.pth
         if model_version and model_version != "v5":
@@ -717,14 +737,61 @@ class JobManager(EventSubscriptionMixin):
             versioned_path = os.path.join(models_dir, versioned_name)
             if os.path.exists(versioned_path):
                 logger.debug(
-                    f"Using versioned model for {board_type}_{num_players}p: {versioned_name}"
+                    f"Using versioned model for {config_key}: {versioned_name}"
                 )
                 return versioned_path
 
         # Fall back to default: canonical_hex8_2p.pth
         default_name = f"canonical_{board_type}_{num_players}p.pth"
         default_path = os.path.join(models_dir, default_name)
+
+        # Sprint 17.9: Pre-flight existence check - emit event if missing
+        if not os.path.exists(default_path):
+            logger.warning(
+                f"[JobManager] Model not found for {config_key}: {default_path}"
+            )
+            self._emit_model_not_found(
+                board_type=board_type,
+                num_players=num_players,
+                model_version=model_version,
+                expected_path=default_path,
+            )
+            return None
+
         return default_path
+
+    def _emit_model_not_found(
+        self,
+        board_type: str,
+        num_players: int,
+        model_version: str,
+        expected_path: str,
+    ) -> None:
+        """Emit MODEL_NOT_FOUND event to trigger model sync.
+
+        Sprint 17.9 (Jan 5, 2026): Added for stale model detection.
+        Subscribers (e.g., sync_router, model_lifecycle_coordinator) can
+        react by initiating model sync from other nodes.
+
+        Args:
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players (2, 3, or 4)
+            model_version: Architecture version requested
+            expected_path: Path where model was expected
+        """
+        config_key = f"{board_type}_{num_players}p"
+        self._safe_emit_event(
+            "MODEL_NOT_FOUND",
+            {
+                "config_key": config_key,
+                "board_type": board_type,
+                "num_players": num_players,
+                "model_version": model_version,
+                "expected_path": expected_path,
+                "node_id": self.node_id,
+                "timestamp": time.time(),
+            },
+        )
 
     def _should_use_gpu_tree(self) -> bool:
         """Check if GPU tree mode should be enabled for this node.

@@ -937,6 +937,15 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
                 f"{game_count} games (<{DATA_STARVATION_ULTRA_THRESHOLD}). "
                 f"Applying {DATA_STARVATION_ULTRA_MULTIPLIER}x priority boost. URGENT DATA NEEDED!"
             )
+            # Jan 5, 2026: Emit starvation event for automatic dispatch trigger
+            # Only emit once per 5 minutes to avoid flooding the event bus
+            starvation_cooldown_key = f"starvation_alert_{priority.config_key}"
+            last_alert = getattr(self, "_starvation_alert_times", {}).get(starvation_cooldown_key, 0)
+            if time.time() - last_alert > 300:  # 5 minute cooldown
+                self._emit_starvation_alert(priority.config_key, game_count, "ULTRA")
+                if not hasattr(self, "_starvation_alert_times"):
+                    self._starvation_alert_times: dict[str, float] = {}
+                self._starvation_alert_times[starvation_cooldown_key] = time.time()
         elif game_count < DATA_STARVATION_EMERGENCY_THRESHOLD:
             # Log for visibility (calculator already applied the multiplier)
             logger.warning(
@@ -2651,6 +2660,50 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
             pass  # Event system not available
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Failed to emit allocation update: {e}")
+
+    def _emit_starvation_alert(
+        self,
+        config_key: str,
+        game_count: int,
+        tier: str,
+    ) -> None:
+        """Emit DATA_STARVATION_CRITICAL event to trigger priority dispatch.
+
+        Jan 5, 2026: Added for automatic starvation response. When ULTRA starvation
+        is detected (<20 games), this event enables QueuePopulatorLoop to auto-submit
+        priority selfplay jobs without manual intervention.
+
+        Args:
+            config_key: Config with starvation (e.g., "square19_3p")
+            game_count: Current game count for this config
+            tier: Starvation tier ("ULTRA", "EMERGENCY", "CRITICAL")
+        """
+        try:
+            from app.coordination.event_router import DataEventType, get_event_bus
+
+            bus = get_event_bus()
+            if bus is None:
+                return
+
+            payload = {
+                "config_key": config_key,
+                "game_count": game_count,
+                "tier": tier,
+                "threshold": DATA_STARVATION_ULTRA_THRESHOLD,
+                "multiplier": DATA_STARVATION_ULTRA_MULTIPLIER,
+                "timestamp": time.time(),
+            }
+
+            bus.emit(DataEventType.DATA_STARVATION_CRITICAL, payload)
+            logger.info(
+                f"[SelfplayScheduler] Emitted DATA_STARVATION_CRITICAL: "
+                f"{config_key} ({tier} tier, {game_count} games)"
+            )
+
+        except ImportError:
+            pass  # Event system not available
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Failed to emit starvation alert: {e}")
 
     # =========================================================================
     # Per-Node Job Targeting (Dec 2025)

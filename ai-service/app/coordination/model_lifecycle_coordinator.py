@@ -12,6 +12,7 @@ Event Integration:
 - Subscribes to TRAINING_COMPLETED: Track training completions
 - Subscribes to ELO_UPDATED: Track Elo changes
 - Subscribes to MODEL_CORRUPTED: Handle corrupted model recovery (December 2025)
+- Subscribes to MODEL_NOT_FOUND: Trigger model sync when model missing (January 2026)
 - Subscribes to REGRESSION_DETECTED: Handle model performance regression (December 2025)
 
 Key Responsibilities:
@@ -207,6 +208,7 @@ class ModelLifecycleCoordinator:
             router.subscribe(DataEventType.TRAINING_COMPLETED.value, self._on_training_completed)
             router.subscribe(DataEventType.ELO_UPDATED.value, self._on_elo_updated)
             router.subscribe(DataEventType.MODEL_CORRUPTED.value, self._on_model_corrupted)
+            router.subscribe(DataEventType.MODEL_NOT_FOUND.value, self._on_model_not_found)
             router.subscribe(DataEventType.REGRESSION_DETECTED.value, self._on_regression_detected)
 
             self._subscribed = True
@@ -244,6 +246,7 @@ class ModelLifecycleCoordinator:
             router.unsubscribe(DataEventType.TRAINING_COMPLETED.value, self._on_training_completed)
             router.unsubscribe(DataEventType.ELO_UPDATED.value, self._on_elo_updated)
             router.unsubscribe(DataEventType.MODEL_CORRUPTED.value, self._on_model_corrupted)
+            router.unsubscribe(DataEventType.MODEL_NOT_FOUND.value, self._on_model_not_found)
             router.unsubscribe(DataEventType.REGRESSION_DETECTED.value, self._on_regression_detected)
 
             logger.info("[ModelLifecycleCoordinator] Unsubscribed from model events")
@@ -659,6 +662,58 @@ class ModelLifecycleCoordinator:
                 )
             except Exception as e:
                 logger.error(f"[ModelLifecycleCoordinator] Rollback failed: {e}")
+
+    async def _on_model_not_found(self, event) -> None:
+        """Handle MODEL_NOT_FOUND event - trigger model sync from cluster peers.
+
+        Sprint 17.9 (Jan 5, 2026): Added for stale model detection.
+        When a selfplay job attempts to dispatch but the model file is missing,
+        this handler triggers MODEL_SYNC_REQUESTED to fetch the model from
+        another node in the cluster.
+        """
+        payload = event.payload if hasattr(event, "payload") else event
+        config_key = payload.get("config_key", "")
+        board_type = payload.get("board_type", "")
+        num_players = payload.get("num_players", 0)
+        model_version = payload.get("model_version", "v5")
+        expected_path = payload.get("expected_path", "")
+        node_id = payload.get("node_id", "")
+
+        logger.warning(
+            f"[ModelLifecycleCoordinator] MODEL_NOT_FOUND: {config_key} "
+            f"(version={model_version}, path={expected_path}, node={node_id})"
+        )
+
+        # Construct model_id from config if available
+        model_id = f"canonical_{config_key}" if config_key else ""
+
+        # Emit MODEL_SYNC_REQUESTED to trigger download from healthy nodes
+        try:
+            from app.coordination.event_router import get_router, DataEventType
+
+            router = get_router()
+
+            await router.publish(
+                DataEventType.MODEL_SYNC_REQUESTED.value,
+                {
+                    "model_id": model_id,
+                    "config_key": config_key,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "model_version": model_version,
+                    "model_path": expected_path,
+                    "target_node": node_id,
+                    "reason": "model_not_found",
+                    "priority": "high",
+                },
+            )
+            logger.info(
+                f"[ModelLifecycleCoordinator] Requested model sync for {config_key} "
+                f"to {node_id or 'local node'}"
+            )
+
+        except Exception as e:
+            logger.error(f"[ModelLifecycleCoordinator] Failed to request model sync: {e}")
 
     async def _on_regression_detected(self, event) -> None:
         """Handle REGRESSION_DETECTED event - track and respond to model regression.
