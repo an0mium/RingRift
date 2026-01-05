@@ -609,15 +609,29 @@ def allocate_to_nodes(
         )
         total_games = adjusted_games
 
-    # Get available nodes sorted by capacity, excluding unhealthy
+    # Get available nodes sorted by capacity, excluding unhealthy and saturated
+    # Session 17.35: Integrated NodeQueueTracker for load-aware allocation
+    tracker = get_node_queue_tracker()
     available_nodes = sorted(
         [
             n
             for n in node_capabilities.values()
-            if n.available_capacity > 0.1 and n.node_id not in unhealthy_nodes
+            if n.available_capacity > 0.05  # Reduced from 0.1 for better utilization
+            and n.node_id not in unhealthy_nodes
+            and not tracker.is_saturated(n.node_id)  # Skip nodes with full queues
         ],
         key=lambda n: (-n.available_capacity, n.data_lag_seconds),
     )
+
+    # Log if nodes were excluded due to saturation
+    saturated_nodes = [
+        n.node_id for n in node_capabilities.values()
+        if n.node_id not in unhealthy_nodes
+        and n.available_capacity > 0.05
+        and tracker.is_saturated(n.node_id)
+    ]
+    if saturated_nodes:
+        result.notes.append(f"Excluded {len(saturated_nodes)} saturated nodes: {saturated_nodes[:3]}...")
 
     if not available_nodes:
         result.notes.append("No available nodes for allocation")
@@ -946,7 +960,8 @@ def compute_target_jobs_for_node(
 def is_node_eligible_for_allocation(
     node: NodeCapability,
     unhealthy_nodes: set[str] | None = None,
-    min_capacity: float = 0.1,
+    min_capacity: float = 0.05,  # Reduced from 0.1 for better utilization
+    check_queue_saturation: bool = True,
 ) -> bool:
     """Check if a node is eligible for game allocation.
 
@@ -954,13 +969,20 @@ def is_node_eligible_for_allocation(
         node: Node capability info
         unhealthy_nodes: Set of unhealthy node IDs to exclude
         min_capacity: Minimum available capacity threshold
+        check_queue_saturation: Whether to check NodeQueueTracker (Session 17.35)
 
     Returns:
         True if node can receive work
     """
     if unhealthy_nodes and node.node_id in unhealthy_nodes:
         return False
-    return node.available_capacity >= min_capacity
+    if node.available_capacity < min_capacity:
+        return False
+    if check_queue_saturation:
+        tracker = get_node_queue_tracker()
+        if tracker.is_saturated(node.node_id):
+            return False
+    return True
 
 
 def get_total_cluster_capacity(

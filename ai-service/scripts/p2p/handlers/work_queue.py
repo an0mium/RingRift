@@ -35,6 +35,78 @@ from scripts.p2p.handlers.base import BaseP2PHandler
 from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
+# January 2026: Import capacity thresholds for OOM prevention
+try:
+    from app.config.thresholds import (
+        MIN_MEMORY_GB_FOR_TRAINING,
+        MIN_MEMORY_GB_FOR_SELFPLAY,
+        MIN_MEMORY_GB_FOR_GAUNTLET,
+    )
+except ImportError:
+    # Fallback defaults if thresholds module not available
+    MIN_MEMORY_GB_FOR_TRAINING = 32
+    MIN_MEMORY_GB_FOR_SELFPLAY = 16
+    MIN_MEMORY_GB_FOR_GAUNTLET = 16
+
+# Work type to minimum VRAM requirements (GB)
+# Session 17.32: Added to prevent OOM by checking capacity before claiming
+WORK_TYPE_VRAM_REQUIREMENTS: dict[str, float] = {
+    "training": float(MIN_MEMORY_GB_FOR_TRAINING),
+    "selfplay": float(MIN_MEMORY_GB_FOR_SELFPLAY),
+    "gauntlet": float(MIN_MEMORY_GB_FOR_GAUNTLET),
+    "evaluation": float(MIN_MEMORY_GB_FOR_GAUNTLET),
+    "tournament": float(MIN_MEMORY_GB_FOR_GAUNTLET),
+    "sync": 2.0,  # Minimal VRAM for sync operations
+    "export": 4.0,  # NPZ export needs some memory
+}
+DEFAULT_VRAM_REQUIREMENT = 8.0  # Fallback for unknown work types
+
+# Disk usage threshold - refuse work if disk is too full
+DISK_USAGE_CRITICAL_THRESHOLD = 85  # Percentage
+
+# GPU name to total VRAM mapping (GB)
+# Session 17.32: Used to infer VRAM capacity from gpu_name since NodeInfo
+# doesn't expose gpu_vram_gb directly
+GPU_VRAM_GB: dict[str, float] = {
+    # NVIDIA Datacenter GPUs
+    "GH200": 96.0,
+    "H100": 80.0,
+    "H100 PCIe": 80.0,
+    "H100 SXM": 80.0,
+    "A100": 80.0,
+    "A100 80GB": 80.0,
+    "A100 40GB": 40.0,
+    "A100-SXM4-80GB": 80.0,
+    "A100-SXM4-40GB": 40.0,
+    "A100-PCIE-40GB": 40.0,
+    "L40S": 48.0,
+    "L40": 48.0,
+    "A40": 48.0,
+    "A30": 24.0,
+    "A10": 24.0,
+    "A10G": 24.0,
+    "V100": 32.0,
+    "V100S": 32.0,
+    "T4": 16.0,
+    # NVIDIA Consumer GPUs
+    "RTX 5090": 32.0,
+    "RTX 5080": 16.0,
+    "RTX 4090": 24.0,
+    "RTX 4080": 16.0,
+    "RTX 4070 Ti": 12.0,
+    "RTX 4060 Ti": 8.0,
+    "RTX 4060": 8.0,
+    "RTX 3090": 24.0,
+    "RTX 3090 Ti": 24.0,
+    "RTX 3080": 10.0,
+    "RTX 3080 Ti": 12.0,
+    "RTX 3070": 8.0,
+    "RTX 3060": 12.0,
+    "RTX 3060 Ti": 8.0,
+    # Vultr fractional vGPU
+    "A100 20GB": 20.0,
+}
+
 # January 2026: Use centralized timeouts from LoopTimeouts
 try:
     from scripts.p2p.loops.loop_constants import LoopTimeouts
@@ -129,6 +201,155 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             status=503,
             error_code="WORK_QUEUE_UNAVAILABLE",
         )
+
+    def _get_node_info(self, node_id: str) -> dict | None:
+        """Get NodeInfo for a node from the peers dict.
+
+        Session 17.32 (Jan 5, 2026): Added for capacity checking.
+
+        Args:
+            node_id: The node ID to look up
+
+        Returns:
+            NodeInfo dict or None if not found
+        """
+        # Try to access peers dict via orchestrator attributes
+        peers = getattr(self, "peers", None)
+        peers_lock = getattr(self, "peers_lock", None)
+
+        if peers is None:
+            # Try to find via _orchestrator reference
+            orchestrator = getattr(self, "_orchestrator", self)
+            peers = getattr(orchestrator, "peers", None)
+            peers_lock = getattr(orchestrator, "peers_lock", None)
+
+        if peers is None:
+            return None
+
+        try:
+            if peers_lock:
+                with peers_lock:
+                    peer = peers.get(node_id)
+            else:
+                peer = peers.get(node_id)
+
+            if peer is None:
+                return None
+
+            # Convert to dict if it has to_dict method
+            if hasattr(peer, "to_dict"):
+                return peer.to_dict()
+            elif hasattr(peer, "__dict__"):
+                return dict(peer.__dict__)
+            else:
+                return None
+        except Exception as e:
+            logger.debug(f"[_get_node_info] Error getting info for {node_id}: {e}")
+            return None
+
+    def _get_gpu_vram_from_name(self, gpu_name: str) -> float:
+        """Infer GPU total VRAM from gpu_name string.
+
+        Session 17.32 (Jan 5, 2026): Added to support VRAM capacity checks.
+        NodeInfo provides gpu_name (e.g. "RTX 4090") but not total VRAM,
+        so we look it up from the GPU_VRAM_GB mapping.
+
+        Args:
+            gpu_name: GPU name from NodeInfo (e.g. "RTX 4090", "H100", "GH200")
+
+        Returns:
+            Total VRAM in GB, or 0.0 if GPU not recognized
+        """
+        if not gpu_name:
+            return 0.0
+
+        # Try exact match first
+        if gpu_name in GPU_VRAM_GB:
+            return GPU_VRAM_GB[gpu_name]
+
+        # Try substring matching for partial names
+        # e.g. "NVIDIA GeForce RTX 4090" should match "RTX 4090"
+        gpu_name_upper = gpu_name.upper()
+        for known_gpu, vram in GPU_VRAM_GB.items():
+            if known_gpu.upper() in gpu_name_upper:
+                return vram
+
+        # Unknown GPU - log for future mapping additions
+        logger.debug(f"[capacity] Unknown GPU '{gpu_name}', no VRAM limit applied")
+        return 0.0
+
+    def _check_node_capacity(
+        self,
+        node_id: str,
+        work_type: str,
+    ) -> tuple[bool, str]:
+        """Check if node has sufficient resources for a work item.
+
+        Session 17.32 (Jan 5, 2026): Added to prevent OOM and improve utilization.
+
+        Checks:
+        1. Disk usage < 85% (critical threshold)
+        2. GPU VRAM available >= job requirement
+
+        Args:
+            node_id: The node claiming work
+            work_type: Type of work (selfplay, training, evaluation, etc.)
+
+        Returns:
+            Tuple of (has_capacity: bool, reason: str)
+            - (True, "") if capacity is sufficient
+            - (False, reason) if capacity is insufficient
+        """
+        node_info = self._get_node_info(node_id)
+
+        # If we can't get node info, allow the work claim
+        # (better to attempt work than block on missing info)
+        if node_info is None:
+            logger.debug(f"[capacity] No info for {node_id}, allowing work claim")
+            return (True, "")
+
+        # Check disk usage
+        disk_percent = node_info.get("disk_percent", 0.0)
+        if disk_percent >= DISK_USAGE_CRITICAL_THRESHOLD:
+            reason = f"disk usage {disk_percent:.1f}% >= {DISK_USAGE_CRITICAL_THRESHOLD}%"
+            logger.info(f"[capacity] {node_id} rejected: {reason}")
+            return (False, reason)
+
+        # Check GPU VRAM
+        # NodeInfo has gpu_memory_percent (percentage used) and gpu_name
+        # We infer total VRAM from gpu_name using GPU_VRAM_GB mapping
+        gpu_memory_percent = node_info.get("gpu_memory_percent", 0.0)
+        gpu_name = node_info.get("gpu_name", "")
+
+        # Look up VRAM from GPU name
+        gpu_vram_total_gb = self._get_gpu_vram_from_name(gpu_name)
+
+        # If no GPU info available, allow work (CPU-only nodes or unknown GPU)
+        if gpu_vram_total_gb <= 0:
+            return (True, "")
+
+        # Calculate available VRAM
+        available_vram_gb = gpu_vram_total_gb * (1 - gpu_memory_percent / 100)
+
+        # Get VRAM requirement for this work type
+        vram_required = WORK_TYPE_VRAM_REQUIREMENTS.get(work_type, DEFAULT_VRAM_REQUIREMENT)
+
+        if available_vram_gb < vram_required:
+            reason = (
+                f"available VRAM {available_vram_gb:.1f}GB < "
+                f"required {vram_required:.1f}GB for {work_type}"
+            )
+            logger.info(f"[capacity] {node_id} rejected: {reason}")
+            return (False, reason)
+
+        return (True, "")
+
+    def _insufficient_capacity_response(self, reason: str) -> web.Response:
+        """Return response when node has insufficient capacity."""
+        return self.json_response({
+            "status": "insufficient_capacity",
+            "reason": reason,
+        })
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_add(self, request: web.Request) -> web.Response:
@@ -263,7 +484,11 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_claim(self, request: web.Request) -> web.Response:
-        """Claim available work from the queue."""
+        """Claim available work from the queue.
+
+        Session 17.32 (Jan 5, 2026): Added capacity checks before claiming work
+        to prevent OOM and improve cluster utilization.
+        """
         try:
             if not self.is_leader:
                 return self._not_leader_response()
@@ -280,6 +505,20 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
             if not node_id:
                 return self.bad_request("node_id required")
+
+            # Session 17.32: Check node capacity before claiming work
+            # Determine the most demanding work type from capabilities
+            check_work_type = "selfplay"  # Default
+            if capabilities:
+                # Check against highest-requirement capability
+                for cap in ["training", "gauntlet", "evaluation", "selfplay"]:
+                    if cap in capabilities:
+                        check_work_type = cap
+                        break
+
+            has_capacity, reason = self._check_node_capacity(node_id, check_work_type)
+            if not has_capacity:
+                return self._insufficient_capacity_response(reason)
 
             item = wq.claim_work(node_id, capabilities)
             if item is None:
@@ -300,6 +539,8 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
         Session 17.34 (Jan 5, 2026): Added batch claiming to reduce round-trip
         overhead and improve GPU utilization by +30-40%.
 
+        Session 17.32 (Jan 5, 2026): Added capacity checks before claiming work.
+
         Query params:
             node_id: The node claiming work (required)
             capabilities: Comma-separated work types (optional)
@@ -307,7 +548,7 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
         Response:
         {
-            "status": "claimed" | "no_work_available",
+            "status": "claimed" | "no_work_available" | "insufficient_capacity",
             "count": 5,
             "items": [{"work_id": "...", ...}, ...]
         }
@@ -330,6 +571,18 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
             if not node_id:
                 return self.bad_request("node_id required")
+
+            # Session 17.32: Check node capacity before claiming work
+            check_work_type = "selfplay"  # Default
+            if capabilities:
+                for cap in ["training", "gauntlet", "evaluation", "selfplay"]:
+                    if cap in capabilities:
+                        check_work_type = cap
+                        break
+
+            has_capacity, reason = self._check_node_capacity(node_id, check_work_type)
+            if not has_capacity:
+                return self._insufficient_capacity_response(reason)
 
             try:
                 max_items = min(max(1, int(max_items_str)), 10)
@@ -354,11 +607,13 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
         """Pull-based training job claim - works without leader.
 
         Jan 4, 2026: Added for Phase 4 of 48-hour autonomous operation.
+        Session 17.32 (Jan 5, 2026): Added capacity checks before claiming work.
 
         GPU nodes call this to claim training work directly. Tries:
-        1. Local work queue (if leader)
-        2. Autonomous local queue (if activated)
-        3. Returns no_work_available if nothing found
+        1. Check capacity (must have enough VRAM and disk for training)
+        2. Local work queue (if leader)
+        3. Autonomous local queue (if activated)
+        4. Returns no_work_available if nothing found
 
         This allows training to continue even during leader elections or partitions.
         """
@@ -370,6 +625,11 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
                 return self.bad_request("node_id required")
 
             capabilities = [c.strip() for c in capabilities_str.split(",") if c.strip()] or None
+
+            # Session 17.32: Check node capacity for training work
+            has_capacity, reason = self._check_node_capacity(node_id, "training")
+            if not has_capacity:
+                return self._insufficient_capacity_response(reason)
 
             # Strategy 1: Check local work queue for training jobs (if leader)
             if self.is_leader:

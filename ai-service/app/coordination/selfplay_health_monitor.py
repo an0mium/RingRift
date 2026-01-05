@@ -70,6 +70,9 @@ class HealthMonitorState:
     # Circuit reset stats
     circuit_reset_count: int = 0
 
+    # Session 17.35: HOST_OFFLINE auto-recovery tracking
+    host_offline_timestamps: dict[str, float] = field(default_factory=dict)  # host -> offline_time
+
 
 class SelfplayHealthMonitorMixin:
     """Mixin providing P2P health event handlers for selfplay scheduling.
@@ -111,6 +114,9 @@ class SelfplayHealthMonitorMixin:
         self._backpressure_active: bool = False
         self._eval_backpressure_active: bool = False
         self._circuit_reset_count: int = 0
+        # Session 17.35: Track HOST_OFFLINE timestamps for auto-recovery
+        self._host_offline_timestamps: dict[str, float] = {}
+        self._host_offline_recovery_seconds: float = 1800.0  # 30 minutes
 
     def _get_health_event_subscriptions(self) -> dict[str, Callable]:
         """Return event subscriptions for health monitoring.
@@ -170,6 +176,7 @@ class SelfplayHealthMonitorMixin:
             backpressure_active=getattr(self, "_backpressure_active", False),
             eval_backpressure_active=getattr(self, "_eval_backpressure_active", False),
             circuit_reset_count=getattr(self, "_circuit_reset_count", 0),
+            host_offline_timestamps=dict(getattr(self, "_host_offline_timestamps", {})),
         )
 
     # =========================================================================
@@ -232,6 +239,9 @@ class SelfplayHealthMonitorMixin:
         December 2025: P2P orchestrator emits this when a peer is retired after
         ~300s of being offline. This is a stronger signal than NODE_UNHEALTHY
         as the node has been definitively removed from the cluster.
+
+        Session 17.35: Track timestamp for auto-recovery after 30 minutes.
+        Nodes may come back online without explicit HOST_ONLINE events.
         """
         try:
             payload = event.payload if hasattr(event, "payload") else event
@@ -241,8 +251,12 @@ class SelfplayHealthMonitorMixin:
             if host:
                 if not hasattr(self, "_unhealthy_nodes"):
                     self._unhealthy_nodes: set[str] = set()
+                if not hasattr(self, "_host_offline_timestamps"):
+                    self._host_offline_timestamps: dict[str, float] = {}
 
                 self._unhealthy_nodes.add(host)
+                # Track when the host went offline for auto-recovery
+                self._host_offline_timestamps[host] = time.time()
 
                 # Mark node as fully loaded to prevent allocation
                 if host in self._node_capabilities:
@@ -250,7 +264,8 @@ class SelfplayHealthMonitorMixin:
 
                 logger.warning(
                     f"[SelfplayScheduler] Host {host} offline (reason: {reason}). "
-                    f"Removed from selfplay allocation pool."
+                    f"Removed from selfplay allocation pool. "
+                    f"Will auto-recover in 30 minutes if not back sooner."
                 )
 
         except Exception as e:
@@ -885,3 +900,60 @@ class SelfplayHealthMonitorMixin:
             getattr(self, "_backpressure_active", False) or
             getattr(self, "_eval_backpressure_active", False)
         )
+
+    def cleanup_stale_host_offline_exclusions(self) -> list[str]:
+        """Auto-recover nodes that have been in HOST_OFFLINE state for too long.
+
+        Session 17.35: Nodes may come back online without explicit HOST_ONLINE
+        events (e.g., if the P2P orchestrator was restarted). This method
+        removes stale exclusions after 30 minutes to allow re-probing.
+
+        Should be called periodically (e.g., every 5 minutes from _run_cycle).
+
+        Returns:
+            List of host IDs that were auto-recovered.
+        """
+        offline_timestamps = getattr(self, "_host_offline_timestamps", {})
+        if not offline_timestamps:
+            return []
+
+        recovery_seconds = getattr(self, "_host_offline_recovery_seconds", 1800.0)
+        current_time = time.time()
+        recovered = []
+
+        for host, offline_time in list(offline_timestamps.items()):
+            age_seconds = current_time - offline_time
+            if age_seconds >= recovery_seconds:
+                # Auto-recover this node
+                recovered.append(host)
+                del self._host_offline_timestamps[host]
+
+                # Remove from unhealthy nodes
+                unhealthy = getattr(self, "_unhealthy_nodes", set())
+                if host in unhealthy:
+                    self._unhealthy_nodes.discard(host)
+
+                # Restore node capability
+                if host in self._node_capabilities:
+                    self._node_capabilities[host].current_load = 0.0
+
+                logger.info(
+                    f"[SelfplayScheduler] Auto-recovered HOST_OFFLINE node {host} "
+                    f"after {age_seconds/60:.1f} minutes. Will re-probe for availability."
+                )
+
+        if recovered:
+            logger.info(
+                f"[SelfplayScheduler] Auto-recovered {len(recovered)} stale HOST_OFFLINE exclusions: "
+                f"{recovered[:5]}{'...' if len(recovered) > 5 else ''}"
+            )
+
+        return recovered
+
+    def get_host_offline_count(self) -> int:
+        """Get count of currently excluded HOST_OFFLINE nodes.
+
+        Returns:
+            Number of nodes in HOST_OFFLINE exclusion state.
+        """
+        return len(getattr(self, "_host_offline_timestamps", {}))
