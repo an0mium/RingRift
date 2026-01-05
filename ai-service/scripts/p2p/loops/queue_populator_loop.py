@@ -89,6 +89,9 @@ class QueuePopulatorLoop(BaseLoop):
         self._config_path = config_path
         self._populator: Any = None
         self._initialized = False
+        # Jan 5, 2026 (Session 17.28): Track leader unreachability for follower takeover
+        self._leader_last_seen: float = time.time()
+        self._leader_unreachable_threshold: float = 30.0  # seconds before follower takes over
 
     async def _on_start(self) -> None:
         """Initialize the QueuePopulator on loop start."""
@@ -114,14 +117,40 @@ class QueuePopulatorLoop(BaseLoop):
         # Import NodeRole here to avoid circular imports
         from scripts.p2p.types import NodeRole
 
-        # Only leader populates work queue
+        # Jan 5, 2026 (Session 17.28): Allow followers to populate if leader is unreachable
+        # This prevents single point of failure for work distribution
         role = self._get_role()
-        if role != NodeRole.LEADER:
+        is_leader = role == NodeRole.LEADER
+
+        # Check if we should allow follower takeover
+        should_populate = is_leader
+        leader_unreachable_for = 0.0
+
+        if not is_leader:
+            # Check leader reachability (via P2P cluster status)
+            leader_alive = await self._check_leader_alive()
+            if leader_alive:
+                self._leader_last_seen = time.time()
+            leader_unreachable_for = time.time() - self._leader_last_seen
+
+            # Follower takes over if leader unreachable for > threshold
+            if leader_unreachable_for > self._leader_unreachable_threshold:
+                should_populate = True
+                # Log only first time we take over and then every 5 minutes
+                if not hasattr(self, "_follower_takeover_logged") or \
+                   (time.time() - self._follower_takeover_logged) > 300:
+                    logger.warning(
+                        f"[{self.name}] FOLLOWER TAKEOVER: Leader unreachable for "
+                        f"{leader_unreachable_for:.0f}s, populating queue"
+                    )
+                    self._follower_takeover_logged = time.time()
+
+        if not should_populate:
             # Log periodically (not every iteration)
             if hasattr(self, "_last_role_log") and (time.time() - self._last_role_log) < 300:
                 return  # Skip logging, already logged recently
             self._last_role_log = time.time()
-            logger.debug(f"[{self.name}] Skipping - role={role.value}, need LEADER")
+            logger.debug(f"[{self.name}] Skipping - role={role.value}, leader alive")
             return
 
         # Check if populator is enabled
@@ -215,6 +244,54 @@ class QueuePopulatorLoop(BaseLoop):
             self._populator = None
             raise  # Trigger backoff
 
+    async def _check_leader_alive(self) -> bool:
+        """Check if the P2P leader is reachable.
+
+        Jan 5, 2026 (Session 17.28): Added for follower takeover feature.
+        Checks leader health via P2P status endpoint.
+
+        Returns:
+            True if leader is alive and reachable, False otherwise
+        """
+        try:
+            import aiohttp
+
+            # Get leader info from P2P status
+            async with aiohttp.ClientSession() as session:
+                # Check local P2P status to get leader info
+                async with session.get(
+                    "http://localhost:8770/status",
+                    timeout=aiohttp.ClientTimeout(total=5.0),
+                ) as resp:
+                    if resp.status != 200:
+                        return False
+                    status = await resp.json()
+                    leader_id = status.get("leader_id")
+                    if not leader_id:
+                        return False
+
+                    # Check if we're the leader (shouldn't happen, but be safe)
+                    node_id = status.get("node_id")
+                    if leader_id == node_id:
+                        return True  # We're the leader, consider it alive
+
+                    # Get leader's host info from all_peers
+                    all_peers = status.get("all_peers", {})
+                    leader_info = all_peers.get(leader_id)
+                    if not leader_info:
+                        # Leader not in peer list - likely unreachable
+                        return False
+
+                    # Check if leader is marked alive
+                    return leader_info.get("is_alive", False)
+
+        except asyncio.TimeoutError:
+            logger.debug(f"[{self.name}] Timeout checking leader status")
+            return False
+        except Exception as e:
+            logger.debug(f"[{self.name}] Error checking leader status: {e}")
+            return False
+
     @property
     def populator(self) -> Any:
         """Get the QueuePopulator instance."""
@@ -260,16 +337,25 @@ class QueuePopulatorLoop(BaseLoop):
                 details={"running": False},
             )
 
-        # Check if we're the leader (only leader populates)
+        # Check if we're the leader (only leader populates, unless follower takeover)
         from scripts.p2p.types import NodeRole
 
         role = self._get_role()
         if role != NodeRole.LEADER:
+            # Jan 5, 2026: Report follower takeover status
+            leader_unreachable_for = time.time() - self._leader_last_seen
+            is_taking_over = leader_unreachable_for > self._leader_unreachable_threshold
             return HealthCheckResult(
                 healthy=True,
                 status=CoordinatorStatus.RUNNING,
-                message="QueuePopulatorLoop idle (not leader)",
-                details={"role": role.value, "is_leader": False},
+                message=f"QueuePopulatorLoop {'taking over (leader unreachable)' if is_taking_over else 'idle (not leader)'}",
+                details={
+                    "role": role.value,
+                    "is_leader": False,
+                    "leader_unreachable_seconds": round(leader_unreachable_for, 1),
+                    "follower_takeover_active": is_taking_over,
+                    "takeover_threshold_seconds": self._leader_unreachable_threshold,
+                },
             )
 
         # Not initialized yet
