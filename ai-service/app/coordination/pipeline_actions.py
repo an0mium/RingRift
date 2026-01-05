@@ -52,9 +52,9 @@ except ImportError:
 from app.utils.retry import RetryConfig
 from app.coordination.event_utils import make_config_key
 
-# Import event emitter for training triggered events (December 2025)
+# Import event emitter for training triggered events (January 2026 - migrated to event_router)
 try:
-    from app.coordination.event_emitters import emit_training_triggered
+    from app.coordination.event_emission_helpers import safe_emit_event_async
     HAS_EVENT_EMITTERS = True
 except ImportError:
     HAS_EVENT_EMITTERS = False
@@ -862,17 +862,17 @@ async def trigger_training(
     # Don't waste GPU cycles on low-quality data
     quality_ok, quality_score = await _check_training_data_quality(config_key, npz_path)
     if not quality_ok:
-        # Emit event so pipeline can regenerate data
-        try:
-            from app.coordination.event_emitters import emit_training_blocked_by_quality
-            await emit_training_blocked_by_quality(
-                config_key=config_key,
-                npz_path=npz_path,
-                quality_score=quality_score,
-                threshold=QUALITY_GATE_THRESHOLD,
-            )
-        except (ImportError, AttributeError):
-            pass
+        # Emit event so pipeline can regenerate data (January 2026 - migrated to event_router)
+        await safe_emit_event_async(
+            "TRAINING_BLOCKED_BY_QUALITY",
+            {
+                "config_key": config_key,
+                "npz_path": npz_path,
+                "quality_score": quality_score,
+                "threshold": QUALITY_GATE_THRESHOLD,
+            },
+            context="pipeline_actions",
+        )
 
         logger.warning(
             f"[PipelineActions] Training blocked by quality gate: "
@@ -892,21 +892,22 @@ async def trigger_training(
             },
         )
 
-    # Emit training triggered event (December 2025)
+    # Emit training triggered event (January 2026 - migrated to event_router)
     if HAS_EVENT_EMITTERS:
-        try:
-            job_id = f"train_{config_key}_iter{iteration}"
-            await emit_training_triggered(
-                config=config_key,
-                job_id=job_id,
-                trigger_reason="pipeline",
-                priority="normal",
-                iteration=iteration,
-                epochs=epochs,
-                batch_size=batch_size,
-            )
-        except Exception as e:
-            logger.debug(f"[PipelineActions] Failed to emit training_triggered: {e}")
+        job_id = f"train_{config_key}_iter{iteration}"
+        await safe_emit_event_async(
+            "TRAINING_TRIGGERED",
+            {
+                "config": config_key,
+                "job_id": job_id,
+                "trigger_reason": "pipeline",
+                "priority": "normal",
+                "iteration": iteration,
+                "epochs": epochs,
+                "batch_size": batch_size,
+            },
+            context="pipeline_actions",
+        )
 
     # Phase 7: Architecture selection based on ArchitectureTracker weights
     selected_architecture = architecture
@@ -1394,135 +1395,114 @@ async def trigger_promotion(
 
 
 async def _emit_sync_complete(result: StageCompletionResult) -> None:
-    """Emit SYNC_COMPLETE event."""
-    try:
-        from app.coordination.event_emitters import emit_sync_complete
-
-        await emit_sync_complete(
-            sync_type="data",  # Required: type of sync
-            items_synced=result.metadata.get("files_synced", 0),  # Required
-            success=result.success,
-            duration_seconds=result.duration_seconds,
-            source="pipeline_actions",
-            iteration=result.iteration,
-            **result.metadata,
-        )
-    except Exception as e:
-        logger.warning(f"[PipelineActions] Could not emit sync_complete: {e}")
+    """Emit SYNC_COMPLETE event (January 2026 - migrated to event_router)."""
+    payload = {
+        "sync_type": "data",
+        "items_synced": result.metadata.get("files_synced", 0),
+        "success": result.success,
+        "duration_seconds": result.duration_seconds,
+        "source": "pipeline_actions",
+        "iteration": result.iteration,
+        **result.metadata,
+    }
+    await safe_emit_event_async("SYNC_COMPLETE", payload, context="pipeline_actions")
 
 
 async def _emit_npz_export_complete(result: StageCompletionResult) -> None:
-    """Emit NPZ_EXPORT_COMPLETE event."""
-    try:
-        from app.coordination.event_emitters import emit_npz_export_complete
-
-        await emit_npz_export_complete(
-            board_type=result.metadata.get("board_type", "unknown"),
-            num_players=result.metadata.get("num_players", 2),
-            samples_exported=result.metadata.get("samples_exported", 0),
-            games_exported=result.metadata.get("games_exported", 0),
-            output_path=result.output_path or "",
-            success=result.success,
-            duration_seconds=result.duration_seconds,
-            iteration=result.iteration,
-            **{k: v for k, v in result.metadata.items()
-               if k not in ("board_type", "num_players", "samples_exported", "games_exported")},
-        )
-    except Exception as e:
-        logger.warning(f"[PipelineActions] Could not emit npz_export_complete: {e}")
+    """Emit NPZ_EXPORT_COMPLETE event (January 2026 - migrated to event_router)."""
+    extra_meta = {k: v for k, v in result.metadata.items()
+                  if k not in ("board_type", "num_players", "samples_exported", "games_exported")}
+    payload = {
+        "board_type": result.metadata.get("board_type", "unknown"),
+        "num_players": result.metadata.get("num_players", 2),
+        "samples_exported": result.metadata.get("samples_exported", 0),
+        "games_exported": result.metadata.get("games_exported", 0),
+        "output_path": result.output_path or "",
+        "success": result.success,
+        "duration_seconds": result.duration_seconds,
+        "iteration": result.iteration,
+        **extra_meta,
+    }
+    await safe_emit_event_async("NPZ_EXPORT_COMPLETE", payload, context="pipeline_actions")
 
 
 async def _emit_training_complete(result: StageCompletionResult) -> None:
-    """Emit TRAINING_COMPLETE event."""
-    try:
-        from app.coordination.event_emitters import emit_training_complete
-
-        await emit_training_complete(
-            job_id=result.metadata.get("model_id", f"training_iter{result.iteration}"),
-            board_type=result.metadata.get("board_type", "unknown"),
-            num_players=result.metadata.get("num_players", 2),
-            success=result.success,
-            final_loss=result.metadata.get("val_loss"),
-            model_path=result.output_path,
-            epochs_completed=result.metadata.get("epochs_completed", 0),
-            iteration=result.iteration,
-            **{k: v for k, v in result.metadata.items()
-               if k not in ("model_id", "board_type", "num_players", "val_loss", "epochs_completed")},
-        )
-    except Exception as e:
-        logger.warning(f"[PipelineActions] Could not emit training_complete: {e}")
+    """Emit TRAINING_COMPLETE event (January 2026 - migrated to event_router)."""
+    extra_meta = {k: v for k, v in result.metadata.items()
+                  if k not in ("model_id", "board_type", "num_players", "val_loss", "epochs_completed")}
+    payload = {
+        "job_id": result.metadata.get("model_id", f"training_iter{result.iteration}"),
+        "board_type": result.metadata.get("board_type", "unknown"),
+        "num_players": result.metadata.get("num_players", 2),
+        "success": result.success,
+        "final_loss": result.metadata.get("val_loss"),
+        "model_path": result.output_path,
+        "epochs_completed": result.metadata.get("epochs_completed", 0),
+        "iteration": result.iteration,
+        **extra_meta,
+    }
+    await safe_emit_event_async("TRAINING_COMPLETE", payload, context="pipeline_actions")
 
 
 async def _emit_training_failed(result: StageCompletionResult) -> None:
-    """Emit TRAINING_FAILED event."""
-    try:
-        from app.coordination.event_emitters import emit_training_complete
-
-        # Use emit_training_complete with success=False
-        await emit_training_complete(
-            job_id=result.metadata.get("model_id", f"training_iter{result.iteration}"),
-            board_type=result.metadata.get("board_type", "unknown"),
-            num_players=result.metadata.get("num_players", 2),
-            success=False,
-            iteration=result.iteration,
-            error=result.error or "Unknown error",
-            **{k: v for k, v in result.metadata.items()
-               if k not in ("model_id", "board_type", "num_players")},
-        )
-    except Exception as e:
-        logger.warning(f"[PipelineActions] Could not emit training_failed: {e}")
+    """Emit TRAINING_FAILED event (January 2026 - migrated to event_router)."""
+    extra_meta = {k: v for k, v in result.metadata.items()
+                  if k not in ("model_id", "board_type", "num_players")}
+    payload = {
+        "job_id": result.metadata.get("model_id", f"training_iter{result.iteration}"),
+        "board_type": result.metadata.get("board_type", "unknown"),
+        "num_players": result.metadata.get("num_players", 2),
+        "success": False,
+        "iteration": result.iteration,
+        "error": result.error or "Unknown error",
+        **extra_meta,
+    }
+    await safe_emit_event_async("TRAINING_FAILED", payload, context="pipeline_actions")
 
 
 async def _emit_evaluation_complete(result: StageCompletionResult) -> None:
-    """Emit EVALUATION_COMPLETE event."""
-    try:
-        from app.coordination.event_emitters import emit_evaluation_complete
-
-        await emit_evaluation_complete(
-            model_id=result.metadata.get("model_id", f"eval_iter{result.iteration}"),
-            board_type=result.metadata.get("board_type", "unknown"),
-            num_players=result.metadata.get("num_players", 2),
-            success=result.success,
-            win_rate=result.metadata.get("win_rates", {}).get("heuristic"),
-            elo_delta=result.metadata.get("elo_delta"),
-            games_played=result.metadata.get("games_played", 0),
-            iteration=result.iteration,
-            **{k: v for k, v in result.metadata.items()
-               if k not in ("model_id", "board_type", "num_players", "win_rates", "elo_delta", "games_played")},
-        )
-    except Exception as e:
-        logger.warning(f"[PipelineActions] Could not emit evaluation_complete: {e}")
+    """Emit EVALUATION_COMPLETE event (January 2026 - migrated to event_router)."""
+    extra_meta = {k: v for k, v in result.metadata.items()
+                  if k not in ("model_id", "board_type", "num_players", "win_rates", "elo_delta", "games_played")}
+    payload = {
+        "model_id": result.metadata.get("model_id", f"eval_iter{result.iteration}"),
+        "board_type": result.metadata.get("board_type", "unknown"),
+        "num_players": result.metadata.get("num_players", 2),
+        "success": result.success,
+        "win_rate": result.metadata.get("win_rates", {}).get("heuristic"),
+        "elo_delta": result.metadata.get("elo_delta"),
+        "games_played": result.metadata.get("games_played", 0),
+        "iteration": result.iteration,
+        **extra_meta,
+    }
+    await safe_emit_event_async("EVALUATION_COMPLETE", payload, context="pipeline_actions")
 
 
 async def _emit_promotion_complete(result: StageCompletionResult) -> None:
-    """Emit PROMOTION_COMPLETE event."""
-    try:
-        from app.coordination.event_emitters import emit_promotion_complete
+    """Emit PROMOTION_COMPLETE event (January 2026 - migrated to event_router)."""
+    # Extract required parameters from metadata
+    board_type = result.metadata.get("board_type", "unknown")
+    num_players = result.metadata.get("num_players", 2)
+    model_path = result.output_path or result.metadata.get("model_path", "")
 
-        # Extract required parameters from metadata
-        board_type = result.metadata.get("board_type", "unknown")
-        num_players = result.metadata.get("num_players", 2)
-        model_path = result.output_path or result.metadata.get("model_path", "")
+    # Generate model_id from path or metadata
+    if model_path:
+        model_id = Path(model_path).stem
+    else:
+        model_id = f"{board_type}_{num_players}p_iter{result.iteration}"
 
-        # Generate model_id from path or metadata
-        if model_path:
-            model_id = Path(model_path).stem
-        else:
-            model_id = f"{board_type}_{num_players}p_iter{result.iteration}"
-
-        await emit_promotion_complete(
-            model_id=model_id,
-            board_type=board_type,
-            num_players=num_players,
-            promotion_type="production",
-            elo_improvement=result.metadata.get("elo_delta"),
-            model_path=model_path,
-            promoted=result.metadata.get("promoted", False),
-            promotion_reason=result.metadata.get("reason", ""),
-            iteration=result.iteration,
-        )
-    except Exception as e:
-        logger.debug(f"[PipelineActions] Could not emit promotion_complete: {e}")
+    payload = {
+        "model_id": model_id,
+        "board_type": board_type,
+        "num_players": num_players,
+        "promotion_type": "production",
+        "elo_improvement": result.metadata.get("elo_delta"),
+        "model_path": model_path,
+        "promoted": result.metadata.get("promoted", False),
+        "promotion_reason": result.metadata.get("reason", ""),
+        "iteration": result.iteration,
+    }
+    await safe_emit_event_async("PROMOTION_COMPLETE", payload, context="pipeline_actions")
 
 
 __all__ = [

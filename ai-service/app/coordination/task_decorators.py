@@ -44,6 +44,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
+from app.coordination.event_emission_helpers import safe_emit_event, safe_emit_event_async
+
 logger = logging.getLogger(__name__)
 
 # Type variables for generic decorators
@@ -129,34 +131,23 @@ def _emit_task_started(
     ctx: TaskContext,
     emit_events: bool,
 ) -> None:
-    """Emit task started event."""
+    """Emit task started event (January 2026 - migrated to event_router)."""
     if not emit_events:
         return
 
-    try:
-        from app.coordination.event_emitters import emit_training_started
+    if ctx.task_type == "training":
+        safe_emit_event(
+            "TRAINING_STARTED",
+            {
+                "job_id": ctx.task_id,
+                "board_type": ctx.board_type or "",
+                "num_players": ctx.num_players or 0,
+                **ctx.metadata,
+            },
+            context="task_decorators",
+        )
 
-        if ctx.task_type == "training":
-            import asyncio
-            try:
-                from app.utils.async_utils import fire_and_forget
-                asyncio.get_running_loop()
-                fire_and_forget(emit_training_started(
-                    job_id=ctx.task_id,
-                    board_type=ctx.board_type or "",
-                    num_players=ctx.num_players or 0,
-                    **ctx.metadata,
-                ), name=f"training_started_{ctx.task_id}")
-            except RuntimeError:
-                # No running event loop, skip event emission
-                pass
-
-        logger.debug(f"[coordinate_task] Started {ctx.task_type} task {ctx.task_id}")
-
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.debug(f"[coordinate_task] Event emission failed: {e}")
+    logger.debug(f"[coordinate_task] Started {ctx.task_type} task {ctx.task_id}")
 
 
 async def _emit_task_complete_async(
@@ -164,38 +155,34 @@ async def _emit_task_complete_async(
     result: Any,
     emit_events: bool,
 ) -> None:
-    """Emit task complete event (async)."""
+    """Emit task complete event (async) (January 2026 - migrated to event_router)."""
     if not emit_events:
         return
 
-    try:
-        from app.coordination.event_emitters import emit_task_complete
+    # Extract result data
+    result_data = {}
+    if isinstance(result, dict):
+        result_data = result
+    elif hasattr(result, '__dict__'):
+        result_data = result.__dict__
 
-        # Extract result data
-        result_data = {}
-        if isinstance(result, dict):
-            result_data = result
-        elif hasattr(result, '__dict__'):
-            result_data = result.__dict__
+    await safe_emit_event_async(
+        "TASK_COMPLETE",
+        {
+            "task_id": ctx.task_id,
+            "task_type": ctx.task_type,
+            "success": True,
+            "node_id": ctx.node_id or "",
+            "duration_seconds": ctx.elapsed_seconds(),
+            "result_data": result_data,
+        },
+        context="task_decorators",
+    )
 
-        await emit_task_complete(
-            task_id=ctx.task_id,
-            task_type=ctx.task_type,
-            success=True,
-            node_id=ctx.node_id or "",
-            duration_seconds=ctx.elapsed_seconds(),
-            result_data=result_data,
-        )
-
-        logger.debug(
-            f"[coordinate_task] Completed {ctx.task_type} task {ctx.task_id} "
-            f"in {ctx.elapsed_seconds():.1f}s"
-        )
-
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.debug(f"[coordinate_task] Event emission failed: {e}")
+    logger.debug(
+        f"[coordinate_task] Completed {ctx.task_type} task {ctx.task_id} "
+        f"in {ctx.elapsed_seconds():.1f}s"
+    )
 
 
 def _emit_task_complete_sync(
@@ -203,38 +190,35 @@ def _emit_task_complete_sync(
     result: Any,
     emit_events: bool,
 ) -> None:
-    """Emit task complete event (sync, fire-and-forget)."""
+    """Emit task complete event (sync, fire-and-forget) (January 2026 - migrated to event_router)."""
     if not emit_events:
         return
 
-    try:
-        # Try to schedule async emission
-        import asyncio
-        try:
-            from app.utils.async_utils import fire_and_forget
-            asyncio.get_running_loop()
-            fire_and_forget(_emit_task_complete_async(ctx, result, emit_events), name=f"task_complete_{ctx.task_id}")
-        except RuntimeError:
-            # No event loop, use sync fallback
-            from app.coordination.event_emitters import emit_training_complete_sync
+    # Extract result data
+    result_data = {}
+    if isinstance(result, dict):
+        result_data = result
+    elif hasattr(result, '__dict__'):
+        result_data = result.__dict__
 
-            if ctx.task_type == "training":
-                emit_training_complete_sync(
-                    job_id=ctx.task_id,
-                    board_type=ctx.board_type or "",
-                    num_players=ctx.num_players or 0,
-                    success=True,
-                )
+    # safe_emit_event handles async scheduling internally
+    safe_emit_event(
+        "TASK_COMPLETE",
+        {
+            "task_id": ctx.task_id,
+            "task_type": ctx.task_type,
+            "success": True,
+            "node_id": ctx.node_id or "",
+            "duration_seconds": ctx.elapsed_seconds(),
+            "result_data": result_data,
+        },
+        context="task_decorators",
+    )
 
-        logger.debug(
-            f"[coordinate_task] Completed {ctx.task_type} task {ctx.task_id} "
-            f"in {ctx.elapsed_seconds():.1f}s"
-        )
-
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.debug(f"[coordinate_task] Event emission failed: {e}")
+    logger.debug(
+        f"[coordinate_task] Completed {ctx.task_type} task {ctx.task_id} "
+        f"in {ctx.elapsed_seconds():.1f}s"
+    )
 
 
 async def _emit_task_failed_async(
@@ -242,30 +226,26 @@ async def _emit_task_failed_async(
     error: Exception,
     emit_events: bool,
 ) -> None:
-    """Emit task failed event (async)."""
+    """Emit task failed event (async) (January 2026 - migrated to event_router)."""
     if not emit_events:
         return
 
-    try:
-        from app.coordination.event_emitters import emit_task_complete
+    await safe_emit_event_async(
+        "TASK_COMPLETE",
+        {
+            "task_id": ctx.task_id,
+            "task_type": ctx.task_type,
+            "success": False,
+            "node_id": ctx.node_id or "",
+            "duration_seconds": ctx.elapsed_seconds(),
+            "result_data": {"error": str(error)},
+        },
+        context="task_decorators",
+    )
 
-        await emit_task_complete(
-            task_id=ctx.task_id,
-            task_type=ctx.task_type,
-            success=False,
-            node_id=ctx.node_id or "",
-            duration_seconds=ctx.elapsed_seconds(),
-            result_data={"error": str(error)},
-        )
-
-        logger.debug(
-            f"[coordinate_task] Failed {ctx.task_type} task {ctx.task_id}: {error}"
-        )
-
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.debug(f"[coordinate_task] Event emission failed: {e}")
+    logger.debug(
+        f"[coordinate_task] Failed {ctx.task_type} task {ctx.task_id}: {error}"
+    )
 
 
 def _emit_task_failed_sync(
@@ -273,35 +253,27 @@ def _emit_task_failed_sync(
     error: Exception,
     emit_events: bool,
 ) -> None:
-    """Emit task failed event (sync, fire-and-forget)."""
+    """Emit task failed event (sync, fire-and-forget) (January 2026 - migrated to event_router)."""
     if not emit_events:
         return
 
-    try:
-        import asyncio
-        try:
-            from app.utils.async_utils import fire_and_forget
-            asyncio.get_running_loop()
-            fire_and_forget(_emit_task_failed_async(ctx, error, emit_events), name=f"task_failed_{ctx.task_id}")
-        except RuntimeError:
-            from app.coordination.event_emitters import emit_training_complete_sync
+    # safe_emit_event handles async scheduling internally
+    safe_emit_event(
+        "TASK_COMPLETE",
+        {
+            "task_id": ctx.task_id,
+            "task_type": ctx.task_type,
+            "success": False,
+            "node_id": ctx.node_id or "",
+            "duration_seconds": ctx.elapsed_seconds(),
+            "result_data": {"error": str(error)},
+        },
+        context="task_decorators",
+    )
 
-            if ctx.task_type == "training":
-                emit_training_complete_sync(
-                    job_id=ctx.task_id,
-                    board_type=ctx.board_type or "",
-                    num_players=ctx.num_players or 0,
-                    success=False,
-                )
-
-        logger.debug(
-            f"[coordinate_task] Failed {ctx.task_type} task {ctx.task_id}: {error}"
-        )
-
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.debug(f"[coordinate_task] Event emission failed: {e}")
+    logger.debug(
+        f"[coordinate_task] Failed {ctx.task_type} task {ctx.task_id}: {error}"
+    )
 
 
 def coordinate_task(

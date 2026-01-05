@@ -452,27 +452,17 @@ class MomentumToCurriculumBridge:
             # The new model represents a new baseline for training
             self._sync_weights()
 
-            # Emit curriculum rebalanced event for downstream consumers
-            try:
-                from app.coordination.event_emitters import emit_curriculum_rebalanced
-                import asyncio
-
-                async def _emit():
-                    await emit_curriculum_rebalanced(
-                        trigger="model_promoted",
-                        configs_affected=[config_key],
-                        source="curriculum_integration",
-                    )
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(_emit())
-                except RuntimeError:
-                    # No running loop - skip async emission
-                    pass
-
-            except ImportError:
-                pass
+            # Emit curriculum rebalanced event for downstream consumers (Jan 2026 - migrated to event_router)
+            from app.coordination.event_emission_helpers import safe_emit_event
+            safe_emit_event(
+                "CURRICULUM_REBALANCED",
+                {
+                    "trigger": "model_promoted",
+                    "configs_affected": [config_key],
+                    "source": "curriculum_integration",
+                },
+                context="curriculum_integration",
+            )
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling model promotion: {e}")
@@ -507,29 +497,19 @@ class MomentumToCurriculumBridge:
             # The new tier represents higher skill level and needs rebalanced training
             self._sync_weights()
 
-            # Emit curriculum advanced event for downstream consumers
-            try:
-                from app.coordination.event_emitters import emit_curriculum_advanced
-                import asyncio
-
-                async def _emit():
-                    await emit_curriculum_advanced(
-                        config_key=config_key,
-                        old_tier=old_tier,
-                        new_tier=new_tier,
-                        trigger="tier_promotion",
-                        source="curriculum_integration",
-                    )
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(_emit())
-                except RuntimeError:
-                    # No running loop - skip async emission
-                    pass
-
-            except ImportError:
-                pass
+            # Emit curriculum advanced event for downstream consumers (Jan 2026 - migrated to event_router)
+            from app.coordination.event_emission_helpers import safe_emit_event
+            safe_emit_event(
+                "CURRICULUM_ADVANCED",
+                {
+                    "config_key": config_key,
+                    "old_tier": old_tier,
+                    "new_tier": new_tier,
+                    "trigger": "tier_promotion",
+                    "source": "curriculum_integration",
+                },
+                context="curriculum_integration",
+            )
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling tier promotion: {e}")
@@ -565,29 +545,19 @@ class MomentumToCurriculumBridge:
             # This ensures training resources are rebalanced across all configs
             self._sync_weights()
 
-            # Emit curriculum advanced event for downstream consumers
-            try:
-                from app.coordination.event_emitters import emit_curriculum_advanced
-                import asyncio
-
-                async def _emit():
-                    await emit_curriculum_advanced(
-                        config_key=",".join(configs) if configs else "crossboard",
-                        old_tier="pre_crossboard",
-                        new_tier="crossboard_achieved",
-                        trigger="crossboard_promotion",
-                        source="curriculum_integration",
-                    )
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(_emit())
-                except RuntimeError:
-                    # No running loop - skip async emission
-                    pass
-
-            except ImportError:
-                pass
+            # Emit curriculum advanced event for downstream consumers (Jan 2026 - migrated to event_router)
+            from app.coordination.event_emission_helpers import safe_emit_event
+            safe_emit_event(
+                "CURRICULUM_ADVANCED",
+                {
+                    "config_key": ",".join(configs) if configs else "crossboard",
+                    "old_tier": "pre_crossboard",
+                    "new_tier": "crossboard_achieved",
+                    "trigger": "crossboard_promotion",
+                    "source": "curriculum_integration",
+                },
+                context="curriculum_integration",
+            )
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling crossboard promotion: {e}")
@@ -660,29 +630,19 @@ class MomentumToCurriculumBridge:
             # 3. Trigger full weight sync to propagate changes
             self._sync_weights()
 
-            # 4. Emit CURRICULUM_ADVANCED to signal downstream consumers
-            try:
-                from app.coordination.event_emitters import emit_curriculum_advanced
-                import asyncio
-
-                async def _emit():
-                    await emit_curriculum_advanced(
-                        config_key=config_key,
-                        old_tier="stagnant",
-                        new_tier="advancing",
-                        trigger=f"curriculum_advancement_{reason}",
-                        source="curriculum_integration",
-                    )
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.create_task(_emit())
-                except RuntimeError:
-                    # No running loop - skip async emission
-                    pass
-
-            except ImportError:
-                pass
+            # 4. Emit CURRICULUM_ADVANCED to signal downstream consumers (Jan 2026 - migrated to event_router)
+            from app.coordination.event_emission_helpers import safe_emit_event
+            safe_emit_event(
+                "CURRICULUM_ADVANCED",
+                {
+                    "config_key": config_key,
+                    "old_tier": "stagnant",
+                    "new_tier": "advancing",
+                    "trigger": f"curriculum_advancement_{reason}",
+                    "source": "curriculum_integration",
+                },
+                context="curriculum_integration",
+            )
 
             self._last_sync_time = time.time()
 
@@ -769,28 +729,17 @@ class MomentumToCurriculumBridge:
 
             # For very high velocity, also emit curriculum advanced event
             if acceleration_level == "fast_track":
-                try:
-                    from app.coordination.event_emitters import emit_curriculum_advanced
-                    import asyncio
-
-                    async def _emit():
-                        await emit_curriculum_advanced(
-                            config_key=config_key,
-                            old_tier="standard",
-                            new_tier="fast_track",
-                            trigger=f"velocity_acceleration_{velocity:.0f}_elo_hr",
-                            source="curriculum_integration",
-                        )
-
-                    try:
-                        loop = asyncio.get_running_loop()
-                        loop.create_task(_emit())
-                    except RuntimeError:
-                        # No running loop - skip async emission
-                        pass
-
-                except ImportError:
-                    pass
+                safe_emit_event(
+                    "CURRICULUM_ADVANCED",
+                    {
+                        "config_key": config_key,
+                        "old_tier": "standard",
+                        "new_tier": "fast_track",
+                        "trigger": f"velocity_acceleration_{velocity:.0f}_elo_hr",
+                        "source": "curriculum_integration",
+                    },
+                    context="curriculum_integration",
+                )
 
             self._last_sync_time = time.time()
 
