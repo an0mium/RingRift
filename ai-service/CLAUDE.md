@@ -2,20 +2,20 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.9 - Session 17.13)
+**Last Updated**: January 5, 2026 (Sprint 17.9 - Session 17.14)
 
-## Infrastructure Health Status (Verified Jan 4, 2026)
+## Infrastructure Health Status (Verified Jan 5, 2026)
 
-| Component            | Status    | Evidence                                                            |
-| -------------------- | --------- | ------------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (91/100), mac-studio leader, 13+ alive peers, quorum OK          |
-| **Training Loop**    | GREEN     | A (95/100), 117K+ games, 5/5 feedback loops, 6/6 pipeline stages    |
-| **Code Quality**     | GREEN     | Singleton patterns consolidated, CB health check optimization added |
-| **Leader Election**  | WORKING   | mac-studio leader, voter quorum OK                                  |
-| **Work Queue**       | HEALTHY   | Queue repopulating, selfplay scheduler active                       |
-| **Game Data**        | EXCELLENT | 117K+ games across all configs (hex8: 21K, square8: 25K, etc.)      |
-| **CB TTL Decay**     | ACTIVE    | Hourly decay in DaemonManager health loop (6h TTL)                  |
-| **Multi-Arch Train** | ACTIVE    | v2 models trained, all 12 canonical configs generating data         |
+| Component            | Status    | Evidence                                                         |
+| -------------------- | --------- | ---------------------------------------------------------------- |
+| **P2P Network**      | GREEN     | A- (94/100), mac-studio leader, 29 active peers, quorum OK       |
+| **Training Loop**    | GREEN     | A (98/100), 117K+ games, 5/5 feedback loops, 6/6 pipeline stages |
+| **Code Quality**     | GREEN     | 17+ health_check() in P2P, exception handlers narrowed           |
+| **Leader Election**  | WORKING   | mac-studio leader, 8 voters alive, quorum OK                     |
+| **Work Queue**       | HEALTHY   | Queue active, selfplay scheduler repopulating                    |
+| **Game Data**        | EXCELLENT | 117K+ games across all configs (hex8: 21K, square8: 25K, etc.)   |
+| **CB TTL Decay**     | ACTIVE    | Hourly decay in DaemonManager health loop (6h TTL)               |
+| **Multi-Arch Train** | ACTIVE    | v2 models trained, all 12 canonical configs generating data      |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -46,6 +46,41 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Early Quorum Escalation   | Skip to P2P restart after 2 failed healing attempts with quorum lost | `p2p_recovery_daemon.py`      |
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
+
+**Sprint 17.9 / Session 17.14 (Jan 5, 2026) - RemoteP2PRecoveryLoop Health & Exception Narrowing:**
+
+| Task                               | Status      | Evidence                                                    |
+| ---------------------------------- | ----------- | ----------------------------------------------------------- |
+| health_check() for Recovery Loop   | ✅ COMPLETE | RemoteP2PRecoveryLoop:800-871 with comprehensive stats      |
+| Exception Handler Narrowing        | ✅ COMPLETE | 12 specific exception types, only 1 intentional broad catch |
+| NPZ Combination Throttle Reduction | ✅ COMPLETE | 30s → 5s interval for +5-8 Elo improvement                  |
+| Async Quality Verification         | ✅ COMPLETE | \_verify_npz_quality() now runs as fire-and-forget task     |
+| Cluster Update                     | ✅ COMPLETE | 22 nodes updated to 9b28528fb, P2P restarted                |
+| P2P Assessment                     | ✅ COMPLETE | A- (94/100), 29 active peers, 17+ health_check() methods    |
+| Training Loop Assessment           | ✅ COMPLETE | A (98/100), 5/5 feedback loops, 6/6 pipeline stages         |
+
+**RemoteP2PRecoveryLoop.health_check() (Lines 800-871):**
+
+- Returns comprehensive health status for daemon manager integration
+- Tracks: enabled, is_leader, SSH key validation, recovery statistics
+- Calculates success/failure rates from verified recoveries
+- Status levels: idle, healthy, degraded, standby
+- Details include: nodes_recovered, nodes_verified, nodes_failed, backoff state
+
+**Exception Handler Narrowing (Lines 608-760):**
+
+| Line | Exception Type                   | Purpose                  |
+| ---- | -------------------------------- | ------------------------ |
+| 608  | FileNotFoundError                | Config file missing      |
+| 611  | PermissionError                  | Can't read config        |
+| 614  | OSError, IOError                 | File read errors         |
+| 617  | ImportError                      | yaml module missing      |
+| 742  | paramiko.AuthenticationException | SSH auth failure         |
+| 745  | paramiko.SSHException            | SSH protocol errors      |
+| 748  | socket.timeout                   | Connection timeout       |
+| 751  | socket.error                     | Network errors           |
+| 754  | OSError                          | Generic OS errors        |
+| 760  | OSError, AttributeError          | Cleanup in finally block |
 
 **Sprint 17.9 / Session 17.13 (Jan 4, 2026) - Consolidation, Critical Quality Drop & Syntax Fix:**
 
