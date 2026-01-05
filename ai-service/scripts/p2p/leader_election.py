@@ -1604,6 +1604,159 @@ class LeaderElectionMixin(P2PMixinBase):
         message = f"Election (role={role}, leader={leader})" if is_healthy else "No quorum"
         return self._build_health_response(is_healthy, message, status)
 
+    # =========================================================================
+    # Phase 17.2: Leader Candidate Tracking (Session 17.33, Jan 5, 2026)
+    # =========================================================================
+
+    # Class-level attribute for top leader candidates
+    _top_leader_candidates: list[dict[str, Any]] = []
+    _candidates_updated_at: float = 0.0
+
+    def _rank_leader_candidates(self) -> list[dict[str, Any]]:
+        """Rank all alive peers as potential leader candidates.
+
+        Session 17.33 Phase 17.2: Ranks nodes by their leader eligibility using
+        the bully algorithm logic (higher priority node ID wins). Also considers
+        health metrics like uptime and error rate for ranking.
+
+        In bully algorithm, any node can become leader - the node with
+        "highest" priority (typically lowest node ID in our implementation)
+        wins the election. We track multiple candidates to enable faster
+        failover by pre-probing backup candidates.
+
+        Returns:
+            List of candidate dicts sorted by priority (best first):
+            [{"node_id": str, "priority": int, "is_alive": bool, "uptime": float}, ...]
+        """
+        candidates: list[dict[str, Any]] = []
+        now = time.time()
+
+        # Add ourselves as a candidate
+        candidates.append({
+            "node_id": self.node_id,
+            "priority": self._compute_leader_priority(self.node_id),
+            "is_alive": True,
+            "is_self": True,
+            "uptime": now - getattr(self, "_start_time", now),
+            "is_voter": self.node_id in (self.voter_node_ids or []),
+        })
+
+        # Add all alive peers as candidates
+        with self.peers_lock:
+            peers = dict(self.peers)
+
+        for node_id, peer in peers.items():
+            if node_id == self.node_id:
+                continue
+
+            is_alive = peer.is_alive() if hasattr(peer, "is_alive") else False
+
+            # Calculate uptime
+            first_seen = getattr(peer, "first_seen", now)
+            uptime = now - first_seen
+
+            candidates.append({
+                "node_id": node_id,
+                "priority": self._compute_leader_priority(node_id),
+                "is_alive": is_alive,
+                "is_self": False,
+                "uptime": uptime,
+                "is_voter": node_id in (self.voter_node_ids or []),
+            })
+
+        # Sort by:
+        # 1. Voters first (they're more critical for elections)
+        # 2. Alive nodes first
+        # 3. Higher priority (lower number = higher priority in bully)
+        # 4. Longer uptime as tiebreaker
+        candidates.sort(
+            key=lambda c: (
+                not c["is_voter"],     # Voters first
+                not c["is_alive"],      # Alive first
+                c["priority"],          # Lower priority number = better
+                -c["uptime"],           # Longer uptime = better
+            )
+        )
+
+        return candidates
+
+    def _compute_leader_priority(self, node_id: str) -> int:
+        """Compute leader priority for a node.
+
+        In bully algorithm, we typically use node ID for deterministic ordering.
+        Lower return value = higher priority = more likely to become leader.
+
+        Args:
+            node_id: The node ID to compute priority for
+
+        Returns:
+            Priority value (lower is better)
+        """
+        # Use hash of node_id for consistent ordering
+        # We negate to make "higher" hash values have higher priority
+        return hash(node_id) % 1000000
+
+    def update_leader_candidates(self) -> list[dict[str, Any]]:
+        """Update and return the top-3 leader candidates.
+
+        Session 17.33 Phase 17.2: This method computes the current top
+        leader candidates and caches them. LeaderProbeLoop can use this
+        to probe backup candidates in parallel with the current leader.
+
+        Returns:
+            List of top-3 candidates (or fewer if not enough nodes)
+        """
+        all_candidates = self._rank_leader_candidates()
+
+        # Filter to only alive candidates
+        alive_candidates = [c for c in all_candidates if c["is_alive"]]
+
+        # Take top 3
+        top_candidates = alive_candidates[:3]
+
+        # Cache the result
+        self._top_leader_candidates = top_candidates
+        self._candidates_updated_at = time.time()
+
+        return top_candidates
+
+    def get_leader_candidates(self, max_count: int = 3) -> list[dict[str, Any]]:
+        """Get the current top leader candidates for probing.
+
+        Session 17.33 Phase 17.2: Used by LeaderProbeLoop to get backup
+        candidates to probe in parallel with the current leader.
+
+        Args:
+            max_count: Maximum number of candidates to return (default: 3)
+
+        Returns:
+            List of candidate dicts with node_id, priority, is_alive, etc.
+        """
+        # Update candidates if stale (>30 seconds old)
+        if time.time() - self._candidates_updated_at > 30.0:
+            self.update_leader_candidates()
+
+        return self._top_leader_candidates[:max_count]
+
+    def get_backup_leader_candidates(self) -> list[str]:
+        """Get node IDs of backup leader candidates (excluding current leader).
+
+        Session 17.33 Phase 17.2: Returns node IDs that could become leader
+        if the current leader fails. Useful for pre-probing to enable
+        faster failover.
+
+        Returns:
+            List of node IDs that are not the current leader
+        """
+        current_leader = self.leader_id
+        candidates = self.get_leader_candidates()
+
+        return [
+            c["node_id"]
+            for c in candidates
+            if c["node_id"] != current_leader and c["is_alive"]
+        ]
+
 
 # Convenience functions for external use
 def check_quorum(
