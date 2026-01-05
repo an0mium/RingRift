@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_utils import make_config_key, parse_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.pipeline_mixin_base import PipelineMixinBase
 
 if TYPE_CHECKING:
@@ -286,24 +287,17 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
         self._orphan_games_pending = max(0, pending - registered_count)
 
         # Emit NEW_GAMES_AVAILABLE for downstream consumers (e.g., export triggers)
-        try:
-            from app.distributed.data_events import emit_data_event, DataEventType
-
-            await emit_data_event(
-                event_type=DataEventType.NEW_GAMES_AVAILABLE,
-                payload={
-                    "board_type": board_type or "unknown",
-                    "num_players": num_players or 2,
-                    "new_games": registered_count,  # Canonical key (Dec 2025 standardization)
-                    "source": "orphan_recovery",
-                    "config_key": config_key,
-                },
-            )
-        except ImportError as e:
-            # Dec 2025: Elevated to WARNING - silent failures break pipeline
-            logger.warning(f"[DataPipelineOrchestrator] data_events not available, event lost: {e}")
-        except Exception as e:
-            logger.warning(f"[DataPipelineOrchestrator] Failed to emit new_games_available: {e}")
+        safe_emit_event(
+            "new_games_available",
+            {
+                "board_type": board_type or "unknown",
+                "num_players": num_players or 2,
+                "new_games": registered_count,
+                "source": "orphan_recovery",
+                "config_key": config_key,
+            },
+            context="DataPipeline",
+        )
 
     # =========================================================================
     # Consolidation Event Handlers
@@ -353,28 +347,21 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
 
         # Emit NEW_GAMES_AVAILABLE to trigger export pipeline
         if games_consolidated > 0:
-            try:
-                from app.distributed.data_events import emit_data_event, DataEventType
-
-                await emit_data_event(
-                    event_type=DataEventType.NEW_GAMES_AVAILABLE,
-                    payload={
-                        "board_type": board_type,
-                        "num_players": num_players,
-                        "new_games": games_consolidated,  # Canonical key (Dec 2025 standardization)
-                        "source": "consolidation",
-                        "config_key": config_key,
-                        "canonical_db": canonical_db,
-                    },
-                )
-                logger.info(
-                    f"[DataPipelineOrchestrator] Triggered export pipeline after consolidation"
-                )
-            except ImportError as e:
-                # Dec 2025: Elevated to WARNING - silent failures break pipeline
-                logger.warning(f"[DataPipelineOrchestrator] data_events not available: {e}")
-            except Exception as e:
-                logger.warning(f"[DataPipelineOrchestrator] Failed to emit new_games_available: {e}")
+            safe_emit_event(
+                "new_games_available",
+                {
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "new_games": games_consolidated,
+                    "source": "consolidation",
+                    "config_key": config_key,
+                    "canonical_db": canonical_db,
+                },
+                context="DataPipeline",
+            )
+            logger.info(
+                f"[DataPipelineOrchestrator] Triggered export pipeline after consolidation"
+            )
 
     # =========================================================================
     # NPZ Combination Handlers (December 28, 2025)
@@ -415,29 +402,21 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
 
         # Trigger training with the combined NPZ file
         if output_path and total_samples > 0:
-            try:
-                from app.distributed.data_events import emit_data_event, DataEventType
-
-                # Emit training threshold with combined data path
-                emit_data_event(
-                    DataEventType.TRAINING_THRESHOLD_REACHED,
-                    config_key=config_key,
-                    data_path=output_path,
-                    total_samples=total_samples,
-                    source="npz_combination",
-                    combined=True,
-                )
-                logger.info(
-                    f"[DataPipelineOrchestrator] Triggered training for {config_key} "
-                    f"with combined data ({total_samples} samples)"
-                )
-            except ImportError as e:
-                # Dec 2025: Elevated to WARNING - silent failures break pipeline
-                logger.warning(f"[DataPipelineOrchestrator] data_events not available for training trigger: {e}")
-            except Exception as e:
-                logger.warning(
-                    f"[DataPipelineOrchestrator] Failed to trigger training after combination: {e}"
-                )
+            safe_emit_event(
+                "training_threshold_reached",
+                {
+                    "config_key": config_key,
+                    "data_path": output_path,
+                    "total_samples": total_samples,
+                    "source": "npz_combination",
+                    "combined": True,
+                },
+                context="DataPipeline",
+            )
+            logger.info(
+                f"[DataPipelineOrchestrator] Triggered training for {config_key} "
+                f"with combined data ({total_samples} samples)"
+            )
 
     async def _on_npz_combination_failed(self, event: Any) -> None:
         """Handle NPZ_COMBINATION_FAILED - fall back to single file training.
@@ -471,26 +450,19 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
 
         # Emit training threshold with fallback indicator
         # Training trigger will pick best single file instead
-        try:
-            from app.distributed.data_events import emit_data_event, DataEventType
-
-            emit_data_event(
-                DataEventType.TRAINING_THRESHOLD_REACHED,
-                config_key=config_key,
-                source="npz_combination_fallback",
-                combined=False,
-                combination_error=error,
-            )
-            logger.info(
-                f"[DataPipelineOrchestrator] Triggered fallback training for {config_key}"
-            )
-        except ImportError as e:
-            # Dec 2025: Elevated to WARNING - silent failures break pipeline
-            logger.warning(f"[DataPipelineOrchestrator] data_events not available for fallback training: {e}")
-        except Exception as e:
-            logger.warning(
-                f"[DataPipelineOrchestrator] Failed to trigger fallback training: {e}"
-            )
+        safe_emit_event(
+            "training_threshold_reached",
+            {
+                "config_key": config_key,
+                "source": "npz_combination_fallback",
+                "combined": False,
+                "combination_error": error,
+            },
+            context="DataPipeline",
+        )
+        logger.info(
+            f"[DataPipelineOrchestrator] Triggered fallback training for {config_key}"
+        )
 
     # =========================================================================
     # Repair Event Handlers (December 27, 2025)
@@ -519,15 +491,11 @@ class PipelineEventHandlerMixin(PipelineMixinBase):
             # Repair may have fixed missing game data - check if we can proceed
             logger.info("[DataPipelineOrchestrator] Checking if we can proceed after repair")
             # Emit event to trigger sync check
-            try:
-                from app.distributed.data_events import emit_data_event, DataEventType
-                await emit_data_event(
-                    event_type=DataEventType.SYNC_TRIGGERED,
-                    payload={"reason": "post_repair", "source": "data_pipeline_orchestrator"},
-                )
-            except (ImportError, RuntimeError, AttributeError) as e:
-                # Non-critical: sync trigger is best-effort after repair
-                logger.debug(f"[DataPipelineOrchestrator] Could not emit SYNC_TRIGGERED: {e}")
+            safe_emit_event(
+                "sync_triggered",
+                {"reason": "post_repair", "source": "data_pipeline_orchestrator"},
+                context="DataPipeline",
+            )
 
     async def _on_repair_failed(self, event: Any) -> None:
         """Handle REPAIR_FAILED - log and potentially escalate."""

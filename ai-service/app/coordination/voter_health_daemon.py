@@ -38,6 +38,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
+from app.coordination.event_emission_helpers import safe_emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -526,88 +527,76 @@ class VoterHealthMonitorDaemon(HandlerBase):
 
     async def _emit_voter_offline(self, voter_id: str, reason: str) -> None:
         """Emit VOTER_OFFLINE event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            state = self._voter_states.get(voter_id)
-            emit_data_event(
-                DataEventType.VOTER_OFFLINE,
-                voter_id=voter_id,
-                reason=reason,
-                last_seen=state.last_seen if state else 0,
-                consecutive_failures=state.consecutive_failures if state else 0,
-                source=self._event_source,
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit VOTER_OFFLINE: {e}")
+        state = self._voter_states.get(voter_id)
+        safe_emit_event(
+            "voter_offline",
+            {
+                "voter_id": voter_id,
+                "reason": reason,
+                "last_seen": state.last_seen if state else 0,
+                "consecutive_failures": state.consecutive_failures if state else 0,
+                "source": self._event_source,
+            },
+            context="VoterHealth",
+        )
 
     async def _emit_voter_online(self, voter_id: str, transport: str) -> None:
         """Emit VOTER_ONLINE event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            state = self._voter_states.get(voter_id)
-            emit_data_event(
-                DataEventType.VOTER_ONLINE,
-                voter_id=voter_id,
-                transport=transport,
-                downtime_seconds=(
-                    time.time() - state.last_seen if state else 0
-                ),
-                source=self._event_source,
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit VOTER_ONLINE: {e}")
+        state = self._voter_states.get(voter_id)
+        safe_emit_event(
+            "voter_online",
+            {
+                "voter_id": voter_id,
+                "transport": transport,
+                "downtime_seconds": time.time() - state.last_seen if state else 0,
+                "source": self._event_source,
+            },
+            context="VoterHealth",
+        )
 
     def _emit_quorum_lost(self, online_voters: int, total_voters: int) -> None:
         """Emit QUORUM_LOST event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            offline_voters = [
-                s.voter_id for s in self._voter_states.values() if not s.is_online
-            ]
-            emit_data_event(
-                DataEventType.QUORUM_LOST,
-                online_voters=online_voters,
-                total_voters=total_voters,
-                quorum_size=self._daemon_config.quorum_size,
-                offline_voters=offline_voters,
-                source=self._event_source,
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit QUORUM_LOST: {e}")
+        offline_voters = [
+            s.voter_id for s in self._voter_states.values() if not s.is_online
+        ]
+        safe_emit_event(
+            "quorum_lost",
+            {
+                "online_voters": online_voters,
+                "total_voters": total_voters,
+                "quorum_size": self._daemon_config.quorum_size,
+                "offline_voters": offline_voters,
+                "source": self._event_source,
+            },
+            context="VoterHealth",
+        )
 
     def _emit_quorum_restored(self, online_voters: int, total_voters: int) -> None:
         """Emit QUORUM_RESTORED event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.QUORUM_RESTORED,
-                online_voters=online_voters,
-                total_voters=total_voters,
-                quorum_size=self._daemon_config.quorum_size,
-                source=self._event_source,
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit QUORUM_RESTORED: {e}")
+        safe_emit_event(
+            "quorum_restored",
+            {
+                "online_voters": online_voters,
+                "total_voters": total_voters,
+                "quorum_size": self._daemon_config.quorum_size,
+                "source": self._event_source,
+            },
+            context="VoterHealth",
+        )
 
     def _emit_quorum_at_risk(self, online_voters: int, total_voters: int) -> None:
         """Emit QUORUM_AT_RISK event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.QUORUM_AT_RISK,
-                online_voters=online_voters,
-                total_voters=total_voters,
-                quorum_size=self._daemon_config.quorum_size,
-                margin=online_voters - self._daemon_config.quorum_size,
-                source=self._event_source,
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit QUORUM_AT_RISK: {e}")
+        safe_emit_event(
+            "quorum_at_risk",
+            {
+                "online_voters": online_voters,
+                "total_voters": total_voters,
+                "quorum_size": self._daemon_config.quorum_size,
+                "margin": online_voters - self._daemon_config.quorum_size,
+                "source": self._event_source,
+            },
+            context="VoterHealth",
+        )
 
     # =========================================================================
     # Health & Status

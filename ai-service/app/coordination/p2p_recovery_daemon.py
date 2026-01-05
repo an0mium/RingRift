@@ -27,6 +27,7 @@ from typing import Any
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
 from app.coordination.coordinator_persistence import StatePersistenceMixin
+from app.coordination.event_emission_helpers import safe_emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -398,18 +399,16 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         await self._prioritize_quorum_reconnections()
 
         # Emit event for monitoring
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.QUORUM_RECOVERY_STARTED,
-                trigger="quorum_lost_event",
-                online_voters=event.get("online_voters", 0),
-                quorum_size=event.get("quorum_size", 4),
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit QUORUM_RECOVERY_STARTED: {e}")
+        safe_emit_event(
+            "quorum_recovery_started",
+            {
+                "trigger": "quorum_lost_event",
+                "online_voters": event.get("online_voters", 0),
+                "quorum_size": event.get("quorum_size", 4),
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     async def _on_quorum_at_risk(self, event: Any) -> None:
         """Handle QUORUM_AT_RISK event - boost voter reconnection priority.
@@ -450,40 +449,40 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         if not current_online_voters and not self._last_online_voters:
             return  # Nothing to compare yet
 
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
+        # Find voters that went offline (were online, now not)
+        newly_offline = self._last_online_voters - current_online_voters
+        for voter_id in newly_offline:
+            logger.info(f"[VoterEvents] Voter {voter_id} went offline")
+            safe_emit_event(
+                "voter_offline",
+                {
+                    "voter_id": voter_id,
+                    "reason": "quorum_check",
+                    "source": "P2PRecoveryDaemon",
+                },
+                context="P2PRecovery",
+            )
+            # Jan 3, 2026 (Sprint 15.1): Record for flapping detection
+            self._record_voter_state_change(voter_id, is_online=False)
 
-            # Find voters that went offline (were online, now not)
-            newly_offline = self._last_online_voters - current_online_voters
-            for voter_id in newly_offline:
-                logger.info(f"[VoterEvents] Voter {voter_id} went offline")
-                emit_data_event(
-                    DataEventType.VOTER_OFFLINE,
-                    voter_id=voter_id,
-                    reason="quorum_check",
-                    source="P2PRecoveryDaemon",
-                )
-                # Jan 3, 2026 (Sprint 15.1): Record for flapping detection
-                self._record_voter_state_change(voter_id, is_online=False)
+        # Find voters that came online (were offline, now online)
+        newly_online = current_online_voters - self._last_online_voters
+        for voter_id in newly_online:
+            logger.info(f"[VoterEvents] Voter {voter_id} came online")
+            safe_emit_event(
+                "voter_online",
+                {
+                    "voter_id": voter_id,
+                    "reason": "quorum_check",
+                    "source": "P2PRecoveryDaemon",
+                },
+                context="P2PRecovery",
+            )
+            # Jan 3, 2026 (Sprint 15.1): Record for flapping detection
+            self._record_voter_state_change(voter_id, is_online=True)
 
-            # Find voters that came online (were offline, now online)
-            newly_online = current_online_voters - self._last_online_voters
-            for voter_id in newly_online:
-                logger.info(f"[VoterEvents] Voter {voter_id} came online")
-                emit_data_event(
-                    DataEventType.VOTER_ONLINE,
-                    voter_id=voter_id,
-                    reason="quorum_check",
-                    source="P2PRecoveryDaemon",
-                )
-                # Jan 3, 2026 (Sprint 15.1): Record for flapping detection
-                self._record_voter_state_change(voter_id, is_online=True)
-
-        except Exception as e:
-            logger.debug(f"Failed to emit voter state change events: {e}")
-        finally:
-            # Update tracked state for next comparison
-            self._last_online_voters = current_online_voters.copy()
+        # Update tracked state for next comparison
+        self._last_online_voters = current_online_voters.copy()
 
     async def _on_p2p_recovery_needed(self, event: Any) -> None:
         """Handle P2P_RECOVERY_NEEDED event - max escalation reached in partition healing.
@@ -526,20 +525,18 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
             logger.error(f"[P2PRecovery] Failed to restart P2P orchestrator: {e}")
 
         # Emit alert for external monitoring
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.P2P_RECOVERY_STARTED,
-                trigger="p2p_recovery_needed_event",
-                reason=reason,
-                escalation_level=escalation_level,
-                consecutive_failures=consecutive_failures,
-                action="p2p_restart_triggered",
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit P2P_RECOVERY_STARTED: {e}")
+        safe_emit_event(
+            "p2p_recovery_started",
+            {
+                "trigger": "p2p_recovery_needed_event",
+                "reason": reason,
+                "escalation_level": escalation_level,
+                "consecutive_failures": consecutive_failures,
+                "action": "p2p_restart_triggered",
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     async def _on_partition_healing_started(self, event: Any) -> None:
         """Handle PARTITION_HEALING_STARTED - pause P2P restarts during healing.
@@ -726,19 +723,17 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         self, daemon_name: str, category: str, recommended_action: str
     ) -> None:
         """Emit event for daemon recovery action - best effort."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.P2P_RECOVERY_STARTED,
-                trigger="daemon_failure_classified",
-                daemon_name=daemon_name,
-                failure_category=category,
-                recommended_action=recommended_action,
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit daemon recovery event: {e}")
+        safe_emit_event(
+            "p2p_recovery_started",
+            {
+                "trigger": "daemon_failure_classified",
+                "daemon_name": daemon_name,
+                "failure_category": category,
+                "recommended_action": recommended_action,
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     def _is_healing_in_progress(self) -> bool:
         """Check if partition healing is in progress (with timeout protection).
@@ -1455,20 +1450,18 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         self._quorum_recovery_triggered += 1
 
         # Emit event for monitoring
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.QUORUM_RECOVERY_STARTED if severity == "QUORUM_LOST"
-                else DataEventType.QUORUM_AT_RISK,
-                trigger="proactive_monitoring",
-                offline_voters=list(offline_voters),
-                severity=severity,
-                consecutive_checks=self._quorum_at_risk_consecutive,
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit quorum event: {e}")
+        event_type = "quorum_recovery_started" if severity == "QUORUM_LOST" else "quorum_at_risk"
+        safe_emit_event(
+            event_type,
+            {
+                "trigger": "proactive_monitoring",
+                "offline_voters": list(offline_voters),
+                "severity": severity,
+                "consecutive_checks": self._quorum_at_risk_consecutive,
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
         # Always prioritize voter reconnections
         await self._prioritize_quorum_reconnections()
@@ -1491,19 +1484,17 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
 
         Jan 2026: Coordinates with ClusterHealingLoop to prioritize voter recovery.
         """
-        try:
-            # Emit event that ClusterHealingLoop can subscribe to
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.VOTER_HEALING_REQUESTED,
-                offline_voters=list(offline_voters),
-                priority="urgent",
-                source="P2PRecoveryDaemon",
-            )
-            logger.info(f"Requested urgent healing for {len(offline_voters)} offline voters")
-        except Exception as e:
-            logger.debug(f"Failed to emit VOTER_HEALING_REQUESTED: {e}")
+        # Emit event that ClusterHealingLoop can subscribe to
+        safe_emit_event(
+            "voter_healing_requested",
+            {
+                "offline_voters": list(offline_voters),
+                "priority": "urgent",
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
+        logger.info(f"Requested urgent healing for {len(offline_voters)} offline voters")
 
     def _get_current_cooldown(self) -> float:
         """Calculate current cooldown with exponential backoff.
@@ -1702,17 +1693,15 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
 
         Dec 30, 2025: Notifies P2P orchestrator of priority reconnection order.
         """
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.QUORUM_PRIORITY_RECONNECT,
-                prioritized_nodes=prioritized_nodes,
-                voters_needed=len(prioritized_nodes),
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit QUORUM_PRIORITY_RECONNECT: {e}")
+        safe_emit_event(
+            "quorum_priority_reconnect",
+            {
+                "prioritized_nodes": prioritized_nodes,
+                "voters_needed": len(prioritized_nodes),
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     async def _trigger_leader_election(self) -> bool:
         """Trigger a leader election via the P2P orchestrator API.
@@ -1759,34 +1748,30 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
 
     async def _emit_restart_event(self) -> None:
         """Emit event when P2P restart is triggered."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.P2P_RESTART_TRIGGERED,
-                consecutive_failures=self._consecutive_failures,
-                last_status=self._last_status,
-                total_restarts=self._total_restarts,
-                unhealthy_duration_seconds=time.time() - self._last_healthy_time,
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit P2P_RESTART_TRIGGERED: {e}")
+        safe_emit_event(
+            "p2p_restart_triggered",
+            {
+                "consecutive_failures": self._consecutive_failures,
+                "last_status": self._last_status,
+                "total_restarts": self._total_restarts,
+                "unhealthy_duration_seconds": time.time() - self._last_healthy_time,
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     async def _emit_recovery_event(self, status: dict[str, Any]) -> None:
         """Emit event when P2P recovers."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.P2P_HEALTH_RECOVERED,
-                alive_peers=status.get("alive_peers", 0),
-                leader_id=status.get("leader_id"),
-                recovery_duration_seconds=time.time() - self._last_healthy_time,
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit P2P_HEALTH_RECOVERED: {e}")
+        safe_emit_event(
+            "p2p_health_recovered",
+            {
+                "alive_peers": status.get("alive_peers", 0),
+                "leader_id": status.get("leader_id"),
+                "recovery_duration_seconds": time.time() - self._last_healthy_time,
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     async def _emit_p2p_restarted_event(self) -> None:
         """Emit event when P2P orchestrator successfully restarts.
@@ -1813,20 +1798,18 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
 
         December 2025: New event for monitoring network partition scenarios.
         """
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.NETWORK_ISOLATION_DETECTED,
-                p2p_peers=isolation_details.get("p2p_peers", 0),
-                tailscale_peers=isolation_details.get("tailscale_peers", 0),
-                peer_ratio=isolation_details.get("peer_ratio", 0),
-                consecutive_checks=self._consecutive_isolation_checks,
-                isolation_triggered_restarts=self._isolation_triggered_restarts,
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit NETWORK_ISOLATION_DETECTED: {e}")
+        safe_emit_event(
+            "network_isolation_detected",
+            {
+                "p2p_peers": isolation_details.get("p2p_peers", 0),
+                "tailscale_peers": isolation_details.get("tailscale_peers", 0),
+                "peer_ratio": isolation_details.get("peer_ratio", 0),
+                "consecutive_checks": self._consecutive_isolation_checks,
+                "isolation_triggered_restarts": self._isolation_triggered_restarts,
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     async def _trigger_partition_healing(self) -> Any:
         """Trigger partition healing as a softer alternative to P2P restart.
@@ -1857,20 +1840,18 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
 
         Dec 29, 2025: New event for monitoring leader gap scenarios.
         """
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            leader_gap_seconds = time.time() - self._last_leader_seen_time
-            emit_data_event(
-                DataEventType.LEADER_ELECTION_TRIGGERED,
-                reason="leader_gap",
-                leader_gap_seconds=leader_gap_seconds,
-                threshold_seconds=self.config.max_leader_gap_seconds,
-                total_leader_gap_elections=self._leader_gap_elections_triggered,
-                source="P2PRecoveryDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit LEADER_ELECTION_TRIGGERED: {e}")
+        leader_gap_seconds = time.time() - self._last_leader_seen_time
+        safe_emit_event(
+            "leader_election_triggered",
+            {
+                "reason": "leader_gap",
+                "leader_gap_seconds": leader_gap_seconds,
+                "threshold_seconds": self.config.max_leader_gap_seconds,
+                "total_leader_gap_elections": self._leader_gap_elections_triggered,
+                "source": "P2PRecoveryDaemon",
+            },
+            context="P2PRecovery",
+        )
 
     # =========================================================================
     # Health & Status

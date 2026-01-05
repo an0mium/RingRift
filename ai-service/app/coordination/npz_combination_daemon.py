@@ -35,6 +35,7 @@ from typing import Any
 from app.config.thresholds import NPZ_COMBINATION_MIN_QUALITY
 from app.coordination.contracts import HealthCheckResult
 from app.coordination.event_handler_utils import extract_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.handler_base import HandlerBase, HandlerStats
 from app.coordination.singleton_mixin import SingletonMixin
 from app.distributed.data_events import DataEventType
@@ -261,63 +262,43 @@ class NPZCombinationDaemon(SingletonMixin, HandlerBase):
 
     def _emit_combination_complete(self, config_key: str, result: CombineResult) -> None:
         """Emit NPZ_COMBINATION_COMPLETE event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.NPZ_COMBINATION_COMPLETE,
-                config_key=config_key,
-                output_path=str(result.output_path) if result.output_path else None,
-                total_samples=result.total_samples,
-                samples_by_source=result.samples_by_source,
-                source="NPZCombinationDaemon",
-            )
-        except ImportError:
-            # Dec 29, 2025: DataEventType not available (optional subsystem)
-            logger.debug("[NPZCombinationDaemon] data_events module not available")
-        except (AttributeError, TypeError, ValueError) as e:
-            # Emit function signature/parameter errors
-            logger.error(f"[NPZCombinationDaemon] Emit function error: {e}")
-        except RuntimeError as e:
-            # Event bus errors
-            logger.warning(f"Failed to emit NPZ_COMBINATION_COMPLETE: {e}")
+        safe_emit_event(
+            "npz_combination_complete",
+            {
+                "config_key": config_key,
+                "output_path": str(result.output_path) if result.output_path else None,
+                "total_samples": result.total_samples,
+                "samples_by_source": result.samples_by_source,
+                "source": "NPZCombinationDaemon",
+            },
+            context="NPZCombination",
+        )
 
     def _emit_combination_failed(self, config_key: str, error: str) -> None:
         """Emit NPZ_COMBINATION_FAILED event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.NPZ_COMBINATION_FAILED,
-                config_key=config_key,
-                error=error,
-                source="NPZCombinationDaemon",
-            )
-        except ImportError:
-            # Dec 29, 2025: DataEventType not available (optional subsystem)
-            logger.debug("[NPZCombinationDaemon] data_events module not available")
-        except (AttributeError, TypeError, ValueError) as e:
-            # Emit function signature/parameter errors
-            logger.error(f"[NPZCombinationDaemon] Emit function error: {e}")
-        except RuntimeError as e:
-            # Event bus errors
-            logger.warning(f"Failed to emit NPZ_COMBINATION_FAILED: {e}")
+        safe_emit_event(
+            "npz_combination_failed",
+            {
+                "config_key": config_key,
+                "error": error,
+                "source": "NPZCombinationDaemon",
+            },
+            context="NPZCombination",
+        )
 
     def _emit_combination_started(self, config_key: str) -> None:
         """Emit NPZ_COMBINATION_STARTED event.
 
         Dec 28, 2025 - Added to fix orphan event (was defined but never emitted).
         """
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.NPZ_COMBINATION_STARTED,
-                config_key=config_key,
-                source="NPZCombinationDaemon",
-            )
-        except Exception as e:
-            logger.warning(f"Failed to emit NPZ_COMBINATION_STARTED: {e}")
+        safe_emit_event(
+            "npz_combination_started",
+            {
+                "config_key": config_key,
+                "source": "NPZCombinationDaemon",
+            },
+            context="NPZCombination",
+        )
 
     def _verify_npz_quality(
         self, output_path: Path, config_key: str, result: CombineResult
