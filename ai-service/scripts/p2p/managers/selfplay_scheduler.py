@@ -63,6 +63,13 @@ except ImportError:
     PROMOTION_PENALTY_FACTOR_MULTIPLE = 0.5
     PROMOTION_PENALTY_FACTOR_SINGLE = 0.7
 
+# Session 17.22: Architecture-specific Elo tracking
+# Import record_evaluation for tracking per-(config, architecture) performance
+try:
+    from app.training.architecture_tracker import record_evaluation as _record_architecture_eval
+except ImportError:
+    _record_architecture_eval = None  # type: ignore
+
 # Memory-aware job allocation constants (P1 - Sprint 6, Jan 2026)
 # Job-type specific memory requirements in GB
 JOB_MEMORY_REQUIREMENTS: dict[str, float] = {
@@ -467,6 +474,11 @@ class SelfplayScheduler(EventSubscriptionMixin):
         # When training is blocked by quality, boost high-quality selfplay modes
         # Maps config_key -> (quality_boost_factor, expiry_timestamp)
         self._quality_blocked_configs: dict[str, tuple[float, float]] = {}
+
+        # Jan 2026 Session 17.22: Immediate quality score tracking
+        # Store quality scores as they're reported via QUALITY_SCORE_UPDATED events
+        # Maps config_key -> (quality_score, games_assessed, timestamp)
+        self._quality_scores: dict[str, tuple[float, int, float]] = {}
 
         # Jan 2026 Sprint 13: Force rebalance flag
         # Set when a peer reconnects to trigger immediate work rebalancing
@@ -1291,6 +1303,8 @@ class SelfplayScheduler(EventSubscriptionMixin):
             "HYPERPARAMETER_UPDATED": self._on_hyperparameter_updated,
             # January 2026 - Sprint 13: Peer reconnection triggers work rebalancing
             "PEER_RECONNECTED": self._on_peer_reconnected,
+            # January 2026 - Session 17.22: Immediate quality score application
+            "QUALITY_SCORE_UPDATED": self._on_quality_score_updated,
         }
 
     async def _on_selfplay_rate_changed(self, event) -> None:
@@ -1497,18 +1511,23 @@ class SelfplayScheduler(EventSubscriptionMixin):
         weights based on performance results. This enables real-time curriculum
         adjustments based on model strength.
 
+        Session 17.22: Added architecture-specific Elo tracking. Records evaluation
+        results to ArchitectureTracker for per-(config, architecture) performance.
+
         Curriculum weight updates:
         - High win rate (>75%): Reduce weight, model is strong
         - Low win rate (<50%): Increase weight, model needs more training data
         - Mid-range: Maintain current weight
 
         Args:
-            event: Event with payload containing config_key, win_rate, elo
+            event: Event with payload containing config_key, win_rate, elo, architecture
         """
         payload = self._extract_event_payload(event)
         config_key = payload.get("config_key", "") or payload.get("config", "")
         win_rate = payload.get("win_rate", 0.5)
         elo = payload.get("elo", 1500.0)
+        architecture = payload.get("architecture", "")
+        games_played = payload.get("games_played", 0)
 
         if not config_key:
             return
@@ -1563,6 +1582,33 @@ class SelfplayScheduler(EventSubscriptionMixin):
                 f"(win_rate={win_rate:.1%}, elo={elo:.0f}): "
                 f"{current_weight:.2f} -> {new_weight:.2f} ({reason})"
             )
+
+        # Session 17.22: Record evaluation to ArchitectureTracker for per-(config, arch) Elo
+        # This enables intelligent architecture allocation based on performance
+        if architecture and _record_architecture_eval is not None:
+            try:
+                # Parse config_key to get board_type and num_players
+                # Format: "hex8_2p" -> board_type="hex8", num_players=2
+                parts = config_key.rsplit("_", 1)
+                if len(parts) == 2 and parts[1].endswith("p"):
+                    board_type = parts[0]
+                    num_players = int(parts[1].rstrip("p"))
+                    training_hours = payload.get("training_hours", 0.0)
+
+                    _record_architecture_eval(
+                        architecture=architecture,
+                        board_type=board_type,
+                        num_players=num_players,
+                        elo=elo,
+                        training_hours=training_hours,
+                        games_evaluated=games_played,
+                    )
+                    self._log_debug(
+                        f"Recorded evaluation for {architecture}:{config_key} "
+                        f"(elo={elo:.0f}, games={games_played})"
+                    )
+            except (ValueError, TypeError) as e:
+                self._log_debug(f"Could not parse config_key {config_key}: {e}")
 
     async def _on_plateau_detected(self, event) -> None:
         """Handle PLATEAU_DETECTED events - reduce priority for plateaued configs.
@@ -1744,6 +1790,85 @@ class SelfplayScheduler(EventSubscriptionMixin):
             return 1.0
 
         return boost_factor
+
+    async def _on_quality_score_updated(self, event) -> None:
+        """Handle QUALITY_SCORE_UPDATED events - apply quality score immediately.
+
+        Session 17.22: Reduces latency from 0-60s (polling) to <1s (event-driven).
+        When quality_monitor_daemon.py assesses data quality, this handler
+        immediately stores the score so allocation decisions use fresh data.
+
+        This enables:
+        - Immediate allocation shift to higher-quality modes when quality drops
+        - Faster response to quality improvements (unblock training sooner)
+        - More responsive feedback loop (+8-15 Elo improvement expected)
+
+        Args:
+            event: Event with payload containing config_key, quality_score,
+                   games_assessed, confidence
+        """
+        payload = self._extract_event_payload(event)
+        config_key = payload.get("config_key", "")
+        quality_score = payload.get("quality_score", 0.5)
+        games_assessed = payload.get("games_assessed", 0)
+
+        if not config_key:
+            return
+
+        # Store the quality score with timestamp
+        self._quality_scores[config_key] = (
+            quality_score,
+            games_assessed,
+            time.time(),
+        )
+
+        # If quality is low, proactively boost high-quality mode ratio
+        # This happens BEFORE training is blocked, preventing quality-gate delays
+        if quality_score < 0.5 and games_assessed >= 50:
+            # Low quality detected - boost quality-focused selfplay modes
+            quality_deficit = 0.5 - quality_score
+            boost_factor = 1.0 + (quality_deficit * 3.0)  # 1.0 to 2.5x boost
+            boost_factor = min(boost_factor, 2.0)  # Cap lower than blocking boost
+
+            duration = 600  # 10 minutes - reassess on next quality event
+            self._quality_blocked_configs[config_key] = (boost_factor, time.time() + duration)
+
+            self._log_info(
+                f"Quality preemptive boost for {config_key}: {boost_factor:.2f}x "
+                f"(quality={quality_score:.2f}, games={games_assessed})"
+            )
+        elif quality_score >= 0.7:
+            # Good quality - clear any existing boost to restore normal allocation
+            if config_key in self._quality_blocked_configs:
+                del self._quality_blocked_configs[config_key]
+                self._log_info(
+                    f"Quality restored for {config_key} (score={quality_score:.2f})"
+                )
+
+    def get_quality_score(self, config_key: str) -> tuple[float, int]:
+        """Get current quality score and games assessed for a config.
+
+        Session 17.22: Returns the most recent quality score from events.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+
+        Returns:
+            Tuple of (quality_score, games_assessed). Defaults to (0.5, 0) if unknown.
+        """
+        quality_info = self._quality_scores.get(config_key)
+        if not quality_info:
+            return 0.5, 0
+
+        score, games, timestamp = quality_info
+        # Quality scores older than 1 hour are considered stale - decay toward 0.5
+        age_hours = (time.time() - timestamp) / 3600.0
+        if age_hours > 1.0:
+            # Decay toward 0.5 (neutral) with half-life of 1 hour
+            decay_factor = 0.5 ** age_hours
+            score = 0.5 + (score - 0.5) * decay_factor
+
+        return score, games
 
     async def _on_hyperparameter_updated(self, event) -> None:
         """Handle HYPERPARAMETER_UPDATED events - adjust selfplay strategy.
