@@ -51,8 +51,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from app.config.env import env
-from app.coordination.coordinator_base import CoordinatorBase
-from app.coordination.singleton_mixin import SingletonMixin
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+from app.coordination.handler_base import HandlerBase
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +197,7 @@ class StandbyState:
 # =============================================================================
 
 
-class StandbyCoordinator(CoordinatorBase, SingletonMixin):
+class StandbyCoordinator(HandlerBase):
     """Standby coordinator that can take over on primary failure.
 
     This coordinator monitors the primary coordinator's health via HTTP
@@ -222,8 +222,12 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
         Args:
             config: Optional configuration. Uses defaults if not provided.
         """
-        CoordinatorBase.__init__(self)
-        self._config = config or StandbyConfig.from_env()
+        self._standby_config = config or StandbyConfig.from_env()
+        super().__init__(
+            name="standby_coordinator",
+            config=self._standby_config,
+            cycle_interval=self._standby_config.primary_check_interval,
+        )
         self._role = CoordinatorRole.UNKNOWN
         self._start_time = 0.0
         self._takeover_count = 0
@@ -234,32 +238,26 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
         self._primary_health: Optional[PrimaryHealthState] = None
 
         # Internal state
-        self._running = False
-        self._monitor_task: Optional[asyncio.Task] = None
         self._http_client: Optional[Any] = None
         self._primary_host: Optional[str] = None
+        self._consecutive_failures: int = 0
 
         # Callbacks
         self._on_takeover: list[Callable[[], None]] = list(
-            self._config.on_takeover_callbacks
+            self._standby_config.on_takeover_callbacks
         )
         self._on_handoff: list[Callable[[], None]] = list(
-            self._config.on_handoff_callbacks
+            self._standby_config.on_handoff_callbacks
         )
 
         logger.info(
             "StandbyCoordinator initialized",
             extra={
                 "node_id": env.node_id,
-                "primary_host": self._config.primary_host,
-                "heartbeat_timeout": self._config.primary_heartbeat_timeout,
+                "primary_host": self._standby_config.primary_host,
+                "heartbeat_timeout": self._standby_config.primary_heartbeat_timeout,
             },
         )
-
-    @property
-    def name(self) -> str:
-        """Return coordinator name."""
-        return "standby_coordinator"
 
     @property
     def is_primary(self) -> bool:
@@ -303,14 +301,13 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
 
     async def _on_start(self) -> None:
         """Start the standby coordinator."""
-        self._running = True
         self._start_time = time.time()
 
         # Discover primary host if not configured
-        if not self._config.primary_host:
+        if not self._standby_config.primary_host:
             self._primary_host = await self._discover_primary_host()
         else:
-            self._primary_host = self._config.primary_host
+            self._primary_host = self._standby_config.primary_host
 
         if not self._primary_host:
             logger.warning(
@@ -331,12 +328,7 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
                 "Starting as STANDBY coordinator",
                 extra={"primary_host": self._primary_host},
             )
-
-            # Start monitoring primary
-            self._monitor_task = asyncio.create_task(
-                self._monitor_primary_loop(),
-                name="standby_monitor_primary",
-            )
+            # HandlerBase's main loop will call _run_cycle() for monitoring
 
     async def _on_stop(self) -> None:
         """Stop the standby coordinator."""
@@ -414,7 +406,7 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
                 )
                 consecutive_failures += 1
 
-            await asyncio.sleep(self._config.primary_check_interval)
+            await asyncio.sleep(self._standby_config.primary_check_interval)
 
     async def _check_primary_health(self) -> bool:
         """Check if primary coordinator is healthy.
@@ -434,7 +426,7 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
                     timeout=aiohttp.ClientTimeout(total=10.0)
                 )
 
-            url = f"http://{self._primary_host}:{self._config.primary_port}/health"
+            url = f"http://{self._primary_host}:{self._standby_config.primary_port}/health"
             async with self._http_client.get(url) as resp:
                 if resp.status == 200:
                     return True
@@ -462,32 +454,32 @@ class StandbyCoordinator(CoordinatorBase, SingletonMixin):
             return False
 
         # Check if we've been running long enough
-        if self.get_state().uptime_seconds < self._config.min_standby_uptime:
+        if self.get_state().uptime_seconds < self._standby_config.min_standby_uptime:
             logger.debug(
                 "Not eligible for takeover yet",
                 extra={
                     "uptime": self.get_state().uptime_seconds,
-                    "min_required": self._config.min_standby_uptime,
+                    "min_required": self._standby_config.min_standby_uptime,
                 },
             )
             return False
 
         # Check if primary has been unresponsive long enough
         time_since_seen = self._primary_health.time_since_seen
-        if time_since_seen < self._config.primary_heartbeat_timeout:
+        if time_since_seen < self._standby_config.primary_heartbeat_timeout:
             return False
 
         logger.warning(
             "Primary coordinator appears dead, preparing takeover",
             extra={
                 "time_since_seen": time_since_seen,
-                "threshold": self._config.primary_heartbeat_timeout,
+                "threshold": self._standby_config.primary_heartbeat_timeout,
                 "consecutive_failures": self._primary_health.consecutive_failures,
             },
         )
 
         # Wait takeover delay to prevent flapping
-        await asyncio.sleep(self._config.takeover_delay)
+        await asyncio.sleep(self._standby_config.takeover_delay)
 
         # Double-check after delay
         is_healthy = await self._check_primary_health()
