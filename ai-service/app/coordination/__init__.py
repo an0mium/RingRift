@@ -533,26 +533,24 @@ async def shutdown_all_coordinators(
     start_time = _time.time()
 
     if emit_events:
-        try:
-            from app.coordination.event_emitters import emit_coordinator_shutdown
+        # January 2026: Migrated to safe_emit_event_async for consistent event handling.
+        from app.coordination.event_emission_helpers import safe_emit_event_async
 
-            coordinators = [
-                "optimization",
-                "metrics",
-                "pipeline",
-                "selfplay",
-                "cache",
-                "resources",
-                "task_lifecycle",
-            ]
-            for coord_name in coordinators:
-                with contextlib.suppress(Exception):
-                    await emit_coordinator_shutdown(
-                        coordinator_name=coord_name,
-                        reason="system_shutdown",
-                    )
-        except ImportError:
-            pass
+        coordinators = [
+            "optimization",
+            "metrics",
+            "pipeline",
+            "selfplay",
+            "cache",
+            "resources",
+            "task_lifecycle",
+        ]
+        for coord_name in coordinators:
+            await safe_emit_event_async(
+                "COORDINATOR_SHUTDOWN",
+                {"coordinator_name": coord_name, "reason": "system_shutdown"},
+                context="shutdown_all_coordinators",
+            )
 
     shutdown_order = [
         ("optimization", get_optimization_coordinator),
@@ -668,53 +666,52 @@ async def _emit_coordinator_heartbeats(interval_seconds: float = 30.0) -> None:
     logger.info(f"[HeartbeatManager] Started with {interval_seconds}s interval")
 
     while _heartbeat_running:
-        try:
-            from app.coordination.event_emitters import emit_coordinator_heartbeat
+        # January 2026: Migrated to safe_emit_event_async for consistent event handling.
+        from app.coordination.event_emission_helpers import safe_emit_event_async
 
-            coordinators = [
-                ("selfplay", get_selfplay_orchestrator),
-                ("pipeline", get_pipeline_orchestrator),
-                ("task_lifecycle", get_task_lifecycle_coordinator),
-                ("optimization", get_optimization_coordinator),
-                ("metrics", get_metrics_orchestrator),
-                ("resources", get_resource_coordinator),
-                ("cache", get_cache_orchestrator),
-            ]
+        coordinators = [
+            ("selfplay", get_selfplay_orchestrator),
+            ("pipeline", get_pipeline_orchestrator),
+            ("task_lifecycle", get_task_lifecycle_coordinator),
+            ("optimization", get_optimization_coordinator),
+            ("metrics", get_metrics_orchestrator),
+            ("resources", get_resource_coordinator),
+            ("cache", get_cache_orchestrator),
+        ]
 
-            for name, getter in coordinators:
-                try:
-                    coord = getter()
-                    status = coord.get_status()
+        for name, getter in coordinators:
+            try:
+                coord = getter()
+                status = coord.get_status()
 
-                    health_score = 1.0
-                    if not status.get("subscribed", True):
-                        health_score = 0.5
-                    if status.get("paused", False):
-                        health_score = 0.7
-                    if status.get("backpressure_active", False):
-                        health_score = 0.6
+                health_score = 1.0
+                if not status.get("subscribed", True):
+                    health_score = 0.5
+                if status.get("paused", False):
+                    health_score = 0.7
+                if status.get("backpressure_active", False):
+                    health_score = 0.6
 
-                    await emit_coordinator_heartbeat(
-                        coordinator_name=name,
-                        health_score=health_score,
-                        active_handlers=(
+                await safe_emit_event_async(
+                    "COORDINATOR_HEARTBEAT",
+                    {
+                        "coordinator_name": name,
+                        "health_score": health_score,
+                        "active_handlers": (
                             status.get("metrics_tracked", 0)
                             if name == "metrics"
                             else status.get("active_tasks", 0)
                         ),
-                        events_processed=(
+                        "events_processed": (
                             status.get("total_invocations", 0)
                             if "total_invocations" in status
                             else 0
                         ),
-                    )
-                except Exception as e:
-                    logger.debug(f"[HeartbeatManager] Failed to emit heartbeat for {name}: {e}")
-
-        except ImportError:
-            logger.debug("[HeartbeatManager] event_emitters not available")
-        except Exception as e:
-            logger.debug(f"[HeartbeatManager] Error in heartbeat loop: {e}")
+                    },
+                    context="heartbeat_manager",
+                )
+            except Exception as e:
+                logger.debug(f"[HeartbeatManager] Failed to emit heartbeat for {name}: {e}")
 
         try:
             await asyncio.sleep(interval_seconds)
