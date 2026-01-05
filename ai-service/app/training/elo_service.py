@@ -205,8 +205,9 @@ def get_raft_elo_store() -> Any:
     return None
 
 # Event emission for ELO updates
+# Jan 5, 2026: Fixed import path - emit_elo_updated is in data_events, not event_router
 try:
-    from app.coordination.event_router import emit_elo_updated
+    from app.distributed.data_events import emit_elo_updated
     HAS_ELO_EVENTS = True
 except ImportError:
     HAS_ELO_EVENTS = False

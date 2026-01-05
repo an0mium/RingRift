@@ -287,6 +287,22 @@ class AutoPromotionDaemon(HandlerBase):
                 f"{win_rate:.1%} ({games_played} games)"
             )
 
+        # Jan 5, 2026: Extract from opponent_results dict (from evaluation_daemon)
+        # The evaluation_daemon sends opponent_results with keys like "random", "heuristic"
+        opponent_results = payload.get("opponent_results", {})
+        for opp_key, opp_result in opponent_results.items():
+            # Normalize key to uppercase for consistency
+            normalized_key = opp_key.upper() if isinstance(opp_key, str) else str(opp_key).upper()
+            if normalized_key in ("RANDOM", "HEURISTIC"):
+                opp_win_rate = opp_result.get("win_rate", 0.0) if isinstance(opp_result, dict) else 0.0
+                opp_games = opp_result.get("games_played", 0) if isinstance(opp_result, dict) else 0
+                candidate.evaluation_results[normalized_key] = float(opp_win_rate)
+                candidate.evaluation_games[normalized_key] = opp_games
+                logger.info(
+                    f"[AutoPromotion] Recorded {config_key} vs {normalized_key} from opponent_results: "
+                    f"{opp_win_rate:.1%} ({opp_games} games)"
+                )
+
         # Dec 28, 2025: Also check for direct baseline win rates from gauntlet
         # The gauntlet emits both rates in a single event
         vs_random_rate = payload.get("vs_random_rate")
