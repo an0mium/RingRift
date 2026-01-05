@@ -2463,6 +2463,30 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
                         )
                 return  # Handled regression case
 
+            # Session 17.11: Handle quality critical drop - boost allocation for affected config
+            # This enables immediate response to quality degradation (+8-12 Elo improvement)
+            if trigger == "quality_critical_drop":
+                changed_configs = payload.get("changed_configs", [])
+                factor = payload.get("factor", 1.5)
+                quality_drop = payload.get("quality_drop", 0.0)
+
+                for cfg in changed_configs:
+                    if cfg in self._config_priorities:
+                        old_weight = self._config_priorities[cfg].curriculum_weight
+                        # Boost allocation to prioritize data generation
+                        new_wt = min(2.0, old_weight * factor)
+                        self._config_priorities[cfg].curriculum_weight = new_wt
+                        # Also increase exploration boost to improve diversity
+                        self._config_priorities[cfg].exploration_boost = min(
+                            2.0, self._config_priorities[cfg].exploration_boost * 1.3
+                        )
+                        logger.warning(
+                            f"[SelfplayScheduler] Quality-drop allocation boost: "
+                            f"{cfg} weight {old_weight:.2f} → {new_wt:.2f} (factor={factor}, "
+                            f"quality_drop={quality_drop:.2f}), exploration boosted"
+                        )
+                return  # Handled quality_critical_drop case
+
             if config_key in self._config_priorities:
                 old_weight = self._config_priorities[config_key].curriculum_weight
                 self._config_priorities[config_key].curriculum_weight = new_weight

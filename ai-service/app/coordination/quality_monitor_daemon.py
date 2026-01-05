@@ -456,9 +456,21 @@ class QualityMonitorDaemon(HandlerBase):
 
             # Determine which event to emit based on transition
             now = time.time()
-            if now - self._last_event_time < self._event_cooldown:
+
+            # Session 17.11: Bypass cooldown for critical quality drops (+8-12 Elo improvement)
+            # If quality drops by >= 0.15 (15 points), skip cooldown for immediate response
+            quality_drop = self.last_quality - quality
+            critical_drop = quality_drop >= 0.15
+
+            if not critical_drop and now - self._last_event_time < self._event_cooldown:
                 logger.debug("Skipping event due to cooldown")
                 return
+
+            if critical_drop:
+                logger.info(
+                    f"Critical quality drop detected: {self.last_quality:.2f} → {quality:.2f} "
+                    f"(Δ={quality_drop:.2f}), bypassing cooldown"
+                )
 
             if quality < self.config.warning_threshold:
                 # Quality dropped below warning threshold

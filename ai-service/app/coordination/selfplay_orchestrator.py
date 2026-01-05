@@ -797,6 +797,36 @@ class SelfplayOrchestrator:
             except Exception as e:
                 logger.debug(f"Failed to emit QUALITY_FEEDBACK_ADJUSTED: {e}")
 
+        # Session 17.11: Trigger immediate allocation recompute for critical quality drops (+8-12 Elo)
+        # When quality drops significantly (>=0.15), we need to immediately rebalance
+        # selfplay allocation to prioritize data generation for the affected config
+        quality_drop = old_quality - quality_score
+        if quality_drop >= 0.15:
+            logger.info(
+                f"[SelfplayOrchestrator] Critical quality drop for {config_key}: "
+                f"{old_quality:.2f}→{quality_score:.2f} (Δ={quality_drop:.2f}), "
+                "triggering immediate allocation recompute"
+            )
+            try:
+                from app.coordination.event_router import get_event_router
+
+                router = get_event_router()
+                if router:
+                    # Emit CURRICULUM_REBALANCED to trigger immediate scheduler update
+                    # Use boost_allocation to prioritize this config for selfplay
+                    router.publish("CURRICULUM_REBALANCED", {
+                        "trigger": "quality_critical_drop",
+                        "changed_configs": [config_key],
+                        "action": "boost_allocation",
+                        "factor": 1.5,  # 50% boost for critical quality drops
+                        "quality_drop": quality_drop,
+                        "new_quality": quality_score,
+                        "old_quality": old_quality,
+                        "timestamp": time.time(),
+                    })
+            except Exception as e:
+                logger.debug(f"Failed to emit CURRICULUM_REBALANCED for quality drop: {e}")
+
     async def _on_idle_resource_detected(self, event) -> None:
         """Handle IDLE_RESOURCE_DETECTED - spawn selfplay on idle GPUs.
 
