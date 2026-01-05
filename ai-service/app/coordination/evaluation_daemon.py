@@ -158,7 +158,8 @@ class EvaluationConfig:
     # Concurrency
     # Dec 29: Increased from 8 to 24 for faster eval throughput
     # With 50 games per baseline, each eval still completes in ~5 min
-    max_concurrent_evaluations: int = 24
+    # Session 17.31 (Jan 5, 2026): Increased from 24 to 32 for higher throughput
+    max_concurrent_evaluations: int = 32
 
     # Timeouts
     # Dec 29: Reduced from 600s to 300s for faster iteration (5 min per eval)
@@ -213,8 +214,9 @@ class EvaluationConfig:
     # When queue hovers near threshold, it can toggle frequently. Hysteresis adds:
     # 1. Cooldown after release - don't re-activate for N seconds
     # 2. Minimum stable time before release - must be below threshold for N seconds
-    backpressure_reactivation_cooldown: float = 60.0  # Seconds before re-activation allowed
-    backpressure_stable_release_time: float = 30.0  # Seconds below threshold before release
+    # Session 17.31 (Jan 5, 2026): Reduced from 60s to 30s for faster backpressure cycles
+    backpressure_reactivation_cooldown: float = 30.0  # Seconds before re-activation allowed
+    backpressure_stable_release_time: float = 15.0  # Seconds below threshold before release
 
     # December 30, 2025: Multi-harness evaluation
     # When enabled, models are evaluated under all compatible harnesses (GUMBEL_MCTS, MINIMAX, etc.)

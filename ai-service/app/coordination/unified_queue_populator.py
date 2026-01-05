@@ -178,8 +178,9 @@ class QueuePopulatorConfig:
     # Dec 31, 2025: Increased from 2 to 10 to better utilize cluster capacity
     # during backpressure events. With 40+ nodes, 10 items/cycle keeps pipeline moving.
     # January 2026 - Phase 3 Task 5: Dynamic trickle mode scales with cluster size.
+    # Session 17.31 (Jan 5, 2026): Increased min from 10 to 50 to prevent GPU starvation
     trickle_mode_enabled: bool = True
-    trickle_min_items: int = 10  # Minimum items to add even under max backpressure
+    trickle_min_items: int = 50  # Minimum items to add even under max backpressure
     trickle_dynamic_scaling: bool = True  # Scale trickle count based on active nodes
     trickle_max_items: int = 100  # Maximum items even for very large clusters
 
