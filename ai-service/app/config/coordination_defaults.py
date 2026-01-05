@@ -2423,7 +2423,9 @@ class SelfplayPriorityWeightDefaults:
     # Priority calculation weights (baseline values, adjusted dynamically)
     # Jan 2026: Reduced STALENESS_WEIGHT and ELO_VELOCITY_WEIGHT to prevent
     # freshness bias that was causing underserved configs to get < 100 games/day
-    STALENESS_WEIGHT: float = _env_float("RINGRIFT_STALENESS_WEIGHT", 0.15)
+    # Jan 5, 2026: Increased STALENESS_WEIGHT 0.15→0.25 to improve node utilization
+    # (targeting 85%+ cluster utilization, was 40-60% with 0.15)
+    STALENESS_WEIGHT: float = _env_float("RINGRIFT_STALENESS_WEIGHT", 0.25)
     ELO_VELOCITY_WEIGHT: float = _env_float("RINGRIFT_ELO_VELOCITY_WEIGHT", 0.10)
     TRAINING_NEED_WEIGHT: float = _env_float("RINGRIFT_TRAINING_NEED_WEIGHT", 0.10)
     EXPLORATION_BOOST_WEIGHT: float = _env_float("RINGRIFT_EXPLORATION_BOOST_WEIGHT", 0.10)

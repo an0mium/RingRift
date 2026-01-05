@@ -1469,6 +1469,22 @@ MAX_CONCURRENT_GAUNTLETS_BY_GPU: dict[str, int] = {
     "CPU": 1,
 }
 
+# GPU-aware saturation thresholds for job queue management
+# Larger GPUs can handle more concurrent pending jobs before being considered saturated
+GPU_SATURATION_THRESHOLDS: dict[str, int] = {
+    "GH200": 25,      # 96GB - can handle many concurrent jobs
+    "H200": 22,       # 141GB - highest VRAM
+    "H100": 20,       # 80GB - high capacity
+    "A100_80": 18,    # 80GB variant
+    "A100": 12,       # 40GB - moderate capacity
+    "A10": 10,        # 24GB
+    "RTX_4090": 10,   # 24GB
+    "RTX_3090": 8,    # 24GB but older arch
+    "L40S": 15,       # 48GB - mid-range
+    "CPU": 5,         # CPU-only - limited
+}
+DEFAULT_SATURATION_THRESHOLD = 15  # Fallback for unknown GPU types
+
 # Node roles for workload distribution
 NODE_ROLES = ["training", "selfplay", "coordinator", "ephemeral", "cpu_only"]
 
@@ -1494,6 +1510,21 @@ def get_selfplay_allocation(gpu_type: str) -> int:
 def is_ephemeral_node(node_id: str) -> bool:
     """Check if a node is ephemeral (temporary cloud instance)."""
     return any(pattern in node_id.lower() for pattern in EPHEMERAL_NODE_PATTERNS)
+
+
+def get_gpu_saturation_threshold(gpu_type: str) -> int:
+    """Get the job queue saturation threshold for a GPU type.
+
+    Larger GPUs can handle more concurrent pending jobs before being considered
+    saturated. This allows better utilization of high-capacity GPUs.
+
+    Args:
+        gpu_type: GPU type identifier (e.g., "GH200", "H100", "A100")
+
+    Returns:
+        Saturation threshold (number of pending jobs above which node is saturated)
+    """
+    return GPU_SATURATION_THRESHOLDS.get(gpu_type, DEFAULT_SATURATION_THRESHOLD)
 
 
 # =============================================================================
