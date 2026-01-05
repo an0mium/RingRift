@@ -1052,6 +1052,11 @@ class UnifiedQueuePopulator:
         from app.coordination.work_queue import WorkItem, WorkType
 
         work_id = f"tournament_{board_type}_{num_players}p_{int(time.time() * 1000)}"
+
+        # Jan 5, 2026 (Phase 6): Small board tournament/evaluation can run on CPU nodes
+        # This allows Hetzner CPU nodes to contribute to evaluation work
+        requires_gpu = board_type not in ("hex8", "square8")
+
         return WorkItem(
             work_id=work_id,
             work_type=WorkType.TOURNAMENT,
@@ -1061,6 +1066,7 @@ class UnifiedQueuePopulator:
                 "num_players": num_players,
                 "games": self.config.tournament_games,
                 "source": "queue_populator",
+                "requires_gpu": requires_gpu,
             },
         )
 

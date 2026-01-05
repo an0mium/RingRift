@@ -58,6 +58,41 @@ except ImportError:
     DataEventType = None  # type: ignore[misc, assignment]
     _HAS_EVENTS = False
 
+# January 2026 Phase 6: Provider-specific CB TTL (in seconds)
+# Ephemeral providers (Vast.ai, RunPod) restart frequently, so use shorter TTLs
+# Stable providers (Lambda, Nebius) have long-running instances, use longer TTLs
+_PROVIDER_CB_TTL_SECONDS: dict[str, int] = {
+    "lambda": 3600,   # 1 hour - stable, persistent instances
+    "nebius": 3600,   # 1 hour - stable cloud provider
+    "vultr": 1800,    # 30 min - semi-stable vGPU instances
+    "hetzner": 3600,  # 1 hour - stable CPU voters
+    "vast": 600,      # 10 min - ephemeral spot instances
+    "runpod": 900,    # 15 min - ephemeral spot instances
+    "local": 7200,    # 2 hours - always available
+    "unknown": 3600,  # 1 hour - default for unknown providers
+}
+
+
+def _get_provider_cb_ttl(node_id: str) -> int:
+    """Get the circuit breaker TTL for a node based on its provider.
+
+    January 2026 Phase 6: Provider-specific TTLs allow faster recovery for
+    ephemeral providers (Vast.ai: 10 min) vs stable providers (Lambda: 1 hour).
+
+    Args:
+        node_id: Node identifier (e.g., "vast-12345", "lambda-gh200-1")
+
+    Returns:
+        TTL in seconds for this provider's CB
+    """
+    try:
+        from app.config.cluster_config import get_host_provider
+        provider = get_host_provider(node_id)
+    except ImportError:
+        provider = "unknown"
+
+    return _PROVIDER_CB_TTL_SECONDS.get(provider, _PROVIDER_CB_TTL_SECONDS["unknown"])
+
 __all__ = [
     "NodeCircuitBreaker",
     "NodeCircuitBreakerRegistry",
@@ -254,18 +289,34 @@ class NodeCircuitBreaker:
         os.environ.get("RINGRIFT_CB_MAX_OPEN_DURATION", str(2 * 3600))
     )  # 2 hours default
 
-    def _check_recovery(self, circuit: _NodeCircuitData) -> None:
-        """Check if circuit should transition to half-open or force reset via TTL decay."""
+    def _check_recovery(
+        self, circuit: _NodeCircuitData, node_id: str | None = None
+    ) -> None:
+        """Check if circuit should transition to half-open or force reset via TTL decay.
+
+        Args:
+            circuit: Circuit data to check
+            node_id: Optional node identifier for provider-specific TTL.
+                     If provided, uses provider-specific TTL (Vast.ai: 10min, Lambda: 1hr).
+                     If None, uses MAX_CIRCUIT_OPEN_DURATION (2hr default).
+        """
         now = time.time()
 
         # January 2026 Sprint 17.4: TTL decay - force reset after MAX_CIRCUIT_OPEN_DURATION
         # This prevents circuits from staying OPEN indefinitely after transient failures
+        # January 2026 Phase 6: Use provider-specific TTL when node_id is available
         if circuit.state == NodeCircuitState.OPEN and circuit.first_opened_at:
             total_time_open = now - circuit.first_opened_at
-            if total_time_open > self.MAX_CIRCUIT_OPEN_DURATION:
+            # Use provider-specific TTL if node_id known, otherwise use global default
+            max_ttl = (
+                _get_provider_cb_ttl(node_id)
+                if node_id
+                else self.MAX_CIRCUIT_OPEN_DURATION
+            )
+            if total_time_open > max_ttl:
                 logger.warning(
-                    f"[NodeCircuitBreaker] Circuit TTL expired after {total_time_open:.0f}s, "
-                    f"forcing CLOSED"
+                    f"[NodeCircuitBreaker] Circuit TTL expired for {node_id or 'unknown'} "
+                    f"after {total_time_open:.0f}s (max={max_ttl}s), forcing CLOSED"
                 )
                 circuit.state = NodeCircuitState.CLOSED
                 circuit.failure_count = 0
@@ -387,7 +438,7 @@ class NodeCircuitBreaker:
         """
         with self._lock:
             circuit = self._get_or_create_circuit(node_id)
-            self._check_recovery(circuit)
+            self._check_recovery(circuit, node_id)  # Phase 6: pass node_id for provider TTL
 
             if circuit.state == NodeCircuitState.CLOSED:
                 return True
@@ -470,14 +521,14 @@ class NodeCircuitBreaker:
         """Get current circuit state for a node."""
         with self._lock:
             circuit = self._get_or_create_circuit(node_id)
-            self._check_recovery(circuit)
+            self._check_recovery(circuit, node_id)  # Phase 6: pass node_id for provider TTL
             return circuit.state
 
     def get_status(self, node_id: str) -> NodeCircuitStatus:
         """Get detailed circuit status for a node."""
         with self._lock:
             circuit = self._get_or_create_circuit(node_id)
-            self._check_recovery(circuit)
+            self._check_recovery(circuit, node_id)  # Phase 6: pass node_id for provider TTL
             return NodeCircuitStatus(
                 node_id=node_id,
                 state=circuit.state,
@@ -502,7 +553,7 @@ class NodeCircuitBreaker:
         with self._lock:
             result = []
             for node_id, circuit in self._circuits.items():
-                self._check_recovery(circuit)
+                self._check_recovery(circuit, node_id)  # Phase 6: pass node_id for provider TTL
                 if circuit.state == NodeCircuitState.OPEN:
                     result.append(node_id)
             return result
@@ -514,8 +565,8 @@ class NodeCircuitBreaker:
             open_count = 0
             half_open_count = 0
 
-            for circuit in self._circuits.values():
-                self._check_recovery(circuit)
+            for node_id, circuit in self._circuits.items():
+                self._check_recovery(circuit, node_id)  # Phase 6: pass node_id for provider TTL
                 if circuit.state == NodeCircuitState.CLOSED:
                     closed_count += 1
                 elif circuit.state == NodeCircuitState.OPEN:

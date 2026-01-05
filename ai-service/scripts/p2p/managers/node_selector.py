@@ -69,9 +69,11 @@ class NodeSelector:
         self._subscription_lock = threading.Lock()
 
         # Session 17.28: Periodic unhealthy node recovery
+        # Jan 5, 2026 (Session 17.27): Reduced from 60s to 15s for faster recovery
         self._running = False
         self._recovery_task: Any | None = None
-        self._recovery_interval_seconds = 60.0  # Check every 60s
+        self._recovery_interval_seconds = 15.0  # Check every 15s for faster recovery
+        self._pending_probes: set[str] = set()  # Nodes pending immediate probe
 
     async def start(self) -> None:
         """Start periodic unhealthy node recovery loop.
@@ -650,16 +652,26 @@ class NodeSelector:
     # Health State Management (Dec 2025)
     # =========================================================================
 
-    def mark_node_unhealthy(self, node_id: str, reason: str = "") -> None:
+    def mark_node_unhealthy(self, node_id: str, reason: str = "", schedule_probe: bool = True) -> None:
         """Mark a node as unhealthy via event notification.
+
+        Jan 5, 2026 (Session 17.27): Added schedule_probe parameter for faster recovery.
+        When True, schedules an immediate probe after 15s instead of waiting for the
+        next recovery loop cycle.
 
         Args:
             node_id: The ID of the unhealthy node
             reason: Optional reason for the unhealthy state
+            schedule_probe: If True, schedule an immediate recovery probe (default: True)
         """
         self._unhealthy_nodes.add(node_id)
         if reason:
             self._unhealthy_reasons[node_id] = reason
+
+        # Jan 5, 2026: Schedule immediate probe for faster recovery
+        if schedule_probe:
+            self._pending_probes.add(node_id)
+            logger.debug(f"[NodeSelector] Scheduled immediate probe for {node_id}")
 
     def mark_node_healthy(self, node_id: str) -> None:
         """Mark a node as healthy (recovered).

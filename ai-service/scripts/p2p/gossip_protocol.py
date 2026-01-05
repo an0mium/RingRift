@@ -153,6 +153,9 @@ class GossipHealthTracker:
     BACKOFF_BASE_SECONDS: float = 1.0
     BACKOFF_MULTIPLIER: float = 2.0
     BACKOFF_MAX_SECONDS: float = 16.0
+    # Jan 5, 2026 (Phase 6): Jitter factor to prevent thundering herd
+    # Applied as multiplier: backoff * random(1-jitter, 1+jitter)
+    BACKOFF_JITTER_FACTOR: float = 0.25  # +/- 25% jitter
 
     def __init__(self, failure_threshold: int = GOSSIP_FAILURE_SUSPECT_THRESHOLD):
         """Initialize gossip health tracker.
@@ -198,29 +201,42 @@ class GossipHealthTracker:
             return should_emit, count
 
     def get_backoff_seconds(self, peer_id: str) -> float:
-        """Calculate exponential backoff delay for a peer.
+        """Calculate exponential backoff delay for a peer with jitter.
 
         Thread-safe: Uses _state_lock to protect shared state.
 
         Jan 3, 2026: Returns the number of seconds to wait before retrying
         gossip to this peer based on consecutive failure count.
 
+        Jan 5, 2026 (Phase 6): Added jitter to prevent thundering herd when
+        multiple nodes back off identically after partition healing.
+
         Args:
             peer_id: The peer to calculate backoff for
 
         Returns:
-            Backoff delay in seconds (0 if no failures)
+            Backoff delay in seconds with jitter (0 if no failures)
         """
+        import random
+
         with self._state_lock:
             failure_count = self._failure_counts.get(peer_id, 0)
         if failure_count == 0:
             return 0.0
 
         # Exponential backoff: base * multiplier^(failures-1), capped at max
-        backoff = self.BACKOFF_BASE_SECONDS * (
+        base_backoff = self.BACKOFF_BASE_SECONDS * (
             self.BACKOFF_MULTIPLIER ** (failure_count - 1)
         )
-        return min(backoff, self.BACKOFF_MAX_SECONDS)
+        base_backoff = min(base_backoff, self.BACKOFF_MAX_SECONDS)
+
+        # Apply jitter: multiply by random value in range [1-jitter, 1+jitter]
+        # This prevents thundering herd when multiple nodes back off identically
+        jitter_multiplier = random.uniform(
+            1 - self.BACKOFF_JITTER_FACTOR,
+            1 + self.BACKOFF_JITTER_FACTOR,
+        )
+        return base_backoff * jitter_multiplier
 
     def should_skip_peer(self, peer_id: str) -> bool:
         """Check if a peer should be skipped due to backoff.
