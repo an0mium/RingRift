@@ -263,6 +263,7 @@ class CascadeBreakerManager(SingletonMixin):
         ...     await restart_daemon(DaemonType.AUTO_SYNC)
         ... else:
         ...     logger.warning(f"Restart blocked: {reason}")
+    """
 
     def __init__(self, config: CascadeBreakerConfig | None = None) -> None:
         """Initialize the cascade breaker manager.
