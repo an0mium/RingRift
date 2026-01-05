@@ -56,9 +56,8 @@ from app.coordination.event_utils import parse_config_key
 
 logger = logging.getLogger(__name__)
 
-# Use centralized event emitters (December 2025)
-# Note: event_emitters.py handles all routing to data_events, stage_events, and cross-process
-from app.coordination.event_emitters import emit_selfplay_complete as _emit_selfplay_event
+# Use centralized event emission (January 2026 - migrated to event_router)
+from app.coordination.event_emission_helpers import safe_emit_event_async
 
 
 class SelfplayType(Enum):
@@ -457,11 +456,10 @@ class SelfplayOrchestrator:
     async def _emit_selfplay_complete(self, task: SelfplayTaskInfo) -> bool:
         """Emit SELFPLAY_COMPLETE event using centralized emitter.
 
-        Note: event_emitters.py handles routing to all event systems
-        (data_events, stage_events, cross-process) internally.
+        January 2026 - migrated to event_router via safe_emit_event_async.
         """
         try:
-            # Map selfplay type to string for centralized emitter
+            # Map selfplay type to string
             selfplay_type_str = {
                 SelfplayType.GPU_ACCELERATED: "gpu_accelerated",
                 SelfplayType.CANONICAL: "canonical",
@@ -469,22 +467,25 @@ class SelfplayOrchestrator:
                 SelfplayType.BACKGROUND: "background",
             }.get(task.selfplay_type, "standard")
 
-            result = await _emit_selfplay_event(
-                task_id=task.task_id,
-                board_type=task.board_type,
-                num_players=task.num_players,
-                games_generated=task.games_generated,
-                success=task.success,
-                node_id=task.node_id,
-                duration_seconds=task.duration,
-                selfplay_type=selfplay_type_str,
-                iteration=task.iteration,
-                error=task.error if not task.success else None,
-                games_per_second=task.games_per_second,
+            await safe_emit_event_async(
+                "SELFPLAY_COMPLETE",
+                {
+                    "task_id": task.task_id,
+                    "board_type": task.board_type,
+                    "num_players": task.num_players,
+                    "games_generated": task.games_generated,
+                    "success": task.success,
+                    "node_id": task.node_id,
+                    "duration_seconds": task.duration,
+                    "selfplay_type": selfplay_type_str,
+                    "iteration": task.iteration,
+                    "error": task.error if not task.success else None,
+                    "games_per_second": task.games_per_second,
+                },
+                context="selfplay_orchestrator",
             )
-            if result:
-                logger.debug("[SelfplayOrchestrator] Emitted selfplay complete event")
-            return result
+            logger.debug("[SelfplayOrchestrator] Emitted selfplay complete event")
+            return True
 
         except Exception as e:
             logger.warning(f"[SelfplayOrchestrator] Failed to emit selfplay event: {e}")

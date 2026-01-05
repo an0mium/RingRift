@@ -1645,7 +1645,7 @@ class P2POrchestrator(
         self.elo_sync_manager: EloSyncManager | None = None
         if HAS_ELO_SYNC:
             try:
-                db_path = Path(self.ringrift_path) / "ai-service" / "data" / "unified_elo.db"
+                db_path = Path(self._get_ai_service_path()) / "data" / "unified_elo.db"
                 # Use env var for coordinator, fallback to nebius-backbone-1 (stable backbone node)
                 elo_coordinator = os.environ.get("RINGRIFT_ELO_COORDINATOR", "nebius-backbone-1")
                 self.elo_sync_manager = EloSyncManager(
@@ -3332,7 +3332,7 @@ class P2POrchestrator(
         try:
             cmd = [
                 sys.executable,
-                f"{self.ringrift_path}/ai-service/scripts/export_replay_dataset.py",
+                self._get_script_path("export_replay_dataset.py"),
                 "--db", str(db_path),
                 "--board-type", board_type,
                 "--num-players", "2",
@@ -3343,7 +3343,7 @@ class P2POrchestrator(
             ]
 
             env = os.environ.copy()
-            env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+            env["PYTHONPATH"] = self._get_ai_service_path()
 
             log_file = Path(f"/tmp/auto_export_{db_path.stem}.log")
             subprocess.Popen(
@@ -3351,7 +3351,7 @@ class P2POrchestrator(
                 stdout=open(log_file, "w"),
                 stderr=subprocess.STDOUT,
                 env=env,
-                cwd=f"{self.ringrift_path}/ai-service",
+                cwd=self._get_ai_service_path(),
             )
             logger.info(f"[DataManagement] Started export job for {db_path.name}")
             return True
@@ -5018,6 +5018,31 @@ class P2POrchestrator(
                 return str(path)
         return str(Path(__file__).parent.parent.parent)
 
+    def _get_ai_service_path(self) -> str:
+        """Get the path to the ai-service directory.
+
+        Handles both cases:
+        - ringrift_path = /path/to/RingRift (root directory)
+        - ringrift_path = /path/to/RingRift/ai-service (already ai-service)
+
+        Returns:
+            Path to ai-service directory.
+        """
+        if self.ringrift_path.rstrip("/").endswith("ai-service"):
+            return self.ringrift_path
+        return os.path.join(self.ringrift_path, "ai-service")
+
+    def _get_script_path(self, script_name: str) -> str:
+        """Get the full path to a script in ai-service/scripts/.
+
+        Args:
+            script_name: Name of the script (e.g., "run_self_play_soak.py")
+
+        Returns:
+            Full path to the script.
+        """
+        return os.path.join(self._get_ai_service_path(), "scripts", script_name)
+
     def get_data_directory(self) -> Path:
         """Get the data directory path based on storage configuration.
 
@@ -5038,11 +5063,11 @@ class P2POrchestrator(
                 # /dev/shm doesn't exist on macOS or may be inaccessible
                 logger.warning(f"Cannot create ramdrive at {ramdrive}: {e}. Falling back to disk storage.")
                 self.storage_type = "disk"
-                return Path(self.ringrift_path) / "ai-service" / "data"
+                return Path(self._get_ai_service_path()) / "data"
 
             # Set up automatic sync to persistent storage
             if self.ramdrive_syncer is None and self.sync_to_disk_interval > 0:
-                persistent_path = Path(self.ringrift_path) / "ai-service" / "data"
+                persistent_path = Path(self._get_ai_service_path()) / "data"
                 persistent_path.mkdir(parents=True, exist_ok=True)
                 self.ramdrive_syncer = RamdriveSyncer(
                     source_dir=ramdrive,
@@ -5055,7 +5080,7 @@ class P2POrchestrator(
                            f"every {self.sync_to_disk_interval}s")
 
             return ramdrive
-        return Path(self.ringrift_path) / "ai-service" / "data"
+        return Path(self._get_ai_service_path()) / "data"
 
     def stop_ramdrive_syncer(self, final_sync: bool = True) -> None:
         """Stop the ramdrive syncer and optionally perform final sync."""
@@ -5461,7 +5486,7 @@ class P2POrchestrator(
             logger.warning(f"[P2P] Failed to load voters via cluster_config: {e}")
 
         # Priority 3: Fallback - direct YAML load for legacy compatibility
-        cfg_path = Path(self.ringrift_path) / "ai-service" / "config" / "distributed_hosts.yaml"
+        cfg_path = Path(self._get_ai_service_path()) / "config" / "distributed_hosts.yaml"
         if not cfg_path.exists():
             self.voter_config_source = "none"
             return []
@@ -5536,7 +5561,7 @@ class P2POrchestrator(
 
         Jan 2, 2026: Added for translating SWIM peer IDs (IP:port) to node names.
         """
-        cfg_path = Path(self.ringrift_path) / "ai-service" / "config" / "distributed_hosts.yaml"
+        cfg_path = Path(self._get_ai_service_path()) / "config" / "distributed_hosts.yaml"
         if not cfg_path.exists():
             return {}
         try:
@@ -8961,7 +8986,7 @@ class P2POrchestrator(
         # If large backlog, spawn external converter in background
         if len(unconverted_files) > LARGE_BACKLOG_THRESHOLD:
             logger.info(f"Large JSONL backlog ({len(unconverted_files)} files), spawning background converter")
-            converter_script = self.ringrift_path / "ai-service" / "scripts" / "chunked_jsonl_converter.py"
+            converter_script = Path(self._get_ai_service_path()) / "scripts" / "chunked_jsonl_converter.py"
             if converter_script.exists():
                 try:
                     import subprocess
@@ -8973,7 +8998,7 @@ class P2POrchestrator(
                          "--chunk-size", "500"],
                         stdout=open("/tmp/chunked_converter.log", "a"),
                         stderr=subprocess.STDOUT,
-                        cwd=str(self.ringrift_path / "ai-service"),
+                        cwd=str(Path(self._get_ai_service_path())),
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to spawn background converter: {e}")
@@ -9242,7 +9267,7 @@ class P2POrchestrator(
 
             # Convert to NPZ using jsonl_to_npz.py
             output_npz = training_dir / f"jsonl_auto_{config_key}_{int(time.time())}.npz"
-            converter_script = self.ringrift_path / "ai-service" / "scripts" / "jsonl_to_npz.py"
+            converter_script = Path(self._get_ai_service_path()) / "scripts" / "jsonl_to_npz.py"
 
             if not converter_script.exists():
                 logger.info(f"JSONL→NPZ converter not found: {converter_script}")
@@ -9260,13 +9285,13 @@ class P2POrchestrator(
                 cmd.extend(["--input", str(vf)])
 
             env = os.environ.copy()
-            env["PYTHONPATH"] = str(self.ringrift_path / "ai-service")
+            env["PYTHONPATH"] = str(Path(self._get_ai_service_path()))
 
             try:
                 logger.info(f"Converting {game_count} {config_key} JSONL games to NPZ...")
                 result = subprocess.run(
                     cmd, capture_output=True, text=True, timeout=600, env=env,
-                    cwd=str(self.ringrift_path / "ai-service")
+                    cwd=str(Path(self._get_ai_service_path()))
                 )
                 if result.returncode == 0 and output_npz.exists():
                     logger.info(f"Created {output_npz.name} from JSONL")
@@ -9318,7 +9343,7 @@ class P2POrchestrator(
             import subprocess
             from pathlib import Path
 
-            data_dir = Path(self.ringrift_path) / "ai-service" / "data"
+            data_dir = Path(self._get_ai_service_path()) / "data"
             selfplay_dir = data_dir / "selfplay"
             games_dir = data_dir / "games"
             main_db_path = games_dir / "selfplay.db"
@@ -9328,7 +9353,7 @@ class P2POrchestrator(
                 return
 
             env = os.environ.copy()
-            env["PYTHONPATH"] = str(Path(self.ringrift_path) / "ai-service")
+            env["PYTHONPATH"] = str(Path(self._get_ai_service_path()))
 
             # --- PART 1: Aggregate JSONL files (GPU selfplay output) ---
             jsonl_files = list(selfplay_dir.glob("**/games.jsonl"))
@@ -9351,7 +9376,7 @@ class P2POrchestrator(
                         pass
 
                 if total_lines > 100:  # Only run if there's meaningful data
-                    aggregate_script = Path(self.ringrift_path) / "ai-service" / "scripts" / "aggregate_jsonl_to_db.py"
+                    aggregate_script = Path(self._get_ai_service_path()) / "scripts" / "aggregate_jsonl_to_db.py"
                     if aggregate_script.exists() and not getattr(self, "_jsonl_aggregation_running", False):
                         self._jsonl_aggregation_running = True
                         logger.info(f"JSONL aggregation: ~{total_lines * len(recent_jsonl) // 20} games in {len(recent_jsonl)} files")
@@ -9365,7 +9390,7 @@ class P2POrchestrator(
                             env=env,
                             stdout=open("/tmp/jsonl_aggregate.log", "w"),
                             stderr=subprocess.STDOUT,
-                            cwd=str(Path(self.ringrift_path) / "ai-service"),
+                            cwd=str(Path(self._get_ai_service_path())),
                         )
                         logger.info(f"Started JSONL aggregation (PID: {proc.pid})")
                         # Reset flag after ~10 minutes
@@ -9425,7 +9450,7 @@ class P2POrchestrator(
                             ))
                         else:
                             # Fall back to local export if no suitable CPU node
-                            export_script = Path(self.ringrift_path) / "ai-service" / "scripts" / "export_replay_dataset.py"
+                            export_script = Path(self._get_ai_service_path()) / "scripts" / "export_replay_dataset.py"
                             if export_script.exists():
                                 logger.info(f"Starting local NPZ export ({game_count} games) -> {npz_output}")
                                 cmd = [
@@ -9442,7 +9467,7 @@ class P2POrchestrator(
                                     env=env,
                                     stdout=open("/tmp/npz_export.log", "w"),
                                     stderr=subprocess.STDOUT,
-                                    cwd=str(Path(self.ringrift_path) / "ai-service"),
+                                    cwd=str(Path(self._get_ai_service_path())),
                                 )
 
                         # Reset flag after 30 minutes (export is slow)
@@ -9463,7 +9488,7 @@ class P2POrchestrator(
                 logger.info(f"DB consolidation: {len(dbs_to_merge)} DBs with {total_games} games to merge")
 
                 # Use merge script if available
-                merge_script = Path(self.ringrift_path) / "ai-service" / "scripts" / "merge_game_dbs.py"
+                merge_script = Path(self._get_ai_service_path()) / "scripts" / "merge_game_dbs.py"
                 if merge_script.exists():
                     # Build command with all DBs
                     cmd = [
@@ -9480,7 +9505,7 @@ class P2POrchestrator(
                         env=env,
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
-                        cwd=str(Path(self.ringrift_path) / "ai-service"),
+                        cwd=str(Path(self._get_ai_service_path())),
                     )
                     logger.info(f"Started DB merge (PID: {proc.pid})")
 
@@ -9490,12 +9515,12 @@ class P2POrchestrator(
     async def _start_auto_training(self, data_path: str):
         """Start automatic training job on local node."""
         try:
-            run_dir = f"{self.ringrift_path}/ai-service/models/auto_train_{int(time.time())}"
+            run_dir = os.path.join(self._get_ai_service_path(), "models", f"auto_train_{int(time.time())}")
             Path(run_dir).mkdir(parents=True, exist_ok=True)
 
             cmd = [
                 sys.executable,  # Use venv Python
-                f"{self.ringrift_path}/ai-service/scripts/run_nn_training_baseline.py",
+                self._get_script_path("run_nn_training_baseline.py"),
                 "--board", "square8",
                 "--num-players", "2",
                 "--run-dir", run_dir,
@@ -9505,14 +9530,14 @@ class P2POrchestrator(
             ]
 
             env = os.environ.copy()
-            env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+            env["PYTHONPATH"] = self._get_ai_service_path()
 
             subprocess.Popen(
                 cmd,
                 stdout=open(f"{run_dir}/training.log", "w"),
                 stderr=subprocess.STDOUT,
                 env=env,
-                cwd=f"{self.ringrift_path}/ai-service",
+                cwd=self._get_ai_service_path(),
             )
             logger.info(f"Started auto-training job in {run_dir}")
             self.self_info.training_jobs += 1
@@ -9551,7 +9576,7 @@ class P2POrchestrator(
             if not hosts:
                 return
 
-            local_training_dir = Path(self.ringrift_path) / "ai-service" / "data" / "training"
+            local_training_dir = Path(self._get_ai_service_path()) / "data" / "training"
             local_training_dir.mkdir(parents=True, exist_ok=True)
 
             # Calculate local training data size
@@ -12205,7 +12230,7 @@ class P2POrchestrator(
                     self.diversity_metrics["cmaes_triggers"] += 1
 
                     # Save weights to file for future use
-                    weights_file = Path(self.ringrift_path) / "ai-service" / "data" / "cmaes" / f"best_weights_{state.board_type}_{state.num_players}p.json"
+                    weights_file = Path(self._get_ai_service_path()) / "data" / "cmaes" / f"best_weights_{state.board_type}_{state.num_players}p.json"
                     weights_file.parent.mkdir(parents=True, exist_ok=True)
                     import json as json_mod
                     with open(weights_file, "w") as f:
@@ -12250,7 +12275,7 @@ class P2POrchestrator(
                     json_mod.dump(weights, f)
                     weights_file = f.name
 
-                ai_service_path = str(Path(self.ringrift_path) / "ai-service")
+                ai_service_path = str(Path(self._get_ai_service_path()))
                 cmd = [
                     sys.executable, "-c", f"""
 import sys
@@ -12846,7 +12871,7 @@ print(wins / total)
         from pathlib import Path
 
         # Ensure app module is importable
-        ai_service_path = str(Path(self.ringrift_path) / "ai-service")
+        ai_service_path = str(Path(self._get_ai_service_path()))
         if ai_service_path not in sys.path:
             sys.path.insert(0, ai_service_path)
 
@@ -12861,7 +12886,7 @@ print(wins / total)
         num_players = len(initial_state.players)
 
         # Create output directory
-        data_dir = Path(self.ringrift_path) / "ai-service" / "data" / "tournament_games"
+        data_dir = Path(self._get_ai_service_path()) / "data" / "tournament_games"
         config_dir = data_dir / f"{board_type_str}_{num_players}p"
         config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -12964,7 +12989,7 @@ print(wins / total)
             # Dec 28, 2025: Fixed imports and game playing logic
             game_script = f"""
 import sys
-sys.path.insert(0, '{self.ringrift_path}/ai-service')
+sys.path.insert(0, '{self._get_ai_service_path()}')
 from app.training.initial_state import create_initial_state
 from app.rules import get_rules_engine
 from app.ai.heuristic_ai import HeuristicAI
@@ -13056,7 +13081,7 @@ print(json.dumps(result))
             # Run the game in subprocess
             cmd = [sys.executable, "-c", game_script]
             env = os.environ.copy()
-            env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+            env["PYTHONPATH"] = self._get_ai_service_path()
             env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
             proc = await asyncio.create_subprocess_exec(
@@ -13961,7 +13986,7 @@ print(json.dumps(result))
         Returns the model_id at the 50th percentile by rating, or None if
         no models exist for this config.
         """
-        elo_db_path = Path(self.ringrift_path) / "ai-service" / "data" / "unified_elo.db"
+        elo_db_path = Path(self._get_ai_service_path()) / "data" / "unified_elo.db"
         if not elo_db_path.exists():
             return None
 
@@ -14007,7 +14032,7 @@ print(json.dumps(result))
             return
 
         config_key = f"{board_type}_{num_players}p"
-        archive_dir = os.path.join(self.ringrift_path, "ai-service", "models",
+        archive_dir = os.path.join(self._get_ai_service_path(), "models",
                                    "archived", config_key)
         os.makedirs(archive_dir, exist_ok=True)
 
@@ -14024,7 +14049,7 @@ print(json.dumps(result))
 
         # Update ELO database to mark as archived
         model_id = os.path.splitext(model_name)[0]
-        elo_db_path = Path(self.ringrift_path) / "ai-service" / "data" / "unified_elo.db"
+        elo_db_path = Path(self._get_ai_service_path()) / "data" / "unified_elo.db"
 
         if elo_db_path.exists():
             try:
@@ -14054,7 +14079,7 @@ print(json.dumps(result))
             # Start NNUE training subprocess
             # December 29, 2025: Use canonical model paths for consistent naming
             output_path = os.path.join(
-                self.ringrift_path, "ai-service", "models",
+                self._get_ai_service_path(), "models",
                 f"canonical_{board_type}_{num_players}p.pth"
             )
 
@@ -14144,14 +14169,14 @@ print(json.dumps(result))
                 cmd.extend(["--learning-rate", str(learning_rate)])
 
             env = os.environ.copy()
-            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["PYTHONPATH"] = self._get_ai_service_path()
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
-                cwd=os.path.join(self.ringrift_path, "ai-service"),
+                cwd=self._get_ai_service_path(),
             )
 
             logger.info(f"Started NNUE training subprocess (PID {proc.pid}) for job {job_id}")
@@ -14207,14 +14232,14 @@ print(json.dumps(result))
             else:
                 # LOCAL MODE - use GPU CMA-ES script
                 output_dir = os.path.join(
-                    self.ringrift_path, "ai-service", "data", "cmaes",
+                    self._get_ai_service_path(), "data", "cmaes",
                     f"{board_type}_{num_players}p_auto_{int(time.time())}"
                 )
                 os.makedirs(output_dir, exist_ok=True)
 
                 cmd = [
                     sys.executable,
-                    os.path.join(self.ringrift_path, "ai-service", "scripts", "run_gpu_cmaes.py"),
+                    os.path.join(self._get_ai_service_path(), "scripts", "run_gpu_cmaes.py"),
                     "--board", board_type,
                     "--num-players", str(num_players),
                     "--generations", "100",
@@ -14226,7 +14251,7 @@ print(json.dumps(result))
                 ]
 
                 env = os.environ.copy()
-                env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
                 proc = await asyncio.create_subprocess_exec(
@@ -14304,14 +14329,14 @@ print(json.dumps(result))
                 logger.info("Starting LOCAL GPU CMA-ES (no remote workers available)")
 
                 output_dir = os.path.join(
-                    self.ringrift_path, "ai-service", "data", "cmaes",
+                    self._get_ai_service_path(), "data", "cmaes",
                     f"{board_type}_{num_players}p_auto_{int(time.time())}"
                 )
                 os.makedirs(output_dir, exist_ok=True)
 
                 cmd = [
                     sys.executable,
-                    os.path.join(self.ringrift_path, "ai-service", "scripts", "run_gpu_cmaes.py"),
+                    os.path.join(self._get_ai_service_path(), "scripts", "run_gpu_cmaes.py"),
                     "--board", board_type,
                     "--num-players", str(num_players),
                     "--generations", "100",
@@ -14323,7 +14348,7 @@ print(json.dumps(result))
                 ]
 
                 env = os.environ.copy()
-                env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
                 proc = await asyncio.create_subprocess_exec(
@@ -14542,13 +14567,13 @@ print(json.dumps(result))
             # Run CPU validation import
             validate_cmd = [
                 sys.executable,  # Use venv Python
-                f"{self.ringrift_path}/ai-service/scripts/import_gpu_selfplay_to_db.py",
+                self._get_script_path("import_gpu_selfplay_to_db.py"),
                 "--input", str(input_jsonl),
                 "--output", str(validated_db),
             ]
 
             env = os.environ.copy()
-            env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+            env["PYTHONPATH"] = self._get_ai_service_path()
 
             validate_proc = await asyncio.create_subprocess_exec(
                 *validate_cmd,
@@ -14770,7 +14795,7 @@ print(json.dumps(result))
             logger.info(f"Scheduling model comparison tournament for {config_key}")
 
             # Find current baseline model
-            baseline_dir = Path(self.ringrift_path) / "ai-service" / "models" / job.job_type
+            baseline_dir = Path(self._get_ai_service_path()) / "models" / job.job_type
             baseline_pattern = f"{job.board_type}_{job.num_players}p_best*"
 
             baseline_model = None
@@ -14817,12 +14842,12 @@ print(json.dumps(result))
         try:
             logger.info(f"Running model comparison tournament {tournament_id}")
 
-            results_dir = Path(self.ringrift_path) / "ai-service" / "results" / "tournaments"
+            results_dir = Path(self._get_ai_service_path()) / "results" / "tournaments"
             results_dir.mkdir(parents=True, exist_ok=True)
 
             cmd = [
                 sys.executable,
-                os.path.join(self.ringrift_path, "ai-service", "scripts", "run_tournament.py"),
+                os.path.join(self._get_ai_service_path(), "scripts", "run_tournament.py"),
                 "--player1", f"nn:{config['model_a']}",
                 "--player2", f"nn:{config['model_b']}",
                 "--board", config["board_type"],
@@ -14832,7 +14857,7 @@ print(json.dumps(result))
             ]
 
             env = os.environ.copy()
-            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["PYTHONPATH"] = self._get_ai_service_path()
             env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
             proc = await asyncio.create_subprocess_exec(
@@ -14891,7 +14916,7 @@ print(json.dumps(result))
         """Promote a model to the best baseline for its board type."""
         try:
             import shutil
-            baseline_dir = Path(self.ringrift_path) / "ai-service" / "models" / model_type
+            baseline_dir = Path(self._get_ai_service_path()) / "models" / model_type
             baseline_dir.mkdir(parents=True, exist_ok=True)
 
             baseline_path = baseline_dir / f"{board_type}_{num_players}p_best.pt"
@@ -14939,7 +14964,7 @@ print(json.dumps(result))
             # Find best model for this config
             best_model = None
             best_elo = INITIAL_ELO_RATING
-            models_dir = Path(self.ringrift_path) / "ai-service" / "models" / "nnue"
+            models_dir = Path(self._get_ai_service_path()) / "models" / "nnue"
             pattern = f"nnue_{board_type}_{num_players}p*.pt"
 
             for model_path in models_dir.glob(pattern):
@@ -15144,7 +15169,7 @@ print(json.dumps(result))
             logger.info(f"Propagating CMA-ES weights for {config_key}")
 
             # 1. Save to shared heuristic weights config
-            config_path = Path(self.ringrift_path) / "ai-service" / "config" / "heuristic_weights.json"
+            config_path = Path(self._get_ai_service_path()) / "config" / "heuristic_weights.json"
             config_path.parent.mkdir(parents=True, exist_ok=True)
 
             import json as json_mod
@@ -15212,7 +15237,7 @@ print(json.dumps(result))
         """
         try:
             # Determine canonical DB path
-            canonical_db = Path(self.ringrift_path) / "ai-service" / "data" / "games" / "selfplay.db"
+            canonical_db = Path(self._get_ai_service_path()) / "data" / "games" / "selfplay.db"
             if not canonical_db.parent.exists():
                 canonical_db.parent.mkdir(parents=True, exist_ok=True)
 
@@ -15802,7 +15827,7 @@ print(json.dumps(result))
             lines.append("# TYPE ringrift_elo_games_played gauge")
             try:
                 import sqlite3
-                ai_root = Path(self.ringrift_path) / "ai-service"
+                ai_root = Path(self._get_ai_service_path())
                 db_path = ai_root / "data" / "unified_elo.db"
                 if not db_path.exists():
                     db_path = ai_root / "data" / "unified_elo.db"
@@ -16501,19 +16526,19 @@ print(json.dumps(result))
                                             num_games: int, seed: int):
         """Run canonical selfplay locally."""
         try:
-            db_file = os.path.join(self.ringrift_path, "ai-service", "data", "games",
+            db_file = os.path.join(self._get_ai_service_path(), "data", "games",
                                    f"canonical_{board_type}_{num_players}p_{self.node_id}.db")
-            log_file = os.path.join(self.ringrift_path, "ai-service", "logs", "selfplay",
+            log_file = os.path.join(self._get_ai_service_path(), "logs", "selfplay",
                                     f"canonical_{job_id}.jsonl")
             os.makedirs(os.path.dirname(db_file), exist_ok=True)
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
-            cmd = [sys.executable, os.path.join(self.ringrift_path, "ai-service", "scripts", "run_self_play_soak.py"),
+            cmd = [sys.executable, os.path.join(self._get_ai_service_path(), "scripts", "run_self_play_soak.py"),
                 "--num-games", str(num_games), "--board-type", board_type, "--num-players", str(num_players),
                 "--max-moves", "10000",  # LEARNED LESSONS - Avoid draws due to move limit
                 "--difficulty-band", "light", "--seed", str(seed), "--log-jsonl", log_file, "--record-db", db_file]
             env = os.environ.copy()
-            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["PYTHONPATH"] = self._get_ai_service_path()
             env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
             logger.info(f"Starting canonical selfplay job {job_id}: {num_games} games -> {db_file}")
@@ -16542,18 +16567,18 @@ print(json.dumps(result))
         try:
             if not db_paths:
                 import glob
-                db_paths = glob.glob(os.path.join(self.ringrift_path, "ai-service", "data", "games",
+                db_paths = glob.glob(os.path.join(self._get_ai_service_path(), "data", "games",
                                                   f"canonical_{board_type}_{num_players}p_*.db"))
             if not db_paths:
                 self._pipeline_status["status"] = "failed"
                 self._pipeline_status["error"] = "No databases found"
                 return
 
-            output_json = os.path.join(self.ringrift_path, "ai-service", "data", f"parity_validation_{job_id}.json")
-            cmd = [sys.executable, os.path.join(self.ringrift_path, "ai-service", "scripts", "run_parity_validation.py"),
+            output_json = os.path.join(self._get_ai_service_path(), "data", f"parity_validation_{job_id}.json")
+            cmd = [sys.executable, os.path.join(self._get_ai_service_path(), "scripts", "run_parity_validation.py"),
                 "--databases", *db_paths, "--mode", "canonical", "--output-json", output_json, "--progress-every", "100"]
             env = os.environ.copy()
-            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["PYTHONPATH"] = self._get_ai_service_path()
             env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
             logger.info(f"Starting parity validation job {job_id}: {len(db_paths)} databases")
@@ -16589,22 +16614,22 @@ print(json.dumps(result))
         """Run NPZ export."""
         try:
             import glob
-            db_paths = glob.glob(os.path.join(self.ringrift_path, "ai-service", "data", "games",
+            db_paths = glob.glob(os.path.join(self._get_ai_service_path(), "data", "games",
                                               f"canonical_{board_type}_{num_players}p_*.db"))
             if not db_paths:
                 self._pipeline_status["status"] = "failed"
                 self._pipeline_status["error"] = "No databases found"
                 return
 
-            full_output_dir = os.path.join(self.ringrift_path, "ai-service", output_dir)
+            full_output_dir = os.path.join(self._get_ai_service_path(), output_dir)
             os.makedirs(full_output_dir, exist_ok=True)
             output_file = os.path.join(full_output_dir, f"canonical_{board_type}_{num_players}p_{job_id}.npz")
 
-            cmd = [sys.executable, os.path.join(self.ringrift_path, "ai-service", "scripts", "export_replay_dataset.py"),
+            cmd = [sys.executable, os.path.join(self._get_ai_service_path(), "scripts", "export_replay_dataset.py"),
                 "--databases", *db_paths, "--output", output_file, "--board-type", board_type,
                 "--num-players", str(num_players)]
             env = os.environ.copy()
-            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["PYTHONPATH"] = self._get_ai_service_path()
 
             logger.info(f"Starting NPZ export job {job_id}: {len(db_paths)} databases -> {output_file}")
             proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
@@ -17116,7 +17141,7 @@ print(json.dumps(result))
         stats: dict[tuple[str, int, str], int] = defaultdict(int)
 
         # Scan recent game files (last 24 hours)
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         data_dirs = [
             ai_root / "data" / "games" / "daemon_sync",
             ai_root / "data" / "selfplay",
@@ -17172,7 +17197,7 @@ print(json.dumps(result))
         hours = 24
         cutoff = now - (hours * 3600)
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         data_dirs = [
             ai_root / "data" / "games" / "daemon_sync",
             ai_root / "data" / "selfplay",
@@ -17243,7 +17268,7 @@ print(json.dumps(result))
         if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
             return getattr(self, cache_key)
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         logs_dir = ai_root / "logs" / "training"
 
         metrics = {"configs": {}}
@@ -17291,7 +17316,7 @@ print(json.dumps(result))
         if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
             return getattr(self, cache_key)
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         db_path = ai_root / "data" / "holdouts" / "holdout_validation.db"
 
         metrics = {"configs": {}, "evaluations": [], "summary": {}}
@@ -17381,7 +17406,7 @@ print(json.dumps(result))
         if self._is_in_startup_grace_period():
             return {"configs": {}, "summary": {}}
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         stats = {"configs": {}, "summary": {}}
 
         # Parse selfplay logs for MCTS stats
@@ -17488,7 +17513,7 @@ print(json.dumps(result))
         if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
             return getattr(self, cache_key)
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         db_path = ai_root / "data" / "unified_elo.db"
 
         matrix = {"matchups": [], "models": [], "configs": {}}
@@ -17600,7 +17625,7 @@ print(json.dumps(result))
         if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
             return getattr(self, cache_key)
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         models_dir = ai_root / "models"
 
         lineage = {"models": [], "generations": {}, "configs": {}}
@@ -17704,7 +17729,7 @@ print(json.dumps(result))
         if self._is_in_startup_grace_period():
             return {"configs": {}, "issues": [], "summary": {}}
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         quality = {"configs": {}, "issues": [], "summary": {}}
 
         data_dirs = [
@@ -17845,7 +17870,7 @@ print(json.dumps(result))
         if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
             return getattr(self, cache_key)
 
-        ai_root = Path(self.ringrift_path) / "ai-service"
+        ai_root = Path(self._get_ai_service_path())
         efficiency = {"configs": {}, "summary": {}, "cost_tracking": {}}
 
         try:
@@ -17960,7 +17985,7 @@ print(json.dumps(result))
             holdout = await self._get_holdout_metrics_cached()
 
             # Get Elo data for regression detection
-            ai_root = Path(self.ringrift_path) / "ai-service"
+            ai_root = Path(self._get_ai_service_path())
             db_path = ai_root / "data" / "unified_elo.db"
 
             elo_data = {}
@@ -18043,7 +18068,7 @@ print(json.dumps(result))
         }
 
         try:
-            ai_root = Path(self.ringrift_path) / "ai-service"
+            ai_root = Path(self._get_ai_service_path())
             models_dir = ai_root / "models"
             archive_dir = models_dir / "archive"
             archive_dir.mkdir(parents=True, exist_ok=True)
@@ -18261,7 +18286,7 @@ print(json.dumps(result))
 
             # Get data freshness
             now = time.time()
-            ai_root = Path(self.ringrift_path) / "ai-service"
+            ai_root = Path(self._get_ai_service_path())
             selfplay_dir = ai_root / "data" / "selfplay"
 
             freshest_data = 0
@@ -18337,7 +18362,7 @@ print(json.dumps(result))
             hours = int(request.query.get("hours", "168"))
             limit = int(request.query.get("limit", "5000"))
 
-            ai_root = Path(self.ringrift_path) / "ai-service"
+            ai_root = Path(self._get_ai_service_path())
 
             # Canonical Elo database for trained models
             db_paths = [
@@ -19378,7 +19403,7 @@ print(json.dumps(result))
             hours = int(request.query.get("hours", "24"))
             cutoff = time.time() - (hours * 3600)
 
-            ai_root = Path(self.ringrift_path) / "ai-service"
+            ai_root = Path(self._get_ai_service_path())
             data_dirs = [
                 ai_root / "data" / "games" / "daemon_sync",
                 ai_root / "data" / "selfplay",
@@ -19475,7 +19500,7 @@ print(json.dumps(result))
         import re
 
         try:
-            ai_root = Path(self.ringrift_path) / "ai-service"
+            ai_root = Path(self._get_ai_service_path())
             logs_dir = ai_root / "logs" / "training"
 
             metrics = {
@@ -19963,7 +19988,7 @@ print(json.dumps(result))
         try:
             from datetime import datetime
 
-            ai_root = Path(self.ringrift_path) / "ai-service"
+            ai_root = Path(self._get_ai_service_path())
 
             # Load daemon state (from continuous_improvement_daemon.py)
             daemon_state_path = ai_root / "logs" / "improvement_daemon" / "state.json"
@@ -20163,7 +20188,7 @@ print(json.dumps(result))
 
         eval_script = f"""
 import sys
-sys.path.insert(0, '{self.ringrift_path}/ai-service')
+sys.path.insert(0, '{self._get_ai_service_path()}')
 from app.game_engine import GameEngine
 from app.agents.heuristic_agent import HeuristicAgent
 import json
@@ -20227,7 +20252,7 @@ print(json.dumps({{
 
         cmd = [sys.executable, "-c", eval_script]
         env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+        env["PYTHONPATH"] = self._get_ai_service_path()
         env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
         try:
@@ -20288,7 +20313,7 @@ print(json.dumps({{
 
             # Save best model to well-known location
             best_model_dir = os.path.join(
-                self.ringrift_path, "ai-service", "models", "best"
+                self._get_ai_service_path(), "models", "best"
             )
             os.makedirs(best_model_dir, exist_ok=True)
 
@@ -28070,7 +28095,7 @@ print(json.dumps({{
         logger.info("Running local disk cleanup...")
         try:
             # Prefer the shared disk monitor (used by cron/resilience) for consistent cleanup policy.
-            disk_monitor = Path(self.ringrift_path) / "ai-service" / "scripts" / "disk_monitor.py"
+            disk_monitor = Path(self._get_ai_service_path()) / "scripts" / "disk_monitor.py"
             if disk_monitor.exists():
                 usage = self._get_resource_usage()
                 disk_percent = float(usage.get("disk_percent", 0.0) or 0.0)
@@ -28091,7 +28116,7 @@ print(json.dumps({{
                     capture_output=True,
                     text=True,
                     timeout=300,
-                    cwd=str(Path(self.ringrift_path) / "ai-service"),
+                    cwd=str(Path(self._get_ai_service_path())),
                 )
                 if out.returncode == 0:
                     logger.info("Disk monitor cleanup completed")
@@ -28099,7 +28124,7 @@ print(json.dumps({{
                     logger.info(f"Disk monitor cleanup failed: {out.stderr[:200]}")
             else:
                 # Minimal fallback: clear old logs if disk monitor isn't available.
-                log_dir = Path(self.ringrift_path) / "ai-service" / "logs"
+                log_dir = Path(self._get_ai_service_path()) / "logs"
                 if log_dir.exists():
                     for logfile in log_dir.rglob("*.log"):
                         if time.time() - logfile.stat().st_mtime > 7 * 86400:  # 7 days
@@ -28497,12 +28522,12 @@ print(json.dumps({{
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Use venv python if available, otherwise fall back to system python3
-                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                venv_python = Path(self._get_ai_service_path(), "venv", "bin", "python")
                 python_exec = str(venv_python) if venv_python.exists() else "python3"
 
                 cmd = [
                     python_exec,
-                    f"{self.ringrift_path}/ai-service/scripts/run_self_play_soak.py",
+                    self._get_script_path("run_self_play_soak.py"),
                     "--num-games", str(num_games),
                     "--board-type", board_type,
                     "--num-players", str(num_players),
@@ -28518,7 +28543,7 @@ print(json.dumps({{
 
                 # Start process
                 env = os.environ.copy()
-                env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
                 env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
 
@@ -28601,12 +28626,12 @@ print(json.dumps({{
                 )
                 output_dir.mkdir(parents=True, exist_ok=True)
 
-                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                venv_python = Path(self._get_ai_service_path(), "venv", "bin", "python")
                 python_exec = str(venv_python) if venv_python.exists() else "python3"
 
                 cmd = [
                     python_exec,
-                    f"{self.ringrift_path}/ai-service/scripts/run_self_play_soak.py",
+                    self._get_script_path("run_self_play_soak.py"),
                     "--num-games", str(num_games),
                     "--board-type", board_type,
                     "--num-players", str(num_players),
@@ -28621,7 +28646,7 @@ print(json.dumps({{
                 ]
 
                 env = os.environ.copy()
-                env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
                 env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
                 env["CUDA_VISIBLE_DEVICES"] = ""  # Disable GPU for CPU-only jobs
@@ -28698,12 +28723,12 @@ print(json.dumps({{
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Use venv python if available, otherwise fall back to system python3
-                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                venv_python = Path(self._get_ai_service_path(), "venv", "bin", "python")
                 python_exec = str(venv_python) if venv_python.exists() else "python3"
 
                 cmd = [
                     python_exec,
-                    f"{self.ringrift_path}/ai-service/scripts/run_diverse_selfplay.py",
+                    self._get_script_path("run_diverse_selfplay.py"),
                     "--board", board_arg,
                     "--players", str(num_players),
                     "--games-per-matchup", str(games_per_matchup),
@@ -28712,7 +28737,7 @@ print(json.dumps({{
 
                 # Start process with GPU environment
                 env = os.environ.copy()
-                env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
                 env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
 
@@ -28854,12 +28879,12 @@ print(json.dumps({{
                 board_arg = board_type
 
                 # Use venv python if available, otherwise fall back to system python3
-                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                venv_python = Path(self._get_ai_service_path(), "venv", "bin", "python")
                 python_exec = str(venv_python) if venv_python.exists() else "python3"
 
                 cmd = [
                     python_exec,
-                    f"{self.ringrift_path}/ai-service/scripts/run_self_play_soak.py",
+                    self._get_script_path("run_self_play_soak.py"),
                     "--board-type", board_arg,
                     "--num-players", str(num_players),
                     "--num-games", str(num_games),
@@ -28874,7 +28899,7 @@ print(json.dumps({{
 
                 # Start process with GPU environment
                 env = os.environ.copy()
-                env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
                 env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
 
@@ -28992,12 +29017,12 @@ print(json.dumps({{
                 }.get(board_type, board_type)
 
                 # Use venv python if available
-                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                venv_python = Path(self._get_ai_service_path(), "venv", "bin", "python")
                 python_exec = str(venv_python) if venv_python.exists() else "python3"
 
                 cmd = [
                     python_exec,
-                    f"{self.ringrift_path}/ai-service/scripts/generate_gumbel_selfplay.py",
+                    self._get_script_path("generate_gumbel_selfplay.py"),
                     "--board", board_arg,
                     "--num-players", str(num_players),
                     "--num-games", str(num_games),
@@ -29016,7 +29041,7 @@ print(json.dumps({{
 
                 # Start process with GPU environment
                 env = os.environ.copy()
-                env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
                 env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
 
@@ -29121,12 +29146,12 @@ print(json.dumps({{
                 output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Use venv python if available
-                venv_python = Path(self.ringrift_path, "ai-service", "venv", "bin", "python")
+                venv_python = Path(self._get_ai_service_path(), "venv", "bin", "python")
                 python_exec = str(venv_python) if venv_python.exists() else "python3"
 
                 if is_jsonl:
                     # Use jsonl_to_npz.py for JSONL input (GPU selfplay data)
-                    export_script = f"{self.ringrift_path}/ai-service/scripts/jsonl_to_npz.py"
+                    export_script = self._get_script_path("jsonl_to_npz.py")
                     cmd = [
                         python_exec,
                         export_script,
@@ -29141,7 +29166,7 @@ print(json.dumps({{
                         cmd.extend(["--encoder-version", encoder_version])
                 else:
                     # Use export_replay_dataset.py for DB input
-                    export_script = f"{self.ringrift_path}/ai-service/scripts/export_replay_dataset.py"
+                    export_script = self._get_script_path("export_replay_dataset.py")
                     cmd = [
                         python_exec,
                         export_script,
@@ -29158,7 +29183,7 @@ print(json.dumps({{
 
                 # Start export process
                 env = os.environ.copy()
-                env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+                env["PYTHONPATH"] = self._get_ai_service_path()
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
 
                 log_path = output_dir / f"export_{job_id}.log"
@@ -29169,7 +29194,7 @@ print(json.dumps({{
                         stdout=log_handle,
                         stderr=subprocess.STDOUT,
                         env=env,
-                        cwd=f"{self.ringrift_path}/ai-service",
+                        cwd=self._get_ai_service_path(),
                     )
                 finally:
                     log_handle.close()

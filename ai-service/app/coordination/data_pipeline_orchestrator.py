@@ -2374,16 +2374,20 @@ class DataPipelineOrchestrator(
 
         logger.warning(f"[DataPipelineOrchestrator] Pipeline PAUSED: {reason}")
 
-        # Emit event for other coordinators
+        # Emit event for other coordinators (January 2026 - migrated to event_router)
         try:
-            from app.coordination.event_emitters import emit_resource_constraint_detected
+            from app.coordination.event_emission_helpers import safe_emit_event_async
 
-            await emit_resource_constraint_detected(
-                resource_type="pipeline_pause",
-                severity="critical",
-                current_value=1,
-                threshold=0,
-                action_taken=f"pipeline_paused: {reason}",
+            await safe_emit_event_async(
+                "RESOURCE_CONSTRAINT_DETECTED",
+                {
+                    "resource_type": "pipeline_pause",
+                    "severity": "critical",
+                    "current_value": 1,
+                    "threshold": 0,
+                    "action_taken": f"pipeline_paused: {reason}",
+                },
+                context="data_pipeline_orchestrator",
             )
         except (RuntimeError, ValueError, TypeError, AttributeError, KeyError, ImportError) as e:
             logger.debug(f"[DataPipelineOrchestrator] Failed to emit resource constraint: {e}")

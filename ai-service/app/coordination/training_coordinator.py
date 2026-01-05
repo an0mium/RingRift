@@ -68,12 +68,8 @@ from app.coordination.event_handler_utils import extract_config_from_path, extra
 from app.coordination.event_utils import make_config_key, parse_config_key
 from app.utils.paths import DATA_DIR
 
-# Use centralized event emitters (December 2025)
-# Note: event_emitters.py handles all routing to stage_events and cross-process buses
-from app.coordination.event_emitters import (
-    emit_training_complete_sync,
-    emit_training_started_sync,
-)
+# Use centralized event emission (January 2026 - migrated to event_router)
+from app.coordination.event_emission_helpers import safe_emit_event
 
 # CoordinatorProtocol support (December 2025 - Phase 14)
 from app.coordination.protocols import (
@@ -1783,33 +1779,41 @@ class TrainingCoordinator:
             **kwargs: Additional event data
         """
         if event_type == "started":
-            # Use sync version for reliable emission from sync context
-            emit_training_started_sync(
-                job_id=job_id,
-                board_type=board_type,
-                num_players=num_players,
-                model_version=kwargs.get("model_version", ""),
-                node_name=self._node_name,
+            # January 2026 - migrated to safe_emit_event
+            safe_emit_event(
+                "TRAINING_STARTED",
+                {
+                    "job_id": job_id,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "model_version": kwargs.get("model_version", ""),
+                    "node_name": self._node_name,
+                },
+                context="training_coordinator",
             )
             logger.debug(f"Emitted TRAINING_STARTED for job {job_id}")
 
         elif event_type in ("complete", "failed"):
-            # Use sync version since we're in sync context
+            # January 2026 - migrated to safe_emit_event
             success = (event_type == "complete")
-            emit_training_complete_sync(
-                job_id=job_id,
-                board_type=board_type,
-                num_players=num_players,
-                success=success,
-                final_loss=kwargs.get("final_val_loss"),
-                final_elo=kwargs.get("final_elo"),
-                model_path=kwargs.get("model_path"),
-                epochs_completed=kwargs.get("epochs_completed", 0),
-                node_name=self._node_name,
-                status=kwargs.get("status", "completed" if success else "failed"),
-                architecture=kwargs.get("architecture"),  # Jan 4, 2026: Multi-architecture support
+            event_name = "TRAINING_COMPLETED" if success else "TRAINING_FAILED"
+            safe_emit_event(
+                event_name,
+                {
+                    "job_id": job_id,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "success": success,
+                    "final_loss": kwargs.get("final_val_loss"),
+                    "final_elo": kwargs.get("final_elo"),
+                    "model_path": kwargs.get("model_path"),
+                    "epochs_completed": kwargs.get("epochs_completed", 0),
+                    "node_name": self._node_name,
+                    "status": kwargs.get("status", "completed" if success else "failed"),
+                    "architecture": kwargs.get("architecture"),  # Jan 4, 2026: Multi-architecture support
+                },
+                context="training_coordinator",
             )
-            event_name = "TRAINING_COMPLETE" if success else "TRAINING_FAILED"
             logger.debug(f"Emitted {event_name} for job {job_id}")
 
         elif event_type == "lock_acquired":
