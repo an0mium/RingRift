@@ -467,11 +467,15 @@ class SelfplayVelocityMixin:
             logger.debug(f"[SelfplayScheduler] Error handling adaptive params changed: {e}")
 
     def _on_architecture_weights_updated(self, event: Any) -> None:
-        """Handle ARCHITECTURE_WEIGHTS_UPDATED - update architecture allocation weights.
+        """Handle ARCHITECTURE_WEIGHTS_UPDATED - log weight updates (coordinator-level).
 
-        Dec 29, 2025: When architecture performance changes, adjust selfplay
-        allocation to favor better-performing architectures while ensuring
-        10% minimum per architecture.
+        Dec 29, 2025: Original implementation stored weights but never used them.
+
+        Jan 5, 2026 Session 17.26: DEPRECATED in coordinator-level scheduler.
+        The P2P scheduler (scripts/p2p/managers/selfplay_scheduler.py) now handles
+        architecture selection with proper TTL-based caching and event-driven refresh.
+        This handler is kept for logging/observability only. The _architecture_weights
+        dict populated here is NOT used for allocation decisions.
 
         Args:
             event: Event with payload containing config_key, weights dict, etc.
