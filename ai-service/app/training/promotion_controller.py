@@ -317,21 +317,22 @@ class PromotionController:
                         f"{model_id} with {win_rate_vs_heuristic:.1%} vs heuristic"
                     )
                     # Emit PROMOTION_CANDIDATE for downstream handlers
-                    from app.coordination.event_router import emit_promotion_candidate
-                    from app.core.async_context import fire_and_forget
+                    try:
+                        from app.coordination.event_emission_helpers import safe_emit_event
 
-                    fire_and_forget(
-                        emit_promotion_candidate(
-                            model_id=model_id,
-                            board_type=board_type,
-                            num_players=num_players,
-                            win_rate_vs_heuristic=win_rate_vs_heuristic,
-                            source="PromotionController",
-                        ),
-                        error_callback=lambda e: logger.debug(
-                            f"Failed to emit PROMOTION_CANDIDATE: {e}"
-                        ),
-                    )
+                        safe_emit_event(
+                            "PROMOTION_CANDIDATE",
+                            {
+                                "model_id": model_id,
+                                "board_type": board_type,
+                                "num_players": num_players,
+                                "win_rate_vs_heuristic": win_rate_vs_heuristic,
+                                "source": "PromotionController",
+                            },
+                            context="promotion_controller",
+                        )
+                    except Exception as e:
+                        logger.debug(f"Failed to emit PROMOTION_CANDIDATE: {e}")
                     # Queue for promotion evaluation
                     self._pending_promotion_checks[model_id] = win_rate_vs_heuristic
 
@@ -917,41 +918,23 @@ class PromotionController:
         December 2025: Migrated to use event_emitters.py for unified routing.
         """
         try:
-            import asyncio
+            from app.coordination.event_emission_helpers import safe_emit_event
 
-            from app.coordination.event_emitters import emit_promotion_complete
-
-            try:
-                asyncio.get_running_loop()
-                asyncio.create_task(
-                    emit_promotion_complete(
-                        model_id=payload.get("model_id"),
-                        model_path=payload.get("model_path"),
-                        board_type=payload.get("board_type"),
-                        num_players=payload.get("num_players"),
-                        old_elo=payload.get("old_elo"),
-                        new_elo=payload.get("new_elo"),
-                        promotion_type=payload.get("promotion_type"),
-                    )
-                )
-            except RuntimeError:
-                asyncio.run(
-                    emit_promotion_complete(
-                        model_id=payload.get("model_id"),
-                        model_path=payload.get("model_path"),
-                        board_type=payload.get("board_type"),
-                        num_players=payload.get("num_players"),
-                        old_elo=payload.get("old_elo"),
-                        new_elo=payload.get("new_elo"),
-                        promotion_type=payload.get("promotion_type"),
-                    )
-                )
-
-            logger.debug("Emitted PROMOTION_COMPLETE via centralized emitters")
+            safe_emit_event(
+                "PROMOTION_COMPLETE",
+                {
+                    "model_id": payload.get("model_id"),
+                    "model_path": payload.get("model_path"),
+                    "board_type": payload.get("board_type"),
+                    "num_players": payload.get("num_players"),
+                    "old_elo": payload.get("old_elo"),
+                    "new_elo": payload.get("new_elo"),
+                    "promotion_type": payload.get("promotion_type"),
+                },
+                context="promotion_controller",
+            )
         except ImportError:
-            logger.debug("Centralized event emitters not available")
-        except Exception as e:
-            logger.debug(f"Stage event emission failed: {e}")
+            logger.debug("Event emission helpers not available")
 
     def _notify_p2p_orchestrator(self, payload: dict[str, Any]) -> None:
         """Notify P2P orchestrator about the promotion."""

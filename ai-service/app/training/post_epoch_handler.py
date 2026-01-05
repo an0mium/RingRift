@@ -27,7 +27,6 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import time
@@ -49,20 +48,11 @@ logger = logging.getLogger(__name__)
 
 # Feature flags for optional event emission
 try:
-    from app.coordination.event_emitters import (
-        emit_training_loss_anomaly,
-        emit_training_loss_trend,
-        emit_plateau_detected,
-    )
-    from app.coordination.event_router import emit_training_early_stopped
+    from app.coordination.event_emission_helpers import safe_emit_event
     HAS_TRAINING_EVENTS = True
-except ImportError:
-    HAS_TRAINING_EVENTS = False
-
-try:
-    from app.coordination.event_emitters import publish_epoch_completed
     HAS_EPOCH_EVENTS = True
 except ImportError:
+    HAS_TRAINING_EVENTS = False
     HAS_EPOCH_EVENTS = False
 
 try:
@@ -527,23 +517,19 @@ class PostEpochHandler:
         if not HAS_EPOCH_EVENTS or not context.is_main_process:
             return
 
-        try:
-            config_key = f"{context.config.board_type.value}_{context.resolved.num_players}p"
-            try:
-                loop = asyncio.get_running_loop()
-                asyncio.ensure_future(publish_epoch_completed(
-                    config_key=config_key,
-                    epoch=metrics.epoch + 1,
-                    total_epochs=context.config.epochs,
-                    train_loss=metrics.avg_train_loss,
-                    val_loss=metrics.avg_val_loss,
-                    learning_rate=metrics.learning_rate,
-                ))
-            except RuntimeError:
-                # No event loop running
-                pass
-        except (RuntimeError, ConnectionError, TimeoutError) as e:
-            logger.debug(f"Failed to emit epoch completed event: {e}")
+        config_key = f"{context.config.board_type.value}_{context.resolved.num_players}p"
+        safe_emit_event(
+            "EPOCH_COMPLETED",
+            {
+                "config_key": config_key,
+                "epoch": metrics.epoch + 1,
+                "total_epochs": context.config.epochs,
+                "train_loss": metrics.avg_train_loss,
+                "val_loss": metrics.avg_val_loss,
+                "learning_rate": metrics.learning_rate,
+            },
+            context="post_epoch_handler",
+        )
 
     def _emit_loss_events(
         self,
@@ -596,14 +582,18 @@ class PostEpochHandler:
                     f"{metrics.avg_val_loss:.4f} vs avg {avg_recent_loss:.4f} "
                     f"(ratio: {anomaly_ratio:.2f}x)"
                 )
-                self._emit_async(emit_training_loss_anomaly(
-                    config_key=config_key,
-                    current_loss=metrics.avg_val_loss,
-                    avg_loss=avg_recent_loss,
-                    epoch=metrics.epoch + 1,
-                    anomaly_ratio=anomaly_ratio,
-                    source="post_epoch_handler.py",
-                ))
+                safe_emit_event(
+                    "TRAINING_LOSS_ANOMALY",
+                    {
+                        "config_key": config_key,
+                        "current_loss": metrics.avg_val_loss,
+                        "avg_loss": avg_recent_loss,
+                        "epoch": metrics.epoch + 1,
+                        "anomaly_ratio": anomaly_ratio,
+                        "source": "post_epoch_handler.py",
+                    },
+                    context="post_epoch_handler",
+                )
 
             # Trend analysis every N epochs
             if (
@@ -672,15 +662,19 @@ class PostEpochHandler:
             f"improvement_rate={improvement_rate:.2%}"
         )
 
-        self._emit_async(emit_training_loss_trend(
-            config_key=config_key,
-            trend=trend,
-            epoch=metrics.epoch + 1,
-            current_loss=current_avg,
-            previous_loss=previous_avg,
-            improvement_rate=improvement_rate,
-            source="post_epoch_handler.py",
-        ))
+        safe_emit_event(
+            "TRAINING_LOSS_TREND",
+            {
+                "config_key": config_key,
+                "trend": trend,
+                "epoch": metrics.epoch + 1,
+                "current_loss": current_avg,
+                "previous_loss": previous_avg,
+                "improvement_rate": improvement_rate,
+                "source": "post_epoch_handler.py",
+            },
+            context="post_epoch_handler",
+        )
 
     def _check_and_emit_plateau(
         self,
@@ -754,46 +748,41 @@ class PostEpochHandler:
         )
 
         # Emit trend event
-        self._emit_async(emit_training_loss_trend(
-            config_key=config_key,
-            trend="plateau",
-            epoch=metrics.epoch + 1,
-            current_loss=last_10_avg,
-            previous_loss=prev_10_avg,
-            improvement_rate=long_term_improvement,
-            source="post_epoch_handler.py",
-            window_size=10,
-        ))
+        safe_emit_event(
+            "TRAINING_LOSS_TREND",
+            {
+                "config_key": config_key,
+                "trend": "plateau",
+                "epoch": metrics.epoch + 1,
+                "current_loss": last_10_avg,
+                "previous_loss": prev_10_avg,
+                "improvement_rate": long_term_improvement,
+                "source": "post_epoch_handler.py",
+                "window_size": 10,
+            },
+            context="post_epoch_handler",
+        )
 
         # Emit plateau detected event
-        self._emit_async(emit_plateau_detected(
-            metric_name="validation_loss",
-            current_value=last_10_avg,
-            best_value=prev_10_avg,
-            epochs_since_improvement=10,
-            plateau_type=plateau_type,
-            config_key=config_key,
-            epoch=metrics.epoch + 1,
-            recommendation=recommendation,
-            exploration_boost=exploration_boost,
-            train_val_gap=train_val_gap,
-            source="post_epoch_handler.py",
-        ))
+        safe_emit_event(
+            "PLATEAU_DETECTED",
+            {
+                "metric_name": "validation_loss",
+                "current_value": last_10_avg,
+                "best_value": prev_10_avg,
+                "epochs_since_improvement": 10,
+                "plateau_type": plateau_type,
+                "config_key": config_key,
+                "epoch": metrics.epoch + 1,
+                "recommendation": recommendation,
+                "exploration_boost": exploration_boost,
+                "train_val_gap": train_val_gap,
+                "source": "post_epoch_handler.py",
+            },
+            context="post_epoch_handler",
+        )
 
         return True
-
-    def _emit_async(self, coro: Any) -> None:
-        """Fire-and-forget async emission.
-
-        Args:
-            coro: Coroutine to execute
-        """
-        try:
-            loop = asyncio.get_running_loop()
-            asyncio.ensure_future(coro)
-        except RuntimeError:
-            # No event loop running
-            pass
 
     def _record_prometheus_metrics(
         self,
@@ -1047,29 +1036,20 @@ class PostEpochHandler:
                 else 0
             )
 
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(emit_training_early_stopped(
-                    config_key=config_key,
-                    epoch=metrics.epoch + 1,
-                    best_loss=float(early_stopper.best_loss),
-                    final_loss=float(metrics.avg_val_loss),
-                    best_elo=best_elo,
-                    reason="loss_stagnation",
-                    epochs_without_improvement=epochs_without_improvement,
-                ))
-            except RuntimeError:
-                asyncio.run(emit_training_early_stopped(
-                    config_key=config_key,
-                    epoch=metrics.epoch + 1,
-                    best_loss=float(early_stopper.best_loss),
-                    final_loss=float(metrics.avg_val_loss),
-                    best_elo=best_elo,
-                    reason="loss_stagnation",
-                    epochs_without_improvement=epochs_without_improvement,
-                ))
-
-            logger.info(f"[train] Emitted TRAINING_EARLY_STOPPED for {config_key}")
+            safe_emit_event(
+                "TRAINING_EARLY_STOPPED",
+                {
+                    "config_key": config_key,
+                    "epoch": metrics.epoch + 1,
+                    "best_loss": float(early_stopper.best_loss),
+                    "final_loss": float(metrics.avg_val_loss),
+                    "best_elo": best_elo,
+                    "reason": "loss_stagnation",
+                    "epochs_without_improvement": epochs_without_improvement,
+                },
+                log_after=f"[train] Emitted TRAINING_EARLY_STOPPED for {config_key}",
+                context="post_epoch_handler",
+            )
         except (RuntimeError, ConnectionError, TimeoutError) as e:
             logger.warning(f"Failed to emit TRAINING_EARLY_STOPPED: {e}")
 

@@ -336,8 +336,7 @@ class TrainingAnomalyDetector:
         to actually perform a rollback based on model history and recovery options.
         """
         try:
-            from app.core.async_context import fire_and_forget
-            from app.coordination.event_emitters import emit_training_rollback_needed
+            from app.coordination.event_emission_helpers import safe_emit_event
 
             # Determine severity based on anomaly type and count
             if event.anomaly_type in ("nan", "inf"):
@@ -347,29 +346,24 @@ class TrainingAnomalyDetector:
             else:
                 severity = "moderate"
 
-            async def emit():
-                await emit_training_rollback_needed(
-                    model_id=self._model_id,
-                    reason=event.message,
-                    severity=severity,
-                    anomaly_type=event.anomaly_type,
-                    step=event.step,
-                    value=event.value,
-                    consecutive_anomalies=self._consecutive_anomalies,
-                    total_anomalies=self._total_anomalies,
-                )
-
-            fire_and_forget(emit())
-            logger.info(
-                f"[AnomalyDetector] Emitted TRAINING_ROLLBACK_NEEDED ({severity}): "
-                f"{event.anomaly_type} at step {event.step}"
+            safe_emit_event(
+                "TRAINING_ROLLBACK_NEEDED",
+                {
+                    "model_id": self._model_id,
+                    "reason": event.message,
+                    "severity": severity,
+                    "anomaly_type": event.anomaly_type,
+                    "step": event.step,
+                    "value": event.value,
+                    "consecutive_anomalies": self._consecutive_anomalies,
+                    "total_anomalies": self._total_anomalies,
+                },
+                log_after=f"Emitted TRAINING_ROLLBACK_NEEDED ({severity}): {event.anomaly_type} at step {event.step}",
+                context="anomaly_detector",
             )
 
         except ImportError:
-            # Event system not available - log only
-            logger.debug("[AnomalyDetector] Event system not available for rollback emission")
-        except Exception as e:
-            logger.warning(f"[AnomalyDetector] Failed to emit rollback event: {e}")
+            logger.debug("[AnomalyDetector] Event emission helpers not available")
 
     def reset(self, reset_epoch: bool = False) -> None:
         """Reset detector state (e.g., for new training run).
@@ -539,24 +533,19 @@ class TrainingLossAnomalyHandler:
 
         # Emit LOW_QUALITY_DATA_WARNING to trigger quality investigation
         try:
-            from app.core.async_context import fire_and_forget
-            from app.coordination.event_router import DataEventType, get_event_bus
+            from app.coordination.event_emission_helpers import safe_emit_event
 
-            bus = get_event_bus()
-
-            async def emit_warning():
-                await bus.publish(
-                    DataEventType.LOW_QUALITY_DATA_WARNING,
-                    {
-                        "config_key": self.config_key,
-                        "reason": "training_loss_anomaly",
-                        "loss": loss,
-                        "average_loss": average_loss,
-                        "anomaly_count": self._anomaly_count,
-                    },
-                )
-
-            fire_and_forget(emit_warning())
+            safe_emit_event(
+                "LOW_QUALITY_DATA_WARNING",
+                {
+                    "config_key": self.config_key,
+                    "reason": "training_loss_anomaly",
+                    "loss": loss,
+                    "average_loss": average_loss,
+                    "anomaly_count": self._anomaly_count,
+                },
+                context="training_loss_anomaly_handler",
+            )
 
         except Exception as e:
             logger.debug(f"[TrainingLossAnomalyHandler] Failed to emit warning: {e}")

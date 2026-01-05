@@ -851,12 +851,7 @@ class AutoRollbackHandler:
             triggered_by: What triggered the rollback (auto/manual)
         """
         try:
-            from app.coordination.event_router import get_event_bus, DataEventType
-
-            bus = get_event_bus()
-            if not bus:
-                logger.debug("[AutoRollbackHandler] No event bus available for rollback event")
-                return
+            from app.coordination.event_emission_helpers import safe_emit_event
 
             # Extract config_key from model_id (e.g., "hex8_2p_v15" -> "hex8_2p")
             config_key = model_id
@@ -876,41 +871,13 @@ class AutoRollbackHandler:
                 "action_required": "pause_training",  # Signal to pause training
             }
 
-            # Use async publish if event loop is running
-            try:
-                import asyncio
-                from app.utils.async_utils import fire_and_forget
-
-                asyncio.get_running_loop()
-                fire_and_forget(
-                    bus.publish(
-                        event_type=DataEventType.PROMOTION_ROLLED_BACK,
-                        payload=payload,
-                        source="auto_rollback_handler",
-                    ),
-                    name="rollback_completed",
-                )
-                logger.info(
-                    f"[AutoRollbackHandler] Emitted PROMOTION_ROLLED_BACK for {config_key} "
-                    f"(v{result.get('from_version')} → v{result.get('to_version')})"
-                )
-            except RuntimeError:
-                # No running event loop - use sync if available
-                if hasattr(bus, 'publish_sync'):
-                    from app.coordination.event_router import DataEvent
-
-                    sync_event = DataEvent(
-                        event_type=DataEventType.PROMOTION_ROLLED_BACK,
-                        payload=payload,
-                        source="auto_rollback_handler",
-                    )
-                    bus.publish_sync(sync_event)
-                    logger.info(
-                        f"[AutoRollbackHandler] Emitted PROMOTION_ROLLED_BACK (sync) for {config_key}"
-                    )
-
-        except ImportError as e:
-            logger.debug(f"[AutoRollbackHandler] Event bus not available: {e}")
+            safe_emit_event(
+                "PROMOTION_ROLLED_BACK",
+                payload,
+                log_after=f"[AutoRollbackHandler] Emitted PROMOTION_ROLLED_BACK for {config_key} "
+                          f"(v{result.get('from_version')} → v{result.get('to_version')})",
+                context="auto_rollback_handler",
+            )
         except Exception as e:
             logger.warning(f"[AutoRollbackHandler] Failed to emit rollback event: {e}")
 

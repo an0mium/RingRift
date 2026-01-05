@@ -40,7 +40,6 @@ See ai-service/docs/CONSOLIDATION_ROADMAP.md for consolidation context.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import time
@@ -428,70 +427,34 @@ class RegressionDetector:
             return
 
         try:
-            from app.coordination.event_router import DataEvent, DataEventType
+            from app.coordination.event_emission_helpers import safe_emit_event
 
-            # Map severity to event type
+            # Map severity to event type string
             severity_to_event = {
-                RegressionSeverity.MINOR: DataEventType.REGRESSION_MINOR,
-                RegressionSeverity.MODERATE: DataEventType.REGRESSION_MODERATE,
-                RegressionSeverity.SEVERE: DataEventType.REGRESSION_SEVERE,
-                RegressionSeverity.CRITICAL: DataEventType.REGRESSION_CRITICAL,
+                RegressionSeverity.MINOR: "REGRESSION_MINOR",
+                RegressionSeverity.MODERATE: "REGRESSION_MODERATE",
+                RegressionSeverity.SEVERE: "REGRESSION_SEVERE",
+                RegressionSeverity.CRITICAL: "REGRESSION_CRITICAL",
             }
             specific_event_type = severity_to_event.get(
-                event.severity, DataEventType.REGRESSION_DETECTED
+                event.severity, "REGRESSION_DETECTED"
             )
 
             payload = event.to_dict()
 
-            # Publish the general regression event
-            general_event = DataEvent(
-                event_type=DataEventType.REGRESSION_DETECTED,
-                payload=payload,
-                source="regression_detector",
+            # Publish general regression event
+            safe_emit_event(
+                "REGRESSION_DETECTED",
+                payload,
+                context="regression_detector",
             )
 
-            # Also publish severity-specific event for targeted subscribers
-            specific_event = DataEvent(
-                event_type=specific_event_type,
-                payload=payload,
-                source="regression_detector",
+            # Publish severity-specific event for targeted subscribers
+            safe_emit_event(
+                specific_event_type,
+                payload,
+                context="regression_detector_specific",
             )
-
-            # Use synchronous publish if no event loop, async otherwise
-            try:
-                from app.utils.async_utils import fire_and_forget
-                asyncio.get_running_loop()
-                # Publish using (event_type, payload, source) signature for UnifiedEventRouter
-                # The router will bridge to the data event bus for rollback manager subscriptions
-                fire_and_forget(
-                    self._event_bus.publish(
-                        event_type=general_event.event_type,
-                        payload=general_event.payload,
-                        source=general_event.source,
-                    ),
-                    name="regression_general",
-                )
-                fire_and_forget(
-                    self._event_bus.publish(
-                        event_type=specific_event.event_type,
-                        payload=specific_event.payload,
-                        source=specific_event.source,
-                    ),
-                    name="regression_specific",
-                )
-            except RuntimeError:
-                # No running event loop - use sync version if available
-                if hasattr(self._event_bus, 'publish_sync'):
-                    self._event_bus.publish_sync(
-                        event_type=general_event.event_type,
-                        payload=general_event.payload,
-                        source=general_event.source,
-                    )
-                    self._event_bus.publish_sync(
-                        event_type=specific_event.event_type,
-                        payload=specific_event.payload,
-                        source=specific_event.source,
-                    )
 
         except Exception as e:
             logger.error(f"[RegressionDetector] Event bus publish error: {e}")
@@ -506,7 +469,7 @@ class RegressionDetector:
             return
 
         try:
-            from app.coordination.event_router import DataEvent, DataEventType
+            from app.coordination.event_emission_helpers import safe_emit_event
 
             # Extract config_key from model_id (e.g., "square8_2p_v42" -> "square8_2p")
             config_key = ""
@@ -519,9 +482,9 @@ class RegressionDetector:
             baseline = self._baselines.get(model_id, {})
             baseline_elo = baseline.get("elo", 0)
 
-            event = DataEvent(
-                event_type=DataEventType.REGRESSION_CLEARED,
-                payload={
+            safe_emit_event(
+                "REGRESSION_CLEARED",
+                {
                     "model_id": model_id,
                     "config_key": config_key,
                     "timestamp": time.time(),
@@ -529,27 +492,8 @@ class RegressionDetector:
                     "metric_name": "elo",  # For SelfplayOrchestrator
                     "reason": "consecutive_regressions_cleared",
                 },
-                source="regression_detector",
+                context="regression_detector",
             )
-
-            try:
-                from app.utils.async_utils import fire_and_forget
-                asyncio.get_running_loop()
-                fire_and_forget(
-                    self._event_bus.publish(
-                        event_type=event.event_type,
-                        payload=event.payload,
-                        source=event.source,
-                    ),
-                    name="regression_cleared",
-                )
-            except RuntimeError:
-                if hasattr(self._event_bus, 'publish_sync'):
-                    self._event_bus.publish_sync(
-                        event_type=event.event_type,
-                        payload=event.payload,
-                        source=event.source,
-                    )
 
         except Exception as e:
             logger.error(f"[RegressionDetector] Event bus publish error: {e}")
