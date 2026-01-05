@@ -79,7 +79,8 @@ class RemoteP2PRecoveryConfig:
     max_nodes_per_cycle: int = 10
 
     # SSH timeout per node (seconds)
-    ssh_timeout_seconds: float = 30.0
+    # Jan 5, 2026: Increased from 30s to 60s - high-load nodes need more time
+    ssh_timeout_seconds: float = 60.0
 
     # Whether the loop is enabled
     enabled: bool = field(

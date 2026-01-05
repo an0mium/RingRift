@@ -760,7 +760,8 @@ class PredictiveScalingLoop(BaseLoop):
 class WorkerPullConfig:
     """Configuration for worker pull loop."""
 
-    pull_interval_seconds: float = 30.0
+    # Jan 5, 2026: Reduced from 30s to 10s for +15% work claim rate
+    pull_interval_seconds: float = 10.0
     # Jan 2, 2026: Raised from 15% to 90% - now used as GPU overload guard,
     # not primary capacity limiter. Slot-based claiming is the primary mechanism.
     gpu_idle_threshold_percent: float = 90.0

@@ -56,7 +56,8 @@ _event_bridge = get_event_bridge()
 try:
     from scripts.p2p.constants import LEADER_LEASE_DURATION
 except ImportError:
-    LEADER_LEASE_DURATION = 180
+    # Jan 5, 2026: Reduced from 180s to 90s for faster failover (210s → 120s total)
+    LEADER_LEASE_DURATION = 90
 
 # Import types
 try:
