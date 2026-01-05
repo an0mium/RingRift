@@ -17,7 +17,9 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -51,6 +53,143 @@ try:
     from scripts.p2p.loops.loop_constants import LoopTimeouts
 except ImportError:
     LoopTimeouts = None  # type: ignore[misc, assignment]
+
+
+# =============================================================================
+# Job Lookup Cache (Jan 2026)
+# Reduces find_running_training_job/find_resumable_training_job from O(n) to O(1)
+# =============================================================================
+
+
+@dataclass
+class CachedJobLookup:
+    """Cache entry for job lookups."""
+    job_id: str | None
+    timestamp: float
+
+    def is_valid(self, ttl_seconds: float = 300.0) -> bool:
+        """Check if cache entry is still valid."""
+        return (monotonic() - self.timestamp) < ttl_seconds
+
+
+class JobLookupCache:
+    """LRU-style cache for training job lookups with TTL-based invalidation.
+
+    Caches the results of find_running_training_job() and find_resumable_training_job()
+    to avoid O(n) linear scans on every lookup. Cache is invalidated when job state
+    changes (creation, status change, removal).
+
+    Thread-safe via RLock.
+
+    Usage:
+        cache = JobLookupCache(ttl_seconds=300.0, max_size=128)
+
+        # Check cache first
+        hit, job_id = cache.get_running("nnue", "hex8_2p")
+        if not hit:
+            job_id = _do_linear_search()
+            cache.set_running("nnue", "hex8_2p", job_id)
+
+        # Invalidate on state change
+        cache.invalidate("hex8_2p")
+    """
+
+    def __init__(self, ttl_seconds: float = 300.0, max_size: int = 128):
+        """Initialize cache.
+
+        Args:
+            ttl_seconds: Time-to-live for cache entries in seconds (default: 5 minutes)
+            max_size: Maximum number of entries per cache (default: 128)
+        """
+        self._ttl = ttl_seconds
+        self._max_size = max_size
+        self._running_cache: dict[tuple[str, str], CachedJobLookup] = {}
+        self._resumable_cache: dict[tuple[str, str], CachedJobLookup] = {}
+        self._lock = threading.RLock()
+        self._hits = 0
+        self._misses = 0
+
+    def get_running(self, job_type: str, config_key: str) -> tuple[bool, str | None]:
+        """Get cached running job lookup. Returns (cache_hit, job_id)."""
+        key = (job_type, config_key)
+        with self._lock:
+            entry = self._running_cache.get(key)
+            if entry and entry.is_valid(self._ttl):
+                self._hits += 1
+                return (True, entry.job_id)
+            self._misses += 1
+            return (False, None)
+
+    def set_running(self, job_type: str, config_key: str, job_id: str | None) -> None:
+        """Cache running job lookup result."""
+        key = (job_type, config_key)
+        with self._lock:
+            self._running_cache[key] = CachedJobLookup(job_id, monotonic())
+            self._evict_if_needed(self._running_cache)
+
+    def get_resumable(self, job_type: str, config_key: str) -> tuple[bool, str | None]:
+        """Get cached resumable job lookup. Returns (cache_hit, job_id)."""
+        key = (job_type, config_key)
+        with self._lock:
+            entry = self._resumable_cache.get(key)
+            if entry and entry.is_valid(self._ttl):
+                self._hits += 1
+                return (True, entry.job_id)
+            self._misses += 1
+            return (False, None)
+
+    def set_resumable(self, job_type: str, config_key: str, job_id: str | None) -> None:
+        """Cache resumable job lookup result."""
+        key = (job_type, config_key)
+        with self._lock:
+            self._resumable_cache[key] = CachedJobLookup(job_id, monotonic())
+            self._evict_if_needed(self._resumable_cache)
+
+    def invalidate(self, config_key: str | None = None) -> None:
+        """Invalidate cache entries.
+
+        Args:
+            config_key: If provided, only invalidate entries for this config.
+                       If None, invalidates all entries (full cache clear).
+        """
+        with self._lock:
+            if config_key is None:
+                self._running_cache.clear()
+                self._resumable_cache.clear()
+            else:
+                # Remove all entries matching the config_key
+                self._running_cache = {
+                    k: v for k, v in self._running_cache.items()
+                    if k[1] != config_key
+                }
+                self._resumable_cache = {
+                    k: v for k, v in self._resumable_cache.items()
+                    if k[1] != config_key
+                }
+
+    def _evict_if_needed(self, cache: dict[tuple[str, str], CachedJobLookup]) -> None:
+        """Evict oldest entries if cache exceeds max_size. Must be called with lock held."""
+        if len(cache) <= self._max_size:
+            return
+        # Sort by timestamp, remove oldest entries
+        sorted_entries = sorted(cache.items(), key=lambda x: x[1].timestamp)
+        entries_to_remove = len(cache) - self._max_size
+        for key, _ in sorted_entries[:entries_to_remove]:
+            del cache[key]
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get cache statistics for monitoring."""
+        with self._lock:
+            total = self._hits + self._misses
+            return {
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": self._hits / total if total > 0 else 0.0,
+                "running_cache_size": len(self._running_cache),
+                "resumable_cache_size": len(self._resumable_cache),
+                "ttl_seconds": self._ttl,
+                "max_size": self._max_size,
+            }
 
 
 class TrainingCoordinator(EventSubscriptionMixin):
@@ -156,6 +295,11 @@ class TrainingCoordinator(EventSubscriptionMixin):
         self._models_fetch_failed_count = 0
         self._last_fetch_time: float = 0.0
         self._last_fetch_error: str = ""
+
+        # Job lookup cache (January 2026)
+        # Reduces O(n) linear scans in find_running_training_job/find_resumable_training_job
+        # to O(1) cached lookups. TTL=300s (5 min), max 128 entries per cache type.
+        self._job_lookup_cache = JobLookupCache(ttl_seconds=300.0, max_size=128)
 
     # =========================================================================
     # Event Subscriptions (December 2025 - uses EventSubscriptionMixin)
@@ -445,7 +589,24 @@ class TrainingCoordinator(EventSubscriptionMixin):
         return jobs_to_start
 
     def find_running_training_job(self, job_type: str, config_key: str) -> Any | None:
-        """Find a running training job of the given type for the config."""
+        """Find a running training job of the given type for the config.
+
+        Jan 2026: Uses JobLookupCache for O(1) lookups instead of O(n) scans.
+        Cache is invalidated when job state changes.
+        """
+        # Check cache first (O(1))
+        cache_hit, cached_job_id = self._job_lookup_cache.get_running(job_type, config_key)
+        if cache_hit:
+            if cached_job_id is None:
+                return None
+            # Verify cached job still exists and is in expected state
+            training_jobs = self.get_training_jobs()
+            job = training_jobs.get(cached_job_id)
+            if job and job.status in ("pending", "queued", "running"):
+                return job
+            # Cache is stale, fall through to linear search
+
+        # Cache miss - do linear search (O(n))
         training_lock = self.get_training_lock()
         training_jobs = self.get_training_jobs()
         with training_lock:
@@ -453,7 +614,12 @@ class TrainingCoordinator(EventSubscriptionMixin):
                 if (job.job_type == job_type and
                     f"{job.board_type}_{job.num_players}p" == config_key and
                     job.status in ("pending", "queued", "running")):
+                    # Cache the result
+                    self._job_lookup_cache.set_running(job_type, config_key, job.job_id)
                     return job
+
+        # No job found - cache the negative result
+        self._job_lookup_cache.set_running(job_type, config_key, None)
         return None
 
     def find_resumable_training_job(self, job_type: str, config_key: str) -> Any | None:
@@ -462,9 +628,25 @@ class TrainingCoordinator(EventSubscriptionMixin):
         TRAINING CHECKPOINTING: When a training job fails or is interrupted,
         this function finds it if it has a valid checkpoint that can be resumed.
 
+        Jan 2026: Uses JobLookupCache for O(1) lookups instead of O(n) scans.
+
         Returns:
             TrainingJob with valid checkpoint, or None
         """
+        # Check cache first (O(1))
+        cache_hit, cached_job_id = self._job_lookup_cache.get_resumable(job_type, config_key)
+        if cache_hit:
+            if cached_job_id is None:
+                return None
+            # Verify cached job still exists and is resumable
+            training_jobs = self.get_training_jobs()
+            job = training_jobs.get(cached_job_id)
+            if (job and job.status == "failed" and
+                job.checkpoint_path and job.checkpoint_epoch > 0):
+                return job
+            # Cache is stale, fall through to linear search
+
+        # Cache miss - do linear search (O(n))
         training_lock = self.get_training_lock()
         training_jobs = self.get_training_jobs()
         with training_lock:
@@ -474,8 +656,12 @@ class TrainingCoordinator(EventSubscriptionMixin):
                     job.status == "failed" and
                     job.checkpoint_path and
                     job.checkpoint_epoch > 0):
-                    # Found a failed job with checkpoint
+                    # Found a failed job with checkpoint - cache the result
+                    self._job_lookup_cache.set_resumable(job_type, config_key, job.job_id)
                     return job
+
+        # No job found - cache the negative result
+        self._job_lookup_cache.set_resumable(job_type, config_key, None)
         return None
 
     # =========================================================================
@@ -618,6 +804,9 @@ class TrainingCoordinator(EventSubscriptionMixin):
         with training_lock:
             training_jobs[job_id] = job
 
+        # Jan 2026: Invalidate cache when job state changes
+        self._job_lookup_cache.invalidate(config_key)
+
         # Update games count at training start
         if job_type == "nnue":
             self.games_at_last_nnue_train[config_key] = job_config.get("total_games", 0)
@@ -688,6 +877,9 @@ class TrainingCoordinator(EventSubscriptionMixin):
                                 logger.info(f"Started {job_type} training job {job_id} on {worker_node.node_id}")
                                 self.save_state_callback()
 
+                                # Jan 2026: Invalidate cache when job state changes
+                                self._job_lookup_cache.invalidate(config_key)
+
                                 # Dec 2025: Emit TRAINING_STARTED event for pipeline coordination
                                 if _HAS_EVENT_EMITTERS:
                                     safe_emit_event(
@@ -740,6 +932,9 @@ class TrainingCoordinator(EventSubscriptionMixin):
         job.status = "failed"
         job.error_message = f"All {len(tried_nodes)} dispatch attempts failed"
         logger.error(f"Failed to dispatch {job_type} training after {len(tried_nodes)} attempts")
+
+        # Jan 2026: Invalidate cache when job state changes
+        self._job_lookup_cache.invalidate(config_key)
 
         return job
 

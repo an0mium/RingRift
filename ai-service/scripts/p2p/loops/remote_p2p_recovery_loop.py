@@ -658,6 +658,10 @@ class RemoteP2PRecoveryLoop(BaseLoop):
                     # (backoff will be reset after stable period)
                     if node_id in self._restart_count:
                         self._first_stable_time[node_id] = now
+                    # Jan 5, 2026 (Session 17.29): Record success to circuit breaker
+                    # This helps the circuit breaker transition from HALF_OPEN to CLOSED
+                    if ssh_circuit_breaker is not None:
+                        ssh_circuit_breaker.record_success(node_id)
                     # Session 17.25: Emit success event for feedback loop integration
                     if self.config.emit_events:
                         self._safe_emit_p2p_event(
@@ -692,6 +696,10 @@ class RemoteP2PRecoveryLoop(BaseLoop):
                         f"restart count now {self._restart_count[node_id]} "
                         f"(next cooldown: {self._get_effective_cooldown(node_id):.0f}s)"
                     )
+                    # Jan 5, 2026 (Session 17.29): Record failure to circuit breaker
+                    # This helps circuit breaker track consistently failing nodes
+                    if ssh_circuit_breaker is not None:
+                        ssh_circuit_breaker.record_failure(node_id)
                     # Session 17.25: Emit failure event for feedback loop integration
                     if self.config.emit_events:
                         self._safe_emit_p2p_event(
