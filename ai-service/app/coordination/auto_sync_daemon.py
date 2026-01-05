@@ -116,6 +116,7 @@ from app.coordination.sync_event_mixin import SyncEventMixin
 from app.coordination.sync_push_mixin import SyncPushMixin
 from app.coordination.sync_pull_mixin import SyncPullMixin
 from app.coordination.sync_ephemeral_mixin import SyncEphemeralMixin
+from app.coordination.event_emission_helpers import safe_emit_event
 
 # Circuit breaker for fault-tolerant sync operations (December 2025)
 try:
@@ -362,23 +363,20 @@ class AutoSyncDaemon(
         )
 
         # Emit event for monitoring dashboards
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                event_type=DataEventType.SYNC_NODE_UNREACHABLE
-                if new_state.value == "open"
-                else DataEventType.DATA_SYNC_COMPLETED,
-                source="AutoSyncDaemon",
-                metadata={
-                    "target_node": target,
-                    "old_state": old_state.value,
-                    "new_state": new_state.value,
-                    "event": "circuit_state_change",
-                },
-            )
-        except (ImportError, RuntimeError, AttributeError):
-            pass  # Event emission is best-effort
+        event_type = (
+            "sync_node_unreachable" if new_state.value == "open" else "data_sync_completed"
+        )
+        safe_emit_event(
+            event_type,
+            {
+                "source": "AutoSyncDaemon",
+                "target_node": target,
+                "old_state": old_state.value,
+                "new_state": new_state.value,
+                "event": "circuit_state_change",
+            },
+            context="AutoSync",
+        )
 
     def _detect_ephemeral_host(self) -> bool:
         """Detect if running on an ephemeral host.

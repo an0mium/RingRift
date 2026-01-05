@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 # December 2025: Use consolidated daemon stats base class
 from app.coordination.daemon_stats import EvaluationDaemonStats
 from app.coordination.event_utils import make_config_key, parse_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.handler_base import HandlerBase
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 
@@ -814,25 +815,19 @@ class TournamentDaemon(HandlerBase):
 
         December 31, 2025: Enables tracking Elo per (model, harness) combination.
         """
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            config_key = make_config_key(board_type, num_players)
-            await emit_data_event(
-                DataEventType.HARNESS_EVALUATION_COMPLETED,
-                payload={
-                    "config_key": config_key,
-                    "model_path": model_path,
-                    "harness_type": harness_type,
-                    "elo": elo,
-                    "win_rate": win_rate,
-                },
-                source="tournament_daemon",
-            )
-        except ImportError:
-            pass  # Event system not available
-        except Exception as e:
-            logger.debug(f"Failed to emit HARNESS_EVALUATION_COMPLETED: {e}")
+        config_key = make_config_key(board_type, num_players)
+        safe_emit_event(
+            "harness_evaluation_completed",
+            {
+                "config_key": config_key,
+                "model_path": model_path,
+                "harness_type": harness_type,
+                "elo": elo,
+                "win_rate": win_rate,
+                "source": "tournament_daemon",
+            },
+            context="Tournament",
+        )
 
     async def _run_ladder_tournament(self) -> dict[str, Any]:
         """Run a ladder tournament across all configurations.

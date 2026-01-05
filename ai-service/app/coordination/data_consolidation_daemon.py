@@ -27,6 +27,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.event_utils import make_config_key, parse_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.health_check_helper import HealthCheckHelper
 from app.coordination.contracts import CoordinatorStatus
 from app.config.thresholds import SQLITE_TIMEOUT, SQLITE_CONNECT_TIMEOUT
@@ -986,23 +987,17 @@ class DataConsolidationDaemon(HandlerBase):
         num_players: int,
     ) -> None:
         """Emit CONSOLIDATION_STARTED event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            await emit_data_event(
-                event_type=DataEventType.CONSOLIDATION_STARTED,
-                payload={
-                    "config_key": config_key,
-                    "board_type": board_type,
-                    "num_players": num_players,
-                    "timestamp": time.time(),
-                },
-                source="data_consolidation_daemon",
-            )
-        except (ImportError, AttributeError):
-            pass  # Event type not available yet
-        except Exception as e:
-            logger.debug(f"[DataConsolidationDaemon] Error emitting CONSOLIDATION_STARTED: {e}")
+        safe_emit_event(
+            "consolidation_started",
+            {
+                "config_key": config_key,
+                "board_type": board_type,
+                "num_players": num_players,
+                "timestamp": time.time(),
+                "source": "data_consolidation_daemon",
+            },
+            context="DataConsolidation",
+        )
 
     async def _emit_consolidation_complete(
         self,
@@ -1014,31 +1009,24 @@ class DataConsolidationDaemon(HandlerBase):
         total_games: int,
     ) -> None:
         """Emit CONSOLIDATION_COMPLETE event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            await emit_data_event(
-                event_type=DataEventType.CONSOLIDATION_COMPLETE,
-                payload={
-                    "config_key": config_key,
-                    "board_type": board_type,
-                    "num_players": num_players,
-                    "canonical_db": canonical_db,
-                    "games_merged": games_merged,
-                    "total_games": total_games,
-                    "timestamp": time.time(),
-                },
-                source="data_consolidation_daemon",
-            )
-
-            logger.debug(
-                f"[DataConsolidationDaemon] Emitted CONSOLIDATION_COMPLETE for {config_key}: "
-                f"merged={games_merged}, total={total_games}"
-            )
-        except (ImportError, AttributeError):
-            pass  # Event type not available yet
-        except Exception as e:
-            logger.debug(f"[DataConsolidationDaemon] Error emitting CONSOLIDATION_COMPLETE: {e}")
+        safe_emit_event(
+            "consolidation_complete",
+            {
+                "config_key": config_key,
+                "board_type": board_type,
+                "num_players": num_players,
+                "canonical_db": canonical_db,
+                "games_merged": games_merged,
+                "total_games": total_games,
+                "timestamp": time.time(),
+                "source": "data_consolidation_daemon",
+            },
+            context="DataConsolidation",
+        )
+        logger.debug(
+            f"[DataConsolidationDaemon] Emitted CONSOLIDATION_COMPLETE for {config_key}: "
+            f"merged={games_merged}, total={total_games}"
+        )
 
     async def trigger_consolidation(self, config_key: str) -> ConsolidationStats | None:
         """Manually trigger consolidation for a specific config.

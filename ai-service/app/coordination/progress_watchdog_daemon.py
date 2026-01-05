@@ -25,6 +25,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
+from app.coordination.event_emission_helpers import safe_emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -377,38 +378,34 @@ class ProgressWatchdogDaemon(HandlerBase):
         self._total_recoveries_triggered += 1
 
         # Emit event
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.PROGRESS_STALL_DETECTED,
-                config_key=config_key,
-                action=self.config.recovery_action,
-                stall_duration_hours=progress.stall_duration_hours,
-                current_velocity=progress.velocity,
-                boost_multiplier=self.config.boost_multiplier,
-                recovery_attempt=progress.recovery_attempts,
-                source="ProgressWatchdogDaemon",
-            )
-        except Exception as e:
-            logger.error(f"Failed to emit PROGRESS_STALL_DETECTED: {e}")
+        safe_emit_event(
+            "progress_stall_detected",
+            {
+                "config_key": config_key,
+                "action": self.config.recovery_action,
+                "stall_duration_hours": progress.stall_duration_hours,
+                "current_velocity": progress.velocity,
+                "boost_multiplier": self.config.boost_multiplier,
+                "recovery_attempt": progress.recovery_attempts,
+                "source": "ProgressWatchdogDaemon",
+            },
+            context="ProgressWatchdog",
+        )
 
     async def _emit_recovery_event(
         self, config_key: str, progress: ConfigProgress
     ) -> None:
         """Emit event when a config recovers from stall."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.PROGRESS_RECOVERED,
-                config_key=config_key,
-                recovery_duration_hours=progress.stall_duration_hours,
-                current_velocity=progress.velocity,
-                source="ProgressWatchdogDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit PROGRESS_RECOVERED: {e}")
+        safe_emit_event(
+            "progress_recovered",
+            {
+                "config_key": config_key,
+                "recovery_duration_hours": progress.stall_duration_hours,
+                "current_velocity": progress.velocity,
+                "source": "ProgressWatchdogDaemon",
+            },
+            context="ProgressWatchdog",
+        )
 
     # =========================================================================
     # Health & Status
