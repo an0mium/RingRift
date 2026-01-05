@@ -2872,13 +2872,30 @@ class P2POrchestrator(
                     """Store aggregated health data for scheduling decisions."""
                     self._aggregated_node_health = health_data
 
+                def _recover_unhealthy_nodes_callback() -> list[str]:
+                    """Attempt to recover nodes from unhealthy state.
+
+                    January 5, 2026 (Session 17.26): This callback fixes the critical issue
+                    where nodes were permanently excluded from work distribution after
+                    transient failures. The NodeSelector.recover_unhealthy_nodes() method
+                    existed but was never called, causing cluster utilization to drop to
+                    40-60% instead of 85%+.
+
+                    Returns:
+                        List of recovered node IDs.
+                    """
+                    if hasattr(self, "node_selector") and self.node_selector:
+                        return self.node_selector.recover_unhealthy_nodes()
+                    return []
+
                 health_aggregation = HealthAggregationLoop(
                     get_node_ids=_get_node_ids_for_health,
                     fetch_node_health=_fetch_node_health_for_loop,
                     on_health_updated=_on_health_updated_callback,
+                    on_recover_unhealthy=_recover_unhealthy_nodes_callback,
                 )
                 manager.register(health_aggregation)
-                logger.info("[P2P] HealthAggregationLoop registered (important for scheduling)")
+                logger.info("[P2P] HealthAggregationLoop registered with auto-recovery (Session 17.26)")
             except (ImportError, TypeError) as e:
                 logger.warning(f"[LoopManager] HealthAggregationLoop: not available: {e}")
 

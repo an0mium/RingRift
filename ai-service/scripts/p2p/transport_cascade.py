@@ -327,9 +327,11 @@ class TransportCascade:
         self._enabled = os.environ.get("RINGRIFT_TRANSPORT_CASCADE_ENABLED", "true").lower() == "true"
         self._min_tier = int(os.environ.get("RINGRIFT_TRANSPORT_MIN_TIER", "1"))
         self._max_tier = int(os.environ.get("RINGRIFT_TRANSPORT_MAX_TIER", "5"))
-        self._timeout_per_transport = float(os.environ.get("RINGRIFT_TRANSPORT_TIMEOUT", "10"))
+        # Jan 2026: Reduced from 10s to 5s per transport for faster failover (50% reduction)
+        self._timeout_per_transport = float(os.environ.get("RINGRIFT_TRANSPORT_TIMEOUT", "5"))
         # Total timeout for the entire cascade (prevents 360s+ hangs with 6 tiers)
-        self._total_timeout = float(os.environ.get("RINGRIFT_TRANSPORT_TOTAL_TIMEOUT", "30"))
+        # Jan 2026: Reduced from 30s to 15s for faster overall failover
+        self._total_timeout = float(os.environ.get("RINGRIFT_TRANSPORT_TOTAL_TIMEOUT", "15"))
 
         # Jan 2026: Adaptive timeout learning (Phase 2.3)
         self._adaptive_timeouts_enabled = (

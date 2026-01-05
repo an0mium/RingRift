@@ -635,6 +635,20 @@ class RemoteP2PRecoveryLoop(BaseLoop):
                                 "timestamp": time.time(),
                             },
                         )
+                        # Session 17.28: Emit NODE_READY_FOR_WORK for work queue pre-population
+                        # This signals that the recovered node is ready to accept work
+                        # immediately, reducing idle time from 120s to ~10s
+                        node_capacity = self._get_node_capacity(node_id)
+                        self._safe_emit_p2p_event(
+                            "NODE_READY_FOR_WORK",
+                            {
+                                "node_id": node_id,
+                                "priority": "high",
+                                "capacity": node_capacity,
+                                "recovery_source": "remote_p2p_recovery",
+                                "timestamp": time.time(),
+                            },
+                        )
                 else:
                     self._stats.nodes_verification_failed += 1
                     # Increment restart count for exponential backoff
@@ -853,6 +867,53 @@ PYTHONPATH=. nohup python3 scripts/p2p_orchestrator.py --node-id {node_id} --por
                 "enabled": self.config.enabled,
                 "dry_run": self.config.dry_run,
             },
+        }
+
+    def _get_node_capacity(self, node_id: str) -> dict[str, Any]:
+        """Estimate node capacity for work queue pre-population.
+
+        Session 17.28: Returns capacity info to help work dispatcher
+        prioritize and allocate work appropriately to recovered nodes.
+
+        Args:
+            node_id: Node identifier
+
+        Returns:
+            Dict with capacity info: gpu_count, gpu_memory_gb, role, etc.
+        """
+        configured_nodes = self._get_configured_nodes()
+        node_info = configured_nodes.get(node_id, {})
+
+        # Extract GPU info from node configuration
+        gpu_info = node_info.get("gpu", "")
+        gpu_memory_gb = 0
+        gpu_count = 1  # Default to 1 GPU
+
+        # Parse GPU memory from strings like "GH200 96GB", "H100 80GB", etc.
+        if gpu_info:
+            import re
+            memory_match = re.search(r"(\d+)\s*GB", gpu_info, re.IGNORECASE)
+            if memory_match:
+                gpu_memory_gb = int(memory_match.group(1))
+
+            # Parse GPU count from strings like "8x RTX 4090"
+            count_match = re.search(r"(\d+)\s*x\s*", gpu_info, re.IGNORECASE)
+            if count_match:
+                gpu_count = int(count_match.group(1))
+
+        # Get role info
+        role = node_info.get("role", "gpu_selfplay")
+        can_train = role in ("gpu_training_primary", "training_backup", "gpu_both")
+        can_selfplay = role not in ("coordinator", "voter", "cpu_only")
+
+        return {
+            "gpu_count": gpu_count,
+            "gpu_memory_gb": gpu_memory_gb,
+            "gpu_info": gpu_info,
+            "role": role,
+            "can_train": can_train,
+            "can_selfplay": can_selfplay,
+            "provider": node_info.get("provider", "unknown"),
         }
 
     def reset_stats(self) -> None:

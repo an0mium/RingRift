@@ -91,8 +91,9 @@ def get_peer_timeout_for_node(is_coordinator: bool = False, nat_blocked: bool = 
 
 # SUSPECT grace period: nodes transition ALIVE -> SUSPECT -> DEAD
 # Dec 29, 2025: Reduced from 60s to 30s - faster suspect detection enables quicker recovery.
-# With 15s heartbeats, this means 2 missed = suspect, 4 missed = dead
-SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "30") or 30)
+# Jan 2026: Reduced from 30s to 15s for aggressive SUSPECT probing (MTTR 90s → 45s)
+# With 15s heartbeats, this means 1 missed = suspect, 3 missed = dead
+SUSPECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_SUSPECT_TIMEOUT", "15") or 15)
 
 # Jan 2, 2026 (Sprint 3.5): Dynamic voter promotion delay
 # When enabled via RINGRIFT_P2P_DYNAMIC_VOTER=true, this delay prevents premature promotion

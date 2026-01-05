@@ -53,7 +53,7 @@ class P2PRecoveryConfig:
         min_peer_ratio: Trigger isolation recovery if P2P/Tailscale ratio below this (default: 0.5)
         isolation_consecutive_checks: Consecutive isolation checks before action (default: 3)
         # Dec 29, 2025: Self-healing enhancements for quorum and leader gaps
-        max_leader_gap_seconds: Maximum seconds without a leader before forcing election (default: 120)
+        max_leader_gap_seconds: Maximum seconds without a leader before forcing election (default: 10)
         quorum_recovery_enabled: Enable automatic quorum recovery (default: True)
         leader_election_endpoint: Endpoint to trigger leader election
         # Dec 30, 2025: Exponential backoff for restart attempts

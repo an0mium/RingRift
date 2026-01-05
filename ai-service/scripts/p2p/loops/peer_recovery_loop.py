@@ -49,9 +49,10 @@ class PeerRecoveryConfig:
 
     # Base interval between recovery cycles (seconds)
     # Dec 2025: Changed default from 3600 (1 hour) to 120 (2 minutes)
+    # Jan 2026: Reduced from 120s to 45s for faster CB recovery (MTTR 210s → 90s)
     recovery_interval_seconds: float = field(
         default_factory=lambda: float(
-            os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "120")
+            os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "45")
         )
     )
 
