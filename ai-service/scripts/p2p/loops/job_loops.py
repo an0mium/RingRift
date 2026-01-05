@@ -1102,7 +1102,57 @@ class WorkerPullLoop(BaseLoop):
                 except Exception as e:
                     logger.debug(f"[WorkerPull] Autonomous queue error: {e}")
             elif not use_work_discovery:
-                # Normal path: claim from leader (skip if already tried via discovery)
+                # Session 17.34 (Jan 5, 2026): Try batch claiming first if enabled
+                # Batch claiming reduces HTTP round-trips by claiming multiple items at once
+                batch_items: list[dict[str, Any]] = []
+                if (
+                    self.config.enable_batch_claiming
+                    and self._claim_work_batch
+                    and available_slots >= self.config.batch_claim_min_slots
+                ):
+                    try:
+                        batch_items = await self._claim_work_batch(
+                            capabilities, min(available_slots, self.config.batch_claim_max_items)
+                        )
+                        if batch_items:
+                            self._batch_claims_total += 1
+                            self._batch_items_claimed += len(batch_items)
+                            # Update rolling average
+                            if self._batch_claims_total > 0:
+                                self._batch_avg_items = (
+                                    self._batch_items_claimed / self._batch_claims_total
+                                )
+                            logger.info(
+                                f"[WorkerPull] Batch claimed {len(batch_items)} items "
+                                f"(slots: {available_slots}, avg: {self._batch_avg_items:.1f})"
+                            )
+                    except Exception as e:
+                        logger.debug(f"[WorkerPull] Batch claim error, falling back to single: {e}")
+                        batch_items = []
+
+                # If batch claiming returned items, process them all
+                if batch_items:
+                    for batch_work_item in batch_items:
+                        work_id = batch_work_item.get("work_id", "unknown")
+                        work_type = batch_work_item.get("work_type", "unknown")
+                        logger.info(f"[WorkerPull] Processing batch item {work_id}: {work_type}")
+                        self._work_claimed += 1
+                        try:
+                            success = await self._execute_work(batch_work_item)
+                            if success:
+                                self._work_completed += 1
+                            else:
+                                self._work_failed += 1
+                            if leader_id:
+                                await self._report_result(batch_work_item, success)
+                        except Exception as e:
+                            self._work_failed += 1
+                            logger.error(f"[WorkerPull] Error executing batch work {work_id}: {e}")
+                            if leader_id:
+                                await self._report_result(batch_work_item, False)
+                    return  # All batch items processed, exit early
+
+                # Fallback to single-item claiming
                 # Jan 5, 2026: Use retry with jittered backoff for robustness
                 work_item = await self._claim_work_with_retry(capabilities)
                 if work_item:
@@ -1156,6 +1206,10 @@ class WorkerPullLoop(BaseLoop):
             "claim_retries_succeeded": self._claim_retries_succeeded,
             "claim_retries_exhausted": self._claim_retries_exhausted,
             "last_claim_retry_count": self._last_claim_retry_count,
+            # Session 17.34 (Jan 5, 2026): Batch claiming statistics
+            "batch_claims_total": self._batch_claims_total,
+            "batch_items_claimed": self._batch_items_claimed,
+            "batch_avg_items": self._batch_avg_items,
             **self.stats.to_dict(),
         }
 

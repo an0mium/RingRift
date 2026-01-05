@@ -56,6 +56,8 @@ __all__ = [
     "DATA_STARVATION_ULTRA_THRESHOLD",
     "DATA_POVERTY_MULTIPLIER",
     "DATA_POVERTY_THRESHOLD",
+    "DATA_WARNING_MULTIPLIER",
+    "DATA_WARNING_THRESHOLD",
     "DEFAULT_GAMES_PER_CONFIG",
     "DEFAULT_TRAINING_SAMPLES_TARGET",
     "DYNAMIC_WEIGHT_BOUNDS",  # December 29, 2025: Now exported
@@ -233,6 +235,11 @@ DATA_STARVATION_CRITICAL_MULTIPLIER = _priority_weight_defaults.DATA_STARVATION_
 # Bridges gap between CRITICAL (1000 games) and no boost
 DATA_POVERTY_THRESHOLD = _priority_weight_defaults.DATA_POVERTY_THRESHOLD
 DATA_POVERTY_MULTIPLIER = _priority_weight_defaults.DATA_POVERTY_MULTIPLIER
+
+# Session 17.34 (Jan 5, 2026): WARNING tier for configs with <5000 games
+# Catches configs like square8_3p (3,167 games) that are above CRITICAL but still underserved
+DATA_WARNING_THRESHOLD = _priority_weight_defaults.DATA_WARNING_THRESHOLD
+DATA_WARNING_MULTIPLIER = _priority_weight_defaults.DATA_WARNING_MULTIPLIER
 
 # Default training sample target per config
 DEFAULT_TRAINING_SAMPLES_TARGET = 50000
@@ -983,6 +990,16 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
                 f"[SelfplayScheduler] POVERTY: {priority.config_key} has only "
                 f"{game_count} games (<{DATA_POVERTY_THRESHOLD}). "
                 f"Applying {DATA_POVERTY_MULTIPLIER}x priority boost."
+            )
+        elif game_count < DATA_WARNING_THRESHOLD:
+            # Session 17.34 (Jan 5, 2026): WARNING tier for configs with <5000 games
+            # Catches configs like square8_3p (3,167 games) that are above CRITICAL/POVERTY
+            # but still need a boost to catch up with well-represented configs
+            score = score * DATA_WARNING_MULTIPLIER
+            logger.info(
+                f"[SelfplayScheduler] WARNING: {priority.config_key} has only "
+                f"{game_count} games (<{DATA_WARNING_THRESHOLD}). "
+                f"Applying {DATA_WARNING_MULTIPLIER}x priority boost."
             )
 
         # Log momentum multiplier changes (>10% change from baseline)

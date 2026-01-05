@@ -2502,6 +2502,14 @@ class SelfplayPriorityWeightDefaults:
         "RINGRIFT_DATA_POVERTY_MULTIPLIER", 5.0  # Stronger boost for <3000 games
     )
 
+    # Session 17.34 (Jan 5, 2026): Add WARNING tier for configs with <5000 games
+    # This catches configs like square8_3p (3,167 games) and hexagonal_2p (4,008 games)
+    # that are just above POVERTY threshold but still underserved for reliable training
+    DATA_WARNING_THRESHOLD: int = _env_int("RINGRIFT_DATA_WARNING_THRESHOLD", 5000)
+    DATA_WARNING_MULTIPLIER: float = _env_float(
+        "RINGRIFT_DATA_WARNING_MULTIPLIER", 3.0  # Moderate boost for <5000 games
+    )
+
     # Staleness thresholds (hours)
     FRESH_DATA_THRESHOLD: float = _env_float("RINGRIFT_FRESH_DATA_THRESHOLD", 1.0)
     STALE_DATA_THRESHOLD: float = _env_float("RINGRIFT_STALE_DATA_THRESHOLD", 4.0)
