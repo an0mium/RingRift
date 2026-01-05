@@ -787,24 +787,20 @@ class NodeDataAgent(HandlerBase):
                             return {"success": True, "items": len(self._local_inventory)}
 
             # Fallback: emit event for local handling
-            try:
-                from app.coordination.event_router import emit_event
-                from app.distributed.data_events import DataEventType
+            from app.coordination.event_emission_helpers import safe_emit_event
 
-                emit_event(
-                    DataEventType.LOCAL_INVENTORY_UPDATED,
-                    {
-                        "node_id": node_id,
-                        "inventory": self._local_inventory,
-                        "timestamp": time.time(),
-                    }
-                )
+            if safe_emit_event(
+                "LOCAL_INVENTORY_UPDATED",
+                {
+                    "node_id": node_id,
+                    "inventory": self._local_inventory,
+                    "timestamp": time.time(),
+                },
+                context="NodeDataAgent",
+            ):
                 self._stats["inventory_reports"] += 1
                 self._last_inventory_report = time.time()
                 return {"success": True, "items": len(self._local_inventory)}
-
-            except (ImportError, AttributeError):
-                pass
 
             return {"success": False, "error": "No reporting channel available"}
 

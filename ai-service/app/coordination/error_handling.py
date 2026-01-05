@@ -97,20 +97,19 @@ def _emit_error_event(
     context: dict[str, Any],
 ) -> None:
     """Emit an error event via the event router."""
-    try:
-        from app.coordination.event_router import emit_event
+    from app.coordination.event_emission_helpers import safe_emit_event
 
-        emit_event(event_type, {
+    safe_emit_event(
+        event_type,
+        {
             "component": component,
             "error_type": type(error).__name__,
             "error_message": str(error),
             "timestamp": time.time(),
             **context,
-        })
-    except ImportError:
-        logger.debug(f"[ErrorHandling] event_router not available, skipping event: {event_type}")
-    except Exception as e:
-        logger.debug(f"[ErrorHandling] Failed to emit error event: {e}")
+        },
+        context="ErrorHandling",
+    )
 
 
 def handle_coordination_error(

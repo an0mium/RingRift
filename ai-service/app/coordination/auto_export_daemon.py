@@ -1102,20 +1102,17 @@ class AutoExportDaemon(HandlerBase):
 
         Sprint 8 (Jan 2, 2026): Notify subscribers that export was blocked.
         """
-        try:
-            from app.coordination.event_router import emit_event
-            from app.distributed.data_events import DataEventType
+        from app.coordination.event_emission_helpers import safe_emit_event
 
-            await emit_event(
-                DataEventType.EXPORT_VALIDATION_FAILED,
-                {
-                    "config_key": config_key,
-                    "reason": reason,
-                    "timestamp": time.time(),
-                },
-            )
-        except Exception as e:
-            logger.debug(f"[AutoExportDaemon] Failed to emit validation failed event: {e}")
+        safe_emit_event(
+            "EXPORT_VALIDATION_FAILED",
+            {
+                "config_key": config_key,
+                "reason": reason,
+                "timestamp": time.time(),
+            },
+            context="AutoExportDaemon",
+        )
 
     async def _emit_export_started(
         self, config_key: str, games_pending: int
@@ -1241,31 +1238,25 @@ class AutoExportDaemon(HandlerBase):
 
         Sprint 4 (Jan 2, 2026): Track when exports are blocked by validation.
         """
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
 
-            parsed = parse_config_key(config_key)
-            board_type = parsed.board_type if parsed else config_key
-            num_players = parsed.num_players if parsed else 2
+        parsed = parse_config_key(config_key)
+        board_type = parsed.board_type if parsed else config_key
+        num_players = parsed.num_players if parsed else 2
 
-            emit_event(
-                DataEventType.EXPORT_VALIDATION_FAILED,
-                {
-                    "config_key": config_key,
-                    "board_type": board_type,
-                    "num_players": num_players,
-                    "reason": reason,
-                    "timestamp": time.time(),
-                    "source": "auto_export_daemon",
-                },
-            )
-            logger.debug(
-                f"[AutoExportDaemon] Emitted EXPORT_VALIDATION_FAILED for {config_key}"
-            )
-
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[AutoExportDaemon] Failed to emit validation failed event: {e}")
+        safe_emit_event(
+            "EXPORT_VALIDATION_FAILED",
+            {
+                "config_key": config_key,
+                "board_type": board_type,
+                "num_players": num_players,
+                "reason": reason,
+                "timestamp": time.time(),
+                "source": "auto_export_daemon",
+            },
+            context="AutoExportDaemon",
+            log_after=f"Emitted EXPORT_VALIDATION_FAILED for {config_key}",
+        )
 
     async def _run_cycle(self) -> None:
         """Main work loop iteration - called by HandlerBase at 5 minute intervals."""

@@ -1173,24 +1173,19 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
 
             # Jan 2026 Sprint 10: Emit TRAINING_BLOCKED_BY_QUALITY to trigger quality boost
             # This increases Gumbel budget in SelfplayScheduler for higher quality games
-            try:
-                from app.coordination.event_router import emit_event
-                from app.distributed.data_events import DataEventType
+            from app.coordination.event_emission_helpers import safe_emit_event
 
-                emit_event(
-                    DataEventType.TRAINING_BLOCKED_BY_QUALITY,
-                    {
-                        "config_key": config_key,
-                        "quality_score": 0.5 - (state.plateau_count * 0.1),  # Lower score with more plateaus
-                        "threshold": 0.7,
-                        "reason": f"plateau_{plateau_type}",
-                    },
-                )
-                logger.info(
-                    f"[FeedbackLoopController] Triggered quality boost for {config_key} (plateau)"
-                )
-            except (ImportError, AttributeError, TypeError) as e:
-                logger.debug(f"[FeedbackLoopController] Could not emit quality event: {e}")
+            safe_emit_event(
+                "TRAINING_BLOCKED_BY_QUALITY",
+                {
+                    "config_key": config_key,
+                    "quality_score": 0.5 - (state.plateau_count * 0.1),  # Lower score with more plateaus
+                    "threshold": 0.7,
+                    "reason": f"plateau_{plateau_type}",
+                },
+                context="FeedbackLoopController",
+                log_after=f"Triggered quality boost for {config_key} (plateau)",
+            )
 
             # If repeated plateaus, consider triggering hyperparameter search
             if state.plateau_count >= 3:
@@ -1360,26 +1355,21 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
             )
 
             # Emit HYPERPARAMETER_UPDATED event for training to pick up
-            try:
-                from app.coordination.event_router import emit_event
-                from app.distributed.data_events import DataEventType
+            from app.coordination.event_emission_helpers import safe_emit_event
 
-                emit_event(
-                    DataEventType.HYPERPARAMETER_UPDATED,
-                    {
-                        "config_key": config_key,
-                        "learning_rate_multiplier": lr_boost,
-                        "batch_size_multiplier": batch_reduction,
-                        "enable_cosine_annealing": True,
-                        "reason": f"plateau_count_{plateau_count}",
-                        "source": "FeedbackLoopController",
-                    },
-                )
-                logger.info(
-                    f"[FeedbackLoopController] Emitted HYPERPARAMETER_UPDATED for {config_key}"
-                )
-            except (ImportError, AttributeError, TypeError) as e:
-                logger.debug(f"[FeedbackLoopController] Could not emit hyperparameter event: {e}")
+            safe_emit_event(
+                "HYPERPARAMETER_UPDATED",
+                {
+                    "config_key": config_key,
+                    "learning_rate_multiplier": lr_boost,
+                    "batch_size_multiplier": batch_reduction,
+                    "enable_cosine_annealing": True,
+                    "reason": f"plateau_count_{plateau_count}",
+                    "source": "FeedbackLoopController",
+                },
+                context="FeedbackLoopController",
+                log_after=f"Emitted HYPERPARAMETER_UPDATED for {config_key}",
+            )
 
             # Also update state to track that we triggered hyperparam search
             state.last_hyperparam_search = time.time()

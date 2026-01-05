@@ -273,35 +273,32 @@ class SelfplayVelocityMixin:
             velocity: Current Elo velocity (Elo/hour)
             stall_count: Number of consecutive stall detections
         """
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
+        from app.coordination.event_emission_helpers import safe_emit_event
 
-            # Get current Elo if available
-            current_elo = 1500.0
-            if config_key in self._config_priorities:
-                current_elo = getattr(self._config_priorities[config_key], "current_elo", 1500.0)
+        # Get current Elo if available
+        current_elo = 1500.0
+        if config_key in self._config_priorities:
+            current_elo = getattr(self._config_priorities[config_key], "current_elo", 1500.0)
 
-            emit_event(
-                DataEventType.PLATEAU_DETECTED,
-                {
-                    "config_key": config_key,
-                    "current_elo": current_elo,
-                    "velocity": velocity,
-                    "stall_count": stall_count,
-                    "plateau_type": "velocity_stall",
-                    "source": "selfplay_scheduler",
-                    "recommendation": "trigger_curriculum_advance",
-                },
-            )
-            logger.warning(
-                f"[SelfplayScheduler] Emitted PLATEAU_DETECTED for {config_key} "
+        safe_emit_event(
+            "PLATEAU_DETECTED",
+            {
+                "config_key": config_key,
+                "current_elo": current_elo,
+                "velocity": velocity,
+                "stall_count": stall_count,
+                "plateau_type": "velocity_stall",
+                "source": "selfplay_scheduler",
+                "recommendation": "trigger_curriculum_advance",
+            },
+            context="SelfplayScheduler",
+            log_after=(
+                f"Emitted PLATEAU_DETECTED for {config_key} "
                 f"(velocity={velocity:.2f} Elo/hour, stall_count={stall_count}, "
                 f"current_elo={current_elo:.0f})"
-            )
-
-        except (ImportError, AttributeError, TypeError) as e:
-            logger.debug(f"[SelfplayScheduler] Could not emit PLATEAU_DETECTED: {e}")
+            ),
+            log_level=logging.WARNING,
+        )
 
     # =========================================================================
     # Exploration & Curriculum Handlers

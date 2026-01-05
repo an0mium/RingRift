@@ -73,6 +73,15 @@ from app.coordination.training_quality_gates import (
     DATA_STARVED_THRESHOLD,
     TRAINING_STALL_HOURS,
 )
+# Jan 4, 2026 - Sprint 17.9: Execution functions moved to training_execution.py
+from app.coordination.training_execution import (
+    TrainingExecutor,
+    TrainingExecutionConfig,
+    TrainingResult,
+    graceful_kill_process as _graceful_kill_process_impl,
+    emit_training_complete as _emit_training_complete_impl,
+    emit_training_failed as _emit_training_failed_impl,
+)
 from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
@@ -2582,22 +2591,19 @@ class TrainingTriggerDaemon(HandlerBase):
                 )
 
                 # Emit TRAINING_BLOCKED_BY_QUALITY event for feedback loop
-                try:
-                    from app.coordination.event_router import emit_event
-                    from app.distributed.data_events import DataEventType
+                from app.coordination.event_emission_helpers import safe_emit_event
 
-                    emit_event(
-                        DataEventType.TRAINING_BLOCKED_BY_QUALITY,
-                        {
-                            "config_key": config_key,
-                            "quality_score": quality,
-                            "threshold": quality_threshold,
-                            "reason": "pre_training_quality_gate",
-                            "source": "training_trigger_daemon",
-                        },
-                    )
-                except ImportError:
-                    pass
+                safe_emit_event(
+                    "TRAINING_BLOCKED_BY_QUALITY",
+                    {
+                        "config_key": config_key,
+                        "quality_score": quality,
+                        "threshold": quality_threshold,
+                        "reason": "pre_training_quality_gate",
+                        "source": "training_trigger_daemon",
+                    },
+                    context="TrainingTriggerDaemon",
+                )
 
                 return False, f"quality too low ({quality:.2f} < {quality_threshold})"
 
@@ -3449,25 +3455,20 @@ class TrainingTriggerDaemon(HandlerBase):
         try:
             # Jan 3, 2026: Emit TRAINING_TIMEOUT_REACHED before killing to allow
             # other systems (curriculum, feedback loop) to react
-            try:
-                from app.coordination.event_router import emit_event
-                from app.distributed.data_events import DataEventType
+            from app.coordination.event_emission_helpers import safe_emit_event
 
-                emit_event(
-                    DataEventType.TRAINING_TIMEOUT_REACHED,
-                    {
-                        "config_key": config_key,
-                        "pid": pid,
-                        "timeout_hours": self.config.training_timeout_hours,
-                        "grace_seconds": grace_seconds,
-                        "timestamp": time.time(),
-                    },
-                )
-                logger.debug(
-                    f"[TrainingTriggerDaemon] Emitted TRAINING_TIMEOUT_REACHED for {config_key}"
-                )
-            except Exception as e:
-                logger.warning(f"[TrainingTriggerDaemon] Failed to emit timeout event: {e}")
+            safe_emit_event(
+                "TRAINING_TIMEOUT_REACHED",
+                {
+                    "config_key": config_key,
+                    "pid": pid,
+                    "timeout_hours": self.config.training_timeout_hours,
+                    "grace_seconds": grace_seconds,
+                    "timestamp": time.time(),
+                },
+                context="TrainingTriggerDaemon",
+                log_after=f"Emitted TRAINING_TIMEOUT_REACHED for {config_key}",
+            )
 
             # First, send SIGTERM for graceful shutdown
             os.kill(pid, signal.SIGTERM)
@@ -3816,4 +3817,9 @@ __all__ = [
     "get_training_trigger_daemon",
     "reset_training_trigger_daemon",
     "start_training_trigger_daemon",
+    # Jan 4, 2026 - Sprint 17.9: Re-exports for backward compatibility
+    # Prefer importing directly from training_execution.py
+    "TrainingExecutor",
+    "TrainingExecutionConfig",
+    "TrainingResult",
 ]
