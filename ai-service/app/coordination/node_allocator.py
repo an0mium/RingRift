@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Callable, Protocol
