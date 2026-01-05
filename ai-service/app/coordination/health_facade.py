@@ -676,8 +676,8 @@ class ClusterHealthDashboard(SingletonMixin):
             return DataSyncHealthSummary(
                 s3_healthy=metrics.get("s3_backups_failed", 0) < 5,
                 owc_healthy=metrics.get("owc_backups_failed", 0) < 5,
-                last_s3_backup_time=0.0,  # TODO: Track in orchestrator
-                last_owc_backup_time=0.0,  # TODO: Track in orchestrator
+                last_s3_backup_time=metrics.get("last_s3_backup_time", 0.0),
+                last_owc_backup_time=metrics.get("last_owc_backup_time", 0.0),
                 s3_backups_succeeded=metrics.get("s3_backups_succeeded", 0),
                 s3_backups_failed=metrics.get("s3_backups_failed", 0),
                 owc_backups_succeeded=metrics.get("owc_backups_succeeded", 0),

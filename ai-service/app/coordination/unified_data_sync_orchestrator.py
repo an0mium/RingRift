@@ -212,6 +212,7 @@ class UnifiedDataSyncOrchestrator(HandlerBase):
                     status.last_s3_backup = time.time()
                     status.pending_s3 = False
                     self._metrics.s3_backups_succeeded += 1
+                    self._metrics.last_s3_backup_time = status.last_s3_backup
 
                 # Update OWC status
                 if detail.get("owc_path"):
@@ -220,6 +221,7 @@ class UnifiedDataSyncOrchestrator(HandlerBase):
                     status.last_owc_backup = time.time()
                     status.pending_owc = False
                     self._metrics.owc_backups_succeeded += 1
+                    self._metrics.last_owc_backup_time = status.last_owc_backup
 
         except Exception as e:
             logger.warning(
@@ -451,6 +453,8 @@ class UnifiedDataSyncOrchestrator(HandlerBase):
             "owc_backups_failed": self._metrics.owc_backups_failed,
             "under_replicated_count": self._metrics.under_replicated_count,
             "last_update": self._metrics.last_update,
+            "last_s3_backup_time": self._metrics.last_s3_backup_time,
+            "last_owc_backup_time": self._metrics.last_owc_backup_time,
         }
 
     def health_check(self) -> "HealthCheckResult":
@@ -488,6 +492,8 @@ class OrchestratorMetrics:
     owc_backups_failed: int = 0
     under_replicated_count: int = 0
     last_update: float = 0.0
+    last_s3_backup_time: float = 0.0  # Session 17.22: Track last successful S3 backup
+    last_owc_backup_time: float = 0.0  # Session 17.22: Track last successful OWC backup
 
 
 # Singleton instance
