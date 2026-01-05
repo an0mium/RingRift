@@ -207,6 +207,13 @@ class EvaluationConfig:
     backpressure_threshold: int = 70  # Emit backpressure at this depth (increased from 40)
     backpressure_release_threshold: int = 35  # Release backpressure at this depth (increased from 20)
 
+    # Session 17.24 (Jan 2026): Backpressure hysteresis to prevent rapid toggling
+    # When queue hovers near threshold, it can toggle frequently. Hysteresis adds:
+    # 1. Cooldown after release - don't re-activate for N seconds
+    # 2. Minimum stable time before release - must be below threshold for N seconds
+    backpressure_reactivation_cooldown: float = 60.0  # Seconds before re-activation allowed
+    backpressure_stable_release_time: float = 30.0  # Seconds below threshold before release
+
     # December 30, 2025: Multi-harness evaluation
     # When enabled, models are evaluated under all compatible harnesses (GUMBEL_MCTS, MINIMAX, etc.)
     # This produces composite Elo ratings per (model, harness) combination
@@ -259,7 +266,11 @@ class EvaluationDaemon(BaseEventHandler):
             "backpressure_activations": 0,
             "backpressure_releases": 0,
             "queue_full_rejections": 0,
+            "hysteresis_skips": 0,  # Session 17.24: Skips due to hysteresis
         }
+        # Session 17.24 (Jan 2026): Hysteresis state tracking
+        self._last_backpressure_release_time: float = 0.0  # Time of last release
+        self._below_threshold_since: float = 0.0  # When queue dropped below release threshold
         # December 29, 2025: Retry queue for failed evaluations
         # Tuple: (model_path, board_type, num_players, attempts, next_retry_time)
         self._retry_queue: deque[tuple[str, str, int, int, float]] = deque()
@@ -506,8 +517,12 @@ class EvaluationDaemon(BaseEventHandler):
                 return
 
             # Check and emit backpressure if needed
+            # Session 17.24: Respect hysteresis cooldown before re-activation
             if queue_depth >= self.config.backpressure_threshold and not self._backpressure_active:
-                self._emit_backpressure(queue_depth, activate=True)
+                if self._should_activate_backpressure():
+                    self._emit_backpressure(queue_depth, activate=True)
+                else:
+                    self._backpressure_stats["hysteresis_skips"] += 1
 
             # Queue the evaluation with source and priority
             await self._evaluation_queue.put({
@@ -601,8 +616,12 @@ class EvaluationDaemon(BaseEventHandler):
                 )
                 return
 
+            # Session 17.24: Respect hysteresis cooldown before re-activation
             if queue_depth >= self.config.backpressure_threshold and not self._backpressure_active:
-                self._emit_backpressure(queue_depth, activate=True)
+                if self._should_activate_backpressure():
+                    self._emit_backpressure(queue_depth, activate=True)
+                else:
+                    self._backpressure_stats["hysteresis_skips"] += 1
 
             # Queue the evaluation
             await self._evaluation_queue.put({
@@ -699,9 +718,14 @@ class EvaluationDaemon(BaseEventHandler):
                 finally:
                     self._active_evaluations.discard(model_path)
                     # December 29, 2025 (Phase 4): Check for backpressure release
+                    # Session 17.24: Require stable time below threshold before release
                     queue_depth = self._evaluation_queue.qsize()
                     if self._backpressure_active and queue_depth <= self.config.backpressure_release_threshold:
-                        self._emit_backpressure(queue_depth, activate=False)
+                        if self._should_release_backpressure():
+                            self._emit_backpressure(queue_depth, activate=False)
+                    elif queue_depth > self.config.backpressure_release_threshold:
+                        # Queue is above release threshold - reset stability tracking
+                        self._below_threshold_since = 0.0
 
             except asyncio.TimeoutError:
                 continue  # Normal - check running status
@@ -1308,6 +1332,62 @@ class EvaluationDaemon(BaseEventHandler):
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Failed to record gauntlet complete: {e}")
 
+    def _should_activate_backpressure(self) -> bool:
+        """Session 17.24: Check if backpressure can be activated respecting hysteresis.
+
+        After backpressure is released, there's a cooldown period before it can
+        be re-activated. This prevents rapid toggling when queue hovers near threshold.
+
+        Returns:
+            True if backpressure can be activated, False if in cooldown.
+        """
+        if self._last_backpressure_release_time == 0.0:
+            # Never released before - OK to activate
+            return True
+
+        elapsed_since_release = time.time() - self._last_backpressure_release_time
+        cooldown = self.config.backpressure_reactivation_cooldown
+
+        if elapsed_since_release < cooldown:
+            logger.debug(
+                f"[EvaluationDaemon] Backpressure activation skipped (hysteresis): "
+                f"elapsed={elapsed_since_release:.1f}s < cooldown={cooldown:.0f}s"
+            )
+            return False
+
+        return True
+
+    def _should_release_backpressure(self) -> bool:
+        """Session 17.24: Check if backpressure can be released respecting hysteresis.
+
+        Queue must stay below release threshold for a minimum stable time before
+        releasing. This prevents rapid toggling when queue hovers near threshold.
+
+        Returns:
+            True if backpressure can be released, False if not stable long enough.
+        """
+        now = time.time()
+        stable_time = self.config.backpressure_stable_release_time
+
+        # Track when we first went below threshold
+        if self._below_threshold_since == 0.0:
+            self._below_threshold_since = now
+            logger.debug(
+                f"[EvaluationDaemon] Queue dropped below release threshold, "
+                f"starting stable period ({stable_time:.0f}s required)"
+            )
+            return False
+
+        elapsed_below = now - self._below_threshold_since
+        if elapsed_below < stable_time:
+            logger.debug(
+                f"[EvaluationDaemon] Backpressure release waiting: "
+                f"elapsed={elapsed_below:.1f}s < stable_time={stable_time:.0f}s"
+            )
+            return False
+
+        return True
+
     def _emit_backpressure(self, queue_depth: int, activate: bool) -> None:
         """Emit backpressure event to signal training should pause/resume.
 
@@ -1326,6 +1406,8 @@ class EvaluationDaemon(BaseEventHandler):
             if activate:
                 self._backpressure_active = True
                 self._backpressure_stats["backpressure_activations"] += 1
+                # Session 17.24: Reset below-threshold tracking when activating
+                self._below_threshold_since = 0.0
                 event_type = "EVALUATION_BACKPRESSURE"
                 logger.warning(
                     f"[EvaluationDaemon] Backpressure ACTIVATED: queue_depth={queue_depth}, "
@@ -1334,6 +1416,9 @@ class EvaluationDaemon(BaseEventHandler):
             else:
                 self._backpressure_active = False
                 self._backpressure_stats["backpressure_releases"] += 1
+                # Session 17.24: Track release time for hysteresis cooldown
+                self._last_backpressure_release_time = time.time()
+                self._below_threshold_since = 0.0
                 event_type = "EVALUATION_BACKPRESSURE_RELEASED"
                 logger.info(
                     f"[EvaluationDaemon] Backpressure RELEASED: queue_depth={queue_depth}, "

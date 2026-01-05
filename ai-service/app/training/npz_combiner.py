@@ -31,12 +31,16 @@ Usage:
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+# Session 17.24: Default parallelism for NPZ loading
+NPZ_LOAD_PARALLELISM = 4
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +113,77 @@ class CombineResult:
     samples_excluded: int = 0  # Low quality or duplicates
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class LoadedNPZData:
+    """Session 17.24: Holds data loaded from a single NPZ file for parallel loading."""
+
+    path: Path
+    arrays: dict[str, np.ndarray]
+    quality_scores: np.ndarray | None
+    game_ids: np.ndarray | None
+    n_samples: int
+    weight: float
+    error: str | None = None
+
+
+def _load_single_npz(
+    path: Path,
+    weight: float,
+    need_game_ids: bool,
+) -> LoadedNPZData:
+    """Session 17.24: Load a single NPZ file for parallel processing.
+
+    This function is designed to be called from a ThreadPoolExecutor
+    to enable parallel I/O-bound NPZ loading.
+
+    Args:
+        path: Path to the NPZ file
+        weight: Freshness weight for this file
+        need_game_ids: Whether to extract game_ids for deduplication
+
+    Returns:
+        LoadedNPZData with all arrays and metadata
+    """
+    try:
+        with np.load(path, allow_pickle=True) as data:
+            # Extract all arrays into memory
+            arrays = {key: data[key].copy() for key in data.files}
+
+            # Get quality scores if available
+            quality_scores = arrays.get("quality_score")
+
+            # Get game IDs for deduplication if requested
+            game_ids = arrays.get("game_id") if need_game_ids else None
+
+            # Get sample count from features or values
+            if "features" in arrays:
+                n_samples = len(arrays["features"])
+            elif "values" in arrays:
+                n_samples = len(arrays["values"])
+            else:
+                n_samples = 0
+
+            return LoadedNPZData(
+                path=path,
+                arrays=arrays,
+                quality_scores=quality_scores,
+                game_ids=game_ids,
+                n_samples=n_samples,
+                weight=weight,
+            )
+    except (OSError, ValueError) as e:
+        logger.warning(f"Failed to load {path}: {e}")
+        return LoadedNPZData(
+            path=path,
+            arrays={},
+            quality_scores=None,
+            game_ids=None,
+            n_samples=0,
+            weight=weight,
+            error=str(e),
+        )
 
 
 def extract_npz_metadata(npz_path: Path) -> NPZMetadata:
@@ -348,78 +423,104 @@ def combine_npz_files(
         if weight > 1.0:
             logger.info(f"{meta.path.name}: freshness weight = {weight:.2f}x")
 
-    # Collect samples with weighting
+    # Session 17.24: Parallel NPZ loading for improved throughput
+    # Load all files in parallel, then process sequentially for deduplication
     all_arrays: dict[str, list[np.ndarray]] = {}
     samples_by_source: dict[str, int] = {}
     samples_excluded = 0
     seen_game_ids: set[str] = set()
 
-    for meta in metadata_list:
-        path = meta.path
-        weight = file_weights[str(path)]
+    # Prepare loading tasks
+    load_tasks = [
+        (meta.path, file_weights[str(meta.path)], config.deduplicate)
+        for meta in metadata_list
+    ]
 
-        with np.load(path, allow_pickle=True) as data:
-            # Get quality scores if available
-            quality_scores = None
-            if "quality_score" in data.files:
-                quality_scores = data["quality_score"]
+    # Load NPZ files in parallel (I/O-bound operation)
+    loaded_data: list[LoadedNPZData] = []
+    num_files = len(load_tasks)
+    parallelism = min(NPZ_LOAD_PARALLELISM, num_files)
 
-            # Get game IDs for deduplication
-            game_ids = None
-            if config.deduplicate and "game_id" in data.files:
-                game_ids = data["game_id"]
+    if num_files > 1 and parallelism > 1:
+        logger.info(f"Loading {num_files} NPZ files with parallelism={parallelism}")
+        with ThreadPoolExecutor(max_workers=parallelism) as executor:
+            futures = {
+                executor.submit(_load_single_npz, path, weight, need_ids): path
+                for path, weight, need_ids in load_tasks
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                if result.error is None:
+                    loaded_data.append(result)
+    else:
+        # Single file or no parallelism - load directly
+        for path, weight, need_ids in load_tasks:
+            result = _load_single_npz(path, weight, need_ids)
+            if result.error is None:
+                loaded_data.append(result)
 
-            # Build mask for samples to include
-            n_samples = meta.sample_count
-            include_mask = np.ones(n_samples, dtype=bool)
+    # Sort by original order (metadata_list order) for consistent deduplication
+    path_order = {meta.path: i for i, meta in enumerate(metadata_list)}
+    loaded_data.sort(key=lambda x: path_order.get(x.path, 999))
 
-            # Filter by quality
-            if quality_scores is not None and config.min_quality_score > 0:
-                include_mask &= (quality_scores >= config.min_quality_score)
+    # Process loaded data sequentially (deduplication requires order)
+    for npz_data in loaded_data:
+        path = npz_data.path
+        weight = npz_data.weight
+        arrays = npz_data.arrays
+        quality_scores = npz_data.quality_scores
+        game_ids = npz_data.game_ids
+        n_samples = npz_data.n_samples
 
-            # Deduplicate
-            if game_ids is not None:
-                for i, gid in enumerate(game_ids):
-                    gid_str = str(gid)
-                    if gid_str in seen_game_ids:
-                        include_mask[i] = False
-                    else:
-                        seen_game_ids.add(gid_str)
+        # Build mask for samples to include
+        include_mask = np.ones(n_samples, dtype=bool)
 
-            # Count exclusions
-            n_excluded = n_samples - np.sum(include_mask)
-            samples_excluded += n_excluded
+        # Filter by quality
+        if quality_scores is not None and config.min_quality_score > 0:
+            include_mask &= (quality_scores >= config.min_quality_score)
 
-            # Apply freshness weighting via oversampling
-            if weight > 1.0:
-                # Duplicate included indices by weight
-                include_indices = np.where(include_mask)[0]
-                n_to_sample = int(len(include_indices) * weight)
-                rng = np.random.default_rng()
-                sampled_indices = rng.choice(
-                    include_indices,
-                    size=min(n_to_sample, len(include_indices) * 3),  # Cap at 3x
-                    replace=True,
-                )
-            else:
-                sampled_indices = np.where(include_mask)[0]
-
-            # Collect arrays
-            for key in data.files:
-                if key not in all_arrays:
-                    all_arrays[key] = []
-
-                arr = data[key]
-                if len(arr.shape) >= 1 and arr.shape[0] == n_samples:
-                    # This is a per-sample array
-                    all_arrays[key].append(arr[sampled_indices])
+        # Deduplicate (must be sequential to track seen_game_ids)
+        if game_ids is not None:
+            for i, gid in enumerate(game_ids):
+                gid_str = str(gid)
+                if gid_str in seen_game_ids:
+                    include_mask[i] = False
                 else:
-                    # This is metadata (scalar or fixed array)
-                    # Only keep from first file
-                    if len(all_arrays[key]) == 0:
-                        all_arrays[key].append(arr)
+                    seen_game_ids.add(gid_str)
 
-            samples_by_source[path.name] = len(sampled_indices)
+        # Count exclusions
+        n_excluded = n_samples - np.sum(include_mask)
+        samples_excluded += n_excluded
+
+        # Apply freshness weighting via oversampling
+        if weight > 1.0:
+            # Duplicate included indices by weight
+            include_indices = np.where(include_mask)[0]
+            n_to_sample = int(len(include_indices) * weight)
+            rng = np.random.default_rng()
+            sampled_indices = rng.choice(
+                include_indices,
+                size=min(n_to_sample, len(include_indices) * 3),  # Cap at 3x
+                replace=True,
+            )
+        else:
+            sampled_indices = np.where(include_mask)[0]
+
+        # Collect arrays from pre-loaded data
+        for key, arr in arrays.items():
+            if key not in all_arrays:
+                all_arrays[key] = []
+
+            if len(arr.shape) >= 1 and arr.shape[0] == n_samples:
+                # This is a per-sample array
+                all_arrays[key].append(arr[sampled_indices])
+            else:
+                # This is metadata (scalar or fixed array)
+                # Only keep from first file
+                if len(all_arrays[key]) == 0:
+                    all_arrays[key].append(arr)
+
+        samples_by_source[path.name] = len(sampled_indices)
 
     # Concatenate arrays
     save_kwargs = {}

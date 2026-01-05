@@ -66,6 +66,16 @@ except ImportError:
             return 128  # Large boards need smaller batches
         return 256  # Small boards can use larger batches
 
+# Session 17.24 (Jan 2026): Node queue tracking for load balancing
+try:
+    from app.coordination.node_allocator import get_node_queue_tracker
+    HAS_QUEUE_TRACKER = True
+except ImportError:
+    HAS_QUEUE_TRACKER = False
+    def get_node_queue_tracker():
+        """Fallback when node_allocator not available."""
+        return None
+
 # Import mixin for consolidated event handling (Dec 28, 2025)
 from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
 
@@ -598,6 +608,15 @@ class JobManager(EventSubscriptionMixin):
                         # Register the spawn for verification tracking
                         config_key = f"{board_type}_{num_players}p"
                         self._register_spawn(job_id, node_id, config_key)
+
+                        # Session 17.24: Track job dispatch for load balancing
+                        if HAS_QUEUE_TRACKER:
+                            try:
+                                tracker = get_node_queue_tracker()
+                                if tracker:
+                                    tracker.on_job_dispatched(node_id)
+                            except Exception:
+                                pass  # Non-critical, don't fail dispatch
 
                         # Track the job
                         # Session 17.22: Include model_version for architecture feedback loop
@@ -1975,6 +1994,17 @@ class JobManager(EventSubscriptionMixin):
                             error=error_msg,
                             duration_seconds=duration,
                         )
+
+                    # Session 17.24: Track job completion for load balancing
+                    job_node_id = self.active_jobs["selfplay"][job_id].get("node_id")
+                    if HAS_QUEUE_TRACKER and job_node_id:
+                        try:
+                            tracker = get_node_queue_tracker()
+                            if tracker:
+                                tracker.on_job_completed(job_node_id)
+                        except Exception:
+                            pass  # Non-critical
+
                     # Remove from active jobs
                     del self.active_jobs["selfplay"][job_id]
 
@@ -1985,6 +2015,15 @@ class JobManager(EventSubscriptionMixin):
             self._unregister_job_heartbeat(job_id)
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
+                    # Session 17.24: Track job completion for load balancing
+                    job_node_id = self.active_jobs["selfplay"][job_id].get("node_id")
+                    if HAS_QUEUE_TRACKER and job_node_id:
+                        try:
+                            tracker = get_node_queue_tracker()
+                            if tracker:
+                                tracker.on_job_completed(job_node_id)
+                        except Exception:
+                            pass  # Non-critical
                     self.active_jobs["selfplay"][job_id]["status"] = "timeout"
                     del self.active_jobs["selfplay"][job_id]
             # Dec 30, 2025 (P5.3): Mark job as failed in Raft
@@ -2001,6 +2040,15 @@ class JobManager(EventSubscriptionMixin):
             self._unregister_job_heartbeat(job_id)
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
+                    # Session 17.24: Track job completion for load balancing
+                    job_node_id = self.active_jobs["selfplay"][job_id].get("node_id")
+                    if HAS_QUEUE_TRACKER and job_node_id:
+                        try:
+                            tracker = get_node_queue_tracker()
+                            if tracker:
+                                tracker.on_job_completed(job_node_id)
+                        except Exception:
+                            pass  # Non-critical
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
                     del self.active_jobs["selfplay"][job_id]
             # Dec 30, 2025 (P5.3): Mark job as failed in Raft
@@ -2016,6 +2064,15 @@ class JobManager(EventSubscriptionMixin):
             self._unregister_job_heartbeat(job_id)
             with self.jobs_lock:
                 if job_id in self.active_jobs.get("selfplay", {}):
+                    # Session 17.24: Track job completion for load balancing
+                    job_node_id = self.active_jobs["selfplay"][job_id].get("node_id")
+                    if HAS_QUEUE_TRACKER and job_node_id:
+                        try:
+                            tracker = get_node_queue_tracker()
+                            if tracker:
+                                tracker.on_job_completed(job_node_id)
+                        except Exception:
+                            pass  # Non-critical
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
                     del self.active_jobs["selfplay"][job_id]
             # Dec 30, 2025 (P5.3): Mark job as failed in Raft
@@ -2427,6 +2484,15 @@ class JobManager(EventSubscriptionMixin):
                     config_key = f"{board_type}_{num_players}p"
                     worker_job_id = f"{job_id}_{worker_id}"
                     self._register_spawn(worker_job_id, worker_id, config_key)
+
+                    # Session 17.24: Track job dispatch for load balancing
+                    if HAS_QUEUE_TRACKER:
+                        try:
+                            tracker = get_node_queue_tracker()
+                            if tracker:
+                                tracker.on_job_dispatched(worker_id)
+                        except Exception:
+                            pass  # Non-critical
 
         # Phase 15.1.7: Check for failed dispatches and escalate if needed
         failed_workers = [

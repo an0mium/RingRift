@@ -353,6 +353,9 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
 
         Jan 3, 2026 Session 7: Subscribe to partition healing events to coordinate
         P2P recovery with healing operations. Prevents restart during active healing.
+
+        Jan 5, 2026 (Sprint 17.9): Subscribe to DAEMON_FAILURE_CLASSIFIED events
+        from DaemonHealthAnalyzer for unified failure response coordination.
         """
         return {
             "QUORUM_LOST": self._on_quorum_lost,
@@ -363,6 +366,8 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
             "PARTITION_HEALING_STARTED": self._on_partition_healing_started,
             "PARTITION_HEALED": self._on_partition_healed,
             "PARTITION_HEALING_FAILED": self._on_partition_healing_failed,
+            # Jan 5, 2026 (Sprint 17.9): Unified failure classification
+            "DAEMON_FAILURE_CLASSIFIED": self._on_daemon_failure_classified,
         }
 
     async def _on_quorum_lost(self, event: Any) -> None:
@@ -642,6 +647,98 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
                 f"failures - triggering P2P restart"
             )
             await self._restart_p2p(force=True)
+
+    async def _on_daemon_failure_classified(self, event: Any) -> None:
+        """Handle DAEMON_FAILURE_CLASSIFIED - unified failure response coordination.
+
+        Jan 5, 2026 (Sprint 17.9): Subscribes to DaemonHealthAnalyzer's classification
+        events to coordinate recovery actions based on failure severity.
+
+        Actions taken based on failure category:
+        - TRANSIENT: Log debug, no action (expected to self-recover)
+        - DEGRADED: Log warning, track for monitoring
+        - PERSISTENT: Log error, emit recovery request if needed
+        - CRITICAL: Log critical, trigger immediate recovery actions
+
+        For P2P-related daemons (P2P_*, AUTO_SYNC, etc.), critical failures
+        may trigger P2P restart to restore cluster connectivity.
+        """
+        daemon_name = event.get("daemon_name", "unknown")
+        category = event.get("category", "transient")
+        recommended_action = event.get("recommended_action", "monitor")
+        consecutive_failures = event.get("consecutive_failures", 0)
+        needs_intervention = event.get("needs_intervention", False)
+        hostname = event.get("hostname", "unknown")
+
+        # Categorize response based on failure severity
+        if category == "critical":
+            logger.critical(
+                f"[P2PRecovery] CRITICAL daemon failure: {daemon_name} "
+                f"(failures={consecutive_failures}, host={hostname}, "
+                f"action={recommended_action})"
+            )
+
+            # Check if this is a P2P-related daemon that warrants cluster recovery
+            p2p_related_daemons = {
+                "P2P_ORCHESTRATOR",
+                "P2P_RECOVERY",
+                "AUTO_SYNC",
+                "GOSSIP_SYNC",
+                "ELO_SYNC",
+                "SYNC_ROUTER",
+            }
+            if daemon_name.upper() in p2p_related_daemons:
+                logger.error(
+                    f"[P2PRecovery] Critical failure in P2P-related daemon {daemon_name} "
+                    f"- considering P2P restart"
+                )
+                # Only restart if not already healing
+                if not self._is_healing_in_progress():
+                    await self._trigger_p2p_restart(
+                        reason=f"critical_daemon_failure:{daemon_name}",
+                        force=False,  # Don't force, allow cooldown
+                    )
+
+            # Emit recovery event for monitoring
+            self._try_emit_daemon_recovery_event(daemon_name, category, recommended_action)
+
+        elif category == "persistent":
+            logger.error(
+                f"[P2PRecovery] Persistent daemon failure: {daemon_name} "
+                f"(failures={consecutive_failures}, action={recommended_action})"
+            )
+            # Track persistent failures for trending
+            self._persistent_failure_count = getattr(self, "_persistent_failure_count", 0) + 1
+
+        elif category == "degraded":
+            logger.warning(
+                f"[P2PRecovery] Degraded daemon: {daemon_name} "
+                f"(action={recommended_action})"
+            )
+
+        else:  # transient
+            logger.debug(
+                f"[P2PRecovery] Transient daemon failure: {daemon_name} "
+                f"(expected to self-recover)"
+            )
+
+    def _try_emit_daemon_recovery_event(
+        self, daemon_name: str, category: str, recommended_action: str
+    ) -> None:
+        """Emit event for daemon recovery action - best effort."""
+        try:
+            from app.distributed.data_events import DataEventType, emit_data_event
+
+            emit_data_event(
+                DataEventType.P2P_RECOVERY_STARTED,
+                trigger="daemon_failure_classified",
+                daemon_name=daemon_name,
+                failure_category=category,
+                recommended_action=recommended_action,
+                source="P2PRecoveryDaemon",
+            )
+        except Exception as e:
+            logger.debug(f"Failed to emit daemon recovery event: {e}")
 
     def _is_healing_in_progress(self) -> bool:
         """Check if partition healing is in progress (with timeout protection).
