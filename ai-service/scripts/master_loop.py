@@ -1181,6 +1181,10 @@ class MasterLoopController:
             DaemonType.AUTO_PROMOTION,
             DaemonType.TOURNAMENT_DAEMON,
             DaemonType.CURRICULUM_INTEGRATION,
+            # January 5, 2026 (Task 8.7): Cascade training orchestrator
+            # Automates transfer learning: 2p→3p→4p when Elo thresholds are met
+            # Accelerates multiplayer training by starting from learned features
+            DaemonType.CASCADE_TRAINING,
             DaemonType.NODE_RECOVERY,
             DaemonType.TRAINING_NODE_WATCHER,
             DaemonType.QUALITY_MONITOR,

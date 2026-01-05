@@ -159,6 +159,11 @@ from .autonomous_queue_loop import (
     AutonomousQueueState,
 )
 from .leader_probe_loop import LeaderProbeLoop
+from .relay_health_loop import (
+    RelayHealthConfig,
+    RelayHealthLoop,
+    RelayHealthStatus,
+)
 
 __all__ = [
     # Base
@@ -266,4 +271,8 @@ __all__ = [
     "AutonomousQueueState",
     # Leader Probe (Jan 4, 2026 - Phase 5 P2P Resilience)
     "LeaderProbeLoop",
+    # Relay Health (Jan 5, 2026 - Task 8.5)
+    "RelayHealthConfig",
+    "RelayHealthLoop",
+    "RelayHealthStatus",
 ]

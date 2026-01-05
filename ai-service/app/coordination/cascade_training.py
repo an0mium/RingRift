@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.event_utils import make_config_key, parse_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.distributed.data_events import DataEventType
 
 if TYPE_CHECKING:
     from app.coordination.event_router import UnifiedEventRouter
@@ -261,7 +262,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
 
             # Emit event to trigger training with transferred weights
             safe_emit_event(
-                "TRAINING_REQUESTED",
+                DataEventType.TRAINING_REQUESTED.value,
                 {
                     "config_key": config_key,
                     "board_type": board_type,
@@ -278,7 +279,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
         except (OSError, RuntimeError, ValueError, TypeError, asyncio.CancelledError) as e:
             logger.error(f"[CascadeTraining] Transfer failed: {e}")
             safe_emit_event(
-                "CASCADE_TRANSFER_FAILED",
+                DataEventType.CASCADE_TRANSFER_FAILED.value,
                 {
                     "config_key": config_key,
                     "board_type": board_type,
@@ -420,7 +421,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
 
         # Emit event to trigger transfer
         safe_emit_event(
-            "CASCADE_TRANSFER_TRIGGERED",
+            DataEventType.CASCADE_TRANSFER_TRIGGERED.value,
             {
                 "board_type": board_type,
                 "source_players": source_players,
@@ -502,7 +503,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
         logger.info(f"[CascadeTraining] Requesting training for {config_key}")
 
         safe_emit_event(
-            "TRAINING_REQUESTED",
+            DataEventType.TRAINING_REQUESTED.value,
             {
                 "config_key": config_key,
                 "board_type": board_type,

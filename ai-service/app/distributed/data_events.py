@@ -130,6 +130,12 @@ class DataEventType(Enum):
     TRAINING_TIMEOUT_REACHED = "training_timeout_reached"  # Jan 3, 2026: Training exceeded time limit
     TRAINING_DATA_RECOVERED = "training_data_recovered"  # Jan 3, 2026 Sprint 13.3: NPZ re-exported after corruption
     TRAINING_DATA_RECOVERY_FAILED = "training_data_recovery_failed"  # Jan 3, 2026 Sprint 13.3: NPZ re-export failed
+    TRAINING_REQUESTED = "training_requested"  # Jan 5, 2026: Request training for a config (from cascade/scheduler)
+
+    # Cascade training events (Jan 5, 2026 - Task 8.7: Cross-architecture curriculum)
+    # Automates transfer learning: 2p → 3p → 4p when Elo thresholds are met
+    CASCADE_TRANSFER_TRIGGERED = "cascade_transfer_triggered"  # Transfer learning triggered between player counts
+    CASCADE_TRANSFER_FAILED = "cascade_transfer_failed"  # Transfer learning failed
 
     # Evaluation events
     EVALUATION_STARTED = "evaluation_started"
