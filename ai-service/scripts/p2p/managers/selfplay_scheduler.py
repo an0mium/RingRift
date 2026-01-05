@@ -91,6 +91,19 @@ SYSTEM_RESERVED_MEMORY_GB = 4.0
 # Minimum free memory to maintain after job allocation
 MIN_FREE_MEMORY_GB = 2.0
 
+# Session 17.34: Multi-config per node constants
+# Large GPUs can run multiple different configs simultaneously for better utilization
+# VRAM thresholds (GB) -> max concurrent distinct configs
+MAX_CONCURRENT_CONFIGS_BY_VRAM: dict[int, int] = {
+    96: 3,  # GH200 96GB: 3 concurrent configs (improved GPU utilization)
+    80: 2,  # A100/H100 80GB: 2 concurrent configs
+    48: 2,  # L40S 48GB: 2 concurrent configs
+    40: 1,  # A100 40GB: 1 config (tighter memory)
+    24: 1,  # RTX 4090/3090: 1 config
+}
+# Default for GPUs not in the list
+DEFAULT_MAX_CONCURRENT_CONFIGS = 1
+
 
 @dataclass
 class DiversityMetrics:
@@ -492,6 +505,7 @@ class SelfplayScheduler(EventSubscriptionMixin):
         get_max_selfplay_for_node_fn: Callable[..., int] | None = None,
         get_hybrid_selfplay_limits_fn: Callable[..., dict[str, int]] | None = None,
         is_emergency_active_fn: Callable[[], bool] | None = None,
+        get_active_configs_for_node_fn: Callable[[str], list[str]] | None = None,
         verbose: bool = False,
     ):
         """Initialize the SelfplayScheduler.
@@ -511,6 +525,8 @@ class SelfplayScheduler(EventSubscriptionMixin):
             get_max_selfplay_for_node_fn: Function to get max selfplay jobs for node
             get_hybrid_selfplay_limits_fn: Function to get hybrid selfplay limits
             is_emergency_active_fn: Function to check if emergency safeguards are active
+            get_active_configs_for_node_fn: Function to get active config keys running on a node
+                (Session 17.34 - multi-config per node support)
             verbose: Enable verbose logging
         """
         self.get_cluster_elo = get_cluster_elo_fn or (lambda: {})
@@ -529,6 +545,8 @@ class SelfplayScheduler(EventSubscriptionMixin):
         self.get_max_selfplay_for_node = get_max_selfplay_for_node_fn
         self.get_hybrid_selfplay_limits = get_hybrid_selfplay_limits_fn
         self.is_emergency_active = is_emergency_active_fn
+        # Session 17.34: Multi-config per node support
+        self.get_active_configs_for_node = get_active_configs_for_node_fn
         self.verbose = verbose
 
         # Diversity tracking
@@ -1436,6 +1454,129 @@ class SelfplayScheduler(EventSubscriptionMixin):
             )
 
         return cpu_compatible
+
+    # =========================================================================
+    # Multi-Config Per Node Support (Session 17.34)
+    # =========================================================================
+
+    def _get_max_concurrent_configs(self, node: "NodeInfo") -> int:
+        """Get maximum concurrent distinct configs for a node based on GPU VRAM.
+
+        Session 17.34: Large GPUs can run multiple different selfplay configs
+        simultaneously for better GPU utilization. This method returns how many
+        distinct configs a node should run concurrently.
+
+        Args:
+            node: Node information object
+
+        Returns:
+            Maximum number of distinct configs to run concurrently (1-3)
+        """
+        if not self._node_has_gpu(node):
+            # CPU nodes only run one config
+            return 1
+
+        # Get GPU VRAM
+        gpu_vram = int(
+            getattr(node, "gpu_vram_gb", 0)
+            or getattr(node, "gpu_memory_gb", 0)
+            or 0
+        )
+
+        if gpu_vram <= 0:
+            return DEFAULT_MAX_CONCURRENT_CONFIGS
+
+        # Find the highest VRAM threshold we meet or exceed
+        best_match = DEFAULT_MAX_CONCURRENT_CONFIGS
+        for vram_threshold, max_configs in sorted(
+            MAX_CONCURRENT_CONFIGS_BY_VRAM.items(),
+            reverse=True,  # Check highest first
+        ):
+            if gpu_vram >= vram_threshold:
+                best_match = max_configs
+                break
+
+        return best_match
+
+    def _get_configs_running_on_node(self, node_id: str) -> set[str]:
+        """Get the set of config keys currently running on a node.
+
+        Session 17.34: Used for multi-config diversity - ensures large GPUs
+        run different configs simultaneously rather than duplicates.
+
+        Args:
+            node_id: The node identifier
+
+        Returns:
+            Set of config keys (e.g., {"hex8_2p", "square8_3p"}) running on node
+        """
+        if self.get_active_configs_for_node is None:
+            return set()
+
+        try:
+            active_configs = self.get_active_configs_for_node(node_id)
+            return set(active_configs) if active_configs else set()
+        except (TypeError, AttributeError, RuntimeError, KeyError) as e:
+            logger.debug(f"Failed to get active configs for {node_id}: {e}")
+            return set()
+
+    def _apply_multi_config_preference(
+        self,
+        configs: list[dict[str, Any]],
+        node: "NodeInfo",
+    ) -> list[dict[str, Any]]:
+        """Apply multi-config preference for large GPUs.
+
+        Session 17.34: When a node can run multiple configs and has running jobs,
+        boost priority for configs NOT currently running to improve diversity.
+
+        Args:
+            configs: List of selfplay config dicts with effective_priority set
+            node: Node information object
+
+        Returns:
+            Configs with adjusted priorities for multi-config diversity
+        """
+        node_id = getattr(node, "node_id", "")
+        if not node_id:
+            return configs
+
+        max_configs = self._get_max_concurrent_configs(node)
+        if max_configs <= 1:
+            # Single config node - no adjustment needed
+            return configs
+
+        running_configs = self._get_configs_running_on_node(node_id)
+        if not running_configs:
+            # No running configs - no adjustment needed
+            return configs
+
+        # If already at max distinct configs, allow duplicates
+        if len(running_configs) >= max_configs:
+            return configs
+
+        # Boost priority for configs NOT currently running
+        # This encourages multi-config diversity on large GPUs
+        DIVERSITY_BOOST = 5  # Priority boost for non-running configs
+
+        for cfg in configs:
+            config_key = f"{cfg.get('board_type', '')}_{cfg.get('num_players', 2)}p"
+            current_priority = cfg.get("effective_priority", 1)
+
+            if config_key not in running_configs:
+                # Boost configs not currently running on this node
+                cfg["effective_priority"] = current_priority + DIVERSITY_BOOST
+                cfg["_multi_config_boosted"] = True
+
+        # Log the adjustment
+        boosted_count = sum(1 for c in configs if c.get("_multi_config_boosted"))
+        if boosted_count > 0:
+            logger.info(
+                f"Multi-config diversity: Boosted {boosted_count} non-running configs "
+                f"for {node_id} (running: {running_configs}, max: {max_configs})"
+            )
+
+        return configs
 
     # =========================================================================
     # Event Subscriptions (December 2025)
@@ -2810,6 +2951,10 @@ class SelfplayScheduler(EventSubscriptionMixin):
                 cfg["effective_priority"] = max(1, int(base_priority * 0.5))
             else:
                 cfg["effective_priority"] = base_priority
+
+        # Session 17.34: Apply multi-config preference for large GPUs
+        # Boosts priority for configs NOT currently running on the node
+        selfplay_configs = self._apply_multi_config_preference(selfplay_configs, node)
 
         # Build weighted list by effective priority
         weighted = []

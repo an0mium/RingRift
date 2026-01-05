@@ -126,13 +126,13 @@ class QuorumHealth:
 
     Attributes:
         consecutive_failures: Number of consecutive quorum check failures
-        failure_threshold: Number of failures before triggering step-down (default: 5)
+        failure_threshold: Number of failures before triggering step-down (default: 3)
         last_success_time: Timestamp of last successful quorum check
         voters_seen_last_check: Number of voters seen in last check
     """
 
     consecutive_failures: int = 0
-    failure_threshold: int = 5  # Increased from 3 for stability
+    failure_threshold: int = 3  # Session 17.34: Reduced from 5 for faster failover (~30s)
     last_success_time: float = field(default_factory=time.time)
     voters_seen_last_check: int = 0
 
@@ -565,7 +565,7 @@ class LeadershipStateMachine:
         # Restore quorum health if available
         if "quorum_health" in state_dict:
             qh = state_dict["quorum_health"]
-            instance.quorum_health.failure_threshold = qh.get("failure_threshold", 5)
+            instance.quorum_health.failure_threshold = qh.get("failure_threshold", 3)
             # Don't restore consecutive_failures - start fresh
 
         if healed:

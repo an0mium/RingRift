@@ -620,13 +620,16 @@ class NodeCircuitBreaker:
             circuit.half_open_at = None
             self._notify_state_change(node_id, old_state, NodeCircuitState.CLOSED)
 
-    def decay_old_circuits(self, ttl_seconds: float = 21600.0) -> dict[str, list[str]]:
+    def decay_old_circuits(self, ttl_seconds: float = 3600.0) -> dict[str, list[str]]:
         """Automatically reset node circuits that have been open for too long.
 
         Prevents stuck circuits from blocking nodes indefinitely.
 
+        Jan 5, 2026 (Session 17.32): Reduced default TTL from 6h to 1h for faster
+        node recovery. Nodes excluded by circuit breaker now recover 6x faster.
+
         Args:
-            ttl_seconds: Max time to keep circuit OPEN (default: 21600 = 6 hours)
+            ttl_seconds: Max time to keep circuit OPEN (default: 3600 = 1 hour)
 
         Returns:
             Dict with "decayed" list of reset node IDs and "checked" count
@@ -711,13 +714,15 @@ class NodeCircuitBreakerRegistry:
                 for op_type, breaker in self._breakers.items()
             }
 
-    def decay_all_old_circuits(self, ttl_seconds: float = 21600.0) -> dict[str, Any]:
+    def decay_all_old_circuits(self, ttl_seconds: float = 3600.0) -> dict[str, Any]:
         """Decay old circuits across all operation types.
 
         Call this periodically (e.g., every hour) to prevent stuck circuits.
 
+        Jan 5, 2026 (Session 17.32): Reduced default TTL from 6h to 1h.
+
         Args:
-            ttl_seconds: Max time to keep circuit OPEN (default: 6 hours)
+            ttl_seconds: Max time to keep circuit OPEN (default: 1 hour)
 
         Returns:
             Dict with results per operation type

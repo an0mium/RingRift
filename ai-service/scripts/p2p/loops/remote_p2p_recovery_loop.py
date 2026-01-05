@@ -552,15 +552,18 @@ class RemoteP2PRecoveryLoop(BaseLoop):
                     self._stats.nodes_skipped_cooldown += 1
                 continue
 
-            # Jan 5, 2026 (Session 17.29): Skip if circuit breaker is open for this node
-            # This prevents wasted SSH attempts on permanently dead/terminated nodes
+            # Jan 5, 2026 (Session 17.32): Reset circuit breaker before recovery attempt
+            # instead of skipping nodes with open CBs. This allows the recovery loop
+            # to give nodes a fresh chance after the CB TTL has been reduced from 6h to 1h.
+            # Previous behavior (Session 17.29) skipped CB-open nodes entirely, which
+            # caused nodes to be isolated for hours after transient failures.
             if ssh_circuit_breaker is not None:
                 if not ssh_circuit_breaker.can_check(node_id):
-                    self._stats.nodes_skipped_circuit_broken += 1
-                    logger.debug(
-                        f"[RemoteP2PRecovery] Skipping {node_id}: circuit breaker OPEN"
+                    # Reset CB to give node another chance
+                    ssh_circuit_breaker.reset(node_id)
+                    logger.info(
+                        f"[RemoteP2PRecovery] Reset circuit breaker for {node_id} before recovery"
                     )
-                    continue
 
             nodes_to_recover.append((node_id, node_info))
 

@@ -70,11 +70,23 @@ class ClusterHealingConfig:
     # Maximum nodes to attempt healing per cycle
     # Limits SSH load and allows gradual recovery
     # January 2026 Sprint 10: Reduced from 10 to 5 to prevent cascading restarts
-    # Higher values can overwhelm the cluster if many nodes need healing simultaneously
+    # January 5, 2026 (Phase 7.3): Now dynamically scaled based on cluster size.
+    # This is the BASE value - actual value is computed by _get_dynamic_max_heal_per_cycle()
+    # For large clusters (25+ nodes), this can be scaled up to 8 per cycle.
     max_heal_per_cycle: int = field(
         default_factory=lambda: int(
             os.environ.get("RINGRIFT_MAX_HEAL_PER_CYCLE", "3")
         )
+    )
+
+    # Phase 7.3: Enable dynamic scaling of max_heal_per_cycle based on cluster size
+    # If True, max_heal_per_cycle scales: ≤10 peers=3, ≤25 peers=5, 25+ peers=8
+    # If False, uses the static max_heal_per_cycle value
+    dynamic_heal_rate: bool = field(
+        default_factory=lambda: os.environ.get(
+            "RINGRIFT_CLUSTER_HEALING_DYNAMIC_RATE", "true"
+        ).lower()
+        in {"1", "true", "yes", "on"}
     )
 
     # SSH timeout for connecting to nodes (seconds)
@@ -123,9 +135,12 @@ class ClusterHealingConfig:
     # Time-based rate limiting (Jan 2026)
     # Maximum heals allowed in any rolling time window.
     # This provides hard protection against heal storms regardless of cycle timing.
+    # January 5, 2026 (Phase 7.3): Increased from 5 to 12 for faster partition recovery.
+    # With dynamic_heal_rate=True and 25+ nodes, can heal 8 nodes per cycle.
+    # 12 per window (60s) allows 2 full cycles without rate limiting.
     max_heals_per_window: int = field(
         default_factory=lambda: int(
-            os.environ.get("RINGRIFT_CLUSTER_HEALING_MAX_PER_WINDOW", "5")
+            os.environ.get("RINGRIFT_CLUSTER_HEALING_MAX_PER_WINDOW", "12")
         )
     )
 
@@ -279,6 +294,38 @@ class ClusterHealingLoop(BaseLoop):
         except Exception as e:
             logger.warning(f"[ClusterHealing] Failed to load hosts YAML: {e}")
             return self._hosts_cache or {}
+
+    def _get_dynamic_max_heal_per_cycle(self) -> int:
+        """Get dynamic healing rate based on cluster size.
+
+        January 5, 2026 (Phase 7.3): Scales healing rate with cluster size
+        to reduce partition recovery time from 1+ hour to 15-20 minutes.
+
+        If dynamic_heal_rate is disabled, returns the static config value.
+
+        Returns:
+            Number of nodes to attempt healing per cycle:
+            - ≤10 peers: 3 nodes (small cluster, conservative)
+            - ≤25 peers: 5 nodes (medium cluster)
+            - 25+ peers: 8 nodes (large cluster, aggressive healing)
+        """
+        if not self.config.dynamic_heal_rate:
+            return self.config.max_heal_per_cycle
+
+        # Count current P2P peers to determine cluster size
+        try:
+            current_peers = self._get_current_peers()
+            peer_count = len(current_peers)
+        except Exception:
+            # Fallback to static config if peer count unavailable
+            return self.config.max_heal_per_cycle
+
+        if peer_count <= 10:
+            return 3
+        elif peer_count <= 25:
+            return 5
+        else:  # 25+ nodes - large cluster needs aggressive healing
+            return 8
 
     def _get_missing_nodes(self) -> list[HostInfo]:
         """Get list of nodes in YAML but not in P2P peers."""
@@ -538,10 +585,12 @@ echo "P2P restarted"
             logger.warning("[ClusterHealing] No alive peers for bootstrap, skipping")
             return
 
-        # Limit healing attempts per cycle
-        to_heal = missing[: self.config.max_heal_per_cycle]
+        # Limit healing attempts per cycle (Phase 7.3: use dynamic rate)
+        max_heal = self._get_dynamic_max_heal_per_cycle()
+        to_heal = missing[:max_heal]
         logger.info(
-            f"[ClusterHealing] Attempting to heal {len(to_heal)}/{len(missing)} nodes"
+            f"[ClusterHealing] Attempting to heal {len(to_heal)}/{len(missing)} nodes "
+            f"(max_heal={max_heal}, dynamic={self.config.dynamic_heal_rate})"
         )
 
         # Heal each node with rate limiting (Jan 2026)

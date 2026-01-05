@@ -539,6 +539,30 @@ class JobManager(EventSubscriptionMixin):
                         })
         return result
 
+    def get_active_configs_for_node(self, node_id: str) -> list[str]:
+        """Get the config keys of selfplay jobs running on a node.
+
+        Session 17.34: Used for multi-config per node support.
+        Returns config keys like ["hex8_2p", "square8_3p"] for selfplay jobs.
+
+        Args:
+            node_id: The node identifier
+
+        Returns:
+            List of config keys (e.g., "hex8_2p") for selfplay jobs on this node
+        """
+        config_keys = []
+        with self.jobs_lock:
+            selfplay_jobs = self.active_jobs.get("selfplay", {})
+            for job_id, job_info in selfplay_jobs.items():
+                job_node = job_info.get("node_id") or job_info.get("worker_id")
+                if job_node == node_id:
+                    board_type = job_info.get("board_type", "")
+                    num_players = job_info.get("num_players", 2)
+                    if board_type:
+                        config_keys.append(f"{board_type}_{num_players}p")
+        return config_keys
+
     async def dispatch_selfplay_job(
         self,
         node_id: str,

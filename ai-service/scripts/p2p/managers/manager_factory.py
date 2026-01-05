@@ -216,10 +216,11 @@ class ManagerFactory:
         self._check_cycle("selfplay_scheduler")
         try:
             from scripts.p2p.managers import SelfplayScheduler
+            # Session 17.34: Wire up multi-config per node callback
+            job_mgr = self.job_manager  # Access dependency
             manager = SelfplayScheduler(
-                state_manager=self.state_manager,  # Dependency
-                job_manager=self.job_manager,      # Dependency
-                orchestrator=self._config.orchestrator,
+                get_active_configs_for_node_fn=job_mgr.get_active_configs_for_node,
+                verbose=self._config.verbose,
             )
             self._managers["selfplay_scheduler"] = manager
             logger.debug("Created SelfplayScheduler")
