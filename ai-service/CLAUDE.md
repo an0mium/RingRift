@@ -2,18 +2,18 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 4, 2026 (Sprint 17.9 - Session 17.12)
+**Last Updated**: January 4, 2026 (Sprint 17.9 - Session 17.13)
 
 ## Infrastructure Health Status (Verified Jan 4, 2026)
 
 | Component            | Status    | Evidence                                                            |
 | -------------------- | --------- | ------------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (91/100), mac-studio leader, 7 alive peers, quorum OK            |
-| **Training Loop**    | GREEN     | A (95/100), 116K+ games, 5/5 feedback loops, 6/6 pipeline stages    |
+| **P2P Network**      | GREEN     | A- (91/100), mac-studio leader, 13+ alive peers, quorum OK          |
+| **Training Loop**    | GREEN     | A (95/100), 117K+ games, 5/5 feedback loops, 6/6 pipeline stages    |
 | **Code Quality**     | GREEN     | Singleton patterns consolidated, CB health check optimization added |
 | **Leader Election**  | WORKING   | mac-studio leader, voter quorum OK                                  |
 | **Work Queue**       | HEALTHY   | Queue repopulating, selfplay scheduler active                       |
-| **Game Data**        | EXCELLENT | 116K+ games across all configs (hex8: 21K, square8: 24K, etc.)      |
+| **Game Data**        | EXCELLENT | 117K+ games across all configs (hex8: 21K, square8: 25K, etc.)      |
 | **CB TTL Decay**     | ACTIVE    | Hourly decay in DaemonManager health loop (6h TTL)                  |
 | **Multi-Arch Train** | ACTIVE    | v2 models trained, all 12 canonical configs generating data         |
 
@@ -46,6 +46,62 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 | Early Quorum Escalation   | Skip to P2P restart after 2 failed healing attempts with quorum lost | `p2p_recovery_daemon.py`      |
 | Training Heartbeat Events | TRAINING_HEARTBEAT event for watchdog monitoring                     | `distributed_lock.py`         |
 | TRAINING_PROCESS_KILLED   | Event emitted when stuck training process killed                     | `training_watchdog_daemon.py` |
+
+**Sprint 17.9 / Session 17.13 (Jan 4, 2026) - Consolidation, Critical Quality Drop & Syntax Fix:**
+
+| Task                      | Status      | Evidence                                                 |
+| ------------------------- | ----------- | -------------------------------------------------------- |
+| Quick Win 1: Singleton    | ✅ COMPLETE | 7 manual singleton files migrated to SingletonMixin      |
+| Quick Win 2: Async SQLite | ✅ COMPLETE | 60+ files using asyncio.to_thread, blocking ops wrapped  |
+| Quick Win 3: Scheduler    | ✅ COMPLETE | 4,448 LOC extracted to 6 modules (orchestrator, etc.)    |
+| Critical Quality Drop     | ✅ ADDED    | Bypass cooldown for >=15% quality drops (+8-12 Elo)      |
+| **Syntax Error Fix**      | ✅ CRITICAL | cascade_breaker.py missing docstring `"""` (commit e97e) |
+| Cluster Update            | ✅ COMPLETE | 13+ nodes updated, P2P restarted, quorum OK              |
+
+**Critical Bug Fix (Session 17.13):**
+
+- **Issue**: Cluster P2P nodes failing to start after Session 17.12 SingletonMixin migration
+- **Root Cause**: Commit `9113130b5` accidentally removed closing `"""` from CascadeBreakerManager class docstring
+- **Error**: `SyntaxError: unterminated triple-quoted string literal (detected at line 655)`
+- **Fix**: Restored missing `"""` at line 266 (commit `e97e90f99`)
+- **Recovery**: Cluster recovered from 4 peers to 13+ peers after fix deployment
+
+**selfplay_scheduler Decomposition Complete:**
+
+| Module                      | LOC       | Purpose                      |
+| --------------------------- | --------- | ---------------------------- |
+| selfplay_scheduler.py       | 3,132     | Main coordinator (was 4,743) |
+| selfplay_orchestrator.py    | 1,783     | Job orchestration            |
+| selfplay_health_monitor.py  | 799       | Health handlers              |
+| priority_calculator.py      | 639       | Priority scoring             |
+| selfplay_quality_manager.py | 597       | Quality caching              |
+| config_state_cache.py       | 356       | TTL-based caching            |
+| selfplay_priority_types.py  | 274       | Type definitions             |
+| **Total Extracted**         | **4,448** |                              |
+
+**Critical Quality Drop Response (+8-12 Elo improvement):**
+
+- `quality_monitor_daemon.py`: Bypass cooldown when quality drops >=15%
+- `selfplay_orchestrator.py`: Emit CURRICULUM_REBALANCED with boost_allocation
+- `selfplay_scheduler.py`: Handle quality_critical_drop with weight/exploration boost
+
+**Game Data Status (Jan 4, 2026):**
+
+| Config       | Games     | Status       |
+| ------------ | --------- | ------------ |
+| hex8_2p      | 6,908     | ✅ Good      |
+| hex8_3p      | 7,149     | ✅ Good      |
+| hex8_4p      | 7,097     | ✅ Good      |
+| square8_2p   | 5,034     | ✅ Good      |
+| square8_3p   | 3,059     | ✅ Good      |
+| square8_4p   | 16,451    | ✅ Excellent |
+| square19_2p  | 26,636    | ✅ Excellent |
+| square19_3p  | 13        | ⚠️ Low       |
+| square19_4p  | 1,587     | ⚠️ Low       |
+| hexagonal_2p | 3,883     | ✅ Good      |
+| hexagonal_3p | 86        | ⚠️ Low       |
+| hexagonal_4p | 30,669    | ✅ Excellent |
+| **Total**    | **~117K** |              |
 
 **Sprint 17.9 / Session 17.12 (Jan 4, 2026) - Singleton Consolidation & CB Optimization:**
 
