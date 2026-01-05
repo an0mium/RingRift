@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.coordination.sync_mixin_base import SyncMixinBase
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.config.coordination_defaults import build_ssh_options, build_ssh_options_list
 
 # Threshold for using ResilientTransfer vs simple rsync
@@ -777,25 +778,17 @@ class SyncPullMixin(SyncMixinBase):
 
     async def _emit_pull_sync_completed(self, games_pulled: int, sources_count: int) -> None:
         """Emit event when PULL sync completes successfully."""
-        try:
-            # Dec 28, 2025: Fixed import path - data_events is in app.distributed
-            from app.distributed.data_events import (
-                DataEventType,
-                emit_data_event,
-            )
-
-            await emit_data_event(
-                DataEventType.DATA_SYNC_COMPLETED,
-                {
-                    "sync_type": "pull",
-                    "games_synced": games_pulled,
-                    "sources_count": sources_count,
-                    "node_id": self.node_id,
-                    "timestamp": time.time(),
-                },
-            )
-        except ImportError:
-            pass  # Events not available
+        safe_emit_event(
+            "data_sync_completed",
+            {
+                "sync_type": "pull",
+                "games_synced": games_pulled,
+                "sources_count": sources_count,
+                "node_id": self.node_id,
+                "timestamp": time.time(),
+            },
+            context="SyncPullMixin",
+        )
 
     # Note: _validate_database_completeness() is expected from main class
     # _emit_sync_failure() and _emit_sync_stalled() are inherited from SyncMixinBase

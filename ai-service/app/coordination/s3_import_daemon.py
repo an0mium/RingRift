@@ -33,6 +33,7 @@ from typing import Any
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.mixins.import_mixin import ImportDaemonMixin
 from app.coordination.protocols import CoordinatorStatus
+from app.coordination.event_emission_helpers import safe_emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -458,18 +459,16 @@ class S3ImportDaemon(HandlerBase, ImportDaemonMixin):
 
     def _emit_import_complete(self, results: dict[str, Any]) -> None:
         """Emit S3_IMPORT_COMPLETE event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.DATA_SYNC_COMPLETED,
-                sync_type="s3_import",
-                files_imported=results.get("files_imported", 0),
-                bytes_imported=results.get("bytes_imported", 0),
-                source="S3ImportDaemon",
-            )
-        except Exception as e:
-            logger.debug(f"[S3Import] Could not emit event: {e}")
+        safe_emit_event(
+            "data_sync_completed",
+            {
+                "sync_type": "s3_import",
+                "files_imported": results.get("files_imported", 0),
+                "bytes_imported": results.get("bytes_imported", 0),
+                "source": "S3ImportDaemon",
+            },
+            context="S3Import",
+        )
 
     async def _run_cycle(self) -> None:
         """Run one import cycle.

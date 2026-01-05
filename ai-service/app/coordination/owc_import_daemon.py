@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from app.coordination.event_utils import parse_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.mixins.import_mixin import ImportDaemonMixin
 from app.coordination.protocols import CoordinatorStatus
@@ -506,36 +507,30 @@ class OWCImportDaemon(HandlerBase, ImportDaemonMixin):
 
     def _emit_new_games_available(self, config_key: str, games_added: int, source: str) -> None:
         """Emit NEW_GAMES_AVAILABLE event to trigger consolidation."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.NEW_GAMES_AVAILABLE,
-                config_key=config_key,
-                new_games=games_added,
-                source=source,
-                trigger="owc_import",
-            )
-            logger.debug(f"[OWCImport] Emitted NEW_GAMES_AVAILABLE for {config_key}")
-
-        except Exception as e:
-            logger.debug(f"[OWCImport] Could not emit event: {e}")
+        safe_emit_event(
+            "new_games_available",
+            {
+                "config_key": config_key,
+                "new_games": games_added,
+                "source": source,
+                "trigger": "owc_import",
+            },
+            context="OWCImport",
+        )
+        logger.debug(f"[OWCImport] Emitted NEW_GAMES_AVAILABLE for {config_key}")
 
     def _emit_data_sync_completed(self, configs_updated: list[str], games_imported: int) -> None:
         """Emit DATA_SYNC_COMPLETED event to trigger pipeline."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.DATA_SYNC_COMPLETED,
-                sync_type="owc_import",
-                configs_updated=configs_updated,
-                games_imported=games_imported,
-                source="OWCImportDaemon",
-            )
-
-        except Exception as e:
-            logger.debug(f"[OWCImport] Could not emit sync event: {e}")
+        safe_emit_event(
+            "data_sync_completed",
+            {
+                "sync_type": "owc_import",
+                "configs_updated": configs_updated,
+                "games_imported": games_imported,
+                "source": "OWCImportDaemon",
+            },
+            context="OWCImport",
+        )
 
     # =========================================================================
     # Main Cycle

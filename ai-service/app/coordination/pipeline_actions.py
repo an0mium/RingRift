@@ -724,7 +724,6 @@ async def trigger_npz_combination(
             NPZCombinerConfig,
             discover_and_combine_for_config,
         )
-        from app.distributed.data_events import DataEventType, emit_data_event
 
         root = _get_ai_service_root()
         output_path = root / "data" / "training" / f"{config_key}_combined.npz"
@@ -751,13 +750,16 @@ async def trigger_npz_combination(
             )
 
             # Emit completion event
-            emit_data_event(
-                DataEventType.NPZ_COMBINATION_COMPLETE,
-                config_key=config_key,
-                output_path=str(output_path),
-                total_samples=result.total_samples,
-                samples_by_source=result.samples_by_source,
-                source="pipeline_actions",
+            await safe_emit_event_async(
+                "npz_combination_complete",
+                {
+                    "config_key": config_key,
+                    "output_path": str(output_path),
+                    "total_samples": result.total_samples,
+                    "samples_by_source": result.samples_by_source,
+                    "source": "pipeline_actions",
+                },
+                context="PipelineActions",
             )
 
             return StageCompletionResult(
@@ -777,11 +779,14 @@ async def trigger_npz_combination(
             logger.warning(f"[PipelineActions] NPZ combination failed: {result.error}")
 
             # Emit failure event
-            emit_data_event(
-                DataEventType.NPZ_COMBINATION_FAILED,
-                config_key=config_key,
-                error=result.error,
-                source="pipeline_actions",
+            await safe_emit_event_async(
+                "npz_combination_failed",
+                {
+                    "config_key": config_key,
+                    "error": result.error,
+                    "source": "pipeline_actions",
+                },
+                context="PipelineActions",
             )
 
             return StageCompletionResult(

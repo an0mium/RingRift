@@ -77,6 +77,7 @@ logger = logging.getLogger(__name__)
 
 # Chunk sizes (December 27, 2025: Centralized in coordination_defaults.py)
 from app.config.coordination_defaults import SyncIntegrityDefaults
+from app.coordination.event_emission_helpers import safe_emit_event
 
 DEFAULT_CHUNK_SIZE = SyncIntegrityDefaults.DEFAULT_CHUNK_SIZE
 LARGE_CHUNK_SIZE = SyncIntegrityDefaults.LARGE_CHUNK_SIZE
@@ -1275,21 +1276,16 @@ async def _emit_sync_checksum_failed(
         target_node: Target node hostname/IP
         error: Error description
     """
-    try:
-        from app.distributed.data_events import DataEventType, emit_data_event
-
-        emit_data_event(
-            event_type=DataEventType.SYNC_CHECKSUM_FAILED,
-            payload={
-                "source_path": source_path,
-                "dest_path": dest_path,
-                "target_node": target_node,
-                "error": error,
-            },
-            source="sync_integrity",
-        )
-    except (ImportError, AttributeError) as e:
-        logger.debug(f"[SyncIntegrity] Could not emit SYNC_CHECKSUM_FAILED: {e}")
+    safe_emit_event(
+        "sync_checksum_failed",
+        {
+            "source_path": source_path,
+            "dest_path": dest_path,
+            "target_node": target_node,
+            "error": error,
+        },
+        context="SyncIntegrity",
+    )
 
 
 # =============================================================================

@@ -48,6 +48,7 @@ from typing import Any
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
 from app.coordination.event_utils import make_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.config.thresholds import SQLITE_TIMEOUT, SQLITE_MERGE_TIMEOUT
 
 logger = logging.getLogger(__name__)
@@ -956,25 +957,18 @@ class ClusterConsolidationDaemon(HandlerBase):
         canonical_db: str,
     ) -> None:
         """Emit CONSOLIDATION_COMPLETE event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            await emit_data_event(
-                event_type=DataEventType.CONSOLIDATION_COMPLETE,
-                payload={
-                    "config_key": config_key,
-                    "games_merged": games_merged,
-                    "canonical_db": canonical_db,
-                    "timestamp": time.time(),
-                    "source": "cluster_consolidation",
-                },
-                source="cluster_consolidation_daemon",
-            )
-            logger.debug(f"[ClusterConsolidation] Emitted CONSOLIDATION_COMPLETE for {config_key}")
-        except (ImportError, AttributeError):
-            pass
-        except Exception as e:
-            logger.debug(f"[ClusterConsolidation] Error emitting event: {e}")
+        safe_emit_event(
+            "consolidation_complete",
+            {
+                "config_key": config_key,
+                "games_merged": games_merged,
+                "canonical_db": canonical_db,
+                "timestamp": time.time(),
+                "source": "cluster_consolidation",
+            },
+            context="ClusterConsolidation",
+        )
+        logger.debug(f"[ClusterConsolidation] Emitted CONSOLIDATION_COMPLETE for {config_key}")
 
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""

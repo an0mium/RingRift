@@ -58,6 +58,7 @@ from typing import Any
 
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 from app.coordination.event_utils import parse_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -665,8 +666,6 @@ class SyncFacade:
                 # This bridges the gap between DATA_SYNC_COMPLETED and NEW_GAMES_AVAILABLE
                 # Required for the full orphan recovery chain to complete
                 if reason == "orphan_games_recovery" and response.nodes_synced > 0:
-                    from app.distributed.data_events import DataEventType, emit_data_event
-
                     # Parse board_type and num_players using canonical utility
                     board_type = None
                     num_players = None
@@ -676,15 +675,16 @@ class SyncFacade:
                             board_type = parsed.board_type
                             num_players = parsed.num_players
 
-                    await emit_data_event(
-                        event_type=DataEventType.ORPHAN_GAMES_REGISTERED,
-                        payload={
+                    safe_emit_event(
+                        "orphan_games_registered",
+                        {
                             "registered_count": response.nodes_synced,
                             "config_key": config_key,
                             "board_type": board_type,
                             "num_players": num_players,
                             "source_node": source_node,
                         },
+                        context="SyncFacade",
                     )
                     logger.info(
                         f"[SyncFacade] Emitted ORPHAN_GAMES_REGISTERED: "

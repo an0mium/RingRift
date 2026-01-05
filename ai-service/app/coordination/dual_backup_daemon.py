@@ -46,6 +46,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.protocols import CoordinatorStatus
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
@@ -477,34 +478,30 @@ class DualBackupDaemon(HandlerBase):
 
     def _emit_backup_alert(self, results: dict[str, Any]) -> None:
         """Emit alert for backup failures."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.BACKUP_FAILED,
-                consecutive_failures=self._backup_stats.consecutive_failures,
-                s3_failures=results.get("s3_failures", 0),
-                owc_failures=results.get("owc_failures", 0),
-                errors=results.get("errors", [])[:5],  # First 5 errors
-            )
-        except Exception as e:
-            logger.debug(f"[DualBackup] Could not emit alert: {e}")
+        safe_emit_event(
+            "backup_failed",
+            {
+                "consecutive_failures": self._backup_stats.consecutive_failures,
+                "s3_failures": results.get("s3_failures", 0),
+                "owc_failures": results.get("owc_failures", 0),
+                "errors": results.get("errors", [])[:5],  # First 5 errors
+            },
+            context="DualBackup",
+        )
 
     def _emit_backup_complete(self, results: dict[str, Any]) -> None:
         """Emit backup completion event."""
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.DATA_SYNC_COMPLETED,
-                sync_type="dual_backup",
-                files_processed=results.get("files_processed", 0),
-                s3_successes=results.get("s3_successes", 0),
-                owc_successes=results.get("owc_successes", 0),
-                duration_seconds=results.get("duration_seconds", 0),
-            )
-        except Exception as e:
-            logger.debug(f"[DualBackup] Could not emit event: {e}")
+        safe_emit_event(
+            "data_sync_completed",
+            {
+                "sync_type": "dual_backup",
+                "files_processed": results.get("files_processed", 0),
+                "s3_successes": results.get("s3_successes", 0),
+                "owc_successes": results.get("owc_successes", 0),
+                "duration_seconds": results.get("duration_seconds", 0),
+            },
+            context="DualBackup",
+        )
 
     async def _run_cycle(self) -> None:
         """Run one backup cycle."""

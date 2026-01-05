@@ -42,6 +42,7 @@ from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
+from app.coordination.event_emission_helpers import safe_emit_event
 
 logger = logging.getLogger(__name__)
 
@@ -331,21 +332,19 @@ class ClusterUtilizationWatchdog(HandlerBase):
             f"idle={self._idle_gpu_nodes}/{self._total_gpu_nodes}, duration={duration:.0f}s"
         )
 
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.CLUSTER_UNDERUTILIZED,
-                level=level.value,
-                total_gpu_nodes=self._total_gpu_nodes,
-                idle_gpu_nodes=self._idle_gpu_nodes,
-                active_gpu_nodes=self._active_gpu_nodes,
-                idle_fraction=self._idle_gpu_nodes / max(1, self._total_gpu_nodes),
-                duration_seconds=duration,
-                source="ClusterUtilizationWatchdog",
-            )
-        except Exception as e:
-            logger.debug(f"[UtilizationWatchdog] Failed to emit underutilization event: {e}")
+        safe_emit_event(
+            "cluster_underutilized",
+            {
+                "level": level.value,
+                "total_gpu_nodes": self._total_gpu_nodes,
+                "idle_gpu_nodes": self._idle_gpu_nodes,
+                "active_gpu_nodes": self._active_gpu_nodes,
+                "idle_fraction": self._idle_gpu_nodes / max(1, self._total_gpu_nodes),
+                "duration_seconds": duration,
+                "source": "ClusterUtilizationWatchdog",
+            },
+            context="UtilizationWatchdog",
+        )
 
     async def _emit_recovery_event(self) -> None:
         """Emit CLUSTER_UTILIZATION_RECOVERED event."""
@@ -360,18 +359,16 @@ class ClusterUtilizationWatchdog(HandlerBase):
             f"[UtilizationWatchdog] Cluster utilization recovered after {duration:.0f}s"
         )
 
-        try:
-            from app.distributed.data_events import DataEventType, emit_data_event
-
-            emit_data_event(
-                DataEventType.CLUSTER_UTILIZATION_RECOVERED,
-                total_gpu_nodes=self._total_gpu_nodes,
-                active_gpu_nodes=self._active_gpu_nodes,
-                recovery_duration_seconds=duration,
-                source="ClusterUtilizationWatchdog",
-            )
-        except Exception as e:
-            logger.debug(f"[UtilizationWatchdog] Failed to emit recovery event: {e}")
+        safe_emit_event(
+            "cluster_utilization_recovered",
+            {
+                "total_gpu_nodes": self._total_gpu_nodes,
+                "active_gpu_nodes": self._active_gpu_nodes,
+                "recovery_duration_seconds": duration,
+                "source": "ClusterUtilizationWatchdog",
+            },
+            context="UtilizationWatchdog",
+        )
 
     def health_check(self) -> HealthCheckResult:
         """Return health check result."""

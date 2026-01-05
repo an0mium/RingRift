@@ -41,6 +41,7 @@ from typing import Any
 
 from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_utils import make_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.training_data_manifest import (
     DataSource,
@@ -454,22 +455,16 @@ async def trigger_local_refresh(
     # Trigger consolidation and export
     logger.info(f"{config_key}: Triggering local refresh (stale or missing)")
 
-    try:
-        from app.distributed.data_events import DataEventType, emit_data_event
-
-        # Dec 31, 2025: emit_data_event expects a payload dict, not kwargs
-        await emit_data_event(
-            DataEventType.SYNC_TRIGGERED,
-            payload={
-                "config_key": config_key,
-                "reason": "stale_data_refresh",
-                "max_age_hours": max_age_hours,
-            },
-        )
-        return True
-    except (ImportError, AttributeError) as e:
-        logger.warning(f"Failed to trigger refresh event: {e}")
-        return False
+    safe_emit_event(
+        "sync_triggered",
+        {
+            "config_key": config_key,
+            "reason": "stale_data_refresh",
+            "max_age_hours": max_age_hours,
+        },
+        context="TrainingDataSync",
+    )
+    return True
 
 
 async def sync_best_fresh_data(
@@ -722,30 +717,18 @@ class TrainingDataSyncDaemon(HandlerBase):
 
     async def _emit_sync_event(self, result: SyncResult) -> None:
         """Emit sync event for coordination."""
-        try:
-            from app.distributed.data_events import (
-                DataEventType,
-                emit_data_event,
-            )
-
-            event_type = (
-                DataEventType.DATA_SYNC_COMPLETED
-                if result.success
-                else DataEventType.DATA_SYNC_FAILED
-            )
-            # Dec 31, 2025: emit_data_event expects a payload dict, not kwargs
-            await emit_data_event(
-                event_type,
-                payload={
-                    "config_key": result.config_key,
-                    "source": result.source.value if result.source else None,
-                    "bytes_transferred": result.bytes_transferred,
-                    "duration_seconds": result.duration_seconds,
-                    "error": result.error,
-                },
-            )
-        except Exception as e:
-            logger.debug(f"Failed to emit sync event: {e}")
+        event_type = "data_sync_completed" if result.success else "data_sync_failed"
+        safe_emit_event(
+            event_type,
+            {
+                "config_key": result.config_key,
+                "source": result.source.value if result.source else None,
+                "bytes_transferred": result.bytes_transferred,
+                "duration_seconds": result.duration_seconds,
+                "error": result.error,
+            },
+            context="TrainingDataSync",
+        )
 
     def health_check(self) -> HealthCheckResult:
         """Return health check status.

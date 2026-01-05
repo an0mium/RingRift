@@ -38,6 +38,7 @@ from typing import Any
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
 from app.coordination.event_utils import make_config_key
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.utils.game_discovery import GameDiscovery, DatabaseInfo, ALL_BOARD_TYPES, ALL_PLAYER_COUNTS
 from app.config.thresholds import SQLITE_TIMEOUT
 
@@ -885,24 +886,14 @@ class ComprehensiveConsolidationDaemon(HandlerBase):
 
     async def _emit_sweep_started(self) -> None:
         """Emit COMPREHENSIVE_CONSOLIDATION_STARTED event."""
-        try:
-            from app.distributed.data_events import emit_data_event, DataEventType
-
-            if not hasattr(DataEventType, "COMPREHENSIVE_CONSOLIDATION_STARTED"):
-                return
-
-            await emit_data_event(
-                event_type=DataEventType.COMPREHENSIVE_CONSOLIDATION_STARTED,
-                payload={
-                    "timestamp": time.time(),
-                    "configs": [f"{bt}_{np}p" for bt, np in ALL_CONFIGS],
-                },
-                source="comprehensive_consolidation_daemon",
-            )
-        except (ImportError, AttributeError):
-            pass
-        except Exception as e:
-            logger.debug(f"[ComprehensiveConsolidation] Error emitting started event: {e}")
+        safe_emit_event(
+            "comprehensive_consolidation_started",
+            {
+                "timestamp": time.time(),
+                "configs": [f"{bt}_{np}p" for bt, np in ALL_CONFIGS],
+            },
+            context="ComprehensiveConsolidation",
+        )
 
     async def _emit_sweep_complete(
         self,
@@ -910,44 +901,30 @@ class ComprehensiveConsolidationDaemon(HandlerBase):
         start_time: float,
     ) -> None:
         """Emit COMPREHENSIVE_CONSOLIDATION_COMPLETE event."""
-        try:
-            from app.distributed.data_events import emit_data_event, DataEventType
+        total_merged = sum(s.games_merged for s in all_stats.values())
+        total_scanned = sum(s.games_scanned for s in all_stats.values())
 
-            total_merged = sum(s.games_merged for s in all_stats.values())
-            total_scanned = sum(s.games_scanned for s in all_stats.values())
-
-            # Try the specific event type first, fall back to generic
-            event_type = getattr(
-                DataEventType,
-                "COMPREHENSIVE_CONSOLIDATION_COMPLETE",
-                DataEventType.CONSOLIDATION_COMPLETE,
-            )
-
-            await emit_data_event(
-                event_type=event_type,
-                payload={
-                    "timestamp": time.time(),
-                    "duration_seconds": time.time() - start_time,
-                    "total_games_merged": total_merged,
-                    "total_games_scanned": total_scanned,
-                    "configs_processed": len(all_stats),
-                    "per_config_stats": {
-                        k: {
-                            "merged": v.games_merged,
-                            "scanned": v.games_scanned,
-                            "sources": v.sources_scanned,
-                        }
-                        for k, v in all_stats.items()
-                        if v.games_merged > 0
-                    },
-                    "source": "comprehensive_consolidation",
+        safe_emit_event(
+            "comprehensive_consolidation_complete",
+            {
+                "timestamp": time.time(),
+                "duration_seconds": time.time() - start_time,
+                "total_games_merged": total_merged,
+                "total_games_scanned": total_scanned,
+                "configs_processed": len(all_stats),
+                "per_config_stats": {
+                    k: {
+                        "merged": v.games_merged,
+                        "scanned": v.games_scanned,
+                        "sources": v.sources_scanned,
+                    }
+                    for k, v in all_stats.items()
+                    if v.games_merged > 0
                 },
-                source="comprehensive_consolidation_daemon",
-            )
-        except (ImportError, AttributeError):
-            pass
-        except Exception as e:
-            logger.debug(f"[ComprehensiveConsolidation] Error emitting complete event: {e}")
+                "source": "comprehensive_consolidation",
+            },
+            context="ComprehensiveConsolidation",
+        )
 
     def get_status(self) -> dict[str, Any]:
         """Get daemon status."""
