@@ -77,12 +77,21 @@ except ImportError:
         return 256  # Small boards can use larger batches
 
 # Session 17.24 (Jan 2026): Node queue tracking for load balancing
+# Session 17.38 (Jan 2026): NodeConfigTracker for multi-config per node
 try:
-    from app.coordination.node_allocator import get_node_queue_tracker
+    from app.coordination.node_allocator import (
+        get_node_queue_tracker,
+        get_node_config_tracker,
+    )
     HAS_QUEUE_TRACKER = True
+    HAS_CONFIG_TRACKER = True
 except ImportError:
     HAS_QUEUE_TRACKER = False
+    HAS_CONFIG_TRACKER = False
     def get_node_queue_tracker():
+        """Fallback when node_allocator not available."""
+        return None
+    def get_node_config_tracker():
         """Fallback when node_allocator not available."""
         return None
 
@@ -663,6 +672,25 @@ class JobManager(EventSubscriptionMixin):
                                 tracker = get_node_queue_tracker()
                                 if tracker:
                                     tracker.on_job_dispatched(node_id)
+                            except Exception:
+                                pass  # Non-critical, don't fail dispatch
+
+                        # Session 17.38: Track config on node for multi-config support
+                        if HAS_CONFIG_TRACKER:
+                            try:
+                                config_tracker = get_node_config_tracker()
+                                if config_tracker:
+                                    # Get GPU VRAM from peer info (fallback to conservative default)
+                                    gpu_vram = int(
+                                        getattr(peer, "gpu_vram_gb", 0)
+                                        or getattr(peer, "memory_gb", 0)
+                                        or 24  # Conservative default
+                                    )
+                                    config_tracker.add_config(node_id, config_key)
+                                    logger.debug(
+                                        f"[JobManager] Added config {config_key} to {node_id} "
+                                        f"(vram={gpu_vram}GB)"
+                                    )
                             except Exception:
                                 pass  # Non-critical, don't fail dispatch
 
@@ -2165,6 +2193,18 @@ class JobManager(EventSubscriptionMixin):
                         except Exception:
                             pass  # Non-critical
 
+                    # Session 17.38: Track config completion for multi-config support
+                    if HAS_CONFIG_TRACKER and job_node_id:
+                        try:
+                            config_tracker = get_node_config_tracker()
+                            job_config_key = self.active_jobs["selfplay"][job_id].get(
+                                "config_key"
+                            )
+                            if config_tracker and job_config_key:
+                                config_tracker.remove_config(job_node_id, job_config_key)
+                        except Exception:
+                            pass  # Non-critical
+
                     # Remove from active jobs
                     del self.active_jobs["selfplay"][job_id]
 
@@ -2182,6 +2222,17 @@ class JobManager(EventSubscriptionMixin):
                             tracker = get_node_queue_tracker()
                             if tracker:
                                 tracker.on_job_completed(job_node_id)
+                        except Exception:
+                            pass  # Non-critical
+                    # Session 17.38: Track config completion for multi-config support
+                    if HAS_CONFIG_TRACKER and job_node_id:
+                        try:
+                            config_tracker = get_node_config_tracker()
+                            job_config_key = self.active_jobs["selfplay"][job_id].get(
+                                "config_key"
+                            )
+                            if config_tracker and job_config_key:
+                                config_tracker.remove_config(job_node_id, job_config_key)
                         except Exception:
                             pass  # Non-critical
                     self.active_jobs["selfplay"][job_id]["status"] = "timeout"
@@ -2209,6 +2260,17 @@ class JobManager(EventSubscriptionMixin):
                                 tracker.on_job_completed(job_node_id)
                         except Exception:
                             pass  # Non-critical
+                    # Session 17.38: Track config completion for multi-config support
+                    if HAS_CONFIG_TRACKER and job_node_id:
+                        try:
+                            config_tracker = get_node_config_tracker()
+                            job_config_key = self.active_jobs["selfplay"][job_id].get(
+                                "config_key"
+                            )
+                            if config_tracker and job_config_key:
+                                config_tracker.remove_config(job_node_id, job_config_key)
+                        except Exception:
+                            pass  # Non-critical
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
                     del self.active_jobs["selfplay"][job_id]
             # Dec 30, 2025 (P5.3): Mark job as failed in Raft
@@ -2231,6 +2293,17 @@ class JobManager(EventSubscriptionMixin):
                             tracker = get_node_queue_tracker()
                             if tracker:
                                 tracker.on_job_completed(job_node_id)
+                        except Exception:
+                            pass  # Non-critical
+                    # Session 17.38: Track config completion for multi-config support
+                    if HAS_CONFIG_TRACKER and job_node_id:
+                        try:
+                            config_tracker = get_node_config_tracker()
+                            job_config_key = self.active_jobs["selfplay"][job_id].get(
+                                "config_key"
+                            )
+                            if config_tracker and job_config_key:
+                                config_tracker.remove_config(job_node_id, job_config_key)
                         except Exception:
                             pass  # Non-critical
                     self.active_jobs["selfplay"][job_id]["status"] = "error"
