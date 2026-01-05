@@ -491,6 +491,38 @@ class QueueMonitor:
             ],
         }
 
+    def get_overall_status(self) -> dict[str, Any]:
+        """Get overall queue status with highest backpressure level.
+
+        Returns a dict with:
+        - backpressure_level: str - highest level across all queues (none/soft/hard/stop)
+        - queues: dict - individual queue statuses
+        - throttled_count: int - number of queues with backpressure
+        """
+        all_status = self.get_all_status()
+
+        # Find highest backpressure level across all queues
+        # BackpressureLevel ordering: NONE < SOFT < HARD < STOP
+        bp_priority = {
+            BackpressureLevel.NONE: 0,
+            BackpressureLevel.SOFT: 1,
+            BackpressureLevel.HARD: 2,
+            BackpressureLevel.STOP: 3,
+        }
+        max_bp = BackpressureLevel.NONE
+        for status in all_status.values():
+            if bp_priority.get(status.backpressure, 0) > bp_priority.get(max_bp, 0):
+                max_bp = status.backpressure
+
+        throttled = [k for k, v in all_status.items() if v.backpressure != BackpressureLevel.NONE]
+
+        return {
+            "backpressure_level": max_bp.value,
+            "queues": {k: v.to_dict() for k, v in all_status.items()},
+            "throttled_count": len(throttled),
+            "throttled_queues": throttled,
+        }
+
     def health_check(self) -> "HealthCheckResult":
         """Check queue monitor health for daemon monitoring.
 
@@ -682,6 +714,11 @@ def get_queue_stats() -> dict[str, Any]:
     return get_queue_monitor().get_stats()
 
 
+def get_overall_queue_status() -> dict[str, Any]:
+    """Get overall queue status with highest backpressure level."""
+    return get_queue_monitor().get_overall_status()
+
+
 # Command-line interface
 
 if __name__ == "__main__":
@@ -749,6 +786,7 @@ __all__ = [
     # Functions
     "get_queue_monitor",
     "get_queue_stats",
+    "get_overall_queue_status",
     "get_throttle_factor",
     "report_queue_depth",
     "reset_queue_monitor",

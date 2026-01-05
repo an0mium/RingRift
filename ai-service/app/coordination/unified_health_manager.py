@@ -502,6 +502,32 @@ class UnifiedHealthManager(HandlerBase):
 
         # Dependencies - store for recovery escalation
         self._notifier = notifier
+        self._dependencies: dict[str, Any] = {}
+
+    def set_dependency(self, name: str, value: Any) -> None:
+        """Set a named dependency for recovery operations.
+
+        This provides compatibility with legacy code that expects
+        CoordinatorBase.set_dependency() behavior.
+
+        Args:
+            name: Dependency name (e.g., 'work_queue', 'notifier')
+            value: The dependency instance
+        """
+        self._dependencies[name] = value
+        # Also set as attribute for direct access
+        setattr(self, f"_{name}", value)
+
+    def get_dependency(self, name: str) -> Any | None:
+        """Get a named dependency.
+
+        Args:
+            name: Dependency name
+
+        Returns:
+            The dependency instance or None if not set
+        """
+        return self._dependencies.get(name)
 
     def _get_event_subscriptions(self) -> dict[str, Callable]:
         """Return event subscriptions for HandlerBase.
