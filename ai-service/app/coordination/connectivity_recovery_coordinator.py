@@ -31,6 +31,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from app.coordination.contracts import HealthCheckResult
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.handler_base import HandlerBase
 
 logger = logging.getLogger(__name__)
@@ -363,10 +364,11 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
                 logger.info(f"SSH recovery succeeded for {node_name}")
 
                 # Emit recovery event
-                await self._emit_event("TAILSCALE_RECOVERED", {
-                    "node_name": node_name,
-                    "recovery_method": "ssh",
-                })
+                safe_emit_event(
+                    "TAILSCALE_RECOVERED",
+                    {"node_name": node_name, "recovery_method": "ssh"},
+                    context="connectivity_recovery",
+                )
 
             return success
 
@@ -494,11 +496,15 @@ tailscale ip -4
         )
 
         # Emit escalation event
-        await self._emit_event("CONNECTIVITY_RECOVERY_ESCALATED", {
-            "node_name": node_name,
-            "recovery_attempts": state.recovery_attempts,
-            "consecutive_failures": state.consecutive_failures,
-        })
+        safe_emit_event(
+            "CONNECTIVITY_RECOVERY_ESCALATED",
+            {
+                "node_name": node_name,
+                "recovery_attempts": state.recovery_attempts,
+                "consecutive_failures": state.consecutive_failures,
+            },
+            context="connectivity_recovery",
+        )
 
         # Send Slack alert if configured
         if self._config.slack_webhook:
@@ -533,17 +539,6 @@ tailscale ip -4
             logger.debug("aiohttp not available, skipping Slack alert")
         except Exception as e:
             logger.error(f"Failed to send Slack alert: {e}")
-
-    async def _emit_event(self, event_type: str, data: dict) -> None:
-        """Emit an event via the event bus."""
-        try:
-            from app.distributed.data_events import emit_event
-
-            emit_event(event_type, data)
-        except ImportError:
-            logger.debug(f"Event emission not available: {event_type}")
-        except Exception as e:
-            logger.debug(f"Failed to emit event {event_type}: {e}")
 
     # =========================================================================
     # State Management

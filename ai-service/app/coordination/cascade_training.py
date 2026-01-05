@@ -29,6 +29,7 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.event_utils import make_config_key, parse_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
@@ -259,7 +260,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
             logger.info(f"[CascadeTraining] Transfer complete: {output_path}")
 
             # Emit event to trigger training with transferred weights
-            await self._emit_event(
+            safe_emit_event(
                 "TRAINING_REQUESTED",
                 {
                     "config_key": config_key,
@@ -269,13 +270,14 @@ class CascadeTrainingOrchestrator(HandlerBase):
                     "cascade_stage": True,
                     "transfer_from": source_model,
                 },
+                context="cascade_training",
             )
 
             return True
 
         except (OSError, RuntimeError, ValueError, TypeError, asyncio.CancelledError) as e:
             logger.error(f"[CascadeTraining] Transfer failed: {e}")
-            await self._emit_event(
+            safe_emit_event(
                 "CASCADE_TRANSFER_FAILED",
                 {
                     "config_key": config_key,
@@ -284,6 +286,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
                     "target_players": target_players,
                     "error": str(e),
                 },
+                context="cascade_training",
             )
             return False
 
@@ -416,7 +419,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
         state.training_started = datetime.now()
 
         # Emit event to trigger transfer
-        await self._emit_event(
+        safe_emit_event(
             "CASCADE_TRANSFER_TRIGGERED",
             {
                 "board_type": board_type,
@@ -425,17 +428,8 @@ class CascadeTrainingOrchestrator(HandlerBase):
                 "source_model": source_model,
                 "config_key": f"{board_type}_{target_players}p",
             },
+            context="cascade_training",
         )
-
-    async def _emit_event(self, event_type: str, payload: dict) -> None:
-        """Emit event via router if available."""
-        try:
-            from app.coordination.event_router import get_router
-
-            router = get_router()
-            await router.publish(event_type, payload)
-        except (ImportError, AttributeError, RuntimeError) as e:
-            logger.debug(f"[CascadeTraining] Event emission failed: {e}")
 
     async def _run_cycle(self) -> None:
         """Run periodic cascade state check."""
@@ -507,7 +501,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
         config_key = make_config_key(board_type, num_players)
         logger.info(f"[CascadeTraining] Requesting training for {config_key}")
 
-        await self._emit_event(
+        safe_emit_event(
             "TRAINING_REQUESTED",
             {
                 "config_key": config_key,
@@ -515,6 +509,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
                 "num_players": num_players,
                 "cascade_stage": True,
             },
+            context="cascade_training",
         )
 
     def get_cascade_status(self, board_type: str) -> CascadeState | None:

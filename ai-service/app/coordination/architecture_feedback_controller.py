@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.event_utils import make_config_key, parse_config_key
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 
@@ -350,18 +351,11 @@ class ArchitectureFeedbackController(HandlerBase):
             self._state.cached_weights[config_key] = weights
 
             # Emit event
-            self._emit_event(
+            safe_emit_event(
                 "ARCHITECTURE_WEIGHTS_UPDATED",
-                {
-                    "config_key": config_key,
-                    "weights": weights,
-                    "timestamp": time.time(),
-                },
-            )
-
-            logger.info(
-                f"ArchitectureFeedback: Emitted weights for {config_key}: "
-                f"{list(weights.items())[:3]}..."
+                {"config_key": config_key, "weights": weights, "timestamp": time.time()},
+                log_after=f"Emitted weights for {config_key}: {list(weights.items())[:3]}...",
+                context="architecture_feedback",
             )
 
         except (ImportError, ValueError, KeyError) as e:
@@ -402,16 +396,6 @@ class ArchitectureFeedbackController(HandlerBase):
             adjusted = {arch: w / total for arch, w in adjusted.items()}
 
         return adjusted
-
-    def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
-        """Emit an event to the event router."""
-        try:
-            from app.coordination.event_router import get_router
-
-            router = get_router()
-            router.emit(event_type, data)
-        except (ImportError, AttributeError) as e:
-            logger.debug(f"ArchitectureFeedback: Could not emit {event_type}: {e}")
 
     async def _run_cycle(self) -> None:
         """Run periodic check cycle.

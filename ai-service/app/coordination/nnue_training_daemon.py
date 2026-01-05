@@ -39,6 +39,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
+from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.event_handler_utils import extract_config_key, extract_model_path
 from app.coordination.event_utils import parse_config_key
 from pathlib import Path
@@ -388,11 +389,11 @@ class NNUETrainingDaemon(HandlerBase):
         self._state.active_trainings[config_key] = time.time()
 
         # Emit training started event
-        self._emit_event("NNUE_TRAINING_STARTED", {
-            "config_key": config_key,
-            "game_count": game_count,
-            "timestamp": time.time(),
-        })
+        safe_emit_event(
+            "NNUE_TRAINING_STARTED",
+            {"config_key": config_key, "game_count": game_count, "timestamp": time.time()},
+            context="nnue_training",
+        )
 
         # Run training in background task
         asyncio.create_task(self._run_training(config_key, game_count))
@@ -490,14 +491,18 @@ class NNUETrainingDaemon(HandlerBase):
         })
 
         # Emit completion event
-        self._emit_event("NNUE_TRAINING_COMPLETED", {
-            "config_key": config_key,
-            "success": success,
-            "duration_seconds": elapsed,
-            "game_count": game_count,
-            "error": error_msg if not success else None,
-            "timestamp": time.time(),
-        })
+        safe_emit_event(
+            "NNUE_TRAINING_COMPLETED",
+            {
+                "config_key": config_key,
+                "success": success,
+                "duration_seconds": elapsed,
+                "game_count": game_count,
+                "error": error_msg if not success else None,
+                "timestamp": time.time(),
+            },
+            context="nnue_training",
+        )
 
         self._save_state()
 
@@ -579,15 +584,6 @@ class NNUETrainingDaemon(HandlerBase):
         for config_key in timed_out:
             logger.warning(f"NNUETrainingDaemon: Training for {config_key} timed out, cleaning up")
             self._state.active_trainings.pop(config_key, None)
-
-    def _emit_event(self, event_type: str, data: dict[str, Any]) -> None:
-        """Emit an event to the event router."""
-        try:
-            from app.coordination.event_router import get_router
-            router = get_router()
-            router.emit(event_type, data)
-        except (ImportError, AttributeError) as e:
-            logger.debug(f"NNUETrainingDaemon: Could not emit {event_type}: {e}")
 
     def health_check(self) -> HealthCheckResult:
         """Return health check result for this daemon."""
