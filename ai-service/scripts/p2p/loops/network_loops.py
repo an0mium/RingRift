@@ -1556,6 +1556,9 @@ class VoterHeartbeatLoop(BaseLoop):
         self._heartbeats_succeeded = 0
         self._nat_recoveries = 0
         self._mesh_refreshes = 0
+        # Jan 5, 2026: Track reachable voters for quorum-aware health checks
+        self._reachable_voters: set[str] = set()
+        self._total_voters = 0
 
     async def _on_start(self) -> None:
         """Check if this node is a voter."""
@@ -1581,6 +1584,10 @@ class VoterHeartbeatLoop(BaseLoop):
         other_voters = [v for v in voter_ids if v != node_id]
         now = time.time()
 
+        # Jan 5, 2026: Track voter counts for quorum health
+        self._total_voters = len(voter_ids)
+        cycle_reachable: set[str] = {node_id}  # Include self as reachable
+
         for voter_id in other_voters:
             voter_peer = self._get_peer(voter_id)
 
@@ -1594,6 +1601,7 @@ class VoterHeartbeatLoop(BaseLoop):
 
             if success:
                 self._heartbeats_succeeded += 1
+                cycle_reachable.add(voter_id)
 
                 # Aggressive NAT recovery: clear NAT-blocked immediately on success
                 if (
@@ -1609,7 +1617,9 @@ class VoterHeartbeatLoop(BaseLoop):
                 # Try alternative endpoints
                 success = await self._try_alternative_endpoints(voter_peer)
 
-                if not success:
+                if success:
+                    cycle_reachable.add(voter_id)
+                else:
                     self._increment_failures(voter_id)
 
         # Periodic voter mesh refresh
@@ -1618,8 +1628,14 @@ class VoterHeartbeatLoop(BaseLoop):
             self._mesh_refreshes += 1
             await self._refresh_voter_mesh()
 
+        # Jan 5, 2026: Update reachable voters set for health check
+        self._reachable_voters = cycle_reachable
+
     def get_voter_stats(self) -> dict[str, Any]:
         """Get voter heartbeat statistics."""
+        active_voters = len(self._reachable_voters)
+        total_voters = self._total_voters
+        min_quorum = (total_voters // 2) + 1 if total_voters > 0 else 0
         return {
             "is_voter": self._is_voter,
             "heartbeats_sent": self._heartbeats_sent,
@@ -1631,6 +1647,11 @@ class VoterHeartbeatLoop(BaseLoop):
             ),
             "nat_recoveries": self._nat_recoveries,
             "mesh_refreshes": self._mesh_refreshes,
+            # Jan 5, 2026: Added quorum-aware metrics
+            "active_voters": active_voters,
+            "total_voters": total_voters,
+            "min_quorum": min_quorum,
+            "quorum_margin": active_voters - min_quorum if total_voters > 0 else 0,
             **self.stats.to_dict(),
         }
 
@@ -1677,8 +1698,45 @@ class VoterHeartbeatLoop(BaseLoop):
         stats = self.get_voter_stats()
         success_rate = stats.get("success_rate", 0.0)
         heartbeats_sent = stats.get("heartbeats_sent", 0)
+        active_voters = stats.get("active_voters", 0)
+        total_voters = stats.get("total_voters", 0)
+        min_quorum = stats.get("min_quorum", 0)
+        quorum_margin = stats.get("quorum_margin", 0)
 
-        # Voter connectivity is critical for quorum
+        # Jan 5, 2026: CRITICAL when quorum is at minimum - any additional failure will break quorum
+        if total_voters > 0 and quorum_margin <= 0:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Quorum at minimum: {active_voters}/{total_voters} voters (need {min_quorum})",
+                details={
+                    "is_voter": True,
+                    "active_voters": active_voters,
+                    "total_voters": total_voters,
+                    "min_quorum": min_quorum,
+                    "quorum_margin": quorum_margin,
+                    "success_rate": success_rate,
+                    "heartbeats_sent": heartbeats_sent,
+                },
+            )
+
+        # DEGRADED when quorum margin is tight (only 1 voter spare)
+        if total_voters > 0 and quorum_margin == 1:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Quorum margin tight: {active_voters}/{total_voters} voters (1 above minimum)",
+                details={
+                    "is_voter": True,
+                    "active_voters": active_voters,
+                    "total_voters": total_voters,
+                    "min_quorum": min_quorum,
+                    "quorum_margin": quorum_margin,
+                    "success_rate": success_rate,
+                },
+            )
+
+        # Voter connectivity is critical for quorum (legacy success rate check)
         if heartbeats_sent > 5 and success_rate < 40:
             return HealthCheckResult(
                 healthy=False,

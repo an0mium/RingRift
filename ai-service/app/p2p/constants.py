@@ -347,10 +347,11 @@ GOSSIP_MAX_PEER_ENDPOINTS = int(
 
 # Peer lifecycle
 # Dec 30, 2025: Increased from 300 (5 min) to 900 (15 min) for cloud maintenance tolerance.
-# 5 minutes was too aggressive - cloud providers may have 10+ minute maintenance windows.
-# 15 minutes balances quick detection with tolerance for transient network issues.
-# Use RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS=300 for faster detection if needed.
-PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "900") or 900)
+# Jan 5, 2026: Increased from 900 (15 min) to 1800 (30 min) for rolling restart tolerance.
+# 15 minutes was still too aggressive during coordinated restarts - nodes would permanently
+# retire before they could recover. 30 minutes gives ample time for restart cycles.
+# Use RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS=900 for faster detection if needed.
+PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "1800") or 1800)
 # Renamed from RETRY_RETIRED_NODE_INTERVAL to PEER_RECOVERY_RETRY_INTERVAL for clarity
 PEER_RECOVERY_RETRY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "120") or 120)
 # Backward compat alias (deprecated - use PEER_RECOVERY_RETRY_INTERVAL)
@@ -397,10 +398,11 @@ PEER_BOOTSTRAP_INTERVAL = 60
 PEER_BOOTSTRAP_MIN_PEERS = 3
 
 # Dec 30, 2025: Startup grace period before continuous bootstrap loop starts.
-# Reduced from 180s to 30s - nodes initialize in 10-20s, 30s provides sufficient buffer.
-# 180s was too long, delaying mesh formation after cluster restart.
-# Use RINGRIFT_P2P_STARTUP_GRACE_PERIOD=180 for coordinated restarts if needed.
-STARTUP_GRACE_PERIOD = int(os.environ.get("RINGRIFT_P2P_STARTUP_GRACE_PERIOD", "30") or 30)
+# Jan 5, 2026: Increased from 30s to 60s - complex nodes (coordinators, training) need more time.
+# 30s was too aggressive, causing false peer retirements during rolling restarts.
+# Role-based variants: Coordinators 120s, GPU training 90s, GPU selfplay 60s
+# Use RINGRIFT_P2P_STARTUP_GRACE_PERIOD=120 for coordinated restarts if needed.
+STARTUP_GRACE_PERIOD = int(os.environ.get("RINGRIFT_P2P_STARTUP_GRACE_PERIOD", "60") or 60)
 VOTER_MIN_QUORUM = int(os.environ.get("RINGRIFT_P2P_VOTER_MIN_QUORUM", "3") or 3)
 
 # ============================================

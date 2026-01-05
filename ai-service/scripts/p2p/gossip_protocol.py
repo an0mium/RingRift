@@ -2261,6 +2261,12 @@ class GossipProtocolMixin(P2PMixinBase):
             if node_id != self.node_id and state.get("circuit_breakers"):
                 self._process_circuit_breaker_states(node_id, state["circuit_breakers"])
 
+        # Jan 5, 2026: Check if peers report this node as leader (race condition fix)
+        # If peers already consider us leader but we haven't recognized ourselves yet,
+        # accept leadership to resolve the race condition between gossip propagation
+        # and _become_leader() async completion.
+        self._try_accept_leadership_from_gossip()
+
     async def _check_config_freshness(
         self, peer_id: str, peer_config: dict[str, Any]
     ) -> None:
@@ -2479,6 +2485,140 @@ class GossipProtocolMixin(P2PMixinBase):
                 cluster_leader = state.get("cluster_leader")
                 if cluster_leader:
                     self._process_gossip_leader_claim(cluster_leader)
+
+    def _try_accept_leadership_from_gossip(self) -> None:
+        """Accept leadership if peers already consider us the leader.
+
+        Jan 5, 2026: Fixes leader self-recognition race condition.
+
+        Problem:
+            When a node wins election, _become_leader() starts async. Before it
+            completes and sets self.leader_id = self.node_id, gossip propagates
+            to other nodes. So other nodes set leader_id to this node, but this
+            node still has leader_id=None (or old leader).
+
+        Solution:
+            After processing gossip, check if a significant number of peers
+            report this node as leader. If so and we haven't recognized ourselves
+            as leader yet, accept leadership immediately.
+
+        Requirements:
+            - At least 3 peers must report this node as leader (minimum quorum)
+            - Voter quorum must be available
+            - This node must not already be leader
+            - Not in election or stepping down state
+        """
+        # Skip if we're already the leader
+        if getattr(self, "leader_id", None) == self.node_id:
+            return
+
+        # Skip if we're in an election or stepping down
+        if getattr(self, "election_in_progress", False):
+            return
+
+        # Skip if we have a leadership state machine in a non-follower state
+        if hasattr(self, "_leadership_sm") and self._leadership_sm:
+            from scripts.p2p.leadership_state_machine import LeaderState
+            state = self._leadership_sm.state
+            if state in (LeaderState.LEADER, LeaderState.STEPPING_DOWN, LeaderState.CANDIDATE):
+                return
+
+        # Check voter quorum
+        if not self._has_voter_quorum():
+            return
+
+        # Count how many peers report this node as leader
+        peers_reporting_us_as_leader = 0
+        total_peers_with_leader_info = 0
+
+        lock = getattr(self, "_gossip_state_sync_lock", None)
+        if lock is not None:
+            lock.acquire()
+        try:
+            for node_id, state in self._gossip_peer_states.items():
+                if node_id == self.node_id:
+                    continue
+                peer_leader = state.get("leader_id")
+                if peer_leader:
+                    total_peers_with_leader_info += 1
+                    if peer_leader == self.node_id:
+                        peers_reporting_us_as_leader += 1
+        finally:
+            if lock is not None:
+                lock.release()
+
+        # Require at least 3 peers to report us as leader (minimum quorum)
+        # and a majority of peers with leader info
+        min_required = 3
+        if peers_reporting_us_as_leader < min_required:
+            return
+
+        # Majority check: at least 50% of peers with leader info should agree
+        if total_peers_with_leader_info > 0:
+            agreement_ratio = peers_reporting_us_as_leader / total_peers_with_leader_info
+            if agreement_ratio < 0.5:
+                return
+
+        # Accept leadership - peers already consider us leader
+        self._log_warning(
+            f"[Leadership] Accepting leadership from gossip: "
+            f"{peers_reporting_us_as_leader}/{total_peers_with_leader_info} peers "
+            f"already report this node as leader"
+        )
+
+        try:
+            from scripts.p2p.models import NodeRole
+        except ImportError:
+            NodeRole = None
+
+        # Set leadership state
+        self.leader_id = self.node_id
+        self.last_leader_seen = time.time()
+        if NodeRole is not None:
+            self.role = NodeRole.LEADER
+
+        # Set lease info
+        from scripts.p2p.constants import LEADER_LEASE_DURATION
+        import uuid
+        lease_id = f"{self.node_id}_{int(time.time())}_gossip_accepted_{uuid.uuid4().hex[:8]}"
+        self.leader_lease_id = lease_id
+        self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
+
+        # Update leadership state machine if available
+        if hasattr(self, "_leadership_sm") and self._leadership_sm:
+            try:
+                from scripts.p2p.leadership_state_machine import LeaderState, TransitionReason
+                asyncio.create_task(
+                    self._leadership_sm.transition_to(
+                        LeaderState.LEADER,
+                        TransitionReason.ELECTION_WON,
+                    )
+                )
+            except Exception as e:
+                self._log_warning(f"[Leadership] Failed to update state machine: {e}")
+
+        # Increment cluster epoch to ensure gossip picks up the change
+        if hasattr(self, "_increment_cluster_epoch"):
+            self._increment_cluster_epoch()
+
+        # Save state
+        if hasattr(self, "_save_state"):
+            self._save_state()
+
+        # Emit leader change event
+        try:
+            from scripts.p2p.handlers.handlers_base import get_event_bridge
+            _event_bridge = get_event_bridge()
+            asyncio.create_task(
+                _event_bridge.emit("p2p_leader_changed", {
+                    "new_leader_id": self.node_id,
+                    "old_leader_id": "",
+                    "term": getattr(self, "cluster_epoch", 0),
+                    "reason": "accepted_from_gossip",
+                })
+            )
+        except Exception as e:
+            self._log_debug(f"[Leadership] Failed to emit leader change event: {e}")
 
     def _process_peer_manifests(self, peer_manifests: dict) -> None:
         """Process peer manifest info for P2P sync."""
