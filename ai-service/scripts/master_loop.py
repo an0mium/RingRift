@@ -1663,6 +1663,22 @@ class MasterLoopController:
         """Initialize state from current data."""
         logger.info("[MasterLoop] Initializing state from current data...")
 
+        # January 4, 2026: Initialize Elo velocities from database history
+        # This fixes cold start gap where velocities are 0.0 until ELO_VELOCITY_CHANGED events fire
+        try:
+            from app.coordination.selfplay_scheduler import get_selfplay_scheduler
+
+            scheduler = get_selfplay_scheduler()
+            count = scheduler.initialize_elo_velocities_from_db()
+            if count > 0:
+                logger.info(f"[MasterLoop] Initialized Elo velocities for {count} configs from database")
+            else:
+                logger.debug("[MasterLoop] No Elo velocity history found in database")
+        except ImportError as e:
+            logger.debug(f"[MasterLoop] SelfplayScheduler not available for Elo velocity init: {e}")
+        except Exception as e:
+            logger.warning(f"[MasterLoop] Failed to initialize Elo velocities: {e}")
+
         for config_key in self.active_configs:
             try:
                 # Parse config key
