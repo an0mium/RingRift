@@ -496,15 +496,14 @@ def _detect_swim_available() -> bool:
 
 _SWIM_PACKAGE_AVAILABLE = _detect_swim_available()
 _swim_env = os.environ.get("RINGRIFT_SWIM_ENABLED", "").lower()
-# Auto-enable if package available AND not explicitly disabled
-# Explicit "false"/"off"/"0" disables; empty string with package = enabled
-if _swim_env in {"0", "false", "no", "off"}:
-    SWIM_ENABLED = False
-elif _swim_env in {"1", "true", "yes", "on"}:
-    SWIM_ENABLED = True
+# Jan 5, 2026: SWIM disabled by default because port 7947 is blocked by cloud firewalls
+# (Lambda, RunPod, Vast.ai, Nebius). This was causing voter quorum failures.
+# Use RINGRIFT_SWIM_ENABLED=true to explicitly enable if port 7947 is open.
+if _swim_env in {"1", "true", "yes", "on"}:
+    SWIM_ENABLED = _SWIM_PACKAGE_AVAILABLE  # Only enable if explicitly requested AND available
 else:
-    # Auto-detect: enable if package available
-    SWIM_ENABLED = _SWIM_PACKAGE_AVAILABLE
+    # Default disabled - port 7947 blocked on most cloud providers
+    SWIM_ENABLED = False
 
 SWIM_BIND_PORT = int(os.environ.get("RINGRIFT_SWIM_BIND_PORT", str(SWIM_PORT)) or SWIM_PORT)
 # December 29, 2025: Tuned for high-latency cross-cloud networks

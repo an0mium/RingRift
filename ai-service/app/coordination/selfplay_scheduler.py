@@ -400,9 +400,11 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
         # Jan 5, 2026: Idle node work injection state
         # Tracks when each node became idle (first seen with current_jobs=0)
         # If node is idle for > IDLE_THRESHOLD_SECONDS, inject priority work
+        # Jan 5, 2026: Reduced from 300s (5 min) to 120s (2 min) for faster work injection.
+        # Nodes were waiting too long before getting work during P2P recovery periods.
         self._node_idle_since: dict[str, float] = {}
         self._idle_threshold_seconds = float(
-            os.environ.get("RINGRIFT_IDLE_NODE_THRESHOLD_SECONDS", "300")  # 5 min
+            os.environ.get("RINGRIFT_IDLE_NODE_THRESHOLD_SECONDS", "120")  # 2 min
         )
         self._last_idle_injection = 0.0
         self._idle_injection_cooldown = 60.0  # Don't spam work injection
