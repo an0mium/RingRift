@@ -244,6 +244,63 @@ class JobReaperLoop(BaseLoop):
             **self.stats.to_dict(),
         }
 
+    def health_check(self) -> Any:
+        """Check loop health with job reaper-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Reports reap statistics and identifies potential issues with stuck jobs.
+
+        Returns:
+            HealthCheckResult with job reaper status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"JobReaperLoop {'running' if self.running else 'stopped'}",
+                "details": self.get_reap_stats(),
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="JobReaperLoop is stopped",
+                details={"running": False},
+            )
+
+        # Calculate total reaped
+        total_reaped = (
+            self._reap_stats.get("stale_jobs_reaped", 0)
+            + self._reap_stats.get("stuck_jobs_reaped", 0)
+            + self._reap_stats.get("abandoned_jobs_reaped", 0)
+        )
+
+        # Check active jobs for current state
+        active_jobs = {}
+        try:
+            active_jobs = self._get_active_jobs()
+        except Exception:
+            pass
+
+        # Healthy - report stats
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"JobReaperLoop healthy ({total_reaped} jobs reaped total)",
+            details={
+                "stale_jobs_reaped": self._reap_stats.get("stale_jobs_reaped", 0),
+                "stuck_jobs_reaped": self._reap_stats.get("stuck_jobs_reaped", 0),
+                "abandoned_jobs_reaped": self._reap_stats.get("abandoned_jobs_reaped", 0),
+                "active_jobs_count": len(active_jobs),
+                "check_interval": self.interval,
+            },
+        )
+
 
 @dataclass
 class IdleDetectionConfig:
@@ -995,6 +1052,78 @@ class WorkerPullLoop(BaseLoop):
             **self.stats.to_dict(),
         }
 
+    def health_check(self) -> Any:
+        """Check loop health with worker pull-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Reports work claiming and completion rates for worker health.
+
+        Returns:
+            HealthCheckResult with worker pull status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"WorkerPullLoop {'running' if self.running else 'stopped'}",
+                "details": self.get_pull_stats(),
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="WorkerPullLoop is stopped",
+                details={"running": False},
+            )
+
+        # Workers skip if they're the leader - that's expected
+        if self._is_leader():
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message="WorkerPullLoop: This node is leader (pull disabled)",
+                details={"is_leader": True, "skipped_leader": self._skipped_leader},
+            )
+
+        # Calculate success rate
+        total_work = self._work_completed + self._work_failed
+        success_rate = (self._work_completed / total_work * 100) if total_work > 0 else 100.0
+
+        # Degraded if failure rate > 30%
+        if total_work > 10 and success_rate < 70.0:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"WorkerPullLoop degraded: {success_rate:.1f}% success rate",
+                details={
+                    "work_claimed": self._work_claimed,
+                    "work_completed": self._work_completed,
+                    "work_failed": self._work_failed,
+                    "success_rate": success_rate,
+                    "last_discovery_channel": self._last_discovery_channel,
+                },
+            )
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"WorkerPullLoop healthy ({self._work_claimed} claimed, {self._work_completed} completed)",
+            details={
+                "work_claimed": self._work_claimed,
+                "work_completed": self._work_completed,
+                "work_failed": self._work_failed,
+                "skipped_busy": self._skipped_busy,
+                "autonomous_work_claimed": self._autonomous_work_claimed,
+                "work_discovery_stats": self._work_discovery_stats.copy(),
+            },
+        )
+
 
 @dataclass
 class WorkQueueMaintenanceConfig:
@@ -1238,6 +1367,82 @@ class WorkQueueMaintenanceLoop(BaseLoop):
             "stall_threshold_seconds": self.config.stall_threshold_seconds,
             **self.stats.to_dict(),
         }
+
+    def health_check(self) -> Any:
+        """Check loop health with work queue maintenance-specific status.
+
+        Jan 2026: Added for DaemonManager integration and 48h autonomous operation.
+        Reports stall detection status, which is critical for autonomous recovery.
+
+        Returns:
+            HealthCheckResult with work queue maintenance status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            return {
+                "healthy": self.running and not self._stall_detected,
+                "status": "stalled" if self._stall_detected else ("running" if self.running else "stopped"),
+                "message": f"WorkQueueMaintenanceLoop {'STALLED' if self._stall_detected else 'healthy'}",
+                "details": self.get_maintenance_stats(),
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="WorkQueueMaintenanceLoop is stopped",
+                details={"running": False},
+            )
+
+        now = time.time()
+        idle_duration = now - self._last_work_completed_time
+
+        # Stall detected - CRITICAL for 48h autonomous operation
+        if self._stall_detected:
+            stall_duration = now - self._stall_detected_at if self._stall_detected_at else 0
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Work queue STALLED for {stall_duration:.0f}s",
+                details={
+                    "stall_detected": True,
+                    "stall_duration_seconds": stall_duration,
+                    "stall_events_emitted": self._stall_events_emitted,
+                    "timeouts_processed": self._timeouts_processed,
+                    "items_cleaned": self._items_cleaned,
+                },
+            )
+
+        # Approaching stall threshold - warning state
+        approaching_stall = idle_duration > (self.config.stall_threshold_seconds * 0.7)
+        if approaching_stall:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Work queue idle for {idle_duration:.0f}s (approaching stall threshold)",
+                details={
+                    "idle_duration_seconds": idle_duration,
+                    "stall_threshold_seconds": self.config.stall_threshold_seconds,
+                    "timeouts_processed": self._timeouts_processed,
+                },
+            )
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"WorkQueueMaintenanceLoop healthy ({self._items_cleaned} items cleaned)",
+            details={
+                "timeouts_processed": self._timeouts_processed,
+                "items_cleaned": self._items_cleaned,
+                "stale_items_handled": self._stale_items_handled,
+                "idle_duration_seconds": idle_duration,
+                "recovery_events_emitted": self._recovery_events_emitted,
+            },
+        )
 
 
 @dataclass

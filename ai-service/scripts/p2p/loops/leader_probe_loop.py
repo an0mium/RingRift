@@ -275,3 +275,80 @@ class LeaderProbeLoop(BaseLoop):
             "seconds_since_success": time.time() - self._last_success_time,
             "election_triggered_recently": self._election_triggered_recently,
         }
+
+    def health_check(self) -> Any:
+        """Check loop health with leader-specific status.
+
+        Jan 2026: Added for DaemonManager integration and better observability.
+        Provides more detailed health info than base class implementation.
+
+        Returns:
+            HealthCheckResult with leader probe status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"LeaderProbeLoop {'running' if self.running else 'stopped'}",
+                "details": self.get_status(),
+            }
+
+        # If we're the leader, we don't probe - always healthy
+        if self._is_leader():
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message="This node is the leader (no probing needed)",
+                details={"is_leader": True, "running": self.running},
+            )
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="LeaderProbeLoop is stopped",
+                details={"running": False},
+            )
+
+        # Check if leader is unreachable (approaching election trigger)
+        if self._consecutive_failures >= self._failure_threshold:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Leader unreachable ({self._consecutive_failures} failures), election triggered",
+                details={
+                    "consecutive_failures": self._consecutive_failures,
+                    "failure_threshold": self._failure_threshold,
+                    "seconds_since_success": time.time() - self._last_success_time,
+                    "election_triggered_recently": self._election_triggered_recently,
+                },
+            )
+
+        # Check if leader probe is degraded (some failures but not threshold)
+        if self._consecutive_failures > 0:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Leader probe experiencing failures ({self._consecutive_failures}/{self._failure_threshold})",
+                details={
+                    "consecutive_failures": self._consecutive_failures,
+                    "failure_threshold": self._failure_threshold,
+                    "seconds_since_success": time.time() - self._last_success_time,
+                },
+            )
+
+        # Healthy - leader reachable
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message="Leader probe healthy",
+            details={
+                "consecutive_failures": 0,
+                "seconds_since_success": time.time() - self._last_success_time,
+                "leader_id": self._get_leader_id(),
+            },
+        )

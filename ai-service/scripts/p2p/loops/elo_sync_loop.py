@@ -219,3 +219,79 @@ class EloSyncLoop(BaseLoop):
                 pass  # Attribute may not exist on all manager states
 
         return status
+
+    def health_check(self) -> Any:
+        """Check loop health with Elo sync-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Reports initialization status, sync manager health, and retry state.
+
+        Returns:
+            HealthCheckResult with Elo sync status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            return {
+                "healthy": self.running and self._initialized,
+                "status": "running" if self.running else "stopped",
+                "message": f"EloSyncLoop {'initialized' if self._initialized else 'not initialized'}",
+                "details": self.get_status(),
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="EloSyncLoop is stopped",
+                details={"running": False},
+            )
+
+        # Disabled with re-enable check pending
+        if not self.enabled:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"EloSyncLoop disabled, re-enable check active: {self._reenable_task is not None}",
+                details={
+                    "init_attempts": self._init_attempts,
+                    "max_retries": MAX_INIT_RETRIES,
+                    "reenable_check_active": self._reenable_task is not None and not self._reenable_task.done(),
+                },
+            )
+
+        # Initialization failed
+        if not self._initialized:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"EloSyncLoop not initialized after {self._init_attempts} attempts",
+                details={
+                    "init_attempts": self._init_attempts,
+                    "max_retries": MAX_INIT_RETRIES,
+                },
+            )
+
+        # Get sync manager health
+        manager = self._get_elo_sync_manager()
+        match_count = 0
+        if manager and hasattr(manager, "state"):
+            try:
+                match_count = getattr(manager.state, "local_match_count", 0)
+            except AttributeError:
+                pass
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"EloSyncLoop healthy ({match_count} matches synced)",
+            details={
+                "initialized": True,
+                "local_match_count": match_count,
+                "sync_interval": self.interval,
+                "init_attempts": self._init_attempts,
+            },
+        )
