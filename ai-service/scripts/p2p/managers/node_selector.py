@@ -113,9 +113,13 @@ class NodeSelector:
     async def _periodic_unhealthy_recovery(self) -> None:
         """Periodically attempt to recover unhealthy nodes.
 
-        Session 17.28: Runs every 60s and checks if nodes marked unhealthy
-        have recovered. This prevents nodes from being permanently excluded
-        from work distribution after transient failures.
+        Session 17.28: Runs every 15s (reduced from 60s in Session 17.27) and checks
+        if nodes marked unhealthy have recovered. This prevents nodes from being
+        permanently excluded from work distribution after transient failures.
+
+        Session 17.27: Added priority processing for nodes in _pending_probes set.
+        When a node is marked unhealthy with schedule_probe=True, it gets checked
+        on the next loop iteration rather than waiting for the full interval.
 
         Expected impact: 15% more nodes available for work distribution.
         """
@@ -128,13 +132,30 @@ class NodeSelector:
 
         while self._running:
             try:
+                # Jan 5, 2026: Check for priority pending probes first
+                # If there are pending probes, process them immediately
+                pending_to_check: set[str] = set()
+                if self._pending_probes:
+                    pending_to_check = self._pending_probes.copy()
+                    self._pending_probes.clear()
+                    logger.debug(
+                        f"[NodeSelector] Processing {len(pending_to_check)} pending probes: "
+                        f"{pending_to_check}"
+                    )
+
                 await asyncio.sleep(self._recovery_interval_seconds)
 
                 if not self._running:
                     break
 
                 # Run synchronous recover_unhealthy_nodes in thread pool
-                recovered = await asyncio.to_thread(self.recover_unhealthy_nodes)
+                # If we have pending probes, only check those specific nodes
+                if pending_to_check:
+                    recovered = await asyncio.to_thread(
+                        self._recover_specific_nodes, pending_to_check
+                    )
+                else:
+                    recovered = await asyncio.to_thread(self.recover_unhealthy_nodes)
 
                 if recovered:
                     logger.info(
@@ -919,6 +940,72 @@ class NodeSelector:
             logger.info(
                 f"[NodeSelector] Recovered {len(recovered)} nodes from unhealthy state: "
                 f"{recovered}"
+            )
+
+        return recovered
+
+    def _recover_specific_nodes(self, node_ids: set[str]) -> list[str]:
+        """Attempt to recover specific nodes from unhealthy state.
+
+        Jan 5, 2026 (Session 17.27): Added for faster recovery of nodes that were
+        just marked unhealthy. Instead of waiting for the full recovery interval,
+        nodes added to _pending_probes are checked on the next loop iteration.
+
+        Args:
+            node_ids: Set of node IDs to check for recovery.
+
+        Returns:
+            List of node IDs that were recovered.
+        """
+        if not node_ids:
+            return []
+
+        # Only check nodes that are actually in the unhealthy set
+        nodes_to_check = node_ids & self._unhealthy_nodes
+        if not nodes_to_check:
+            logger.debug(
+                f"[NodeSelector] No pending probe nodes in unhealthy set: {node_ids}"
+            )
+            return []
+
+        recovered = []
+
+        # Get current node info for nodes to check
+        all_nodes = self._get_all_nodes(include_self=True)
+        nodes_by_id = {n.node_id: n for n in all_nodes}
+
+        for node_id in nodes_to_check:
+            node = nodes_by_id.get(node_id)
+
+            # Check if node appears healthy now
+            if node is not None:
+                is_alive = node.is_alive()
+                is_healthy = node.is_healthy()
+                not_retired = not getattr(node, "retired", False)
+
+                if is_alive and is_healthy and not_retired:
+                    # Node has recovered - remove from unhealthy set
+                    self._unhealthy_nodes.discard(node_id)
+                    self._unhealthy_reasons.pop(node_id, None)
+                    recovered.append(node_id)
+                    logger.info(
+                        f"[NodeSelector] Proactive recovery: node {node_id} recovered "
+                        f"(alive={is_alive}, healthy={is_healthy})"
+                    )
+                else:
+                    logger.debug(
+                        f"[NodeSelector] Proactive probe: node {node_id} still unhealthy "
+                        f"(alive={is_alive}, healthy={is_healthy}, retired={not not_retired})"
+                    )
+            else:
+                logger.debug(
+                    f"[NodeSelector] Proactive probe: node {node_id} not in peers dict"
+                )
+
+        if recovered:
+            logger.info(
+                f"[NodeSelector] Proactive recovery: {len(recovered)}/{len(nodes_to_check)} "
+                f"nodes recovered: {recovered}"
             )
 
         return recovered

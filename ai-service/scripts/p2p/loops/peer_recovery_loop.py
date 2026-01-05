@@ -381,6 +381,36 @@ class PeerRecoveryLoop(BaseLoop):
         self._peer_last_probe.clear()
         logger.info("[PeerRecovery] Reset all peer backoffs")
 
+    def on_quorum_restored(self, event: dict[str, Any] | None = None) -> None:
+        """Handle quorum restoration by resetting all peer backoffs.
+
+        Session 17.31 (Jan 5, 2026): Called when voter quorum is restored.
+        This enables faster cluster convergence by allowing immediate
+        re-probing of all peers that were in backoff during the outage.
+
+        Args:
+            event: Optional quorum_restored event data (for logging context)
+        """
+        online_voters = event.get("online_voters", "?") if event else "?"
+        total_voters = event.get("total_voters", "?") if event else "?"
+        logger.info(
+            f"[PeerRecovery] Quorum restored ({online_voters}/{total_voters}) - "
+            "resetting all peer backoffs for faster convergence"
+        )
+        self.reset_all_backoffs()
+
+        # Emit event for observability
+        if self._emit_event:
+            self._emit_event(
+                "PEER_BACKOFFS_RESET",
+                {
+                    "reason": "quorum_restored",
+                    "online_voters": online_voters,
+                    "total_voters": total_voters,
+                    "peers_reset": len(self._peer_failures) + len(self._peer_next_probe),
+                },
+            )
+
     def get_peer_backoff_info(self, node_id: str) -> dict[str, Any]:
         """Get backoff information for a specific peer."""
         now = time.time()
@@ -534,7 +564,8 @@ class PeerRecoveryLoop(BaseLoop):
         recovery_rate = (recoveries / total_attempts * 100) if total_attempts > 0 else 0
 
         # Check if too many peers stuck in backoff (degraded)
-        if peers_in_backoff > 20:
+        # Session 17.31 (Jan 5, 2026): Reduced from 20 to 10 for earlier intervention
+        if peers_in_backoff > 10:
             return HealthCheckResult(
                 healthy=True,
                 status=CoordinatorStatus.DEGRADED,

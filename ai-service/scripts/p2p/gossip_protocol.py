@@ -150,9 +150,10 @@ class GossipHealthTracker:
     """
 
     # Jan 3, 2026: Backoff configuration
+    # Jan 5, 2026 Session 17.31: Reduced max backoff from 16s to 8s for faster recovery
     BACKOFF_BASE_SECONDS: float = 1.0
     BACKOFF_MULTIPLIER: float = 2.0
-    BACKOFF_MAX_SECONDS: float = 16.0
+    BACKOFF_MAX_SECONDS: float = 8.0  # Was 16.0 - reduced for faster node recovery
     # Jan 5, 2026 (Phase 6): Jitter factor to prevent thundering herd
     # Applied as multiplier: backoff * random(1-jitter, 1+jitter)
     BACKOFF_JITTER_FACTOR: float = 0.25  # +/- 25% jitter
