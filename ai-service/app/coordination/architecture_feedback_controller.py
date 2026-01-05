@@ -50,7 +50,7 @@ class ArchitectureFeedbackConfig:
     """
 
     min_allocation_per_arch: float = 0.10  # 10% minimum per architecture
-    weight_update_interval: float = 1800.0  # 30 minutes
+    weight_update_interval: float = 600.0  # 10 minutes (was 30 min, reduced Jan 2026 for responsive curriculum)
     weight_temperature: float = 0.5  # Balance exploration vs exploitation
 
     # Architectures to track (NN + NNUE)

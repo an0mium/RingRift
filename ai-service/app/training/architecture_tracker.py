@@ -77,6 +77,11 @@ class ArchitectureStats:
     _elo_sum: float = 0.0
     _elo_sum_sq: float = 0.0
 
+    # Elo history for velocity calculation (Jan 2026)
+    # List of (timestamp, elo) tuples for last 24 hours
+    _elo_history: list[tuple[float, float]] = field(default_factory=list)
+    _max_history_age: float = 86400.0  # 24 hours in seconds
+
     # Per-harness Elo breakdown (Dec 2025)
     # Maps harness name (e.g., "gumbel_mcts", "policy_only") to Elo rating
     harness_elos: dict[str, float] = field(default_factory=dict)
@@ -162,6 +167,43 @@ class ArchitectureStats:
         if self.training_hours > 0:
             self.elo_per_training_hour = max(0.0, self.avg_elo - 1000.0) / self.training_hours
 
+        # Jan 2026: Track Elo history for velocity calculation
+        now = time.time()
+        self._elo_history.append((now, elo))
+        # Prune old entries
+        cutoff = now - self._max_history_age
+        self._elo_history = [(t, e) for t, e in self._elo_history if t >= cutoff]
+
+    def compute_elo_velocity(self) -> float:
+        """Compute Elo velocity (Elo change per hour over last 24 hours).
+
+        Uses linear regression over recent Elo observations to determine
+        the trend. Positive velocity = improving, negative = regressing.
+
+        Returns:
+            Elo change per hour (can be negative for regression)
+        """
+        if len(self._elo_history) < 2:
+            return 0.0
+
+        # Prune old entries first
+        now = time.time()
+        cutoff = now - self._max_history_age
+        self._elo_history = [(t, e) for t, e in self._elo_history if t >= cutoff]
+
+        if len(self._elo_history) < 2:
+            return 0.0
+
+        # Simple linear regression: velocity = (last_elo - first_elo) / time_delta_hours
+        first_time, first_elo = self._elo_history[0]
+        last_time, last_elo = self._elo_history[-1]
+
+        time_delta_hours = (last_time - first_time) / 3600.0
+        if time_delta_hours < 0.1:  # Less than 6 minutes of data
+            return 0.0
+
+        return (last_elo - first_elo) / time_delta_hours
+
     def record_harness_evaluation(
         self,
         harness: str,
@@ -241,6 +283,8 @@ class ArchitectureStats:
             "harness_elos": self.harness_elos.copy(),
             "harness_games": self.harness_games.copy(),
             "harness_variance": self.harness_variance.copy(),
+            # Elo history for velocity (Jan 2026)
+            "_elo_history": list(self._elo_history),
         }
 
     @classmethod
@@ -266,6 +310,8 @@ class ArchitectureStats:
         stats.harness_elos = data.get("harness_elos", {}).copy()
         stats.harness_games = data.get("harness_games", {}).copy()
         stats.harness_variance = data.get("harness_variance", {}).copy()
+        # Elo history for velocity (Jan 2026)
+        stats._elo_history = [tuple(x) for x in data.get("_elo_history", [])]
         return stats
 
 
@@ -470,16 +516,19 @@ class ArchitectureTracker:
         board_type: str,
         num_players: int,
         temperature: float = 0.5,
+        velocity_weight: float = 0.1,
     ) -> dict[str, float]:
         """Compute allocation weights for architectures using softmax.
 
         Higher-performing architectures get more weight for selfplay allocation.
-        Uses efficiency_score as the basis for weighting.
+        Uses efficiency_score as the basis for weighting, with velocity-based
+        momentum boost for trending architectures (Jan 2026).
 
         Args:
             board_type: Board type
             num_players: Player count
             temperature: Softmax temperature (lower = more concentrated on best)
+            velocity_weight: How much to boost score per Elo/hour velocity (0.1 = 10% per Elo/hr)
 
         Returns:
             Dictionary mapping architecture -> allocation weight (sums to 1.0)
@@ -493,13 +542,27 @@ class ArchitectureTracker:
         if not candidates:
             return {}
 
-        # Compute softmax weights based on efficiency score
-        scores = [s.efficiency_score for s in candidates]
-        max_score = max(scores) if scores else 0.0
+        # Jan 2026: Compute scores with velocity-based momentum boost
+        # Architectures with positive velocity get boosted, stalled ones do not
+        adjusted_scores = []
+        for stats in candidates:
+            base_score = stats.efficiency_score
+            velocity = stats.compute_elo_velocity()
+
+            # Momentum boost: positive velocity boosts score, negative doesn't penalize
+            # This encourages allocation to architectures that are actively improving
+            if velocity > 0:
+                momentum = 1.0 + (velocity * velocity_weight)
+            else:
+                momentum = 1.0  # No penalty for stalled/regressing architectures
+
+            adjusted_scores.append(base_score * momentum)
+
+        max_score = max(adjusted_scores) if adjusted_scores else 0.0
 
         # Numerical stability: subtract max before exp
         exp_scores = []
-        for score in scores:
+        for score in adjusted_scores:
             exp_scores.append(math.exp((score - max_score) / temperature))
 
         total = sum(exp_scores)

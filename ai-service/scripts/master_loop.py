@@ -1162,6 +1162,9 @@ class MasterLoopController:
             # Dec 2025: DATA_CONSOLIDATION merges scattered selfplay games into canonical DBs
             # Must run after AUTO_SYNC (games need to be synced first) and before training
             DaemonType.DATA_CONSOLIDATION,
+            # Jan 2026: COMPREHENSIVE_CONSOLIDATION does scheduled sweeps to catch missed data
+            # Scans ALL sources (owc_imports, synced, p2p_gpu, etc.) every 30 minutes
+            DaemonType.COMPREHENSIVE_CONSOLIDATION,
             # Dec 2025: NPZ_COMBINATION quality-weights and combines NPZ files for training
             # Must run after AUTO_EXPORT and before TRAINING_TRIGGER
             DaemonType.NPZ_COMBINATION,

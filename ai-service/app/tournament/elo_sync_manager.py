@@ -257,11 +257,41 @@ class EloSyncManager(DatabaseSyncManager):
             remote_db_path.unlink(missing_ok=True)
             return False
 
+    def _detect_schema_variant(self, conn: sqlite3.Connection) -> dict[str, str]:
+        """Detect schema variant and return column mapping to canonical names.
+
+        Jan 5, 2026: Added to handle 3 different schema variants across cluster:
+        - Local coordinator: participant_a, participant_b
+        - Some remotes: model_a, model_b
+        - Others: model_a_id, model_b_id
+
+        Returns:
+            Dict mapping canonical names to actual column names in this database.
+            Keys: 'model_a', 'model_b' (canonical)
+            Values: actual column name in this database
+        """
+        cursor = conn.execute("PRAGMA table_info(match_history)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        # Map to canonical internal keys (model_a, model_b)
+        if "participant_a" in columns:
+            return {"model_a": "participant_a", "model_b": "participant_b"}
+        elif "model_a_id" in columns:
+            return {"model_a": "model_a_id", "model_b": "model_b_id"}
+        elif "model_a" in columns:
+            return {"model_a": "model_a", "model_b": "model_b"}
+        else:
+            # Fallback to participant_a/participant_b (most common)
+            logger.warning(f"Unknown schema variant, columns: {columns}. Using participant_a/b fallback.")
+            return {"model_a": "participant_a", "model_b": "participant_b"}
+
     def _merge_databases_sync(self, remote_db_path: Path) -> int:
         """Synchronous helper for database merge operations.
 
         Jan 2, 2026: Extracted from async _merge_databases to avoid blocking
         the event loop with SQLite operations.
+
+        Jan 5, 2026: Added schema detection for cross-cluster compatibility.
 
         Returns:
             Number of new matches inserted.
@@ -274,10 +304,16 @@ class EloSyncManager(DatabaseSyncManager):
             local_cur = local_conn.cursor()
             remote_cur = remote_conn.cursor()
 
-            # Get existing game_ids from local
-            local_cur.execute("""
+            # Detect schema variants for both databases
+            local_schema = self._detect_schema_variant(local_conn)
+            remote_schema = self._detect_schema_variant(remote_conn)
+
+            # Get existing game_ids from local using detected column names
+            local_model_a = local_schema["model_a"]
+            local_model_b = local_schema["model_b"]
+            local_cur.execute(f"""
                 SELECT COALESCE(game_id,
-                    participant_a || '|' || participant_b || '|' || timestamp)
+                    {local_model_a} || '|' || {local_model_b} || '|' || timestamp)
                 FROM match_history
             """)
             existing_ids = {row[0] for row in local_cur.fetchall() if row[0]}
@@ -291,12 +327,16 @@ class EloSyncManager(DatabaseSyncManager):
             remote_matches = remote_cur.fetchall()
 
             # December 29, 2025: Optimized to use bulk insert with executemany()
+            # Jan 5, 2026: Use schema-aware column names for match_id construction
             # Filter to only new matches first, then bulk insert
+            remote_model_a = remote_schema["model_a"]
+            remote_model_b = remote_schema["model_b"]
             new_matches = []
             for match in remote_matches:
                 match_dict = dict(zip(columns, match, strict=False))
+                # Use schema-aware column names for match_id construction
                 match_id = match_dict.get("game_id") or \
-                    f"{match_dict.get('participant_a')}|{match_dict.get('participant_b')}|{match_dict.get('timestamp')}"
+                    f"{match_dict.get(remote_model_a)}|{match_dict.get(remote_model_b)}|{match_dict.get('timestamp')}"
 
                 if match_id not in existing_ids:
                     new_matches.append(match)
@@ -556,9 +596,14 @@ class EloSyncManager(DatabaseSyncManager):
 
         logger.info("Recalculating ratings from match history...")
 
-        # Get all matches ordered by timestamp
-        cur.execute("""
-            SELECT participant_a, participant_b, winner, board_type, num_players, timestamp
+        # Jan 5, 2026: Detect schema variant for this database
+        schema = self._detect_schema_variant(conn)
+        model_a_col = schema["model_a"]
+        model_b_col = schema["model_b"]
+
+        # Get all matches ordered by timestamp using detected column names
+        cur.execute(f"""
+            SELECT {model_a_col}, {model_b_col}, winner, board_type, num_players, timestamp
             FROM match_history
             WHERE winner IS NOT NULL
             ORDER BY timestamp

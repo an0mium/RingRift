@@ -1953,6 +1953,19 @@ class P2POrchestrator(
         # Wave 7 Phase 1.1: Use retry mechanism for reliable subscription
         self.selfplay_scheduler.subscribe_to_events_with_retry()
 
+        # Session 17.29: Seed game counts from canonical databases at startup
+        # This enables bootstrap priority boosts for underserved configs immediately
+        try:
+            initial_game_counts = self._seed_selfplay_scheduler_game_counts_sync()
+            if initial_game_counts:
+                self.selfplay_scheduler.update_p2p_game_counts(initial_game_counts)
+                logger.info(f"[P2P] Seeded SelfplayScheduler with {len(initial_game_counts)} config game counts from canonical DBs")
+                for config_key, count in sorted(initial_game_counts.items(), key=lambda x: x[1]):
+                    if count < 500:  # Log underserved configs
+                        logger.info(f"[P2P] Underserved config: {config_key} = {count} games")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[P2P] Failed to seed initial game counts: {e}")
+
         # Phase 2B Refactoring: JobManager for job spawning and lifecycle
         self.job_manager = JobManager(
             ringrift_path=self.ringrift_path,
@@ -3311,6 +3324,24 @@ class P2POrchestrator(
             else:
                 self.local_data_manifest = manifest
             self.last_manifest_collection = time.time()
+
+        # Session 17.29: Feed game counts to selfplay scheduler for priority allocation
+        # ROOT CAUSE FIX: _p2p_game_counts was never populated, causing all configs
+        # to show 0 games in queue populator, breaking bootstrap priority boosts
+        if is_cluster and hasattr(self, 'selfplay_scheduler') and self.selfplay_scheduler:
+            try:
+                game_counts: dict[str, int] = {}
+                if hasattr(manifest, 'by_board_type') and manifest.by_board_type:
+                    for config_key, config_data in manifest.by_board_type.items():
+                        if isinstance(config_data, dict):
+                            game_counts[config_key] = config_data.get("total_games", 0)
+                        elif hasattr(config_data, 'total_games'):
+                            game_counts[config_key] = getattr(config_data, 'total_games', 0)
+                if game_counts:
+                    self.selfplay_scheduler.update_p2p_game_counts(game_counts)
+                    logger.debug(f"[ManifestUpdate] Fed {len(game_counts)} config game counts to SelfplayScheduler")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[ManifestUpdate] Failed to update selfplay scheduler game counts: {e}")
 
     def _update_improvement_cycle_from_loop(self, by_board_type: dict[str, Any]) -> None:
         """Update ImprovementCycleManager from ManifestCollectionLoop.
@@ -7560,6 +7591,33 @@ class P2POrchestrator(
                 return result[0] if result else 0
         except (sqlite3.Error, OSError):
             return 0
+
+    def _seed_selfplay_scheduler_game_counts_sync(self) -> dict[str, int]:
+        """Seed game counts from canonical databases synchronously.
+
+        IMPORTANT: This is a blocking operation. Call via asyncio.to_thread() from async code.
+        Added Jan 2026 (Session 17.29) to fix bootstrap priority for underserved configs.
+
+        Returns:
+            Dict mapping config_key -> game_count from canonical databases
+        """
+        game_counts: dict[str, int] = {}
+        canonical_dir = Path(self.ringrift_path) / "ai-service" / "data" / "games"
+
+        # Pattern: canonical_<board_type>_<num_players>p.db
+        for db_path in canonical_dir.glob("canonical_*_*p.db"):
+            try:
+                # Extract config_key from filename: canonical_hex8_2p.db -> hex8_2p
+                stem = db_path.stem  # canonical_hex8_2p
+                if stem.startswith("canonical_"):
+                    config_key = stem[len("canonical_"):]  # hex8_2p
+                    game_count = self._get_db_game_count_sync(db_path)
+                    if game_count > 0:
+                        game_counts[config_key] = game_count
+            except (ValueError, AttributeError):
+                continue
+
+        return game_counts
 
     def _find_dbs_to_merge_sync(self, selfplay_dir: Path, main_db_path: Path) -> list[tuple[Path, int]]:
         """Find databases that need merging synchronously.
