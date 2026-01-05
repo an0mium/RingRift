@@ -65,8 +65,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from app.coordination.coordinator_base import CoordinatorBase, CoordinatorStatus
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 from app.coordination.event_utils import make_config_key
+from app.coordination.handler_base import HandlerBase
 from app.distributed.circuit_breaker import CircuitBreaker, CircuitState
 
 # Event emission for node health feedback loops (Phase 21.2 - Dec 2025)
@@ -427,7 +428,7 @@ class HealthStats:
 # =============================================================================
 
 
-class UnifiedHealthManager(CoordinatorBase):
+class UnifiedHealthManager(HandlerBase):
     """Unified health management combining error tracking and recovery operations.
 
     This consolidates ErrorRecoveryCoordinator and RecoveryManager into a single
@@ -439,7 +440,14 @@ class UnifiedHealthManager(CoordinatorBase):
     3. Coordinate recovery operations (job kills, service restarts)
     4. Track node and job health states
     5. Handle escalation to human operators
+
+    Session 17.17 (Jan 4, 2026): Migrated to HandlerBase for unified lifecycle
+    and singleton management. This is a pure event handler with no background
+    loop - _run_cycle is a no-op, all work is driven by event subscriptions.
     """
+
+    # Hourly cycle since this is event-driven (cycle not used for actual work)
+    HEALTH_CYCLE_INTERVAL = 3600.0
 
     def __init__(
         self,
@@ -452,8 +460,13 @@ class UnifiedHealthManager(CoordinatorBase):
             config: Recovery configuration
             notifier: Optional notification service for escalations
         """
-        super().__init__(name="UnifiedHealthManager")
-        self.config = config or RecoveryConfig()
+        super().__init__(
+            name="unified_health_manager",
+            config=config,
+            cycle_interval=self.HEALTH_CYCLE_INTERVAL,
+        )
+        # Use _health_config to avoid conflict with HandlerBase's config
+        self._health_config = config or RecoveryConfig()
 
         # Error tracking
         self._errors: list[ErrorRecord] = []
@@ -487,103 +500,74 @@ class UnifiedHealthManager(CoordinatorBase):
         self._circuit_breaker_callbacks: list[Callable[[str, bool], None]] = []
         self._escalation_callbacks: list[Callable[[str, str], None]] = []
 
-        # Dependencies
-        if notifier:
-            self.set_dependency("notifier", notifier)
+        # Dependencies - store for recovery escalation
+        self._notifier = notifier
 
-        # Subscription state
-        self._subscribed = False
+    def _get_event_subscriptions(self) -> dict[str, Callable]:
+        """Return event subscriptions for HandlerBase.
 
-        # Mark ready
-        self._status = CoordinatorStatus.READY
-
-    def subscribe_to_events(self) -> bool:
-        """Subscribe to health-related events.
-
-        Returns:
-            True if successfully subscribed
+        This is the primary method for event subscription in HandlerBase.
+        All health events are mapped to their respective handlers.
         """
-        if self._subscribed:
-            return True
+        from app.distributed.data_events import DataEventType
 
-        try:
-            from app.coordination.event_router import get_router
-            from app.coordination.event_router import DataEventType  # Types still needed
-
-            router = get_router()
-
-            # Use enum directly (router normalizes both enum and .value)
+        return {
             # Error events (from ErrorRecoveryCoordinator)
-            router.subscribe(DataEventType.ERROR, self._on_error)
-            router.subscribe(DataEventType.RECOVERY_INITIATED, self._on_recovery_initiated)
-            router.subscribe(DataEventType.RECOVERY_COMPLETED, self._on_recovery_completed)
-            router.subscribe(DataEventType.RECOVERY_FAILED, self._on_recovery_failed)
-            router.subscribe(DataEventType.TRAINING_FAILED, self._on_training_failed)
-            router.subscribe(DataEventType.TASK_FAILED, self._on_task_failed)
-            router.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
-            router.subscribe(DataEventType.REGRESSION_CRITICAL, self._on_regression_critical)
-
+            DataEventType.ERROR.value: self._on_error,
+            DataEventType.RECOVERY_INITIATED.value: self._on_recovery_initiated,
+            DataEventType.RECOVERY_COMPLETED.value: self._on_recovery_completed,
+            DataEventType.RECOVERY_FAILED.value: self._on_recovery_failed,
+            DataEventType.TRAINING_FAILED.value: self._on_training_failed,
+            DataEventType.TASK_FAILED.value: self._on_task_failed,
+            DataEventType.REGRESSION_DETECTED.value: self._on_regression_detected,
+            DataEventType.REGRESSION_CRITICAL.value: self._on_regression_critical,
             # Node events (from RecoveryManager and P2P orchestrator)
-            router.subscribe(DataEventType.HOST_OFFLINE, self._on_host_offline)
-            router.subscribe(DataEventType.HOST_ONLINE, self._on_host_online)
-            router.subscribe(DataEventType.NODE_RECOVERED, self._on_node_recovered)
+            DataEventType.HOST_OFFLINE.value: self._on_host_offline,
+            DataEventType.HOST_ONLINE.value: self._on_host_online,
+            DataEventType.NODE_RECOVERED.value: self._on_node_recovered,
+            # Parity monitoring (December 2025)
+            DataEventType.PARITY_FAILURE_RATE_CHANGED.value: self._on_parity_failure_rate_changed,
+            # Coordinator health monitoring (December 2025)
+            DataEventType.COORDINATOR_HEALTH_DEGRADED.value: self._on_coordinator_health_degraded,
+            DataEventType.COORDINATOR_SHUTDOWN.value: self._on_coordinator_shutdown,
+            DataEventType.COORDINATOR_HEARTBEAT.value: self._on_coordinator_heartbeat,
+            # Deadlock detection (December 2025)
+            DataEventType.DEADLOCK_DETECTED.value: self._on_deadlock_detected,
+            # Split-brain detection (December 2025)
+            DataEventType.SPLIT_BRAIN_DETECTED.value: self._on_split_brain_detected,
+            # Cluster stall detection (December 2025)
+            DataEventType.CLUSTER_STALL_DETECTED.value: self._on_cluster_stall_detected,
+            # Daemon lifecycle events (December 2025)
+            DataEventType.DAEMON_STARTED.value: self._on_daemon_started,
+            DataEventType.DAEMON_STOPPED.value: self._on_daemon_stopped,
+            DataEventType.DAEMON_STATUS_CHANGED.value: self._on_daemon_status_changed,
+            DataEventType.DAEMON_PERMANENTLY_FAILED.value: self._on_daemon_permanently_failed,
+            # DLQ events (December 29, 2025)
+            DataEventType.DLQ_STALE_EVENTS.value: self._on_dlq_stale_events,
+            DataEventType.DLQ_EVENTS_REPLAYED.value: self._on_dlq_events_replayed,
+            DataEventType.DLQ_EVENTS_PURGED.value: self._on_dlq_events_purged,
+            # Budget/Capacity events (December 29, 2025)
+            DataEventType.CAPACITY_LOW.value: self._on_capacity_low,
+            DataEventType.CAPACITY_RESTORED.value: self._on_capacity_restored,
+            DataEventType.BUDGET_EXCEEDED.value: self._on_budget_exceeded,
+            DataEventType.BUDGET_ALERT.value: self._on_budget_alert,
+        }
 
-            # Parity monitoring (December 2025 - closes parity → alert loop)
-            router.subscribe(DataEventType.PARITY_FAILURE_RATE_CHANGED, self._on_parity_failure_rate_changed)
+    async def _run_cycle(self) -> None:
+        """No-op cycle - UnifiedHealthManager is purely event-driven.
 
-            # Coordinator health monitoring (December 2025 - wires ghost event)
-            router.subscribe(DataEventType.COORDINATOR_HEALTH_DEGRADED, self._on_coordinator_health_degraded)
+        All work is done through event handlers registered in _get_event_subscriptions().
+        This method exists only to satisfy HandlerBase's abstract method requirement.
+        The high cycle_interval (1 hour) means this rarely runs.
+        """
+        pass
 
-            # Coordinator lifecycle events (December 2025 - P0 gap fix)
-            router.subscribe(DataEventType.COORDINATOR_SHUTDOWN, self._on_coordinator_shutdown)
-            router.subscribe(DataEventType.COORDINATOR_HEARTBEAT, self._on_coordinator_heartbeat)
-
-            # Deadlock detection (December 2025 - critical lock contention handler)
-            router.subscribe(DataEventType.DEADLOCK_DETECTED, self._on_deadlock_detected)
-
-            # Split-brain detection (December 2025 - P2P cluster integrity)
-            router.subscribe(DataEventType.SPLIT_BRAIN_DETECTED, self._on_split_brain_detected)
-
-            # Cluster stall detection (December 2025 - stuck nodes recovery)
-            router.subscribe(DataEventType.CLUSTER_STALL_DETECTED, self._on_cluster_stall_detected)
-
-            # Daemon lifecycle events (December 2025 - wires orphaned events to health monitor)
-            router.subscribe(DataEventType.DAEMON_STARTED, self._on_daemon_started)
-            router.subscribe(DataEventType.DAEMON_STOPPED, self._on_daemon_stopped)
-
-            # Daemon watchdog alerts (December 2025 - wires watchdog → health manager)
-            router.subscribe(DataEventType.DAEMON_STATUS_CHANGED, self._on_daemon_status_changed)
-
-            # Daemon permanent failure (December 2025 - wires exceeded restart limit to health manager)
-            router.subscribe(DataEventType.DAEMON_PERMANENTLY_FAILED, self._on_daemon_permanently_failed)
-
-            # DLQ events (December 29, 2025 - wires dead letter queue events to health manager)
-            router.subscribe(DataEventType.DLQ_STALE_EVENTS, self._on_dlq_stale_events)
-            router.subscribe(DataEventType.DLQ_EVENTS_REPLAYED, self._on_dlq_events_replayed)
-            router.subscribe(DataEventType.DLQ_EVENTS_PURGED, self._on_dlq_events_purged)
-
-            # Budget/Capacity events (December 29, 2025 - wires orphaned budget/capacity events)
-            router.subscribe(DataEventType.CAPACITY_LOW, self._on_capacity_low)
-            router.subscribe(DataEventType.CAPACITY_RESTORED, self._on_capacity_restored)
-            router.subscribe(DataEventType.BUDGET_EXCEEDED, self._on_budget_exceeded)
-            router.subscribe(DataEventType.BUDGET_ALERT, self._on_budget_alert)
-
-            self._subscribed = True
-            logger.info("[UnifiedHealthManager] Subscribed to health events via event router")
-            return True
-
-        except ImportError:
-            logger.debug("[UnifiedHealthManager] data_events not available")
-            return False
-        except (ValueError, TypeError) as e:
-            # Dec 29, 2025: Narrowed from bare Exception
-            # Event registration signature/type errors
-            logger.error(f"[UnifiedHealthManager] Event registration error: {e}")
-            return False
-        except RuntimeError as e:
-            # Async/event loop errors
-            logger.warning(f"[UnifiedHealthManager] Runtime error during subscribe: {e}")
-            return False
+    async def _on_start(self) -> None:
+        """Log startup and verify subscriptions."""
+        subscriptions = self._get_event_subscriptions()
+        logger.info(
+            f"[UnifiedHealthManager] Started with {len(subscriptions)} event subscriptions"
+        )
 
     # =========================================================================
     # ID Generators
@@ -619,8 +603,8 @@ class UnifiedHealthManager(CoordinatorBase):
         """Get or create circuit breaker for component."""
         if component not in self._circuit_breakers:
             self._circuit_breakers[component] = CircuitBreaker(
-                failure_threshold=self.config.circuit_breaker_threshold,
-                recovery_timeout=self.config.circuit_breaker_timeout,
+                failure_threshold=self._health_config.circuit_breaker_threshold,
+                recovery_timeout=self._health_config.circuit_breaker_timeout,
                 half_open_max_calls=2,
             )
         return self._circuit_breakers[component]
@@ -1937,8 +1921,8 @@ class UnifiedHealthManager(CoordinatorBase):
         self._total_errors += 1
 
         # Trim history
-        if len(self._errors) > self.config.max_error_history:
-            self._errors = self._errors[-self.config.max_error_history :]
+        if len(self._errors) > self._health_config.max_error_history:
+            self._errors = self._errors[-self._health_config.max_error_history :]
 
         # Notify callbacks
         for callback in self._error_callbacks:
@@ -1960,8 +1944,8 @@ class UnifiedHealthManager(CoordinatorBase):
         self._recovery_history.append(recovery)
 
         # Trim history
-        if len(self._recovery_history) > self.config.max_recovery_history:
-            self._recovery_history = self._recovery_history[-self.config.max_recovery_history :]
+        if len(self._recovery_history) > self._health_config.max_recovery_history:
+            self._recovery_history = self._recovery_history[-self._health_config.max_recovery_history :]
 
         # Notify callbacks
         for callback in self._recovery_callbacks:
@@ -2061,21 +2045,21 @@ class UnifiedHealthManager(CoordinatorBase):
 
         # Check if already escalated
         if state.is_escalated:
-            if time.time() - state.last_escalation_time < self.config.escalation_cooldown:
+            if time.time() - state.last_escalation_time < self._health_config.escalation_cooldown:
                 return False
             state.is_escalated = False
 
         # Check attempt limit
-        if state.recovery_attempts >= self.config.max_recovery_attempts_per_node:
+        if state.recovery_attempts >= self._health_config.max_recovery_attempts_per_node:
             return False
 
         # Check cooldown
-        return time.time() - state.last_attempt_time >= self.config.recovery_attempt_cooldown
+        return time.time() - state.last_attempt_time >= self._health_config.recovery_attempt_cooldown
 
     def _can_attempt_job_recovery(self, work_id: str) -> bool:
         """Check if we can attempt recovery on this job."""
         state = self._get_job_state(work_id)
-        return state.recovery_attempts < self.config.max_recovery_attempts_per_job
+        return state.recovery_attempts < self._health_config.max_recovery_attempts_per_job
 
     async def recover_stuck_job(
         self,
@@ -2091,7 +2075,7 @@ class UnifiedHealthManager(CoordinatorBase):
         Returns:
             RecoveryResult indicating success/failure/escalation
         """
-        if not self.config.enabled:
+        if not self._health_config.enabled:
             return RecoveryResult.SKIPPED
 
         work_id = work_item.work_id
@@ -2159,7 +2143,7 @@ class UnifiedHealthManager(CoordinatorBase):
         Returns:
             RecoveryResult indicating success/failure/escalation
         """
-        if not self.config.enabled:
+        if not self._health_config.enabled:
             return RecoveryResult.SKIPPED
 
         logger.info(f"Attempting to recover unhealthy node {node_id}: {reason}")
@@ -2180,7 +2164,7 @@ class UnifiedHealthManager(CoordinatorBase):
             if restart_callback:
                 success = await asyncio.wait_for(
                     restart_callback(node_id),
-                    timeout=self.config.node_recovery_timeout,
+                    timeout=self._health_config.node_recovery_timeout,
                 )
 
                 if success:
@@ -2203,7 +2187,7 @@ class UnifiedHealthManager(CoordinatorBase):
             node_state.consecutive_failures += 1
 
             # Check if we should escalate
-            if node_state.consecutive_failures >= self.config.consecutive_failures_for_escalation:
+            if node_state.consecutive_failures >= self._health_config.consecutive_failures_for_escalation:
                 await self._escalate_to_human(
                     node_id, f"{reason} - {node_state.consecutive_failures} consecutive failures"
                 )
@@ -2325,7 +2309,7 @@ class UnifiedHealthManager(CoordinatorBase):
         Returns:
             List of (work_item, expected_timeout) tuples for stuck jobs
         """
-        multiplier = timeout_multiplier or self.config.stuck_job_timeout_multiplier
+        multiplier = timeout_multiplier or self._health_config.stuck_job_timeout_multiplier
         stuck_jobs = []
         current_time = time.time()
 
@@ -2608,7 +2592,7 @@ class UnifiedHealthManager(CoordinatorBase):
         escalated_count = sum(1 for e in recent_events if e.result == RecoveryResult.ESCALATED)
 
         base_stats.update({
-            "enabled": self.config.enabled,
+            "enabled": self._health_config.enabled,
             "total_errors": health_stats.total_errors,
             "errors_by_severity": health_stats.errors_by_severity,
             "errors_by_component": health_stats.errors_by_component,
@@ -2630,26 +2614,25 @@ class UnifiedHealthManager(CoordinatorBase):
             "nodes_offline": health_stats.nodes_offline,
             "escalated_nodes": health_stats.escalated_nodes,
             "jobs_tracked": health_stats.jobs_tracked,
-            "subscribed": self._subscribed,
+            "subscribed": self._stats.subscribed,
         })
         return base_stats
 
-    def health_check(self) -> "HealthCheckResult":
+    def health_check(self) -> HealthCheckResult:
         """Check if the health manager is healthy (CoordinatorProtocol compliance).
 
         Returns HealthCheckResult for consistent health monitoring interface.
         """
-        from app.coordination.protocols import HealthCheckResult
-
-        if self.status != CoordinatorStatus.READY:
+        # Check running state (HandlerBase manages this)
+        if not self._running:
             return HealthCheckResult(
                 healthy=False,
-                status=self.status,
-                message="Health manager not ready",
+                status=CoordinatorStatus.STOPPED,
+                message="Health manager not running",
             )
 
-        # Check event subscription is active
-        if not self._subscribed:
+        # Check event subscription is active (HandlerBase tracks via _stats)
+        if not self._stats.subscribed:
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.DEGRADED,
@@ -2678,9 +2661,9 @@ class UnifiedHealthManager(CoordinatorBase):
 
         return HealthCheckResult(
             healthy=True,
-            status=CoordinatorStatus.READY,
+            status=CoordinatorStatus.RUNNING,
             message="Health manager running",
-            details={"subscribed": self._subscribed, "total_errors": self._total_errors},
+            details={"subscribed": self._stats.subscribed, "total_errors": self._total_errors},
         )
 
     def get_status(self) -> dict[str, Any]:
@@ -2690,7 +2673,7 @@ class UnifiedHealthManager(CoordinatorBase):
         return {
             "name": self.name,
             "status": self.status.value,
-            "enabled": self.config.enabled,
+            "enabled": self._health_config.enabled,
             "total_errors": health_stats.total_errors,
             "errors_by_severity": health_stats.errors_by_severity,
             "recovery_attempts": health_stats.recovery_attempts,
@@ -2703,7 +2686,7 @@ class UnifiedHealthManager(CoordinatorBase):
             "nodes_tracked": health_stats.nodes_tracked,
             "escalated_nodes": health_stats.escalated_nodes,
             "jobs_tracked": health_stats.jobs_tracked,
-            "subscribed": self._subscribed,
+            "subscribed": self._stats.subscribed,
         }
 
     # =========================================================================
@@ -2882,35 +2865,55 @@ class UnifiedHealthManager(CoordinatorBase):
 # Singleton and convenience functions
 # =============================================================================
 
-_health_manager: UnifiedHealthManager | None = None
-
 
 def get_health_manager() -> UnifiedHealthManager:
-    """Get the global UnifiedHealthManager singleton."""
-    global _health_manager
-    if _health_manager is None:
-        _health_manager = UnifiedHealthManager()
-    return _health_manager
+    """Get the global UnifiedHealthManager singleton.
+
+    Uses HandlerBase's singleton management.
+    """
+    return UnifiedHealthManager.get_instance()
 
 
 def wire_health_events(
     config: RecoveryConfig | None = None,
 ) -> UnifiedHealthManager:
-    """Wire health events to the manager.
+    """Wire health events to the manager and start it.
+
+    This resets any existing instance and creates a new one with the
+    provided config. The manager is started, which subscribes to events.
 
     Returns:
         The wired UnifiedHealthManager instance
     """
-    global _health_manager
-    _health_manager = UnifiedHealthManager(config=config)
-    _health_manager.subscribe_to_events()
-    return _health_manager
+    # Reset any existing instance
+    UnifiedHealthManager.reset_instance()
+
+    # Create new instance with config
+    manager = UnifiedHealthManager(config=config)
+
+    # Start via asyncio if loop available, otherwise just get instance
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Schedule start in running loop
+            asyncio.create_task(manager.start())
+        else:
+            # Run synchronously
+            loop.run_until_complete(manager.start())
+    except RuntimeError:
+        # No event loop, log warning
+        logger.warning("[UnifiedHealthManager] No event loop available for wire_health_events")
+
+    return manager
 
 
 def reset_health_manager() -> None:
-    """Reset the global health manager (for testing)."""
-    global _health_manager
-    _health_manager = None
+    """Reset the global health manager (for testing).
+
+    Uses HandlerBase's singleton reset.
+    """
+    UnifiedHealthManager.reset_instance()
 
 
 def is_component_healthy(component: str) -> bool:
