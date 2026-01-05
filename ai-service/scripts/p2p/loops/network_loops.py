@@ -1389,6 +1389,84 @@ class HeartbeatLoop(BaseLoop):
             **self.stats.to_dict(),
         }
 
+    def health_check(self) -> Any:
+        """Check loop health with heartbeat-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Reports heartbeat success rate, peer discovery, and leader tracking.
+
+        Returns:
+            HealthCheckResult with heartbeat loop status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            stats = self.get_heartbeat_stats()
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"HeartbeatLoop {'running' if self.running else 'stopped'}",
+                "details": stats,
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="HeartbeatLoop is stopped",
+                details={"running": False},
+            )
+
+        # Get stats for health assessment
+        stats = self.get_heartbeat_stats()
+        success_rate = stats.get("success_rate", 0.0)
+        heartbeats_sent = stats.get("heartbeats_sent", 0)
+
+        # Check for critical conditions
+        if heartbeats_sent > 10 and success_rate < 25:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Heartbeat success rate critical ({success_rate:.1f}%)",
+                details={
+                    "success_rate": success_rate,
+                    "heartbeats_sent": heartbeats_sent,
+                    "heartbeats_succeeded": stats.get("heartbeats_succeeded", 0),
+                    "heartbeats_failed": stats.get("heartbeats_failed", 0),
+                    "peers_discovered": stats.get("peers_discovered", 0),
+                },
+            )
+
+        # Check for degraded conditions
+        if heartbeats_sent > 10 and success_rate < 60:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Heartbeat success rate degraded ({success_rate:.1f}%)",
+                details={
+                    "success_rate": success_rate,
+                    "heartbeats_sent": heartbeats_sent,
+                    "peers_discovered": stats.get("peers_discovered", 0),
+                    "leaders_discovered": stats.get("leaders_discovered", 0),
+                },
+            )
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"HeartbeatLoop healthy (success rate: {success_rate:.1f}%)",
+            details={
+                "success_rate": success_rate,
+                "heartbeats_sent": heartbeats_sent,
+                "heartbeats_succeeded": stats.get("heartbeats_succeeded", 0),
+                "peers_discovered": stats.get("peers_discovered", 0),
+                "leaders_discovered": stats.get("leaders_discovered", 0),
+            },
+        )
+
 
 @dataclass
 class VoterHeartbeatConfig:
@@ -1555,6 +1633,95 @@ class VoterHeartbeatLoop(BaseLoop):
             "mesh_refreshes": self._mesh_refreshes,
             **self.stats.to_dict(),
         }
+
+    def health_check(self) -> Any:
+        """Check loop health with voter heartbeat-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Critical for quorum maintenance - reports voter connectivity.
+
+        Returns:
+            HealthCheckResult with voter heartbeat status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            stats = self.get_voter_stats()
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"VoterHeartbeatLoop {'running' if self.running else 'stopped'}",
+                "details": stats,
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="VoterHeartbeatLoop is stopped",
+                details={"running": False},
+            )
+
+        # Not a voter - loop is idle but healthy
+        if not self._is_voter:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message="VoterHeartbeatLoop idle (not a voter)",
+                details={"is_voter": False, "running": True},
+            )
+
+        # Get stats for health assessment
+        stats = self.get_voter_stats()
+        success_rate = stats.get("success_rate", 0.0)
+        heartbeats_sent = stats.get("heartbeats_sent", 0)
+
+        # Voter connectivity is critical for quorum
+        if heartbeats_sent > 5 and success_rate < 40:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Voter heartbeat critical ({success_rate:.1f}%) - quorum at risk",
+                details={
+                    "is_voter": True,
+                    "success_rate": success_rate,
+                    "heartbeats_sent": heartbeats_sent,
+                    "heartbeats_succeeded": stats.get("heartbeats_succeeded", 0),
+                    "nat_recoveries": stats.get("nat_recoveries", 0),
+                },
+            )
+
+        # Check for degraded conditions
+        if heartbeats_sent > 5 and success_rate < 70:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Voter heartbeat degraded ({success_rate:.1f}%)",
+                details={
+                    "is_voter": True,
+                    "success_rate": success_rate,
+                    "heartbeats_sent": heartbeats_sent,
+                    "nat_recoveries": stats.get("nat_recoveries", 0),
+                    "mesh_refreshes": stats.get("mesh_refreshes", 0),
+                },
+            )
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"VoterHeartbeatLoop healthy (success rate: {success_rate:.1f}%)",
+            details={
+                "is_voter": True,
+                "success_rate": success_rate,
+                "heartbeats_sent": heartbeats_sent,
+                "heartbeats_succeeded": stats.get("heartbeats_succeeded", 0),
+                "nat_recoveries": stats.get("nat_recoveries", 0),
+                "mesh_refreshes": stats.get("mesh_refreshes", 0),
+            },
+        )
 
 
 @dataclass
@@ -1827,6 +1994,86 @@ class TailscaleKeepaliveLoop(BaseLoop):
     def get_connection_quality(self) -> dict[str, dict[str, Any]]:
         """Get current connection quality for all tracked peers."""
         return dict(self._connection_quality)
+
+    def health_check(self) -> Any:
+        """Check loop health with Tailscale keepalive-specific status.
+
+        Jan 2026: Added for DaemonManager integration.
+        Reports connection quality and DERP relay usage.
+
+        Returns:
+            HealthCheckResult with Tailscale keepalive status
+        """
+        try:
+            from app.coordination.protocols import CoordinatorStatus, HealthCheckResult
+        except ImportError:
+            # Fallback if protocols not available
+            stats = self.get_keepalive_stats()
+            return {
+                "healthy": self.running,
+                "status": "running" if self.running else "stopped",
+                "message": f"TailscaleKeepaliveLoop {'running' if self.running else 'stopped'}",
+                "details": stats,
+            }
+
+        # Not running
+        if not self.running:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.STOPPED,
+                message="TailscaleKeepaliveLoop is stopped",
+                details={"running": False},
+            )
+
+        # Get stats for health assessment
+        stats = self.get_keepalive_stats()
+        success_rate = stats.get("success_rate", 0.0)
+        direct_ratio = stats.get("direct_ratio", 0.0)
+        pings_sent = stats.get("pings_sent", 0)
+
+        # Check for critical ping failures
+        if pings_sent > 10 and success_rate < 30:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Tailscale keepalive critical ({success_rate:.1f}% success)",
+                details={
+                    "success_rate": success_rate,
+                    "direct_ratio": direct_ratio,
+                    "pings_sent": pings_sent,
+                    "pings_succeeded": stats.get("pings_succeeded", 0),
+                    "is_userspace_mode": stats.get("is_userspace_mode", False),
+                },
+            )
+
+        # Check for heavy DERP relay usage (indicates NAT issues)
+        if pings_sent > 10 and direct_ratio < 30:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"High DERP relay usage ({direct_ratio:.1f}% direct)",
+                details={
+                    "success_rate": success_rate,
+                    "direct_ratio": direct_ratio,
+                    "derp_connections": stats.get("derp_connections", 0),
+                    "derp_recovery_attempts": stats.get("derp_recovery_attempts", 0),
+                    "derp_recoveries_succeeded": stats.get("derp_recoveries_succeeded", 0),
+                },
+            )
+
+        # Healthy
+        return HealthCheckResult(
+            healthy=True,
+            status=CoordinatorStatus.RUNNING,
+            message=f"TailscaleKeepaliveLoop healthy ({direct_ratio:.1f}% direct)",
+            details={
+                "success_rate": success_rate,
+                "direct_ratio": direct_ratio,
+                "pings_sent": pings_sent,
+                "peers_tracked": stats.get("peers_tracked", 0),
+                "is_userspace_mode": stats.get("is_userspace_mode", False),
+            },
+        )
 
 
 __all__ = [

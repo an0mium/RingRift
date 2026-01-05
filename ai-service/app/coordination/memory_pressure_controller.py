@@ -39,7 +39,6 @@ exhaustion failure (Session 16).
 
 from __future__ import annotations
 
-import asyncio
 import gc
 import logging
 import os
@@ -54,6 +53,8 @@ except ImportError:
     psutil = None  # type: ignore
 
 from app.config.coordination_defaults import MemoryPressureDefaults
+from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
+from app.coordination.handler_base import HandlerBase
 
 if TYPE_CHECKING:
     from app.coordination.daemon_manager import DaemonManager
@@ -106,7 +107,7 @@ class MemoryPressureState:
         }
 
 
-class MemoryPressureController:
+class MemoryPressureController(HandlerBase):
     """Proactive memory pressure management with graduated response.
 
     This controller monitors system RAM usage and takes automated action
@@ -119,9 +120,13 @@ class MemoryPressureController:
     - Consecutive sample requirement prevents false positives
     - Integration with daemon manager for killing non-essentials
     - Event emission for external monitoring
-    """
 
-    _instance: MemoryPressureController | None = None
+    Inherits from HandlerBase (January 2026):
+    - Singleton management (get_instance/reset_instance)
+    - Lifecycle management (start/stop)
+    - Health check returning HealthCheckResult
+    - Fire-and-forget task helpers
+    """
 
     def __init__(
         self,
@@ -134,13 +139,19 @@ class MemoryPressureController:
             config: Configuration defaults (uses MemoryPressureDefaults if None)
             daemon_manager: Optional daemon manager for killing daemons
         """
-        self.config = config or MemoryPressureDefaults()
+        self._pressure_config = config or MemoryPressureDefaults()
+
+        # Initialize HandlerBase with cycle interval from config
+        super().__init__(
+            name="memory_pressure_controller",
+            config=self._pressure_config,
+            cycle_interval=self._pressure_config.CHECK_INTERVAL,
+        )
+
         self._daemon_manager = daemon_manager
 
         # State
-        self._state = MemoryPressureState()
-        self._running = False
-        self._task: asyncio.Task | None = None
+        self._pressure_state = MemoryPressureState()
 
         # Callbacks for integration
         self._on_tier_change: list[Callable[[MemoryPressureTier], None]] = []
@@ -148,42 +159,28 @@ class MemoryPressureController:
 
         # Tier thresholds (loaded from config)
         self._tier_thresholds = {
-            MemoryPressureTier.CAUTION: self.config.TIER_CAUTION,
-            MemoryPressureTier.WARNING: self.config.TIER_WARNING,
-            MemoryPressureTier.CRITICAL: self.config.TIER_CRITICAL,
-            MemoryPressureTier.EMERGENCY: self.config.TIER_EMERGENCY,
+            MemoryPressureTier.CAUTION: self._pressure_config.TIER_CAUTION,
+            MemoryPressureTier.WARNING: self._pressure_config.TIER_WARNING,
+            MemoryPressureTier.CRITICAL: self._pressure_config.TIER_CRITICAL,
+            MemoryPressureTier.EMERGENCY: self._pressure_config.TIER_EMERGENCY,
         }
 
         # Track selfplay pause state
         self._selfplay_paused = False
 
-    @classmethod
-    def get_instance(cls) -> MemoryPressureController:
-        """Get singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    @classmethod
-    def reset_instance(cls) -> None:
-        """Reset singleton (for testing)."""
-        if cls._instance is not None:
-            cls._instance._running = False
-        cls._instance = None
-
     @property
     def current_tier(self) -> MemoryPressureTier:
         """Get current memory pressure tier."""
-        return self._state.tier
+        return self._pressure_state.tier
 
     @property
     def current_state(self) -> MemoryPressureState:
         """Get current state snapshot."""
-        return self._state
+        return self._pressure_state
 
     @property
-    def health_score(self) -> float:
-        """Get health score for aggregation (0.0-1.0, higher is healthier)."""
+    def pressure_health_score(self) -> float:
+        """Get memory pressure health score for aggregation (0.0-1.0, higher is healthier)."""
         # Map tier to health score
         tier_scores = {
             MemoryPressureTier.NORMAL: 1.0,
@@ -192,7 +189,7 @@ class MemoryPressureController:
             MemoryPressureTier.CRITICAL: 0.2,
             MemoryPressureTier.EMERGENCY: 0.0,
         }
-        return tier_scores.get(self._state.tier, 0.5)
+        return tier_scores.get(self._pressure_state.tier, 0.5)
 
     def _get_memory_usage(self) -> tuple[float, float, float, float]:
         """Get current memory usage.
@@ -248,27 +245,27 @@ class MemoryPressureController:
         Returns:
             True if we should accept the downgrade
         """
-        current_tier = self._state.tier
+        current_tier = self._pressure_state.tier
         if new_tier >= current_tier:
             return True  # Not a downgrade
 
         # For downgrade, require hysteresis margin
         threshold_for_current = self._tier_thresholds.get(current_tier, 0)
-        required_drop = threshold_for_current - self.config.HYSTERESIS
+        required_drop = threshold_for_current - self._pressure_config.HYSTERESIS
 
-        return self._state.ram_percent < required_drop
+        return self._pressure_state.ram_percent < required_drop
 
     def _can_take_action(self) -> bool:
         """Check if we can take action (respecting cooldown)."""
-        if self._state.last_action_time == 0:
+        if self._pressure_state.last_action_time == 0:
             return True
-        elapsed = time.time() - self._state.last_action_time
-        return elapsed >= self.config.ACTION_COOLDOWN
+        elapsed = time.time() - self._pressure_state.last_action_time
+        return elapsed >= self._pressure_config.ACTION_COOLDOWN
 
     def _record_action(self, action: str) -> None:
         """Record an action taken."""
-        self._state.last_action_time = time.time()
-        self._state.actions_taken.append(f"{time.time():.0f}:{action}")
+        self._pressure_state.last_action_time = time.time()
+        self._pressure_state.actions_taken.append(f"{time.time():.0f}:{action}")
         logger.info(f"[MemoryPressure] Action taken: {action}")
 
     def _emit_event(self, event_type: str, payload: dict[str, Any]) -> None:
@@ -285,16 +282,16 @@ class MemoryPressureController:
     async def _handle_caution_tier(self) -> None:
         """Handle CAUTION tier - logging and monitoring only."""
         logger.warning(
-            f"[MemoryPressure] CAUTION: RAM at {self._state.ram_percent:.1f}% "
-            f"({self._state.ram_used_gb:.1f}/{self._state.ram_total_gb:.1f} GB)"
+            f"[MemoryPressure] CAUTION: RAM at {self._pressure_state.ram_percent:.1f}% "
+            f"({self._pressure_state.ram_used_gb:.1f}/{self._pressure_state.ram_total_gb:.1f} GB)"
         )
 
         self._emit_event(
             "MEMORY_PRESSURE_CAUTION",
             {
                 "tier": "CAUTION",
-                "ram_percent": self._state.ram_percent,
-                "ram_used_gb": self._state.ram_used_gb,
+                "ram_percent": self._pressure_state.ram_percent,
+                "ram_used_gb": self._pressure_state.ram_used_gb,
                 "node_id": os.environ.get("RINGRIFT_NODE_ID", "local"),
             },
         )
@@ -305,7 +302,7 @@ class MemoryPressureController:
             return
 
         logger.warning(
-            f"[MemoryPressure] WARNING: RAM at {self._state.ram_percent:.1f}% - "
+            f"[MemoryPressure] WARNING: RAM at {self._pressure_state.ram_percent:.1f}% - "
             "Throttling operations"
         )
 
@@ -317,7 +314,7 @@ class MemoryPressureController:
             "MEMORY_PRESSURE_WARNING",
             {
                 "tier": "WARNING",
-                "ram_percent": self._state.ram_percent,
+                "ram_percent": self._pressure_state.ram_percent,
                 "action": "pause_selfplay",
                 "node_id": os.environ.get("RINGRIFT_NODE_ID", "local"),
             },
@@ -331,7 +328,7 @@ class MemoryPressureController:
             return
 
         logger.error(
-            f"[MemoryPressure] CRITICAL: RAM at {self._state.ram_percent:.1f}% - "
+            f"[MemoryPressure] CRITICAL: RAM at {self._pressure_state.ram_percent:.1f}% - "
             "Taking aggressive action"
         )
 
@@ -349,7 +346,7 @@ class MemoryPressureController:
             "MEMORY_PRESSURE_CRITICAL",
             {
                 "tier": "CRITICAL",
-                "ram_percent": self._state.ram_percent,
+                "ram_percent": self._pressure_state.ram_percent,
                 "action": "kill_non_essential",
                 "node_id": os.environ.get("RINGRIFT_NODE_ID", "local"),
             },
@@ -360,7 +357,7 @@ class MemoryPressureController:
     async def _handle_emergency_tier(self) -> None:
         """Handle EMERGENCY tier - prepare for failover."""
         logger.critical(
-            f"[MemoryPressure] EMERGENCY: RAM at {self._state.ram_percent:.1f}% - "
+            f"[MemoryPressure] EMERGENCY: RAM at {self._pressure_state.ram_percent:.1f}% - "
             "Initiating graceful shutdown"
         )
 
@@ -376,7 +373,7 @@ class MemoryPressureController:
             "MEMORY_PRESSURE_EMERGENCY",
             {
                 "tier": "EMERGENCY",
-                "ram_percent": self._state.ram_percent,
+                "ram_percent": self._pressure_state.ram_percent,
                 "action": "graceful_shutdown",
                 "node_id": os.environ.get("RINGRIFT_NODE_ID", "local"),
             },
@@ -453,7 +450,7 @@ class MemoryPressureController:
         """Handle transition between tiers."""
         logger.info(
             f"[MemoryPressure] Tier change: {old_tier.name} -> {new_tier.name} "
-            f"(RAM: {self._state.ram_percent:.1f}%)"
+            f"(RAM: {self._pressure_state.ram_percent:.1f}%)"
         )
 
         # Call tier-specific handlers
@@ -472,7 +469,7 @@ class MemoryPressureController:
                 "MEMORY_PRESSURE_RECOVERED",
                 {
                     "tier": "NORMAL",
-                    "ram_percent": self._state.ram_percent,
+                    "ram_percent": self._pressure_state.ram_percent,
                     "node_id": os.environ.get("RINGRIFT_NODE_ID", "local"),
                 },
             )
@@ -484,80 +481,61 @@ class MemoryPressureController:
             except Exception as e:
                 logger.error(f"[MemoryPressure] Tier change callback failed: {e}")
 
-    async def _monitor_loop(self) -> None:
-        """Main monitoring loop."""
+    async def _on_start(self) -> None:
+        """Hook called before main loop starts."""
         logger.info(
             f"[MemoryPressure] Started monitoring "
-            f"(check_interval={self.config.CHECK_INTERVAL}s)"
+            f"(check_interval={self._cycle_interval}s)"
         )
 
-        while self._running:
-            try:
-                # Get current memory usage
-                ram_percent, ram_used_gb, ram_total_gb, swap_percent = (
-                    self._get_memory_usage()
-                )
+    async def _run_cycle(self) -> None:
+        """One iteration of memory pressure monitoring.
 
-                # Update state
-                self._state.ram_percent = ram_percent
-                self._state.ram_used_gb = ram_used_gb
-                self._state.ram_total_gb = ram_total_gb
-                self._state.swap_percent = swap_percent
-                self._state.timestamp = time.time()
+        Called by HandlerBase._main_loop every cycle_interval seconds.
+        """
+        # Get current memory usage
+        ram_percent, ram_used_gb, ram_total_gb, swap_percent = (
+            self._get_memory_usage()
+        )
 
-                # Determine new tier
-                new_tier = self._determine_tier(ram_percent)
-                old_tier = self._state.tier
+        # Update state
+        self._pressure_state.ram_percent = ram_percent
+        self._pressure_state.ram_used_gb = ram_used_gb
+        self._pressure_state.ram_total_gb = ram_total_gb
+        self._pressure_state.swap_percent = swap_percent
+        self._pressure_state.timestamp = time.time()
 
-                # Check if tier changed (with hysteresis for downgrades)
-                if new_tier != old_tier:
-                    if new_tier > old_tier:
-                        # Escalating - increment consecutive samples
-                        self._state.consecutive_samples += 1
-                        if self._state.consecutive_samples >= self.config.CONSECUTIVE_SAMPLES_REQUIRED:
-                            self._state.tier = new_tier
-                            self._state.consecutive_samples = 0
-                            await self._handle_tier_change(old_tier, new_tier)
-                    elif self._should_downgrade_tier(new_tier):
-                        # De-escalating with hysteresis
-                        self._state.tier = new_tier
-                        self._state.consecutive_samples = 0
-                        await self._handle_tier_change(old_tier, new_tier)
-                else:
-                    # Same tier, reset consecutive counter
-                    self._state.consecutive_samples = 0
+        # Determine new tier
+        new_tier = self._determine_tier(ram_percent)
+        old_tier = self._pressure_state.tier
 
-                # Periodic handling for sustained high pressure
-                if self._state.tier >= MemoryPressureTier.WARNING:
-                    if self._state.tier == MemoryPressureTier.WARNING:
-                        await self._handle_warning_tier()
-                    elif self._state.tier == MemoryPressureTier.CRITICAL:
-                        await self._handle_critical_tier()
+        # Check if tier changed (with hysteresis for downgrades)
+        if new_tier != old_tier:
+            if new_tier > old_tier:
+                # Escalating - increment consecutive samples
+                self._pressure_state.consecutive_samples += 1
+                if self._pressure_state.consecutive_samples >= self._pressure_config.CONSECUTIVE_SAMPLES_REQUIRED:
+                    self._pressure_state.tier = new_tier
+                    self._pressure_state.consecutive_samples = 0
+                    await self._handle_tier_change(old_tier, new_tier)
+            elif self._should_downgrade_tier(new_tier):
+                # De-escalating with hysteresis
+                self._pressure_state.tier = new_tier
+                self._pressure_state.consecutive_samples = 0
+                await self._handle_tier_change(old_tier, new_tier)
+        else:
+            # Same tier, reset consecutive counter
+            self._pressure_state.consecutive_samples = 0
 
-            except Exception as e:
-                logger.error(f"[MemoryPressure] Monitor loop error: {e}")
+        # Periodic handling for sustained high pressure
+        if self._pressure_state.tier >= MemoryPressureTier.WARNING:
+            if self._pressure_state.tier == MemoryPressureTier.WARNING:
+                await self._handle_warning_tier()
+            elif self._pressure_state.tier == MemoryPressureTier.CRITICAL:
+                await self._handle_critical_tier()
 
-            await asyncio.sleep(self.config.CHECK_INTERVAL)
-
-    async def start(self) -> None:
-        """Start the memory pressure controller."""
-        if self._running:
-            return
-
-        self._running = True
-        self._task = asyncio.create_task(self._monitor_loop())
-        logger.info("[MemoryPressure] Controller started")
-
-    async def stop(self) -> None:
-        """Stop the memory pressure controller."""
-        self._running = False
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
+    async def _on_stop(self) -> None:
+        """Hook called after main loop stops."""
         logger.info("[MemoryPressure] Controller stopped")
 
     def register_tier_change_callback(
@@ -570,13 +548,42 @@ class MemoryPressureController:
         """Register callback for emergency tier."""
         self._on_emergency.append(callback)
 
-    def health_check(self) -> dict[str, Any]:
-        """Return health check result for daemon manager."""
-        return {
-            "healthy": self._running and self._state.tier < MemoryPressureTier.CRITICAL,
-            "status": "running" if self._running else "stopped",
-            "details": self._state.to_dict(),
-        }
+    def health_check(self) -> HealthCheckResult:
+        """Return health check result for daemon manager.
+
+        Overrides HandlerBase.health_check() with memory-specific health logic.
+        Returns unhealthy if tier is CRITICAL or above.
+        """
+        if not self._running:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.STOPPED,
+                message="Memory pressure controller not running",
+            )
+
+        tier = self._pressure_state.tier
+
+        if tier >= MemoryPressureTier.CRITICAL:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message=f"Memory pressure CRITICAL: {self._pressure_state.ram_percent:.1f}% RAM",
+                details=self._pressure_state.to_dict(),
+            )
+        elif tier >= MemoryPressureTier.WARNING:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.DEGRADED,
+                message=f"Memory pressure WARNING: {self._pressure_state.ram_percent:.1f}% RAM",
+                details=self._pressure_state.to_dict(),
+            )
+        else:
+            return HealthCheckResult(
+                healthy=True,
+                status=CoordinatorStatus.RUNNING,
+                message=f"Memory pressure normal: {self._pressure_state.ram_percent:.1f}% RAM",
+                details=self._pressure_state.to_dict(),
+            )
 
 
 # Convenience accessor
