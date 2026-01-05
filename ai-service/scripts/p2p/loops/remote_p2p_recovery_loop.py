@@ -114,8 +114,8 @@ class RemoteP2PRecoveryConfig:
     # Jan 2026: Prevent pathological restart loops by backing off exponentially
     # after repeated restart attempts on the same node
     backoff_multiplier: float = 2.0  # Each restart attempt doubles the cooldown
-    backoff_max_seconds: float = 3600.0  # Max 1 hour between restart attempts
-    backoff_reset_after_stable_seconds: float = 600.0  # Reset backoff after 10 min stable
+    backoff_max_seconds: float = 600.0  # Max 10 min between restart attempts (was 1h)
+    backoff_reset_after_stable_seconds: float = 300.0  # Reset backoff after 5 min stable (was 10 min)
     backoff_max_restart_count: int = 5  # After this many restarts, use max backoff
 
     # Whether to emit events on recovery
