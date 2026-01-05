@@ -2,22 +2,23 @@
 
 AI assistant context for the Python AI training service. Complements `AGENTS.md` with operational knowledge.
 
-**Last Updated**: January 5, 2026 (Sprint 17.9 - Session 17.21)
+**Last Updated**: January 5, 2026 (Sprint 17.9 - Session 17.22)
 
 ## Infrastructure Health Status (Verified Jan 5, 2026)
 
-| Component            | Status    | Evidence                                                             |
-| -------------------- | --------- | -------------------------------------------------------------------- |
-| **P2P Network**      | GREEN     | A- (94/100), hetzner-cpu1 leader, 26/48 peers (54%), quorum OK       |
-| **Training Loop**    | GREEN     | A (95/100), 521 games today, 5/5 feedback loops, 6/6 pipeline stages |
-| **Code Quality**     | GREEN     | 341 modules, 984 tests, 99.5% coverage, all handlers on HandlerBase  |
-| **Leader Election**  | WORKING   | hetzner-cpu1 leader (just elected after cluster update)              |
-| **Work Queue**       | HEALTHY   | 325 items, selfplay scheduler active                                 |
-| **Game Data**        | EXCELLENT | 1,009+ games in selfplay.db (521 in last 24h across 6 configs)       |
-| **CB TTL Decay**     | ACTIVE    | 4h TTL in node_circuit_breaker.py:249-271                            |
-| **Multi-Arch Train** | ACTIVE    | v2 models trained, all 12 canonical configs generating data          |
-| **Loop Health**      | COMPLETE  | 22 P2P loops with health_check() for DaemonManager integration       |
-| **Async Safety**     | VERIFIED  | 275 asyncio.to_thread() usages across 76 files (233 + 42)            |
+| Component            | Status    | Evidence                                                            |
+| -------------------- | --------- | ------------------------------------------------------------------- |
+| **P2P Network**      | GREEN     | A- (94/100), hetzner-cpu1 leader, 21 nodes updated, quorum OK       |
+| **Training Loop**    | GREEN     | A (95/100), 1,009 games total, 5/5 feedback loops, 6/6 pipeline     |
+| **Code Quality**     | GREEN     | 341 modules, 984 tests, 99.5% coverage, all handlers on HandlerBase |
+| **Leader Election**  | WORKING   | hetzner-cpu1 leader, stable across cluster updates                  |
+| **Work Queue**       | HEALTHY   | 325 items, selfplay scheduler active                                |
+| **Game Data**        | EXCELLENT | 1,009+ games in selfplay.db across 6 configs                        |
+| **CB TTL Decay**     | ACTIVE    | 4h TTL in node_circuit_breaker.py:249-271                           |
+| **Multi-Arch Train** | ACTIVE    | v2 models trained, all 12 canonical configs generating data         |
+| **Loop Health**      | COMPLETE  | 14 P2P loops with health_check() for DaemonManager integration      |
+| **Async Safety**     | VERIFIED  | All blocking SQLite calls wrapped in asyncio.to_thread()            |
+| **Event Emission**   | UNIFIED   | Migrated to safe_emit_event for consistent error handling           |
 
 ## Sprint 17: Cluster Resilience Integration (Jan 4, 2026)
 
@@ -140,6 +141,48 @@ Session 16-17 resilience components are now fully integrated and bootstrapped:
 - ~30 remaining blocking operations in cold paths (lower priority)
 
 **P2P Loop Health Coverage: 22/22 loops (100%)**
+
+---
+
+**Sprint 17.9 / Session 17.22 (Jan 5, 2026) - Exploration & Consolidation:**
+
+| Task                                | Status      | Evidence                                                          |
+| ----------------------------------- | ----------- | ----------------------------------------------------------------- |
+| Blocking SQLite in async contexts   | ✅ VERIFIED | All calls already wrapped in asyncio.to_thread()                  |
+| Event emission pattern migration    | ✅ COMPLETE | autonomous_queue_loop.py, remote_p2p_recovery_loop.py → safe_emit |
+| is_leader property fix verification | ✅ VERIFIED | Already fixed in commit 4977de8e6                                 |
+| Cluster Update                      | ✅ COMPLETE | 21 nodes updated to 56a28e01, P2P restarted                       |
+| P2P Network                         | ✅ HEALTHY  | hetzner-cpu1 leader, 10+ alive peers, work queue: 325             |
+
+**Exploration Agent Findings (Session 17.22):**
+
+1. **SQLite Async Safety**: ✅ COMPLETE - All blocking SQLite operations in async code already use `asyncio.to_thread()`
+2. **Event Emission**: Migrated 2 P2P loops to `safe_emit_event` for consistent error handling
+3. **Technical Debt**: Minimal - Only 2 TODO comments remaining, deprecated modules managed with Q2 2026 removal dates
+4. **Consolidation Opportunities**: Most already done (HandlerBase, MonitorBase, DatabaseSyncManager)
+
+**Event Emission Improvements (Commit 56a28e01b):**
+
+| File                            | Change                                                     |
+| ------------------------------- | ---------------------------------------------------------- |
+| autonomous_queue_loop.py:509    | Migrated activation/deactivation events to safe_emit_event |
+| remote_p2p_recovery_loop.py:276 | Added \_safe_emit_p2p_event helper with callback fallback  |
+
+**Consolidation Status (Verified):**
+
+| Area                   | Status      | Evidence                                           |
+| ---------------------- | ----------- | -------------------------------------------------- |
+| HandlerBase migration  | ✅ COMPLETE | 53+ handlers using HandlerBase                     |
+| DatabaseSyncManager    | ✅ COMPLETE | EloSyncManager, RegistrySyncManager use base class |
+| P2PMixinBase           | ✅ COMPLETE | 6 P2P mixins consolidated                          |
+| Event emission helpers | ✅ COMPLETE | 270+ calls consolidated to safe_emit_event         |
+| Coordination defaults  | ✅ COMPLETE | 30+ centralized dataclasses                        |
+
+**Remaining Work (Lower Priority):**
+
+- Large file decomposition (feedback_loop_controller.py, training_trigger_daemon.py)
+- Deprecated module migrations before Q2 2026
+- Provider health checker base class extraction
 
 **Commit**: `873434f49` - feat(p2p): add health_check() to 8 data/coordination/maintenance loops
 
