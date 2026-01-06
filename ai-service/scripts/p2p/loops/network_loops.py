@@ -1811,6 +1811,11 @@ class TailscaleKeepaliveConfig:
     userspace_interval_seconds: float = 30.0
 
 
+# Module-level constants for RelayHysteresis (moved out of class body for Python compatibility)
+_RELAY_SWITCH_COOLDOWN = float(os.environ.get("RINGRIFT_RELAY_SWITCH_COOLDOWN", "300"))
+_RELAY_SWITCH_THRESHOLD = int(os.environ.get("RINGRIFT_RELAY_SWITCH_THRESHOLD", "3"))
+
+
 class RelayHysteresis:
     """Hysteresis controller for direct/relay connection switching.
 
@@ -1846,15 +1851,9 @@ class RelayHysteresis:
             hysteresis.mark_switched_to_direct(node_id)
     """
 
-    # Minimum time between switch events per node (seconds)
-    SWITCH_COOLDOWN: float = float(
-        os.environ.get("RINGRIFT_RELAY_SWITCH_COOLDOWN", "300")
-    )
-
-    # Consecutive relay/direct detections required before switch notification
-    FAILURE_THRESHOLD: int = int(
-        os.environ.get("RINGRIFT_RELAY_SWITCH_THRESHOLD", "3")
-    )
+    # Class constants reference module-level values
+    SWITCH_COOLDOWN: float = _RELAY_SWITCH_COOLDOWN
+    FAILURE_THRESHOLD: int = _RELAY_SWITCH_THRESHOLD
 
     def __init__(self) -> None:
         # node_id -> timestamp of last switch event
