@@ -274,40 +274,54 @@ class AutonomousQueuePopulationLoop(BaseLoop):
 
             # Check for cached cluster config
             cluster_config = getattr(self._orchestrator, "_cluster_config", None)
-            if cluster_config and "nodes" in cluster_config:
-                nodes = cluster_config["nodes"]
+            hostname_lower = hostname.lower().replace("-", "").replace("_", "")
+            if cluster_config:
+                # YAML uses "hosts" key, not "nodes"
+                hosts = cluster_config.get("hosts", {})
+                if hosts:
+                    # First try direct lookup by node_id
+                    node_cfg = hosts.get(node_id, {})
 
-                # First try direct lookup by node_id
-                node_cfg = nodes.get(node_id, {})
+                    # If not found, search by hostname or role match
+                    if not node_cfg:
+                        for config_name, cfg in hosts.items():
+                            if not isinstance(cfg, dict):
+                                continue
+                            config_name_lower = config_name.lower().replace("-", "").replace("_", "")
+                            # Match if hostname contains config name or vice versa
+                            if hostname_lower in config_name_lower or config_name_lower in hostname_lower:
+                                node_cfg = cfg
+                                logger.debug(
+                                    f"[AutonomousQueue] Matched hostname {hostname} to config {config_name}"
+                                )
+                                break
+                            # Special case: MacBook hostname maps to mac-studio or local-mac config
+                            if "macbook" in hostname_lower and config_name_lower in ("macstudio", "localmac"):
+                                node_cfg = cfg
+                                logger.info(
+                                    f"[AutonomousQueue] Matched MacBook hostname {hostname} to {config_name} config"
+                                )
+                                break
 
-                # If not found, search by hostname match (node_id may differ from config name)
-                if not node_cfg:
-                    hostname_lower = hostname.lower().replace("-", "").replace("_", "")
-                    for config_name, cfg in nodes.items():
-                        config_name_lower = config_name.lower().replace("-", "").replace("_", "")
-                        # Match if hostname contains config name or vice versa
-                        if hostname_lower in config_name_lower or config_name_lower in hostname_lower:
-                            node_cfg = cfg
-                            logger.debug(
-                                f"[AutonomousQueue] Matched hostname {hostname} to config {config_name}"
+                    if node_cfg:
+                        self._selfplay_enabled = node_cfg.get("selfplay_enabled", True)
+                        if not self._selfplay_enabled:
+                            logger.info(
+                                f"[AutonomousQueue] Node {node_id} (hostname={hostname}) has selfplay_enabled=false, "
+                                "disabling autonomous queue population"
                             )
-                            break
-                        # Also check if this is a mac-studio type match
-                        if "macbook" in hostname_lower and "macstudio" in config_name_lower:
-                            node_cfg = cfg
-                            logger.debug(
-                                f"[AutonomousQueue] Matched MacBook hostname {hostname} to mac-studio config"
-                            )
-                            break
+                        return self._selfplay_enabled
 
-                if node_cfg:
-                    self._selfplay_enabled = node_cfg.get("selfplay_enabled", True)
-                    if not self._selfplay_enabled:
-                        logger.info(
-                            f"[AutonomousQueue] Node {node_id} (hostname={hostname}) has selfplay_enabled=false, "
-                            "disabling autonomous queue population"
-                        )
-                    return self._selfplay_enabled
+                # Also check elo_sync.coordinator as an indicator
+                elo_sync = cluster_config.get("elo_sync", {})
+                coordinator_name = elo_sync.get("coordinator", "")
+                if coordinator_name and coordinator_name.lower().replace("-", "") in hostname_lower.replace("-", ""):
+                    logger.info(
+                        f"[AutonomousQueue] Node {node_id} matches elo_sync coordinator {coordinator_name}, "
+                        "disabling autonomous queue population"
+                    )
+                    self._selfplay_enabled = False
+                    return False
 
             # Fallback: check role - coordinators shouldn't run selfplay
             role = getattr(self._orchestrator, "_role", None)
