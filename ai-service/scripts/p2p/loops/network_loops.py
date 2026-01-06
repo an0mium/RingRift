@@ -1227,8 +1227,10 @@ class HeartbeatLoop(BaseLoop):
             except (AttributeError, ValueError):
                 continue
 
-            # Use relay heartbeat for HTTPS endpoints or configured relay peers
-            use_relay = scheme == "https" or peer_addr in relay_peers
+            # Use relay heartbeat for HTTPS endpoints, configured relay peers,
+            # or if this node is NAT-blocked and needs to relay ALL outbound heartbeats
+            local_force_relay = getattr(self, "_force_relay_mode", False)
+            use_relay = scheme == "https" or peer_addr in relay_peers or local_force_relay
             if use_relay:
                 relay_url = f"{scheme}://{host}" if port in (80, 443) else f"{scheme}://{host}:{port}"
                 result = await self._send_relay_heartbeat(relay_url)

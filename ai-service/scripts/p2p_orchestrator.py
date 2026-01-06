@@ -1364,6 +1364,12 @@ class P2POrchestrator(
         self.relay_peers: set[str] = set(relay_peers or [])
         self.ringrift_path = ringrift_path or self._detect_ringrift_path()
 
+        # Jan 5, 2026: Force relay mode for NAT-blocked nodes
+        # NAT-blocked nodes should send ALL outbound heartbeats via relay to ensure
+        # other nodes can discover them (since direct inbound connections fail).
+        # This is loaded from distributed_hosts.yaml: `nat_blocked: true` or `force_relay_mode: true`
+        self._force_relay_mode: bool = self._load_force_relay_mode()
+
         # Phase 29: Cluster epoch tracking for split-brain resolution
         self._cluster_epoch: int = INITIAL_CLUSTER_EPOCH
         # P2P Health state tracking (Dec 2025)
@@ -5505,6 +5511,45 @@ class P2POrchestrator(
             return primary, alternates
 
         return "", set()
+
+    def _load_force_relay_mode(self) -> bool:
+        """Load force_relay_mode from distributed_hosts.yaml for this node.
+
+        January 5, 2026: NAT-blocked nodes need to send ALL outbound heartbeats
+        via relay to ensure other nodes can discover them. This is configured in
+        distributed_hosts.yaml with either:
+        - `nat_blocked: true` - Node is behind NAT and can't receive inbound connections
+        - `force_relay_mode: true` - Explicitly enable relay mode
+
+        Returns:
+            True if this node should use relay mode for all outbound heartbeats.
+        """
+        # Priority 1: Environment variable override
+        env = (os.environ.get("RINGRIFT_FORCE_RELAY_MODE") or "").strip().lower()
+        if env in ("1", "true", "yes"):
+            logger.info(f"[P2P] Force relay mode enabled via RINGRIFT_FORCE_RELAY_MODE env var")
+            return True
+
+        # Priority 2: Load from distributed_hosts.yaml
+        try:
+            from app.config.cluster_config import load_cluster_config
+            config = load_cluster_config()
+            nodes = getattr(config, "hosts_raw", {}) or {}
+            node_cfg = nodes.get(self.node_id, {})
+
+            nat_blocked = node_cfg.get("nat_blocked", False)
+            force_relay = node_cfg.get("force_relay_mode", False)
+
+            if nat_blocked or force_relay:
+                reason = "nat_blocked" if nat_blocked else "force_relay_mode"
+                logger.info(f"[P2P] Force relay mode enabled for {self.node_id} ({reason})")
+                return True
+        except ImportError:
+            logger.debug("[P2P] cluster_config not available for force_relay_mode check")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[P2P] Failed to load force_relay_mode from config: {e}")
+
+        return False
 
     def _load_voter_node_ids(self) -> list[str]:
         """Load the set of P2P voter node_ids (for quorum-based leadership).
@@ -21510,6 +21555,70 @@ print(json.dumps({{
         except Exception as e:  # noqa: BLE001
             return {"success": False, "error": str(e)}
 
+    async def _send_initial_relay_heartbeats(self) -> None:
+        """Send immediate relay heartbeats on startup for NAT-blocked nodes.
+
+        January 5, 2026: NAT-blocked nodes can't receive inbound connections,
+        so they need to proactively register with relay-capable nodes to be
+        discoverable by the cluster. This method sends relay heartbeats to
+        all configured relay-capable nodes immediately at startup.
+
+        Called after HTTP server starts but before regular heartbeat loop.
+        """
+        # Load relay-capable nodes from distributed_hosts.yaml
+        relay_nodes: list[tuple[str, str, int]] = []  # (node_id, ip, port)
+        try:
+            from app.config.cluster_config import load_cluster_config
+            config = load_cluster_config()
+            nodes = getattr(config, "hosts_raw", {}) or {}
+
+            for node_id, node_cfg in nodes.items():
+                if node_id == self.node_id:
+                    continue  # Skip self
+                if not node_cfg.get("relay_capable", False):
+                    continue
+                if not node_cfg.get("p2p_enabled", True):
+                    continue
+
+                # Get the best IP to reach this node (prefer Tailscale)
+                ip = node_cfg.get("tailscale_ip") or node_cfg.get("ssh_host", "")
+                port = node_cfg.get("p2p_port", DEFAULT_PORT)
+                if ip:
+                    relay_nodes.append((node_id, ip, port))
+
+        except ImportError:
+            logger.warning("[P2P] cluster_config not available for initial relay heartbeats")
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[P2P] Failed to load relay-capable nodes: {e}")
+            return
+
+        if not relay_nodes:
+            logger.info("[P2P] No relay-capable nodes configured for initial heartbeat")
+            return
+
+        logger.info(f"[P2P] Sending initial relay heartbeats to {len(relay_nodes)} relay-capable nodes")
+
+        # Send relay heartbeats to all relay-capable nodes
+        success_count = 0
+        for node_id, ip, port in relay_nodes:
+            relay_url = f"http://{ip}:{port}"
+            try:
+                result = await self._send_relay_heartbeat(relay_url)
+                if result.get("success"):
+                    success_count += 1
+                    logger.info(f"[P2P] Initial relay heartbeat to {node_id} ({ip}:{port}) succeeded")
+                else:
+                    error = result.get("error", "unknown")
+                    logger.debug(f"[P2P] Initial relay heartbeat to {node_id} failed: {error}")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[P2P] Initial relay heartbeat to {node_id} error: {e}")
+
+        if success_count > 0:
+            logger.info(f"[P2P] NAT-blocked node registered with {success_count}/{len(relay_nodes)} relay nodes")
+        else:
+            logger.warning(f"[P2P] Failed to register with any relay nodes - cluster discovery may be delayed")
+
     async def _execute_relay_commands(self, commands: list[dict[str, Any]]) -> None:
         """Execute relay commands (polling mode for NAT-blocked nodes)."""
         now = time.time()
@@ -21660,9 +21769,10 @@ print(json.dumps({{
                     except (AttributeError):
                         continue
 
-                    # Use relay heartbeat for HTTPS endpoints (they're proxies/relays)
-                    # or for explicitly configured relay peers (--relay-peers flag)
-                    use_relay = scheme == "https" or peer_addr in self.relay_peers
+                    # Use relay heartbeat for HTTPS endpoints (they're proxies/relays),
+                    # explicitly configured relay peers (--relay-peers flag),
+                    # or if this node is NAT-blocked and needs to relay ALL outbound heartbeats
+                    use_relay = scheme == "https" or peer_addr in self.relay_peers or self._force_relay_mode
                     if use_relay:
                         # Relay/proxy endpoint, use relay heartbeat
                         relay_url = f"{scheme}://{host}" if port in (80, 443) else f"{scheme}://{host}:{port}"
@@ -30362,6 +30472,11 @@ print(json.dumps({{
 
         # Notify systemd that we're ready to serve
         systemd_notify_ready()
+
+        # Jan 5, 2026: Send immediate relay heartbeats for NAT-blocked nodes
+        # This ensures relay nodes discover us before the regular heartbeat loop kicks in
+        if self._force_relay_mode:
+            await self._send_initial_relay_heartbeats()
 
         # Start background tasks with exception isolation and restart support
         # CRITICAL FIX (Dec 2025): Each task is wrapped to prevent cascade failures.

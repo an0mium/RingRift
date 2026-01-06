@@ -1214,6 +1214,12 @@ class MasterLoopController:
             # January 3, 2026: Unified backup to OWC and S3
             # Backs up all selfplay games to both destinations for disaster recovery
             DaemonType.UNIFIED_BACKUP,
+            # January 5, 2026: Training watchdog for stuck process detection
+            # Monitors training jobs and kills stuck processes after 2h threshold
+            DaemonType.TRAINING_WATCHDOG,
+            # January 5, 2026: GPU underutilization recovery
+            # Injects work into queue when GPU nodes are idle
+            DaemonType.UNDERUTILIZATION_RECOVERY,
         ]
 
         # S3 backup daemons - only if AWS credentials are configured (December 2025)
