@@ -2608,6 +2608,16 @@ class P2POrchestrator(
                     except ImportError:
                         return None
 
+                # Jan 6, 2026 (Session 17.41): Partition-aware backpressure callback
+                def _set_work_queue_partition_state(is_partitioned: bool) -> None:
+                    """Notify work queue of partition state for backpressure adjustment."""
+                    wq = get_work_queue()
+                    if wq and hasattr(wq, "set_partition_state"):
+                        try:
+                            wq.set_partition_state(is_partitioned)
+                        except Exception as e:
+                            logger.debug(f"[WorkerPull] Failed to set partition state: {e}")
+
                 worker_pull = WorkerPullLoop(
                     is_leader=lambda: self.role == NodeRole.LEADER,
                     get_leader_id=lambda: self.leader_id,
@@ -2619,6 +2629,8 @@ class P2POrchestrator(
                     get_work_discovery_manager=_get_work_discovery_manager_for_pull,
                     # Session 17.34: Batch claiming for +30-40% utilization improvement
                     claim_work_batch_from_leader=self._claim_work_batch_from_leader,
+                    # Session 17.41: Partition-aware backpressure
+                    set_partition_state=_set_work_queue_partition_state,
                 )
                 manager.register(worker_pull)
                 logger.info("[LoopManager] WorkerPullLoop registered (with work discovery manager)")
@@ -11886,6 +11898,66 @@ class P2POrchestrator(
                 "source": "error",
                 "error": str(e),
             })
+
+    async def handle_refresh_game_counts(self, request: web.Request) -> web.Response:
+        """Trigger a refresh of game counts from peers/coordinator.
+
+        Session 17.48: Added to allow manual/periodic refresh of game counts
+        on cluster nodes that don't have local canonical databases.
+
+        Returns:
+            JSON with refresh status and new game count data
+        """
+        try:
+            # First try local canonical DBs
+            local_counts = await asyncio.to_thread(self._seed_selfplay_scheduler_game_counts_sync)
+
+            if local_counts:
+                # We have local canonical DBs, use them
+                if self.selfplay_scheduler:
+                    self.selfplay_scheduler.update_p2p_game_counts(local_counts)
+                return web.json_response({
+                    "success": True,
+                    "source": "local_canonical",
+                    "game_counts": local_counts,
+                    "count": len(local_counts),
+                    "node_id": self.node_id,
+                })
+
+            # No local DBs, fetch from peers
+            peer_counts = await self._fetch_game_counts_from_peers()
+
+            if peer_counts and self.selfplay_scheduler:
+                self.selfplay_scheduler.update_p2p_game_counts(peer_counts)
+                logger.info(f"[P2P] Refreshed game counts: {len(peer_counts)} configs from peers")
+                for config_key, count in sorted(peer_counts.items(), key=lambda x: x[1]):
+                    if count < 500:
+                        logger.info(f"[P2P] Underserved config (refreshed): {config_key} = {count} games")
+                return web.json_response({
+                    "success": True,
+                    "source": "peers",
+                    "game_counts": peer_counts,
+                    "count": len(peer_counts),
+                    "node_id": self.node_id,
+                })
+
+            return web.json_response({
+                "success": False,
+                "source": "none",
+                "game_counts": {},
+                "count": 0,
+                "node_id": self.node_id,
+                "error": "No game counts available from local or peers",
+            })
+
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[P2P] Failed to refresh game counts: {e}")
+            return web.json_response({
+                "success": False,
+                "source": "error",
+                "error": str(e),
+                "node_id": self.node_id,
+            }, status=500)
 
     async def handle_cluster_health(self, request: web.Request) -> web.Response:
         """Aggregate health status from all cluster nodes (leader-only).
@@ -30400,6 +30472,8 @@ print(json.dumps({{
             app.router.add_get('/peer-health', self.handle_peer_health)
             # Jan 5, 2026: Session 17.41 - game counts endpoint for P2P seeding
             app.router.add_get('/game_counts', self.handle_game_counts)
+            # Jan 6, 2026: Session 17.48 - refresh game counts from peers
+            app.router.add_post('/refresh_game_counts', self.handle_refresh_game_counts)
                 # Work queue routes (centralized work distribution)
             app.router.add_post('/work/add', self.handle_work_add)
             app.router.add_post('/work/add_batch', self.handle_work_add_batch)
@@ -30991,6 +31065,46 @@ print(json.dumps({{
             self._create_safe_task(
                 _deferred_game_counts_fetch(),
                 "deferred_game_counts_fetch"
+            )
+        )
+
+        # Session 17.48: Periodic game counts refresh loop
+        # The deferred fetch only runs once at startup. This loop ensures game counts
+        # are kept fresh on leader nodes that don't have local canonical databases.
+        # Without fresh game counts, starvation multipliers can't be applied correctly.
+        async def _periodic_game_counts_refresh():
+            """Periodically refresh game counts from peers (runs every 5 minutes)."""
+            refresh_interval = 300  # 5 minutes
+            # Wait for initial deferred fetch to complete
+            await asyncio.sleep(60)
+
+            while self.running:
+                try:
+                    # Only refresh if we don't have local canonical DBs
+                    local_counts = await asyncio.to_thread(self._seed_selfplay_scheduler_game_counts_sync)
+
+                    if not local_counts:
+                        # No local DBs, fetch from peers
+                        peer_counts = await self._fetch_game_counts_from_peers()
+
+                        if peer_counts and self.selfplay_scheduler:
+                            self.selfplay_scheduler.update_p2p_game_counts(peer_counts)
+                            underserved = sum(1 for c in peer_counts.values() if c < 2000)
+                            logger.info(f"[P2P] Periodic refresh: {len(peer_counts)} configs, {underserved} underserved")
+                            # Log critically underserved configs
+                            for config_key, count in sorted(peer_counts.items(), key=lambda x: x[1]):
+                                if count < 500:
+                                    logger.warning(f"[P2P] CRITICAL: {config_key} has only {count} games (ULTRA starvation)")
+
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[P2P] Periodic game counts refresh failed: {e}")
+
+                await asyncio.sleep(refresh_interval)
+
+        tasks.append(
+            self._create_safe_task(
+                _periodic_game_counts_refresh(),
+                "periodic_game_counts_refresh"
             )
         )
 
