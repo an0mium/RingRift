@@ -394,6 +394,10 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
         # Maximum opponent types for diversity calculation (8 = full diversity)
         self._max_opponent_types = 8
 
+        # Jan 5, 2026: Game counts cache for real-time NEW_GAMES_AVAILABLE updates
+        # Initialized from DB at startup, updated by events for instant feedback
+        self._cached_game_counts: dict[str, int] = {}
+
         # Dec 30, 2025: Extracted quality cache class (reduces code, enables testing)
         # ConfigStateCache handles TTL, invalidation, and daemon integration
         self._quality_cache = ConfigStateCache(
@@ -2262,6 +2266,8 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
             ("NODE_OVERLOADED", self._on_node_overloaded),
             # Elo velocity tracking
             ("ELO_UPDATED", self._on_elo_updated),
+            # Jan 5, 2026: Real-time game count updates for faster feedback
+            ("NEW_GAMES_AVAILABLE", self._on_new_games_available),
             # Progress monitoring
             ("PROGRESS_STALL_DETECTED", self._on_progress_stall),
             ("PROGRESS_RECOVERED", self._on_progress_recovered),
