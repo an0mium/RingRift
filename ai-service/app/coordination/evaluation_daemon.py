@@ -159,7 +159,9 @@ class EvaluationConfig:
     # Dec 29: Increased from 8 to 24 for faster eval throughput
     # With 50 games per baseline, each eval still completes in ~5 min
     # Session 17.31 (Jan 5, 2026): Increased from 24 to 32 for higher throughput
-    max_concurrent_evaluations: int = 32
+    # Session 17.46 (Jan 6, 2026): Increased from 32 to 64 for +5-8 Elo improvement
+    # 12 canonical configs × 50 games × 64 concurrent = ~1h total evaluation time
+    max_concurrent_evaluations: int = 64
 
     # Timeouts
     # Dec 29: Reduced from 600s to 300s for faster iteration (5 min per eval)

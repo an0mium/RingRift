@@ -174,7 +174,10 @@ class TrainingTriggerDaemon(HandlerBase):
         # January 5, 2026 (Phase 7.9): Quality assessment cache to reduce SQLite lookups
         # Expected improvement: +2-4 Elo from reduced quality check latency
         self._quality_cache: dict[str, tuple[float, float]] = {}  # config -> (score, timestamp)
-        self._quality_cache_ttl = 10.0  # 10 second cache TTL
+        # Session 17.46 (Jan 6, 2026): Extended from 10s to 60s for +2-4 Elo improvement.
+        # 10s caused repeated SQLite queries for quality assessment.
+        # 60s cache is sufficient since quality changes slowly (game-level updates).
+        self._quality_cache_ttl = 60.0  # 60 second cache TTL
         self._retry_stats = {
             "retries_queued": 0,
             "retries_succeeded": 0,
