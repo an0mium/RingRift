@@ -29,8 +29,8 @@ from app.coordination.event_utils import extract_config_key, normalize_event_pay
 
 logger = logging.getLogger(__name__)
 
-# Default snapshot interval: 1 hour
-DEFAULT_SNAPSHOT_INTERVAL = 3600.0
+# Default snapshot interval: 15 minutes (reduced from 60min for faster Elo feedback)
+DEFAULT_SNAPSHOT_INTERVAL = 900.0
 
 # Minimum interval between snapshots (prevent spam)
 MIN_SNAPSHOT_INTERVAL = 300.0  # 5 minutes
