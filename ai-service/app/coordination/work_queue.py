@@ -199,12 +199,15 @@ DEFAULT_DB_PATH = Path(os.environ.get("RINGRIFT_WORK_QUEUE_DB", str(_DEFAULT_DB_
 
 # Dec 28, 2025: Backpressure thresholds to prevent unbounded queue growth
 # Jan 5, 2026: Doubled thresholds to support 30+ node cluster throughput
+# Jan 6, 2026 (Session 17.47): Doubled again to 4000 hard limit.
+# Root cause: 3-player selfplay jobs were rejected due to full queue (2000/2000)
+# despite 500x priority multiplier. Starving configs need queue capacity.
 # Soft limit: Emit BACKPRESSURE_ACTIVATED event, warn callers
 # Hard limit: Reject new items, force callers to wait
-BACKPRESSURE_SOFT_LIMIT = int(os.environ.get("RINGRIFT_WORK_QUEUE_SOFT_LIMIT", "1200"))
-BACKPRESSURE_HARD_LIMIT = int(os.environ.get("RINGRIFT_WORK_QUEUE_HARD_LIMIT", "2000"))
+BACKPRESSURE_SOFT_LIMIT = int(os.environ.get("RINGRIFT_WORK_QUEUE_SOFT_LIMIT", "2000"))
+BACKPRESSURE_HARD_LIMIT = int(os.environ.get("RINGRIFT_WORK_QUEUE_HARD_LIMIT", "4000"))
 # Recovery threshold: Emit BACKPRESSURE_RELEASED when queue drops below this
-BACKPRESSURE_RECOVERY_THRESHOLD = int(os.environ.get("RINGRIFT_WORK_QUEUE_RECOVERY", "800"))
+BACKPRESSURE_RECOVERY_THRESHOLD = int(os.environ.get("RINGRIFT_WORK_QUEUE_RECOVERY", "1200"))
 
 
 class SlackWorkQueueNotifier:
