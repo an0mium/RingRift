@@ -235,6 +235,8 @@ class AutonomousQueuePopulationLoop(BaseLoop):
         self._local_queue_lock = asyncio.Lock()
         self._startup_time = time.time()
         self._grace_period_complete = False
+        self._selfplay_enabled: bool | None = None  # Cached from node config
+        self._selfplay_enabled_checked = False
 
     @property
     def is_activated(self) -> bool:
@@ -245,6 +247,54 @@ class AutonomousQueuePopulationLoop(BaseLoop):
     def local_queue_depth(self) -> int:
         """Get current depth of local queue."""
         return len(self._local_queue)
+
+    def _is_selfplay_enabled_for_node(self) -> bool:
+        """Check if selfplay is enabled for this node via YAML config.
+
+        Jan 5, 2026: Added to prevent coordinator nodes (mac-studio) from
+        spawning local selfplay work when selfplay_enabled: false in config.
+        This was causing OOM on coordinator nodes.
+
+        Returns:
+            True if selfplay is enabled (or config can't be read), False if disabled
+        """
+        if self._selfplay_enabled_checked:
+            return self._selfplay_enabled if self._selfplay_enabled is not None else True
+
+        self._selfplay_enabled_checked = True
+
+        try:
+            # Try to get node config from orchestrator
+            node_id = getattr(self._orchestrator, "node_id", None)
+            if not node_id:
+                return True  # Can't determine, allow by default
+
+            # Check for cached cluster config
+            cluster_config = getattr(self._orchestrator, "_cluster_config", None)
+            if cluster_config and "nodes" in cluster_config:
+                node_cfg = cluster_config["nodes"].get(node_id, {})
+                self._selfplay_enabled = node_cfg.get("selfplay_enabled", True)
+                if not self._selfplay_enabled:
+                    logger.info(
+                        f"[AutonomousQueue] Node {node_id} has selfplay_enabled=false, "
+                        "disabling autonomous queue population"
+                    )
+                return self._selfplay_enabled
+
+            # Fallback: check role - coordinators shouldn't run selfplay
+            role = getattr(self._orchestrator, "_role", None)
+            if role == "coordinator":
+                logger.info(
+                    f"[AutonomousQueue] Node {node_id} is coordinator, "
+                    "disabling autonomous queue population"
+                )
+                self._selfplay_enabled = False
+                return False
+
+            return True  # Default to enabled if can't determine
+        except Exception as e:
+            logger.debug(f"[AutonomousQueue] Error checking selfplay_enabled config: {e}")
+            return True  # Default to enabled on error
 
     def start_background(self) -> asyncio.Task | None:
         """Start the loop as a background task (for LoopManager compatibility).
@@ -287,6 +337,7 @@ class AutonomousQueuePopulationLoop(BaseLoop):
         """Single iteration - called by BaseLoop.run_forever().
 
         Jan 4, 2026: Refactored from _run_loop to match BaseLoop interface.
+        Jan 5, 2026: Added selfplay_enabled check to prevent OOM on coordinator nodes.
         """
         # Grace period at startup to allow normal initialization
         grace_period = 60.0  # 1 minute grace period
@@ -294,6 +345,13 @@ class AutonomousQueuePopulationLoop(BaseLoop):
             if time.time() - self._startup_time < grace_period:
                 return  # Skip this iteration during grace period
             self._grace_period_complete = True
+
+        # Check if selfplay is enabled for this node - prevents OOM on coordinators
+        if not self._is_selfplay_enabled_for_node():
+            # Deactivate if previously activated
+            if self._state.activated:
+                self._state.deactivate("selfplay_disabled_for_node")
+            return
 
         await self._check_and_update_state()
 
