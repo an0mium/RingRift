@@ -2070,6 +2070,9 @@ class TailscaleKeepaliveLoop(BaseLoop):
         self._derp_recovery_attempts = 0
         self._derp_recoveries_succeeded = 0
         self._last_derp_recovery: dict[str, float] = {}
+        # Jan 5, 2026: Phase 10.4 - NAT relay hysteresis
+        # Prevents flapping between direct and relay connections
+        self._relay_hysteresis = RelayHysteresis()
 
     async def _run_once(self) -> None:
         """Run one keepalive cycle."""
@@ -2168,7 +2171,13 @@ class TailscaleKeepaliveLoop(BaseLoop):
         result: dict[str, Any],
         now: float,
     ) -> None:
-        """Update connection quality tracking and emit events if changed."""
+        """Update connection quality tracking and emit events if changed.
+
+        Jan 5, 2026 (Phase 10.4): Added relay hysteresis to prevent connection
+        flapping between direct and relay modes. Instead of notifying immediately
+        on state change, we record detections and only notify when hysteresis
+        thresholds are met (3 consecutive detections + 5min cooldown).
+        """
         old_quality = self._connection_quality.get(node_id, {})
         was_direct = old_quality.get("is_direct", True)  # Assume direct if unknown
 
@@ -2188,12 +2197,32 @@ class TailscaleKeepaliveLoop(BaseLoop):
         else:
             self._derp_connections += 1
 
-        # Notify if quality changed
-        if was_direct != is_direct and self._on_connection_quality_change:
-            try:
-                await self._on_connection_quality_change(node_id, tailscale_ip, is_direct)
-            except Exception as e:
-                logger.warning(f"[TailscaleKeepalive] Quality change callback failed: {e}")
+        # Jan 5, 2026: Apply hysteresis before notifying
+        # Record the current detection with the hysteresis controller
+        if not is_direct:
+            relay_name = result.get("relay", "unknown")
+            self._relay_hysteresis.record_relay_detection(node_id, relay_name)
+        else:
+            self._relay_hysteresis.record_direct_success(node_id)
+
+        # Only notify if hysteresis allows the state change
+        if self._on_connection_quality_change:
+            # Check for transition to relay (was direct, now relay, hysteresis allows)
+            if was_direct and not is_direct:
+                if self._relay_hysteresis.should_notify_switch_to_relay(node_id):
+                    self._relay_hysteresis.mark_switched_to_relay(node_id)
+                    try:
+                        await self._on_connection_quality_change(node_id, tailscale_ip, is_direct)
+                    except Exception as e:
+                        logger.warning(f"[TailscaleKeepalive] Quality change callback failed: {e}")
+            # Check for transition to direct (was relay, now direct, hysteresis allows)
+            elif not was_direct and is_direct:
+                if self._relay_hysteresis.should_notify_switch_to_direct(node_id):
+                    self._relay_hysteresis.mark_switched_to_direct(node_id)
+                    try:
+                        await self._on_connection_quality_change(node_id, tailscale_ip, is_direct)
+                    except Exception as e:
+                        logger.warning(f"[TailscaleKeepalive] Quality change callback failed: {e}")
 
     async def _attempt_derp_recoveries(self, now: float) -> None:
         """Attempt to recover direct connections for peers using DERP relay."""
@@ -2227,7 +2256,10 @@ class TailscaleKeepaliveLoop(BaseLoop):
                 await asyncio.sleep(0.5)
 
     def get_keepalive_stats(self) -> dict[str, Any]:
-        """Get keepalive statistics."""
+        """Get keepalive statistics.
+
+        Jan 5, 2026: Added relay_hysteresis stats for Phase 10.4 monitoring.
+        """
         total_pings = self._pings_sent
         return {
             "pings_sent": self._pings_sent,
@@ -2248,6 +2280,8 @@ class TailscaleKeepaliveLoop(BaseLoop):
             "derp_recoveries_succeeded": self._derp_recoveries_succeeded,
             "is_userspace_mode": self._is_userspace_mode(),
             "peers_tracked": len(self._connection_quality),
+            # Jan 5, 2026: Phase 10.4 relay hysteresis stats
+            "relay_hysteresis": self._relay_hysteresis.get_stats(),
             **self.stats.to_dict(),
         }
 
