@@ -1841,6 +1841,7 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         4. Compute and emit adaptive training signal (Dec 29 2025 - Phase 6)
         5. Report feedback to engine bandit (Dec 29 2025)
         6. Consider promotion if win rate threshold met
+        7. Update training_history.final_elo (Jan 6 2026 - P1 improvement)
         """
         try:
             payload = event.payload if hasattr(event, "payload") else {}
@@ -1849,6 +1850,10 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
             win_rate = payload.get("win_rate", 0.0)
             elo = payload.get("elo", 1500.0)
             model_path = payload.get("model_path", "")
+
+            # Jan 6, 2026: P1 - Update training_history.final_elo
+            # This closes the feedback loop between training and evaluation
+            self._update_training_final_elo(config_key, elo)
 
             if not config_key:
                 return
@@ -3180,6 +3185,41 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         )
 
         return threshold
+
+    def _update_training_final_elo(self, config_key: str, elo: float) -> None:
+        """Update the final_elo in training_history after evaluation.
+
+        Jan 6, 2026: P1 improvement - closes the feedback loop between
+        training and evaluation by recording the Elo achieved by each
+        training run.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+            elo: The Elo rating from evaluation
+        """
+        if not config_key:
+            return
+
+        try:
+            parsed = parse_config_key(config_key)
+            if not parsed:
+                return
+
+            # Lazy import to avoid circular dependency
+            from app.coordination.training_coordinator import get_training_coordinator
+
+            coordinator = get_training_coordinator()
+            coordinator.update_training_final_elo(
+                board_type=parsed.board_type,
+                num_players=parsed.num_players,
+                final_elo=elo,
+            )
+        except ImportError:
+            logger.debug("[FeedbackLoopController] TrainingCoordinator not available")
+        except (AttributeError, TypeError, RuntimeError) as e:
+            logger.warning(
+                f"[FeedbackLoopController] Failed to update training final_elo: {e}"
+            )
 
     def _consider_promotion(
         self,

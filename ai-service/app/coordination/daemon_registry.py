@@ -861,6 +861,13 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
         category="autonomous",
         health_check_interval=60.0,
     ),
+    # Jan 6, 2026: Export watchdog for stuck export scripts
+    DaemonType.EXPORT_WATCHDOG: DaemonSpec(
+        runner_name="create_export_watchdog",
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        category="autonomous",
+        health_check_interval=60.0,
+    ),
     # Model evaluation and promotion daemons
     DaemonType.OWC_MODEL_IMPORT: DaemonSpec(
         runner_name="create_owc_model_import",

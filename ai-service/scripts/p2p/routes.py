@@ -293,6 +293,7 @@ SUBSCRIPTION_ROUTES = [
 TRAINING_ROUTES = [
     Route("POST", "/training/start", "handle_training_start"),
     Route("GET", "/training/status", "handle_training_status"),
+    Route("GET", "/training/progress", "handle_training_progress"),  # Jan 6, 2026: P4 - Training progress visibility
     Route("POST", "/training/update", "handle_training_update"),
     Route("POST", "/training/nnue/start", "handle_nnue_start"),
     Route("POST", "/training/cmaes/start", "handle_cmaes_start_auto"),

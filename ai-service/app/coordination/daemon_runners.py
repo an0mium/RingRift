@@ -1059,6 +1059,38 @@ async def create_training_watchdog() -> None:
         raise
 
 
+async def create_export_watchdog() -> None:
+    """Create and run export watchdog daemon (January 2026 Session 17.41).
+
+    Monitors export_replay_dataset.py processes for hangs and kills them
+    if they exceed the maximum runtime threshold (default 30 minutes).
+
+    Features:
+    - Detects export processes via pgrep
+    - Tracks runtime of each process
+    - Kills processes exceeding max_export_runtime (SIGTERM, then SIGKILL)
+    - Emits EXPORT_TIMEOUT event when killing a stuck process
+    """
+    try:
+        from app.coordination.export_watchdog_daemon import (
+            ExportWatchdogDaemon,
+            get_export_watchdog_daemon,
+        )
+
+        daemon = get_export_watchdog_daemon()
+        await daemon.start()
+
+        # Keep running until stopped
+        while True:
+            await asyncio.sleep(60)
+            if not daemon._running:
+                break
+
+    except ImportError as e:
+        logger.error(f"ExportWatchdogDaemon not available: {e}")
+        raise
+
+
 async def create_owc_import() -> None:
     """Create and run OWC import daemon (December 29, 2025).
 
@@ -3200,6 +3232,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.TRAINING_DATA_SYNC.name: create_training_data_sync,
         DaemonType.TRAINING_DATA_RECOVERY.name: create_training_data_recovery,
         DaemonType.TRAINING_WATCHDOG.name: create_training_watchdog,  # Jan 4, 2026: Sprint 17
+        DaemonType.EXPORT_WATCHDOG.name: create_export_watchdog,  # Jan 6, 2026: Session 17.41
         DaemonType.OWC_IMPORT.name: create_owc_import,
         # January 3, 2026 (Sprint 13 Session 4): Model evaluation automation
         DaemonType.OWC_MODEL_IMPORT.name: create_owc_model_import,

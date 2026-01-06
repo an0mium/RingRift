@@ -62,11 +62,16 @@ def main():
         action="store_true",
         help="Show full history for a config (requires --config)",
     )
+    parser.add_argument(
+        "--training",
+        action="store_true",
+        help="Show training run statistics with before/after Elo deltas",
+    )
 
     args = parser.parse_args()
 
     # Default to report if no action specified
-    if not args.snapshot and not args.report and not args.history:
+    if not args.snapshot and not args.report and not args.history and not args.training:
         args.report = True
 
     if args.snapshot:
@@ -83,6 +88,9 @@ def main():
             print("Error: --history requires --config", file=sys.stderr)
             sys.exit(1)
         print_history(args.config, args.days)
+
+    if args.training:
+        print_training_stats(args.config, args.days)
 
 
 def run_snapshot():
@@ -197,6 +205,133 @@ def print_history(config_key: str, days: float):
 
     print("=" * 70)
     print(f"Total snapshots: {len(snapshots)}")
+
+
+def print_training_stats(config_key: str | None = None, days: float = 7.0):
+    """Print training run statistics with before/after Elo deltas.
+
+    Jan 6, 2026: Added for P4 - training progress visibility.
+    Shows before_elo and final_elo from training_history to demonstrate
+    that training runs are producing model improvements.
+    """
+    import sqlite3
+    import time
+    from pathlib import Path
+
+    # Use the training coordinator's database
+    from app.utils.paths import DATA_DIR
+    db_path = DATA_DIR / "training_coordination.db"
+
+    if not db_path.exists():
+        print(f"Training database not found: {db_path}")
+        return
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Check if training_history table exists
+    cursor = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='training_history'"
+    )
+    if not cursor.fetchone():
+        print(f"\ntraining_history table not found in {db_path}")
+        print("This table is created when training runs complete.")
+        print("Run a training job first to populate this data.")
+        conn.close()
+        return
+
+    since = time.time() - (days * 86400)
+
+    # Build query
+    query = """
+        SELECT
+            job_id,
+            board_type,
+            num_players,
+            node_name,
+            started_at,
+            completed_at,
+            status,
+            final_val_loss,
+            final_elo,
+            before_elo,
+            epochs_completed
+        FROM training_history
+        WHERE completed_at > ?
+    """
+    params = [since]
+
+    if config_key:
+        # Parse config_key (e.g., "hex8_2p" -> "hex8", 2)
+        parts = config_key.rsplit("_", 1)
+        if len(parts) == 2 and parts[1].endswith("p"):
+            board_type = parts[0]
+            num_players = int(parts[1][:-1])
+            query += " AND board_type = ? AND num_players = ?"
+            params.extend([board_type, num_players])
+
+    query += " ORDER BY completed_at DESC"
+
+    cursor = conn.execute(query, params)
+    rows = list(cursor.fetchall())
+    conn.close()
+
+    if not rows:
+        print(f"\nNo training runs found in the last {days:.1f} days")
+        if config_key:
+            print(f"  (filtered by config: {config_key})")
+        return
+
+    print(f"\nTraining Run Statistics (last {days:.1f} days)")
+    if config_key:
+        print(f"  Filtered by config: {config_key}")
+    print("=" * 90)
+    print(f"{'Config':<14} {'Status':<10} {'Before':<8} {'After':<8} {'Delta':<8} {'Epochs':<8} {'Node':<20}")
+    print("-" * 90)
+
+    total_delta = 0.0
+    completed_count = 0
+    improved_count = 0
+
+    for row in rows:
+        config = f"{row['board_type']}_{row['num_players']}p"
+        status = row["status"] or "unknown"
+        before = row["before_elo"] or 0.0
+        after = row["final_elo"] or 0.0
+        delta = after - before if before > 0 and after > 0 else None
+
+        epochs = row["epochs_completed"] or 0
+        node = (row["node_name"] or "unknown")[:20]
+
+        # Format values
+        before_str = f"{before:.0f}" if before > 0 else "-"
+        after_str = f"{after:.0f}" if after > 0 else "-"
+        delta_str = f"{delta:+.0f}" if delta is not None else "-"
+
+        print(f"{config:<14} {status:<10} {before_str:<8} {after_str:<8} {delta_str:<8} {epochs:<8} {node:<20}")
+
+        if status == "completed":
+            completed_count += 1
+            if delta is not None:
+                total_delta += delta
+                if delta > 0:
+                    improved_count += 1
+
+    print("=" * 90)
+    print(f"Total training runs: {len(rows)}")
+    print(f"Completed: {completed_count}")
+
+    if completed_count > 0:
+        avg_delta = total_delta / completed_count if completed_count > 0 else 0
+        print(f"Average Elo delta: {avg_delta:+.1f}")
+        print(f"Improved: {improved_count}/{completed_count} ({100*improved_count/completed_count:.0f}%)")
+
+        if avg_delta > 0:
+            print("\n✓ Evidence of improvement: Training runs are producing better models!")
+        elif avg_delta == 0:
+            print("\n⚠ No net improvement: Training may be stalled")
+        else:
+            print("\n⚠ Regression detected: Models getting worse - investigate training data quality")
 
 
 if __name__ == "__main__":

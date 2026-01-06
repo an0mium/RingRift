@@ -154,6 +154,8 @@ class DataEventType(Enum):
     EVALUATION_STUCK = "evaluation_stuck"  # Evaluation stuck detected (exceeded timeout)
     EVALUATION_SUBMITTED = "evaluation_submitted"  # Jan 3, 2026: Eval result submitted to hashgraph consensus
     UNEVALUATED_MODELS_FOUND = "unevaluated_models_found"  # Scanner found models without Elo ratings
+    # January 6, 2026: Head-to-head evaluation against previous model version
+    HEAD_TO_HEAD_COMPLETED = "head_to_head_completed"  # New model evaluated vs previous best for same config
 
     # Promotion events
     PROMOTION_CANDIDATE = "promotion_candidate"

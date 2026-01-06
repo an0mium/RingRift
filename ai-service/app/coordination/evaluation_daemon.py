@@ -65,6 +65,10 @@ from app.coordination.handler_base import BaseEventHandler, EventHandlerConfig
 # December 2025: Gauntlet evaluation
 from app.training.game_gauntlet import BaselineOpponent, run_baseline_gauntlet
 
+# January 6, 2026: Tournament for head-to-head model comparison
+from app.training.tournament import Tournament
+from app.models import BoardType
+
 # December 30, 2025: Game count for graduated thresholds
 from app.utils.game_discovery import get_game_counts_summary
 
@@ -882,6 +886,13 @@ class EvaluationDaemon(BaseEventHandler):
                 board_type=board_type,
                 num_players=num_players,
                 result=result,
+            )
+
+            # January 6, 2026: Head-to-head evaluation against previous model
+            # Run asynchronously to not block the main evaluation loop
+            self._safe_create_task(
+                self._evaluate_vs_previous(model_path, board_type, num_players),
+                context="head_to_head_evaluation",
             )
 
             # December 2025: Mark as recently evaluated for deduplication
@@ -1945,6 +1956,146 @@ class EvaluationDaemon(BaseEventHandler):
                 f"[EvaluationDaemon] OWC download error: {owc_path}: {e}"
             )
             return None
+
+    async def _evaluate_vs_previous(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+    ) -> None:
+        """Evaluate new model head-to-head against the previous canonical model.
+
+        January 6, 2026: Added to prove model improvement directly via tournament.
+        Runs asynchronously after gauntlet evaluation to not block the main loop.
+
+        This provides concrete evidence that new models beat older models by:
+        1. Finding the canonical model for this config
+        2. Running a tournament between new and canonical
+        3. Emitting HEAD_TO_HEAD_COMPLETED event with win rate and Elo diff
+
+        Args:
+            model_path: Path to the newly evaluated model
+            board_type: Board type (e.g., "hex8", "square8")
+            num_players: Number of players (2, 3, or 4)
+        """
+        from pathlib import Path
+
+        config_key = make_config_key(board_type, num_players)
+
+        # Find the canonical model for this config
+        models_dir = Path("models")
+        canonical_path = models_dir / f"canonical_{board_type}_{num_players}p.pth"
+
+        # Skip if canonical doesn't exist (first model for this config)
+        if not canonical_path.exists():
+            logger.debug(
+                f"[EvaluationDaemon] No canonical model for {config_key}, skipping head-to-head"
+            )
+            return
+
+        # Skip if new model IS the canonical model (same file path)
+        new_model_path = Path(model_path)
+        if new_model_path.resolve() == canonical_path.resolve():
+            logger.debug(
+                f"[EvaluationDaemon] New model is the canonical model, skipping head-to-head"
+            )
+            return
+
+        # Skip if they're the same file (symlink or copy)
+        try:
+            if new_model_path.samefile(canonical_path):
+                logger.debug(
+                    f"[EvaluationDaemon] New model is same file as canonical, skipping head-to-head"
+                )
+                return
+        except (OSError, FileNotFoundError):
+            pass  # File doesn't exist or can't be compared
+
+        logger.info(
+            f"[EvaluationDaemon] Starting head-to-head evaluation: "
+            f"{new_model_path.name} vs {canonical_path.name} ({config_key})"
+        )
+
+        try:
+            # Map board_type string to BoardType enum
+            board_type_enum = BoardType(board_type)
+
+            # Run tournament between new model and canonical
+            # Use moderate game count for reliable signal without excessive time
+            tournament = Tournament(
+                model_path_a=str(new_model_path),
+                model_path_b=str(canonical_path),
+                num_games=50,  # 50 games gives ~15% margin of error at 95% CI
+                board_type=board_type_enum,
+                num_players=num_players,
+            )
+
+            # Run tournament in thread pool to avoid blocking
+            results = await asyncio.to_thread(tournament.run)
+
+            # Calculate win rate for new model (model A in tournament)
+            total_games = results.get("A", 0) + results.get("B", 0) + results.get("Draw", 0)
+            if total_games == 0:
+                logger.warning(
+                    f"[EvaluationDaemon] Head-to-head produced no games for {config_key}"
+                )
+                return
+
+            new_wins = results.get("A", 0)
+            canonical_wins = results.get("B", 0)
+            draws = results.get("Draw", 0)
+            win_rate = new_wins / total_games
+
+            # Estimate Elo difference from win rate
+            # win_rate = 1 / (1 + 10^(-elo_diff/400))
+            # elo_diff = -400 * log10(1/win_rate - 1)
+            if 0 < win_rate < 1:
+                import math
+                elo_diff = -400 * math.log10(1 / win_rate - 1)
+            elif win_rate >= 1:
+                elo_diff = 400  # Cap at +400 for 100% win rate
+            else:
+                elo_diff = -400  # Cap at -400 for 0% win rate
+
+            logger.info(
+                f"[EvaluationDaemon] Head-to-head complete: {new_model_path.name} vs {canonical_path.name} "
+                f"({config_key}): {new_wins}W-{canonical_wins}L-{draws}D "
+                f"(win_rate={win_rate:.1%}, elo_diff={elo_diff:+.0f})"
+            )
+
+            # Emit HEAD_TO_HEAD_COMPLETED event
+            safe_emit_event(
+                DataEventType.HEAD_TO_HEAD_COMPLETED,
+                {
+                    "config_key": config_key,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "new_model": str(new_model_path),
+                    "previous_model": str(canonical_path),
+                    "new_wins": new_wins,
+                    "canonical_wins": canonical_wins,
+                    "draws": draws,
+                    "games_played": total_games,
+                    "new_win_rate": win_rate,
+                    "elo_diff_estimate": elo_diff,
+                    "improved": win_rate > 0.52,  # Require 52% to claim improvement
+                    "timestamp": time.time(),
+                },
+            )
+
+        except ValueError as e:
+            # Invalid board type enum
+            logger.error(
+                f"[EvaluationDaemon] Head-to-head failed - invalid board type {board_type}: {e}"
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                f"[EvaluationDaemon] Head-to-head timed out for {config_key}"
+            )
+        except (FileNotFoundError, RuntimeError, OSError) as e:
+            logger.error(
+                f"[EvaluationDaemon] Head-to-head failed for {config_key}: {e}"
+            )
 
 
 def get_evaluation_daemon(config: EvaluationConfig | None = None) -> EvaluationDaemon:

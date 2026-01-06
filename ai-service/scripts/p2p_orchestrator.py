@@ -14022,6 +14022,160 @@ print(json.dumps(result))
             "thresholds": self.training_thresholds.to_dict(),
         })
 
+    async def handle_training_progress(self, request: web.Request) -> web.Response:
+        """Return training progress showing before/after Elo deltas.
+
+        Jan 6, 2026: P4 - Training progress visibility.
+        Shows before_elo and final_elo from training_history to demonstrate
+        that training runs are producing model improvements.
+
+        Query params:
+            days: Number of days to look back (default: 7)
+            config: Optional config filter (e.g., "hex8_2p")
+        """
+        import sqlite3
+        import time
+        from pathlib import Path
+
+        try:
+            # Parse query params
+            days = float(request.query.get("days", "7"))
+            config_key = request.query.get("config")
+
+            # Use the training coordinator's database
+            db_path = Path("data/training_coordination.db")
+            if not db_path.exists():
+                return web.json_response({
+                    "success": False,
+                    "error": f"Training database not found: {db_path}",
+                })
+
+            def _query_training_history():
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+
+                # Check if training_history table exists
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='training_history'"
+                )
+                if not cursor.fetchone():
+                    conn.close()
+                    return None, "training_history table not found"
+
+                since = time.time() - (days * 86400)
+
+                # Build query
+                query = """
+                    SELECT
+                        job_id,
+                        board_type,
+                        num_players,
+                        node_name,
+                        started_at,
+                        completed_at,
+                        status,
+                        final_val_loss,
+                        final_elo,
+                        before_elo,
+                        epochs_completed
+                    FROM training_history
+                    WHERE completed_at > ?
+                """
+                params = [since]
+
+                if config_key:
+                    # Parse config_key (e.g., "hex8_2p" -> "hex8", 2)
+                    parts = config_key.rsplit("_", 1)
+                    if len(parts) == 2 and parts[1].endswith("p"):
+                        board_type = parts[0]
+                        num_players = int(parts[1][:-1])
+                        query += " AND board_type = ? AND num_players = ?"
+                        params.extend([board_type, num_players])
+
+                query += " ORDER BY completed_at DESC"
+
+                cursor = conn.execute(query, params)
+                rows = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+                return rows, None
+
+            # Run blocking SQLite in thread
+            rows, error = await asyncio.to_thread(_query_training_history)
+
+            if error:
+                return web.json_response({
+                    "success": False,
+                    "error": error,
+                    "message": "Run a training job first to populate this data.",
+                })
+
+            if not rows:
+                return web.json_response({
+                    "success": True,
+                    "runs": [],
+                    "summary": {
+                        "total_runs": 0,
+                        "completed_count": 0,
+                        "avg_elo_delta": None,
+                        "improved_count": 0,
+                        "improvement_rate": None,
+                    },
+                })
+
+            # Compute stats
+            total_delta = 0.0
+            completed_count = 0
+            improved_count = 0
+
+            training_runs = []
+            for row in rows:
+                config = f"{row['board_type']}_{row['num_players']}p"
+                before = row.get("before_elo") or 0.0
+                after = row.get("final_elo") or 0.0
+                delta = after - before if before > 0 and after > 0 else None
+
+                training_runs.append({
+                    "job_id": row["job_id"],
+                    "config": config,
+                    "status": row["status"] or "unknown",
+                    "before_elo": before if before > 0 else None,
+                    "final_elo": after if after > 0 else None,
+                    "elo_delta": delta,
+                    "epochs_completed": row.get("epochs_completed") or 0,
+                    "node": row.get("node_name"),
+                    "completed_at": row.get("completed_at"),
+                })
+
+                if row["status"] == "completed":
+                    completed_count += 1
+                    if delta is not None:
+                        total_delta += delta
+                        if delta > 0:
+                            improved_count += 1
+
+            avg_delta = total_delta / completed_count if completed_count > 0 else None
+            improvement_rate = improved_count / completed_count if completed_count > 0 else None
+
+            return web.json_response({
+                "success": True,
+                "runs": training_runs,
+                "summary": {
+                    "total_runs": len(rows),
+                    "completed_count": completed_count,
+                    "avg_elo_delta": round(avg_delta, 1) if avg_delta else None,
+                    "improved_count": improved_count,
+                    "improvement_rate": round(improvement_rate * 100, 1) if improvement_rate else None,
+                },
+                "is_improving": avg_delta is not None and avg_delta > 0,
+                "days": days,
+                "config_filter": config_key,
+            })
+
+        except (ValueError, TypeError) as e:
+            return web.json_response({"success": False, "error": f"Invalid parameters: {e}"})
+        except sqlite3.Error as e:
+            return web.json_response({"success": False, "error": f"Database error: {e}"})
+
     async def handle_training_update(self, request: web.Request) -> web.Response:
         """Handle training progress/completion update from worker."""
         try:

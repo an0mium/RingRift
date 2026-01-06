@@ -135,6 +135,10 @@ class DaemonType(Enum):
     # Kills stale processes that haven't sent heartbeats and releases their locks
     TRAINING_WATCHDOG = "training_watchdog"
 
+    # Export watchdog (January 2026 Session 17.41) - monitors export scripts for hangs
+    # Kills export_replay_dataset.py processes that exceed max runtime (default 30min)
+    EXPORT_WATCHDOG = "export_watchdog"
+
     # OWC external drive import (December 2025) - periodic import from OWC drive on mac-studio
     # Imports training data from external archive drive for underserved configs
     OWC_IMPORT = "owc_import"
@@ -787,6 +791,7 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.MEMORY_MONITOR: DaemonCategory.AUTONOMOUS,
     DaemonType.SOCKET_LEAK_RECOVERY: DaemonCategory.AUTONOMOUS,
     DaemonType.TRAINING_WATCHDOG: DaemonCategory.AUTONOMOUS,  # Jan 4, 2026: Sprint 17
+    DaemonType.EXPORT_WATCHDOG: DaemonCategory.AUTONOMOUS,  # Jan 6, 2026: Session 17.41
     DaemonType.STALE_FALLBACK: DaemonCategory.AUTONOMOUS,
     DaemonType.UNDERUTILIZATION_RECOVERY: DaemonCategory.AUTONOMOUS,  # Jan 4, 2026: Phase 3 P2P Resilience
     DaemonType.FAST_FAILURE_DETECTOR: DaemonCategory.AUTONOMOUS,  # Jan 4, 2026: Phase 4 P2P Resilience
@@ -979,6 +984,7 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     DaemonType.TRAINING_NODE_WATCHER: {DaemonType.EVENT_ROUTER},
     DaemonType.TRAINING_DATA_SYNC: {DaemonType.EVENT_ROUTER},  # Pre-training data sync
     DaemonType.TRAINING_WATCHDOG: {DaemonType.EVENT_ROUTER},  # Jan 4, 2026: Sprint 17
+    DaemonType.EXPORT_WATCHDOG: {DaemonType.EVENT_ROUTER},  # Jan 6, 2026: Session 17.41
     # OWC import daemon (December 29, 2025) - imports from OWC external drive
     # December 30, 2025: Removed DATA_PIPELINE - not needed for file import
     DaemonType.OWC_IMPORT: {DaemonType.EVENT_ROUTER},

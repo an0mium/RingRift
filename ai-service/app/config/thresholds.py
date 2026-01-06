@@ -372,10 +372,13 @@ def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) 
     """Get Elo-adaptive win rate threshold vs random baseline.
 
     Thresholds scale with model strength:
-    - Weak models (< 1300 Elo): Lower threshold for fast iteration
+    - Critical models (< 1100 Elo): Very easy threshold for struggling configs
+    - Weak models (1100-1300 Elo): Lower threshold for fast iteration
     - Medium models (1300-1500): Standard threshold
     - Strong models (1500-1700): Higher threshold for quality
     - Very strong (> 1700): Strict threshold
+
+    Jan 6, 2026: Added critical tier for configs with <1100 Elo (P3 improvement)
 
     Args:
         model_elo: Current model Elo rating
@@ -388,7 +391,12 @@ def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) 
     base = get_min_win_rate_vs_random(num_players)
 
     # Scale based on Elo
-    if model_elo < 1300:
+    # Jan 6, 2026: Added critical tier for struggling configs (<1100 Elo)
+    if model_elo < 1100:
+        # Critical model: very easy threshold (0.7x of base)
+        # Allows configs stuck at ~33% vs random to still make progress
+        multiplier = 0.70
+    elif model_elo < 1300:
         # Weak model: easier threshold (0.85x of base)
         multiplier = 0.85
     elif model_elo < 1500:
@@ -401,18 +409,21 @@ def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) 
         # Very strong: strictest threshold (1.2x of base)
         multiplier = 1.2
 
-    # Clamp to [0.5, 0.95] range
-    return min(0.95, max(0.5, base * multiplier))
+    # Clamp to [0.30, 0.95] range (lowered floor for critical configs)
+    return min(0.95, max(0.30, base * multiplier))
 
 
 def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 2) -> float:
     """Get Elo-adaptive win rate threshold vs heuristic baseline.
 
     Thresholds scale with model strength:
-    - Weak models (< 1300 Elo): Lower threshold (break-even is fine)
+    - Critical models (< 1100 Elo): Very easy threshold (just need some wins)
+    - Weak models (1100-1300 Elo): Lower threshold (break-even is fine)
     - Medium models (1300-1500): Standard threshold
     - Strong models (1500-1700): Higher threshold
     - Very strong (> 1700): Strict threshold (must dominate heuristic)
+
+    Jan 6, 2026: Added critical tier for configs with <1100 Elo (P3 improvement)
 
     Args:
         model_elo: Current model Elo rating
@@ -425,7 +436,12 @@ def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 
     base = get_min_win_rate_vs_heuristic(num_players)
 
     # Scale based on Elo
-    if model_elo < 1300:
+    # Jan 6, 2026: Added critical tier for struggling configs (<1100 Elo)
+    if model_elo < 1100:
+        # Critical model: very easy threshold (0.6x of base)
+        # Just needs to show some ability to beat heuristic
+        multiplier = 0.60
+    elif model_elo < 1300:
         # Weak model: easier threshold (0.8x of base)
         multiplier = 0.8
     elif model_elo < 1500:
@@ -438,8 +454,8 @@ def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 
         # Very strong: strictest threshold (1.3x of base)
         multiplier = 1.3
 
-    # Clamp to [0.15, 0.85] range (heuristic is tough)
-    return min(0.85, max(0.15, base * multiplier))
+    # Clamp to [0.10, 0.85] range (lowered floor for critical configs)
+    return min(0.85, max(0.10, base * multiplier))
 
 
 def get_adaptive_thresholds(model_elo: float, num_players: int = 2) -> dict[str, float]:

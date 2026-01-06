@@ -315,6 +315,7 @@ class TrainingCoordinator:
                 model_version TEXT DEFAULT '',
                 epochs_completed INTEGER DEFAULT 0,
                 best_val_loss REAL DEFAULT 999999,
+                before_elo REAL DEFAULT 0,  -- Jan 6, 2026: P2 - Elo at training start
                 current_elo REAL DEFAULT 0,
                 metadata TEXT DEFAULT '{}'
             );
@@ -339,6 +340,7 @@ class TrainingCoordinator:
                 completed_at REAL,
                 status TEXT NOT NULL,
                 final_val_loss REAL,
+                before_elo REAL,  -- Jan 6, 2026: P2 - Elo before training started
                 final_elo REAL,
                 epochs_completed INTEGER,
                 metadata TEXT DEFAULT '{}'
@@ -361,6 +363,25 @@ class TrainingCoordinator:
             CREATE INDEX IF NOT EXISTS idx_training_queue_priority
                 ON training_queue(board_type, num_players, priority DESC, requested_at);
         ''')
+
+        # Jan 6, 2026: P2 - Migration to add before_elo column to existing databases
+        try:
+            # Check if before_elo exists in training_jobs
+            cursor = conn.execute("PRAGMA table_info(training_jobs)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if 'before_elo' not in columns:
+                conn.execute("ALTER TABLE training_jobs ADD COLUMN before_elo REAL DEFAULT 0")
+                logger.info("[TrainingCoordinator] Added before_elo column to training_jobs")
+
+            # Check if before_elo exists in training_history
+            cursor = conn.execute("PRAGMA table_info(training_history)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if 'before_elo' not in columns:
+                conn.execute("ALTER TABLE training_history ADD COLUMN before_elo REAL")
+                logger.info("[TrainingCoordinator] Added before_elo column to training_history")
+        except sqlite3.OperationalError as e:
+            logger.debug(f"[TrainingCoordinator] Migration check: {e}")
+
         conn.commit()
 
     def _subscribe_to_cluster_events(self) -> None:
@@ -1587,16 +1608,19 @@ class TrainingCoordinator:
             now = time.time()
             job_id = f"{config_key}_{int(now)}_{os.getpid()}"
 
+            # Jan 6, 2026: P2 - Capture Elo before training starts
+            before_elo = self._get_current_elo(board_type, num_players)
+
             try:
                 conn.execute(
                     '''INSERT INTO training_jobs
                        (job_id, board_type, num_players, node_name, node_ip, pid,
-                        started_at, last_heartbeat, status, model_version, metadata)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)''',
+                        started_at, last_heartbeat, status, model_version, before_elo, metadata)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)''',
                     (
                         job_id, board_type, num_players,
                         self._node_name, self._node_ip, os.getpid(),
-                        now, now, model_version,
+                        now, now, model_version, before_elo,
                         json.dumps(metadata or {})
                     )
                 )
@@ -1717,18 +1741,20 @@ class TrainingCoordinator:
             return False
 
         # Archive to history
+        # Jan 6, 2026: P2 - Include before_elo for Elo delta tracking
         conn.execute(
             '''INSERT INTO training_history
                (job_id, board_type, num_players, node_name, started_at,
                 completed_at, status, final_val_loss, final_elo,
-                epochs_completed, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                epochs_completed, before_elo, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
             (
                 job_id, job["board_type"], job["num_players"],
                 job["node_name"], job["started_at"], now, status,
                 final_val_loss or job["best_val_loss"],
                 final_elo or job["current_elo"],
-                job["epochs_completed"], job["metadata"]
+                job["epochs_completed"], job["before_elo"],
+                job["metadata"]
             )
         )
 
@@ -2035,6 +2061,97 @@ class TrainingCoordinator:
 
         cursor = conn.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
+
+    def _get_current_elo(self, board_type: str, num_players: int) -> float:
+        """Get the current best Elo rating for a config.
+
+        Jan 6, 2026: P2 - Used to capture before_elo at training start.
+
+        Args:
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players
+
+        Returns:
+            Current best Elo for the config, or 0.0 if unavailable
+        """
+        try:
+            # Lazy import to avoid circular dependency
+            from app.training.elo_service import get_elo_service
+
+            elo_service = get_elo_service()
+            leaderboard = elo_service.get_leaderboard(
+                board_type=board_type,
+                num_players=num_players,
+                limit=1,
+            )
+            if leaderboard:
+                # Return the top Elo rating
+                return leaderboard[0].elo
+        except ImportError:
+            logger.debug("[TrainingCoordinator] EloService not available")
+        except (AttributeError, TypeError, IndexError) as e:
+            logger.debug(f"[TrainingCoordinator] Could not get current Elo: {e}")
+
+        return 0.0
+
+    def update_training_final_elo(
+        self,
+        board_type: str,
+        num_players: int,
+        final_elo: float,
+    ) -> bool:
+        """Update the final_elo for the most recent completed training job.
+
+        Called after EVALUATION_COMPLETED to record the Elo rating achieved
+        by the model trained in that job. This closes the feedback loop
+        between training and evaluation.
+
+        Jan 6, 2026: P1 improvement for model improvement tracking.
+
+        Args:
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players
+            final_elo: The Elo rating from evaluation
+
+        Returns:
+            True if a training record was updated, False otherwise
+        """
+        conn = self._get_connection()
+
+        # Find the most recent completed training for this config
+        cursor = conn.execute(
+            """SELECT history_id, job_id, final_elo
+               FROM training_history
+               WHERE board_type = ? AND num_players = ?
+                 AND status = 'completed'
+               ORDER BY completed_at DESC
+               LIMIT 1""",
+            (board_type, num_players)
+        )
+        row = cursor.fetchone()
+
+        if not row:
+            logger.debug(
+                f"[TrainingCoordinator] No completed training found for "
+                f"{board_type}_{num_players}p to update final_elo"
+            )
+            return False
+
+        history_id = row["history_id"]
+        old_elo = row["final_elo"]
+
+        # Update the final_elo
+        conn.execute(
+            "UPDATE training_history SET final_elo = ? WHERE history_id = ?",
+            (final_elo, history_id)
+        )
+        conn.commit()
+
+        logger.info(
+            f"[TrainingCoordinator] Updated final_elo for {board_type}_{num_players}p "
+            f"training job {row['job_id']}: {old_elo} → {final_elo:.0f}"
+        )
+        return True
 
     def _cleanup_stale_jobs(self) -> int:
         """Remove stale training jobs."""
