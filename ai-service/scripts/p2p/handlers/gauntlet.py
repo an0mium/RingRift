@@ -36,6 +36,8 @@ from scripts.p2p.handlers.base import BaseP2PHandler
 from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 # Dec 2025: Use consolidated handler utilities
 from scripts.p2p.handlers.handlers_base import get_event_bridge
+# Jan 2026: Use typed event emitter for proper EVALUATION_COMPLETED emission
+from scripts.p2p.p2p_event_bridge import emit_p2p_gauntlet_completed
 
 if TYPE_CHECKING:
     pass
@@ -439,17 +441,18 @@ class GauntletHandlersMixin(BaseP2PHandler):
             win_rate = wins / total_games if total_games > 0 else 0
             passed = win_rate >= 0.50
 
-            # Emit gauntlet completion event to coordination EventRouter (Dec 2025 consolidation)
-            await _event_bridge.emit("p2p_gauntlet_completed", {
-                "model_id": model_id,
-                "baseline_id": baseline_id,
-                "config_key": config_key,
-                "wins": wins,
-                "total_games": total_games,
-                "win_rate": win_rate,
-                "passed": passed,
-                "node_id": self.node_id,
-            })
+            # Jan 2026: Use typed emitter to properly emit EVALUATION_COMPLETED event
+            # This ensures auto_promotion_daemon receives the event (it subscribes to EVALUATION_COMPLETED)
+            await emit_p2p_gauntlet_completed(
+                model_id=model_id,
+                baseline_id=baseline_id,
+                config_key=config_key,
+                wins=wins,
+                total_games=total_games,
+                win_rate=win_rate,
+                passed=passed,
+                node_id=self.node_id,
+            )
 
             return self.json_response({
                 "success": True,
