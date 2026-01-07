@@ -31,6 +31,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.core.ssh import SSHClient, SSHConfig
+from app.config.cluster_config import get_p2p_voters, get_cluster_nodes
 
 logging.basicConfig(
     level=logging.INFO,

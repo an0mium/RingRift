@@ -1159,6 +1159,390 @@ class TestEventPayloadHandling:
         await handlers._on_disk_space_low(event)
 
 
+class TestOnSplitBrainDetected:
+    """Tests for _on_split_brain_detected handler."""
+
+    @pytest.mark.asyncio
+    async def test_split_brain_detected_logs_event(self):
+        """Test that split-brain detection is logged."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = MagicMock()
+        mock_manager._daemons = {}
+        handlers = DaemonEventHandlers(mock_manager)
+
+        event = MockEvent(
+            payload={
+                "leaders_seen": ["leader-1", "leader-2"],
+                "severity": "critical",
+                "voter_count": 9,
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_detected(event)
+
+        # Should not raise any errors
+
+    @pytest.mark.asyncio
+    async def test_split_brain_detected_pauses_daemons(self):
+        """Test that non-critical daemons are paused during split-brain."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        mock_manager = AsyncMock()
+        mock_manager._daemons = {
+            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
+                daemon_type=DaemonType.SELFPLAY_COORDINATOR, state=DaemonState.RUNNING
+            ),
+            DaemonType.CONTINUOUS_TRAINING_LOOP: MockDaemonInfo(
+                daemon_type=DaemonType.CONTINUOUS_TRAINING_LOOP, state=DaemonState.RUNNING
+            ),
+            DaemonType.AUTO_SYNC: MockDaemonInfo(
+                daemon_type=DaemonType.AUTO_SYNC, state=DaemonState.RUNNING
+            ),
+        }
+        handlers = DaemonEventHandlers(mock_manager)
+
+        event = MockEvent(
+            payload={
+                "leaders_seen": ["leader-1", "leader-2"],
+                "severity": "critical",
+                "voter_count": 9,
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_detected(event)
+
+        # Should call stop for running non-critical daemons
+        assert mock_manager.stop.call_count >= 3
+
+    @pytest.mark.asyncio
+    async def test_split_brain_detected_tracks_paused_daemons(self):
+        """Test that paused daemons are tracked for resumption."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        mock_manager = AsyncMock()
+        mock_manager._daemons = {
+            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
+                daemon_type=DaemonType.SELFPLAY_COORDINATOR, state=DaemonState.RUNNING
+            ),
+        }
+        handlers = DaemonEventHandlers(mock_manager)
+
+        event = MockEvent(
+            payload={
+                "leaders_seen": ["leader-1", "leader-2"],
+                "severity": "critical",
+                "voter_count": 9,
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_detected(event)
+
+        # Daemon should be tracked
+        assert DaemonType.SELFPLAY_COORDINATOR in handlers._split_brain_paused_daemons
+
+    @pytest.mark.asyncio
+    async def test_split_brain_detected_emits_alert(self):
+        """Test that cluster alert is emitted."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = MagicMock()
+        mock_manager._daemons = {}
+        handlers = DaemonEventHandlers(mock_manager)
+
+        event = MockEvent(
+            payload={
+                "leaders_seen": ["leader-1", "leader-2"],
+                "severity": "critical",
+                "voter_count": 9,
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock) as mock_emit:
+            await handlers._on_split_brain_detected(event)
+
+        mock_emit.assert_called_once()
+        call_kwargs = mock_emit.call_args[1]
+        assert call_kwargs["alert_type"] == "split_brain"
+        assert call_kwargs["severity"] == "critical"
+
+
+class TestOnSplitBrainResolved:
+    """Tests for _on_split_brain_resolved handler."""
+
+    @pytest.mark.asyncio
+    async def test_split_brain_resolved_logs_event(self):
+        """Test that split-brain resolution is logged."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = MagicMock()
+        mock_manager._daemons = {}
+        handlers = DaemonEventHandlers(mock_manager)
+
+        event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_resolved(event)
+
+        # Should not raise any errors
+
+    @pytest.mark.asyncio
+    async def test_split_brain_resolved_resumes_paused_daemons(self):
+        """Test that paused daemons are resumed after split-brain resolution."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        mock_manager = AsyncMock()
+        mock_manager._daemons = {
+            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
+                daemon_type=DaemonType.SELFPLAY_COORDINATOR, state=DaemonState.STOPPED
+            ),
+            DaemonType.AUTO_SYNC: MockDaemonInfo(
+                daemon_type=DaemonType.AUTO_SYNC, state=DaemonState.STOPPED
+            ),
+        }
+        handlers = DaemonEventHandlers(mock_manager)
+
+        # Pre-populate the tracking set (simulating prior split-brain detection)
+        handlers._split_brain_paused_daemons = {
+            DaemonType.SELFPLAY_COORDINATOR,
+            DaemonType.AUTO_SYNC,
+        }
+
+        event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_resolved(event)
+
+        # Should call start for each paused daemon
+        assert mock_manager.start.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_split_brain_resolved_clears_tracking_set(self):
+        """Test that tracking set is cleared after resolution."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        mock_manager = AsyncMock()
+        mock_manager._daemons = {
+            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
+                daemon_type=DaemonType.SELFPLAY_COORDINATOR, state=DaemonState.STOPPED
+            ),
+        }
+        handlers = DaemonEventHandlers(mock_manager)
+
+        # Pre-populate the tracking set
+        handlers._split_brain_paused_daemons = {DaemonType.SELFPLAY_COORDINATOR}
+
+        event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_resolved(event)
+
+        # Tracking set should be cleared
+        assert len(handlers._split_brain_paused_daemons) == 0
+
+    @pytest.mark.asyncio
+    async def test_split_brain_resolved_only_resumes_tracked_daemons(self):
+        """Test that only tracked daemons are resumed, not all stopped daemons."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        mock_manager = AsyncMock()
+        mock_manager._daemons = {
+            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
+                daemon_type=DaemonType.SELFPLAY_COORDINATOR, state=DaemonState.STOPPED
+            ),
+            DaemonType.AUTO_SYNC: MockDaemonInfo(
+                daemon_type=DaemonType.AUTO_SYNC, state=DaemonState.STOPPED
+            ),
+        }
+        handlers = DaemonEventHandlers(mock_manager)
+
+        # Only track one daemon (the other was stopped for other reasons)
+        handlers._split_brain_paused_daemons = {DaemonType.SELFPLAY_COORDINATOR}
+
+        event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_resolved(event)
+
+        # Should only start the tracked daemon
+        assert mock_manager.start.call_count == 1
+        mock_manager.start.assert_called_once_with(DaemonType.SELFPLAY_COORDINATOR)
+
+    @pytest.mark.asyncio
+    async def test_split_brain_resolved_emits_alert(self):
+        """Test that cluster alert is emitted on resolution."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = MagicMock()
+        mock_manager._daemons = {}
+        handlers = DaemonEventHandlers(mock_manager)
+
+        event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock) as mock_emit:
+            await handlers._on_split_brain_resolved(event)
+
+        mock_emit.assert_called_once()
+        call_kwargs = mock_emit.call_args[1]
+        assert call_kwargs["alert_type"] == "split_brain_resolved"
+        assert call_kwargs["severity"] == "info"
+        assert call_kwargs["leader_id"] == "canonical-leader"
+
+    @pytest.mark.asyncio
+    async def test_split_brain_resolved_handles_start_failure(self):
+        """Test graceful handling when daemon start fails."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        mock_manager = AsyncMock()
+        mock_manager.start = AsyncMock(side_effect=RuntimeError("Start failed"))
+        mock_manager._daemons = {
+            DaemonType.SELFPLAY_COORDINATOR: MockDaemonInfo(
+                daemon_type=DaemonType.SELFPLAY_COORDINATOR, state=DaemonState.STOPPED
+            ),
+        }
+        handlers = DaemonEventHandlers(mock_manager)
+
+        handlers._split_brain_paused_daemons = {DaemonType.SELFPLAY_COORDINATOR}
+
+        event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            # Should not raise despite start failure
+            await handlers._on_split_brain_resolved(event)
+
+    @pytest.mark.asyncio
+    async def test_split_brain_resolved_handles_no_paused_daemons(self):
+        """Test handling when no daemons were paused."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = AsyncMock()
+        mock_manager._daemons = {}
+        handlers = DaemonEventHandlers(mock_manager)
+
+        # Empty tracking set
+        handlers._split_brain_paused_daemons = set()
+
+        event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_resolved(event)
+
+        # Should not call start
+        mock_manager.start.assert_not_called()
+
+
+class TestSplitBrainFullCycle:
+    """Integration tests for full split-brain detection and resolution cycle."""
+
+    @pytest.mark.asyncio
+    async def test_full_split_brain_cycle(self):
+        """Test complete split-brain detection and resolution cycle."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        # Setup: Running daemons before split-brain
+        mock_manager = AsyncMock()
+        daemon_info = MockDaemonInfo(
+            daemon_type=DaemonType.SELFPLAY_COORDINATOR, state=DaemonState.RUNNING
+        )
+        mock_manager._daemons = {DaemonType.SELFPLAY_COORDINATOR: daemon_info}
+        handlers = DaemonEventHandlers(mock_manager)
+
+        # Phase 1: Split-brain detected
+        detect_event = MockEvent(
+            payload={
+                "leaders_seen": ["leader-1", "leader-2"],
+                "severity": "critical",
+                "voter_count": 9,
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_detected(detect_event)
+
+        # Verify: Daemon stopped and tracked
+        mock_manager.stop.assert_called_with(DaemonType.SELFPLAY_COORDINATOR)
+        assert DaemonType.SELFPLAY_COORDINATOR in handlers._split_brain_paused_daemons
+
+        # Update daemon state to STOPPED (simulating successful stop)
+        daemon_info.state = DaemonState.STOPPED
+        mock_manager.stop.reset_mock()
+
+        # Phase 2: Split-brain resolved
+        resolve_event = MockEvent(
+            payload={
+                "leader_id": "canonical-leader",
+                "resolution": "bully_algorithm",
+            }
+        )
+
+        with patch.object(handlers, "_emit_cluster_alert", new_callable=AsyncMock):
+            await handlers._on_split_brain_resolved(resolve_event)
+
+        # Verify: Daemon started and tracking cleared
+        mock_manager.start.assert_called_with(DaemonType.SELFPLAY_COORDINATOR)
+        assert len(handlers._split_brain_paused_daemons) == 0
+
+
+class TestInitSplitBrainTrackingSet:
+    """Tests for split-brain tracking set initialization."""
+
+    def test_init_creates_tracking_set(self):
+        """Test that __init__ creates the tracking set."""
+        from app.coordination.daemon_event_handlers import DaemonEventHandlers
+
+        mock_manager = MagicMock()
+        handlers = DaemonEventHandlers(mock_manager)
+
+        assert hasattr(handlers, "_split_brain_paused_daemons")
+        assert isinstance(handlers._split_brain_paused_daemons, set)
+        assert len(handlers._split_brain_paused_daemons) == 0
+
+
 class TestModuleExports:
     """Tests for module exports."""
 

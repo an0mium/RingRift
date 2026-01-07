@@ -65,6 +65,8 @@ class DaemonEventHandlers:
         """
         self._manager = manager
         self._subscribed = False
+        # January 2026: Track daemons paused by split-brain for proper resumption
+        self._split_brain_paused_daemons: set = set()
 
     async def subscribe_to_events(self) -> None:
         """Subscribe to all daemon-related events.
@@ -133,12 +135,16 @@ class DaemonEventHandlers:
                 router.subscribe(DataEventType.DISK_SPACE_LOW.value, self._on_disk_space_low)
                 logger.debug("[DaemonEventHandlers] Subscribed to DISK_SPACE_LOW")
 
-            # January 2026: Split-brain detection
+            # January 2026: Split-brain detection and resolution
             if hasattr(DataEventType, 'SPLIT_BRAIN_DETECTED'):
                 router.subscribe(DataEventType.SPLIT_BRAIN_DETECTED.value, self._on_split_brain_detected)
                 logger.debug("[DaemonEventHandlers] Subscribed to SPLIT_BRAIN_DETECTED")
 
-            logger.info("[DaemonEventHandlers] Subscribed to critical events (Phase 5, P0.3, P2P cluster, backpressure, disk space, split-brain)")
+            if hasattr(DataEventType, 'SPLIT_BRAIN_RESOLVED'):
+                router.subscribe(DataEventType.SPLIT_BRAIN_RESOLVED.value, self._on_split_brain_resolved)
+                logger.debug("[DaemonEventHandlers] Subscribed to SPLIT_BRAIN_RESOLVED")
+
+            logger.info("[DaemonEventHandlers] Subscribed to critical events (Phase 5, P0.3, P2P cluster, backpressure, disk space, split-brain detection/resolution)")
             self._subscribed = True
 
             # Phase 7: Wire AutoRollbackHandler
@@ -711,7 +717,7 @@ class DaemonEventHandlers:
             # Critical daemons (health monitoring, recovery) should keep running
             non_critical_daemons = [
                 DaemonType.SELFPLAY_COORDINATOR,
-                DaemonType.TRAINING_COORDINATOR,
+                DaemonType.CONTINUOUS_TRAINING_LOOP,
                 DaemonType.AUTO_EXPORT,
                 DaemonType.AUTO_SYNC,
                 DaemonType.NPZ_COMBINATION,
@@ -726,6 +732,8 @@ class DaemonEventHandlers:
                         try:
                             await self._manager.stop(daemon_type)
                             paused_count += 1
+                            # Track which daemons we paused for proper resumption
+                            self._split_brain_paused_daemons.add(daemon_type)
                             logger.info(f"[SPLIT_BRAIN] Paused {daemon_type.value}")
                         except Exception as stop_err:
                             logger.warning(f"[SPLIT_BRAIN] Failed to pause {daemon_type.value}: {stop_err}")
@@ -748,6 +756,70 @@ class DaemonEventHandlers:
 
         except (RuntimeError, OSError, ConnectionError, ImportError) as e:
             logger.error(f"[DaemonEventHandlers] Error handling SPLIT_BRAIN_DETECTED: {e}")
+
+    async def _on_split_brain_resolved(self, event: Any) -> None:
+        """Handle SPLIT_BRAIN_RESOLVED event - resume paused daemons.
+
+        January 2026: When split-brain is resolved, resume daemons that were
+        paused during detection. This completes the split-brain handling cycle.
+
+        Args:
+            event: The SPLIT_BRAIN_RESOLVED event
+        """
+        from app.coordination.daemon_types import DaemonState, DaemonType
+
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            leader_id = payload.get("leader_id") or payload.get("canonical_leader")
+            resolution = payload.get("resolution", "unknown")
+
+            logger.info(
+                f"[SPLIT_BRAIN_RESOLVED] Split-brain resolved!\n"
+                f"  Leader: {leader_id}\n"
+                f"  Resolution: {resolution}"
+            )
+
+            # Resume only daemons we actually paused during split-brain
+            resumed_count = 0
+            for daemon_type in list(self._split_brain_paused_daemons):
+                if daemon_type in self._manager._daemons:
+                    info = self._manager._daemons[daemon_type]
+                    if info.state == DaemonState.STOPPED:
+                        try:
+                            await self._manager.start(daemon_type)
+                            self._split_brain_paused_daemons.discard(daemon_type)
+                            resumed_count += 1
+                            logger.info(f"[SPLIT_BRAIN] Resumed {daemon_type.value}")
+                        except Exception as start_err:
+                            logger.warning(
+                                f"[SPLIT_BRAIN] Failed to resume {daemon_type.value}: {start_err}"
+                            )
+
+            if resumed_count > 0:
+                logger.info(
+                    f"[SPLIT_BRAIN] Resumed {resumed_count} daemons after split-brain resolution"
+                )
+            else:
+                logger.debug(
+                    "[SPLIT_BRAIN] No daemons needed resuming (may have been restarted already)"
+                )
+
+            # Clear tracking set even if some daemons couldn't be resumed
+            self._split_brain_paused_daemons.clear()
+
+            # Emit alert for cluster awareness
+            await self._emit_cluster_alert(
+                alert_type="split_brain_resolved",
+                config_key="cluster",
+                message=f"Split-brain resolved: {leader_id} confirmed as leader",
+                severity="info",
+                leader_id=leader_id,
+                resolution=resolution,
+                resumed_daemons=resumed_count,
+            )
+
+        except (RuntimeError, OSError, ConnectionError, ImportError) as e:
+            logger.error(f"[DaemonEventHandlers] Error handling SPLIT_BRAIN_RESOLVED: {e}")
 
     # =========================================================================
     # Helper Methods

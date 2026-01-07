@@ -2170,6 +2170,7 @@ class P2POrchestrator(
                 ValidationLoop,
                 ModelSyncLoop,
                 DataManagementLoop,
+                HttpServerHealthLoop,
             )
 
             # QueuePopulatorLoop - maintains 50+ work items until 2000 Elo
@@ -3254,6 +3255,17 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"AutonomousQueuePopulationLoop: not available: {e}")
                 self._autonomous_queue_loop = None
+
+            # HttpServerHealthLoop - January 7, 2026 (Zombie Detection)
+            # Detects zombie state where HTTP server crashes but process continues.
+            # Probes localhost:8770/health every 10s, terminates after 6 consecutive failures.
+            # systemd Restart=always will restart the process, reducing MTTR from 5+ min to ~90s.
+            try:
+                http_health = HttpServerHealthLoop(port=self.port)
+                manager.register(http_health)
+                logger.info("[P2P] HttpServerHealthLoop registered (HTTP server zombie detection)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"HttpServerHealthLoop: not available: {e}")
 
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")

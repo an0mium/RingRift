@@ -321,6 +321,7 @@ class DataEventType(Enum):
     PARTITION_HEALING_FAILED = "partition_healing_failed"  # Healing attempt failed
     HEALING_CONVERGENCE_FAILED = "healing_convergence_failed"  # Jan 4, 2026: Healing reported success but gossip didn't converge
     P2P_RECOVERY_NEEDED = "p2p_recovery_needed"  # Jan 3, 2026: Max escalation reached, manual intervention needed
+    P2P_ZOMBIE_DETECTED = "p2p_zombie_detected"  # Jan 7, 2026: HTTP server crashed but process continues, terminating
 
     # Progress monitoring events (December 2025 - 48h autonomous operation)
     PROGRESS_STALL_DETECTED = "progress_stall_detected"  # Config Elo stalled, recovery triggered

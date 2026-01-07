@@ -674,12 +674,14 @@ class SplitBrainDetectionLoop(BaseLoop):
                     },
                     source="SplitBrainDetectionLoop",
                 )
-                # Try to publish via event bus
+                # Try to publish via event bus (fire-and-forget)
                 try:
                     from app.coordination.event_router import get_event_bus
+                    import asyncio
                     bus = get_event_bus()
                     if bus:
-                        bus.publish(event)
+                        # bus.publish() is async, create task to avoid blocking
+                        asyncio.create_task(bus.publish(event))
                 except ImportError:
                     pass
             except ImportError:

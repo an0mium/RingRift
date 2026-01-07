@@ -164,6 +164,10 @@ from .relay_health_loop import (
     RelayHealthLoop,
     RelayHealthStatus,
 )
+from .http_server_health_loop import (
+    HttpServerHealthConfig,
+    HttpServerHealthLoop,
+)
 
 __all__ = [
     # Base
@@ -275,4 +279,7 @@ __all__ = [
     "RelayHealthConfig",
     "RelayHealthLoop",
     "RelayHealthStatus",
+    # HTTP Server Health (Jan 7, 2026 - Zombie Detection)
+    "HttpServerHealthConfig",
+    "HttpServerHealthLoop",
 ]
