@@ -152,7 +152,7 @@ class UnifiedBackupDaemon(HandlerBase):
             name="unified_backup",
             cycle_interval=self.config.backup_interval,
         )
-        self.stats = BackupStats()
+        self._backup_stats = BackupStats()
         self._discovery: Any = None  # Lazy loaded
         self._last_backup_hashes: dict[str, str] = {}  # Track what we've backed up
 
@@ -182,8 +182,8 @@ class UnifiedBackupDaemon(HandlerBase):
         try:
             await self.backup_all_databases()
         except Exception as e:
-            self.stats.last_error = str(e)
-            self.stats.last_error_time = time.time()
+            self._backup_stats.last_error = str(e)
+            self._backup_stats.last_error_time = time.time()
             logger.error(f"[UnifiedBackup] Backup cycle failed: {e}")
 
     async def backup_all_databases(self) -> int:
@@ -232,34 +232,34 @@ class UnifiedBackupDaemon(HandlerBase):
                 if self.config.enable_owc_backup:
                     owc_path = await self._sync_to_owc(db_info.path)
                     if owc_path:
-                        self.stats.owc_syncs_completed += 1
+                        self._backup_stats.owc_syncs_completed += 1
                         result.owc_success = True
                         result.owc_path = owc_path
                     else:
-                        self.stats.owc_syncs_failed += 1
+                        self._backup_stats.owc_syncs_failed += 1
 
                 # Backup to S3
                 if self.config.enable_s3_backup:
                     s3_key = await self._push_to_s3(db_info.path)
                     if s3_key:
-                        self.stats.s3_pushes_completed += 1
+                        self._backup_stats.s3_pushes_completed += 1
                         result.s3_success = True
                         result.s3_key = s3_key
                     else:
-                        self.stats.s3_pushes_failed += 1
+                        self._backup_stats.s3_pushes_failed += 1
 
                 backed_up += 1
-                self.stats.databases_backed_up += 1
+                self._backup_stats.databases_backed_up += 1
                 results.append(result)
 
             except Exception as e:
                 logger.warning(f"[UnifiedBackup] Failed to backup {db_info.path.name}: {e}")
-                self.stats.last_error = str(e)
-                self.stats.last_error_time = time.time()
+                self._backup_stats.last_error = str(e)
+                self._backup_stats.last_error_time = time.time()
                 result.error = str(e)
                 results.append(result)
 
-        self.stats.last_backup_time = time.time()
+        self._backup_stats.last_backup_time = time.time()
 
         if backed_up > 0:
             logger.info(f"[UnifiedBackup] Backed up {backed_up} databases")
@@ -375,7 +375,7 @@ class UnifiedBackupDaemon(HandlerBase):
                 logger.debug(f"[UnifiedBackup] Pushed {db_path.name} to S3")
                 # Track file size
                 try:
-                    self.stats.total_bytes_synced += db_path.stat().st_size
+                    self._backup_stats.total_bytes_synced += db_path.stat().st_size
                 except OSError:
                     pass
                 return s3_key
@@ -522,12 +522,12 @@ class UnifiedBackupDaemon(HandlerBase):
         """Return health status for daemon manager."""
         # Calculate error rate
         total_ops = (
-            self.stats.owc_syncs_completed + self.stats.owc_syncs_failed +
-            self.stats.s3_pushes_completed + self.stats.s3_pushes_failed
+            self._backup_stats.owc_syncs_completed + self._backup_stats.owc_syncs_failed +
+            self._backup_stats.s3_pushes_completed + self._backup_stats.s3_pushes_failed
         )
         error_rate = 0.0
         if total_ops > 0:
-            errors = self.stats.owc_syncs_failed + self.stats.s3_pushes_failed
+            errors = self._backup_stats.owc_syncs_failed + self._backup_stats.s3_pushes_failed
             error_rate = errors / total_ops
 
         # Determine status
@@ -535,7 +535,7 @@ class UnifiedBackupDaemon(HandlerBase):
             status = CoordinatorStatus.STOPPED
         elif error_rate > 0.5:
             status = CoordinatorStatus.DEGRADED
-        elif self.stats.last_error and time.time() - self.stats.last_error_time < 300:
+        elif self._backup_stats.last_error and time.time() - self._backup_stats.last_error_time < 300:
             status = CoordinatorStatus.DEGRADED
         else:
             status = CoordinatorStatus.HEALTHY
@@ -544,15 +544,15 @@ class UnifiedBackupDaemon(HandlerBase):
             name="unified_backup",
             status=status,
             details={
-                "owc_syncs_completed": self.stats.owc_syncs_completed,
-                "owc_syncs_failed": self.stats.owc_syncs_failed,
-                "s3_pushes_completed": self.stats.s3_pushes_completed,
-                "s3_pushes_failed": self.stats.s3_pushes_failed,
-                "databases_backed_up": self.stats.databases_backed_up,
-                "last_backup_time": self.stats.last_backup_time,
-                "total_bytes_synced": self.stats.total_bytes_synced,
+                "owc_syncs_completed": self._backup_stats.owc_syncs_completed,
+                "owc_syncs_failed": self._backup_stats.owc_syncs_failed,
+                "s3_pushes_completed": self._backup_stats.s3_pushes_completed,
+                "s3_pushes_failed": self._backup_stats.s3_pushes_failed,
+                "databases_backed_up": self._backup_stats.databases_backed_up,
+                "last_backup_time": self._backup_stats.last_backup_time,
+                "total_bytes_synced": self._backup_stats.total_bytes_synced,
                 "error_rate": error_rate,
-                "last_error": self.stats.last_error if self.stats.last_error else None,
+                "last_error": self._backup_stats.last_error if self._backup_stats.last_error else None,
                 "owc_enabled": self.config.enable_owc_backup,
                 "s3_enabled": self.config.enable_s3_backup,
             },

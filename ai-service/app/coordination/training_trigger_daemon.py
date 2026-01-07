@@ -2099,7 +2099,8 @@ class TrainingTriggerDaemon(HandlerBase):
         # with any available data. This helps bootstrap new configs.
         try:
             from app.utils.game_discovery import count_games_for_config
-            from app.utils.canonical_naming import parse_config_key
+            # Use parse_config_key from event_utils (imported at top of file)
+            # NOT canonical_naming which returns a tuple instead of ParsedConfigKey
 
             parsed = parse_config_key(state.config_key)
             if parsed:
