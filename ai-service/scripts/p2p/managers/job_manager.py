@@ -2051,7 +2051,9 @@ class JobManager(EventSubscriptionMixin):
                 logger.warning(f"GPU selfplay script not found: {script_path}")
                 return
 
-            # Map engine modes: run_gpu_selfplay.py only supports: random-only, heuristic-only, nnue-guided
+            # Map engine modes: run_gpu_selfplay.py supports: random-only, heuristic-only, nnue-guided
+            # For GPU-accelerated modes (gumbel-mcts, mcts, etc.), we use heuristic-only base mode
+            # but enable --use-policy to activate neural network guidance
             mode_map = {
                 "mixed": "heuristic-only",
                 "gpu": "heuristic-only",
@@ -2061,6 +2063,14 @@ class JobManager(EventSubscriptionMixin):
                 "random-only": "random-only",
             }
             gpu_engine_mode = mode_map.get(effective_mode, "heuristic-only")
+
+            # Jan 2026: Modes that require neural network policy guidance
+            # These modes need --use-policy --use-heuristic to enable GPU-accelerated NN inference
+            POLICY_GUIDED_MODES = {
+                "gumbel-mcts", "gumbel", "gpu-gumbel", "mcts", "policy-only", "nn-descent",
+                "nn-minimax", "gnn", "hybrid", "gmo", "ebmo", "ig-gmo", "cage",
+            }
+            use_policy = effective_mode in POLICY_GUIDED_MODES
 
             # Dec 31, 2025: Calculate optimal batch size for GPU utilization
             # Higher batch sizes improve GPU utilization significantly
@@ -2079,6 +2089,11 @@ class JobManager(EventSubscriptionMixin):
                 "--seed", str(int(time.time() * 1000) % 2**31),
                 "--batch-size", str(optimal_batch),  # Dec 31, 2025: Pass batch size for GPU utilization
             ]
+
+            # Jan 2026: Enable policy network for GPU-accelerated modes
+            if use_policy:
+                cmd.extend(["--use-policy", "--use-heuristic"])
+                logger.info(f"GPU selfplay job {job_id}: enabling policy network guidance for mode '{effective_mode}'")
 
         # December 29, 2025: Use helper for consistent env setup (includes RINGRIFT_ALLOW_PENDING_GATE)
         env = self._get_subprocess_env()

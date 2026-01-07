@@ -1943,10 +1943,25 @@ def main():
 
     parsed = parser.parse_args()
     engine_mode = parsed.engine_mode
+
+    # Jan 2026: GPU-accelerated modes that use neural network policy guidance
+    # These modes use heuristic-only as the base and add --use-policy for NN inference
+    GPU_ACCELERATED_MODES = {
+        "gumbel-mcts", "gumbel", "gpu-gumbel", "mcts", "policy-only", "nn-descent",
+        "nn-minimax", "gnn", "hybrid", "gmo", "ebmo", "ig-gmo", "cage",
+    }
+
     if engine_mode == "random":
         engine_mode = "random-only"
     elif engine_mode in ("policy_only", "policy-only"):
         engine_mode = "policy_only"
+    elif engine_mode in GPU_ACCELERATED_MODES:
+        # GPU-accelerated modes use heuristic base + policy network
+        logger.info(f"GPU-accelerated mode '{engine_mode}' - using heuristic base with policy network")
+        if not parsed.use_policy:
+            parsed.use_policy = True
+            logger.info("Automatically enabling --use-policy for GPU-accelerated mode")
+        engine_mode = "heuristic-only"
     elif engine_mode not in ("random-only", "heuristic-only", "nnue-guided"):
         logger.warning(
             "Unsupported engine_mode '%s' for GPU selfplay; falling back to heuristic-only",
