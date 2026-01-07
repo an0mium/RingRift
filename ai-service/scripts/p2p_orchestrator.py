@@ -19580,29 +19580,32 @@ print(json.dumps(result))
             return
 
         # GPU selfplay uses batch processing - scale based on GPU power
+        # Jan 7, 2026: Reduced games_per_process to prevent 1-hour timeouts
+        # GUMBEL MCTS with 800 budget takes ~2s per game, so max ~1800 games/hour
+        # Using 500 games max with safety margin for larger boards
         if "GH200" in gpu_name.upper() or "H100" in gpu_name.upper() or "H200" in gpu_name.upper():
             num_processes = 4
-            games_per_process = 10000
+            games_per_process = 500
             gpu_tier = "high"
         elif "A100" in gpu_name.upper() or "A40" in gpu_name.upper():
             num_processes = 3
-            games_per_process = 5000
+            games_per_process = 300
             gpu_tier = "high"
         elif "4090" in gpu_name.upper() or "5090" in gpu_name.upper():
             num_processes = 3
-            games_per_process = 5000
+            games_per_process = 300
             gpu_tier = "mid"
         elif "4080" in gpu_name.upper() or "5080" in gpu_name.upper() or "5070" in gpu_name.upper():
             num_processes = 2
-            games_per_process = 3000
+            games_per_process = 200
             gpu_tier = "mid"
         elif "3090" in gpu_name.upper() or "4070" in gpu_name.upper():
             num_processes = 2
-            games_per_process = 2500
+            games_per_process = 200
             gpu_tier = "mid"
         else:
             num_processes = 2
-            games_per_process = 2000
+            games_per_process = 100
             gpu_tier = "low"
 
         logger.info(f"Auto-starting {num_processes} diverse selfplay processes on idle node {peer.node_id} "
