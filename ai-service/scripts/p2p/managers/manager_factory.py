@@ -216,10 +216,23 @@ class ManagerFactory:
         self._check_cycle("selfplay_scheduler")
         try:
             from scripts.p2p.managers import SelfplayScheduler
+
+            # Jan 2026 (Session 17.43): Wire curriculum weights loading
+            # This was missing, causing starved configs to never get allocation
+            def _load_curriculum_weights_safe() -> dict[str, float]:
+                """Load curriculum weights from coordination layer."""
+                try:
+                    from app.coordination.curriculum_weights import load_curriculum_weights
+                    return load_curriculum_weights()
+                except Exception as e:
+                    logger.debug(f"Could not load curriculum weights: {e}")
+                    return {}
+
             # Session 17.34: Wire up multi-config per node callback
             job_mgr = self.job_manager  # Access dependency
             manager = SelfplayScheduler(
                 get_active_configs_for_node_fn=job_mgr.get_active_configs_for_node,
+                load_curriculum_weights_fn=_load_curriculum_weights_safe,
                 verbose=self._config.verbose,
             )
             self._managers["selfplay_scheduler"] = manager
