@@ -1442,6 +1442,41 @@ class SelfplayScheduler(EventSubscriptionMixin):
         mode_lower = engine_mode.lower().strip()
         return mode_lower in self.GPU_REQUIRED_ENGINE_MODES
 
+    def _lookup_yaml_gpu_config(self, node_id: str) -> tuple[bool, str, int]:
+        """Lookup GPU config from distributed_hosts.yaml.
+
+        This provides an authoritative fallback when runtime GPU detection
+        fails (e.g., nvidia-smi not available, subprocess issues, etc.).
+
+        Args:
+            node_id: The node identifier to look up.
+
+        Returns:
+            Tuple of (has_gpu, gpu_name, gpu_vram_gb).
+
+        January 2026: Added to fix GPU underutilization where runtime
+        detection fails but YAML config has reliable GPU info.
+        """
+        try:
+            from app.config.cluster_config import load_cluster_config
+
+            config = load_cluster_config()
+            host_cfg = config.hosts_raw.get(node_id, {})
+
+            gpu_name = host_cfg.get("gpu", "")
+            gpu_vram_gb = int(host_cfg.get("gpu_vram_gb", 0) or 0)
+
+            # Has GPU if either gpu name or vram specified (excluding MPS/Apple)
+            if gpu_name and "MPS" not in gpu_name.upper() and "APPLE" not in gpu_name.upper():
+                return (True, gpu_name, gpu_vram_gb)
+            if gpu_vram_gb > 0:
+                return (True, gpu_name or "Unknown GPU", gpu_vram_gb)
+
+            return (False, "", 0)
+        except Exception as e:
+            logger.debug(f"Could not load YAML config for {node_id}: {e}")
+            return (False, "", 0)
+
     def _node_has_gpu(self, node: "NodeInfo") -> bool:
         """Check if a node has GPU capability.
 
@@ -1452,6 +1487,9 @@ class SelfplayScheduler(EventSubscriptionMixin):
             True if the node has GPU (CUDA-capable), False otherwise.
 
         December 2025: Added for GPU-aware config selection.
+        January 2026: Added YAML config fallback for when runtime detection fails.
+            This fixes GPU underutilization on Lambda GH200 nodes where runtime
+            GPU detection via NodeInfo methods fails silently.
         """
         # Try has_cuda_gpu() method first (NodeInfo from scripts/p2p/models.py)
         if hasattr(node, "has_cuda_gpu"):
@@ -1470,7 +1508,20 @@ class SelfplayScheduler(EventSubscriptionMixin):
             gpu_info = node.gpu_info
             if gpu_info is not None:
                 gpu_count = getattr(gpu_info, "gpu_count", 0)
-                return gpu_count > 0
+                if gpu_count > 0:
+                    return True
+
+        # YAML config fallback - use as authoritative source when runtime detection fails
+        # January 2026: Added to fix GPU underutilization on Lambda GH200 nodes
+        node_id = getattr(node, "node_id", "")
+        if node_id:
+            yaml_has_gpu, yaml_gpu_name, _ = self._lookup_yaml_gpu_config(node_id)
+            if yaml_has_gpu:
+                logger.warning(
+                    f"[GPU Detection] Using YAML fallback for {node_id}: "
+                    f"runtime detection failed but YAML shows GPU: {yaml_gpu_name}"
+                )
+                return True
 
         # Fallback: assume no GPU if we can't determine
         return False
