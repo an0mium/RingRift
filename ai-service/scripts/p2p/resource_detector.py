@@ -76,6 +76,10 @@ class ResourceDetector:
         self._cached_gpu: tuple[bool, str] | None = None
         self._cached_memory: int | None = None
 
+        # Jan 2026: Track Tailscale CLI health for event emission
+        self._tailscale_cli_healthy: bool | None = None  # None = unknown, True = healthy, False = error
+        self._tailscale_cli_error_emitted: bool = False
+
     def detect_gpu(self) -> tuple[bool, str]:
         """Detect if GPU is available and its name.
 
@@ -255,11 +259,15 @@ class ResourceDetector:
     def get_tailscale_ipv4(self) -> str:
         """Return this node's Tailscale IPv4 (100.x) when available.
 
+        Jan 2026: Enhanced with health event emission for monitoring.
+        Emits TAILSCALE_CLI_ERROR on failure, TAILSCALE_CLI_RECOVERED on recovery.
+
         Returns:
             Tailscale IPv4 if available, else empty string
         """
         binary = self._find_tailscale_binary()
         if not binary:
+            self._emit_tailscale_health_event(success=False, error="tailscale binary not found")
             return ""
 
         try:
@@ -270,11 +278,74 @@ class ResourceDetector:
                 timeout=5,
             )
             if result.returncode != 0:
+                # Check stderr for common Tailscale errors
+                stderr = (result.stderr or "").strip()
+                self._emit_tailscale_health_event(success=False, error=stderr or f"exit code {result.returncode}")
                 return ""
             ip = (result.stdout or "").strip().splitlines()[0].strip()
+            # Successful IP retrieval - mark as healthy
+            self._emit_tailscale_health_event(success=True)
             return ip
-        except (FileNotFoundError, subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+        except subprocess.TimeoutExpired as e:
+            self._emit_tailscale_health_event(success=False, error=f"timeout after {e.timeout}s")
             return ""
+        except (FileNotFoundError, subprocess.SubprocessError, OSError) as e:
+            self._emit_tailscale_health_event(success=False, error=str(e))
+            return ""
+
+    def _emit_tailscale_health_event(self, success: bool, error: str | None = None) -> None:
+        """Emit Tailscale CLI health events on state changes.
+
+        Jan 2026: Prevents event flooding by only emitting on state transitions.
+
+        Args:
+            success: True if Tailscale CLI worked, False if it failed
+            error: Optional error message for logging
+        """
+        # Only emit on state change
+        if self._tailscale_cli_healthy is None:
+            # First call - just record state, don't emit
+            self._tailscale_cli_healthy = success
+            if not success:
+                logger.warning(f"[ResourceDetector] Tailscale CLI initial check failed: {error}")
+            return
+
+        if success and not self._tailscale_cli_healthy:
+            # Recovered from error
+            self._tailscale_cli_healthy = True
+            self._tailscale_cli_error_emitted = False
+            logger.info("[ResourceDetector] Tailscale CLI recovered")
+            self._try_emit_event("TAILSCALE_CLI_RECOVERED", {"node_id": self._get_node_id()})
+        elif not success and self._tailscale_cli_healthy:
+            # Transitioned to error
+            self._tailscale_cli_healthy = False
+            if not self._tailscale_cli_error_emitted:
+                self._tailscale_cli_error_emitted = True
+                logger.warning(f"[ResourceDetector] Tailscale CLI error: {error}")
+                self._try_emit_event("TAILSCALE_CLI_ERROR", {
+                    "node_id": self._get_node_id(),
+                    "error": error,
+                })
+
+    def _try_emit_event(self, event_name: str, payload: dict) -> None:
+        """Try to emit event, gracefully handling missing dependencies.
+
+        Args:
+            event_name: Name of event to emit
+            payload: Event payload dict
+        """
+        try:
+            from app.coordination.event_router import emit_event
+            from app.distributed.data_events import DataEventType
+            event_type = getattr(DataEventType, event_name, None)
+            if event_type:
+                emit_event(event_type, payload)
+        except (ImportError, AttributeError, Exception) as e:
+            logger.debug(f"[ResourceDetector] Could not emit {event_name}: {e}")
+
+    def _get_node_id(self) -> str:
+        """Get the current node ID for event emission."""
+        return os.environ.get("RINGRIFT_NODE_ID", os.environ.get("HOSTNAME", "unknown"))
 
     def get_all_ips(self) -> set[str]:
         """Get all discoverable IP addresses for this node.
