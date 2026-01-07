@@ -150,6 +150,14 @@ if PYSYNCOBJ_AVAILABLE:
             self._auto_unlock_time = auto_unlock_time
             self._lock_manager = _ReplLockManager(autoUnlockTime=auto_unlock_time)
 
+            # Jan 7, 2026: Add _lock_manager to pysyncobj's internal exclusion set
+            # to prevent pickle errors during log compaction.
+            # pysyncobj bypasses __getstate__ and directly iterates __dict__,
+            # excluding only items in _SyncObj__properies.
+            properies = getattr(self, "_SyncObj__properies", None)
+            if properies is not None:
+                properies.add("_lock_manager")
+
         @property
         def is_ready(self) -> bool:
             """Check if Raft cluster is ready for operations."""
