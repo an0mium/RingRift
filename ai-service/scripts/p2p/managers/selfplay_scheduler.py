@@ -1490,18 +1490,28 @@ class SelfplayScheduler(EventSubscriptionMixin):
         January 2026: Added YAML config fallback for when runtime detection fails.
             This fixes GPU underutilization on Lambda GH200 nodes where runtime
             GPU detection via NodeInfo methods fails silently.
+        January 2026 FIX: Runtime methods returning False should NOT short-circuit.
+            The YAML fallback must be checked when runtime detection returns False.
         """
+        # Try runtime GPU detection methods - if ANY returns True, we have a GPU
+        # NOTE: Methods returning False means detection failed, NOT that there's no GPU
+
         # Try has_cuda_gpu() method first (NodeInfo from scripts/p2p/models.py)
         if hasattr(node, "has_cuda_gpu"):
-            return node.has_cuda_gpu()
+            result = node.has_cuda_gpu()
+            if result is True:
+                return True
+            # If False/None, continue to next check (detection may have failed)
 
         # Try is_gpu_node() method
         if hasattr(node, "is_gpu_node"):
-            return node.is_gpu_node()
+            result = node.is_gpu_node()
+            if result is True:
+                return True
 
         # Try has_gpu attribute
-        if hasattr(node, "has_gpu"):
-            return bool(node.has_gpu)
+        if hasattr(node, "has_gpu") and node.has_gpu:
+            return True
 
         # Try gpu_info attribute directly
         if hasattr(node, "gpu_info"):
@@ -1512,7 +1522,8 @@ class SelfplayScheduler(EventSubscriptionMixin):
                     return True
 
         # YAML config fallback - use as authoritative source when runtime detection fails
-        # January 2026: Added to fix GPU underutilization on Lambda GH200 nodes
+        # January 2026: This is the critical fallback for nodes where runtime detection
+        # returns False but we KNOW they have GPUs from our cluster configuration.
         node_id = getattr(node, "node_id", "")
         if node_id:
             yaml_has_gpu, yaml_gpu_name, _ = self._lookup_yaml_gpu_config(node_id)
