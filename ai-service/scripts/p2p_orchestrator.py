@@ -29813,7 +29813,7 @@ print(json.dumps({{
 
                 # Use gumbel-mcts for GPU selfplay (177x speedup with GPU tree)
                 gpu_engine_mode = "gumbel-mcts"
-                batch_size = games_per_matchup
+                batch_size = num_games
 
                 job = ClusterJob(
                     job_id=job_id,
