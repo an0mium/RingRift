@@ -1800,13 +1800,22 @@ async def create_auto_promotion() -> None:
 
 
 async def create_unified_promotion() -> None:
-    """Create and run unified promotion daemon (December 2025)."""
+    """Create and run unified promotion daemon (December 2025).
+
+    PromotionController is event-driven and sets up subscriptions in __init__.
+    We just need to instantiate and keep it alive.
+    """
     try:
         from app.training.promotion_controller import PromotionController
 
         controller = PromotionController()
-        await controller.start()
-        await _wait_for_daemon(controller)
+        # PromotionController subscribes to events in setup_event_subscriptions()
+        # called from __init__ - no start() method needed
+        logger.info("PromotionController initialized and subscribed to events")
+
+        # Keep alive by waiting indefinitely
+        while True:
+            await asyncio.sleep(60)
     except ImportError as e:
         logger.error(f"PromotionController not available: {e}")
         raise
@@ -2203,15 +2212,24 @@ async def create_recovery_orchestrator() -> None:
 
 
 async def create_cache_coordination() -> None:
-    """Create and run cache coordination orchestrator (December 2025)."""
+    """Create and run cache coordination orchestrator (December 2025).
+
+    CacheCoordinationOrchestrator is event-driven. We instantiate it,
+    call subscribe_to_events(), and keep it alive.
+    """
     try:
         from app.coordination.cache_coordination_orchestrator import (
             CacheCoordinationOrchestrator,
         )
 
         orchestrator = CacheCoordinationOrchestrator()
-        await orchestrator.start()
-        await _wait_for_daemon(orchestrator)
+        # CacheCoordinationOrchestrator needs explicit subscription call
+        orchestrator.subscribe_to_events()
+        logger.info("CacheCoordinationOrchestrator initialized and subscribed to events")
+
+        # Keep alive by waiting indefinitely
+        while True:
+            await asyncio.sleep(60)
     except ImportError as e:
         logger.error(f"CacheCoordinationOrchestrator not available: {e}")
         raise
