@@ -97,6 +97,13 @@ class NodeInfo:
     endpoint_last_validated: float = 0.0  # Unix timestamp of last successful heartbeat
     # Dec 30, 2025: Reduced from 300s to 60s for faster stale IP recovery
     endpoint_ttl_seconds: int = 60  # 1 min TTL before endpoint considered stale
+    # Jan 7, 2026: GPU job tracking for better dispatch decisions
+    # Enables detecting GPU driver issues and tracking GPU job success/failure rates
+    gpu_job_count: int = 0           # Currently running GPU jobs on this node
+    cpu_job_count: int = 0           # Currently running CPU jobs on this node
+    last_gpu_job_success: float = 0.0  # Unix timestamp of last successful GPU job
+    last_gpu_job_failure: float = 0.0  # Unix timestamp of last failed GPU job
+    gpu_failure_count: int = 0       # Consecutive GPU job failures (reset on success)
 
     def get_health_state(self) -> NodeHealthState:
         """Get detailed health state based on heartbeat timing.

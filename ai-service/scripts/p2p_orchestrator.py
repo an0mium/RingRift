@@ -29094,16 +29094,24 @@ print(json.dumps({{
                     # are probably CPU-only. This is an opportunity to START GPU work, not avoid it.
                     # Only consider GPU "unavailable" if there are existing GPU jobs AND utilization is 0%
                     # (which would indicate driver/container issues)
+                    # Jan 7, 2026: Fixed to use new gpu_job_count field (gpu_selfplay_jobs never existed)
                     gpu_percent = getattr(node, "gpu_percent", 0) or 0
-                    gpu_jobs_count = getattr(node, "gpu_selfplay_jobs", 0) or 0
+                    gpu_job_count = getattr(node, "gpu_job_count", 0) or 0
+                    gpu_failure_count = getattr(node, "gpu_failure_count", 0) or 0
+                    last_gpu_failure = getattr(node, "last_gpu_job_failure", 0) or 0
                     gpu_seems_unavailable = (
                         node_has_gpu
                         and not is_apple_gpu
-                        and gpu_jobs_count > 2  # Only flag if GPU JOBS (not CPU jobs) are running
-                        and gpu_percent < 1
+                        and (
+                            # Driver issue: GPU jobs running but 0% utilization
+                            (gpu_job_count >= 2 and gpu_percent < 1)
+                            # Recent consecutive failures: 3+ failures in last 5 minutes
+                            or (gpu_failure_count >= 3 and time.time() - last_gpu_failure < 300)
+                        )
                     )
                     if gpu_seems_unavailable:
-                        logger.info(f"WARNING: {node.node_id} has GPU but 0% utilization with {gpu_jobs_count} GPU jobs - possible driver issue")
+                        reason = "driver issue" if (gpu_job_count >= 2 and gpu_percent < 1) else f"{gpu_failure_count} recent failures"
+                        logger.info(f"WARNING: {node.node_id} has GPU but appears unavailable ({reason})")
                     elif node_has_gpu and gpu_percent < 10 and node.selfplay_jobs > 0:
                         # GPU idle but has CPU jobs - this is normal, will prioritize GPU work
                         logger.debug(f"Node {node.node_id} has {node.selfplay_jobs} CPU jobs but GPU idle ({gpu_percent:.0f}%) - will add GPU work")
