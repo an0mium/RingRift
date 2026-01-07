@@ -712,9 +712,10 @@ class GumbelMCTSAI(BaseAI):
             # Get eval_mode from AIConfig, default to "hybrid" for balanced speed/quality
             eval_mode = getattr(self.config, 'gpu_tree_eval_mode', 'hybrid')
 
-            # Use minimum budget of 800 for GPU tree search quality
-            # (Sequential Halving needs sufficient budget for accurate convergence)
-            effective_budget = max(self.simulation_budget, 800)
+            # Use minimum budget of 64 for GPU tree search (Sequential Halving needs some budget)
+            # Note: Jan 2026 - Lowered from 800 to 64 to fix selfplay stall. Budget 800 was
+            # causing games to take >2 min each. Budget 150 (commonly requested) is reasonable.
+            effective_budget = max(self.simulation_budget, 64)
 
             gpu_config = GPUGumbelMCTSConfig(
                 num_sampled_actions=self.num_sampled_actions,
