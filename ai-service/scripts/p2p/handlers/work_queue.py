@@ -685,6 +685,86 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             return self.error_response(str(e), status=500)
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
+    async def handle_work_peer_claim(self, request: web.Request) -> web.Response:
+        """Allow peers to claim work from this node's queue for split-brain resilience.
+
+        Session 17.43 (Jan 6, 2026): Added for Phase 4 of split-brain fix.
+
+        Unlike regular /work/claim, this endpoint does NOT require leader status.
+        Any node with an active work queue can serve peer claims.
+
+        This enables decentralized work distribution during:
+        - Split-brain scenarios where leader is unreachable
+        - Network partitions where direct leader access fails
+        - Leader transitions where new leader not yet elected
+
+        POST body:
+        {
+            "node_id": "worker-1",          # Node claiming work (required)
+            "capabilities": ["selfplay"],   # Work types to claim (optional)
+            "source_node": "peer-2"         # Requesting peer for audit (optional)
+        }
+
+        Response:
+        {
+            "status": "claimed" | "no_work" | "no_queue",
+            "work": {...} | null,
+            "served_by": "this-node-id"
+        }
+        """
+        try:
+            wq = get_work_queue()
+            if wq is None:
+                # No work queue on this node - not a problem, caller tries next peer
+                return self.json_response({
+                    "status": "no_queue",
+                    "work": None,
+                    "served_by": getattr(self, "node_id", "unknown"),
+                })
+
+            data = await self.parse_json_body(request)
+            if data is None:
+                return self.bad_request("Invalid JSON body")
+
+            node_id = data.get("node_id", "")
+            capabilities = data.get("capabilities", ["selfplay"])
+            source_node = data.get("source_node", "")
+
+            if not node_id:
+                return self.bad_request("node_id required")
+
+            # Log peer claim for debugging split-brain scenarios
+            logger.debug(
+                f"[PeerClaim] Peer claim request from {source_node or 'unknown'} "
+                f"for node {node_id}, capabilities={capabilities}"
+            )
+
+            # Claim work from our local queue
+            # Note: We serve claims regardless of our leadership status
+            work = wq.claim_next(node_id, capabilities)
+
+            if work:
+                logger.info(
+                    f"[PeerClaim] Served work {work.get('work_id', 'unknown')} "
+                    f"to {node_id} (via peer claim from {source_node or 'direct'})"
+                )
+                return self.json_response({
+                    "status": "claimed",
+                    "work": work,
+                    "served_by": getattr(self, "node_id", "unknown"),
+                })
+
+            return self.json_response({
+                "status": "no_work",
+                "work": None,
+                "served_by": getattr(self, "node_id", "unknown"),
+            })
+
+        except Exception as e:
+            logger.error(f"Error in peer work claim: {e}")
+            return self.error_response(str(e), status=500)
+
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_start(self, request: web.Request) -> web.Response:
         """Mark work as started (running)."""
         try:

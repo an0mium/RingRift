@@ -7878,7 +7878,7 @@ class P2POrchestrator(
         # Session 17.48: Fallback to known coordinator IPs from config if peer discovery failed
         # This handles the case where P2P network hasn't converged yet (no heartbeats from coordinator)
         fallback_coordinator_ips = [
-            "100.69.164.58",  # mac-studio Tailscale IP
+            "100.69.164.58",  # macbook-pro-2-1 Tailscale IP (has canonical DBs)
         ]
         for ip in fallback_coordinator_ips:
             try:

@@ -853,6 +853,8 @@ class WorkerPullLoop(BaseLoop):
         claim_work_batch_from_leader: Callable[[list[str], int], Coroutine[Any, Any, list[dict[str, Any]]]] | None = None,  # Session 17.34: Batch claiming
         probe_leader_health: Callable[[str], Coroutine[Any, Any, dict[str, Any] | None]] | None = None,  # Session 17.42: Split-brain detection
         set_partition_state: Callable[[bool], None] | None = None,  # Session 17.41: Partition-aware backpressure
+        get_alive_peers: Callable[[], list[str]] | None = None,  # Session 17.43: Get alive peer node IDs for peer claiming
+        claim_work_from_peer: Callable[[str, str, list[str]], Coroutine[Any, Any, dict[str, Any] | None]] | None = None,  # Session 17.43: Claim from peer
         config: WorkerPullConfig | None = None,
     ):
         """Initialize worker pull loop.
@@ -870,6 +872,8 @@ class WorkerPullLoop(BaseLoop):
             claim_work_batch_from_leader: Optional async callback to claim batch of work (Session 17.34)
             probe_leader_health: Optional async callback to probe leader's /status endpoint (Session 17.42)
             set_partition_state: Optional callback to notify WorkQueue of partition state (Session 17.41)
+            get_alive_peers: Optional callback returning list of alive peer node IDs (Session 17.43)
+            claim_work_from_peer: Optional async callback to claim work from a peer's /work/peer_claim endpoint (Session 17.43)
             config: Loop configuration
         """
         self.config = config or WorkerPullConfig()
@@ -889,6 +893,8 @@ class WorkerPullLoop(BaseLoop):
         self._claim_work_batch = claim_work_batch_from_leader  # Session 17.34: Batch claiming
         self._probe_leader_health_callback = probe_leader_health  # Session 17.42: Split-brain detection
         self._set_partition_state = set_partition_state  # Session 17.41: Partition-aware backpressure
+        self._get_alive_peers = get_alive_peers  # Session 17.43: Peer claiming
+        self._claim_work_from_peer = claim_work_from_peer  # Session 17.43: Peer claiming
 
         # Session 17.42: Split-brain detection statistics
         self._leader_health_probes: int = 0  # Total leader health probes attempted
@@ -928,6 +934,12 @@ class WorkerPullLoop(BaseLoop):
         self._partition_autonomous_claims: int = 0  # Autonomous work claimed during partition
         self._partition_detected: bool = False  # Current partition state
         self._last_partition_state_change: float = 0.0  # Timestamp of last partition state change
+
+        # Session 17.43: Peer claiming statistics (split-brain resilience)
+        self._peer_claim_attempts: int = 0  # Total peer claim attempts
+        self._peer_claim_successes: int = 0  # Successful peer claims
+        self._peer_claim_no_work: int = 0  # Peers with no work available
+        self._peer_claim_failures: int = 0  # Peer claim errors
 
     async def _on_start(self) -> None:
         """Initial delay for cluster stabilization."""
@@ -1050,6 +1062,57 @@ class WorkerPullLoop(BaseLoop):
             logger.debug(f"[WorkerPull] Leader health probe failed: {e}")
             return False
 
+    async def _claim_work_from_peers(
+        self, capabilities: list[str], our_node_id: str
+    ) -> dict[str, Any] | None:
+        """Try to claim work from any alive peer with queue access.
+
+        Session 17.43: Phase 3 of split-brain fix - decentralized work claiming.
+
+        When the leader is unavailable (split-brain, partition, or election),
+        workers can claim work from any peer that has an active work queue.
+        This uses the /work/peer_claim endpoint which doesn't require leader status.
+
+        Args:
+            capabilities: List of work types this node can handle
+            our_node_id: This node's ID (for claiming)
+
+        Returns:
+            Work item dict if claimed from any peer, None otherwise
+        """
+        if not self._get_alive_peers or not self._claim_work_from_peer:
+            return None
+
+        try:
+            peers = self._get_alive_peers()
+            if not peers:
+                return None
+
+            # Try each peer until we find work
+            for peer_id in peers:
+                self._peer_claim_attempts += 1
+                try:
+                    work = await self._claim_work_from_peer(peer_id, our_node_id, capabilities)
+                    if work:
+                        self._peer_claim_successes += 1
+                        logger.info(
+                            f"[WorkerPull] Claimed work from peer {peer_id} "
+                            f"(split-brain fallback)"
+                        )
+                        return work
+                    else:
+                        self._peer_claim_no_work += 1
+                except Exception as e:
+                    self._peer_claim_failures += 1
+                    logger.debug(f"[WorkerPull] Peer claim from {peer_id} failed: {e}")
+                    continue
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"[WorkerPull] Peer claiming error: {e}")
+            return None
+
     async def _run_once(self) -> None:
         """Check if idle and pull work from leader or autonomous queue."""
         # Skip if we are the leader (leader pushes, doesn't pull)
@@ -1118,9 +1181,18 @@ class WorkerPullLoop(BaseLoop):
                     except Exception as e:
                         logger.debug(f"[WorkerPull] Failed to set partition state: {e}")
 
+        # Session 17.43: Track if we should try peer claiming (no leader but peers available)
+        use_peer_claiming_fallback = False
+
         if not use_work_discovery and not leader_id:
-            # Legacy: No leader and no discovery manager - try autonomous queue fallback
-            if self.config.enable_autonomous_fallback and self._pop_autonomous_work:
+            # Session 17.43: No leader - try peer claiming first, then autonomous fallback
+            # Fallback chain: leader → peers → autonomous queue
+            if self._get_alive_peers and self._claim_work_from_peer:
+                # Peer claiming available - try it before autonomous
+                use_peer_claiming_fallback = True
+                logger.debug("[WorkerPull] No leader, trying peer claiming fallback")
+            elif self.config.enable_autonomous_fallback and self._pop_autonomous_work:
+                # Fall back to autonomous queue
                 use_autonomous_fallback = True
                 logger.debug("[WorkerPull] No leader, trying autonomous queue fallback")
             else:
@@ -1207,7 +1279,41 @@ class WorkerPullLoop(BaseLoop):
 
         # Legacy fallback if discovery manager didn't find work
         if not work_item:
-            if use_autonomous_fallback:
+            if use_peer_claiming_fallback:
+                # Session 17.43: Try peer claiming first (split-brain resilience)
+                # Get node ID for claiming
+                node_id = ""
+                try:
+                    metrics_data = self._get_self_metrics()
+                    node_id = metrics_data.get("node_id", "") or ""
+                except Exception:
+                    pass
+
+                if node_id:
+                    try:
+                        work_item = await self._claim_work_from_peers(capabilities, node_id)
+                        if work_item:
+                            work_source = "peer"
+                            self._work_discovery_stats["peer"] = (
+                                self._work_discovery_stats.get("peer", 0) + 1
+                            )
+                    except Exception as e:
+                        logger.debug(f"[WorkerPull] Peer claiming error: {e}")
+
+                # If peer claiming didn't work, fall back to autonomous
+                if not work_item and self.config.enable_autonomous_fallback and self._pop_autonomous_work:
+                    try:
+                        work_item = await self._pop_autonomous_work()
+                        if work_item:
+                            work_source = "autonomous"
+                            self._autonomous_work_claimed += 1
+                            # Session 17.41: Track autonomous claims during partition
+                            if self._partition_detected:
+                                self._partition_autonomous_claims += 1
+                    except Exception as e:
+                        logger.debug(f"[WorkerPull] Autonomous queue error after peer fallback: {e}")
+
+            elif use_autonomous_fallback:
                 # Jan 4, 2026: Use autonomous queue when leader unavailable
                 try:
                     work_item = await self._pop_autonomous_work()
@@ -1342,6 +1448,11 @@ class WorkerPullLoop(BaseLoop):
             "partition_claim_failures": self._partition_claim_failures,
             "partition_autonomous_claims": self._partition_autonomous_claims,
             "last_partition_state_change": self._last_partition_state_change,
+            # Session 17.43: Peer claiming statistics (split-brain resilience)
+            "peer_claim_attempts": self._peer_claim_attempts,
+            "peer_claim_successes": self._peer_claim_successes,
+            "peer_claim_no_work": self._peer_claim_no_work,
+            "peer_claim_failures": self._peer_claim_failures,
             **self.stats.to_dict(),
         }
 

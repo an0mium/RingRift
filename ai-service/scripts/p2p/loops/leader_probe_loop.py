@@ -103,6 +103,11 @@ class LeaderProbeLoop(BaseLoop):
         self._probe_cycle_counter = 0
         self._backup_probe_frequency = 5  # Probe every 5th cycle (~50s at 10s interval)
 
+        # Session 17.43: Split-brain detection (Phase 2)
+        # Detects when claimed leader doesn't acknowledge its own leadership
+        self._split_brain_detected = False
+        self._split_brain_check_interval = 3  # Check every 3rd cycle (~30s at 10s interval)
+
     async def _run_once(self) -> None:
         """Single probe iteration - check if leader is reachable.
 
@@ -136,6 +141,11 @@ class LeaderProbeLoop(BaseLoop):
             self._on_probe_success()
             # Check for latency degradation even on success
             self._check_latency_trend()
+
+            # Session 17.43: Split-brain detection - check if leader claims leadership
+            # Every Nth cycle, verify the leader actually thinks it's the leader
+            if self._probe_cycle_counter % self._split_brain_check_interval == 0:
+                await self._check_for_split_brain(leader_id)
         else:
             await self._on_probe_failure(leader_id)
 
@@ -475,6 +485,153 @@ class LeaderProbeLoop(BaseLoop):
             if is_reachable
         ]
 
+    # =========================================================================
+    # Split-Brain Detection (Session 17.43 - Phase 2)
+    # =========================================================================
+
+    async def _check_for_split_brain(self, leader_id: str) -> None:
+        """Check if the claimed leader actually thinks it's the leader.
+
+        Session 17.43 Phase 2: Detects split-brain scenarios where this node
+        thinks a peer is the leader, but that peer doesn't claim leadership.
+        This can happen after network partitions where different nodes have
+        divergent views of the cluster state.
+
+        If split-brain is detected:
+        1. Emit SPLIT_BRAIN_DETECTED event for observability
+        2. Clear our leader reference to trigger re-election
+        3. Force election to establish consensus on leadership
+
+        Args:
+            leader_id: The node ID we believe is the leader
+        """
+        try:
+            # Get leader's status to check if they claim leadership
+            leader_status = await self._get_node_status(leader_id)
+
+            if leader_status is None:
+                # Couldn't reach status endpoint - handled by regular probe failure
+                return
+
+            # Check if the claimed leader actually thinks it's the leader
+            claims_leadership = leader_status.get("is_leader", False)
+
+            if not claims_leadership:
+                # Split-brain detected! This node thinks leader_id is leader,
+                # but leader_id doesn't claim leadership
+                await self._on_split_brain_detected(leader_id, leader_status)
+
+            elif self._split_brain_detected:
+                # Split-brain was previously detected but now resolved
+                logger.info(
+                    f"[LeaderProbe] Split-brain resolved: {leader_id} now claims leadership"
+                )
+                self._split_brain_detected = False
+                self._emit_event("SPLIT_BRAIN_RESOLVED", {
+                    "leader_id": leader_id,
+                    "resolution": "leader_confirmed",
+                })
+
+        except Exception as e:
+            logger.debug(f"[LeaderProbe] Split-brain check error: {e}")
+
+    async def _get_node_status(self, node_id: str) -> dict[str, Any] | None:
+        """Get a node's full status to check its leadership claim.
+
+        Args:
+            node_id: Node ID to query
+
+        Returns:
+            Status dict with is_leader, leader_id, etc., or None if unreachable
+        """
+        import aiohttp
+
+        try:
+            urls_for_peer = getattr(self._orchestrator, "_urls_for_peer", None)
+            if urls_for_peer is None:
+                return None
+
+            # Use /status endpoint which includes is_leader field
+            urls = urls_for_peer(node_id, "status")
+            if not urls:
+                return None
+
+            # Try each URL until one succeeds
+            for url in urls:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            url,
+                            timeout=aiohttp.ClientTimeout(total=self._probe_timeout),
+                        ) as response:
+                            if response.status == 200:
+                                return await response.json()
+                except asyncio.TimeoutError:
+                    continue
+                except Exception:
+                    continue
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"[LeaderProbe] Failed to get status from {node_id}: {e}")
+            return None
+
+    async def _on_split_brain_detected(
+        self, claimed_leader: str, leader_status: dict[str, Any]
+    ) -> None:
+        """Handle split-brain detection - leader doesn't claim leadership.
+
+        Session 17.43 Phase 2: When we detect that our claimed leader doesn't
+        think it's the leader, we have a split-brain situation. This typically
+        happens after network partitions where gossip state has diverged.
+
+        Recovery strategy:
+        1. Log the split-brain for observability
+        2. Emit SPLIT_BRAIN_DETECTED event
+        3. Clear local leader reference
+        4. Trigger election to establish consensus
+
+        Args:
+            claimed_leader: Node ID we thought was leader
+            leader_status: Status response from the claimed leader
+        """
+        # Only trigger once per split-brain detection
+        if self._split_brain_detected:
+            return
+
+        self._split_brain_detected = True
+        actual_leader = leader_status.get("leader_id")
+
+        logger.warning(
+            f"[LeaderProbe] SPLIT-BRAIN DETECTED: "
+            f"We think {claimed_leader} is leader, but it claims {actual_leader} is leader. "
+            f"Triggering election to resolve."
+        )
+
+        # Emit event for observability and alerting
+        self._emit_event("SPLIT_BRAIN_DETECTED", {
+            "our_leader": claimed_leader,
+            "their_leader": actual_leader,
+            "claimed_leader_is_leader": leader_status.get("is_leader", False),
+            "claimed_leader_node_id": leader_status.get("node_id"),
+            "source": "leader_probe_loop",
+        })
+
+        # Clear local leader reference to force re-election
+        try:
+            clear_leader = getattr(self._orchestrator, "_clear_leader", None)
+            if clear_leader:
+                clear_leader()
+                logger.info("[LeaderProbe] Cleared local leader reference")
+        except Exception as e:
+            logger.debug(f"[LeaderProbe] Failed to clear leader: {e}")
+
+        # Trigger election to establish consensus
+        # Use a slight delay to allow other nodes to also detect and participate
+        await asyncio.sleep(0.5)
+        await self._trigger_election(claimed_leader)
+
     async def _trigger_election(self, unreachable_leader: str) -> None:
         """Trigger a forced election due to unreachable leader.
 
@@ -583,6 +740,7 @@ class LeaderProbeLoop(BaseLoop):
             "last_success_time": self._last_success_time,
             "seconds_since_success": time.time() - self._last_success_time,
             "election_triggered_recently": self._election_triggered_recently,
+            "split_brain_detected": self._split_brain_detected,
             **latency_stats,
         }
 
@@ -638,6 +796,19 @@ class LeaderProbeLoop(BaseLoop):
                 },
             )
 
+        # Session 17.43: Check for split-brain condition
+        if self._split_brain_detected:
+            return HealthCheckResult(
+                healthy=False,
+                status=CoordinatorStatus.ERROR,
+                message="Split-brain detected: claimed leader denies leadership",
+                details={
+                    "split_brain_detected": True,
+                    "leader_id": self._get_leader_id(),
+                    "seconds_since_success": time.time() - self._last_success_time,
+                },
+            )
+
         # Check if leader probe is degraded (some failures but not threshold)
         if self._consecutive_failures > 0:
             return HealthCheckResult(
@@ -660,5 +831,6 @@ class LeaderProbeLoop(BaseLoop):
                 "consecutive_failures": 0,
                 "seconds_since_success": time.time() - self._last_success_time,
                 "leader_id": self._get_leader_id(),
+                "split_brain_detected": False,
             },
         )
