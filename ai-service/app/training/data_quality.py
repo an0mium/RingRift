@@ -430,21 +430,23 @@ class DatabaseQualityChecker:
             if invalid_players > 0:
                 issues.append(f"{invalid_players} games with invalid player count")
 
-            # Check for games with winner >= num_players
+            # Check for games with winner outside valid range
+            # Note: RingRift uses 1-indexed player numbers (1 to num_players)
+            # So valid winners are 1, 2, ..., num_players
             cursor.execute(
-                "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL AND winner >= num_players"
+                "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL AND winner > num_players"
             )
             invalid_winner_idx = cursor.fetchone()[0]
             if invalid_winner_idx > 0:
-                issues.append(f"{invalid_winner_idx} games with invalid winner index")
+                issues.append(f"{invalid_winner_idx} games with winner > num_players")
 
-            # Check for negative winner indices
+            # Check for winner indices less than 1 (invalid for 1-indexed system)
             cursor.execute(
-                "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL AND winner < 0"
+                "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL AND winner < 1"
             )
-            negative_winners = cursor.fetchone()[0]
-            if negative_winners > 0:
-                issues.append(f"{negative_winners} games with negative winner index")
+            invalid_winner_low = cursor.fetchone()[0]
+            if invalid_winner_low > 0:
+                issues.append(f"{invalid_winner_low} games with winner < 1 (should be 1-indexed)")
 
             conn.close()
 
