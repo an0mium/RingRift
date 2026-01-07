@@ -30065,15 +30065,16 @@ print(json.dumps({{
             elif job_type == JobType.GUMBEL_SELFPLAY:
                 # High-quality Gumbel MCTS selfplay with NN policy for self-improvement training
                 # Uses generate_gumbel_selfplay.py with proper MCTS simulation budget
-                # Budget tiers: THROUGHPUT(64), STANDARD(800), QUALITY(800), ULTIMATE(1600), MASTER(3200)
-
-                # Use passed budget if specified, otherwise default to STANDARD (800)
-                # This allows callers to request faster THROUGHPUT (64) for bootstrap phases
-                effective_budget = simulation_budget if simulation_budget is not None else 800
+                # Budget tiers: THROUGHPUT(64), BOOTSTRAP(150), QUALITY(800), ULTIMATE(1600), MASTER(3200)
+                #
+                # GPU tree search is much faster per simulation but still needs reasonable budgets.
+                # Default to 150 (BOOTSTRAP tier) which completes games in reasonable time on GPU.
+                # For higher quality, callers can request QUALITY(800) or higher.
+                effective_budget = simulation_budget if simulation_budget is not None else 150
 
                 # Games based on board type and budget
                 # Lower budget = can run more games in same time
-                num_games = 20 if effective_budget >= 800 else 100  # More games for lower budget
+                num_games = 50 if effective_budget >= 800 else 100  # More games for lower budget
                 if board_type == "square19":
                     num_games = 10 if effective_budget >= 800 else 50  # Large board
                 elif board_type in ("hex", "hexagonal", "hex8"):
