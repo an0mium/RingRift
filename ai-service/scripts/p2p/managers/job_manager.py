@@ -376,9 +376,13 @@ class JobManager(EventSubscriptionMixin):
     """
 
     # Engine modes that require search (use generate_gumbel_selfplay.py)
+    # January 2026: Added missing variants (gumbel-mcts-only, mcts-only, etc.)
+    # that were falling through to CPU-only run_self_play_soak.py
     SEARCH_ENGINE_MODES = {
-        "maxn", "brs", "mcts", "gumbel-mcts",
-        "policy-only", "nn-descent", "nn-minimax"
+        "maxn", "brs", "mcts", "mcts-only",
+        "gumbel-mcts", "gumbel-mcts-only", "gumbel", "gpu-gumbel",
+        "policy-only", "nn-descent", "descent-only", "nn-minimax",
+        "diverse", "mixed",  # These resolve to GPU modes
     }
 
     # GPU-required engine modes (require CUDA or MPS) - December 2025
