@@ -76,6 +76,34 @@ def get_node_path(node_name: str, node_config: dict) -> str | None:
     return '~/ringrift/ai-service'
 
 
+def get_p2p_voter_peers() -> list[str]:
+    """Get P2P peer list from distributed_hosts.yaml voters.
+
+    Jan 7, 2026: Replaces hardcoded peer list. Dynamically builds peer list
+    from config to ensure consistency with actual voter configuration.
+
+    Returns:
+        List of voter peer addresses in "IP:8770" format for bootstrap.
+        Falls back to empty list if config unavailable (p2p_orchestrator
+        will use its own config-based bootstrap in that case).
+    """
+    try:
+        voters = get_p2p_voters()
+        nodes = get_cluster_nodes()
+        peers = []
+
+        for voter_name in voters:
+            node = nodes.get(voter_name)
+            if node and node.tailscale_ip:
+                peers.append(f"{node.tailscale_ip}:8770")
+
+        # Return up to 5 voters as bootstrap peers (sufficient for discovery)
+        return peers[:5]
+    except Exception as e:
+        logger.warning(f"Failed to load P2P voters from config: {e}")
+        return []  # Fall back to config-based bootstrap in p2p_orchestrator
+
+
 async def check_p2p_running(client, node_name: str, node_path: str) -> bool:
     """Check if P2P orchestrator is running on the node."""
     result = await client.run_async("pgrep -f p2p_orchestrator", timeout=10)
@@ -216,14 +244,12 @@ async def update_node(
                 relay_peers = ['vultr-a100-20gb:8770', 'nebius-h100-3:8770']
                 p2p_args.append(f"--relay-peers {','.join(relay_peers)}")
 
-            # Build known peers list from p2p_voters
-            known_peers = [
-                'vultr-a100-20gb:8770',
-                'nebius-h100-3:8770',
-                'hetzner-cpu1:8770',
-                'nebius-backbone-1:8770',
-            ]
-            p2p_args.append(f"--peers {','.join(known_peers)}")
+            # Build known peers list dynamically from config p2p_voters
+            # Jan 7, 2026: Replaces hardcoded peer list for consistency
+            known_peers = get_p2p_voter_peers()
+            if known_peers:
+                p2p_args.append(f"--peers {','.join(known_peers)}")
+            # If no peers from config, p2p_orchestrator uses its own bootstrap
 
             p2p_args_str = ' '.join(p2p_args)
 
