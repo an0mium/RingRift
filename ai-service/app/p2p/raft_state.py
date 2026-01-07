@@ -400,11 +400,15 @@ class ReplicatedWorkQueue(SyncObj):
             onLeaderChanged=self._handle_leader_change,
         )
 
+        # NOTE: Do NOT pass lock_manager as consumer - it contains threading.Lock
+        # objects that cannot be pickled during Raft log compaction.
+        # Each node will have its own local lock manager instance.
+        # January 2026 fix: Removed consumers=[self.__lock_manager] to prevent
+        # TypeError: cannot pickle '_thread.lock' object
         super().__init__(
             self_address,
             partner_addresses,
             conf,
-            consumers=[self.__lock_manager],
         )
 
         logger.info(
