@@ -110,7 +110,36 @@ except ImportError:
 # Configuration
 # ============================================
 
-REGISTRY_DIR = Path("/tmp/ringrift_coordination")
+
+def _get_user_coordination_dir() -> Path:
+    """Get user-specific coordination directory to avoid permission conflicts.
+
+    This prevents conflicts when P2P orchestrator (root) and master_loop (ubuntu)
+    both try to access the same coordination files.
+    """
+    # Allow override via environment
+    custom_dir = os.environ.get("RINGRIFT_COORDINATION_DIR")
+    if custom_dir:
+        return Path(custom_dir)
+
+    # Use XDG_RUNTIME_DIR if available (properly permissioned)
+    xdg_runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if xdg_runtime:
+        return Path(xdg_runtime) / "ringrift_coordination"
+
+    # Fall back to user-specific /tmp directory
+    try:
+        uid = os.getuid()
+    except AttributeError:
+        uid = 0  # Windows
+
+    if uid == 0:
+        return Path("/tmp/ringrift_coordination")
+    else:
+        return Path(f"/tmp/ringrift_coordination_{uid}")
+
+
+REGISTRY_DIR = _get_user_coordination_dir()
 REGISTRY_DB = REGISTRY_DIR / "orchestrator_registry.db"
 
 # Heartbeat settings - import from centralized coordination_defaults (December 2025)

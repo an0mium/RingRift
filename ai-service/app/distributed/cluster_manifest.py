@@ -465,6 +465,39 @@ class NodeSyncPolicy:
 
 
 # =============================================================================
+# Helper Functions
+# =============================================================================
+
+
+def _cleanup_orphaned_wal_files(db_path: Path) -> bool:
+    """Remove orphaned WAL/SHM files if main database doesn't exist.
+
+    SQLite cannot open WAL files without the main database.
+    This can happen when the database is deleted but WAL/SHM files remain.
+
+    Args:
+        db_path: Path to the SQLite database file.
+
+    Returns:
+        True if any orphaned files were removed, False otherwise.
+    """
+    wal_path = db_path.with_suffix(db_path.suffix + "-wal")
+    shm_path = db_path.with_suffix(db_path.suffix + "-shm")
+
+    cleaned = False
+    if not db_path.exists():
+        for path in [wal_path, shm_path]:
+            if path.exists():
+                try:
+                    path.unlink()
+                    logger.warning(f"[ClusterManifest] Removed orphaned: {path}")
+                    cleaned = True
+                except OSError as e:
+                    logger.error(f"[ClusterManifest] Failed to remove orphaned file {path}: {e}")
+    return cleaned
+
+
+# =============================================================================
 # ClusterManifest Class
 # =============================================================================
 
@@ -576,6 +609,8 @@ class ClusterManifest:
 
     def _init_db(self) -> None:
         """Initialize the manifest database schema."""
+        # Clean up orphaned WAL/SHM files before opening DB
+        _cleanup_orphaned_wal_files(self.db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         conn = sqlite3.connect(self.db_path)
@@ -2962,10 +2997,13 @@ class ClusterManifest:
 
 
 _cluster_manifest: ClusterManifest | None = None
+_cluster_manifest_lock = threading.Lock()
 
 
 def get_cluster_manifest(auto_subscribe: bool = True) -> ClusterManifest:
     """Get the singleton ClusterManifest instance.
+
+    Thread-safe with double-checked locking pattern.
 
     Args:
         auto_subscribe: If True (default), automatically subscribe to
@@ -2976,12 +3014,24 @@ def get_cluster_manifest(auto_subscribe: bool = True) -> ClusterManifest:
         The singleton ClusterManifest instance.
     """
     global _cluster_manifest
-    if _cluster_manifest is None:
-        _cluster_manifest = ClusterManifest()
-        if auto_subscribe:
-            # Subscribe to real-time events for immediate manifest updates
-            # This reduces lag from 5 minutes (gossip) to near-real-time
-            _cluster_manifest.subscribe_to_events()
+
+    # Fast path: already initialized
+    if _cluster_manifest is not None:
+        return _cluster_manifest
+
+    # Slow path: need to create (with lock)
+    with _cluster_manifest_lock:
+        # Double-check after acquiring lock
+        if _cluster_manifest is None:
+            _cluster_manifest = ClusterManifest()
+            if auto_subscribe:
+                try:
+                    # Subscribe to real-time events for immediate manifest updates
+                    # This reduces lag from 5 minutes (gossip) to near-real-time
+                    _cluster_manifest.subscribe_to_events()
+                except Exception as e:
+                    logger.warning(f"[ClusterManifest] Event subscription deferred: {e}")
+
     return _cluster_manifest
 
 
