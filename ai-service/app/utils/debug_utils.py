@@ -537,7 +537,7 @@ class GameReplayDebugger:
                     "index": i,
                     "status": "ok",
                     "move_type": move_type_str,
-                    "phase": state.current_phase.value,
+                    "phase": state.current_phase.value if hasattr(state.current_phase, "value") else str(state.current_phase),
                     "player": state.current_player,
                 })
             else:
@@ -562,7 +562,7 @@ class GameReplayDebugger:
                     "expected_from": str(from_pos),
                     "expected_to": str(to_pos),
                     "valid_count": len(valid),
-                    "phase": state.current_phase.value,
+                    "phase": state.current_phase.value if hasattr(state.current_phase, "value") else str(state.current_phase),
                     "player": state.current_player,
                 })
         

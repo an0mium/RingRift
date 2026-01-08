@@ -343,7 +343,7 @@ def serialize_game_state(state: GameState) -> dict[str, Any]:
         "board": serialize_board_state(state.board),
         "players": [serialize_player(p) for p in state.players],
         "currentPlayer": state.current_player,
-        "currentPhase": state.current_phase.value,
+        "currentPhase": state.current_phase.value if hasattr(state.current_phase, "value") else str(state.current_phase),
         "turnNumber": len(state.move_history) + 1,
         "moveHistory": [serialize_move(m) for m in state.move_history],
         "gameStatus": state.game_status.value,

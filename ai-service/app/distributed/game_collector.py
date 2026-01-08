@@ -121,8 +121,8 @@ class InMemoryGameCollector:
                 entry = HistoryEntry(
                     move_number=i,
                     player=move.player,
-                    phase_before=prev_state.current_phase.value,
-                    phase_after=state_after.current_phase.value,
+                    phase_before=prev_state.current_phase.value if hasattr(prev_state.current_phase, "value") else str(prev_state.current_phase),
+                    phase_after=state_after.current_phase.value if hasattr(state_after.current_phase, "value") else str(state_after.current_phase),
                     status_before=prev_state.game_status.value,
                     status_after=state_after.game_status.value,
                     state_before=prev_state,

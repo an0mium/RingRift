@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shlex
 import socket
 import subprocess
 import time
@@ -293,8 +294,9 @@ class OWCImportDaemon(HandlerBase, ImportDaemonMixin):
             return owc_path.exists() and owc_path.is_dir()
 
         # Check via SSH
+        # Jan 2026: Use shlex.quote() for proper path escaping
         success, output = await self._run_command(
-            f"ls -d '{self.config.owc_base_path}' 2>/dev/null"
+            f"ls -d {shlex.quote(self.config.owc_base_path)} 2>/dev/null"
         )
         return success
 
@@ -304,9 +306,11 @@ class OWCImportDaemon(HandlerBase, ImportDaemonMixin):
         Dec 30, 2025: Added to replace hardcoded OWC_SOURCE_DATABASES list.
         Searches for .db files in common locations on the OWC drive.
         Falls back to static list if discovery fails.
+        Jan 2026: Use shlex.quote() for proper path escaping.
         """
+        quoted_path = shlex.quote(self.config.owc_base_path)
         find_cmd = (
-            f"find '{self.config.owc_base_path}' "
+            f"find {quoted_path} "
             f"\\( -path '*/selfplay_repository/*' -o -path '*/training_data/*' -o -path '*/data/games/*' \\) "
             f"-name '*.db' -type f 2>/dev/null"
         )

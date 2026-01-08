@@ -199,7 +199,7 @@ class BookkeepingMoveHandlerMixin:
                 "Phase/move invariant violation in bookkeeping loop: %s. "
                 "State: phase=%s, player=%s, move_type=%s",
                 str(e),
-                self._state.current_phase.value,
+                self._state.current_phase.value if hasattr(self._state.current_phase, "value") else str(self._state.current_phase),
                 self._state.current_player,
                 auto_move.type.value,
             )

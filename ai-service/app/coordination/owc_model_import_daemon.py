@@ -29,6 +29,7 @@ import asyncio
 import logging
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -336,7 +337,7 @@ class OWCModelImportDaemon(HandlerBase, ImportDaemonMixin):
             return owc_path.exists() and owc_path.is_dir()
 
         success, _ = await self._run_command(
-            f"ls -d '{self._daemon_config.owc_base_path}' 2>/dev/null"
+            f"ls -d {shlex.quote(self._daemon_config.owc_base_path)} 2>/dev/null"
         )
         return success
 
@@ -351,7 +352,7 @@ class OWCModelImportDaemon(HandlerBase, ImportDaemonMixin):
 
         # Build find command for all model directories
         search_paths = " ".join(
-            f"'{base_path}/{p}'" for p in OWC_MODEL_PATHS
+            shlex.quote(f"{base_path}/{p}") for p in OWC_MODEL_PATHS
         )
 
         # Find all .pth files with size info
@@ -471,17 +472,19 @@ class OWCModelImportDaemon(HandlerBase, ImportDaemonMixin):
                 await asyncio.to_thread(shutil.copy2, source_path, local_path)
             else:
                 # Remote mode: rsync
-                rsync_cmd = (
-                    f"rsync -az --progress "
-                    f"-e 'ssh -i {self._daemon_config.owc_ssh_key} -o StrictHostKeyChecking=no' "
-                    f"'{self._daemon_config.owc_user}@{self._daemon_config.owc_host}:{source_path}' "
-                    f"'{local_path}'"
-                )
+                rsync_cmd = [
+                    "rsync",
+                    "-az",
+                    "--progress",
+                    "-e",
+                    f"ssh -i {self._daemon_config.owc_ssh_key} -o StrictHostKeyChecking=no",
+                    f"{self._daemon_config.owc_user}@{self._daemon_config.owc_host}:{source_path}",
+                    str(local_path),
+                ]
 
                 result = await asyncio.to_thread(
                     subprocess.run,
                     rsync_cmd,
-                    shell=True,
                     capture_output=True,
                     timeout=self._daemon_config.rsync_timeout,
                 )

@@ -3512,7 +3512,7 @@ class NeuralNetAI(BaseAI):
             str(self.device),
             effective_model_path,
             checkpoint_signature,
-            board_type.value if board_type else "unknown",
+            (board_type.value if hasattr(board_type, "value") else str(board_type)) if board_type else "unknown",
         )
 
         if cache_key in _MODEL_CACHE:
@@ -5849,13 +5849,24 @@ class NeuralNetAI(BaseAI):
             "territory_processing",
         ]
         try:
-            phase_idx = phases.index(game_state.current_phase.value)
+            phase_value = (
+                game_state.current_phase.value
+                if hasattr(game_state.current_phase, "value")
+                else str(game_state.current_phase)
+            )
+            phase_idx = phases.index(phase_value)
             globals[phase_idx] = 1.0
         except ValueError:
             pass
         # Extra phase flags (reserved slots) for chain capture / forced elimination.
-        globals[10] = 1.0 if game_state.current_phase == GamePhase.CHAIN_CAPTURE else 0.0
-        globals[11] = 1.0 if game_state.current_phase == GamePhase.FORCED_ELIMINATION else 0.0
+        # Handle both enum and string phase values
+        phase_str = (
+            game_state.current_phase.value
+            if hasattr(game_state.current_phase, "value")
+            else str(game_state.current_phase)
+        )
+        globals[10] = 1.0 if phase_str == "chain_capture" else 0.0
+        globals[11] = 1.0 if phase_str == "forced_elimination" else 0.0
 
         # Rings info (current-player perspective, plus a single "threat opponent"
         # for multi-player Paranoid reductions).

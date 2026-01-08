@@ -66,6 +66,8 @@ class SelfplayVelocityMixin:
             "ELO_VELOCITY_CHANGED": self._on_elo_velocity_changed,
             "ELO_UPDATED": self._on_elo_updated,
             "EXPLORATION_BOOST": self._on_exploration_boost,
+            # Jan 7, 2026: Quality-driven exploration adjustment (different from anomaly-driven EXPLORATION_BOOST)
+            "EXPLORATION_ADJUSTED": self._on_exploration_adjusted,
             "CURRICULUM_ADVANCED": self._on_curriculum_advanced,
             "ADAPTIVE_PARAMS_CHANGED": self._on_adaptive_params_changed,
             "ARCHITECTURE_WEIGHTS_UPDATED": self._on_architecture_weights_updated,
@@ -380,6 +382,104 @@ class SelfplayVelocityMixin:
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling exploration boost: {e}")
+
+    def _on_exploration_adjusted(self, event: Any) -> None:
+        """Handle EXPLORATION_ADJUSTED event - quality-driven exploration adjustment.
+
+        Jan 7, 2026: React to EXPLORATION_ADJUSTED events emitted by
+        FeedbackLoopController when data quality changes warrant exploration changes.
+
+        This closes the feedback loop:
+        Quality Score → EXPLORATION_ADJUSTED → Adjusted selfplay parameters → Better data
+
+        Unlike EXPLORATION_BOOST (anomaly-driven, temporary), EXPLORATION_ADJUSTED
+        provides continuous quality-based tuning of:
+        - Position difficulty (harder vs normal positions)
+        - MCTS budget multiplier (more simulations for low quality)
+        - Exploration temperature boost (more randomness when quality declining)
+
+        Payload fields:
+        - config_key: Configuration key (e.g., "hex8_2p")
+        - quality_score: Current data quality score (0-1)
+        - trend: Quality trend ("improving", "declining", "stable")
+        - position_difficulty: Suggested difficulty ("harder", "normal")
+        - mcts_budget_multiplier: MCTS budget multiplier (1.0 = normal, 1.5 = 50% more)
+        - exploration_temp_boost: Temperature boost factor (0.0 = none, 0.2 = +20%)
+        """
+        try:
+            payload = event.payload if hasattr(event, "payload") else event
+            config_key = extract_config_key(payload)
+            quality_score = payload.get("quality_score", 0.5)
+            trend = payload.get("trend", "stable")
+            position_difficulty = payload.get("position_difficulty", "normal")
+            mcts_budget_multiplier = payload.get("mcts_budget_multiplier", 1.0)
+            exploration_temp_boost = payload.get("exploration_temp_boost", 0.0)
+
+            if config_key not in self._config_priorities:
+                logger.debug(
+                    f"[SelfplayScheduler] Received exploration adjustment for unknown config: {config_key}"
+                )
+                return
+
+            priority = self._config_priorities[config_key]
+            old_boost = priority.exploration_boost
+
+            # Apply quality-based exploration adjustments
+            # Low quality → increase exploration, high quality → standard exploration
+            if quality_score < 0.4:
+                # Low quality: boost exploration significantly
+                new_boost = max(old_boost, 1.0 + exploration_temp_boost + 0.2)
+            elif quality_score < 0.6:
+                # Below average: moderate boost
+                new_boost = max(old_boost, 1.0 + exploration_temp_boost)
+            elif trend == "declining":
+                # Quality declining but still above threshold: apply the requested boost
+                new_boost = max(old_boost, 1.0 + exploration_temp_boost)
+            else:
+                # Good quality, stable/improving: minimal boost from quality signal
+                # Don't reduce existing boosts (they may be from anomaly detection)
+                new_boost = max(old_boost, 1.0 + exploration_temp_boost * 0.5)
+
+            # Update priority with new exploration boost
+            if new_boost > old_boost:
+                priority.exploration_boost = new_boost
+                # Set a decay period (quality adjustments decay over 30 minutes)
+                decay_duration = float(os.environ.get("RINGRIFT_QUALITY_EXPLORATION_DECAY", "1800"))
+                priority.exploration_boost_expires_at = time.time() + decay_duration
+
+            # Track MCTS budget adjustment separately if we have that capability
+            if hasattr(priority, "mcts_budget_multiplier"):
+                priority.mcts_budget_multiplier = mcts_budget_multiplier
+
+            # Track position difficulty preference
+            if hasattr(priority, "position_difficulty"):
+                priority.position_difficulty = position_difficulty
+
+            logger.info(
+                f"[SelfplayScheduler] EXPLORATION_ADJUSTED for {config_key}: "
+                f"quality={quality_score:.2f}, trend={trend}, difficulty={position_difficulty}, "
+                f"mcts_mult={mcts_budget_multiplier:.1f}, exploration={old_boost:.2f}→{priority.exploration_boost:.2f}"
+            )
+
+            # Emit SELFPLAY_TARGET_UPDATED to propagate changes downstream
+            if priority.exploration_boost > old_boost:
+                try:
+                    from app.coordination.event_router import DataEventType, get_event_bus
+
+                    bus = get_event_bus()
+                    if bus:
+                        bus.emit(DataEventType.SELFPLAY_TARGET_UPDATED, {
+                            "config_key": config_key,
+                            "priority": "high" if quality_score < 0.5 else "normal",
+                            "reason": f"quality_exploration:{trend}",
+                            "exploration_boost": priority.exploration_boost,
+                            "quality_score": quality_score,
+                        })
+                except Exception as emit_err:
+                    logger.debug(f"[SelfplayScheduler] Failed to emit target update: {emit_err}")
+
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error handling exploration adjusted: {e}")
 
     def _on_curriculum_advanced(self, event: Any) -> None:
         """Handle CURRICULUM_ADVANCED event - curriculum stage progressed.

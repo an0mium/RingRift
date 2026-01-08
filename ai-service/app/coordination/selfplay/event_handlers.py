@@ -195,6 +195,8 @@ EVENT_HANDLERS: dict[str, str] = {
     "ELO_VELOCITY_CHANGED": "_on_elo_velocity_changed",
     "ELO_UPDATED": "_on_elo_updated",
     "EXPLORATION_BOOST": "_on_exploration_boost",
+    # Jan 7, 2026: Quality-driven exploration adjustment
+    "EXPLORATION_ADJUSTED": "_on_exploration_adjusted",
     "CURRICULUM_ADVANCED": "_on_curriculum_advanced",
     "ADAPTIVE_PARAMS_CHANGED": "_on_adaptive_params_changed",
     "PROGRESS_STALL_DETECTED": "_on_progress_stall",

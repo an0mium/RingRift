@@ -2246,6 +2246,8 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
             ("TRAINING_EARLY_STOPPED", self._on_training_early_stopped),
             ("ELO_VELOCITY_CHANGED", self._on_elo_velocity_changed),
             ("EXPLORATION_BOOST", self._on_exploration_boost),
+            # Jan 7, 2026: Quality-driven exploration adjustment
+            ("EXPLORATION_ADJUSTED", self._on_exploration_adjusted),
             ("CURRICULUM_ADVANCED", self._on_curriculum_advanced),
             ("ADAPTIVE_PARAMS_CHANGED", self._on_adaptive_params_changed),
             ("LOW_QUALITY_DATA_WARNING", self._on_low_quality_warning),
@@ -2353,6 +2355,9 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
                 _safe_subscribe(DataEventType.ELO_VELOCITY_CHANGED, self._on_elo_velocity_changed, "ELO_VELOCITY_CHANGED")
             if hasattr(DataEventType, 'EXPLORATION_BOOST'):
                 _safe_subscribe(DataEventType.EXPLORATION_BOOST, self._on_exploration_boost, "EXPLORATION_BOOST")
+            # Jan 7, 2026: Subscribe to EXPLORATION_ADJUSTED for quality-driven exploration
+            if hasattr(DataEventType, 'EXPLORATION_ADJUSTED'):
+                _safe_subscribe(DataEventType.EXPLORATION_ADJUSTED, self._on_exploration_adjusted, "EXPLORATION_ADJUSTED")
             # Dec 2025: Subscribe to CURRICULUM_ADVANCED for curriculum progression
             if hasattr(DataEventType, 'CURRICULUM_ADVANCED'):
                 _safe_subscribe(DataEventType.CURRICULUM_ADVANCED, self._on_curriculum_advanced, "CURRICULUM_ADVANCED")

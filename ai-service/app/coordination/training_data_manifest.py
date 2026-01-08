@@ -39,6 +39,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -354,11 +355,10 @@ class TrainingDataManifest:
         if entry.source == DataSource.S3:
             try:
                 logger.info(f"Downloading from S3: {entry.path}")
-                cmd = f"aws s3 cp '{entry.path}' '{local_path}'"
+                cmd = ["aws", "s3", "cp", entry.path, str(local_path)]
                 result = await asyncio.to_thread(
                     subprocess.run,
                     cmd,
-                    shell=True,
                     capture_output=True,
                     text=True,
                     timeout=600,  # 10 minute timeout
@@ -517,7 +517,6 @@ class TrainingDataManifest:
 
         # Check connectivity to mac-studio
         ssh_key_path = Path(OWC_SSH_KEY).expanduser()
-        ssh_opts = f"-i {ssh_key_path} -o ConnectTimeout=10 -o BatchMode=yes"
 
         # Directories to scan on OWC
         owc_dirs = [
@@ -528,11 +527,19 @@ class TrainingDataManifest:
 
         for owc_dir in owc_dirs:
             full_path = f"{OWC_BASE_PATH}/{owc_dir}"
-            cmd = (
-                f"ssh {ssh_opts} {OWC_USER}@{OWC_HOST} "
-                f"'find {full_path} -name \"*.npz\" -type f "
-                f"-exec stat -f \"%N %z %m\" {{}} \\; 2>/dev/null'"
+            # Remote shell command runs on the OWC host
+            remote_cmd = (
+                f"find {shlex.quote(full_path)} -name '*.npz' -type f "
+                f"-exec stat -f '%N %z %m' {{}} \\; 2>/dev/null"
             )
+            cmd = [
+                "ssh",
+                "-i", str(ssh_key_path),
+                "-o", "ConnectTimeout=10",
+                "-o", "BatchMode=yes",
+                f"{OWC_USER}@{OWC_HOST}",
+                remote_cmd,
+            ]
 
             try:
                 # December 30, 2025: Wrap subprocess.run in asyncio.to_thread()
@@ -540,7 +547,6 @@ class TrainingDataManifest:
                 def _run_owc_scan() -> subprocess.CompletedProcess[str]:
                     return subprocess.run(
                         cmd,
-                        shell=True,
                         capture_output=True,
                         text=True,
                         timeout=60,
@@ -594,10 +600,11 @@ class TrainingDataManifest:
         """Refresh entries from S3 bucket."""
         count = 0
 
-        cmd = (
-            f"aws s3 ls s3://{S3_BUCKET}/{S3_TRAINING_PREFIX} "
-            "--recursive 2>/dev/null"
-        )
+        cmd = [
+            "aws", "s3", "ls",
+            f"s3://{S3_BUCKET}/{S3_TRAINING_PREFIX}",
+            "--recursive",
+        ]
 
         try:
             # December 30, 2025: Wrap subprocess.run in asyncio.to_thread()
@@ -605,7 +612,6 @@ class TrainingDataManifest:
             def _run_s3_scan() -> subprocess.CompletedProcess[str]:
                 return subprocess.run(
                     cmd,
-                    shell=True,
                     capture_output=True,
                     text=True,
                     timeout=60,
