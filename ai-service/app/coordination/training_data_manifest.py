@@ -694,9 +694,12 @@ class TrainingDataManifest:
                     for config, entries in self.entries.items()
                 },
             }
-            MANIFEST_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            with open(MANIFEST_CACHE_PATH, "w") as f:
-                json.dump(data, f, indent=2)
+            def _write_cache() -> None:
+                MANIFEST_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                with open(MANIFEST_CACHE_PATH, "w") as f:
+                    json.dump(data, f, indent=2)
+
+            await asyncio.to_thread(_write_cache)
             logger.debug(f"Saved manifest cache to {MANIFEST_CACHE_PATH}")
         except (OSError, IOError, PermissionError, TypeError) as e:
             # File write failures or JSON serialization issues
@@ -708,8 +711,11 @@ class TrainingDataManifest:
             if not MANIFEST_CACHE_PATH.exists():
                 return False
 
-            with open(MANIFEST_CACHE_PATH) as f:
-                data = json.load(f)
+            def _read_cache() -> dict:
+                with open(MANIFEST_CACHE_PATH) as f:
+                    return json.load(f)
+
+            data = await asyncio.to_thread(_read_cache)
 
             self.last_refresh = (
                 datetime.fromisoformat(data["last_refresh"])

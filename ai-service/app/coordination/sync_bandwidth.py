@@ -1168,11 +1168,13 @@ class BandwidthCoordinatedRsync:
 
         remote_target, remote_path = dest.rsplit(":", 1)
 
-        # Read and encode file
-        with open(source_path, "rb") as f:
-            file_data = f.read()
-        encoded_data = base64.b64encode(file_data).decode("ascii")
-        file_size = len(file_data)
+        # Read and encode file (wrapped to avoid blocking event loop)
+        def _read_and_encode() -> tuple[str, int]:
+            with open(source_path, "rb") as f:
+                data = f.read()
+            return base64.b64encode(data).decode("ascii"), len(data)
+
+        encoded_data, file_size = await asyncio.to_thread(_read_and_encode)
 
         # Get host config for SSH options
         try:
@@ -1312,12 +1314,14 @@ class BandwidthCoordinatedRsync:
                 duration_seconds=duration,
             )
 
-        # Create parent directory and write file
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest_path, "wb") as f:
-            f.write(file_data)
+        # Create parent directory and write file (wrapped to avoid blocking event loop)
+        def _write_file() -> int:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(dest_path, "wb") as f:
+                f.write(file_data)
+            return len(file_data)
 
-        file_size = len(file_data)
+        file_size = await asyncio.to_thread(_write_file)
 
         return SyncResult(
             success=True,
@@ -1496,26 +1500,36 @@ class BandwidthCoordinatedRsync:
                 duration_seconds=time.time() - start_time,
             )
 
-        # Download via HTTP
-        try:
-            req = urllib.request.Request(url)
-            req.add_header("User-Agent", "RingRift-SyncBandwidth/1.0")
+        # Download via HTTP (wrapped to avoid blocking event loop)
+        def _http_download() -> tuple[bool, int | None, str | None]:
+            """Blocking HTTP download - runs in thread pool."""
+            try:
+                req = urllib.request.Request(url)
+                req.add_header("User-Agent", "RingRift-SyncBandwidth/1.0")
 
-            with urllib.request.urlopen(req, timeout=300) as response:
-                # Create parent directory
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                with urllib.request.urlopen(req, timeout=300) as response:
+                    # Create parent directory
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # Stream to file
-                with open(dest_path, "wb") as f:
-                    while True:
-                        chunk = response.read(65536)  # 64KB chunks
-                        if not chunk:
-                            break
-                        f.write(chunk)
+                    # Stream to file
+                    with open(dest_path, "wb") as f:
+                        while True:
+                            chunk = response.read(65536)  # 64KB chunks
+                            if not chunk:
+                                break
+                            f.write(chunk)
 
-            file_size = dest_path.stat().st_size
-            duration = time.time() - start_time
+                return (True, dest_path.stat().st_size, None)
 
+            except urllib.error.HTTPError as e:
+                return (False, None, f"HTTP {e.code}: {e.reason} for {url}")
+            except urllib.error.URLError as e:
+                return (False, None, f"HTTP connection error: {e.reason}")
+
+        success, file_size, error = await asyncio.to_thread(_http_download)
+        duration = time.time() - start_time
+
+        if success and file_size is not None:
             return SyncResult(
                 success=True,
                 source=source,
@@ -1525,24 +1539,14 @@ class BandwidthCoordinatedRsync:
                 duration_seconds=duration,
                 effective_rate_kbps=file_size / 1024 / duration if duration > 0 else 0,
             )
-
-        except urllib.error.HTTPError as e:
+        else:
             return SyncResult(
                 success=False,
                 source=source,
                 dest=dest,
                 host=host,
-                error=f"HTTP {e.code}: {e.reason} for {url}",
-                duration_seconds=time.time() - start_time,
-            )
-        except urllib.error.URLError as e:
-            return SyncResult(
-                success=False,
-                source=source,
-                dest=dest,
-                host=host,
-                error=f"HTTP connection error: {e.reason}",
-                duration_seconds=time.time() - start_time,
+                error=error,
+                duration_seconds=duration,
             )
 
 

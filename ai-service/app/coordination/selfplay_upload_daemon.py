@@ -47,6 +47,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import shlex
 import shutil
 import socket
 import sqlite3
@@ -525,28 +526,26 @@ class SelfplayUploadDaemon(HandlerBase):
     def _get_database_info_sync(self, db_path: Path) -> dict[str, Any] | None:
         """Synchronous database info retrieval."""
         try:
-            conn = sqlite3.connect(str(db_path), timeout=10)
-            cursor = conn.cursor()
+            with sqlite3.connect(str(db_path), timeout=10) as conn:
+                cursor = conn.cursor()
 
-            # Get game count
-            cursor.execute(
-                "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL"
-            )
-            game_count = cursor.fetchone()[0]
+                # Get game count
+                cursor.execute(
+                    "SELECT COUNT(*) FROM games WHERE winner IS NOT NULL"
+                )
+                game_count = cursor.fetchone()[0]
 
-            # Get config key from most recent game
-            cursor.execute(
-                """SELECT board_type, num_players FROM games
-                   WHERE winner IS NOT NULL
-                   ORDER BY created_at DESC LIMIT 1"""
-            )
-            row = cursor.fetchone()
-            if row:
-                config_key = f"{row[0]}_{row[1]}p"
-            else:
-                config_key = "unknown"
-
-            conn.close()
+                # Get config key from most recent game
+                cursor.execute(
+                    """SELECT board_type, num_players FROM games
+                       WHERE winner IS NOT NULL
+                       ORDER BY created_at DESC LIMIT 1"""
+                )
+                row = cursor.fetchone()
+                if row:
+                    config_key = f"{row[0]}_{row[1]}p"
+                else:
+                    config_key = "unknown"
 
             # Calculate checksum
             checksum = self._calculate_checksum(db_path)
@@ -739,16 +738,19 @@ class SelfplayUploadDaemon(HandlerBase):
             dest_path = f"{self._upload_config.owc_user}@{self._upload_config.owc_host}:{dest_dir}/"
 
             # Ensure destination directory exists
-            mkdir_cmd = (
-                f"ssh -i {ssh_key_path} -o ConnectTimeout={self._upload_config.ssh_timeout} "
-                f"-o BatchMode=yes {self._upload_config.owc_user}@{self._upload_config.owc_host} "
-                f"'mkdir -p {dest_dir}'"
-            )
+            # Jan 2026: Use command list instead of shell=True for security
+            mkdir_cmd = [
+                "ssh",
+                "-i", str(ssh_key_path),
+                "-o", f"ConnectTimeout={self._upload_config.ssh_timeout}",
+                "-o", "BatchMode=yes",
+                f"{self._upload_config.owc_user}@{self._upload_config.owc_host}",
+                f"mkdir -p {shlex.quote(dest_dir)}",
+            ]
 
             mkdir_result = await asyncio.to_thread(
                 subprocess.run,
                 mkdir_cmd,
-                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -852,8 +854,11 @@ class SelfplayUploadDaemon(HandlerBase):
                 "saved_at": time.time(),
             }
 
-            with open(self._state_path, "w") as f:
-                json.dump(state, f, indent=2)
+            def _write_state() -> None:
+                with open(self._state_path, "w") as f:
+                    json.dump(state, f, indent=2)
+
+            await asyncio.to_thread(_write_state)
 
             logger.debug(f"[SelfplayUploadDaemon] State saved to {self._state_path}")
 
@@ -868,8 +873,11 @@ class SelfplayUploadDaemon(HandlerBase):
             if not self._state_path.exists():
                 return
 
-            with open(self._state_path) as f:
-                state = json.load(f)
+            def _read_state() -> dict:
+                with open(self._state_path) as f:
+                    return json.load(f)
+
+            state = await asyncio.to_thread(_read_state)
 
             self._uploaded_files = set(state.get("uploaded_files", []))
 

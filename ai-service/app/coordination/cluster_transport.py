@@ -708,11 +708,15 @@ class ClusterTransport:
             )
 
             if proc.returncode == 0:
-                # Decode and write locally
+                # Decode and write locally (wrapped to avoid blocking event loop)
                 file_data = base64.b64decode(stdout)
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-                with open(local_path, "wb") as f:
-                    f.write(file_data)
+
+                def _write_file() -> None:
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(local_path, "wb") as f:
+                        f.write(file_data)
+
+                await asyncio.to_thread(_write_file)
 
                 return TransportResult(
                     success=True,
@@ -832,13 +836,20 @@ class ClusterTransport:
                             error=f"HTTP {resp.status}: {error_text[:100]}",
                         )
 
-                    # Stream download to file
-                    local_path.parent.mkdir(parents=True, exist_ok=True)
-                    bytes_downloaded = 0
-                    with open(local_path, "wb") as f:
-                        async for chunk in resp.content.iter_chunked(1024 * 1024):
-                            f.write(chunk)
-                            bytes_downloaded += len(chunk)
+                    # Buffer download, then write to file in thread pool
+                    # (avoids blocking event loop during file write)
+                    chunks: list[bytes] = []
+                    async for chunk in resp.content.iter_chunked(1024 * 1024):
+                        chunks.append(chunk)
+                    file_data = b"".join(chunks)
+                    bytes_downloaded = len(file_data)
+
+                    def _write_downloaded_file() -> None:
+                        local_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(local_path, "wb") as f:
+                            f.write(file_data)
+
+                    await asyncio.to_thread(_write_downloaded_file)
 
                     logger.info(
                         f"HTTP download complete: {url} -> {local_path} "

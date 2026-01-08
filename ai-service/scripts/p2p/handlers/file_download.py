@@ -263,19 +263,25 @@ class FileDownloadHandler:
         file_path: Path = result  # type: ignore
         stat = file_path.stat()
 
-        # Compute checksum for verification
+        # Compute checksum for verification (wrapped to avoid blocking event loop)
         import hashlib
-        sha256 = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                sha256.update(chunk)
+        import asyncio
+
+        def _compute_sha256() -> str:
+            sha = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    sha.update(chunk)
+            return sha.hexdigest()
+
+        checksum = await asyncio.to_thread(_compute_sha256)
 
         return self._json_response({
             "path": rel_path,
             "type": file_type,
             "size": stat.st_size,
             "modified": stat.st_mtime,
-            "sha256": sha256.hexdigest(),
+            "sha256": checksum,
             "url": f"/files/{file_type}s/{rel_path}",
         })
 
