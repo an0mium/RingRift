@@ -700,6 +700,113 @@ class LeaderProbeLoop(BaseLoop):
         # Reset failure counter after triggering election
         self._consecutive_failures = 0
 
+        # Phase 1.2 (Jan 7, 2026): Verify elected leader has consensus
+        # Schedule consensus verification after election settles
+        asyncio.create_task(self._verify_elected_leader_after_delay(3.0))
+
+    async def _verify_elected_leader_after_delay(self, delay: float) -> None:
+        """Wait for election to settle, then verify consensus.
+
+        Jan 7, 2026 - Phase 1.2 P2P Stability: After triggering an election,
+        wait for it to settle and then verify the new leader has quorum support.
+
+        Args:
+            delay: Seconds to wait before verification (allows election to complete)
+        """
+        await asyncio.sleep(delay)
+        new_leader = self._get_leader_id()
+        if not new_leader:
+            logger.warning("[LeaderProbe] No leader after election - cannot verify consensus")
+            return
+
+        has_consensus = await self._verify_elected_leader_consensus()
+        if has_consensus:
+            logger.info(f"[LeaderProbe] Leader {new_leader} verified with voter consensus")
+        else:
+            logger.warning(
+                f"[LeaderProbe] Leader {new_leader} does NOT have voter consensus - "
+                f"may indicate ongoing split-brain"
+            )
+            self._emit_event("LEADER_CONSENSUS_FAILED", {
+                "leader_id": new_leader,
+                "reason": "insufficient_voter_agreement",
+            })
+
+    async def _verify_elected_leader_consensus(self) -> bool:
+        """Verify 3+ voters agree on the current leader.
+
+        Jan 7, 2026 - Phase 1.2 P2P Stability: After split-brain detection triggers
+        election, verify that the new leader has quorum support. This prevents
+        accepting a leader that only a minority of voters recognize.
+
+        Returns:
+            True if 3+ voters agree on current leader, False otherwise
+        """
+        current_leader = self._get_leader_id()
+        if not current_leader:
+            return False
+
+        voter_ids = self._get_voter_ids()
+        if not voter_ids:
+            # No voter list available - assume consensus
+            logger.debug("[LeaderProbe] No voter list available for consensus check")
+            return True
+
+        # Probe up to 5 voters to check their view of the leader
+        agreed_voters = 0
+        probed_voters = 0
+
+        for voter_id in voter_ids[:5]:
+            # Skip ourselves
+            node_id = getattr(self._orchestrator, "node_id", None)
+            if voter_id == node_id:
+                # We agree with ourselves by definition
+                agreed_voters += 1
+                probed_voters += 1
+                continue
+
+            voter_leader = await self._probe_voter_for_leader(voter_id)
+            if voter_leader is None:
+                # Couldn't reach voter - don't count
+                continue
+
+            probed_voters += 1
+            if voter_leader == current_leader:
+                agreed_voters += 1
+
+        logger.info(
+            f"[LeaderProbe] Consensus check: {agreed_voters}/{probed_voters} voters "
+            f"agree on leader {current_leader}"
+        )
+
+        # Require 3+ voters to agree
+        return agreed_voters >= 3
+
+    def _get_voter_ids(self) -> list[str]:
+        """Get list of voter node IDs from orchestrator.
+
+        Returns:
+            List of voter node IDs
+        """
+        try:
+            return getattr(self._orchestrator, "voter_node_ids", []) or []
+        except Exception:
+            return []
+
+    async def _probe_voter_for_leader(self, voter_id: str) -> str | None:
+        """Probe a voter to get their view of who the leader is.
+
+        Args:
+            voter_id: Voter node ID to probe
+
+        Returns:
+            Leader ID that the voter believes is leader, or None if unreachable
+        """
+        status = await self._get_node_status(voter_id)
+        if status is None:
+            return None
+        return status.get("leader_id")
+
     def _emit_event(self, event_type: str, payload: dict[str, Any]) -> None:
         """Emit an event for observability.
 

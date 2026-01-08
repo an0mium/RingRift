@@ -187,6 +187,10 @@ class BaseLoop(ABC):
         self._task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
 
+        # State synchronization lock (Jan 2026 - Phase 1.1 P2P Stability)
+        # Protects _running flag and _stats from concurrent modification
+        self._state_lock = asyncio.Lock()
+
         # Statistics
         self._stats = LoopStats(name=name)
 
@@ -360,24 +364,37 @@ class BaseLoop(ABC):
     async def stop_async(self, timeout: float = 10.0) -> bool:
         """Request graceful shutdown and wait for loop to stop.
 
+        Jan 2026: Added state lock to prevent race conditions during shutdown.
+
         Args:
             timeout: Maximum time to wait for shutdown in seconds
 
         Returns:
             True if loop stopped within timeout, False otherwise
         """
-        self.stop()
-        if self._task is not None:
+        async with self._state_lock:
+            self.stop()
+            task = self._task
+
+        if task is not None:
             try:
-                await asyncio.wait_for(self._task, timeout=timeout)
+                await asyncio.wait_for(task, timeout=timeout)
                 return True
             except asyncio.TimeoutError:
                 logger.warning(f"[{self.name}] Stop timed out after {timeout}s")
+                # Phase 1.3: Explicitly cancel task after timeout to prevent leak
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=1.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    pass
                 return False
         return True
 
     def start_background(self) -> asyncio.Task:
         """Start the loop as a background task.
+
+        Note: For race-safe startup from async code, use start_background_async().
 
         Returns:
             The asyncio.Task running the loop
@@ -392,9 +409,75 @@ class BaseLoop(ABC):
         )
         return self._task
 
+    async def start_background_async(self, timeout: float = 5.0) -> asyncio.Task | None:
+        """Start the loop as a background task with state lock protection.
+
+        Jan 2026: Added for Phase 1.1 P2P Stability - prevents race conditions
+        when starting loops from async code.
+
+        Args:
+            timeout: Maximum time to wait for loop to start running (Phase 1.5)
+
+        Returns:
+            The asyncio.Task running the loop, or None if startup failed
+        """
+        async with self._state_lock:
+            if self._task is not None and not self._task.done():
+                logger.warning(f"[{self.name}] Background task already running")
+                return self._task
+
+            self._task = asyncio.create_task(
+                self.run_forever(),
+                name=f"loop_{self.name}",
+            )
+
+        # Phase 1.5: Wait for loop to actually start with timeout protection
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if self._running:
+                return self._task
+            await asyncio.sleep(0.1)
+
+        # Timeout - loop didn't start
+        logger.error(f"[{self.name}] Loop failed to start within {timeout}s")
+        # Phase 1.4: Emit startup failure event
+        self._emit_startup_failure_event()
+        return None
+
+    def _emit_startup_failure_event(self) -> None:
+        """Emit event when loop fails to start (Phase 1.4)."""
+        try:
+            from app.coordination.event_router import emit_event
+            from app.distributed.data_events import DataEventType
+
+            emit_event(
+                DataEventType.P2P_LOOP_STARTUP_FAILED,
+                {
+                    "loop_name": self.name,
+                    "interval": self.interval,
+                    "depends_on": self.depends_on,
+                },
+            )
+        except ImportError:
+            logger.debug(f"[{self.name}] Event system not available for startup failure")
+        except Exception as e:
+            logger.warning(f"[{self.name}] Failed to emit startup failure event: {e}")
+
     def reset_stats(self) -> None:
-        """Reset loop statistics to initial values."""
+        """Reset loop statistics to initial values.
+
+        Note: This is a sync method. For race-safe reset from async code,
+        use reset_stats_async().
+        """
         self._stats = LoopStats(name=self.name)
+
+    async def reset_stats_async(self) -> None:
+        """Reset loop statistics with state lock protection.
+
+        Jan 2026: Added for Phase 1.1 P2P Stability.
+        """
+        async with self._state_lock:
+            self._stats = LoopStats(name=self.name)
 
     def get_status(self) -> dict[str, Any]:
         """Get current loop status for monitoring.
