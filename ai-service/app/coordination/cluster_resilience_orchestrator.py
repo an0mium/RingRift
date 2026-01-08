@@ -710,7 +710,7 @@ class ClusterResilienceOrchestrator(CoordinatorBase, SingletonMixin):
 
     def health_check(self) -> Any:
         """Return health check result."""
-        from app.coordination.health_check_result import HealthCheckResult
+        from app.coordination.contracts import HealthCheckResult
 
         score = self._last_score or self.get_resilience_score()
 

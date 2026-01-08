@@ -7985,7 +7985,8 @@ class P2POrchestrator(
             Dict mapping config_key -> game_count from canonical databases
         """
         game_counts: dict[str, int] = {}
-        canonical_dir = Path(self.ringrift_path) / "ai-service" / "data" / "games"
+        # Jan 7, 2026: Use _get_ai_service_path() to avoid doubled ai-service/ path
+        canonical_dir = Path(self._get_ai_service_path()) / "data" / "games"
 
         # Pattern: canonical_<board_type>_<num_players>p.db
         for db_path in canonical_dir.glob("canonical_*_*p.db"):
@@ -30089,9 +30090,9 @@ print(json.dumps({{
                 elif board_type in ("hex", "hexagonal"):
                     num_games = 300
 
+                # Jan 7, 2026: Use _get_ai_service_path() to avoid doubled ai-service/ path
                 output_dir = Path(
-                    self.ringrift_path,
-                    "ai-service",
+                    self._get_ai_service_path(),
                     "data",
                     "selfplay",
                     "p2p_hybrid",
