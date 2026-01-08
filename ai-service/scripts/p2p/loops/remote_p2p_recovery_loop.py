@@ -172,6 +172,17 @@ class RemoteP2PRecoveryStats:
         return (self.successful_runs / self.cycles_run) * 100.0
 
     @property
+    def avg_run_duration(self) -> float:
+        """Calculate average run duration in seconds.
+
+        Required by base.py:483 for performance degradation checks.
+        Jan 7, 2026: Added to fix AttributeError on _check_performance_degradation.
+        """
+        if self.successful_runs == 0:
+            return 0.0
+        return self.total_run_duration / self.successful_runs
+
+    @property
     def failed_runs(self) -> int:
         """Number of failed runs.
 

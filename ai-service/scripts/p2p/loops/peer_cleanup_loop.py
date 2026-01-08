@@ -128,6 +128,7 @@ class CleanupStats:
     cycles_run: int = 0
     consecutive_errors: int = 0  # Required by LoopManager.get_status()
     successful_runs: int = 0  # Required by LoopManager.get_status()
+    total_run_duration: float = 0.0  # Jan 7, 2026: Added for avg_run_duration calculation
 
     @property
     def total_runs(self) -> int:
@@ -146,6 +147,17 @@ class CleanupStats:
         if self.cycles_run == 0:
             return 100.0
         return (self.successful_runs / self.cycles_run) * 100.0
+
+    @property
+    def avg_run_duration(self) -> float:
+        """Calculate average run duration in seconds.
+
+        Required by base.py:483 for performance degradation checks.
+        Jan 7, 2026: Added to fix AttributeError on _check_performance_degradation.
+        """
+        if self.successful_runs == 0:
+            return 0.0
+        return self.total_run_duration / self.successful_runs
 
     def to_dict(self) -> dict:
         """Convert stats to dictionary for JSON serialization."""
