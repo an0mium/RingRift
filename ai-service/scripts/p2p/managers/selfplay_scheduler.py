@@ -974,18 +974,20 @@ class SelfplayScheduler(EventSubscriptionMixin):
     CRITICAL_THRESHOLD = 1000  # Configs below this get highest priority
     MINIMUM_ENFORCE_INTERVAL = 30.0  # Seconds between enforcement checks
 
-    # Bootstrap priority thresholds (Sprint 17.9 - Jan 2026)
+    # Bootstrap priority thresholds (Jan 7, 2026 - 48h Autonomous Operation)
     # Very aggressive priority boosts for configs with almost no games
     # These override normal priority calculation for critically underserved configs
     BOOTSTRAP_THRESHOLDS = {
-        "critical": 50,    # < 50 games = +25 priority boost
-        "low": 200,        # < 200 games = +15 priority boost
-        "medium": 500,     # < 500 games = +10 priority boost
+        "critical": 50,     # < 50 games = max boost
+        "low": 500,         # < 500 games = high boost (was 200)
+        "medium": 2000,     # < 2000 games = moderate boost (was 500)
+        "bootstrap": 5000,  # < 5000 games = minimal boost (NEW)
     }
     BOOTSTRAP_BOOSTS = {
-        "critical": 50,    # Session 17.34: Increased from 25 to 50 for data-starved configs
-        "low": 15,         # Strong boost for low-data configs
-        "medium": 10,      # Moderate boost for medium-data configs
+        "critical": 100,    # Jan 7: Increased from 50 to 100 for data-starved configs
+        "low": 75,          # Jan 7: Increased from 15 to 75 for low-data configs
+        "medium": 50,       # Jan 7: Increased from 10 to 50 for medium-data configs
+        "bootstrap": 25,    # Jan 7: NEW tier for configs approaching training threshold
     }
 
     def _get_enforced_minimum_allocation(self) -> str | None:
@@ -1102,6 +1104,8 @@ class SelfplayScheduler(EventSubscriptionMixin):
         """Get priority boost for configs with critically low game counts.
 
         Sprint 17.9 (Jan 2026): Implements bootstrap priority for underserved configs.
+        Jan 7, 2026: Updated thresholds and boosts for 48h autonomous operation.
+
         This provides very aggressive priority boosts for configs that need immediate
         data collection to enable initial training.
 
@@ -1109,11 +1113,12 @@ class SelfplayScheduler(EventSubscriptionMixin):
             config_key: Config identifier (e.g., "hex8_2p")
 
         Returns:
-            Priority boost value:
-            - 25: Critical (<50 games) - needs immediate bootstrap
-            - 15: Low (<200 games) - needs strong priority
-            - 10: Medium (<500 games) - needs moderate priority
-            - 0: Normal (>=500 games) - no bootstrap boost needed
+            Priority boost value (Jan 7, 2026 - 48h autonomous):
+            - 100: Critical (<50 games) - needs immediate bootstrap
+            - 75: Low (<500 games) - needs strong priority
+            - 50: Medium (<2000 games) - needs moderate priority
+            - 25: Bootstrap (<5000 games) - approaching training threshold
+            - 0: Normal (>=5000 games) - no bootstrap boost needed
         """
         try:
             game_counts = self._get_game_counts_per_config()
@@ -1138,6 +1143,13 @@ class SelfplayScheduler(EventSubscriptionMixin):
                 logger.debug(
                     f"[BootstrapPriority] {config_key}: {game_count} games "
                     f"(< {self.BOOTSTRAP_THRESHOLDS['medium']}) -> +{boost} medium boost"
+                )
+                return boost
+            elif game_count < self.BOOTSTRAP_THRESHOLDS["bootstrap"]:
+                boost = self.BOOTSTRAP_BOOSTS["bootstrap"]
+                logger.debug(
+                    f"[BootstrapPriority] {config_key}: {game_count} games "
+                    f"(< {self.BOOTSTRAP_THRESHOLDS['bootstrap']}) -> +{boost} bootstrap boost"
                 )
                 return boost
             else:

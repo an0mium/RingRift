@@ -62,6 +62,14 @@ except ImportError:
     URLOPEN_TIMEOUT = 10
     ELO_TARGET_ALL_CONFIGS = 2000.0
     HAS_ELO_TARGETS = False
+
+# Jan 2026: Import Wilson score for 48h autonomous operation
+try:
+    from app.training.significance import wilson_lower_bound
+    HAS_WILSON = True
+except ImportError:
+    HAS_WILSON = False
+    wilson_lower_bound = None
     get_elo_target = lambda k: 2000.0
     get_elo_gap = lambda k, e: max(0.0, 2000.0 - e)
     is_target_met = lambda k, e: e >= 2000.0
@@ -115,7 +123,9 @@ class PromotionCriteria:
     These are the canonical thresholds - sourced from unified_config.py.
     """
     min_elo_improvement: float = 25.0
-    min_games_played: int = 50
+    # Jan 2026: Increased from 50 to 100 for 48h autonomous operation
+    # Ensures statistical significance before promotion
+    min_games_played: int = 100
     min_win_rate: float = 0.52
     max_value_mse_degradation: float = 0.05
     confidence_threshold: float = 0.95
@@ -130,6 +140,10 @@ class PromotionCriteria:
     # should not be blocked by global target attainment.
     require_absolute_elo_target: bool = False
     absolute_elo_target: float = ELO_TARGET_ALL_CONFIGS  # Default: 2000.0
+
+    # Jan 2026: Wilson CI requirement for 48h autonomous operation
+    # Requires Wilson 95% CI lower bound > 50% to ensure statistical confidence
+    require_wilson_ci_above_50: bool = True
 
 
 @dataclass
@@ -456,6 +470,38 @@ class PromotionController:
             reason = f"Insufficient Elo improvement ({elo_improvement:.1f} < {self.criteria.min_elo_improvement})"
         elif win_rate is not None and win_rate < self.criteria.min_win_rate:
             reason = f"Win rate too low ({win_rate:.2%} < {self.criteria.min_win_rate:.2%})"
+        elif (
+            self.criteria.require_wilson_ci_above_50
+            and HAS_WILSON
+            and wilson_lower_bound is not None
+            and win_rate is not None
+            and games_played > 0
+        ):
+            # Jan 2026: Wilson CI check for 48h autonomous operation
+            # Require 95% CI lower bound > 50% for statistical confidence
+            wilson_ci_lower = wilson_lower_bound(
+                wins=int(win_rate * games_played),
+                total=games_played,
+                confidence=0.95,
+            )
+            if wilson_ci_lower < 0.50:
+                reason = (
+                    f"Wilson 95% CI lower bound too low ({wilson_ci_lower:.2%} < 50%). "
+                    f"Win rate {win_rate:.2%} over {games_played} games not statistically significant."
+                )
+            elif self.criteria.require_absolute_elo_target and not target_met:
+                # Wilson passed but absolute target not met
+                blocked_by_target = True
+                reason = (
+                    f"Below absolute Elo target: {current_elo or 0:.0f} < {elo_target:.0f} "
+                    f"(gap: {elo_gap_value:.0f} Elo). Wilson CI passed ({wilson_ci_lower:.2%})."
+                )
+            else:
+                should_promote = True
+                reason = (
+                    f"Meets all criteria: Elo +{elo_improvement or 0:.1f}, {games_played} games, "
+                    f"Wilson CI {wilson_ci_lower:.2%} >= 50%"
+                )
         elif self.criteria.require_absolute_elo_target and not target_met:
             # Model meets relative criteria but not absolute target
             blocked_by_target = True

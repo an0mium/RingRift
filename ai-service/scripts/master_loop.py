@@ -1223,6 +1223,9 @@ class MasterLoopController:
             # January 5, 2026: GPU underutilization recovery
             # Injects work into queue when GPU nodes are idle
             DaemonType.UNDERUTILIZATION_RECOVERY,
+            # January 7, 2026: Progress watchdog for 48h autonomous operation
+            # Detects Elo stalls >24h and triggers recovery actions
+            DaemonType.PROGRESS_WATCHDOG,
         ]
 
         # S3 backup daemons - only if AWS credentials are configured (December 2025)

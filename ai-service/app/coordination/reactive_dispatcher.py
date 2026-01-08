@@ -72,7 +72,8 @@ class ReactiveDispatcherConfig:
     # P2P orchestrator port
     p2p_port: int = 8770
     # Timeout for dispatch requests (seconds)
-    dispatch_timeout_seconds: float = 30.0
+    # Jan 2026: Increased from 30s to 120s - P2P startup takes >2 minutes
+    dispatch_timeout_seconds: float = 120.0
     # Whether to respect cluster backpressure signals
     respect_backpressure: bool = True
 

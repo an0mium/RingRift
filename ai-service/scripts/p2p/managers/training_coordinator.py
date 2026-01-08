@@ -850,7 +850,11 @@ class TrainingCoordinator(EventSubscriptionMixin):
                 from scripts.p2p.network import get_client_session
 
                 endpoint = f"/training/{job_type}/start"
-                timeout = ClientTimeout(total=30)
+                # Jan 2026: Exponential backoff for dispatch timeouts
+                # P2P startup takes >2 minutes, so initial attempts need longer timeouts
+                backoff_timeouts = [30, 60, 120]  # 30s → 60s → 120s
+                timeout_seconds = backoff_timeouts[min(attempt, len(backoff_timeouts) - 1)]
+                timeout = ClientTimeout(total=timeout_seconds)
                 async with get_client_session(timeout) as session:
                     payload = {
                         "job_id": job_id,
