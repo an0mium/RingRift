@@ -36,6 +36,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from app.training.env import get_theoretical_max_moves
+
 logger = logging.getLogger(__name__)
 
 
@@ -1282,6 +1284,7 @@ def _play_single_gauntlet_game(
             num_players=num_players,
             candidate_player=candidate_player,
             opponent_ais=opponent_ais,
+            max_moves=get_theoretical_max_moves(board_type, num_players),
         )
 
         return {
@@ -1477,6 +1480,7 @@ def _evaluate_single_opponent(
                 candidate_player=candidate_player,
                 opponent_ais=opponent_ais,
                 recording_config=recording_config,
+                max_moves=get_theoretical_max_moves(board_type, num_players),
             )
 
             result["games"] += 1
