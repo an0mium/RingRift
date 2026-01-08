@@ -285,26 +285,51 @@ class VoterHealthMonitor:
                 await asyncio.sleep(self.config.check_interval_seconds)
 
     async def _check_all_voters(self) -> None:
-        """Check health of all voters."""
+        """Check health of all voters in parallel.
+
+        Jan 7, 2026: Converted from sequential to parallel checks to prevent
+        cascading failures where one slow voter blocks all subsequent checks.
+        Previously: 10 voters × 15s timeout = 150s worst case
+        Now: 10 voters checked in ~15s worst case (parallel)
+        """
         if not self._get_voters_fn or not self._check_voter_fn:
             return
 
         voters = self._get_voters_fn()
-        for voter_id in voters:
+        if not voters:
+            return
+
+        # Check all voters in parallel
+        async def check_single_voter(voter_id: str) -> tuple[str, bool, float]:
+            """Check a single voter and return results."""
             try:
                 success, response_time_ms = await self._check_voter_fn(voter_id)
-                self._record_check(voter_id, success, response_time_ms)
-
-                # Check for demotion
-                status = self.get_voter_health(voter_id)
-                if status.should_demote:
-                    await self.demote_voter(voter_id)
-                elif status.can_repromote:
-                    await self.repromote_voter(voter_id)
-
+                return (voter_id, success, response_time_ms)
             except Exception as e:
                 logger.debug(f"[VoterHealth] Error checking {voter_id}: {e}")
-                self._record_check(voter_id, success=False, response_time_ms=0)
+                return (voter_id, False, 0.0)
+
+        # Run all checks in parallel
+        results = await asyncio.gather(
+            *[check_single_voter(voter_id) for voter_id in voters],
+            return_exceptions=True,
+        )
+
+        # Process results sequentially (record + demotion decisions)
+        for result in results:
+            if isinstance(result, Exception):
+                logger.debug(f"[VoterHealth] Check failed with exception: {result}")
+                continue
+
+            voter_id, success, response_time_ms = result
+            self._record_check(voter_id, success, response_time_ms)
+
+            # Check for demotion
+            status = self.get_voter_health(voter_id)
+            if status.should_demote:
+                await self.demote_voter(voter_id)
+            elif status.can_repromote:
+                await self.repromote_voter(voter_id)
 
     def _record_check(
         self,

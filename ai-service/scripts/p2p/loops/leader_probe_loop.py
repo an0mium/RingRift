@@ -63,7 +63,7 @@ class LeaderProbeLoop(BaseLoop):
         failure_threshold: int = 6,
         probe_timeout: float = 5.0,
         probe_backup_candidates: bool = True,
-        startup_grace_period: float = 45.0,
+        startup_grace_period: float = 20.0,
     ) -> None:
         """Initialize the leader probe loop.
 
@@ -74,9 +74,9 @@ class LeaderProbeLoop(BaseLoop):
             probe_timeout: Timeout for each probe request (default: 5s)
             probe_backup_candidates: Whether to probe backup candidates in parallel (default: True)
                 Session 17.33 Phase 17: Enables faster failover by pre-probing backup candidates
-            startup_grace_period: Seconds to wait after startup before triggering elections (default: 45s)
-                Jan 7, 2026: Allows cluster to converge after mass restarts before treating
-                probe failures as real leader failures.
+            startup_grace_period: Seconds to wait after startup before triggering elections (default: 20s)
+                Jan 7, 2026: Reduced from 45s to 20s for faster leader detection.
+                Still allows cluster to converge after mass restarts.
         """
         super().__init__(
             name="leader_probe",
