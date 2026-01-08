@@ -648,59 +648,68 @@ class SyncPushDaemon(HandlerBase):
 
             # Safe to delete - file has N+ verified copies
             # Dec 29, 2025: Add file locking to prevent race with active writes (Phase 1.3)
-            try:
-                stat = db_path.stat()
+            # Jan 7, 2026: Wrap blocking I/O in asyncio.to_thread() for async safety
 
-                # Try to acquire exclusive lock before deletion
-                # This ensures no other process has the file open for writing
+            def _delete_with_lock() -> tuple[bool, int, str | None]:
+                """Blocking file deletion with lock - runs in thread pool.
+
+                Returns:
+                    (success, file_size, error_message)
+                """
                 try:
-                    with open(db_path, "r") as f:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        # Lock acquired - file is not in use, safe to delete
-                        db_path.unlink()
-                except BlockingIOError:
-                    # File is in use by another process - skip this cycle
-                    logger.debug(
-                        f"[{self.name}] Skipping {db_path}: file in use"
-                    )
-                    continue
-                except (OSError, PermissionError) as e:
-                    # Can't open for locking - skip
-                    logger.debug(
-                        f"[{self.name}] Skipping {db_path}: {e}"
-                    )
-                    continue
+                    stat = db_path.stat()
+                    file_size = stat.st_size
 
-                # Also remove WAL/SHM files (they're no longer needed)
-                wal_path = db_path.with_suffix(".db-wal")
-                shm_path = db_path.with_suffix(".db-shm")
-                if wal_path.exists():
+                    # Try to acquire exclusive lock before deletion
+                    # This ensures no other process has the file open for writing
                     try:
-                        wal_path.unlink()
-                    except OSError:
-                        pass  # Best effort
-                if shm_path.exists():
-                    try:
-                        shm_path.unlink()
-                    except OSError:
-                        pass  # Best effort
+                        with open(db_path, "r") as f:
+                            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            # Lock acquired - file is not in use, safe to delete
+                            db_path.unlink()
+                    except BlockingIOError:
+                        # File is in use by another process - skip this cycle
+                        return (False, 0, "file in use")
+                    except (OSError, PermissionError) as e:
+                        # Can't open for locking - skip
+                        return (False, 0, str(e))
 
-                # Clean up receipts
-                self._manifest.delete_sync_receipts(file_path)
+                    # Also remove WAL/SHM files (they're no longer needed)
+                    wal_path = db_path.with_suffix(".db-wal")
+                    shm_path = db_path.with_suffix(".db-shm")
+                    if wal_path.exists():
+                        try:
+                            wal_path.unlink()
+                        except OSError:
+                            pass  # Best effort
+                    if shm_path.exists():
+                        try:
+                            shm_path.unlink()
+                        except OSError:
+                            pass  # Best effort
 
-                deleted += 1
-                self._files_cleaned += 1
-                self._bytes_cleaned += stat.st_size
+                    return (True, file_size, None)
+                except Exception as e:
+                    return (False, 0, str(e))
 
-                logger.info(
-                    f"[{self.name}] Safe delete: {db_path} "
-                    f"(verified {self.config.min_copies_before_delete}+ copies)"
-                )
+            success, file_size, error = await asyncio.to_thread(_delete_with_lock)
 
-            except Exception as e:
-                logger.error(
-                    f"[{self.name}] Failed to delete {db_path}: {e}"
-                )
+            if not success:
+                if error:
+                    logger.debug(f"[{self.name}] Skipping {db_path}: {error}")
+                continue
+
+            # Clean up receipts
+            self._manifest.delete_sync_receipts(file_path)
+
+            deleted += 1
+            self._files_cleaned += 1
+            self._bytes_cleaned += file_size
+
+            logger.info(
+                f"[{self.name}] Safe delete: {db_path} "
+                f"(verified {self.config.min_copies_before_delete}+ copies)"
+            )
 
         return deleted
 
