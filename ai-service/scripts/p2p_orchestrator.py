@@ -98,6 +98,56 @@ if TYPE_CHECKING:
     from app.coordination.p2p_auto_deployer import P2PAutoDeployer
     from scripts.p2p.loops import LoopManager
 
+# =============================================================================
+# PRE-FLIGHT DEPENDENCY VALIDATION (January 2026)
+# =============================================================================
+# Critical dependencies that must be present before P2P startup.
+# Failing fast with clear errors prevents cryptic runtime failures.
+
+_CRITICAL_DEPENDENCIES = {
+    "aiohttp": "HTTP server and client functionality",
+    "psutil": "Process and system monitoring",
+    "yaml": "Configuration file parsing",
+}
+
+_OPTIONAL_DEPENDENCIES = {
+    "prometheus_client": "Metrics export (optional)",
+    "paramiko": "SSH connections for remote operations",
+}
+
+
+def _validate_preflight_dependencies() -> tuple[bool, list[str]]:
+    """Validate critical dependencies are available before startup.
+
+    Returns:
+        Tuple of (all_ok, list of error messages)
+    """
+    errors = []
+    warnings = []
+
+    # Check critical dependencies
+    for module_name, purpose in _CRITICAL_DEPENDENCIES.items():
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            errors.append(f"CRITICAL: Missing '{module_name}' - required for {purpose}")
+            errors.append(f"  Fix: pip install {module_name}")
+
+    # Check optional dependencies (warn only)
+    for module_name, purpose in _OPTIONAL_DEPENDENCIES.items():
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            warnings.append(f"Optional: Missing '{module_name}' - {purpose}")
+
+    # Log warnings
+    for warn in warnings:
+        print(f"[P2P] {warn}", file=sys.stderr)
+
+    return len(errors) == 0, errors
+
+
+# =============================================================================
 # Work queue for centralized work distribution (lazy import to avoid circular deps)
 _work_queue = None
 def get_work_queue():
@@ -9463,6 +9513,11 @@ class P2POrchestrator(
         Returns:
             Number of games converted.
         """
+        # Skip if disabled via environment variable (prevents blocking event loop on startup)
+        if os.environ.get("RINGRIFT_SKIP_JSONL_CONVERSION", "").lower() in ("1", "true", "yes"):
+            logger.debug("[P2POrchestrator] JSONL→DB conversion skipped via RINGRIFT_SKIP_JSONL_CONVERSION")
+            return 0
+
         import json
         import sqlite3
 
@@ -9704,6 +9759,11 @@ class P2POrchestrator(
         Returns:
             Number of NPZ files created.
         """
+        # Skip if disabled via environment variable (prevents blocking event loop on startup)
+        if os.environ.get("RINGRIFT_SKIP_JSONL_CONVERSION", "").lower() in ("1", "true", "yes"):
+            logger.debug("[P2POrchestrator] JSONL→NPZ conversion skipped via RINGRIFT_SKIP_JSONL_CONVERSION")
+            return 0
+
         import json as json_module
         import subprocess
 
@@ -31280,19 +31340,57 @@ print(json.dumps({{
         # Jan 2, 2026: Bind to BOTH IPv4 and IPv6 explicitly
         # Python's asyncio/aiohttp doesn't properly implement dual-stack sockets
         # (IPV6_V6ONLY is not automatically disabled), so we bind to both addresses.
+        #
+        # Jan 8, 2026: Added retry with exponential backoff for TIME_WAIT state.
+        # After a crash, the port may be in TIME_WAIT for up to 60s. Retry instead of failing.
+
+        # Port binding retry configuration (January 2026)
+        PORT_BIND_MAX_RETRIES = 5
+        PORT_BIND_INITIAL_DELAY = 2.0  # seconds
+        PORT_BIND_MAX_DELAY = 30.0  # seconds
+
+        async def _try_bind_port(site: web.TCPSite, host: str, port: int) -> bool:
+            """Try to bind port with exponential backoff for TIME_WAIT state."""
+            delay = PORT_BIND_INITIAL_DELAY
+            for attempt in range(PORT_BIND_MAX_RETRIES):
+                try:
+                    await site.start()
+                    return True
+                except OSError as e:
+                    errno_val = getattr(e, 'errno', 0)
+                    is_addr_in_use = "Address already in use" in str(e) or errno_val == 98
+
+                    if is_addr_in_use and attempt < PORT_BIND_MAX_RETRIES - 1:
+                        # Likely TIME_WAIT state - retry with backoff
+                        logger.warning(
+                            f"Port {port} busy (attempt {attempt + 1}/{PORT_BIND_MAX_RETRIES}), "
+                            f"retrying in {delay:.1f}s (likely TIME_WAIT state)..."
+                        )
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 2, PORT_BIND_MAX_DELAY)
+                        continue
+                    elif is_addr_in_use:
+                        # Final attempt failed
+                        logger.error(f"Port {port} still in use after {PORT_BIND_MAX_RETRIES} attempts.")
+                        logger.error(f"Try: lsof -i :{port} or pkill -f p2p_orchestrator")
+                        raise RuntimeError(f"Port {port} bound after retries - cannot start P2P") from e
+                    elif "Invalid argument" in str(e):
+                        # macOS TCP keepalive socket option issue - don't retry
+                        logger.warning(f"TCP socket configuration failed on {host}:{port}: {e}")
+                        logger.warning("This may be a macOS TCP keepalive compatibility issue")
+                        raise
+                    else:
+                        # Other errors - don't retry
+                        logger.error(f"Failed to bind to {host}:{port}: {e}")
+                        raise
+            return False  # Should not reach here
+
         bind_host = self.host
         if self.host == "0.0.0.0":
             # Bind to IPv4 first (always needed)
             site_v4 = web.TCPSite(runner, '0.0.0.0', self.port, reuse_address=True, backlog=1024)
-            try:
-                await site_v4.start()
-                logger.info(f"HTTP server started on 0.0.0.0:{self.port} (IPv4, backlog=1024)")
-            except OSError as e:
-                if "Address already in use" in str(e) or getattr(e, 'errno', 0) == 98:
-                    logger.error(f"Port {self.port} already in use. Is another P2P instance running?")
-                    logger.error(f"Try: lsof -i :{self.port} or pkill -f p2p_orchestrator")
-                    raise RuntimeError(f"Port {self.port} already bound - cannot start P2P daemon") from e
-                raise
+            await _try_bind_port(site_v4, '0.0.0.0', self.port)
+            logger.info(f"HTTP server started on 0.0.0.0:{self.port} (IPv4, backlog=1024)")
 
             # Also try to bind to IPv6 (optional, for IPv6-only clients)
             try:
@@ -31305,24 +31403,9 @@ print(json.dumps({{
                 logger.debug(f"IPv6 binding failed (OK, IPv4 is active): {v6_err}")
                 bind_host = "0.0.0.0"
         else:
-            # Specific host requested - bind directly
+            # Specific host requested - bind directly with retry
             site = web.TCPSite(runner, self.host, self.port, reuse_address=True, backlog=1024)
-            try:
-                await site.start()
-            except OSError as e:
-                if "Address already in use" in str(e) or getattr(e, 'errno', 0) == 98:  # EADDRINUSE
-                    logger.error(f"Port {self.port} already in use. Is another P2P instance running?")
-                    logger.error(f"Try: lsof -i :{self.port} or pkill -f p2p_orchestrator")
-                    raise RuntimeError(f"Port {self.port} already bound - cannot start P2P daemon") from e
-                elif "Invalid argument" in str(e):
-                    # macOS TCP keepalive socket option issue
-                    logger.warning(f"TCP socket configuration failed on {self.host}:{self.port}: {e}")
-                    logger.warning("This may be a macOS TCP keepalive compatibility issue")
-                    raise
-                else:
-                    logger.error(f"Failed to bind to {self.host}:{self.port}: {e}")
-                    raise
-
+            await _try_bind_port(site, self.host, self.port)
             logger.info(f"HTTP server started on {self.host}:{self.port} (backlog=1024)")
 
         # Notify systemd that we're ready to serve
@@ -31863,6 +31946,19 @@ def _release_singleton_lock() -> None:
 
 
 def main():
+    # ==========================================================================
+    # PRE-FLIGHT VALIDATION (January 2026)
+    # ==========================================================================
+    # Validate critical dependencies before any complex initialization.
+    # This prevents cryptic runtime errors from missing packages.
+    deps_ok, dep_errors = _validate_preflight_dependencies()
+    if not deps_ok:
+        print("[P2P] FATAL: Missing critical dependencies", file=sys.stderr)
+        for err in dep_errors:
+            print(f"  {err}", file=sys.stderr)
+        print("\n[P2P] Fix: pip install aiohttp psutil pyyaml", file=sys.stderr)
+        sys.exit(1)
+
     # Parse lock-related args early (before full argparse)
     import sys
     kill_duplicates = "--kill-duplicates" in sys.argv
@@ -31955,6 +32051,9 @@ def main():
             )
     except Exception as e:  # noqa: BLE001
         logger.exception(f"Failed to initialize P2P orchestrator: {e}")
+        # January 2026: Release lock on initialization failure to prevent
+        # stale locks that block future startups
+        _release_singleton_lock()
         sys.exit(1)
 
     # Handle shutdown gracefully - avoid race conditions with async tasks
