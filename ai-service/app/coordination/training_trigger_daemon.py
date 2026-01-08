@@ -161,7 +161,8 @@ class TrainingTriggerDaemon(HandlerBase):
         }
         # December 29, 2025 (Phase 3): Training retry queue for failed jobs
         # Tuple: (config_key, board_type, num_players, attempts, next_retry_time, error)
-        self._training_retry_queue: deque[tuple[str, str, int, int, float, str]] = deque()
+        # January 8, 2026: Added maxlen=100 to prevent unbounded queue growth
+        self._training_retry_queue: deque[tuple[str, str, int, int, float, str]] = deque(maxlen=100)
         # December 30, 2025: Use centralized RetryConfig for consistent retry behavior
         self._retry_config = RetryConfig(
             max_attempts=3,

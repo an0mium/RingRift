@@ -192,7 +192,8 @@ LEADER_LEASE_EXPIRY_GRACE_SECONDS = _CONSTANTS["LEADER_LEASE_EXPIRY_GRACE_SECOND
 # Session 17.48: Single-node fallback when quorum is lost for extended period
 # After this timeout, a node can become its own leader for local operations
 # to prevent the cluster from being stuck for hours without leadership
-SINGLE_NODE_FALLBACK_TIMEOUT = 600  # 10 minutes without quorum
+# January 8, 2026: Reduced from 600s to 180s for faster autonomous recovery
+SINGLE_NODE_FALLBACK_TIMEOUT = 180  # 3 minutes without quorum
 
 # Phase 3.2 (January 2026): Dynamic voter management
 # Enable via RINGRIFT_P2P_DYNAMIC_VOTER=true

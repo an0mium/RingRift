@@ -3220,11 +3220,13 @@ class GossipDefaults:
     CIRCUIT_CUTOFF_SECONDS: float = _env_float("RINGRIFT_GOSSIP_CB_CUTOFF", 300.0)
 
     # Stale state threshold: gossip states older than this are cleaned up (seconds)
-    STALE_STATE_SECONDS: float = _env_float("RINGRIFT_GOSSIP_STALE_STATE", 600.0)
+    # January 8, 2026: Reduced from 600s to 180s for faster stale peer detection
+    STALE_STATE_SECONDS: float = _env_float("RINGRIFT_GOSSIP_STALE_STATE", 180.0)
 
     # State TTL: how long gossip states are cached before expiring (seconds)
     # Jan 6, 2026: Reduced from 3600s (1hr) to 600s (10min) for faster peer recovery discovery
-    STATE_TTL: float = _env_float("RINGRIFT_GOSSIP_STATE_TTL", 600.0)
+    # January 8, 2026: Further reduced from 600s to 180s for faster autonomous recovery
+    STATE_TTL: float = _env_float("RINGRIFT_GOSSIP_STATE_TTL", 180.0)
 
     # =========================================================================
     # January 5, 2026 Session 17.28: Recovery Probing for Dead Nodes

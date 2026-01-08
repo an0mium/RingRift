@@ -28120,6 +28120,12 @@ print(json.dumps({{
         if training_jobs > 0:
             return 0
 
+        # Skip if memory is critical (consistent with _local_selfplay_management)
+        memory_percent = float(getattr(self.self_info, "memory_percent", 0) or 0)
+        if memory_percent >= MEMORY_WARNING_THRESHOLD:
+            logger.info(f"LOCAL: Memory at {memory_percent:.0f}% - skipping GPU auto-scale")
+            return 0
+
         # DECENTRALIZED: Always allow local GPU scaling
         # Leader manages cluster-wide coordination, but each node optimizes its own GPU
         # Use smaller batches when leader is present to avoid conflicts
