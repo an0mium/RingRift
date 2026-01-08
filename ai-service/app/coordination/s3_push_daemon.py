@@ -292,10 +292,12 @@ class S3PushDaemon(HandlerBase):
             "NPZ_EXPORT_COMPLETE": self._on_npz_export_complete,
         }
 
-    async def _on_data_sync_completed(self, event: dict[str, Any]) -> None:
+    async def _on_data_sync_completed(self, event: Any) -> None:
         """Handle data sync completion - push synced data to S3."""
-        if event.get("needs_s3_backup"):
-            db_path_str = event.get("db_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        if payload.get("needs_s3_backup"):
+            db_path_str = payload.get("db_path")
             if db_path_str:
                 db_path = Path(db_path_str)
                 if db_path.exists():
@@ -303,17 +305,21 @@ class S3PushDaemon(HandlerBase):
                         db_path, f"consolidated/games/{db_path.name}"
                     )
 
-    async def _on_training_completed(self, event: dict[str, Any]) -> None:
+    async def _on_training_completed(self, event: Any) -> None:
         """Handle training completion - push model to S3."""
-        model_path_str = event.get("model_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        model_path_str = payload.get("model_path")
         if model_path_str:
             model_path = Path(model_path_str)
             if model_path.exists():
                 await self._push_if_modified(model_path, f"models/{model_path.name}")
 
-    async def _on_npz_export_complete(self, event: dict[str, Any]) -> None:
+    async def _on_npz_export_complete(self, event: Any) -> None:
         """Handle NPZ export completion - push training data to S3."""
-        npz_path_str = event.get("npz_path") or event.get("output_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        npz_path_str = payload.get("npz_path") or payload.get("output_path")
         if npz_path_str:
             npz_path = Path(npz_path_str)
             if npz_path.exists():

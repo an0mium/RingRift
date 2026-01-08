@@ -443,37 +443,45 @@ class OWCPushDaemon(HandlerBase):
             "CONSOLIDATION_COMPLETE": self._on_consolidation_complete,
         }
 
-    async def _on_data_sync_completed(self, event: dict[str, Any]) -> None:
+    async def _on_data_sync_completed(self, event: Any) -> None:
         """Handle data sync completion - push synced data to OWC."""
-        if event.get("needs_owc_backup"):
-            db_path_str = event.get("db_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        if payload.get("needs_owc_backup"):
+            db_path_str = payload.get("db_path")
             if db_path_str:
                 db_path = Path(db_path_str)
                 if db_path.exists() and db_path.name.startswith("canonical_"):
                     dest = f"{self.config.canonical_db_subdir}/{db_path.name}"
                     await self._push_if_modified(db_path, dest)
 
-    async def _on_training_completed(self, event: dict[str, Any]) -> None:
+    async def _on_training_completed(self, event: Any) -> None:
         """Handle training completion - push model to OWC."""
-        model_path_str = event.get("model_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        model_path_str = payload.get("model_path")
         if model_path_str:
             model_path = Path(model_path_str)
             if model_path.exists():
                 dest = f"{self.config.models_subdir}/{model_path.name}"
                 await self._push_if_modified(model_path, dest)
 
-    async def _on_npz_export_complete(self, event: dict[str, Any]) -> None:
+    async def _on_npz_export_complete(self, event: Any) -> None:
         """Handle NPZ export completion - push training data to OWC."""
-        npz_path_str = event.get("npz_path") or event.get("output_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        npz_path_str = payload.get("npz_path") or payload.get("output_path")
         if npz_path_str:
             npz_path = Path(npz_path_str)
             if npz_path.exists():
                 dest = f"{self.config.training_subdir}/{npz_path.name}"
                 await self._push_if_modified(npz_path, dest)
 
-    async def _on_consolidation_complete(self, event: dict[str, Any]) -> None:
+    async def _on_consolidation_complete(self, event: Any) -> None:
         """Handle consolidation completion - push canonical DB to OWC."""
-        db_path_str = event.get("canonical_db_path") or event.get("db_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        db_path_str = payload.get("canonical_db_path") or payload.get("db_path")
         if db_path_str:
             db_path = Path(db_path_str)
             if db_path.exists():

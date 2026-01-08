@@ -473,9 +473,11 @@ class UnifiedBackupDaemon(HandlerBase):
             }
         )
 
-    async def _on_data_sync_completed(self, event: dict) -> None:
+    async def _on_data_sync_completed(self, event: Any) -> None:
         """Handle DATA_SYNC_COMPLETED - push synced data to OWC/S3."""
-        db_path_str = event.get("db_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        db_path_str = payload.get("db_path")
         if not db_path_str:
             return
 
@@ -483,8 +485,8 @@ class UnifiedBackupDaemon(HandlerBase):
         if not db_path.exists():
             return
 
-        needs_owc = event.get("needs_owc_backup", True)
-        needs_s3 = event.get("needs_s3_backup", True)
+        needs_owc = payload.get("needs_owc_backup", True)
+        needs_s3 = payload.get("needs_s3_backup", True)
 
         if needs_owc and self.config.enable_owc_backup:
             await self._sync_to_owc(db_path)
@@ -492,9 +494,11 @@ class UnifiedBackupDaemon(HandlerBase):
         if needs_s3 and self.config.enable_s3_backup:
             await self._push_to_s3(db_path)
 
-    async def _on_selfplay_complete(self, event: dict) -> None:
+    async def _on_selfplay_complete(self, event: Any) -> None:
         """Handle SELFPLAY_COMPLETE - backup new games."""
-        db_path_str = event.get("db_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        db_path_str = payload.get("db_path")
         if not db_path_str:
             return
 
@@ -505,9 +509,11 @@ class UnifiedBackupDaemon(HandlerBase):
             if self.config.enable_s3_backup:
                 await self._push_to_s3(db_path)
 
-    async def _on_npz_export_complete(self, event: dict) -> None:
+    async def _on_npz_export_complete(self, event: Any) -> None:
         """Handle NPZ_EXPORT_COMPLETE - backup training data."""
-        npz_path_str = event.get("output_path") or event.get("npz_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        npz_path_str = payload.get("output_path") or payload.get("npz_path")
         if not npz_path_str:
             return
 

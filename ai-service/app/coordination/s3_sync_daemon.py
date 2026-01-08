@@ -204,37 +204,45 @@ class S3SyncDaemon(HandlerBase):
             self._pending_promotions.append(promotion_info)
         self._stats.events_processed += 1
 
-    async def _on_training_completed(self, event: dict[str, Any]) -> None:
+    async def _on_training_completed(self, event: Any) -> None:
         """Handle TRAINING_COMPLETED - immediate model push."""
-        model_path_str = event.get("model_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        model_path_str = payload.get("model_path")
         if model_path_str:
             model_path = Path(model_path_str)
             if model_path.exists():
                 await self._push_file(model_path, self._get_s3_key(model_path, "models"))
         self._stats.events_processed += 1
 
-    async def _on_data_sync_completed(self, event: dict[str, Any]) -> None:
+    async def _on_data_sync_completed(self, event: Any) -> None:
         """Handle DATA_SYNC_COMPLETED - push synced database."""
-        if event.get("needs_s3_backup"):
-            db_path_str = event.get("db_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        if payload.get("needs_s3_backup"):
+            db_path_str = payload.get("db_path")
             if db_path_str:
                 db_path = Path(db_path_str)
                 if db_path.exists():
                     await self._push_file(db_path, self._get_s3_key(db_path, "games"))
         self._stats.events_processed += 1
 
-    async def _on_npz_export_complete(self, event: dict[str, Any]) -> None:
+    async def _on_npz_export_complete(self, event: Any) -> None:
         """Handle NPZ_EXPORT_COMPLETE - push training data."""
-        npz_path_str = event.get("npz_path") or event.get("output_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        npz_path_str = payload.get("npz_path") or payload.get("output_path")
         if npz_path_str:
             npz_path = Path(npz_path_str)
             if npz_path.exists():
                 await self._push_file(npz_path, self._get_s3_key(npz_path, "training"))
         self._stats.events_processed += 1
 
-    async def _on_selfplay_complete(self, event: dict[str, Any]) -> None:
+    async def _on_selfplay_complete(self, event: Any) -> None:
         """Handle SELFPLAY_COMPLETE - push game database."""
-        db_path_str = event.get("db_path")
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        db_path_str = payload.get("db_path")
         if db_path_str:
             db_path = Path(db_path_str)
             if db_path.exists():

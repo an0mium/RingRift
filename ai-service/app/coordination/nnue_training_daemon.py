@@ -213,28 +213,33 @@ class NNUETrainingDaemon(HandlerBase):
             "TRAINING_COMPLETED": self._on_nn_training_completed,
         }
 
-    async def _on_new_games(self, event: dict[str, Any]) -> None:
+    async def _on_new_games(self, event: Any) -> None:
         """Handle new games available event."""
-        config_key = extract_config_key(event)
-        game_count = event.get("game_count", 0)
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        config_key = extract_config_key(payload)
+        game_count = payload.get("game_count", 0)
 
         if config_key and game_count:
             self._current_game_counts[config_key] = game_count
             logger.debug(f"NNUETrainingDaemon: Updated {config_key} count to {game_count}")
 
-    async def _on_consolidation_complete(self, event: dict[str, Any]) -> None:
+    async def _on_consolidation_complete(self, event: Any) -> None:
         """Handle consolidation complete event."""
-        config_key = extract_config_key(event)
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        config_key = extract_config_key(payload)
         if config_key:
             # Refresh game counts after consolidation
             await self._refresh_game_counts()
 
-    async def _on_data_sync_completed(self, event: dict[str, Any]) -> None:
+    async def _on_data_sync_completed(self, event: Any) -> None:
         """Handle data sync completed event."""
+        # Jan 2026: Fix RouterEvent handling (not currently using payload, but prepared)
         # Data may have changed, refresh counts
         await self._refresh_game_counts()
 
-    async def _on_nn_training_completed(self, event: dict[str, Any]) -> None:
+    async def _on_nn_training_completed(self, event: Any) -> None:
         """Handle NN training completed event - trigger NNUE training if appropriate.
 
         This is the key integration point for Phase 4: when NN training completes,
@@ -249,9 +254,11 @@ class NNUETrainingDaemon(HandlerBase):
         Args:
             event: Training completed event with config_key, success, model_path
         """
-        config_key = extract_config_key(event)
-        success = event.get("success", False)
-        model_path = extract_model_path(event)
+        # Jan 2026: Fix RouterEvent handling - extract payload first
+        payload = getattr(event, "payload", {}) or (event if isinstance(event, dict) else {})
+        config_key = extract_config_key(payload)
+        success = payload.get("success", False)
+        model_path = extract_model_path(payload)
 
         if not config_key:
             return

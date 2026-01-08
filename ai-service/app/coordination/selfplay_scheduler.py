@@ -1919,8 +1919,9 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
                     f"[SelfplayScheduler] Excluding {len(circuit_broken_nodes)} "
                     f"circuit-broken nodes: {circuit_broken_nodes}"
                 )
-        except Exception:
-            # Graceful fallback if CB registry unavailable
+        except (ImportError, AttributeError, RuntimeError, KeyError, TypeError) as e:
+            # Graceful fallback if CB registry unavailable or returns unexpected types
+            logger.debug(f"[SelfplayScheduler] CB registry check failed: {e}")
             pass
 
         # Apply cluster health factor to total games
@@ -2190,7 +2191,8 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
         """
         try:
             cb_registry = get_node_circuit_registry()
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError) as e:
+            logger.debug(f"[SelfplayScheduler] CB registry unavailable: {e}")
             return  # CB registry not available
 
         unhealthy = getattr(self, "_unhealthy_nodes", set())
