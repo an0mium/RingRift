@@ -614,13 +614,16 @@ class MaintenanceDaemon(HandlerBase):
             archive_name = f"{db_path.stem}_{timestamp}.db.gz"
             archive_path = archive_dir / archive_name
 
-            # Compress with gzip
-            with open(db_path, "rb") as f_in, gzip.open(archive_path, "wb", compresslevel=6) as f_out:
-                shutil.copyfileobj(f_in, f_out)
+            # Compress with gzip in thread to avoid blocking event loop
+            def _compress_file() -> None:
+                with open(db_path, "rb") as f_in, gzip.open(archive_path, "wb", compresslevel=6) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
+            await asyncio.to_thread(_compress_file)
         else:
             archive_name = f"{db_path.stem}_{timestamp}.db"
             archive_path = archive_dir / archive_name
-            shutil.copy2(db_path, archive_path)
+            await asyncio.to_thread(shutil.copy2, db_path, archive_path)
 
         logger.debug(f"[Maintenance] Created archive: {archive_path}")
 

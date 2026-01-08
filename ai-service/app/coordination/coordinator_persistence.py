@@ -634,29 +634,33 @@ class StatePersistenceMixin(SQLitePersistenceMixin):
         Returns:
             Number of snapshots deleted
         """
-        # Keep only the most recent max_snapshots
-        result = conn.execute(
-            """
-            DELETE FROM coordinator_snapshots
-            WHERE coordinator_name = ?
-            AND id NOT IN (
-                SELECT id FROM coordinator_snapshots
+
+        def _do_cleanup() -> int:
+            # Keep only the most recent max_snapshots
+            result = conn.execute(
+                """
+                DELETE FROM coordinator_snapshots
                 WHERE coordinator_name = ?
-                ORDER BY timestamp DESC
-                LIMIT ?
-            )
-            """,
-            (coordinator_name, coordinator_name, self._max_snapshots),
-        )
-
-        deleted = result.rowcount
-        if deleted > 0:
-            conn.commit()
-            logger.debug(
-                f"[{coordinator_name}] Cleaned up {deleted} old snapshots"
+                AND id NOT IN (
+                    SELECT id FROM coordinator_snapshots
+                    WHERE coordinator_name = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                )
+                """,
+                (coordinator_name, coordinator_name, self._max_snapshots),
             )
 
-        return deleted
+            deleted = result.rowcount
+            if deleted > 0:
+                conn.commit()
+                logger.debug(
+                    f"[{coordinator_name}] Cleaned up {deleted} old snapshots"
+                )
+
+            return deleted
+
+        return await asyncio.to_thread(_do_cleanup)
 
     def get_snapshot_stats(self) -> dict[str, Any]:
         """Get snapshot statistics.
@@ -1165,56 +1169,60 @@ class SnapshotCoordinator:
         Returns:
             Number of snapshots deleted
         """
-        conn = self._get_connection()
-        cutoff = time.time() - max_age_seconds
 
-        # Delete by age
-        conn.execute(
-            """
-            DELETE FROM snapshot_members
-            WHERE system_snapshot_id IN (
-                SELECT id FROM system_snapshots WHERE timestamp < ?
+        def _do_cleanup() -> int:
+            conn = self._get_connection()
+            cutoff = time.time() - max_age_seconds
+
+            # Delete by age
+            conn.execute(
+                """
+                DELETE FROM snapshot_members
+                WHERE system_snapshot_id IN (
+                    SELECT id FROM system_snapshots WHERE timestamp < ?
+                )
+                """,
+                (cutoff,),
             )
-            """,
-            (cutoff,),
-        )
 
-        result = conn.execute(
-            "DELETE FROM system_snapshots WHERE timestamp < ?",
-            (cutoff,),
-        )
-        deleted_by_age = result.rowcount
-
-        # Delete by count - use NOT IN with LIMIT to keep the newest max_count
-        # SQLite doesn't support OFFSET without LIMIT, so we invert the logic
-        conn.execute(
-            """
-            DELETE FROM snapshot_members
-            WHERE system_snapshot_id NOT IN (
-                SELECT id FROM system_snapshots
-                ORDER BY timestamp DESC
-                LIMIT ?
+            result = conn.execute(
+                "DELETE FROM system_snapshots WHERE timestamp < ?",
+                (cutoff,),
             )
-            """,
-            (max_count,),
-        )
+            deleted_by_age = result.rowcount
 
-        result = conn.execute(
-            """
-            DELETE FROM system_snapshots
-            WHERE id NOT IN (
-                SELECT id FROM system_snapshots
-                ORDER BY timestamp DESC
-                LIMIT ?
+            # Delete by count - use NOT IN with LIMIT to keep the newest max_count
+            # SQLite doesn't support OFFSET without LIMIT, so we invert the logic
+            conn.execute(
+                """
+                DELETE FROM snapshot_members
+                WHERE system_snapshot_id NOT IN (
+                    SELECT id FROM system_snapshots
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                )
+                """,
+                (max_count,),
             )
-            """,
-            (max_count,),
-        )
-        deleted_by_count = result.rowcount
 
-        conn.commit()
+            result = conn.execute(
+                """
+                DELETE FROM system_snapshots
+                WHERE id NOT IN (
+                    SELECT id FROM system_snapshots
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                )
+                """,
+                (max_count,),
+            )
+            deleted_by_count = result.rowcount
 
-        total_deleted = deleted_by_age + deleted_by_count
+            conn.commit()
+            return deleted_by_age + deleted_by_count
+
+        total_deleted = await asyncio.to_thread(_do_cleanup)
+
         if total_deleted > 0:
             logger.info(
                 f"[SnapshotCoordinator] Cleaned up {total_deleted} old snapshots"

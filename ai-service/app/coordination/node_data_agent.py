@@ -576,11 +576,19 @@ class NodeDataAgent(HandlerBase):
                     if resp.status != 200:
                         return None
 
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    with open(cache_path, "wb") as f:
-                        async for chunk in resp.content.iter_chunked(8192):
-                            f.write(chunk)
-                            self._stats["bytes_fetched"] += len(chunk)
+                    # Collect chunks first, then write in thread to avoid blocking
+                    chunks: list[bytes] = []
+                    async for chunk in resp.content.iter_chunked(8192):
+                        chunks.append(chunk)
+                        self._stats["bytes_fetched"] += len(chunk)
+
+                    def _write_file() -> None:
+                        cache_path.parent.mkdir(parents=True, exist_ok=True)
+                        with open(cache_path, "wb") as f:
+                            for chunk in chunks:
+                                f.write(chunk)
+
+                    await asyncio.to_thread(_write_file)
 
                 return cache_path
 

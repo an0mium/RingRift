@@ -1198,8 +1198,12 @@ class UnifiedDistributionDaemon(HandlerBase):
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=self.config.http_timeout_seconds)
             ) as session:
-                with open(file_path, "rb") as f:
-                    file_data = f.read()
+                # Read file in thread to avoid blocking event loop
+                def _read_file() -> bytes:
+                    with open(file_path, "rb") as f:
+                        return f.read()
+
+                file_data = await asyncio.to_thread(_read_file)
 
                 form_data = aiohttp.FormData()
                 form_data.add_field(

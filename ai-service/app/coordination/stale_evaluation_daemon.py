@@ -19,6 +19,7 @@ Environment Variables:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -186,12 +187,12 @@ class StaleEvaluationDaemon(HandlerBase):
         if elo_service is None:
             return []
 
-        stale_models = []
         now = time.time()
         stale_threshold = now - (self._daemon_config.stale_age_days * 86400)
 
-        try:
-            # Query elo_ratings table for old entries
+        def _query_stale_ratings() -> list[StaleModelInfo]:
+            """Query stale ratings in thread to avoid blocking event loop."""
+            stale_models: list[StaleModelInfo] = []
             with elo_service._get_connection() as conn:
                 cursor = conn.execute(
                     """
@@ -232,6 +233,11 @@ class StaleEvaluationDaemon(HandlerBase):
                             rating_age_days=rating_age_days,
                         )
                     )
+            return stale_models
+
+        try:
+            # Run blocking SQLite query in thread to avoid blocking event loop
+            stale_models = await asyncio.to_thread(_query_stale_ratings)
 
             self._stats.models_checked += len(stale_models)
             self._stats.stale_models_found += len(stale_models)

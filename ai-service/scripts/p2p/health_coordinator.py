@@ -581,7 +581,9 @@ class HealthCoordinator:
                 [p for p in summary.peers_in_backoff if p in suspected_peers_set]
             )
 
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, ValueError) as e:
+            # Narrowed from broad Exception (Jan 2026, Phase 2 tech debt reduction)
+            # These cover: malformed tracker state, type mismatches, missing keys
             logger.warning("Failed to collect gossip health: %s", e)
 
         return summary
@@ -625,7 +627,9 @@ class HealthCoordinator:
                 elif state == NodeCircuitState.HALF_OPEN:
                     summary.half_open_count += 1
 
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError) as e:
+            # Narrowed from broad Exception (Jan 2026, Phase 2 tech debt reduction)
+            # These cover: module import failure, malformed circuit data, type mismatches
             logger.warning("Failed to collect circuit health: %s", e)
 
         return summary
