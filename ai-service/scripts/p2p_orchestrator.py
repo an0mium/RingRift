@@ -6931,6 +6931,14 @@ class P2POrchestrator(
                     and peer.is_alive()
                     and self._is_leader_eligible(peer, conflict_keys)
                 ):
+                    # Jan 8, 2026: Validate consensus - check that other peers agree
+                    consensus_count = self._count_peers_reporting_leader(leader_id, peers_snapshot)
+                    if consensus_count < 2 and len(peers_snapshot) >= 3:
+                        # Low consensus - log warning but still return leader
+                        logger.warning(
+                            f"[LeaderConsensus] Low consensus for leader {leader_id}: "
+                            f"only {consensus_count} peers agree out of {len(peers_snapshot)}"
+                        )
                     return peer
 
         eligible_leaders = [
@@ -6941,6 +6949,30 @@ class P2POrchestrator(
             return sorted(eligible_leaders, key=lambda p: p.node_id)[-1]
 
         return None
+
+    def _count_peers_reporting_leader(
+        self, leader_id: str, peers_snapshot: list[NodeInfo]
+    ) -> int:
+        """Count how many peers report the same leader_id.
+
+        Jan 8, 2026: Added for leader consensus validation.
+
+        Args:
+            leader_id: The leader ID to check for consensus
+            peers_snapshot: List of peer NodeInfo objects
+
+        Returns:
+            Number of peers reporting this leader_id
+        """
+        count = 0
+        for peer in peers_snapshot:
+            if not peer.is_alive():
+                continue
+            # Check if peer reports this leader
+            peer_leader = getattr(peer, "leader_id", None)
+            if peer_leader == leader_id:
+                count += 1
+        return count
 
     async def _proxy_to_leader(self, request: web.Request) -> web.StreamResponse:
         """Best-effort proxy for leader-only APIs when the dashboard hits a follower."""

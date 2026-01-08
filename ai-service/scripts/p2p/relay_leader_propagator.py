@@ -43,7 +43,8 @@ logger = logging.getLogger(__name__)
 GOSSIP_LEADER_KEY = "cluster_leader"
 
 # How long a leader claim is valid in the gossip state (seconds)
-LEADER_CLAIM_TTL_SECONDS = 300.0
+# Reduced from 300 to 90 to prevent stale leader claims causing split-brain (Jan 8, 2026)
+LEADER_CLAIM_TTL_SECONDS = 90.0
 
 # Minimum time between leader propagation broadcasts (seconds)
 LEADER_PROPAGATION_COOLDOWN = 5.0
@@ -308,6 +309,16 @@ class RelayLeaderPropagatorMixin:
         if not should_adopt:
             return False
 
+        # Jan 8, 2026: Verify leader reachability before adopting
+        # This prevents adopting leaders from stale gossip that we can't actually reach
+        leader_reachable = self._verify_leader_reachable(best_claim.leader_id)
+        if not leader_reachable:
+            logger.warning(
+                f"[RelayLeaderPropagator] Not adopting leader {best_claim.leader_id} "
+                f"from gossip - not found in peers list or marked as not alive"
+            )
+            return False
+
         # Update our leader_id
         old_leader = self.leader_id
         self.leader_id = best_claim.leader_id
@@ -327,6 +338,54 @@ class RelayLeaderPropagatorMixin:
         self._emit_leader_adopted_from_gossip(best_claim, reason)
 
         return True
+
+    def _verify_leader_reachable(self, leader_id: str) -> bool:
+        """Verify that a leader is reachable before adopting.
+
+        Jan 8, 2026: Added to prevent adopting leaders from stale gossip
+        that we can't actually communicate with.
+
+        Args:
+            leader_id: The node ID of the potential leader
+
+        Returns:
+            True if leader is found in peers and marked alive, False otherwise
+        """
+        # Check if the leader is self
+        if hasattr(self, "node_id") and self.node_id == leader_id:
+            return True
+
+        # Check peers list
+        peers_lock = getattr(self, "peers_lock", None)
+        peers = getattr(self, "peers", None)
+        if peers is None:
+            # No peers list available, can't verify - allow adoption
+            return True
+
+        try:
+            if peers_lock:
+                with peers_lock:
+                    peer = peers.get(leader_id)
+            else:
+                peer = peers.get(leader_id)
+
+            if peer is None:
+                # Leader not in peers list
+                return False
+
+            # Check if peer is alive (either via method or attribute)
+            if hasattr(peer, "is_alive") and callable(peer.is_alive):
+                return peer.is_alive()
+            elif hasattr(peer, "last_heartbeat"):
+                # Fallback: check if heartbeat is recent (60 seconds)
+                import time
+                return (time.time() - peer.last_heartbeat) < 60.0
+
+            # Can't determine aliveness, allow adoption
+            return True
+        except Exception as e:
+            logger.debug(f"Error verifying leader reachability: {e}")
+            return True  # Default to allowing adoption on error
 
     def _emit_leader_adopted_from_gossip(
         self, claim: LeaderClaim, reason: str
