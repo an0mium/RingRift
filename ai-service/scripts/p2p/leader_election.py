@@ -986,6 +986,11 @@ class LeaderElectionMixin(P2PMixinBase):
         Returns:
             True if promotion was successful
         """
+        # Jan 8, 2026: Reject SWIM peer IDs to prevent voter list pollution
+        if self._is_swim_peer_id(node_id):
+            self._log_warning(f"Cannot promote {node_id}: SWIM peer ID not allowed as voter")
+            return False
+
         # Validate node exists and is healthy
         with self.peers_lock:
             peer = self.peers.get(node_id)

@@ -203,6 +203,28 @@ class StateManager:
         # Ensure parent directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _is_swim_peer_id(self, peer_id: str) -> bool:
+        """Check if peer_id is a SWIM protocol entry (IP:7947 format).
+
+        SWIM entries use port 7947 and should not be in voter list or peer tracking.
+        These leak from the SWIM layer and cause state pollution.
+
+        Jan 8, 2026: Added to filter SWIM entries from persisted state.
+
+        Args:
+            peer_id: Node identifier to check.
+
+        Returns:
+            True if this is a SWIM-format peer ID (should be filtered out).
+        """
+        if not peer_id or ":" not in peer_id:
+            return False
+        parts = peer_id.split(":")
+        # SWIM uses port 7947
+        if len(parts) == 2 and parts[1] == "7947":
+            return True
+        return False
+
     def _db_connect(self) -> sqlite3.Connection:
         """Create a database connection with proper settings.
 
@@ -489,12 +511,18 @@ class StateManager:
                 cursor = conn.cursor()
 
                 # Load peers
+                # Jan 8, 2026: Filter out SWIM peer entries (IP:7947 format)
                 cursor.execute("SELECT node_id, info_json FROM peers")
                 for row in cursor.fetchall():
                     try:
-                        if row[0] == node_id:
+                        peer_id = row[0]
+                        if peer_id == node_id:
                             continue
-                        state.peers[row[0]] = json.loads(row[1])
+                        # Filter SWIM protocol entries
+                        if self._is_swim_peer_id(peer_id):
+                            logger.debug(f"Filtering SWIM peer from persisted state: {peer_id}")
+                            continue
+                        state.peers[peer_id] = json.loads(row[1])
                     except (json.JSONDecodeError, TypeError) as e:
                         logger.error(f"Failed to load peer {row[0]}: {e}")
 
@@ -544,16 +572,20 @@ class StateManager:
                         state.leader_state.voter_grant_expires = float(raw_grant_expires)
 
                 # Load voter configuration
+                # Jan 8, 2026: Filter SWIM peer entries (IP:7947 format) from voter list
+                # These entries leak from SWIM protocol and should not be in voter list
                 if raw_voters := state_rows.get("voter_node_ids"):
                     try:
                         parsed = json.loads(raw_voters)
                         if isinstance(parsed, list):
                             state.leader_state.voter_node_ids = [
-                                str(v).strip() for v in parsed if str(v).strip()
+                                str(v).strip() for v in parsed
+                                if str(v).strip() and not self._is_swim_peer_id(str(v).strip())
                             ]
                     except (json.JSONDecodeError, KeyError, IndexError, AttributeError):
                         state.leader_state.voter_node_ids = [
-                            t.strip() for t in str(raw_voters).split(",") if t.strip()
+                            t.strip() for t in str(raw_voters).split(",")
+                            if t.strip() and not self._is_swim_peer_id(t.strip())
                         ]
 
                 if raw_config_source := state_rows.get("voter_config_source"):
@@ -666,7 +698,12 @@ class StateManager:
 
                 # Save leader state
                 role_value = leader_state.role
-                voter_node_ids_json = json.dumps(sorted(set(leader_state.voter_node_ids or [])))
+                # Jan 8, 2026: Filter SWIM peer entries before saving voter list
+                clean_voters = [
+                    v for v in (leader_state.voter_node_ids or [])
+                    if v and not self._is_swim_peer_id(v)
+                ]
+                voter_node_ids_json = json.dumps(sorted(set(clean_voters)))
 
                 state_payload = [
                     ("leader_id", leader_state.leader_id or ""),
@@ -714,6 +751,9 @@ class StateManager:
         """Save peers without locking (caller must hold lock if needed)."""
         for peer_id, info in peers.items():
             if peer_id == node_id:
+                continue
+            # Jan 8, 2026: Filter SWIM protocol entries - don't persist them
+            if self._is_swim_peer_id(peer_id):
                 continue
             # Handle both NodeInfo objects and dicts
             if hasattr(info, "to_dict"):
