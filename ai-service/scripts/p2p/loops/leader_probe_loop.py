@@ -162,14 +162,16 @@ class LeaderProbeLoop(BaseLoop):
         """Check if this node is the current leader."""
         try:
             return bool(getattr(self._orchestrator, "is_leader", False))
-        except Exception:
+        except (AttributeError, TypeError):
+            # Orchestrator unavailable or wrong type
             return False
 
     def _get_leader_id(self) -> str | None:
         """Get the current leader ID."""
         try:
             return getattr(self._orchestrator, "leader_id", None)
-        except Exception:
+        except (AttributeError, TypeError):
+            # Orchestrator unavailable or wrong type
             return None
 
     async def _probe_leader(self, leader_id: str) -> bool:
@@ -568,12 +570,13 @@ class LeaderProbeLoop(BaseLoop):
                                 return await response.json()
                 except asyncio.TimeoutError:
                     continue
-                except Exception:
+                except (aiohttp.ClientError, OSError, ValueError):
+                    # Connection error, network error, or invalid response
                     continue
 
             return None
 
-        except Exception as e:
+        except (aiohttp.ClientError, OSError, ValueError, RuntimeError) as e:
             logger.debug(f"[LeaderProbe] Failed to get status from {node_id}: {e}")
             return None
 
@@ -790,7 +793,8 @@ class LeaderProbeLoop(BaseLoop):
         """
         try:
             return getattr(self._orchestrator, "voter_node_ids", []) or []
-        except Exception:
+        except (AttributeError, TypeError):
+            # Orchestrator unavailable or wrong type
             return []
 
     async def _probe_voter_for_leader(self, voter_id: str) -> str | None:

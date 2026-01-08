@@ -908,7 +908,8 @@ class HealthCoordinator:
                     return False
 
                 return circuit_data.state == NodeCircuitState.OPEN
-            except Exception:
+            except (ImportError, AttributeError, TypeError):
+                # Circuit breaker module unavailable or malformed state
                 return False
 
     def get_cached_node_health(self, node_id: str) -> dict[str, Any] | None:

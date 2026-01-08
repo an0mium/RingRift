@@ -536,8 +536,9 @@ class GracefulStepDown:
                 from app.coordination.data_events import DataEventType, emit_event
 
                 emit_event(DataEventType(event_type.lower()), payload)
-        except Exception:
-            pass  # Event emission should not block step-down
+        except (ImportError, ValueError, AttributeError, TypeError, RuntimeError):
+            # Event emission should not block step-down
+            pass
 
 
 # Convenience functions

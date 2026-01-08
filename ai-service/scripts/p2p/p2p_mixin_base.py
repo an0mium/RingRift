@@ -600,7 +600,8 @@ class P2PMixinBase:
                 import yaml
                 data = yaml.safe_load(cfg_path.read_text()) or {}
                 hosts = data.get("hosts", {}) or {}
-            except Exception:
+            except (ImportError, OSError, yaml.YAMLError, ValueError, KeyError):
+                # Config file unavailable, malformed, or missing required keys
                 return {}
 
             # Build full mapping for all hosts in config

@@ -285,7 +285,8 @@ class JobReaperLoop(BaseLoop):
         active_jobs = {}
         try:
             active_jobs = self._get_active_jobs()
-        except Exception:
+        except (AttributeError, TypeError, RuntimeError, KeyError, ValueError, OSError):
+            # Callback unavailable, wrong type returned, or network/state issues
             pass
 
         # Healthy - report stats
@@ -680,7 +681,8 @@ class PredictiveScalingLoop(BaseLoop):
             if self.config.skip_nodes_with_pending_jobs and self._get_pending_jobs_for_node:
                 try:
                     pending_jobs = self._get_pending_jobs_for_node(node_id)
-                except Exception:
+                except (AttributeError, TypeError, RuntimeError, KeyError, ValueError, OSError):
+                    # Callback unavailable or network/state issues
                     pending_jobs = 0
 
             # Node is approaching idle if:
@@ -1129,7 +1131,8 @@ class WorkerPullLoop(BaseLoop):
                 discovery_manager = self._get_work_discovery_manager()
                 if discovery_manager:
                     use_work_discovery = True
-            except Exception:
+            except (AttributeError, TypeError, ImportError):
+                # Discovery manager unavailable or not configured
                 pass  # Fall back to legacy behavior
 
         # Check if leader is available (for legacy path)
@@ -1286,7 +1289,8 @@ class WorkerPullLoop(BaseLoop):
                 try:
                     metrics_data = self._get_self_metrics()
                     node_id = metrics_data.get("node_id", "") or ""
-                except Exception:
+                except (AttributeError, TypeError, KeyError, RuntimeError, OSError):
+                    # Metrics unavailable or malformed
                     pass
 
                 if node_id:
@@ -1731,7 +1735,8 @@ class WorkQueueMaintenanceLoop(BaseLoop):
                 if last_completed > self._last_work_completed_time:
                     self._last_work_completed_time = last_completed
                     work_completed_recently = True
-            except Exception:
+            except (AttributeError, TypeError, KeyError, RuntimeError):
+                # Work queue stats unavailable or malformed
                 pass
 
         # Also count timeouts processed as "activity" (work is happening)
@@ -1754,14 +1759,16 @@ class WorkQueueMaintenanceLoop(BaseLoop):
                 if hasattr(wq, 'get_blocked_configs'):
                     try:
                         blocked_configs = list(wq.get_blocked_configs())
-                    except Exception:
+                    except (AttributeError, TypeError, RuntimeError):
+                        # Method unavailable or returned invalid type
                         pass
 
                 pending_count = 0
                 if hasattr(wq, 'get_pending_count'):
                     try:
                         pending_count = wq.get_pending_count()
-                    except Exception:
+                    except (AttributeError, TypeError, RuntimeError):
+                        # Method unavailable or returned invalid type
                         pass
 
                 logger.warning(
