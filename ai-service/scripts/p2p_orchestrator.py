@@ -800,12 +800,15 @@ from scripts.p2p.utils import (
 )
 from scripts.p2p.managers import (
     JobManager,
+    JobOrchestrationConfig,
+    JobOrchestrationManager,
     NodeSelector,
     SelfplayScheduler,
     StateManager,
     SyncPlanner,
     SyncPlannerConfig,
     TrainingCoordinator,
+    create_job_orchestration_manager,
 )
 from scripts.p2p.managers.state_manager import PersistedLeaderState
 from scripts.p2p.managers.work_discovery_manager import (
@@ -2125,6 +2128,12 @@ class P2POrchestrator(
         # (SELFPLAY_COMPLETE, DATA_SYNC_COMPLETED, EVALUATION_COMPLETED, REGRESSION_DETECTED)
         # Wave 7 Phase 1.1: Use retry mechanism for reliable subscription
         self.training_coordinator.subscribe_to_events_with_retry()
+
+        # January 2026: Phase 1 P2P Orchestrator Deep Decomposition
+        # JobOrchestrationManager handles job spawning, scaling, and cluster-wide coordination
+        # NOTE: Using factory function which wires all callbacks automatically
+        self.job_orchestration = create_job_orchestration_manager(self)
+        logger.info("[P2P] JobOrchestrationManager initialized")
 
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
@@ -3951,7 +3960,7 @@ class P2POrchestrator(
     def _validate_manager_health(self) -> dict[str, Any]:
         """Validate health of all P2P managers at startup.
 
-        December 28, 2025: Checks that all 7 managers initialized correctly and
+        December 28, 2025: Checks that all 8 managers initialized correctly and
         are healthy. This catches initialization issues early rather than
         at first use, improving debuggability.
 
@@ -3963,6 +3972,7 @@ class P2POrchestrator(
         - job_manager: Job spawning and lifecycle management
         - training_coordinator: Training dispatch and model promotion
         - loop_manager: Background loop orchestration (Dec 2025)
+        - job_orchestration: Job spawning, scaling, cluster coordination (Jan 2026)
 
         Returns:
             dict with manager health status and overall healthy flag
@@ -3976,6 +3986,8 @@ class P2POrchestrator(
             ("training_coordinator", self.training_coordinator),
             # December 2025: Include LoopManager in health validation
             ("loop_manager", self._get_loop_manager()),
+            # January 2026: Phase 1 Decomposition - JobOrchestrationManager
+            ("job_orchestration", getattr(self, "job_orchestration", None)),
         ]
 
         status = {
@@ -15635,6 +15647,10 @@ print(json.dumps(result))
         config = work_item.get("config", {})
         work_id = work_item.get("work_id", "")
 
+        # Track work execution via JobOrchestrationManager (Jan 2026)
+        if hasattr(self, "job_orchestration") and self.job_orchestration:
+            self.job_orchestration.record_work_executed(work_type)
+
         try:
             if work_type == "training":
                 # Start training job - January 2026: Fixed to actually execute training
@@ -24984,6 +25000,10 @@ print(json.dumps({{
         """
         logger.info("Leader: Managing cluster jobs...")
 
+        # Track cluster management run via JobOrchestrationManager (Jan 2026)
+        if hasattr(self, "job_orchestration") and self.job_orchestration:
+            self.job_orchestration.record_cluster_management_run()
+
         # Gather cluster state
         with self.peers_lock:
             alive_peers = [p for p in self.peers.values() if p.is_alive()]
@@ -25793,6 +25813,9 @@ print(json.dumps({{
                 allowed, reason = check_before_spawn(task_type_str, self.node_id)
                 if not allowed:
                     logger.info(f"SAFEGUARD blocked {task_type_str} on {self.node_id}: {reason}")
+                    # Track blocked spawn via JobOrchestrationManager
+                    if hasattr(self, "job_orchestration") and self.job_orchestration:
+                        self.job_orchestration.record_spawn_blocked(f"safeguard:{reason}")
                     return None
 
                 # Apply backpressure delay
@@ -25928,6 +25951,10 @@ print(json.dumps({{
                 logger.info(f"Started {job_type.value} job {job_id} (PID {proc.pid})")
                 self._save_state()
 
+                # Track job start via JobOrchestrationManager (Jan 2026)
+                if hasattr(self, "job_orchestration") and self.job_orchestration:
+                    self.job_orchestration.record_job_started(job_type.value)
+
                 # Dec 31, 2025: Add process monitoring to track completion/failure
                 # Previously jobs remained in "running" status indefinitely
                 asyncio.create_task(self._monitor_selfplay_process(
@@ -26030,6 +26057,10 @@ print(json.dumps({{
 
                 logger.info(f"Started {job_type.value} job {job_id} (PID {proc.pid}) [CPU-only hybrid mode]")
                 self._save_state()
+
+                # Track job start via JobOrchestrationManager (Jan 2026)
+                if hasattr(self, "job_orchestration") and self.job_orchestration:
+                    self.job_orchestration.record_job_started(job_type.value)
 
                 # Dec 31, 2025: Add process monitoring to track completion/failure
                 asyncio.create_task(self._monitor_selfplay_process(
@@ -26161,6 +26192,10 @@ print(json.dumps({{
                 })
 
                 self._save_state()
+
+                # Track job start via JobOrchestrationManager (Jan 2026)
+                if hasattr(self, "job_orchestration") and self.job_orchestration:
+                    self.job_orchestration.record_job_started(job_type.value)
 
                 # Monitor GPU selfplay and trigger CPU validation when complete
                 asyncio.create_task(self._monitor_gpu_selfplay_and_validate(
@@ -26322,6 +26357,10 @@ print(json.dumps({{
 
                 self._save_state()
 
+                # Track job start via JobOrchestrationManager (Jan 2026)
+                if hasattr(self, "job_orchestration") and self.job_orchestration:
+                    self.job_orchestration.record_job_started(job_type.value)
+
                 # Dec 31, 2025: Add process monitoring to track completion/failure
                 asyncio.create_task(self._monitor_selfplay_process(
                     job_id, proc, output_dir, board_type, num_players, "hybrid_selfplay"
@@ -26465,6 +26504,10 @@ print(json.dumps({{
 
                 self._save_state()
 
+                # Track job start via JobOrchestrationManager (Jan 2026)
+                if hasattr(self, "job_orchestration") and self.job_orchestration:
+                    self.job_orchestration.record_job_started(job_type.value)
+
                 # Dec 31, 2025: Add process monitoring to track completion/failure
                 asyncio.create_task(self._monitor_selfplay_process(
                     job_id, proc, output_dir, board_type, num_players, "gumbel_selfplay"
@@ -26564,6 +26607,11 @@ print(json.dumps({{
 
                 logger.info(f"Started DATA_EXPORT job {job_id} (PID {proc.pid}): {input_path} -> {output_path}")
                 self._save_state()
+
+                # Track job start via JobOrchestrationManager (Jan 2026)
+                if hasattr(self, "job_orchestration") and self.job_orchestration:
+                    self.job_orchestration.record_job_started(job_type.value)
+
                 return job
 
         except Exception as e:  # noqa: BLE001

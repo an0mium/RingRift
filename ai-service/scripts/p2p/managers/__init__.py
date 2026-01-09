@@ -40,6 +40,13 @@ from .work_discovery_manager import (
     reset_work_discovery_manager,
     set_work_discovery_manager,
 )
+# January 2026: Phase 1 P2P Orchestrator Deep Decomposition
+from .job_orchestration_manager import (
+    JobOrchestrationConfig,
+    JobOrchestrationManager,
+    JobOrchestrationStats,
+    create_job_orchestration_manager,
+)
 
 __all__ = [
     "DiscoveryChannel",
@@ -64,4 +71,9 @@ __all__ = [
     "reset_manager_factory",
     "reset_work_discovery_manager",
     "set_work_discovery_manager",
+    # January 2026: Phase 1 P2P Orchestrator Deep Decomposition
+    "JobOrchestrationConfig",
+    "JobOrchestrationManager",
+    "JobOrchestrationStats",
+    "create_job_orchestration_manager",
 ]
