@@ -283,6 +283,7 @@ class MultiHarnessGauntlet:
         num_players: int = 2,
         harnesses: list[HarnessType | str] | None = None,
         harness_configs: dict[HarnessType, HarnessConfig] | None = None,
+        save_games: bool = True,
     ) -> MultiHarnessResult:
         """Evaluate a model under all compatible harnesses.
 
@@ -293,6 +294,7 @@ class MultiHarnessGauntlet:
             num_players: Number of players
             harnesses: Specific harnesses to evaluate (None = all compatible)
             harness_configs: Override configurations per harness
+            save_games: Whether to save games for training (default True)
 
         Returns:
             MultiHarnessResult with Elo ratings for each harness
@@ -351,6 +353,7 @@ class MultiHarnessGauntlet:
                             num_players=num_players,
                             harness=harness,
                             config=config,
+                            save_games=save_games,
                         )
                         return (harness, rating, None)
                     except (RuntimeError, ValueError, TimeoutError) as e:
@@ -387,6 +390,7 @@ class MultiHarnessGauntlet:
                         num_players=num_players,
                         harness=harness,
                         config=config,
+                        save_games=save_games,
                     )
                     harness_results[harness] = rating
                     total_games += rating.games_played
@@ -423,6 +427,7 @@ class MultiHarnessGauntlet:
         num_players: int,
         harness: HarnessType,
         config: HarnessConfig,
+        save_games: bool = True,
     ) -> EloRating:
         """Evaluate model under a single harness.
 
@@ -433,6 +438,7 @@ class MultiHarnessGauntlet:
             num_players: Number of players
             harness: Harness to evaluate under
             config: Harness configuration
+            save_games: Whether to save games for training (default True)
 
         Returns:
             EloRating for this harness
@@ -479,6 +485,8 @@ class MultiHarnessGauntlet:
             game_count = None  # Will use fallback thresholds
 
         # Run gauntlet with this harness (in thread pool to not block)
+        # January 9, 2026 (Sprint 17.9): Pass harness_type for composite participant IDs
+        # and save_games_for_training for capturing full training data (move_probs, search_stats)
         def run_gauntlet() -> dict[str, GauntletGameResult]:
             return run_baseline_gauntlet(
                 model_path=str(model_path),
@@ -490,6 +498,8 @@ class MultiHarnessGauntlet:
                 parallel_games=config.parallel_games,
                 timeout=config.timeout_seconds,
                 game_count=game_count,  # Dec 30: Graduated thresholds
+                harness_type=harness.value,  # Jan 9, 2026: Composite participant ID
+                save_games_for_training=save_games,  # Jan 9, 2026: Save full training data
             )
 
         results = await asyncio.to_thread(run_gauntlet)
@@ -575,6 +585,74 @@ class MultiHarnessGauntlet:
             config.temperature = 0.5
 
         return config
+
+    async def evaluate_all_harnesses(
+        self,
+        model_path: str | Path,
+        board_type: str,
+        num_players: int,
+        games_per_harness: int = 50,
+        save_games: bool = True,
+        register_with_elo: bool = True,
+    ) -> dict[str, EloRating]:
+        """Evaluate model under ALL compatible harnesses and record to EloService.
+
+        This is a convenience method that evaluates a model under every compatible
+        harness for the given model type and player count, records results to the
+        EloService with composite participant IDs, and returns the ratings.
+
+        Args:
+            model_path: Path to model checkpoint
+            board_type: Board configuration (e.g., "hex8", "square8")
+            num_players: 2, 3, or 4
+            games_per_harness: Games to play per harness (default 50)
+            save_games: Whether to save games for training (default True)
+            register_with_elo: Whether to register results with EloService (default True)
+
+        Returns:
+            Dict mapping harness_name -> EloRating
+
+        Example:
+            gauntlet = MultiHarnessGauntlet()
+            ratings = await gauntlet.evaluate_all_harnesses(
+                model_path="models/canonical_hex8_4p.pth",
+                board_type="hex8",
+                num_players=4,
+                games_per_harness=50,
+                save_games=True,
+            )
+            for harness, rating in ratings.items():
+                print(f"  {harness}: {rating.display}")
+        """
+        # Create custom config with games_per_harness
+        gauntlet = MultiHarnessGauntlet(
+            default_games_per_baseline=games_per_harness // 2,  # Split across 2 baselines
+            default_baselines=self.default_baselines,
+            parallel_evaluations=self.parallel_evaluations,
+        )
+
+        # Run full evaluation
+        result = await gauntlet.evaluate_model(
+            model_path=model_path,
+            board_type=board_type,
+            num_players=num_players,
+            save_games=save_games,
+        )
+
+        # Register with EloService if requested
+        if register_with_elo:
+            try:
+                register_multi_harness_results(result)
+            except (ImportError, RuntimeError, ValueError) as e:
+                logger.warning(f"Failed to register with EloService: {e}")
+
+        # Convert to dict[str, EloRating]
+        ratings: dict[str, EloRating] = {}
+        for harness, rating in result.harness_results.items():
+            harness_name = harness.value if hasattr(harness, "value") else str(harness)
+            ratings[harness_name] = rating
+
+        return ratings
 
 
 # ============================================

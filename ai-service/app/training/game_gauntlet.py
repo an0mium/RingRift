@@ -1115,6 +1115,15 @@ def play_single_game(
                 except (RuntimeError, ValueError, TypeError, AttributeError):
                     pass  # Don't fail on visit distribution extraction error
 
+            # January 9, 2026 (Sprint 17.9): Extract search stats for auxiliary training
+            # GumbelMCTSAI provides Q-values, visit counts, search depth, uncertainty
+            search_stats: dict | None = None
+            if hasattr(ai, 'get_search_stats'):
+                try:
+                    search_stats = ai.get_search_stats()
+                except (RuntimeError, ValueError, TypeError, AttributeError):
+                    pass  # Don't fail on search stats extraction error
+
             state_before = state
             state = engine.apply_move(state, move)
 
@@ -1127,6 +1136,7 @@ def play_single_game(
                         state_before=state_before,
                         available_moves_count=0,  # Not tracking for gauntlet
                         move_probs=move_probs,  # Dec 2025: Visit distribution
+                        search_stats=search_stats,  # Jan 2026: Rich search stats
                     )
                 except (RuntimeError, sqlite3.Error, OSError, ValueError):
                     pass  # Don't fail game on recording error

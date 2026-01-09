@@ -175,6 +175,19 @@ from .gossip_state_cleanup_loop import (
     GossipStateCleanupConfig,
     GossipStateCleanupLoop,
 )
+from .comprehensive_evaluation_loop import (
+    ComprehensiveEvaluationConfig,
+    ComprehensiveEvaluationLoop,
+    CycleStats as ComprehensiveEvaluationCycleStats,
+    EvaluationDispatchResult,
+)
+from .tournament_data_pipeline_loop import (
+    TournamentDataPipelineConfig,
+    TournamentDataPipelineLoop,
+    PipelineCycleStats as TournamentPipelineCycleStats,
+    DatabaseStats as TournamentDatabaseStats,
+    ExportResult as TournamentExportResult,
+)
 
 __all__ = [
     # Base
@@ -295,4 +308,15 @@ __all__ = [
     "GossipCleanupStats",
     "GossipStateCleanupConfig",
     "GossipStateCleanupLoop",
+    # Comprehensive Evaluation (Jan 2026 - Model Evaluation Pipeline)
+    "ComprehensiveEvaluationConfig",
+    "ComprehensiveEvaluationLoop",
+    "ComprehensiveEvaluationCycleStats",
+    "EvaluationDispatchResult",
+    # Tournament Data Pipeline (Jan 2026 - Training Data Export)
+    "TournamentDataPipelineConfig",
+    "TournamentDataPipelineLoop",
+    "TournamentPipelineCycleStats",
+    "TournamentDatabaseStats",
+    "TournamentExportResult",
 ]

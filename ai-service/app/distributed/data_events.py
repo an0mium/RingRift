@@ -547,6 +547,20 @@ class DataEventType(Enum):
     DLQ_EVENTS_REPLAYED = "dlq_events_replayed"  # DLQ events replayed successfully
     DLQ_EVENTS_PURGED = "dlq_events_purged"  # DLQ events purged (too old/invalid)
 
+    # Comprehensive Model Evaluation events (January 2026)
+    # Ensure all models are evaluated under all compatible harnesses
+    COMPREHENSIVE_EVALUATION_STARTED = "comprehensive_evaluation_started"  # 6-hour evaluation cycle started
+    COMPREHENSIVE_EVALUATION_COMPLETED = "comprehensive_evaluation_completed"  # Evaluation cycle completed
+    MODEL_HARNESS_EVALUATED = "model_harness_evaluated"  # Single (model, harness, config) combo evaluated
+    CLUSTER_MODEL_INVENTORY_UPDATED = "cluster_model_inventory_updated"  # Model list across cluster refreshed
+    UNEVALUATED_MODELS_DETECTED = "unevaluated_models_detected"  # Models without ratings discovered
+
+    # Tournament Data Pipeline events (January 2026)
+    # Automatically feed tournament/gauntlet games into training
+    TOURNAMENT_DATA_READY = "tournament_data_ready"  # Tournament NPZ exported and ready for training
+    TOURNAMENT_PIPELINE_COMPLETED = "tournament_pipeline_completed"  # Pipeline cycle completed
+    TOURNAMENT_TRAINING_TRIGGERED = "tournament_training_triggered"  # Training triggered on tournament data
+
 
 @dataclass
 class DataEvent:

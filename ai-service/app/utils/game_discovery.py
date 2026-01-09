@@ -174,6 +174,9 @@ class GameDiscovery:
         # Inter-node cluster sync (Jan 2026)
         ("data/games/cluster_sync/*.db", True),
         ("data/games/cluster_sync/**/*.db", True),
+        # Synced databases in root data/games directory (Jan 2026)
+        # Files like gh200_square19_3p_synced.db, nebius_hex8_2p_synced.db
+        ("data/games/*_synced.db", True),
         # Legacy patterns
         ("data/games/hex8_*.db", False),
         ("data/games/canonical_*.db", True),

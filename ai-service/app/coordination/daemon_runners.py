@@ -1211,6 +1211,37 @@ async def create_stale_evaluation() -> None:
         raise
 
 
+async def create_comprehensive_model_scan() -> None:
+    """Create and run comprehensive model scan daemon (January 9, 2026 - Sprint 17.9).
+
+    Discovers ALL models across all sources:
+    - Local models/ directory
+    - ClusterModelDiscovery (SSH queries to cluster nodes)
+    - OWCModelDiscovery (external OWC drive)
+
+    For each discovered model, queues evaluation under all compatible harnesses
+    (BRS, MaxN, Descent, Gumbel MCTS). Ensures all models get fresh Elo ratings
+    under multiple harnesses, with games saved for training.
+
+    Features:
+    - SHA256-based deduplication across sources
+    - Priority-based queueing (4-player, underserved configs boosted)
+    - Configurable harness types via environment
+    - Subscribes to MODEL_IMPORTED and MODEL_PROMOTED for immediate queueing
+    """
+    try:
+        from app.coordination.comprehensive_model_scan_daemon import (
+            get_comprehensive_model_scan_daemon,
+        )
+
+        daemon = get_comprehensive_model_scan_daemon()
+        await daemon.start()
+        await _wait_for_daemon(daemon)
+    except ImportError as e:
+        logger.error(f"ComprehensiveModelScanDaemon not available: {e}")
+        raise
+
+
 async def create_ephemeral_sync() -> None:
     """Create and run ephemeral sync daemon (Phase 4, December 2025).
 
@@ -3256,6 +3287,7 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.OWC_MODEL_IMPORT.name: create_owc_model_import,
         DaemonType.UNEVALUATED_MODEL_SCANNER.name: create_unevaluated_model_scanner,
         DaemonType.STALE_EVALUATION.name: create_stale_evaluation,  # Jan 4, 2026: Sprint 17
+        DaemonType.COMPREHENSIVE_MODEL_SCAN.name: create_comprehensive_model_scan,  # Jan 9, 2026: Sprint 17.9
         DaemonType.EPHEMERAL_SYNC.name: create_ephemeral_sync,
         DaemonType.GOSSIP_SYNC.name: create_gossip_sync,
         DaemonType.EVENT_ROUTER.name: create_event_router,

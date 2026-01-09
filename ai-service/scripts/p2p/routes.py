@@ -373,6 +373,7 @@ DASHBOARD_ROUTES = [
     Route("GET", "/matchups/table", "handle_matchup_table"),
     Route("GET", "/models/lineage", "handle_model_lineage"),
     Route("GET", "/models/lineage/table", "handle_model_lineage_table"),
+    Route("GET", "/models/inventory", "handle_model_inventory"),  # Jan 9, 2026: Model inventory for cluster-wide discovery
     Route("GET", "/data/quality", "handle_data_quality"),
     Route("GET", "/data/quality/table", "handle_data_quality_table"),
     Route("GET", "/data/quality/issues", "handle_data_quality_issues"),

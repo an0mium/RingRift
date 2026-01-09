@@ -168,6 +168,12 @@ class DaemonType(Enum):
     # Runs at lower priority than new model evaluation
     STALE_EVALUATION = "stale_evaluation"
 
+    # Comprehensive model scan daemon (Sprint 17.9 - Jan 9, 2026)
+    # Discovers ALL models across local, cluster, and OWC sources
+    # Queues each model+harness combination for evaluation
+    # Ensures all models get fresh Elo ratings under multiple harnesses
+    COMPREHENSIVE_MODEL_SCAN = "comprehensive_model_scan"
+
     # Backlog evaluation daemon (Sprint 15 - Jan 3, 2026)
     # Discovers models on OWC drive and queues them for Elo evaluation
     # Rate-limited, respects backpressure from EvaluationDaemon
@@ -765,6 +771,7 @@ DAEMON_CATEGORY_MAP: dict[DaemonType, DaemonCategory] = {
     DaemonType.TOURNAMENT_DAEMON: DaemonCategory.EVALUATION,
     DaemonType.GAUNTLET_FEEDBACK: DaemonCategory.EVALUATION,
     DaemonType.BACKLOG_EVALUATION: DaemonCategory.EVALUATION,  # Sprint 15
+    DaemonType.COMPREHENSIVE_MODEL_SCAN: DaemonCategory.EVALUATION,  # Sprint 17.9: Multi-harness scan
 
     # DISTRIBUTION category - model/data distribution
     DaemonType.MODEL_DISTRIBUTION: DaemonCategory.DISTRIBUTION,
@@ -1026,6 +1033,8 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     DaemonType.GAUNTLET_FEEDBACK: {DaemonType.EVENT_ROUTER, DaemonType.EVALUATION},
     # Sprint 15: Backlog evaluation depends on EVENT_ROUTER for backpressure signals
     DaemonType.BACKLOG_EVALUATION: {DaemonType.EVENT_ROUTER},
+    # Sprint 17.9: Comprehensive model scan discovers and queues models for multi-harness evaluation
+    DaemonType.COMPREHENSIVE_MODEL_SCAN: {DaemonType.EVENT_ROUTER},
 
     # Data management daemons
     DaemonType.ORPHAN_DETECTION: {DaemonType.EVENT_ROUTER},

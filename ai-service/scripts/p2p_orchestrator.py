@@ -3359,6 +3359,54 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"HttpServerHealthLoop: not available: {e}")
 
+            # ComprehensiveEvaluationLoop - January 2026 (Model Evaluation Pipeline)
+            # Runs every 6 hours on leader to ensure all models across the cluster are
+            # evaluated under all compatible harnesses. Tracks (model, harness, config)
+            # combinations and prioritizes unevaluated or stale combinations.
+            try:
+                from scripts.p2p.loops import (
+                    ComprehensiveEvaluationLoop,
+                    ComprehensiveEvaluationConfig,
+                )
+                comp_eval_loop = ComprehensiveEvaluationLoop(
+                    get_role=lambda: self._role,
+                    get_orchestrator=lambda: self,
+                    config=ComprehensiveEvaluationConfig(
+                        interval=6 * 3600,  # Every 6 hours
+                        max_evaluations_per_cycle=50,
+                        stale_threshold_days=7,
+                        games_per_harness=50,
+                        save_games=True,
+                        register_with_elo=True,
+                    ),
+                )
+                manager.register(comp_eval_loop)
+                logger.info("[P2P] ComprehensiveEvaluationLoop registered (6-hour model evaluation cycle)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"ComprehensiveEvaluationLoop: not available: {e}")
+
+            # TournamentDataPipelineLoop - January 2026 (Training Data Export)
+            # Runs every hour on leader to discover tournament/gauntlet game databases,
+            # apply quality gates, export to NPZ format, and trigger training events.
+            try:
+                from scripts.p2p.loops import (
+                    TournamentDataPipelineLoop,
+                    TournamentDataPipelineConfig,
+                )
+                tournament_pipeline = TournamentDataPipelineLoop(
+                    get_role=lambda: self._role,
+                    config=TournamentDataPipelineConfig(
+                        interval=3600,  # Every hour
+                        min_games_for_export=100,
+                        quality_threshold=0.6,
+                        emit_training_events=True,
+                    ),
+                )
+                manager.register(tournament_pipeline)
+                logger.info("[P2P] TournamentDataPipelineLoop registered (hourly tournament data export)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"TournamentDataPipelineLoop: not available: {e}")
+
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
             return True

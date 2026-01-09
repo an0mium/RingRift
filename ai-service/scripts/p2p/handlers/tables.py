@@ -719,3 +719,135 @@ class TableHandlersMixin(BaseP2PHandler):
             return web.json_response(table_data)
         except Exception as e:  # noqa: BLE001
             return web.json_response([{"error": str(e)}])
+
+    # =========================================================================
+    # Model Inventory (Jan 9, 2026)
+    # =========================================================================
+
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
+    async def handle_model_inventory(self, request: web.Request) -> web.Response:
+        """GET /models/inventory - Return local model inventory for cluster-wide discovery.
+
+        Returns all NN and NNUE models available on this node with metadata.
+        Used by ClusterModelEnumerator to build a unified model catalog.
+
+        Response format:
+        {
+            "node_id": "node-name",
+            "models": [
+                {
+                    "path": "models/canonical_hex8_2p.pth",
+                    "type": "nn",
+                    "board_type": "hex8",
+                    "num_players": 2,
+                    "size_bytes": 12345678,
+                    "modified": 1704825600.0,
+                    "architecture": "v2",
+                    "hash": "abc123..."
+                },
+                ...
+            ]
+        }
+        """
+        import hashlib
+        import os
+        import re
+
+        try:
+            node_id = getattr(self, "node_id", None) or os.environ.get(
+                "RINGRIFT_NODE_ID", "unknown"
+            )
+            models_dir = Path(
+                getattr(self, "ringrift_path", ".")
+            ) / "ai-service" / "models"
+
+            models = []
+
+            if not models_dir.exists():
+                # Try alternate path (when running from ai-service directly)
+                models_dir = Path("models")
+
+            if models_dir.exists():
+                for pth_file in models_dir.rglob("*.pth"):
+                    try:
+                        model_info = await asyncio.to_thread(
+                            self._extract_model_info, pth_file
+                        )
+                        if model_info:
+                            models.append(model_info)
+                    except Exception as e:  # noqa: BLE001
+                        logger.debug(f"Error scanning {pth_file}: {e}")
+
+            return web.json_response({
+                "node_id": node_id,
+                "models": models,
+                "count": len(models),
+            })
+
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Error getting model inventory: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    def _extract_model_info(self, pth_file: Path) -> dict[str, Any] | None:
+        """Extract model metadata from a .pth file.
+
+        Args:
+            pth_file: Path to the model file
+
+        Returns:
+            Dict with model metadata or None if extraction failed
+        """
+        import hashlib
+        import re
+
+        try:
+            name = pth_file.name.lower()
+            path_str = str(pth_file)
+
+            # Extract board type
+            board_match = re.search(
+                r"(hex8|square8|square19|hexagonal)", path_str.lower()
+            )
+            board_type = board_match.group(1) if board_match else None
+
+            # Extract num_players
+            players_match = re.search(r"_(\d)p", path_str.lower())
+            num_players = int(players_match.group(1)) if players_match else None
+
+            if not board_type or not num_players:
+                return None
+
+            # Detect model type
+            if "nnue_mp" in name:
+                model_type = "nnue_mp"
+            elif "nnue" in name:
+                model_type = "nnue"
+            else:
+                model_type = "nn"
+
+            # Detect architecture from filename
+            architecture = "v2"  # Default
+            for arch in ["v5-heavy-xl", "v5-heavy-large", "v5-heavy", "v5", "v4", "v3", "v2"]:
+                if arch.replace("-", "_") in name or arch in name:
+                    architecture = arch
+                    break
+
+            # Compute hash from filename for identification
+            file_hash = hashlib.sha256(pth_file.name.encode()).hexdigest()[:16]
+
+            stat = pth_file.stat()
+
+            return {
+                "path": str(pth_file),
+                "type": model_type,
+                "board_type": board_type,
+                "num_players": num_players,
+                "size_bytes": stat.st_size,
+                "modified": stat.st_mtime,
+                "architecture": architecture,
+                "hash": file_hash,
+            }
+
+        except Exception as e:
+            logger.debug(f"Failed to extract model info from {pth_file}: {e}")
+            return None

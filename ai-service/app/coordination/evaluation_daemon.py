@@ -870,11 +870,101 @@ class EvaluationDaemon(BaseEventHandler):
             logger.error(f"[EvaluationDaemon] Distribution check error: {e}")
             return (True, 0)  # Allow evaluation on error
 
+    async def _ensure_model_local(
+        self, model_path: str, board_type: str, num_players: int
+    ) -> str | None:
+        """Ensure model is available locally, syncing from remote if needed.
+
+        January 9, 2026 (Sprint 17.9): Support for remote model sync.
+        When ComprehensiveModelScanDaemon discovers models on cluster nodes,
+        we need to sync them to local before evaluation.
+
+        Args:
+            model_path: Model path, may be local or remote (cluster:node_id prefix)
+            board_type: Board type for model lookup
+            num_players: Number of players for model lookup
+
+        Returns:
+            Local path to model, or None if sync failed
+        """
+        # Check if this is a remote model reference (source: cluster:node_id)
+        # Remote paths are stored with the full remote path in the queue
+        if not model_path.startswith("/") and ":" not in model_path:
+            # Relative local path
+            return model_path
+        if Path(model_path).exists():
+            # Already local
+            return model_path
+
+        # Try to sync from cluster
+        try:
+            from app.models.cluster_discovery import (
+                get_cluster_model_discovery,
+                RemoteModelInfo,
+            )
+
+            discovery = get_cluster_model_discovery()
+
+            # Find the model on the cluster
+            remote_models = await asyncio.to_thread(
+                discovery.discover_cluster_models,
+                board_type=board_type,
+                num_players=num_players,
+                include_local=False,
+                include_remote=True,
+                max_remote_nodes=10,
+                timeout=60.0,
+            )
+
+            # Find matching model by path suffix
+            model_name = Path(model_path).name
+            for rm in remote_models:
+                if Path(rm.remote_path).name == model_name:
+                    logger.info(
+                        f"[EvaluationDaemon] Syncing remote model from {rm.node_id}: {model_name}"
+                    )
+                    local_path = await asyncio.to_thread(
+                        discovery.sync_model_to_local,
+                        remote_model=rm,
+                        local_dir=Path("models/synced"),
+                        timeout=180.0,
+                    )
+                    if local_path and local_path.exists():
+                        logger.info(f"[EvaluationDaemon] Model synced to: {local_path}")
+                        return str(local_path)
+
+            logger.warning(
+                f"[EvaluationDaemon] Could not find remote model {model_name} on cluster"
+            )
+            return None
+
+        except ImportError:
+            logger.debug("[EvaluationDaemon] ClusterModelDiscovery not available")
+            return None
+        except (OSError, RuntimeError, TimeoutError) as e:
+            logger.warning(f"[EvaluationDaemon] Remote model sync failed: {e}")
+            return None
+
     async def _run_evaluation(self, request: dict) -> None:
         """Run gauntlet evaluation for a model."""
         model_path = request["model_path"]
         board_type = request["board_type"]
         num_players = request["num_players"]
+
+        # January 9, 2026 (Sprint 17.9): Ensure model is available locally
+        # This handles remote models discovered by ComprehensiveModelScanDaemon
+        local_model_path = await self._ensure_model_local(model_path, board_type, num_players)
+        if local_model_path is None:
+            logger.warning(
+                f"[EvaluationDaemon] Model not available locally and sync failed: {model_path}"
+            )
+            await self._emit_evaluation_failed(
+                model_path, board_type, num_players,
+                "model_sync_failed"
+            )
+            self._eval_stats.evaluations_failed += 1
+            return
+        model_path = local_model_path
 
         # December 2025 - Phase 3B: Pre-evaluation distribution check
         available, node_count = await self._check_model_availability(model_path)
