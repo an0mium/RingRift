@@ -149,6 +149,18 @@ class TournamentDaemonConfig:
         ["square8_2p", "square8_3p", "square8_4p"],  # Square8 family
     ])
 
+    # Jan 2026: Top-N round-robin tournaments - all top models play each other
+    # This generates high-quality training data from diverse model matchups
+    enable_topn_roundrobin: bool = True
+    topn_roundrobin_interval_seconds: float = 3600.0 * 4  # Every 4 hours
+    topn_roundrobin_n: int = 10  # Top 10 models per config
+    topn_roundrobin_games_per_matchup: int = 10  # 10 games per pairing
+    topn_roundrobin_min_elo_games: int = 5  # Minimum games to be considered "rated"
+    # Configs to run round-robin on (empty = all available configs)
+    topn_roundrobin_configs: list[str] = field(default_factory=lambda: [
+        "hex8_2p", "hex8_4p", "square8_2p", "square8_4p",
+    ])
+
     # Concurrency
     max_concurrent_games: int = 4
 
@@ -233,6 +245,7 @@ class TournamentDaemon(HandlerBase):
         self._multi_harness_task: asyncio.Task | None = None  # Jan 2026
         self._stale_eval_task: asyncio.Task | None = None  # Jan 2026
         self._cross_config_task: asyncio.Task | None = None  # Jan 2026
+        self._topn_roundrobin_task: asyncio.Task | None = None  # Jan 2026
         self._tournament_stats = TournamentStats()
         self._evaluation_queue: asyncio.Queue = asyncio.Queue()
 
@@ -303,11 +316,19 @@ class TournamentDaemon(HandlerBase):
                 context="tournament_cross_config"
             )
 
+        # Jan 2026: Start top-N round-robin tournament loop
+        if self.config.enable_topn_roundrobin:
+            self._topn_roundrobin_task = self._safe_create_task(
+                self._periodic_topn_roundrobin_loop(),
+                context="tournament_topn_roundrobin"
+            )
+
         logger.info(
             f"TournamentDaemon started (periodic_ladder={self.config.enable_periodic_ladder}, "
             f"calibration={self.config.enable_calibration_tournaments}, "
             f"cross_nn={self.config.enable_cross_nn_tournaments}, "
             f"multi_harness={self.config.enable_periodic_multi_harness}, "
+            f"topn_roundrobin={self.config.enable_topn_roundrobin}, "
             f"stale_eval={self.config.enable_stale_evaluation_detection}, "
             f"cross_config={self.config.enable_cross_config_tournaments})"
         )
@@ -367,6 +388,15 @@ class TournamentDaemon(HandlerBase):
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
             self._cross_config_task = None
+
+        # Cancel top-N round-robin task (Jan 2026)
+        if self._topn_roundrobin_task:
+            self._topn_roundrobin_task.cancel()
+            try:
+                await asyncio.wait_for(self._topn_roundrobin_task, timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            self._topn_roundrobin_task = None
 
         logger.info("TournamentDaemon stopped")
 
@@ -1921,6 +1951,268 @@ class TournamentDaemon(HandlerBase):
 
         return results
 
+    async def _periodic_topn_roundrobin_loop(self) -> None:
+        """Top-N round-robin tournament loop (Jan 2026).
+
+        Periodically runs round-robin tournaments between top-rated models
+        for each configuration. This generates high-quality training data
+        from diverse model matchups.
+        """
+        # Initial delay to let cluster stabilize
+        await asyncio.sleep(600)  # 10 minute initial delay
+
+        while self._running:
+            try:
+                await asyncio.sleep(self.config.topn_roundrobin_interval_seconds)
+
+                if not self._running:
+                    break
+
+                logger.info("Running top-N round-robin tournaments")
+                results = await self._run_topn_roundrobin_tournament()
+
+                if results.get("success"):
+                    configs_evaluated = results.get("configs_evaluated", 0)
+                    total_games = results.get("total_games", 0)
+                    logger.info(
+                        f"Top-N round-robin complete: {configs_evaluated} configs, "
+                        f"{total_games} games played"
+                    )
+                else:
+                    logger.warning(
+                        f"Top-N round-robin failed: {results.get('error')}"
+                    )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in top-N round-robin loop: {e}")
+                self._tournament_stats.record_failure(str(e))
+
+    async def _run_topn_roundrobin_tournament(self) -> dict[str, Any]:
+        """Run round-robin tournaments between top-rated models.
+
+        For each configured board/player configuration, gets the top N
+        models by Elo rating and runs a round-robin tournament where
+        each model plays every other model.
+
+        Returns:
+            Results dict with configs evaluated, games played, and per-config results
+        """
+        results = {
+            "success": False,
+            "configs_evaluated": 0,
+            "total_games": 0,
+            "config_results": {},
+        }
+
+        try:
+            from app.training.elo_service import get_elo_service
+            from app.models.discovery import find_tournament_models
+            from app.training.game_gauntlet import (
+                play_single_game,
+                create_neural_ai,
+            )
+            from app.models import BoardType
+            from app.training.composite_participant import extract_harness_type
+
+            elo_service = get_elo_service()
+            available_models = find_tournament_models()
+            games_per_matchup = self.config.topn_roundrobin_games_per_matchup
+            top_n = self.config.topn_roundrobin_n
+            min_games = self.config.topn_roundrobin_min_elo_games
+
+            # Get configs to evaluate
+            configs_to_evaluate = self.config.topn_roundrobin_configs
+            if not configs_to_evaluate:
+                # Use all available configs
+                configs_to_evaluate = [
+                    make_config_key(bt, np)
+                    for (bt, np) in available_models.keys()
+                ]
+
+            for config_key in configs_to_evaluate:
+                parsed = parse_config_key(config_key)
+                if not parsed:
+                    logger.warning(f"Invalid config key: {config_key}")
+                    continue
+
+                board_type = parsed.board_type
+                num_players = parsed.num_players
+
+                # Get top N models for this config
+                try:
+                    leaderboard = elo_service.get_leaderboard(
+                        board_type=board_type,
+                        num_players=num_players,
+                        top_n=top_n,
+                        min_games=min_games,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to get leaderboard for {config_key}: {e}")
+                    continue
+
+                if len(leaderboard) < 2:
+                    logger.debug(f"Not enough rated models for {config_key} round-robin")
+                    continue
+
+                config_result = {
+                    "models": len(leaderboard),
+                    "matchups": {},
+                    "games_played": 0,
+                }
+
+                # Extract model paths from leaderboard entries
+                top_models = []
+                for entry in leaderboard:
+                    participant_id = entry.get("participant_id", entry.get("participant"))
+                    if not participant_id:
+                        continue
+                    # Find model path - try to match with available models
+                    model_key = (board_type, num_players)
+                    if model_key in available_models:
+                        # Use canonical model path
+                        model_path = available_models[model_key]
+                    else:
+                        # Try to construct path from participant_id
+                        model_path = Path(f"models/{participant_id}.pth")
+                        if not model_path.exists():
+                            model_path = Path(f"models/canonical_{config_key}.pth")
+                            if not model_path.exists():
+                                continue
+
+                    top_models.append({
+                        "participant_id": participant_id,
+                        "model_path": str(model_path),
+                        "elo": entry.get("elo", entry.get("rating", 1500)),
+                    })
+
+                if len(top_models) < 2:
+                    continue
+
+                # Run round-robin tournament
+                for i, model_a in enumerate(top_models):
+                    for model_b in top_models[i + 1:]:
+                        matchup_key = f"{model_a['participant_id']}_vs_{model_b['participant_id']}"
+                        wins_a = 0
+
+                        for game_num in range(games_per_matchup):
+                            try:
+                                # Alternate starting positions
+                                if game_num % 2 == 0:
+                                    path_a, path_b = model_a["model_path"], model_b["model_path"]
+                                    model_a_player = 0
+                                else:
+                                    path_a, path_b = model_b["model_path"], model_a["model_path"]
+                                    model_a_player = 1
+
+                                # Create player AIs
+                                player_ais = []
+                                player_ais.append(create_neural_ai(
+                                    path_a, 1, BoardType(board_type), num_players
+                                ))
+                                player_ais.append(create_neural_ai(
+                                    path_b, 2, BoardType(board_type), num_players
+                                ))
+
+                                # Fill remaining slots with the top model
+                                for p in range(2, num_players):
+                                    player_ais.append(create_neural_ai(
+                                        model_a["model_path"], p + 1,
+                                        BoardType(board_type), num_players
+                                    ))
+
+                                game_result = play_single_game(
+                                    board_type=BoardType(board_type),
+                                    num_players=num_players,
+                                    player_ais=player_ais,
+                                    timeout=self.config.game_timeout_seconds,
+                                )
+
+                                winner = game_result.get("winner")
+                                if winner == model_a_player:
+                                    wins_a += 1
+
+                                config_result["games_played"] += 1
+                                results["total_games"] += 1
+                                self._tournament_stats.games_played += 1
+
+                            except Exception as e:
+                                logger.warning(f"Top-N game failed: {e}")
+
+                        # Record matchup results
+                        win_rate_a = wins_a / games_per_matchup if games_per_matchup > 0 else 0
+                        config_result["matchups"][matchup_key] = {
+                            "model_a": model_a["participant_id"],
+                            "model_b": model_b["participant_id"],
+                            "wins_a": wins_a,
+                            "games": games_per_matchup,
+                            "win_rate_a": win_rate_a,
+                        }
+
+                        # Record in Elo service
+                        try:
+                            harness_type = extract_harness_type(model_a["participant_id"])
+                            for _ in range(wins_a):
+                                elo_service.record_match(
+                                    participant_a=model_a["participant_id"],
+                                    participant_b=model_b["participant_id"],
+                                    winner=model_a["participant_id"],
+                                    board_type=board_type,
+                                    num_players=num_players,
+                                    tournament_id=f"topn_roundrobin_{config_key}",
+                                    harness_type=harness_type,
+                                )
+                            for _ in range(games_per_matchup - wins_a):
+                                elo_service.record_match(
+                                    participant_a=model_a["participant_id"],
+                                    participant_b=model_b["participant_id"],
+                                    winner=model_b["participant_id"],
+                                    board_type=board_type,
+                                    num_players=num_players,
+                                    tournament_id=f"topn_roundrobin_{config_key}",
+                                    harness_type=harness_type,
+                                )
+                        except Exception as e:
+                            logger.warning(f"Failed to record top-N Elo: {e}")
+
+                results["config_results"][config_key] = config_result
+                results["configs_evaluated"] += 1
+
+            results["success"] = True
+
+            # Emit event for top-N round-robin results
+            try:
+                from app.distributed.data_events import DataEventType
+                safe_emit_event(
+                    DataEventType.TOPN_ROUNDROBIN_COMPLETED.value,
+                    {
+                        "configs_evaluated": results["configs_evaluated"],
+                        "total_games": results["total_games"],
+                        "config_results": results["config_results"],
+                    },
+                    context="TournamentDaemon",
+                )
+            except (ImportError, AttributeError):
+                # Event type may not exist yet - emit generic
+                safe_emit_event(
+                    "TOPN_ROUNDROBIN_COMPLETED",
+                    {
+                        "configs_evaluated": results["configs_evaluated"],
+                        "total_games": results["total_games"],
+                    },
+                    context="TournamentDaemon",
+                )
+
+        except ImportError as e:
+            logger.warning(f"Top-N round-robin dependencies not available: {e}")
+            results["error"] = "import_error"
+        except Exception as e:
+            logger.error(f"Top-N round-robin tournament failed: {e}")
+            results["error"] = str(e)
+
+        return results
+
     def get_status(self) -> dict[str, Any]:
         """Get current daemon status.
 
@@ -1950,6 +2242,9 @@ class TournamentDaemon(HandlerBase):
                 "ladder_interval_seconds": self.config.ladder_interval_seconds,
                 "games_per_baseline": self.config.games_per_baseline,
                 "baselines": self.config.baselines,
+                "enable_topn_roundrobin": self.config.enable_topn_roundrobin,
+                "topn_roundrobin_interval_seconds": self.config.topn_roundrobin_interval_seconds,
+                "topn_roundrobin_n": self.config.topn_roundrobin_n,
             },
         }
         return base_status

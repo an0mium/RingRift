@@ -159,6 +159,7 @@ class DataEventType(Enum):
     # January 9, 2026: Periodic multi-harness and cross-config tournament events
     MULTI_HARNESS_EVALUATION_COMPLETED = "multi_harness_evaluation_completed"  # All harnesses evaluated for model
     CROSS_CONFIG_TOURNAMENT_COMPLETED = "cross_config_tournament_completed"  # Cross-config family tournament done
+    TOPN_ROUNDROBIN_COMPLETED = "topn_roundrobin_completed"  # Top-N round-robin tournament completed (Jan 2026)
 
     # Promotion events
     PROMOTION_CANDIDATE = "promotion_candidate"

@@ -500,15 +500,19 @@ class DataConsolidationDaemon(HandlerBase):
         """Find all source databases containing games for a config."""
         source_dbs: set[Path] = set()  # Use set to avoid duplicates
 
-        # Search patterns for selfplay databases
+        # Search patterns for selfplay, gauntlet, and tournament databases
         # NOTE: owc_imports and synced are critical - they contain 176K+ games (68GB)
         # that would otherwise never reach canonical databases for training
+        # Jan 2026: Added gauntlet/tournament/evaluation directories for training data integration
         search_dirs = [
             self.config.data_dir,
             self.config.data_dir / "selfplay",
             self.config.data_dir / "p2p_gpu",
             self.config.data_dir / "owc_imports",  # OWC external drive archives
             self.config.data_dir / "synced",       # P2P synced databases
+            self.config.data_dir / "gauntlet",     # Gauntlet evaluation games
+            self.config.data_dir / "tournament",   # Tournament games
+            self.config.data_dir / "evaluation",   # Model evaluation games
         ]
 
         for search_dir in search_dirs:
