@@ -249,6 +249,7 @@ def validate_synced_database(
     check_integrity: bool = True,
     min_expected_rows: int | None = None,
     table_name: str = "games",
+    require_move_data: bool = True,
 ) -> tuple[bool, list[str]]:
     """Validate a database after sync.
 
@@ -260,6 +261,8 @@ def validate_synced_database(
         check_integrity: Run PRAGMA integrity_check (slower but thorough)
         min_expected_rows: Minimum expected rows in table (None to skip)
         table_name: Table to check for row count
+        require_move_data: If True (default), reject databases without game_moves table
+                          or with games lacking sufficient move data
 
     Returns:
         Tuple of (is_valid, list of error messages)
@@ -280,6 +283,30 @@ def validate_synced_database(
         with sqlite3.connect(str(db_path), timeout=30.0) as conn:
             # Basic connectivity test
             conn.execute("SELECT 1").fetchone()
+
+            # CRITICAL: Check for move data completeness (Jan 2026)
+            # Databases without game_moves table are "metadata-only" and useless for training
+            if require_move_data:
+                from app.db.move_data_validator import (
+                    MIN_MOVES_REQUIRED,
+                    MoveDataValidator,
+                )
+
+                if not MoveDataValidator.has_game_moves_table(conn):
+                    errors.append(
+                        "Database is metadata-only: no game_moves table. "
+                        "Cannot sync databases without move data."
+                    )
+                elif MoveDataValidator.has_games_table(conn):
+                    # Check that games have sufficient moves
+                    invalid_games = MoveDataValidator.get_games_without_moves(conn)
+                    if invalid_games:
+                        sample_games = invalid_games[:5]
+                        errors.append(
+                            f"Database has {len(invalid_games)} games without sufficient move data "
+                            f"(min: {MIN_MOVES_REQUIRED}). "
+                            f"Sample: {[f'{gid}:{cnt}' for gid, cnt in sample_games]}"
+                        )
 
             # Check integrity if requested
             if check_integrity:

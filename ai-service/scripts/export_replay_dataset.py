@@ -584,6 +584,8 @@ def export_replay_dataset_multi(
     # Source filtering (December 2025 - Phase 5 Unified NN/NNUE training)
     include_sources: set[str] | None = None,  # Source types to include (None=selfplay only)
     exclude_sources: set[str] | None = None,  # Source types to exclude
+    # Move data validation (January 2026 - Phase 6 Data Integrity)
+    fail_on_orphans: bool = True,  # Fail export if orphan games found (no move data)
 ) -> None:
     """
     Export training samples from multiple GameReplayDB files into an NPZ dataset
@@ -610,6 +612,12 @@ def export_replay_dataset_multi(
         append: If True, append to existing output NPZ
         encoder_version: Encoder version for hex boards ('default', 'v2', 'v3')
         require_moves: If True, only include games with move data (default: True)
+        fail_on_orphans: If True (default), fail export if any database contains
+            orphan games (games with total_moves > 0 but no game_moves records).
+            This prevents corrupt training data. Set to False to warn and continue.
+
+    Raises:
+        MoveDataValidationError: If fail_on_orphans=True and orphan games are found.
     """
     encoder = build_encoder(
         board_type,
@@ -728,6 +736,46 @@ def export_replay_dataset_multi(
                 print(f"    SKIPPED (database locked after retries): {e}")
             else:
                 print(f"    Error opening database: {e}")
+            continue
+
+        # January 2026: Move data validation gate (Phase 6 Data Integrity)
+        # Validate database has no orphan games (games with total_moves > 0 but no move data)
+        # This prevents corrupt training data from games that were only partially written
+        from app.db.move_data_validator import (
+            MoveDataValidator,
+            MoveDataValidationError,
+            MIN_MOVES_REQUIRED,
+        )
+
+        validation_result = MoveDataValidator.validate_database(db_path, min_moves=MIN_MOVES_REQUIRED)
+        if validation_result.invalid_count > 0:
+            orphan_msg = (
+                f"    Found {validation_result.invalid_count} orphan games "
+                f"(games with insufficient move data) in {os.path.basename(db_path)}"
+            )
+            if fail_on_orphans:
+                # Get the list of orphan game IDs for the exception
+                try:
+                    conn = sqlite3.connect(str(db_path))
+                    conn.row_factory = sqlite3.Row
+                    orphan_games = MoveDataValidator.get_games_without_moves(conn, MIN_MOVES_REQUIRED)
+                    conn.close()
+                    orphan_ids = [gid for gid, _ in orphan_games]
+                except Exception:
+                    orphan_ids = []  # Can't get IDs, use empty list
+
+                raise MoveDataValidationError(
+                    orphan_ids,
+                    f"Cannot export {os.path.basename(db_path)}: "
+                    f"{validation_result.invalid_count} games missing move data. "
+                    f"Use --no-strict to skip validation and continue (NOT RECOMMENDED)."
+                )
+            else:
+                # Warn and continue - orphan games will be filtered by require_moves
+                print(f"{orphan_msg} (continuing due to --no-strict)")
+        elif not validation_result.has_game_moves_table:
+            # Database is metadata-only, skip entirely
+            print(f"    SKIPPED (metadata-only database, no game_moves table)")
             continue
 
         db_games = 0
@@ -1460,6 +1508,7 @@ def export_replay_dataset(
     encoder_version: str = "default",
     require_moves: bool = True,
     min_quality: float | None = None,
+    fail_on_orphans: bool = True,
 ) -> None:
     """
     Export training samples from a single GameReplayDB into an NPZ dataset.
@@ -1490,6 +1539,7 @@ def export_replay_dataset(
         require_moves=require_moves,
         encoder_version=encoder_version,
         min_quality=min_quality,
+        fail_on_orphans=fail_on_orphans,
     )
 
 
@@ -1837,6 +1887,24 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--strict/--no-strict",
+        dest="strict",
+        action="store_true",
+        default=True,
+        help=(
+            "Strict mode (default: on): Reject databases with games that have "
+            "insufficient move data (< 5 moves). This prevents exporting training "
+            "data from databases with incomplete or corrupted game records. "
+            "Use --no-strict to export anyway with a warning (NOT RECOMMENDED)."
+        ),
+    )
+    parser.add_argument(
+        "--no-strict",
+        dest="strict",
+        action="store_false",
+        help="Disable strict mode - allow databases with incomplete move data (NOT RECOMMENDED).",
+    )
+    parser.add_argument(
         "--registry",
         type=str,
         default=None,
@@ -2061,6 +2129,46 @@ def main(argv: list[str] | None = None) -> int:
     db_paths = valid_db_paths
     print(f"[PRE-EXPORT VALIDATION] {len(db_paths)} database(s) passed validation\n")
 
+    # January 2026: Strict mode - validate move data completeness using MoveDataValidator
+    # This enforces MIN_MOVES_REQUIRED across all export operations
+    if args.strict:
+        from app.db.move_data_validator import MIN_MOVES_REQUIRED, MoveDataValidator
+
+        print(f"[STRICT MODE] Validating move data completeness (min {MIN_MOVES_REQUIRED} moves/game)...")
+        strict_failures = []
+        for db_path in db_paths:
+            try:
+                result = MoveDataValidator.validate_database(db_path)
+                if not result.has_game_moves_table:
+                    strict_failures.append(
+                        f"  {os.path.basename(db_path)}: No game_moves table (metadata-only database)"
+                    )
+                elif result.invalid_count > 0:
+                    strict_failures.append(
+                        f"  {os.path.basename(db_path)}: {result.invalid_count}/{result.total_games} games "
+                        f"have insufficient move data (<{MIN_MOVES_REQUIRED} moves)"
+                    )
+                else:
+                    print(f"  OK:   {os.path.basename(db_path)} ({result.total_games} games, all have sufficient moves)")
+            except Exception as e:
+                strict_failures.append(f"  {os.path.basename(db_path)}: Validation error: {e}")
+
+        if strict_failures:
+            print("\n[STRICT MODE] FAILED - The following databases have incomplete move data:")
+            for failure in strict_failures:
+                print(failure)
+            print(
+                f"\nExport BLOCKED. Games without at least {MIN_MOVES_REQUIRED} moves are useless for training.\n"
+                "Options:\n"
+                "  1. Fix the source data (re-run selfplay with proper move recording)\n"
+                "  2. Use --no-strict to export anyway (NOT RECOMMENDED - training will fail or produce poor models)\n"
+            )
+            return 1
+        print(f"[STRICT MODE] All {len(db_paths)} database(s) passed strict validation\n")
+    else:
+        print("[WARNING] Running with --no-strict: Databases with incomplete move data may be included.")
+        print("          This is NOT RECOMMENDED for production training.\n")
+
     _enforce_canonical_db_policy(
         db_paths,
         args.output,
@@ -2213,6 +2321,8 @@ def main(argv: list[str] | None = None) -> int:
         # Source filtering (December 2025 - Phase 5 Unified NN/NNUE training)
         include_sources=include_sources,
         exclude_sources=exclude_sources,
+        # Move data validation (January 2026 - Phase 6 Data Integrity)
+        fail_on_orphans=args.strict,
     )
 
     # Update cache if enabled

@@ -51,7 +51,8 @@ logger = logging.getLogger(__name__)
 # - v14: Added orphaned_games table and triggers for move data integrity enforcement
 # - v15: Added performance indexes (idx_games_config, idx_games_orphans, idx_moves_lookup)
 # - v16: Added opponent_type and opponent_model_id for training data diversity tracking
-SCHEMA_VERSION = 16
+# - v17: Updated enforce_moves_on_complete trigger to require MIN_MOVES_REQUIRED (5) instead of > 0
+SCHEMA_VERSION = 17
 
 # Default snapshot interval (every N moves)
 DEFAULT_SNAPSHOT_INTERVAL = 20
@@ -285,14 +286,15 @@ CREATE TABLE IF NOT EXISTS orphaned_games (
 );
 CREATE INDEX IF NOT EXISTS idx_orphaned_detected ON orphaned_games(detected_at);
 
--- Trigger to prevent completing games without moves
+-- Trigger to enforce minimum move count for completed games (January 2026)
+-- This value (5) must match MIN_MOVES_REQUIRED in app/db/move_data_validator.py
+-- Games with fewer than 5 moves are useless for training and must be rejected
 CREATE TRIGGER IF NOT EXISTS enforce_moves_on_complete
 BEFORE UPDATE ON games
 WHEN NEW.game_status IN ('completed', 'finished')
-     AND NEW.total_moves = 0
-     AND OLD.total_moves = 0
+     AND NEW.total_moves < 5
 BEGIN
-    SELECT RAISE(ABORT, 'Cannot complete game without moves: total_moves must be > 0');
+    SELECT RAISE(ABORT, 'Cannot complete game with fewer than 5 moves (MIN_MOVES_REQUIRED). Games with insufficient moves are useless for training.');
 END;
 """
 
@@ -628,27 +630,29 @@ class GameWriter:
 
         Raises:
             RuntimeError: If already finalized
-            InvalidGameError: If no moves were recorded (games without moves are useless for training)
+            InvalidGameError: If insufficient moves recorded (MIN_MOVES_REQUIRED=5)
         """
+        from app.db.move_data_validator import MIN_MOVES_REQUIRED
         from app.errors import InvalidGameError
 
         if self._finalized:
             raise RuntimeError("GameWriter already finalized")
 
-        # CRITICAL SAFEGUARD: Prevent creating games without move data
+        # CRITICAL SAFEGUARD: Prevent creating games without sufficient move data
         # This is the primary cause of useless databases in the training pipeline
-        # We do NOT allow any bypass - games without moves must never be stored
-        if self._move_count == 0:
+        # We do NOT allow any bypass - games with < MIN_MOVES_REQUIRED moves must never be stored
+        if self._move_count < MIN_MOVES_REQUIRED:
             logger.error(
-                f"Attempted to finalize game {self._game_id} with 0 moves. "
-                f"This would create an orphan game record. Aborting instead."
+                f"Attempted to finalize game {self._game_id} with only {self._move_count} moves "
+                f"(minimum required: {MIN_MOVES_REQUIRED}). Aborting instead."
             )
             self.abort()
             raise InvalidGameError(
-                f"Cannot finalize game with 0 moves. "
-                f"Games without move data are useless for training and must not be stored.",
+                f"Cannot finalize game with {self._move_count} moves "
+                f"(minimum required: {MIN_MOVES_REQUIRED}). "
+                f"Games without sufficient move data are useless for training.",
                 game_id=self._game_id,
-                move_count=0,
+                move_count=self._move_count,
             )
 
         metadata = metadata or {}
@@ -1542,13 +1546,58 @@ class GameReplayDB:
         self._set_schema_version(conn, 16)
         logger.info("Migration to v16 complete - opponent tracking columns added")
 
+    def _migrate_v16_to_v17(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v16 to v17.
+
+        Updates the enforce_moves_on_complete trigger to require MIN_MOVES_REQUIRED (5)
+        instead of just > 0 moves (January 2026).
+
+        This ensures that:
+        1. Games with fewer than 5 moves cannot be marked as completed
+        2. Database-level enforcement of move data requirements
+        3. Consistency with MoveDataValidator.MIN_MOVES_REQUIRED
+
+        Note: The value 5 is hardcoded in the trigger because SQLite triggers don't
+        support dynamic values. This must be kept in sync with MIN_MOVES_REQUIRED
+        in app/db/move_data_validator.py.
+        """
+        logger.info("Migrating schema from v16 to v17")
+
+        # Drop the old trigger (was checking for total_moves = 0)
+        try:
+            conn.execute("DROP TRIGGER IF EXISTS enforce_moves_on_complete")
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not drop old trigger: {e}")
+
+        # Create new trigger with MIN_MOVES_REQUIRED threshold
+        try:
+            conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS enforce_moves_on_complete
+                BEFORE UPDATE ON games
+                WHEN NEW.game_status IN ('completed', 'finished')
+                     AND NEW.total_moves < 5
+                BEGIN
+                    SELECT RAISE(ABORT, 'Cannot complete game with fewer than 5 moves (MIN_MOVES_REQUIRED). Games with insufficient moves are useless for training.');
+                END
+            """)
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Could not create updated trigger: {e}")
+
+        self._set_schema_version(conn, 17)
+        logger.info("Migration to v17 complete - trigger updated to require MIN_MOVES_REQUIRED")
+
     # =========================================================================
     # Write Operations
     # =========================================================================
 
     # Minimum moves required for a valid game
     # This is enforced at the database level and cannot be bypassed
-    MIN_MOVES_REQUIRED = 1
+    # Import from central validator to ensure consistency across codebase
+    @property
+    def MIN_MOVES_REQUIRED(self) -> int:
+        """Minimum moves required for a valid game."""
+        from app.db.move_data_validator import MIN_MOVES_REQUIRED
+        return MIN_MOVES_REQUIRED
 
     def store_game(
         self,

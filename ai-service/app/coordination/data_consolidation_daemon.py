@@ -31,6 +31,7 @@ from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.health_check_helper import HealthCheckHelper
 from app.coordination.contracts import CoordinatorStatus
 from app.config.thresholds import SQLITE_TIMEOUT, SQLITE_CONNECT_TIMEOUT
+from app.db.game_replay import SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,14 @@ class ConsolidationConfig:
     # Consolidation thresholds
     min_games_for_consolidation: int = 50  # Minimum new games before consolidating
 
-    # Database settings
-    min_moves_for_valid: int = 5  # Minimum moves for a valid game
+    # Database settings - use central validator's constant for consistency
+    @property
+    def min_moves_for_valid(self) -> int:
+        """Minimum moves for a valid game (from central MoveDataValidator)."""
+        from app.db.move_data_validator import MIN_MOVES_REQUIRED
+        return MIN_MOVES_REQUIRED
+
+    # Note: min_moves_for_valid is now a property, default was 5
     batch_size: int = 100  # Games per batch during merge
 
     # Safety
@@ -563,8 +570,8 @@ class DataConsolidationDaemon(HandlerBase):
 
         # December 27, 2025: Use context manager to prevent connection leaks
         with sqlite3.connect(str(db_path), timeout=SQLITE_TIMEOUT) as conn:
-            # Main games table
-            conn.execute("""
+            # Main games table - January 2026: Use canonical SCHEMA_VERSION
+            conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS games (
                     game_id TEXT PRIMARY KEY,
                     board_type TEXT NOT NULL,
@@ -579,7 +586,7 @@ class DataConsolidationDaemon(HandlerBase):
                     total_turns INTEGER NOT NULL,
                     duration_ms INTEGER,
                     source TEXT,
-                    schema_version INTEGER NOT NULL DEFAULT 5,
+                    schema_version INTEGER NOT NULL DEFAULT {SCHEMA_VERSION},
                     time_control_type TEXT DEFAULT 'none',
                     initial_time_ms INTEGER,
                     time_increment_ms INTEGER,
