@@ -203,7 +203,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
   onShowBoardControls,
 }) => {
   return (
-    <aside className="w-full lg:w-[272px] flex-shrink-0 space-y-2 text-xs text-slate-100">
+    <aside className="w-full max-w-md mx-auto lg:mx-0 lg:w-[256px] flex-shrink-0 space-y-1.5 text-xs text-slate-100">
       {/* Primary HUD band – placed at the top of the sidebar so phase/turn/time
           are always visible alongside the board. On mobile, render the
           compact MobileGameHUD; on larger screens, use the full GameHUD. */}
@@ -351,9 +351,9 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
         )}
       </details>
 
-      <div className="p-2 border border-slate-700 rounded bg-slate-900/50 flex flex-col h-52">
-        <h2 className="font-semibold mb-1.5 text-sm">Chat</h2>
-        <div className="flex-1 overflow-y-auto mb-1.5 space-y-0.5">
+      <div className="p-2 border border-slate-700 rounded bg-slate-900/50 flex flex-col h-44">
+        <h2 className="font-semibold mb-1 text-xs">Chat</h2>
+        <div className="flex-1 overflow-y-auto mb-1 space-y-0.5">
           {chatMessages.length === 0 ? (
             <div className="text-slate-400 text-xs italic">No messages yet.</div>
           ) : (

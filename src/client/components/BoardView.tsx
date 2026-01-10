@@ -1022,63 +1022,65 @@ export const BoardView: React.FC<BoardViewProps> = ({
       let naturalHeight: number;
       const gap = 2; // gap between cells
 
+      // Board-specific size adjustments based on user feedback
+      // These adjust the "effective" natural size to control final rendered size
+      const sizeAdjustments: Record<string, number> = {
+        square8: 1.25, // Make 20% smaller: increase natural size → smaller scale
+        square19: 0.77, // Make 30% larger: decrease natural size → larger scale
+        hex8: 0.7, // Make 30% larger: decrease natural size → larger scale
+        hexagonal: 1.0, // No change (correct size)
+      };
+      const sizeAdjust = sizeAdjustments[effectiveBoardType] ?? 1.0;
+
       if (effectiveBoardType === 'square8') {
         // 8x8 board: uses larger cells (44px mobile, 80px desktop)
         const cellSize = isDesktop ? 80 : 44;
-        naturalWidth = 8 * cellSize + 7 * gap;
+        naturalWidth = (8 * cellSize + 7 * gap) * sizeAdjust;
         naturalHeight = naturalWidth;
       } else if (effectiveBoardType === 'square19') {
         // 19x19 board: uses smaller cells (44px mobile, 56px desktop)
         const cellSize = isDesktop ? 56 : 44;
-        naturalWidth = 19 * cellSize + 18 * gap;
+        naturalWidth = (19 * cellSize + 18 * gap) * sizeAdjust;
         naturalHeight = naturalWidth;
       } else if (effectiveBoardType === 'hex8') {
         // Hex8 board (radius 4): approximately 9 cells wide
         const cellSize = isDesktop ? 48 : 44;
-        naturalWidth = 9 * cellSize * 1.1;
-        naturalHeight = 9 * cellSize * 0.95;
+        naturalWidth = 9 * cellSize * 1.1 * sizeAdjust;
+        naturalHeight = 9 * cellSize * 1.0 * sizeAdjust; // Adjusted for better proportions
       } else {
         // Hexagonal board (radius 12): approximately 25 cells wide
         const cellSize = isDesktop ? 48 : 44;
-        naturalWidth = 25 * cellSize * 1.05;
-        naturalHeight = 25 * cellSize * 0.95;
+        naturalWidth = 25 * cellSize * 1.05 * sizeAdjust;
+        naturalHeight = 25 * cellSize * 0.95 * sizeAdjust;
       }
 
       // Calculate available space for the board
-      // On desktop: leave room for sidebar (~272px after 20% reduction) and padding
+      // On desktop: leave room for sidebar (~256px) and padding
       // On mobile: full width with minimal padding
-      const sidebarWidth = isDesktop ? 272 : 0;
-      const padding = isDesktop ? 40 : 20;
+      const sidebarWidth = isDesktop ? 256 : 0;
+      const padding = isDesktop ? 32 : 16;
       const availableWidth = viewportWidth - sidebarWidth - padding;
-      const availableHeight = viewportHeight - 160; // Account for header, controls
+      const availableHeight = viewportHeight - 180; // Account for header, controls, extra margin
 
       // Calculate scale factors for width and height
       const scaleX = availableWidth / naturalWidth;
       const scaleY = availableHeight / naturalHeight;
 
-      // Use the smaller scale to fit both dimensions, but don't scale up
-      const baseScale = Math.min(scaleX, scaleY, 1);
+      // Use the smaller scale to fit both dimensions
+      // Allow scaling up slightly for boards that need to be larger
+      const maxScale =
+        effectiveBoardType === 'hex8' || effectiveBoardType === 'square19' ? 1.3 : 1.0;
+      const baseScale = Math.min(scaleX, scaleY, maxScale);
 
-      // Apply board-specific multipliers to adjust perceived sizes
-      // Based on user feedback: sq19 too small, sq8 too large, hex8 too small
-      const boardMultipliers: Record<string, number> = {
-        square8: 0.8, // 20% smaller (was too large)
-        square19: 1.3, // 30% larger (was too small)
-        hex8: 1.3, // 30% larger (was too small)
-        hexagonal: 1.0, // No change (correct size)
-      };
-      const multiplier = boardMultipliers[effectiveBoardType] ?? 1.0;
-      const adjustedScale = baseScale * multiplier;
-
-      // Apply minimum scales based on board type and clamp to reasonable bounds
-      const minScale =
-        effectiveBoardType === 'square8' || effectiveBoardType === 'hex8' ? 0.5 : 0.45;
-      const finalScale = Math.max(minScale, Math.min(adjustedScale, 1.3));
+      // Apply minimum scales to keep boards usable
+      const minScale = effectiveBoardType === 'square8' ? 0.6 : 0.5;
+      const finalScale = Math.max(minScale, baseScale);
 
       setBoardScale(finalScale);
 
-      // Calculate scaled dimensions for the wrapper (only if scaling down)
-      if (finalScale < 1) {
+      // Calculate scaled dimensions for the wrapper
+      // Always set dimensions when scale differs from 1 (both up and down scaling)
+      if (Math.abs(finalScale - 1) > 0.01) {
         setScaledDimensions({
           width: Math.ceil(naturalWidth * finalScale),
           height: Math.ceil(naturalHeight * finalScale),
