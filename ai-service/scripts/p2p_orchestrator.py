@@ -2281,7 +2281,15 @@ class P2POrchestrator(
                 ModelSyncLoop,
                 DataManagementLoop,
                 HttpServerHealthLoop,
+                # Phase 2 Decomposition (Jan 9, 2026): Unified context for loop callbacks
+                OrchestratorContext,
             )
+
+            # January 9, 2026 - Phase 2 P2P Deep Decomposition
+            # Create unified context object that bundles all callbacks loops need.
+            # This reduces constructor complexity and makes dependencies explicit.
+            # Loops can use ctx.is_leader() instead of receiving 5-10 individual callbacks.
+            ctx = OrchestratorContext.from_orchestrator(self)
 
             # QueuePopulatorLoop - maintains 50+ work items until 2000 Elo
             # Jan 3, 2026: CRITICAL FIX - Use _is_leader() instead of raw role check
@@ -2309,21 +2317,23 @@ class P2POrchestrator(
             # JobReaperLoop - enforces job timeouts and reassigns work
             # December 27, 2025: Fixed constructor to match JobReaperLoop signature
             # Previous version passed wrong parameters causing reaper to never run
+            # Jan 9, 2026: Now uses OrchestratorContext for unified callback access
             job_reaper = JobReaperLoop(
-                get_active_jobs=self._get_all_active_jobs_for_reaper,
-                cancel_job=self._cancel_job_for_reaper,
-                get_job_heartbeats=self._get_job_heartbeats_for_reaper,
+                get_active_jobs=ctx.get_active_jobs,
+                cancel_job=ctx.cancel_job,
+                get_job_heartbeats=ctx.get_job_heartbeats,
             )
             manager.register(job_reaper)
 
             # IdleDetectionLoop - auto-assigns work to idle nodes
             # Jan 2, 2026: Added on_zombie_detected callback to kill stuck processes
+            # Jan 9, 2026: Now uses OrchestratorContext for unified callback access
             idle_detection = IdleDetectionLoop(
-                get_role=lambda: self.role,
-                get_peers=lambda: self.peers,
-                get_work_queue=get_work_queue,
-                on_idle_detected=self._auto_start_selfplay,
-                on_zombie_detected=self._handle_zombie_detected,
+                get_role=ctx.get_role,
+                get_peers=ctx.get_peers,
+                get_work_queue=ctx.get_work_queue,
+                on_idle_detected=ctx.auto_start_selfplay,
+                on_zombie_detected=ctx.handle_zombie_detected,
             )
             manager.register(idle_detection)
 
@@ -2348,12 +2358,13 @@ class P2POrchestrator(
             # PredictiveScalingLoop - spawns jobs BEFORE nodes become idle
             # January 2026 Sprint 6: Addresses 5-10 minute launch latency from reactive-only scheduling
             # Monitors queue depth and node "approaching idle" status to spawn preemptively
+            # Jan 9, 2026: Now uses OrchestratorContext for unified callback access
             predictive_scaling = PredictiveScalingLoop(
-                get_role=lambda: self.role,
-                get_peers=lambda: self.peers,
-                get_queue_depth=self._get_work_queue_depth,
-                get_pending_jobs_for_node=self._get_pending_jobs_for_node,
-                spawn_preemptive_job=self._spawn_preemptive_selfplay_job,
+                get_role=ctx.get_role,
+                get_peers=ctx.get_peers,
+                get_queue_depth=ctx.get_work_queue_depth,
+                get_pending_jobs_for_node=ctx.get_pending_jobs_for_node,
+                spawn_preemptive_job=ctx.spawn_preemptive_job,
             )
             manager.register(predictive_scaling)
             logger.info("[P2P] PredictiveScalingLoop enabled for proactive job spawning")
@@ -2410,9 +2421,10 @@ class P2POrchestrator(
 
             # WorkQueueMaintenanceLoop - leader cleans up timeouts and old items
             # December 27, 2025: Migrated from inline _work_queue_maintenance_loop
+            # Jan 9, 2026: Now uses OrchestratorContext for unified callback access
             work_queue_maint = WorkQueueMaintenanceLoop(
-                is_leader=lambda: self.role == NodeRole.LEADER,
-                get_work_queue=get_work_queue,
+                is_leader=ctx.is_leader,
+                get_work_queue=ctx.get_work_queue,
             )
             manager.register(work_queue_maint)
 
@@ -2461,8 +2473,9 @@ class P2POrchestrator(
                     logger.debug(f"DB integrity check error: {e}")
                     return {"checked": 0, "corrupted": 0, "failed": 0}
 
+            # Jan 9, 2026: Use context for is_leader, remaining callbacks are specialized
             data_management = DataManagementLoop(
-                is_leader=self._is_leader,
+                is_leader=ctx.is_leader,
                 check_disk_capacity=_check_disk_capacity_wrapper,
                 cleanup_disk=self._cleanup_local_disk,
                 convert_jsonl_to_db=self._convert_jsonl_to_db,
@@ -2788,9 +2801,10 @@ class P2POrchestrator(
                         logger.debug(f"[WorkerPull] Leader {leader_id} probe failed: {e}")
                         return None
 
+                # Jan 9, 2026: Use OrchestratorContext for leader state
                 worker_pull = WorkerPullLoop(
-                    is_leader=lambda: self.role == NodeRole.LEADER,
-                    get_leader_id=lambda: self.leader_id,
+                    is_leader=ctx.is_leader,
+                    get_leader_id=ctx.get_leader_id,
                     get_self_metrics=_get_self_metrics_for_pull,
                     claim_work_from_leader=self._claim_work_from_leader,
                     execute_work=self._execute_claimed_work,
@@ -2991,8 +3005,9 @@ class P2POrchestrator(
             try:
                 from scripts.p2p.loops import TrainingSyncLoop
 
+                # Jan 9, 2026: Use context for is_leader callback
                 training_sync = TrainingSyncLoop(
-                    is_leader=self._is_leader,
+                    is_leader=ctx.is_leader,
                     sync_to_training_nodes=self._sync_selfplay_to_training_nodes,
                     get_last_sync_time=lambda: getattr(self, 'last_training_sync_time', 0.0),
                     check_disk_capacity=lambda: check_disk_has_capacity(70.0),
@@ -8264,6 +8279,84 @@ class P2POrchestrator(
                 continue
 
         return {}
+
+    async def _async_seed_game_counts_from_peers_if_needed(self) -> None:
+        """Async fallback to seed game counts from peers if local seeding failed.
+
+        Jan 9, 2026: Cluster nodes don't have local canonical databases, so
+        the synchronous seeding during __init__ returns empty. This method
+        fetches game counts from the coordinator/peers during async startup,
+        enabling proper underserved config prioritization on worker nodes.
+
+        Without this, all configs appear to have 0 games and get the same
+        maximum bootstrap boost (+100), which neutralizes the prioritization.
+        """
+        try:
+            # Check if game counts were already seeded during __init__
+            if self.selfplay_scheduler:
+                existing_counts = self.selfplay_scheduler._get_game_counts_per_config()
+                if existing_counts and len(existing_counts) >= 6:
+                    # Already have game counts from local canonical DBs
+                    logger.debug(
+                        f"[P2P] Game counts already seeded ({len(existing_counts)} configs), "
+                        "skipping peer fetch"
+                    )
+                    return
+
+            # Fetch from peers/coordinator
+            logger.info("[P2P] Local canonical DBs empty, fetching game counts from peers...")
+            peer_counts = await self._fetch_game_counts_from_peers()
+
+            if peer_counts and self.selfplay_scheduler:
+                self.selfplay_scheduler.update_p2p_game_counts(peer_counts)
+                logger.info(
+                    f"[P2P] Seeded SelfplayScheduler with {len(peer_counts)} config game counts from peers"
+                )
+                # Log underserved configs for visibility
+                for config_key, count in sorted(peer_counts.items(), key=lambda x: x[1]):
+                    if count < 5000:
+                        logger.info(f"[P2P] Underserved config (from peers): {config_key} = {count} games")
+            else:
+                logger.warning(
+                    "[P2P] Could not fetch game counts from peers - "
+                    "bootstrap prioritization may not work correctly"
+                )
+
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[P2P] Async game count seeding failed: {e}")
+
+    async def _game_count_refresh_loop(self) -> None:
+        """Periodically refresh game counts from coordinator.
+
+        Jan 9, 2026: Cluster nodes need to periodically refresh game counts
+        as games are generated and consolidated. This ensures the scheduler
+        always has accurate game counts for prioritization decisions.
+
+        Interval: 5 minutes (300 seconds)
+        """
+        REFRESH_INTERVAL = 300  # 5 minutes
+        await asyncio.sleep(60)  # Initial delay to let cluster stabilize
+
+        while True:
+            try:
+                # Skip if this node has local canonical DBs (coordinator)
+                local_counts = await asyncio.to_thread(self._seed_selfplay_scheduler_game_counts_sync)
+                if local_counts and len(local_counts) >= 6:
+                    # Has local DBs - update from local
+                    if self.selfplay_scheduler:
+                        self.selfplay_scheduler.update_p2p_game_counts(local_counts)
+                        logger.debug(f"[P2P] Refreshed game counts from local DBs ({len(local_counts)} configs)")
+                else:
+                    # Fetch from peers
+                    peer_counts = await self._fetch_game_counts_from_peers()
+                    if peer_counts and self.selfplay_scheduler:
+                        self.selfplay_scheduler.update_p2p_game_counts(peer_counts)
+                        logger.debug(f"[P2P] Refreshed game counts from peers ({len(peer_counts)} configs)")
+
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[P2P] Game count refresh failed: {e}")
+
+            await asyncio.sleep(REFRESH_INTERVAL)
 
     def _find_dbs_to_merge_sync(self, selfplay_dir: Path, main_db_path: Path) -> list[tuple[Path, int]]:
         """Find databases that need merging synchronously.
@@ -27572,6 +27665,11 @@ print(json.dumps({{
         # This reduces discovery latency from 15-30s to 2-5s after startup
         await self._send_startup_peer_announcements()
 
+        # Jan 9, 2026: Async fallback for game count seeding from peers
+        # Cluster nodes don't have local canonical DBs, so fetch from coordinator
+        # This fixes underserved config prioritization on worker nodes
+        await self._async_seed_game_counts_from_peers_if_needed()
+
         # Start background tasks with exception isolation and restart support
         # CRITICAL FIX (Dec 2025): Each task is wrapped to prevent cascade failures.
         # Previously, a single exception in any task would crash all 18+ tasks.
@@ -27628,6 +27726,12 @@ print(json.dumps({{
         # Fixes nodes advertising private IPs when Tailscale wasn't ready at startup
         tasks.append(self._create_safe_task(
             self._periodic_ip_validation_loop(), "ip_validation", factory=self._periodic_ip_validation_loop
+        ))
+
+        # Jan 9, 2026: Periodic game count refresh for underserved config prioritization
+        # Keeps scheduler game counts up-to-date as games are generated and consolidated
+        tasks.append(self._create_safe_task(
+            self._game_count_refresh_loop(), "game_count_refresh", factory=self._game_count_refresh_loop
         ))
 
         # NOTE: _follower_discovery_loop removed Dec 2025 - now runs via LoopManager (FollowerDiscoveryLoop)

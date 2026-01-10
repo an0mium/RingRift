@@ -65,6 +65,17 @@ PRIORITY_OVERRIDE_MULTIPLIERS = {
     3: 1.0,  # LOW: no boost (normal)
 }
 
+# Explicit config priority overrides (Jan 2026)
+# These configs have insufficient training data despite existing priority system.
+# VOI cost factors for large boards (square19: 9.0, hexagonal: 11.0) offset starvation boosts.
+# Adding explicit CRITICAL overrides to ensure adequate selfplay allocation.
+CONFIG_PRIORITY_OVERRIDES: dict[str, int] = {
+    "square19_4p": 0,   # CRITICAL - only 1,766 games
+    "hexagonal_3p": 0,  # CRITICAL - only 1,936 games
+    "square19_3p": 1,   # HIGH - 2,123 games
+    "square8_4p": 1,    # HIGH - 4,321 games
+}
+
 # Player count allocation multipliers
 PLAYER_COUNT_ALLOCATION_MULTIPLIER = {
     2: 1.0,  # Baseline
@@ -607,8 +618,12 @@ class PriorityCalculator:
             velocity_multiplier = 0.6 + base_recovery + linear_boost
         score *= velocity_multiplier
 
-        # Apply priority override
-        override_multiplier = PRIORITY_OVERRIDE_MULTIPLIERS.get(inputs.priority_override, 1.0)
+        # Apply priority override (Jan 2026: Check explicit config overrides first)
+        # CONFIG_PRIORITY_OVERRIDES takes precedence over inputs.priority_override
+        effective_override = CONFIG_PRIORITY_OVERRIDES.get(
+            inputs.config_key, inputs.priority_override
+        )
+        override_multiplier = PRIORITY_OVERRIDE_MULTIPLIERS.get(effective_override, 1.0)
         score *= override_multiplier
 
         # Apply player count multiplier

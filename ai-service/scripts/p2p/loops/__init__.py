@@ -193,6 +193,12 @@ from .evaluation_worker_loop import (
     EvaluationWorkerLoop,
     create_evaluation_worker_loop,
 )
+from .orchestrator_context import (
+    OrchestratorContext,
+    IdleDetectionContext,
+    JobReaperContext,
+    PredictiveScalingContext,
+)
 
 __all__ = [
     # Base
@@ -328,4 +334,9 @@ __all__ = [
     "EvaluationWorkerConfig",
     "EvaluationWorkerLoop",
     "create_evaluation_worker_loop",
+    # Orchestrator Context (Jan 9, 2026 - Phase 2 Decomposition)
+    "OrchestratorContext",
+    "IdleDetectionContext",
+    "JobReaperContext",
+    "PredictiveScalingContext",
 ]
