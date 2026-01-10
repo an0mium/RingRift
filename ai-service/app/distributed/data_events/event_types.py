@@ -267,6 +267,7 @@ class DataEventType(Enum):
     P2P_LOOP_STARTUP_FAILED = "p2p_loop_startup_failed"  # Jan 7, 2026: P2P background loop failed to start within timeout
     P2P_LOOP_PERFORMANCE_DEGRADED = "p2p_loop_performance_degraded"  # Jan 7, 2026: Loop avg run duration exceeds 50% of interval
     GOSSIP_STATE_CLEANUP_COMPLETED = "gossip_state_cleanup_completed"  # Jan 7, 2026: Gossip state TTL cleanup completed
+    BACKUP_CANDIDATES_PROBED = "backup_candidates_probed"  # Jan 10, 2026: Backup leader candidates health probed
 
     # Progress monitoring events (December 2025 - 48h autonomous operation)
     PROGRESS_STALL_DETECTED = "progress_stall_detected"  # Config Elo stalled, recovery triggered

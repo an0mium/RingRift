@@ -4418,21 +4418,39 @@ def train_model(
 
                     # Forward pass with optional backbone feature extraction
                     if use_aux_tasks:
-                        if model_accepts_heuristics:
-                            out = model(features, globals_vec, heuristics=batch_heuristics, return_features=True)
-                        else:
-                            out = model(features, globals_vec, return_features=True)
+                        try:
+                            # Jan 10, 2026: Try return_features, fall back if legacy model
+                            if model_accepts_heuristics:
+                                out = model(features, globals_vec, heuristics=batch_heuristics, return_features=True)
+                            else:
+                                out = model(features, globals_vec, return_features=True)
+                        except TypeError as e:
+                            # Legacy checkpoints don't support return_features parameter
+                            if "return_features" in str(e):
+                                logger.warning(
+                                    "Model doesn't support return_features - disabling aux tasks"
+                                )
+                                use_aux_tasks = False
+                                if model_accepts_heuristics:
+                                    out = model(features, globals_vec, heuristics=batch_heuristics)
+                                else:
+                                    out = model(features, globals_vec)
+                            else:
+                                raise
                         # V3+ models with features return (values, policy, rank_dist, features)
-                        if isinstance(out, tuple) and len(out) == 4:
+                        if use_aux_tasks and isinstance(out, tuple) and len(out) == 4:
                             value_pred, policy_pred, rank_dist_pred, backbone_features = out
-                        elif isinstance(out, tuple) and len(out) == 3:
+                        elif use_aux_tasks and isinstance(out, tuple) and len(out) == 3:
                             # V2 models with features return (values, policy, features)
                             value_pred, policy_pred, backbone_features = out
                             rank_dist_pred = None
                         else:
-                            # Fallback: model doesn't support return_features
-                            value_pred, policy_pred = out[:2]
-                            rank_dist_pred = None
+                            # Fallback: model doesn't support return_features or aux disabled
+                            if isinstance(out, tuple) and len(out) >= 3:
+                                value_pred, policy_pred, rank_dist_pred = out[:3]
+                            else:
+                                value_pred, policy_pred = out[:2]
+                                rank_dist_pred = None
                             backbone_features = None
                             use_aux_tasks = False
                     else:

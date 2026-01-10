@@ -653,6 +653,15 @@ export const BoardView: React.FC<BoardViewProps> = ({
   // Screen reader announcements
   const [announcement, setAnnouncement] = useState<string>('');
 
+  // Auto-scaling for large boards (sq19, hexagonal) to fit viewport
+  // RR-FIX-2025-01-10: Scale large boards to fit without requiring zoom out
+  const [boardScale, setBoardScale] = useState<number>(1);
+  const [scaledDimensions, setScaledDimensions] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const scalingWrapperRef = useRef<HTMLDivElement>(null);
+
   // Precompute a lookup map for view-model cells when provided
   const cellByKey = useMemo(() => {
     if (!viewModel) return null;
@@ -795,7 +804,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
         }
       }
     } else if (effectiveBoardType === 'hexagonal' || effectiveBoardType === 'hex8') {
-      const radius = effectiveSize - 1;
+      // Hex board size is bounding box (2*radius + 1), so radius = (size - 1) / 2
+      const radius = (effectiveSize - 1) / 2;
       for (let q = -radius; q <= radius; q++) {
         const r1 = Math.max(-radius, -q - radius);
         const r2 = Math.min(radius, -q + radius);
@@ -827,7 +837,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
       // Hex board navigation - map arrow keys to approximate hex directions
       // Using cube coordinates where q + r + s = 0
       if (effectiveBoardType === 'hexagonal' || effectiveBoardType === 'hex8') {
-        const radius = effectiveSize - 1;
+        // Hex board size is bounding box (2*radius + 1), so radius = (size - 1) / 2
+        const radius = (effectiveSize - 1) / 2;
         let newQ = current.x;
         let newR = current.y;
 
@@ -996,6 +1007,79 @@ export const BoardView: React.FC<BoardViewProps> = ({
       );
     }
   }, [selectedPosition, validTargets.length]);
+
+  // Auto-scale large boards to fit viewport without requiring zoom out
+  // RR-FIX-2025-01-10: Calculate scale factor based on board natural size vs available space
+  useEffect(() => {
+    const isLargeBoard = effectiveBoardType === 'square19' || effectiveBoardType === 'hexagonal';
+    if (!isLargeBoard) {
+      setBoardScale(1);
+      setScaledDimensions(null);
+      return;
+    }
+
+    const calculateScale = () => {
+      // Get viewport dimensions
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      // Estimate board natural dimensions based on board type
+      // Cell sizes: sq19 uses 44px mobile / 56px desktop, hex uses 44px / 48px
+      const isDesktop = viewportWidth >= 1024;
+      const cellSize =
+        effectiveBoardType === 'square19' ? (isDesktop ? 56 : 44) : isDesktop ? 48 : 44;
+      const gap = 2; // gap between cells
+
+      let naturalWidth: number;
+      let naturalHeight: number;
+
+      if (effectiveBoardType === 'square19') {
+        // 19x19 board: 19 cells + 18 gaps
+        naturalWidth = 19 * cellSize + 18 * gap;
+        naturalHeight = naturalWidth;
+      } else {
+        // Hexagonal board (radius 12): approximately 25 cells wide at widest point
+        // Hex layout is more complex, estimate conservatively
+        naturalWidth = 25 * cellSize * 0.9; // hex cells overlap slightly
+        naturalHeight = 25 * cellSize * 0.85; // hex boards are slightly shorter
+      }
+
+      // Calculate available space (account for sidebar on desktop ~400px, padding ~64px)
+      const sidebarWidth = isDesktop ? 420 : 0;
+      const padding = isDesktop ? 80 : 32;
+      const availableWidth = viewportWidth - sidebarWidth - padding;
+      const availableHeight = viewportHeight - 200; // Account for header, controls
+
+      // Calculate scale factors for width and height
+      const scaleX = availableWidth / naturalWidth;
+      const scaleY = availableHeight / naturalHeight;
+
+      // Use the smaller scale to fit both dimensions, but don't scale up
+      const scale = Math.min(scaleX, scaleY, 1);
+
+      // Apply a minimum scale to keep the board usable (don't go below 0.4)
+      const finalScale = Math.max(scale, 0.4);
+
+      setBoardScale(finalScale);
+
+      // Calculate scaled dimensions for the wrapper
+      // This ensures the layout accounts for the scaled size, not the natural size
+      if (finalScale < 1) {
+        setScaledDimensions({
+          width: Math.ceil(naturalWidth * finalScale),
+          height: Math.ceil(naturalHeight * finalScale),
+        });
+      } else {
+        setScaledDimensions(null);
+      }
+    };
+
+    calculateScale();
+
+    // Recalculate on resize
+    window.addEventListener('resize', calculateScale);
+    return () => window.removeEventListener('resize', calculateScale);
+  }, [effectiveBoardType]);
 
   // Register cell ref for keyboard navigation
   const registerCellRef = useCallback((key: string, ref: HTMLButtonElement | null) => {
@@ -2019,14 +2103,16 @@ export const BoardView: React.FC<BoardViewProps> = ({
 
   const renderHexBoard = () => {
     // True hex layout matching BoardManager.generateValidPositions.
-    // For radius R = size - 1, valid cube coords (q, r, s) satisfy
+    // For radius R = (size - 1) / 2, valid cube coords (q, r, s) satisfy
     //   -R <= q <= R
     //   max(-R, -q-R) <= r <= min(R, -q+R)
     //   s = -q - r
     // We render each q as a row and then wrap all rows in a flex column
     // with slight negative spacing to reduce vertical gaps.
 
-    const radius = board.size - 1; // e.g. size=13 => radius=12
+    // Hex board size is bounding box (2*radius + 1), so radius = (size - 1) / 2
+    // e.g. hex8: size=9 => radius=4, hexagonal: size=25 => radius=12
+    const radius = (board.size - 1) / 2;
     const rows: React.ReactNode[] = [];
 
     // Helper to generate algebraic labels for hex cells
@@ -2442,12 +2528,12 @@ export const BoardView: React.FC<BoardViewProps> = ({
 
   // Mobile viewport scroll handling (W3-12):
   // - Square8: 8×44px cells + 7×2px gaps = 366px fits in 375px viewport
-  // - Square19: 19×44px + 18×2px = 872px requires horizontal scroll
+  // - Square19: 19×44px + 18×2px = 872px requires horizontal scroll (or scaling)
   // - Hex8: 9×44px = 396px fits in most mobile viewports
-  // - Hexagonal (radius-12): large board requires scroll
-  // - board-scroll-container provides touch-friendly scrolling for oversized boards
-  // - board-container prevents text selection during drag
-  const needsScroll = effectiveBoardType === 'square19' || effectiveBoardType === 'hexagonal';
+  // - Hexagonal (radius-12): large board requires scroll (or scaling)
+  // RR-FIX-2025-01-10: Use auto-scaling for large boards instead of scroll
+  const isLargeBoard = effectiveBoardType === 'square19' || effectiveBoardType === 'hexagonal';
+  const needsScaling = isLargeBoard && boardScale < 1;
   const boardAriaName =
     effectiveBoardType === 'square8'
       ? '8x8'
@@ -2457,10 +2543,48 @@ export const BoardView: React.FC<BoardViewProps> = ({
           ? 'Hex 8'
           : 'Hexagonal';
 
+  // For scaled boards, we need to wrap in a container that accounts for the transform
+  // The outer wrapper sets the visual size, the inner wrapper applies the transform
+  if (needsScaling && scaledDimensions) {
+    return (
+      <div
+        ref={scalingWrapperRef}
+        className="board-scaling-wrapper"
+        style={{
+          // The wrapper takes on the scaled dimensions so layout flows correctly
+          display: 'inline-block',
+          width: scaledDimensions.width,
+          height: scaledDimensions.height,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          ref={boardContainerRef}
+          className="inline-block board-container"
+          data-testid="board-view"
+          tabIndex={0}
+          onKeyDown={handleKeyDown}
+          role="region"
+          aria-label={`${boardAriaName} game board (scaled to ${Math.round(boardScale * 100)}%). Use arrow keys to navigate, Enter or Space to select, Escape to clear selection, Home or End to jump, question mark for board controls and shortcuts`}
+          style={{
+            transform: `scale(${boardScale})`,
+            transformOrigin: 'top left',
+          }}
+        >
+          {renderBoard()}
+          {/* Screen reader announcements */}
+          <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {announcement}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={boardContainerRef}
-      className={`inline-block board-container ${needsScroll ? 'board-scroll-container' : ''}`}
+      className="inline-block board-container"
       data-testid="board-view"
       tabIndex={0}
       onKeyDown={handleKeyDown}

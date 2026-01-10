@@ -145,6 +145,86 @@ export function useSandboxInteractions({
       return;
     }
 
+    // Territory processing phase - auto-apply no_territory_action when no regions to process
+    // RR-FIX-2025-01-10: Handle stuck territory_processing phase for human players
+    if (phaseBefore === 'territory_processing') {
+      const validMoves = engine.getValidMoves(stateBefore.currentPlayer);
+
+      // Check if the only valid move is no_territory_action (no regions to process)
+      const hasOnlyNoTerritoryAction =
+        validMoves.length === 1 && validMoves[0].type === 'no_territory_action';
+
+      if (hasOnlyNoTerritoryAction) {
+        // Auto-apply the no_territory_action move to advance the game
+        void (async () => {
+          await engine.applyCanonicalMove(validMoves[0]);
+          bumpSandboxTurn();
+          setSandboxStateVersion((v) => v + 1);
+          maybeRunSandboxAiIfNeeded();
+        })();
+        return;
+      }
+
+      // Check for elimination moves - let player click on their stacks
+      const eliminationMoves = validMoves.filter((m) => m.type === 'eliminate_rings_from_stack');
+      if (eliminationMoves.length > 0) {
+        const matchingElim = eliminationMoves.find((m) => m.to && positionsEqual(m.to, pos));
+        if (matchingElim) {
+          void (async () => {
+            await engine.applyCanonicalMove(matchingElim);
+            bumpSandboxTurn();
+            setSandboxStateVersion((v) => v + 1);
+            maybeRunSandboxAiIfNeeded();
+          })();
+          return;
+        }
+        // Click wasn't on an elimination target - don't process further
+        return;
+      }
+
+      // Fall through to normal handling if there are region choices (handled by handleDecisionClick)
+    }
+
+    // Line processing phase - auto-apply no_line_action when no lines to process
+    // RR-FIX-2025-01-10: Handle stuck line_processing phase for human players
+    if (phaseBefore === 'line_processing') {
+      const validMoves = engine.getValidMoves(stateBefore.currentPlayer);
+
+      // Check if the only valid move is no_line_action (no lines to process)
+      const hasOnlyNoLineAction =
+        validMoves.length === 1 && validMoves[0].type === 'no_line_action';
+
+      if (hasOnlyNoLineAction) {
+        // Auto-apply the no_line_action move to advance the game
+        void (async () => {
+          await engine.applyCanonicalMove(validMoves[0]);
+          bumpSandboxTurn();
+          setSandboxStateVersion((v) => v + 1);
+          maybeRunSandboxAiIfNeeded();
+        })();
+        return;
+      }
+
+      // Check for elimination moves - let player click on their stacks
+      const eliminationMoves = validMoves.filter((m) => m.type === 'eliminate_rings_from_stack');
+      if (eliminationMoves.length > 0) {
+        const matchingElim = eliminationMoves.find((m) => m.to && positionsEqual(m.to, pos));
+        if (matchingElim) {
+          void (async () => {
+            await engine.applyCanonicalMove(matchingElim);
+            bumpSandboxTurn();
+            setSandboxStateVersion((v) => v + 1);
+            maybeRunSandboxAiIfNeeded();
+          })();
+          return;
+        }
+        // Click wasn't on an elimination target - don't process further
+        return;
+      }
+
+      // Fall through to normal handling if there are line choices
+    }
+
     const isTarget = validTargets.some((t) => positionsEqual(t, pos));
 
     // No selection: first click
