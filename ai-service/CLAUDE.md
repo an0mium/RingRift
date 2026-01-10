@@ -16,7 +16,7 @@ AI assistant context for the Python AI training service. Complements `AGENTS.md`
 
 **Key Metrics:**
 
-- 112 daemon types (106 active, 6 deprecated)
+- 132 daemon types (116 active, 16 deprecated)
 - 292 event types in DataEventType enum
 - 22 P2P loops with health_check() for DaemonManager integration
 - 11 Lambda GH200 nodes + 30 other cluster nodes
@@ -80,7 +80,7 @@ python scripts/update_all_nodes.py --safe-mode --restart-p2p
 
 | Module                           | Purpose                                           |
 | -------------------------------- | ------------------------------------------------- |
-| `daemon_manager.py`              | Lifecycle for 112 daemon types (~2,000 LOC)       |
+| `daemon_manager.py`              | Lifecycle for 132 daemon types (~2,000 LOC)       |
 | `daemon_registry.py`             | Declarative daemon specs (DaemonSpec dataclass)   |
 | `daemon_runners.py`              | 124 async runner functions                        |
 | `event_router.py`                | Unified event bus (292 event types, SHA256 dedup) |
@@ -138,7 +138,7 @@ python scripts/update_all_nodes.py --safe-mode --restart-p2p
 
 ## Daemon System
 
-112 daemon types (106 active, 6 deprecated). Three-layer architecture:
+132 daemon types (116 active, 16 deprecated). Three-layer architecture:
 
 1. **`daemon_registry.py`** - Declarative `DAEMON_REGISTRY: Dict[DaemonType, DaemonSpec]`
 2. **`daemon_manager.py`** - Lifecycle coordinator (start/stop, health, auto-restart)
