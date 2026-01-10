@@ -10931,9 +10931,10 @@ class P2POrchestrator(
         # Non-blocking peers lock acquisition (December 30, 2025)
         # CRITICAL: threading.RLock must be acquired AND released in the same thread
         # Wrap the entire lock-protected operation in asyncio.to_thread
+        # Updated Jan 10, 2026: Increased timeout from 2.0s to 5.0s for large clusters
         def _get_peers_snapshot_with_lock() -> list | None:
             """Get peers snapshot with lock - runs in thread pool."""
-            if self.peers_lock.acquire(True, 2.0):  # blocking=True, timeout=2.0
+            if self.peers_lock.acquire(True, 5.0):  # blocking=True, timeout=5.0
                 try:
                     return list(self.peers.values())
                 finally:
@@ -10944,7 +10945,7 @@ class P2POrchestrator(
         try:
             peers_snapshot = await asyncio.wait_for(
                 asyncio.to_thread(_get_peers_snapshot_with_lock),
-                timeout=3.0
+                timeout=6.0
             )
         except asyncio.TimeoutError:
             logger.warning("handle_status: peers_lock acquisition timed out")
@@ -11012,9 +11013,10 @@ class P2POrchestrator(
 
         # Non-blocking jobs lock acquisition (December 30, 2025)
         # CRITICAL: threading.RLock must be acquired AND released in the same thread
+        # Updated Jan 10, 2026: Increased timeout from 2.0s to 5.0s for large clusters
         def _get_jobs_snapshot_with_lock() -> dict:
             """Get jobs snapshot with lock - runs in thread pool."""
-            if self.jobs_lock.acquire(True, 2.0):  # blocking=True, timeout=2.0
+            if self.jobs_lock.acquire(True, 5.0):  # blocking=True, timeout=5.0
                 try:
                     return {k: v.to_dict() for k, v in self.local_jobs.items()}
                 finally:
@@ -11025,7 +11027,7 @@ class P2POrchestrator(
         try:
             jobs = await asyncio.wait_for(
                 asyncio.to_thread(_get_jobs_snapshot_with_lock),
-                timeout=3.0
+                timeout=6.0
             )
         except asyncio.TimeoutError:
             logger.warning("handle_status: jobs_lock acquisition timed out")
