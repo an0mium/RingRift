@@ -261,7 +261,8 @@ class TestProbeResults:
     async def test_on_probe_failure_emits_event(self) -> None:
         """Test that probe failure emits event."""
         orchestrator = create_mock_orchestrator()
-        loop = LeaderProbeLoop(orchestrator)
+        # Disable startup grace period so event is emitted immediately
+        loop = LeaderProbeLoop(orchestrator, startup_grace_period=0)
 
         with patch.object(loop, "_emit_event") as mock_emit:
             await loop._on_probe_failure("leader-1")
@@ -275,7 +276,8 @@ class TestProbeResults:
     async def test_on_probe_failure_triggers_election_at_threshold(self) -> None:
         """Test that election is triggered when threshold reached."""
         orchestrator = create_mock_orchestrator()
-        loop = LeaderProbeLoop(orchestrator, failure_threshold=3)
+        # Disable startup grace period so election can be triggered
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=3, startup_grace_period=0)
         loop._consecutive_failures = 2  # Will become 3
 
         with patch.object(loop, "_emit_event"):

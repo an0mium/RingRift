@@ -171,7 +171,7 @@ class GitUpdateLoop(BaseLoop):
         """
         stats = self.get_update_stats()
 
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Git update loop not running"
         elif not self.config.enabled:
@@ -188,13 +188,13 @@ class GitUpdateLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "enabled": self.config.enabled,
                 "checks_count": self._checks_count,
                 "updates_found": self._updates_found,
                 "updates_applied": self._updates_applied,
                 "update_failures": self._update_failures,
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
             },
         }
 
@@ -334,7 +334,7 @@ class CircuitBreakerDecayLoop(BaseLoop):
         Returns:
             HealthCheckResult-compatible dict with status, message, and details.
         """
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Circuit breaker decay loop not running"
         elif not self.config.enabled:
@@ -348,11 +348,11 @@ class CircuitBreakerDecayLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "enabled": self.config.enabled,
                 "ttl_seconds": self.config.ttl_seconds,
                 "total_decayed_lifetime": self._decay_count,
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
             },
         }
 

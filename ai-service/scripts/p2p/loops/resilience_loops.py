@@ -603,7 +603,7 @@ class PredictiveMonitoringLoop(BaseLoop):
         if not self._is_leader():
             return HealthCheckResult(
                 healthy=True,
-                status=CoordinatorStatus.IDLE,
+                status=CoordinatorStatus.PAUSED,
                 message="PredictiveMonitoringLoop idle (not leader)",
                 details={
                     "is_leader": False,
@@ -842,7 +842,8 @@ class SplitBrainDetectionLoop(BaseLoop):
                 )
                 bus = get_event_bus()
                 if bus:
-                    bus.publish(event)
+                    # bus.publish() is async, create task to avoid blocking
+                    asyncio.create_task(bus.publish(event))
             except ImportError:
                 pass
             except Exception as e:
@@ -899,7 +900,8 @@ class SplitBrainDetectionLoop(BaseLoop):
             )
             bus = get_event_bus()
             if bus:
-                bus.publish(event)
+                # bus.publish() is async, create task to avoid blocking
+                asyncio.create_task(bus.publish(event))
                 logger.info("[SplitBrain] Emitted SYNC_REQUEST for partition recovery")
         except ImportError:
             logger.debug("[SplitBrain] Event system not available, skipping resync trigger")

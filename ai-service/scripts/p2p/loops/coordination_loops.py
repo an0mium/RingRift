@@ -199,7 +199,7 @@ class AutoScalingLoop(BaseLoop):
         nodes_added = scale_stats.get("nodes_added", 0)
         nodes_removed = scale_stats.get("nodes_removed", 0)
 
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Auto-scaling loop not running"
         else:
@@ -210,13 +210,13 @@ class AutoScalingLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "scale_up_events": scale_ups,
                 "scale_down_events": scale_downs,
                 "nodes_added": nodes_added,
                 "nodes_removed": nodes_removed,
                 "last_scale_time": self._last_scale_time,
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
             },
         }
 
@@ -396,7 +396,7 @@ class HealthAggregationLoop(BaseLoop):
         healthy_nodes = agg_stats.get("healthy_nodes", 0)
         unhealthy_nodes = agg_stats.get("unhealthy_nodes", 0)
 
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Health aggregation loop not running"
         elif nodes_tracked > 0 and unhealthy_nodes > healthy_nodes:
@@ -413,11 +413,11 @@ class HealthAggregationLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "nodes_tracked": nodes_tracked,
                 "healthy_nodes": healthy_nodes,
                 "unhealthy_nodes": unhealthy_nodes,
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
                 "total_recovered": self._recovery_stats["total_recovered"],
                 "last_recovery_time": self._recovery_stats["last_recovery_time"],
             },

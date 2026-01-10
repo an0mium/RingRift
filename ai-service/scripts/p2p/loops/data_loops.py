@@ -173,7 +173,7 @@ class ModelSyncLoop(BaseLoop):
         total_ops = total_syncs + failures
         success_rate = total_syncs / max(1, total_ops)
 
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Model sync loop not running"
         elif failures > 10 and success_rate < 0.5:
@@ -187,11 +187,11 @@ class ModelSyncLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "models_synced": total_syncs,
                 "sync_failures": failures,
                 "success_rate": success_rate,
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
             },
         }
 
@@ -318,7 +318,7 @@ class DataAggregationLoop(BaseLoop):
         total_ops = (total_games > 0) + failures  # 1 if any games, plus failures
         success_rate = 1.0 if failures == 0 else (1.0 if total_games > 0 else 0.0)
 
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Data aggregation loop not running"
         elif failures > 5:
@@ -332,11 +332,11 @@ class DataAggregationLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "total_games_aggregated": total_games,
                 "aggregation_failures": failures,
                 "bytes_transferred": agg_stats.get("total_bytes_transferred", 0),
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
             },
         }
 
@@ -694,7 +694,7 @@ class DataManagementLoop(BaseLoop):
         export_triggers = self._data_stats.get("export_triggers", 0)
         training_triggers = self._data_stats.get("training_triggers", 0)
 
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Data management loop not running"
         else:
@@ -708,7 +708,7 @@ class DataManagementLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "is_leader": self._is_leader(),
                 "disk_cleanups": cleanups,
                 "db_conversions": db_converts,
@@ -716,7 +716,7 @@ class DataManagementLoop(BaseLoop):
                 "export_triggers": export_triggers,
                 "training_triggers": training_triggers,
                 "active_exports": len(self._active_exports),
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
             },
         }
 
@@ -894,7 +894,7 @@ class ModelFetchLoop(BaseLoop):
         total_ops = models_fetched + failures
         success_rate = models_fetched / max(1, total_ops)
 
-        if not self.is_running():
+        if not self.running:
             status = "ERROR"
             message = "Model fetch loop not running"
         elif failures > 10 and success_rate < 0.5:
@@ -911,13 +911,13 @@ class ModelFetchLoop(BaseLoop):
             "status": status,
             "message": message,
             "details": {
-                "is_running": self.is_running(),
+                "is_running": self.running,
                 "is_leader": self._is_leader(),
                 "models_fetched": models_fetched,
                 "fetch_failures": failures,
                 "pending_retries": pending_retries,
                 "success_rate": success_rate,
-                "run_count": self.stats.run_count,
+                "run_count": self.stats.total_runs,
             },
         }
 
