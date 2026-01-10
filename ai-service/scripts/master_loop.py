@@ -1280,7 +1280,8 @@ class MasterLoopController:
                 DaemonType.IDLE_RESOURCE,           # spawns selfplay
                 DaemonType.TRAINING_NODE_WATCHER,   # monitors training
                 DaemonType.AUTO_EXPORT,             # exports training data (CPU-bound)
-                DaemonType.TRAINING_TRIGGER,        # triggers training jobs
+                # Jan 10, 2026: TRAINING_TRIGGER moved to coordinator - dispatches training
+                # to cluster nodes via P2P, doesn't run training locally.
                 DaemonType.NNUE_TRAINING,           # dispatches NNUE training to cluster
                 DaemonType.TOURNAMENT_DAEMON,       # runs tournaments
                 # Jan 3, 2026: EVALUATION moved to coordinator - dispatches gauntlet runs

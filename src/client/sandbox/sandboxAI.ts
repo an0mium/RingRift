@@ -806,8 +806,9 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     const parityMode = isSandboxAiParityModeEnabled();
 
     // Get AI difficulty for current player (if available)
+    // Jan 10, 2026: Default to max difficulty (10) for optimal play
     const aiDifficulty = hooks.getAIDifficulty?.(current.playerNumber);
-    const effectiveDifficulty = clampDifficulty(aiDifficulty, 4);
+    const effectiveDifficulty = clampDifficulty(aiDifficulty, 10);
     debugAiDifficultyRequested = effectiveDifficulty;
 
     // Service-backed sandbox AI: when available, request a canonical move from

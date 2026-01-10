@@ -372,13 +372,15 @@ def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) 
     """Get Elo-adaptive win rate threshold vs random baseline.
 
     Thresholds scale with model strength:
-    - Critical models (< 1100 Elo): Very easy threshold for struggling configs
-    - Weak models (1100-1300 Elo): Lower threshold for fast iteration
-    - Medium models (1300-1500): Standard threshold
-    - Strong models (1500-1700): Higher threshold for quality
-    - Very strong (> 1700): Strict threshold
+    - Struggling models (< 1200 Elo): Very easy threshold for bootstrap
+    - Weak models (1200-1400 Elo): Lower threshold for fast iteration
+    - Medium models (1400-1600): Standard threshold
+    - Strong models (1600-1800): Higher threshold for quality
+    - Very strong (> 1800): Strict threshold
 
-    Jan 6, 2026: Added critical tier for configs with <1100 Elo (P3 improvement)
+    Jan 10, 2026: Expanded struggling tier from <1100 to <1200 Elo to help
+    models that plateau below heuristic baseline (1200 Elo). Models at ~1150 Elo
+    were failing promotion gates despite showing improvement.
 
     Args:
         model_elo: Current model Elo rating
@@ -391,25 +393,25 @@ def get_elo_adaptive_win_rate_vs_random(model_elo: float, num_players: int = 2) 
     base = get_min_win_rate_vs_random(num_players)
 
     # Scale based on Elo
-    # Jan 6, 2026: Added critical tier for struggling configs (<1100 Elo)
-    if model_elo < 1100:
-        # Critical model: very easy threshold (0.7x of base)
-        # Allows configs stuck at ~33% vs random to still make progress
-        multiplier = 0.70
-    elif model_elo < 1300:
-        # Weak model: easier threshold (0.85x of base)
-        multiplier = 0.85
-    elif model_elo < 1500:
+    # Jan 10, 2026: Expanded struggling tier to <1200 for bootstrap phase
+    if model_elo < 1200:
+        # Struggling model: very easy threshold (0.60x of base)
+        # Allows models below heuristic baseline to still make progress
+        multiplier = 0.60
+    elif model_elo < 1400:
+        # Weak model: easier threshold (0.80x of base)
+        multiplier = 0.80
+    elif model_elo < 1600:
         # Medium model: standard threshold
         multiplier = 1.0
-    elif model_elo < 1700:
+    elif model_elo < 1800:
         # Strong model: stricter threshold (1.1x of base)
         multiplier = 1.1
     else:
         # Very strong: strictest threshold (1.2x of base)
         multiplier = 1.2
 
-    # Clamp to [0.30, 0.95] range (lowered floor for critical configs)
+    # Clamp to [0.30, 0.95] range
     return min(0.95, max(0.30, base * multiplier))
 
 
@@ -417,13 +419,15 @@ def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 
     """Get Elo-adaptive win rate threshold vs heuristic baseline.
 
     Thresholds scale with model strength:
-    - Critical models (< 1100 Elo): Very easy threshold (just need some wins)
-    - Weak models (1100-1300 Elo): Lower threshold (break-even is fine)
-    - Medium models (1300-1500): Standard threshold
-    - Strong models (1500-1700): Higher threshold
-    - Very strong (> 1700): Strict threshold (must dominate heuristic)
+    - Struggling models (< 1200 Elo): Very easy threshold (any wins count)
+    - Weak models (1200-1400 Elo): Lower threshold (break-even is fine)
+    - Medium models (1400-1600): Standard threshold
+    - Strong models (1600-1800): Higher threshold
+    - Very strong (> 1800): Strict threshold (must dominate heuristic)
 
-    Jan 6, 2026: Added critical tier for configs with <1100 Elo (P3 improvement)
+    Jan 10, 2026: Expanded struggling tier from <1100 to <1200 Elo to help
+    models that plateau below heuristic baseline. A model at 1150 Elo achieving
+    63% vs heuristic should be allowed to promote and continue improving.
 
     Args:
         model_elo: Current model Elo rating
@@ -436,25 +440,25 @@ def get_elo_adaptive_win_rate_vs_heuristic(model_elo: float, num_players: int = 
     base = get_min_win_rate_vs_heuristic(num_players)
 
     # Scale based on Elo
-    # Jan 6, 2026: Added critical tier for struggling configs (<1100 Elo)
-    if model_elo < 1100:
-        # Critical model: very easy threshold (0.6x of base)
-        # Just needs to show some ability to beat heuristic
-        multiplier = 0.60
-    elif model_elo < 1300:
-        # Weak model: easier threshold (0.8x of base)
-        multiplier = 0.8
-    elif model_elo < 1500:
+    # Jan 10, 2026: Expanded struggling tier to <1200 for bootstrap phase
+    if model_elo < 1200:
+        # Struggling model: very easy threshold (0.50x of base)
+        # Any meaningful wins vs heuristic show progress
+        multiplier = 0.50
+    elif model_elo < 1400:
+        # Weak model: easier threshold (0.75x of base)
+        multiplier = 0.75
+    elif model_elo < 1600:
         # Medium model: standard threshold
         multiplier = 1.0
-    elif model_elo < 1700:
+    elif model_elo < 1800:
         # Strong model: stricter threshold (1.15x of base)
         multiplier = 1.15
     else:
         # Very strong: strictest threshold (1.3x of base)
         multiplier = 1.3
 
-    # Clamp to [0.10, 0.85] range (lowered floor for critical configs)
+    # Clamp to [0.10, 0.85] range
     return min(0.85, max(0.10, base * multiplier))
 
 

@@ -3778,6 +3778,116 @@ class TrainingTriggerDaemon(HandlerBase):
         except Exception as e:
             logger.debug(f"[TrainingTriggerDaemon] Failed to emit TRAINING_FAILED: {e}")
 
+    async def _log_training_diagnostic_summary(self) -> None:
+        """Log periodic diagnostic summary of training trigger status.
+
+        January 10, 2026: Added to help diagnose why training is or isn't triggering.
+        Logs every 5 minutes (not every cycle) to avoid log spam.
+        Shows:
+        - NPZ files found and sample counts
+        - Quality scores per config
+        - Why training was NOT triggered (which condition failed)
+        - Active training jobs
+
+        This is critical for debugging the self-improvement loop.
+        """
+        # Rate-limit to every 5 minutes to avoid log spam
+        now = time.time()
+        if not hasattr(self, "_last_diagnostic_log"):
+            self._last_diagnostic_log = 0.0
+        if now - self._last_diagnostic_log < 300.0:  # 5 minutes
+            return
+        self._last_diagnostic_log = now
+
+        if not self._training_states:
+            logger.info(
+                "[TrainingTriggerDaemon] DIAGNOSTIC: No training states tracked yet. "
+                "Waiting for NPZ_EXPORT_COMPLETE events or scan to discover configs."
+            )
+            return
+
+        # Build diagnostic summary
+        lines = ["[TrainingTriggerDaemon] DIAGNOSTIC SUMMARY:"]
+        lines.append(f"  Tracked configs: {len(self._training_states)}")
+        lines.append(f"  Evaluation backpressure: {'ACTIVE (paused)' if self._evaluation_backpressure else 'OK'}")
+        lines.append(f"  Local-only mode: {'YES' if self._local_only_mode else 'NO'}")
+
+        active_training = []
+        blocked_configs = []
+        ready_configs = []
+
+        for config_key, state in sorted(self._training_states.items()):
+            # Check if actively training
+            if state.training_in_progress:
+                active_training.append(
+                    f"    - {config_key}: IN PROGRESS (started {self._format_age(state.training_start_time)})"
+                )
+                continue
+
+            # Check why training is blocked
+            can_train, reason = await self._check_training_conditions(config_key)
+
+            if can_train:
+                ready_configs.append(
+                    f"    - {config_key}: READY ({state.npz_sample_count:,} samples, "
+                    f"Elo={state.last_elo:.0f}, intensity={state.training_intensity})"
+                )
+            else:
+                blocked_configs.append(
+                    f"    - {config_key}: BLOCKED - {reason} "
+                    f"(samples={state.npz_sample_count:,}, Elo={state.last_elo:.0f})"
+                )
+
+        # Log summary sections
+        if active_training:
+            lines.append(f"  Active training ({len(active_training)}):")
+            lines.extend(active_training)
+
+        if ready_configs:
+            lines.append(f"  Ready to train ({len(ready_configs)}):")
+            lines.extend(ready_configs)
+
+        if blocked_configs:
+            lines.append(f"  Blocked ({len(blocked_configs)}):")
+            lines.extend(blocked_configs)
+
+        # Log all at once to keep summary together
+        logger.info("\n".join(lines))
+
+        # If everything is blocked, log a warning with suggestions
+        if blocked_configs and not active_training and not ready_configs:
+            # Count common blockers
+            blockers = {}
+            for line in blocked_configs:
+                if "cooldown" in line.lower():
+                    blockers["cooldown"] = blockers.get("cooldown", 0) + 1
+                elif "insufficient samples" in line.lower():
+                    blockers["insufficient_samples"] = blockers.get("insufficient_samples", 0) + 1
+                elif "quality" in line.lower():
+                    blockers["quality"] = blockers.get("quality", 0) + 1
+                elif "paused" in line.lower():
+                    blockers["paused"] = blockers.get("paused", 0) + 1
+
+            if blockers:
+                top_blocker = max(blockers.items(), key=lambda x: x[1])
+                logger.warning(
+                    f"[TrainingTriggerDaemon] All {len(blocked_configs)} configs are blocked! "
+                    f"Top blocker: {top_blocker[0]} ({top_blocker[1]} configs). "
+                    f"Check: 1) NPZ export daemon running? 2) Quality scores? 3) Cooldown settings?"
+                )
+
+    def _format_age(self, timestamp: float) -> str:
+        """Format a timestamp as human-readable age string."""
+        if timestamp <= 0:
+            return "unknown"
+        age_seconds = time.time() - timestamp
+        if age_seconds < 60:
+            return f"{age_seconds:.0f}s ago"
+        elif age_seconds < 3600:
+            return f"{age_seconds/60:.0f}m ago"
+        else:
+            return f"{age_seconds/3600:.1f}h ago"
+
     async def _run_cycle(self) -> None:
         """Main work loop iteration - called by HandlerBase at scan_interval_seconds.
 
@@ -3816,6 +3926,10 @@ class TrainingTriggerDaemon(HandlerBase):
 
         # Scan for training opportunities
         await self._scan_for_training_opportunities()
+
+        # January 10, 2026: Log periodic diagnostic summary
+        # This helps diagnose why training is or isn't triggering
+        await self._log_training_diagnostic_summary()
 
         # December 29, 2025 (Phase 3): Periodically save state
         now = time.time()

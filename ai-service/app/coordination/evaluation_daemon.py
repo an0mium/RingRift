@@ -141,6 +141,12 @@ class EvaluationConfig:
     # Dec 31: Reduced to 30 with 6 baselines for faster iteration (30×6=180 games)
     games_per_baseline: int = 30
 
+    # Jan 10, 2026: Bootstrap fast evaluation for weak models
+    # Models below bootstrap_elo_threshold use fewer games per baseline for faster iteration
+    # This helps break the promotion logjam during early training
+    bootstrap_games_per_baseline: int = 15
+    bootstrap_elo_threshold: float = 1300.0
+
     # Baselines to evaluate against
     # Dec 31, 2025: Expanded from 2 to 6 baselines for better Elo resolution
     # Previous: ["random", "heuristic"] capped Elo measurement at ~1200
@@ -209,6 +215,23 @@ class EvaluationConfig:
         player_multiplier = {2: 1.0, 3: 1.5, 4: 2.0}.get(num_players, 1.0)
 
         return base_timeout * player_multiplier
+
+    def get_games_per_baseline(self, model_elo: float | None = None) -> int:
+        """Get games per baseline based on model Elo.
+
+        January 10, 2026: Bootstrap fast evaluation for weak models.
+        Models below bootstrap_elo_threshold use fewer games for faster iteration.
+        This helps break the promotion logjam during early training phases.
+
+        Args:
+            model_elo: Current model Elo rating, or None for full evaluation
+
+        Returns:
+            Number of games per baseline opponent
+        """
+        if model_elo is not None and model_elo < self.bootstrap_elo_threshold:
+            return self.bootstrap_games_per_baseline
+        return self.games_per_baseline
 
     # Deduplication settings (December 2025)
     # January 4, 2026: Reduced from 300s to 30s to allow rapid re-evaluations
@@ -1175,6 +1198,26 @@ class EvaluationDaemon(BaseEventHandler):
             logger.debug(f"[EvaluationDaemon] Failed to get game counts: {e}")
             game_count = None  # Will use fallback thresholds
 
+        # Jan 10, 2026: Get model's current Elo for bootstrap fast evaluation
+        # Weak models (< 1300 Elo) use fewer games per baseline for faster iteration
+        model_elo = None
+        try:
+            from app.coordination.elo_service import get_elo_service
+            elo_service = get_elo_service()
+            model_elo = elo_service.get_config_elo(config_key)
+            if model_elo:
+                logger.debug(f"[EvaluationDaemon] Model Elo for {config_key}: {model_elo}")
+        except (ImportError, OSError, RuntimeError) as e:
+            logger.debug(f"[EvaluationDaemon] Failed to get model Elo: {e}")
+
+        # Use bootstrap games for weak models
+        games_per_baseline = self.config.get_games_per_baseline(model_elo)
+        if model_elo and model_elo < self.config.bootstrap_elo_threshold:
+            logger.info(
+                f"[EvaluationDaemon] Using bootstrap fast eval ({games_per_baseline} games) "
+                f"for {config_key} (Elo: {model_elo:.0f})"
+            )
+
         # Run with timeout, early stopping, and parallel game execution
         # Dec 29: Enable parallel_games=16 for 2-4x faster gauntlet throughput
         # Jan 2, 2026 (Phase 1.3): Use graduated timeout based on board size
@@ -1186,7 +1229,7 @@ class EvaluationDaemon(BaseEventHandler):
                 model_path=model_path,
                 board_type=board_type,
                 opponents=opponents,
-                games_per_opponent=self.config.games_per_baseline,
+                games_per_opponent=games_per_baseline,
                 num_players=num_players,
                 verbose=False,
                 early_stopping=self.config.early_stopping_enabled,
@@ -1232,9 +1275,27 @@ class EvaluationDaemon(BaseEventHandler):
             from app.training.composite_participant import make_composite_participant_id
             from pathlib import Path
 
+            # Jan 10, 2026: Get model's current Elo for bootstrap fast evaluation
+            config_key = make_config_key(board_type, num_players)
+            model_elo = None
+            try:
+                from app.coordination.elo_service import get_elo_service
+                elo_service = get_elo_service()
+                model_elo = elo_service.get_config_elo(config_key)
+            except (ImportError, OSError, RuntimeError) as e:
+                logger.debug(f"[EvaluationDaemon] Failed to get model Elo for multi-harness: {e}")
+
+            # Use bootstrap games for weak models
+            games_per_baseline = self.config.get_games_per_baseline(model_elo)
+            if model_elo and model_elo < self.config.bootstrap_elo_threshold:
+                logger.info(
+                    f"[EvaluationDaemon] Using bootstrap fast eval ({games_per_baseline} games) "
+                    f"for multi-harness {config_key} (Elo: {model_elo:.0f})"
+                )
+
             # January 5, 2026: Enable parallel harness evaluation for 3x speedup
             gauntlet = MultiHarnessGauntlet(
-                default_games_per_baseline=self.config.games_per_baseline,
+                default_games_per_baseline=games_per_baseline,
                 default_baselines=self.config.baselines,
                 parallel_evaluations=self.config.multi_harness_parallel,
             )

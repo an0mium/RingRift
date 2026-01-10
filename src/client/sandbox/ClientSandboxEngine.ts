@@ -955,11 +955,12 @@ export class ClientSandboxEngine {
     }
 
     // 2. Apply player types to the deserialized state
+    // Jan 10, 2026: Default to max difficulty (10) for optimal AI play
     const clampDifficulty = (value: number) => Math.max(1, Math.min(10, Math.round(value)));
     gameState.players = gameState.players.map((p, idx) => {
       const kind = playerKinds[idx] ?? 'human';
       if (kind === 'ai') {
-        const desired = aiDifficulties?.[idx] ?? p.aiDifficulty ?? 5;
+        const desired = aiDifficulties?.[idx] ?? p.aiDifficulty ?? 10;
         return {
           ...p,
           type: kind,
@@ -1051,15 +1052,49 @@ export class ClientSandboxEngine {
    */
   public getChainCaptureContextForCurrentPlayer(): { from: Position; landings: Position[] } | null {
     const state = this.getGameState();
+
+    // DEBUG: Log chain capture context request
+    // eslint-disable-next-line no-console
+    console.log('[ClientSandboxEngine.getChainCaptureContextForCurrentPlayer] Called:', {
+      gameStatus: state.gameStatus,
+      currentPhase: state.currentPhase,
+      currentPlayer: state.currentPlayer,
+      chainCapturePosition: state.chainCapturePosition,
+    });
+
     if (state.gameStatus !== 'active' || state.currentPhase !== 'chain_capture') {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[ClientSandboxEngine.getChainCaptureContextForCurrentPlayer] Early exit: not in chain_capture phase'
+      );
       return null;
     }
 
-    const moves = this.getValidMoves(state.currentPlayer).filter(
-      (m) => m.type === 'continue_capture_segment'
+    const allMoves = this.getValidMoves(state.currentPlayer);
+    // DEBUG: Log all moves
+    // eslint-disable-next-line no-console
+    console.log(
+      '[ClientSandboxEngine.getChainCaptureContextForCurrentPlayer] getValidMoves returned:',
+      {
+        totalMoves: allMoves.length,
+        moveTypes: allMoves.map((m) => m.type),
+      }
     );
 
+    const moves = allMoves.filter((m) => m.type === 'continue_capture_segment');
+
+    // DEBUG: Log filtered moves
+    // eslint-disable-next-line no-console
+    console.log('[ClientSandboxEngine.getChainCaptureContextForCurrentPlayer] After filtering:', {
+      continueMoves: moves.length,
+      moves: moves.map((m) => ({ type: m.type, from: m.from, to: m.to })),
+    });
+
     if (moves.length === 0) {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[ClientSandboxEngine.getChainCaptureContextForCurrentPlayer] No continuation moves found'
+      );
       return null;
     }
 
