@@ -16,7 +16,7 @@ For **training new models**, see `ai-service/` which contains the full training 
 
 ```
 ai-inference/           ← This service (production)
-├── app/main.py         ← FastAPI server (~150 lines)
+├── inference/main.py   ← FastAPI server (~150 lines)
 ├── models/             ← Pre-trained .pth files
 └── Dockerfile
 
@@ -34,14 +34,14 @@ ai-service/             ← Training infrastructure (development)
 # From repo root
 cd ai-inference
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (uses ai-service venv for shared deps)
+# Or: pip install -r requirements.txt
 
 # Copy models from ai-service
 cp ../ai-service/models/canonical_*.pth models/
 
-# Run server
-python -m app.main
+# Run server (from repo root)
+PYTHONPATH="ai-service:ai-inference" python -m uvicorn inference.main:app --port 8001
 ```
 
 ### Docker

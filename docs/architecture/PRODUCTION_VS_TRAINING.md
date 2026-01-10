@@ -55,7 +55,7 @@ RingRift has two distinct deployment concerns:
 ```
 RingRift/
 ├── ai-inference/           # PRODUCTION: Minimal inference service
-│   ├── app/main.py         #   ~150 lines FastAPI server
+│   ├── inference/main.py   #   ~150 lines FastAPI server
 │   ├── models/             #   Pre-trained .pth files
 │   ├── Dockerfile          #   Production container
 │   └── README.md           #   Deployment docs
