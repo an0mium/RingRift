@@ -2307,10 +2307,11 @@ class P2POrchestrator(
             self._queue_populator_loop = queue_populator
 
             # EloSyncLoop - keeps unified_elo.db consistent across cluster
-            if hasattr(self, 'elo_sync_manager') and self.elo_sync_manager is not None:
+            # Jan 9, 2026: Now uses OrchestratorContext for unified callback access
+            if ctx.elo_sync_manager is not None:
                 elo_sync = EloSyncLoop(
-                    get_elo_sync_manager=lambda: self.elo_sync_manager,
-                    get_sync_in_progress=lambda: self.sync_in_progress,
+                    get_elo_sync_manager=lambda: ctx.elo_sync_manager,
+                    get_sync_in_progress=ctx.sync_in_progress or (lambda: False),
                 )
                 manager.register(elo_sync)
 
