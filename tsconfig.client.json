@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "exactOptionalPropertyTypes": false,
     "target": "ES2020",
     "lib": ["DOM", "DOM.Iterable", "ES6"],
     "allowJs": true,
@@ -25,13 +26,6 @@
       "@/shared/*": ["src/shared/*"]
     }
   },
-  "include": [
-    "src/client/**/*",
-    "src/shared/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "src/server/**/*"
-  ]
+  "include": ["src/client/**/*", "src/shared/**/*"],
+  "exclude": ["node_modules", "dist", "src/server/**/*"]
 }
