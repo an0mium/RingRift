@@ -170,6 +170,10 @@ from .http_server_health_loop import (
     HttpServerHealthConfig,
     HttpServerHealthLoop,
 )
+from .swim_membership_loop import (
+    SwimMembershipConfig,
+    SwimMembershipLoop,
+)
 from .gossip_state_cleanup_loop import (
     GossipCleanupStats,
     GossipStateCleanupConfig,
@@ -315,6 +319,9 @@ __all__ = [
     # HTTP Server Health (Jan 7, 2026 - Zombie Detection)
     "HttpServerHealthConfig",
     "HttpServerHealthLoop",
+    # SWIM Membership (Jan 9, 2026 - Fast Failure Detection)
+    "SwimMembershipConfig",
+    "SwimMembershipLoop",
     # Gossip State Cleanup (Jan 7, 2026 - Memory Leak Fix)
     "GossipCleanupStats",
     "GossipStateCleanupConfig",
