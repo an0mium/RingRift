@@ -1044,11 +1044,12 @@ export const BoardView: React.FC<BoardViewProps> = ({
         naturalHeight = 25 * cellSize * 0.85; // hex boards are slightly shorter
       }
 
-      // Calculate available space (account for sidebar on desktop ~400px, padding ~64px)
-      const sidebarWidth = isDesktop ? 420 : 0;
-      const padding = isDesktop ? 80 : 32;
+      // Calculate available space - use conservative estimates to avoid over-shrinking
+      // Sidebar is roughly 300-350px, padding is minimal
+      const sidebarWidth = isDesktop ? 340 : 0;
+      const padding = isDesktop ? 48 : 24;
       const availableWidth = viewportWidth - sidebarWidth - padding;
-      const availableHeight = viewportHeight - 200; // Account for header, controls
+      const availableHeight = viewportHeight - 140; // Account for header, controls
 
       // Calculate scale factors for width and height
       const scaleX = availableWidth / naturalWidth;
@@ -1057,8 +1058,9 @@ export const BoardView: React.FC<BoardViewProps> = ({
       // Use the smaller scale to fit both dimensions, but don't scale up
       const scale = Math.min(scaleX, scaleY, 1);
 
-      // Apply a minimum scale to keep the board usable (don't go below 0.4)
-      const finalScale = Math.max(scale, 0.4);
+      // Apply a minimum scale to keep the board usable (don't go below 0.55)
+      // This ensures boards remain playable even on smaller screens
+      const finalScale = Math.max(scale, 0.55);
 
       setBoardScale(finalScale);
 
