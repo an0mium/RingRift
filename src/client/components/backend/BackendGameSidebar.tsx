@@ -203,7 +203,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
   onShowBoardControls,
 }) => {
   return (
-    <aside className="w-full lg:w-80 flex-shrink-0 space-y-3 text-sm text-slate-100">
+    <aside className="w-full lg:w-[272px] flex-shrink-0 space-y-2 text-xs text-slate-100">
       {/* Primary HUD band – placed at the top of the sidebar so phase/turn/time
           are always visible alongside the board. On mobile, render the
           compact MobileGameHUD; on larger screens, use the full GameHUD. */}
@@ -234,11 +234,11 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
         />
       )}
 
-      <div className="p-3 border border-slate-700 rounded bg-slate-900/50">
-        <h2 className="font-semibold mb-2">Selection</h2>
+      <div className="p-2 border border-slate-700 rounded bg-slate-900/50">
+        <h2 className="font-semibold mb-1.5 text-sm">Selection</h2>
         {selectedPosition ? (
-          <div className="space-y-2">
-            <div className="text-lg font-mono font-semibold text-white">
+          <div className="space-y-1.5">
+            <div className="text-base font-mono font-semibold text-white">
               {formatPosition(selectedPosition, { boardType })}
             </div>
             {selectedStackDetails ? (
@@ -319,19 +319,21 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
       <GameEventLog viewModel={eventLogViewModel} />
 
       <details
-        className="p-3 border border-slate-700 rounded bg-slate-900/50"
+        className="p-2 border border-slate-700 rounded bg-slate-900/50"
         open={showAdvancedSidebarPanels}
         onToggle={(event) => {
           onAdvancedPanelsToggle(event.currentTarget.open);
         }}
         data-testid="backend-advanced-sidebar-panels"
       >
-        <summary className="cursor-pointer select-none text-sm font-semibold text-slate-200">
+        <summary className="cursor-pointer select-none text-xs font-semibold text-slate-200">
           Advanced diagnostics
-          <span className="ml-2 text-[11px] font-normal text-slate-400">(history, evaluation)</span>
+          <span className="ml-1.5 text-[10px] font-normal text-slate-400">
+            (history, evaluation)
+          </span>
         </summary>
         {showAdvancedSidebarPanels && (
-          <div className="mt-3 space-y-3">
+          <div className="mt-2 space-y-2">
             {/* Full move history panel with expandable details */}
             <GameHistoryPanel gameId={gameId} defaultCollapsed={true} onError={onHistoryError} />
 
@@ -349,9 +351,9 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
         )}
       </details>
 
-      <div className="p-3 border border-slate-700 rounded bg-slate-900/50 flex flex-col h-64">
-        <h2 className="font-semibold mb-2">Chat</h2>
-        <div className="flex-1 overflow-y-auto mb-2 space-y-1">
+      <div className="p-2 border border-slate-700 rounded bg-slate-900/50 flex flex-col h-52">
+        <h2 className="font-semibold mb-1.5 text-sm">Chat</h2>
+        <div className="flex-1 overflow-y-auto mb-1.5 space-y-0.5">
           {chatMessages.length === 0 ? (
             <div className="text-slate-400 text-xs italic">No messages yet.</div>
           ) : (
@@ -363,7 +365,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
             ))
           )}
         </div>
-        <form onSubmit={onChatSubmit} className="flex gap-2">
+        <form onSubmit={onChatSubmit} className="flex gap-1.5">
           <input
             type="text"
             value={chatInput}

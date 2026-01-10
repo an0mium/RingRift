@@ -1045,10 +1045,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
       }
 
       // Calculate available space for the board
-      // On desktop: leave room for sidebar (~320px) and padding
+      // On desktop: leave room for sidebar (~272px after 20% reduction) and padding
       // On mobile: full width with minimal padding
-      const sidebarWidth = isDesktop ? 340 : 0;
-      const padding = isDesktop ? 48 : 24;
+      const sidebarWidth = isDesktop ? 272 : 0;
+      const padding = isDesktop ? 40 : 20;
       const availableWidth = viewportWidth - sidebarWidth - padding;
       const availableHeight = viewportHeight - 160; // Account for header, controls
 
@@ -1057,13 +1057,23 @@ export const BoardView: React.FC<BoardViewProps> = ({
       const scaleY = availableHeight / naturalHeight;
 
       // Use the smaller scale to fit both dimensions, but don't scale up
-      const scale = Math.min(scaleX, scaleY, 1);
+      const baseScale = Math.min(scaleX, scaleY, 1);
 
-      // Apply minimum scales based on board type
-      // Larger boards can scale down more, smaller boards need more readable cells
+      // Apply board-specific multipliers to adjust perceived sizes
+      // Based on user feedback: sq19 too small, sq8 too large, hex8 too small
+      const boardMultipliers: Record<string, number> = {
+        square8: 0.8, // 20% smaller (was too large)
+        square19: 1.3, // 30% larger (was too small)
+        hex8: 1.3, // 30% larger (was too small)
+        hexagonal: 1.0, // No change (correct size)
+      };
+      const multiplier = boardMultipliers[effectiveBoardType] ?? 1.0;
+      const adjustedScale = baseScale * multiplier;
+
+      // Apply minimum scales based on board type and clamp to reasonable bounds
       const minScale =
-        effectiveBoardType === 'square8' || effectiveBoardType === 'hex8' ? 0.65 : 0.5;
-      const finalScale = Math.max(scale, minScale);
+        effectiveBoardType === 'square8' || effectiveBoardType === 'hex8' ? 0.5 : 0.45;
+      const finalScale = Math.max(minScale, Math.min(adjustedScale, 1.3));
 
       setBoardScale(finalScale);
 
