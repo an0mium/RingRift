@@ -6,6 +6,9 @@ Usage:
     # Safe mode (RECOMMENDED) - preserves quorum during rolling updates
     python scripts/update_all_nodes.py --safe-mode --restart-p2p
 
+    # Sync config files (for files in .gitignore like distributed_hosts.yaml)
+    python scripts/update_all_nodes.py --sync-config --restart-p2p
+
     # Legacy mode (not recommended for production)
     python scripts/update_all_nodes.py [--commit HASH] [--restart-p2p] [--dry-run]
 
@@ -16,6 +19,14 @@ January 3, 2026 - Sprint 16.2:
 
     Problem: Simultaneous P2P restarts on 10+ nodes caused quorum loss cascade.
     Solution: Safe mode updates non-voters in parallel, then voters one at a time.
+
+January 9, 2026 - Config Sync:
+    Added --sync-config flag to sync non-git-tracked config files (like
+    distributed_hosts.yaml which is in .gitignore) to all nodes. This prevents
+    configuration drift that can cause P2P cluster inconsistencies.
+
+    Problem: distributed_hosts.yaml is gitignored, so git pull doesn't update it.
+    Solution: Explicitly sync config files via SCP when --sync-config is set.
 """
 
 import argparse
