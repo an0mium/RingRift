@@ -247,41 +247,32 @@ services:
         max-file: '3'
 
   # ===========================================================================
-  # AI Service
+  # AI Inference Service (Minimal - NO training infrastructure)
+  # ===========================================================================
+  # This is the PRODUCTION ai service. It only serves moves, no training.
+  # For training new models, use ai-service/ with docker-compose.yml
   # ===========================================================================
   ai-service:
-    image: ${DOCKER_REGISTRY:-ghcr.io/an0mium}/ringrift-ai:${VERSION:-latest}
+    build:
+      context: .
+      dockerfile: ai-inference/Dockerfile
     environment:
-      - PYTHON_ENV=production
-      - LOG_LEVEL=${AI_LOG_LEVEL:-INFO}
-      - AI_SERVICE_PORT=8001
-      - RINGRIFT_TRAINED_HEURISTIC_PROFILES=/app/data/trained_heuristic_profiles.json
-      - AI_MAX_CONCURRENT_REQUESTS=${AI_MAX_CONCURRENT_REQUESTS:-100}
-      - AI_REQUEST_TIMEOUT=${AI_REQUEST_TIMEOUT:-10000}
+      - RINGRIFT_MODELS_PATH=/app/ai-inference/models
+      - RINGRIFT_LOG_LEVEL=${AI_LOG_LEVEL:-INFO}
     volumes:
-      - ./ai-service/models:/app/models:ro
-      - ./ai-service/data:/app/data:ro
+      - ./ai-inference/models:/app/ai-inference/models:ro
       - ai_logs:/app/logs
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: always
     deploy:
       resources:
         limits:
-          cpus: '4'
-          memory: 4G
+          cpus: '2'
+          memory: 2G
         reservations:
-          cpus: '1'
-          memory: 1G
+          cpus: '0.5'
+          memory: 512M
     healthcheck:
-      test:
-        [
-          'CMD',
-          'python',
-          '-c',
-          "import httpx; resp = httpx.get('http://localhost:8001/health', timeout=2.0); raise SystemExit(0 if resp.status_code == 200 else 1)",
-        ]
+      test: ['CMD', 'curl', '-f', 'http://localhost:8001/health']
       interval: 15s
       timeout: 5s
       retries: 3

@@ -1,0 +1,16 @@
+# Minimal dependencies for AI inference only
+# No training, no distributed coordination
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+
+# ML inference
+torch>=2.0.0
+numpy>=1.24.0
+
+# The ai-service package provides AI implementations
+# This service imports from ai-service, so it must be available
+# Either: pip install -e ../ai-service
+# Or: Copy required modules
