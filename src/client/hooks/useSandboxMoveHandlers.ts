@@ -31,9 +31,9 @@ import type { ClientSandboxEngine } from '../sandbox/ClientSandboxEngine';
 export interface UseSandboxMoveHandlersOptions {
   sandboxEngine: ClientSandboxEngine | null;
   selected: Position | undefined;
-  setSelected: React.Dispatch<React.SetStateAction<Position | undefined>>;
+  setSelected: (pos: Position | undefined) => void;
   validTargets: Position[];
-  setValidTargets: React.Dispatch<React.SetStateAction<Position[]>>;
+  setValidTargets: (cells: Position[]) => void;
   bumpSandboxTurn: () => void;
   setSandboxStateVersion: (fn: (v: number) => number) => void;
   maybeRunSandboxAiIfNeeded: () => void;

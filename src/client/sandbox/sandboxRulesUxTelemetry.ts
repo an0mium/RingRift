@@ -17,6 +17,7 @@
  */
 
 import type { LoadableScenario } from './scenarioTypes';
+import type { LoadedScenario } from '../hooks/useSandboxScenarios';
 import type { GameResult } from '../../shared/types/game';
 import { logRulesUxEvent } from '../utils/rulesUxTelemetry';
 import { getRulesUxContextForScenarioId } from '../../shared/teaching/scenarioTelemetry';
@@ -58,13 +59,16 @@ export async function logSandboxScenarioLoaded(scenario: LoadableScenario): Prom
  * based on per-scenario objectives.
  */
 export async function logSandboxScenarioCompleted(args: {
-  scenario: LoadableScenario;
+  scenario: LoadedScenario;
   victoryReason?: GameResult['reason'] | null;
 }): Promise<void> {
   const { scenario, victoryReason } = args;
 
   // Only curated learning scenarios participate in rules-UX sandbox telemetry.
   if (scenario.source !== 'curated') return;
+
+  // Skip if required telemetry fields are missing
+  if (!scenario.boardType || !scenario.playerCount) return;
 
   const rulesContext = getRulesUxContextForScenarioId(scenario.id);
 

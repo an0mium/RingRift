@@ -3,6 +3,7 @@
  */
 
 import type { ReplayMoveRecord } from '../../types/replay';
+import type { MoveType } from '../../../shared/types/game';
 import { formatMoveTypeLabel } from '../../utils/moveTypeLabels';
 
 export interface MoveInfoProps {
@@ -12,7 +13,7 @@ export interface MoveInfoProps {
 }
 
 function formatMoveType(moveType: string): string {
-  return formatMoveTypeLabel(moveType as ReplayMoveRecord['moveType']);
+  return formatMoveTypeLabel(moveType as MoveType);
 }
 
 function formatPosition(pos: { x: number; y: number; z?: number } | null | undefined): string {

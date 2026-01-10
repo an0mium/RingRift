@@ -24,8 +24,8 @@ import type { Position } from '../../shared/types/game';
 import { useSandbox } from '../contexts/SandboxContext';
 
 export interface UseSandboxAILoopOptions {
-  setSelected: React.Dispatch<React.SetStateAction<Position | undefined>>;
-  setValidTargets: React.Dispatch<React.SetStateAction<Position[]>>;
+  setSelected: (pos: Position | undefined) => void;
+  setValidTargets: (cells: Position[]) => void;
 }
 
 export interface UseSandboxAILoopReturn {

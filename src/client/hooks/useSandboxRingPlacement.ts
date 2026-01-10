@@ -31,8 +31,8 @@ export interface RingPlacementCountPromptState {
 }
 
 export interface UseSandboxRingPlacementOptions {
-  setSelected: React.Dispatch<React.SetStateAction<Position | undefined>>;
-  setValidTargets: React.Dispatch<React.SetStateAction<Position[]>>;
+  setSelected: (pos: Position | undefined) => void;
+  setValidTargets: (cells: Position[]) => void;
   bumpSandboxTurn: () => void;
   ringPlacementCountPrompt: RingPlacementCountPromptState | null;
   recoveryChoicePromptOpen: boolean;

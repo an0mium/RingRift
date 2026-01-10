@@ -31,7 +31,7 @@
  * - Supports "preview" mode for what-if analysis
  */
 
-import type { GameState, Move, GameResult } from '../../shared/engine';
+import type { GameState, Move, GameResult, Position } from '../../shared/engine';
 import { hashGameState } from '../../shared/engine';
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
 import { createHistoryEntry } from '../../shared/engine/historyHelpers';
@@ -969,7 +969,7 @@ export class SandboxOrchestratorAdapter {
       case 'line_order':
       case 'no_line_action_required':
         return { ...baseMoveProps, type: 'no_line_action' };
-      case 'ring_elimination':
+      case 'elimination_target':
         // For ring elimination with no options, we can't eliminate - use no_territory_action
         return { ...baseMoveProps, type: 'no_territory_action' };
       case 'chain_capture':

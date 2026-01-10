@@ -327,9 +327,9 @@ export function TeachingOverlay({
       decisionType,
       summary,
       actionHint,
-      pendingLineCount,
-      pendingRegionCount,
-      chainContinuationCount,
+      pendingLineCount = 0,
+      pendingRegionCount = 0,
+      chainContinuationCount = 0,
       forcedEliminationCount: _forcedEliminationCount,
     } = fsmContext;
 

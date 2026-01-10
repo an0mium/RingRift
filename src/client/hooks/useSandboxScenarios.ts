@@ -24,7 +24,7 @@
 
 import React, { useState, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
-import type { GameState, Position, Move } from '../../shared/types/game';
+import type { GameState, Position, Move, BoardType } from '../../shared/types/game';
 import type { ClientSandboxEngine } from '../sandbox/ClientSandboxEngine';
 import type { MoveAnimationData as MoveAnimation } from '../components/BoardView';
 
@@ -45,8 +45,12 @@ export interface LoadedScenario {
   rulesConcept?: string;
   /** Rules snippet to display */
   rulesSnippet?: string;
-  /** Source: 'builtin', 'user', 'selfplay' */
+  /** Source: 'builtin', 'user', 'selfplay', 'curated' */
   source?: string;
+  /** Board type for telemetry */
+  boardType?: BoardType;
+  /** Number of players for telemetry */
+  playerCount?: number;
 }
 
 /**
@@ -56,7 +60,12 @@ export interface ScenarioData {
   id: string;
   name: string;
   description?: string;
-  gameState: GameState;
+  /** Live game state (internal scenarios) */
+  gameState?: GameState;
+  /** Board type (for external/serialized scenarios like LoadableScenario) */
+  boardType?: BoardType;
+  /** Player count (for external/serialized scenarios like LoadableScenario) */
+  playerCount?: number;
   /** Move history to replay (for self-play games) */
   moveHistory?: Move[];
   /** Metadata */
@@ -69,7 +78,7 @@ export interface ScenarioData {
 /**
  * Options for the scenarios hook.
  */
-export interface SandboxScenariosOptions<T = ScenarioData> {
+export interface SandboxScenariosOptions<T extends ScenarioData = ScenarioData> {
   /** Initialize sandbox engine with scenario - parent handles all complex engine creation logic */
   initSandboxWithScenario: (scenario: T) => ClientSandboxEngine | null;
   /** Callback when scenario is loaded (for telemetry, etc.) */
@@ -83,7 +92,7 @@ export interface SandboxScenariosOptions<T = ScenarioData> {
 /**
  * Return type for useSandboxScenarios.
  */
-export interface SandboxScenariosState<T = ScenarioData> {
+export interface SandboxScenariosState<T extends ScenarioData = ScenarioData> {
   // Scenario state
   lastLoadedScenario: LoadedScenario | null;
   showScenarioPicker: boolean;
@@ -131,17 +140,9 @@ export interface SandboxScenariosState<T = ScenarioData> {
  *
  * @template T - The scenario type (defaults to ScenarioData)
  */
-export function useSandboxScenarios<
-  T extends {
-    id: string;
-    name: string;
-    description?: string;
-    onboarding?: boolean;
-    rulesConcept?: string;
-    rulesSnippet?: string;
-    source?: string;
-  } = ScenarioData,
->(options: SandboxScenariosOptions<T>): SandboxScenariosState<T> {
+export function useSandboxScenarios<T extends ScenarioData = ScenarioData>(
+  options: SandboxScenariosOptions<T>
+): SandboxScenariosState<T> {
   const { initSandboxWithScenario, onScenarioLoaded, onStateVersionChange, onUIStateReset } =
     options;
 
@@ -182,7 +183,7 @@ export function useSandboxScenarios<
       // Reset parent's UI state (selection, pending choices, etc.)
       onUIStateReset?.();
 
-      // Track loaded scenario metadata
+      // Track loaded scenario metadata - handle both internal (gameState) and external (boardType/playerCount) formats
       const loadedScenario: LoadedScenario = {
         id: scenario.id,
         name: scenario.name,
@@ -191,6 +192,8 @@ export function useSandboxScenarios<
         rulesConcept: scenario.rulesConcept,
         rulesSnippet: scenario.rulesSnippet,
         source: scenario.source,
+        boardType: scenario.boardType ?? scenario.gameState?.boardType,
+        playerCount: scenario.playerCount ?? scenario.gameState?.players.length,
       };
 
       setLastLoadedScenario(loadedScenario);

@@ -29,6 +29,7 @@ import type {
   ClientSandboxEngine,
   SandboxInteractionHandler,
 } from '../sandbox/ClientSandboxEngine';
+import type { LoadedScenario } from './useSandboxScenarios';
 import { gameApi } from '../services/api';
 
 /**
@@ -97,7 +98,7 @@ export interface GameLifecycleDeps {
   /** Bump state version counter */
   setSandboxStateVersion: React.Dispatch<React.SetStateAction<number>>;
   /** Set last loaded scenario */
-  setLastLoadedScenario: (scenario: unknown) => void;
+  setLastLoadedScenario: (scenario: LoadedScenario | null) => void;
   /** Set victory modal dismissed state */
   setIsSandboxVictoryModalDismissed: (dismissed: boolean) => void;
 }

@@ -30,9 +30,9 @@ import { useSandboxMoveHandlers } from './useSandboxMoveHandlers';
 
 interface UseSandboxInteractionsOptions {
   selected: Position | undefined;
-  setSelected: React.Dispatch<React.SetStateAction<Position | undefined>>;
+  setSelected: (pos: Position | undefined) => void;
   validTargets: Position[];
-  setValidTargets: React.Dispatch<React.SetStateAction<Position[]>>;
+  setValidTargets: (cells: Position[]) => void;
   choiceResolverRef: React.MutableRefObject<
     ((response: PlayerChoiceResponseFor<PlayerChoice>) => void) | null
   >;

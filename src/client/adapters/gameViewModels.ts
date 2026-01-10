@@ -35,7 +35,7 @@ import type {
 } from '../../shared/types/game';
 import { positionToString, positionsEqual } from '../../shared/types/game';
 import type { ConnectionStatus } from '../domain/GameAPI';
-import type { ColorVisionMode } from '../utils/playerTheme';
+import { PLAYER_THEMES, type ColorVisionMode } from '../utils/playerTheme';
 import { getChoiceViewModel, getChoiceViewModelForType } from './choiceViewModels';
 import type { ChoiceKind } from './choiceViewModels';
 import { getWeirdStateBanner, type WeirdStateBanner } from '../utils/gameStateWeirdness';
@@ -120,6 +120,36 @@ export interface HUDWeirdStateViewModel {
   body: string;
   /** Visual tone hint for the banner styling. */
   tone: 'info' | 'warning' | 'critical';
+}
+
+/**
+ * FSM decision surface view model for teaching overlays.
+ * Provides contextual information about the current decision state
+ * for FSM-aware teaching content.
+ */
+export interface FSMDecisionSurfaceViewModel {
+  /** Whether a decision is currently active */
+  isActive: boolean;
+  /** Type of decision (e.g., 'chain_capture', 'line_order_required') */
+  decisionType?:
+    | 'chain_capture'
+    | 'line_order_required'
+    | 'region_order_required'
+    | 'forced_elimination'
+    | string
+    | undefined;
+  /** Summary of the current situation */
+  summary?: string | undefined;
+  /** Action hint for what the player should do */
+  actionHint?: string | undefined;
+  /** Number of pending lines to process */
+  pendingLineCount?: number | undefined;
+  /** Number of pending territory regions */
+  pendingRegionCount?: number | undefined;
+  /** Number of chain capture continuations available */
+  chainContinuationCount?: number | undefined;
+  /** Number of forced eliminations required */
+  forcedEliminationCount?: number | undefined;
 }
 
 /**
@@ -211,6 +241,24 @@ export interface HUDViewModel {
    * Passed through from the host / engine snapshot.
    */
   lpsTracking?: GameState['lpsTracking'] | undefined;
+  /**
+   * Victory progress tracking for ring elimination and territory control.
+   * Per RR-CANON-R061: Ring elimination victory threshold calculation.
+   * Per RR-CANON-R062-v2: Territory victory requires minimum + majority.
+   * Used to surface progress indicators in GameHUD and MobileGameHUD.
+   */
+  victoryProgress?:
+    | {
+        ringElimination: {
+          leader?: { playerNumber: number; percentage: number; eliminated: number };
+          threshold: number;
+        };
+        territory: {
+          leader?: { playerNumber: number; percentage: number; spaces: number };
+          threshold: number;
+        };
+      }
+    | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -449,8 +497,27 @@ const DEFAULT_PLAYER_COLORS = {
   hex: '#64748b',
 };
 
-export function getPlayerColors(playerNumber?: number) {
+export function getPlayerColors(
+  playerNumber?: number,
+  colorVisionMode?: ColorVisionMode
+): (typeof PLAYER_COLORS)[1] | typeof DEFAULT_PLAYER_COLORS {
   if (!playerNumber) return DEFAULT_PLAYER_COLORS;
+
+  // Use color-blind-friendly palette if specified
+  if (colorVisionMode && colorVisionMode !== 'normal') {
+    const theme = PLAYER_THEMES[colorVisionMode]?.[playerNumber as 1 | 2 | 3 | 4];
+    if (theme) {
+      return {
+        ring: theme.ring,
+        ringBorder: theme.ringBorder,
+        marker: theme.marker,
+        territory: theme.territory,
+        card: theme.card,
+        hex: theme.hex,
+      };
+    }
+  }
+
   return PLAYER_COLORS[playerNumber as keyof typeof PLAYER_COLORS] || DEFAULT_PLAYER_COLORS;
 }
 
@@ -1367,6 +1434,8 @@ export interface ToBoardViewModelOptions {
   validTargets?: Position[] | undefined;
   /** Optional decision-phase highlights derived from a pending PlayerChoice. */
   decisionHighlights?: BoardDecisionHighlightsViewModel | undefined;
+  /** Optional color vision mode for accessibility */
+  colorVisionMode?: ColorVisionMode | undefined;
 }
 
 /**
@@ -1553,6 +1622,8 @@ export interface ToVictoryViewModelOptions {
    * fallback.
    */
   gameEndExplanation?: GameEndExplanation | null | undefined;
+  /** Optional color vision mode for accessibility */
+  colorVisionMode?: ColorVisionMode | undefined;
 }
 
 /**
