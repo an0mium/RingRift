@@ -1023,11 +1023,12 @@ export const BoardView: React.FC<BoardViewProps> = ({
       const gap = 2; // gap between cells
 
       // Board-specific size adjustments based on user feedback
-      // These adjust the "effective" natural size to control final rendered size
+      // Lower values = larger board (smaller natural size → larger scale)
+      // Higher values = smaller board (larger natural size → smaller scale)
       const sizeAdjustments: Record<string, number> = {
-        square8: 1.08, // Slightly smaller than default (was overcorrected at 1.25)
-        square19: 0.77, // Make 30% larger: decrease natural size → larger scale
-        hex8: 0.7, // Make 30% larger: decrease natural size → larger scale
+        square8: 0.88, // Make ~12% larger to fit with coordinate labels
+        square19: 0.77, // Make 30% larger
+        hex8: 0.7, // Make 30% larger
         hexagonal: 1.0, // No change (correct size)
       };
       const sizeAdjust = sizeAdjustments[effectiveBoardType] ?? 1.0;
