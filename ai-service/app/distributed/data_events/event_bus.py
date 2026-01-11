@@ -4,17 +4,20 @@ EventBus - Async pub/sub event bus for component coordination.
 Extracted from data_events.py for modularity.
 """
 
+from __future__ import annotations
+
 import asyncio
 import time
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, Optional, Union
 
 from .event_types import DataEvent, DataEventType
 
 # Type alias for event callbacks
-EventCallback = Callable[[DataEvent], None | Coroutine[Any, Any, None]]
+# Jan 11, 2026: Fixed Python 3.10 compatibility - use Union instead of | for type hints
+EventCallback = Callable[[DataEvent], Union[None, Coroutine[Any, Any, None]]]
 
 # Global singleton
-_event_bus: "EventBus | None" = None
+_event_bus: Optional[EventBus] = None
 
 
 class EventBus:
