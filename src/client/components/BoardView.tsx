@@ -1034,8 +1034,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
         naturalHeight = 8 * cellSize + 7 * gap + labelBuffer;
       } else if (effectiveBoardType === 'square19') {
         const cellSize = isDesktop ? 56 : 44;
-        // Reduced buffer since overflow:visible now allows labels to extend outside
-        const labelBuffer = 15;
+        // Use NEGATIVE buffer to create overflow (like sq8) so board overlaps into panel space
+        // This creates the tight layout with minimal gap between board and bottom panel
+        // -15 creates ~25px overflow without excessive sidebar intrusion
+        const labelBuffer = -15;
         naturalWidth = 19 * cellSize + 18 * gap + labelBuffer;
         naturalHeight = 19 * cellSize + 18 * gap + labelBuffer;
       } else if (effectiveBoardType === 'hex8') {
