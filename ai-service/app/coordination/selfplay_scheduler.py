@@ -1092,28 +1092,67 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
         """Get current Elo ratings per config.
 
         Dec 29, 2025: Added for adaptive Gumbel budget scaling.
-        Uses 3-layer fallback: QueuePopulator -> EloService -> default 1500.
+        Jan 2026: Prefers composite Elo entries (with harness tracking) over legacy.
+
+        Uses 4-layer fallback:
+        1. Composite Elo (harness-tracked, highest quality)
+        2. QueuePopulator (fast, in-memory)
+        3. Legacy EloService (any participant)
+        4. Default 1500
 
         Returns:
             Dict mapping config_key to current Elo rating
         """
         result = {}
 
-        # Layer 1: Try QueuePopulator's ConfigTarget (fastest, in-memory)
+        # Layer 1: Prefer composite Elo entries (Jan 2026)
+        # These have harness_type and simulation_count, representing quality evaluations
+        try:
+            from app.training.elo_service import get_elo_service
+            import sqlite3
+
+            elo_service = get_elo_service()
+            if hasattr(elo_service, '_db_path'):
+                conn = sqlite3.connect(elo_service._db_path)
+                # Query composite entries with highest budget (b800, b1600)
+                # Format: canonical_hex8_2p:gumbel_mcts:b800
+                for config_key in ALL_CONFIGS:
+                    board_type, num_players = parse_config_key(config_key)
+                    cur = conn.execute("""
+                        SELECT participant_id, rating, games_played, simulation_count
+                        FROM elo_ratings
+                        WHERE board_type = ? AND num_players = ?
+                          AND participant_id LIKE ?
+                          AND games_played >= 10
+                        ORDER BY simulation_count DESC NULLS LAST, rating DESC
+                        LIMIT 1
+                    """, (board_type, num_players, f"canonical_{config_key}:%"))
+                    row = cur.fetchone()
+                    if row:
+                        result[config_key] = row[1]  # rating
+                        logger.debug(
+                            f"[SelfplayScheduler] Using composite Elo for {config_key}: "
+                            f"{row[1]:.0f} ({row[0]}, {row[2]} games)"
+                        )
+                conn.close()
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Composite Elo query failed: {e}")
+
+        # Layer 2: Try QueuePopulator's ConfigTarget (fastest, in-memory)
         try:
             from app.coordination.unified_queue_populator import get_queue_populator
 
             populator = get_queue_populator()
             if populator:
                 for config_key, target in populator._targets.items():
-                    if target.current_best_elo > 0:
+                    if config_key not in result and target.current_best_elo > 0:
                         result[config_key] = target.current_best_elo
         except ImportError:
             pass
         except (AttributeError, KeyError) as e:
             logger.debug(f"[SelfplayScheduler] QueuePopulator unavailable: {e}")
 
-        # Layer 2: Fallback to EloService database for missing configs
+        # Layer 3: Fallback to EloService database for missing configs
         missing_configs = [c for c in ALL_CONFIGS if c not in result]
         if missing_configs:
             try:
@@ -1141,7 +1180,7 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
             except Exception as e:
                 logger.debug(f"[SelfplayScheduler] EloService query failed: {e}")
 
-        # Layer 3: Default 1500 for any still-missing configs
+        # Layer 4: Default 1500 for any still-missing configs
         for config_key in ALL_CONFIGS:
             if config_key not in result:
                 result[config_key] = 1500.0  # Default starting Elo
