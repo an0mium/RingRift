@@ -786,6 +786,34 @@ class ClusterConsolidationDaemon(HandlerBase):
                     # Copy related tables
                     self._copy_game_data(source_conn, target_conn, game_id)
 
+                    # January 2026: Post-insert validation to prevent orphan games
+                    MIN_MOVES_REQUIRED = 5
+                    cursor = target_conn.execute(
+                        "SELECT COUNT(*) FROM game_moves WHERE game_id = ?",
+                        (game_id,)
+                    )
+                    move_count = cursor.fetchone()[0]
+
+                    if move_count < MIN_MOVES_REQUIRED:
+                        # Delete orphan game - insufficient move data
+                        target_conn.execute("DELETE FROM games WHERE game_id = ?", (game_id,))
+                        stats["orphans_prevented"] = stats.get("orphans_prevented", 0) + 1
+                        logger.debug(
+                            f"[ClusterConsolidation] Prevented orphan game {game_id}: "
+                            f"only {move_count} moves (need {MIN_MOVES_REQUIRED})"
+                        )
+                        safe_emit_event(
+                            "orphan_game_prevented",
+                            {
+                                "game_id": game_id,
+                                "move_count": move_count,
+                                "min_required": MIN_MOVES_REQUIRED,
+                                "source": "cluster_consolidation_daemon",
+                            },
+                            context="ClusterConsolidation",
+                        )
+                        continue  # Skip counting as merged
+
                     stats["merged"] += 1
                     stats["new_ids"].add(game_id)
 

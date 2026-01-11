@@ -228,6 +228,31 @@ def main():
                 conn_out.commit()
                 conn_src.close()
 
+                # January 2026: Post-insert validation - remove orphan games with < 5 moves
+                MIN_MOVES_REQUIRED = 5
+                if new_game_ids:
+                    # Find orphans among the games we just inserted
+                    placeholders_list = ",".join("?" * len(new_game_ids))
+                    cursor = conn_out.execute(f"""
+                        SELECT g.game_id
+                        FROM games g
+                        LEFT JOIN (
+                            SELECT game_id, COUNT(*) as move_count
+                            FROM game_moves
+                            WHERE game_id IN ({placeholders_list})
+                            GROUP BY game_id
+                        ) m ON g.game_id = m.game_id
+                        WHERE g.game_id IN ({placeholders_list})
+                        AND (m.move_count IS NULL OR m.move_count < ?)
+                    """, new_game_ids + new_game_ids + [MIN_MOVES_REQUIRED])
+                    orphan_ids = [row[0] for row in cursor.fetchall()]
+
+                    if orphan_ids:
+                        orphan_placeholders = ",".join("?" * len(orphan_ids))
+                        conn_out.execute(f"DELETE FROM games WHERE game_id IN ({orphan_placeholders})", orphan_ids)
+                        conn_out.commit()
+                        print(f"  Removed {len(orphan_ids)} orphan games (< {MIN_MOVES_REQUIRED} moves)")
+
                 if (i + 1) % 20 == 0:
                     cursor = conn_out.execute("SELECT COUNT(*) FROM games")
                     total_games = cursor.fetchone()[0]
@@ -237,6 +262,36 @@ def main():
             except Exception as e:
                 errors += 1
                 print(f"Error processing {db_path.name}: {str(e)[:50]}")
+
+        # January 2026: Final orphan cleanup - remove any remaining games with < 5 moves
+        MIN_MOVES_REQUIRED = 5
+        cursor = conn_out.execute("""
+            SELECT g.game_id
+            FROM games g
+            LEFT JOIN (
+                SELECT game_id, COUNT(*) as move_count
+                FROM game_moves
+                GROUP BY game_id
+            ) m ON g.game_id = m.game_id
+            WHERE m.move_count IS NULL OR m.move_count < ?
+        """, (MIN_MOVES_REQUIRED,))
+        final_orphans = [row[0] for row in cursor.fetchall()]
+        if final_orphans:
+            print(f"\nFinal cleanup: removing {len(final_orphans)} orphan games with < {MIN_MOVES_REQUIRED} moves")
+            # Delete in batches to avoid SQL variable limit
+            batch_size = 500
+            for i in range(0, len(final_orphans), batch_size):
+                batch = final_orphans[i:i + batch_size]
+                placeholders = ",".join("?" * len(batch))
+                conn_out.execute(f"DELETE FROM games WHERE game_id IN ({placeholders})", batch)
+            conn_out.commit()
+
+        # Re-enable foreign keys and verify integrity
+        conn_out.execute("PRAGMA foreign_keys=ON")
+        cursor = conn_out.execute("PRAGMA foreign_key_check")
+        fk_violations = cursor.fetchall()
+        if fk_violations:
+            print(f"WARNING: {len(fk_violations)} foreign key violations detected")
 
         # Checkpoint WAL to main database
         conn_out.execute("PRAGMA wal_checkpoint(TRUNCATE)")

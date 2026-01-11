@@ -936,6 +936,79 @@ async def emit_orphan_games_registered(
 
 
 # =============================================================================
+# Data Integrity Events (January 2026)
+# =============================================================================
+
+
+async def emit_game_save_failed(
+    game_id: str,
+    error: str,
+    error_type: str,
+    config_key: str,
+    board_type: str | None = None,
+    num_players: int | None = None,
+    db_path: str | None = None,
+    source: str = "",
+) -> None:
+    """Emit a GAME_SAVE_FAILED event.
+
+    January 2026: Tracks failed game saves for monitoring.
+    Previously these failures were silently swallowed (P0 issue).
+
+    Args:
+        game_id: The game ID that failed to save
+        error: Error message
+        error_type: Exception class name
+        config_key: Board configuration key (e.g., "hex8_2p")
+        board_type: Board type
+        num_players: Number of players
+        db_path: Path to target database (if available)
+        source: Component where the failure occurred
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.GAME_SAVE_FAILED,
+        payload={
+            "game_id": game_id,
+            "error": error,
+            "error_type": error_type,
+            "config_key": config_key,
+            "board_type": board_type,
+            "num_players": num_players,
+            "db_path": db_path,
+        },
+        source=source,
+    ))
+
+
+async def emit_orphan_game_prevented(
+    game_id: str,
+    move_count: int,
+    min_required: int,
+    source: str = "",
+) -> None:
+    """Emit an ORPHAN_GAME_PREVENTED event.
+
+    January 2026: Tracks when orphan games are prevented by validation.
+    This happens when post-insert validation detects insufficient moves.
+
+    Args:
+        game_id: The game ID that was prevented
+        move_count: Actual move count found
+        min_required: Minimum moves required (typically 5)
+        source: Component that prevented the orphan
+    """
+    await get_event_bus().publish(DataEvent(
+        event_type=DataEventType.ORPHAN_GAME_PREVENTED,
+        payload={
+            "game_id": game_id,
+            "move_count": move_count,
+            "min_required": min_required,
+        },
+        source=source,
+    ))
+
+
+# =============================================================================
 # Training Failure Events
 # =============================================================================
 

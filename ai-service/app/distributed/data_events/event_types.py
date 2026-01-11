@@ -277,6 +277,10 @@ class DataEventType(Enum):
     ORPHAN_GAMES_DETECTED = "orphan_games_detected"  # Unregistered game databases found
     ORPHAN_GAMES_REGISTERED = "orphan_games_registered"  # Orphans auto-registered
 
+    # Data integrity events (January 2026 - orphan prevention)
+    GAME_SAVE_FAILED = "game_save_failed"  # Failed to save game to database (P0 issue)
+    ORPHAN_GAME_PREVENTED = "orphan_game_prevented"  # Orphan game prevented by validation
+
     # Replication repair events (December 2025)
     REPAIR_COMPLETED = "repair_completed"  # Repair job succeeded
     REPAIR_FAILED = "repair_failed"  # Repair job failed

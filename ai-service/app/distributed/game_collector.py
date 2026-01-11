@@ -22,10 +22,14 @@ Usage:
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.models import GameState, Move
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -275,8 +279,25 @@ def write_games_to_db(
                 metadata=metadata,
             )
             count += 1
-        except Exception as e:
-            # Log but don't fail - we want to write as many games as possible
-            print(f"WARNING: Failed to write game {game_data.get('game_id', 'unknown')}: {e}")
+        except (sqlite3.Error, ValueError, TypeError, KeyError, OSError) as e:
+            # January 2026: Narrowed exception handling, proper logging, emit event
+            # This was previously a broad catch-all using print() - P0 data loss issue
+            game_id = game_data.get("game_id", "unknown")
+            logger.error(f"Failed to write game {game_id} to database: {e}")
+            try:
+                from app.distributed.data_events import DataEventType
+                from app.coordination.event_router import emit_data_event
+
+                emit_data_event(
+                    DataEventType.GAME_SAVE_FAILED,
+                    {
+                        "game_id": game_id,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "source": "game_collector",
+                    },
+                )
+            except ImportError:
+                pass  # Event system not available, already logged error
 
     return count

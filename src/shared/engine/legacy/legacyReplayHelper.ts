@@ -186,6 +186,10 @@ export function detectPhaseCoercion(state: GameState, move: Move): PhaseCoercion
 
   // Pattern 7: ring_placement/movement/line_processing -> territory_processing
   // When a territory move comes in while in an earlier phase
+  // RR-FIX-2026-01-10: Exclude eliminate_rings_from_stack when in line_processing,
+  // because it's a valid move type in that phase for line rewards (RR-CANON-R123).
+  // Only coerce to territory_processing from ring_placement/movement, or for
+  // other territory-specific move types.
   if (
     (currentPhase === 'ring_placement' ||
       currentPhase === 'movement' ||
@@ -193,8 +197,10 @@ export function detectPhaseCoercion(state: GameState, move: Move): PhaseCoercion
     (moveType === 'choose_territory_option' ||
       moveType === 'process_territory_region' ||
       moveType === 'no_territory_action' ||
-      moveType === 'eliminate_rings_from_stack' ||
-      moveType === 'skip_territory_processing')
+      moveType === 'skip_territory_processing' ||
+      // eliminate_rings_from_stack only needs coercion if NOT in line_processing
+      // (where it's valid for line rewards) and NOT already in territory_processing
+      (moveType === 'eliminate_rings_from_stack' && currentPhase !== 'line_processing'))
   ) {
     return {
       needsCoercion: true,

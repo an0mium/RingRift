@@ -1213,7 +1213,27 @@ class SelfplayRunner(ABC):
             self._register_game_location(result.game_id, db_path)
 
         except (OSError, sqlite3.Error, ValueError, TypeError) as e:
-            logger.warning(f"Failed to save game {result.game_id} to database: {e}")
+            # January 2026: Log as error and emit event for monitoring
+            # This was previously a silent failure causing data loss
+            logger.error(f"CRITICAL: Failed to save game {result.game_id} to database: {e}")
+            try:
+                from app.distributed.data_events import DataEventType
+                from app.coordination.event_router import emit_data_event
+
+                emit_data_event(
+                    DataEventType.GAME_SAVE_FAILED,
+                    {
+                        "game_id": result.game_id,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "config_key": f"{self.config.board_type}_{self.config.num_players}p",
+                        "board_type": self.config.board_type,
+                        "num_players": self.config.num_players,
+                        "db_path": str(db_path) if db_path else None,
+                    },
+                )
+            except ImportError:
+                pass  # Event system not available, already logged error
 
     def _register_game_location(self, game_id: str, db_path: Path) -> None:
         """Register game location in ClusterManifest for immediate cluster visibility.
