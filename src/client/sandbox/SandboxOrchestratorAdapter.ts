@@ -342,6 +342,20 @@ export class SandboxOrchestratorAdapter {
       // Resolve any pending decisions (line order, rewards, territory, elimination)
       // in-process, updating the sandbox game state after each canonical move so
       // the UI always sees the latest board snapshot during decision phases.
+
+      // DEBUG: Log decision loop entry conditions for chain capture debugging
+      if (workingState.currentPhase === 'chain_capture' || result.pendingDecision?.type === 'chain_capture') {
+        // eslint-disable-next-line no-console
+        console.log('[SandboxOrchestratorAdapter.processMove] Chain capture scenario detected:', {
+          resultStatus: result.status,
+          hasPendingDecision: !!result.pendingDecision,
+          pendingDecisionType: result.pendingDecision?.type,
+          pendingDecisionOptionsLength: result.pendingDecision?.options?.length ?? 0,
+          workingStatePhase: workingState.currentPhase,
+          chainCapturePosition: workingState.chainCapturePosition,
+        });
+      }
+
       // RR-DEBUG-2025-12-13: Trace decision loop iterations
       let decisionLoopIteration = 0;
       while (result.status === 'awaiting_decision' && result.pendingDecision) {
@@ -378,6 +392,12 @@ export class SandboxOrchestratorAdapter {
         // continuation moves via getValidMoves() and return without auto-resolving.
         if (decision.type === 'chain_capture') {
           this.chainCaptureOptions = decision.options;
+          // eslint-disable-next-line no-console
+          console.log('[SandboxOrchestratorAdapter] Setting chainCaptureOptions:', {
+            optionsLength: decision.options?.length ?? 0,
+            options: decision.options?.map((m) => ({ type: m.type, to: m.to })),
+            currentPhase: workingState.currentPhase,
+          });
           break;
         }
 
@@ -716,6 +736,18 @@ export class SandboxOrchestratorAdapter {
   public getValidMoves(): Move[] {
     const state = this.stateAccessor.getGameState();
 
+    // DEBUG: Trace getValidMoves during chain_capture
+    if (state.currentPhase === 'chain_capture') {
+      // eslint-disable-next-line no-console
+      console.log('[SandboxOrchestratorAdapter.getValidMoves] chain_capture phase:', {
+        hasChainCaptureOptions: !!this.chainCaptureOptions,
+        chainCaptureOptionsLength: this.chainCaptureOptions?.length ?? 0,
+        chainCaptureOptionTypes: this.chainCaptureOptions?.map((m) => m.type) ?? [],
+        chainCapturePosition: state.chainCapturePosition,
+        currentPlayer: state.currentPlayer,
+      });
+    }
+
     // During chain_capture phase, return stored continuation options
     if (state.currentPhase === 'chain_capture' && this.chainCaptureOptions) {
       return this.chainCaptureOptions;
@@ -723,6 +755,15 @@ export class SandboxOrchestratorAdapter {
 
     // Delegate to the core orchestrator for interactive moves.
     const interactiveMoves = getValidMoves(state);
+
+    // DEBUG: Trace fallback to core getValidMoves during chain_capture
+    if (state.currentPhase === 'chain_capture') {
+      // eslint-disable-next-line no-console
+      console.log('[SandboxOrchestratorAdapter.getValidMoves] Fallback to core getValidMoves:', {
+        interactiveMovesLength: interactiveMoves.length,
+        moves: interactiveMoves.map((m) => ({ type: m.type, to: m.to })),
+      });
+    }
 
     // Per RR-CANON-R076, the core rules layer no longer fabricates
     // no_*_action bookkeeping moves for placement/movement. For

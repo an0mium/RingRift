@@ -228,11 +228,28 @@ export function useSandboxMoveHandlers({
           void (async () => {
             await engine.handleHumanCellClick(pos);
             const after = engine.getGameState();
+            // DEBUG: Log post-move state for chain capture debugging
+            // eslint-disable-next-line no-console
+            console.log('[handleFirstClick/capture] After move, checking for chain capture:', {
+              gameStatus: after.gameStatus,
+              currentPhase: after.currentPhase,
+              chainCapturePosition: after.chainCapturePosition,
+            });
             if (after.gameStatus === 'active' && after.currentPhase === 'chain_capture') {
               const ctx = engine.getChainCaptureContextForCurrentPlayer();
+              // DEBUG: Log context result
+              // eslint-disable-next-line no-console
+              console.log('[handleFirstClick/capture] Chain capture context:', {
+                hasContext: !!ctx,
+                from: ctx?.from,
+                landingsLength: ctx?.landings?.length ?? 0,
+                landings: ctx?.landings,
+              });
               if (ctx) {
                 setSelected(ctx.from);
                 setValidTargets(ctx.landings);
+                // eslint-disable-next-line no-console
+                console.log('[handleFirstClick/capture] Set validTargets to:', ctx.landings);
               }
             }
           })();
@@ -313,11 +330,29 @@ export function useSandboxMoveHandlers({
         }
 
         const after = engine.getGameState();
+        // DEBUG: Log post-move state for chain capture debugging
+        // eslint-disable-next-line no-console
+        console.log('[handleTargetClick] After move, checking for chain capture:', {
+          gameStatus: after.gameStatus,
+          currentPhase: after.currentPhase,
+          chainCapturePosition: after.chainCapturePosition,
+        });
+
         if (after.gameStatus === 'active' && after.currentPhase === 'chain_capture') {
           const ctx = engine.getChainCaptureContextForCurrentPlayer();
+          // DEBUG: Log context result
+          // eslint-disable-next-line no-console
+          console.log('[handleTargetClick] Chain capture context:', {
+            hasContext: !!ctx,
+            from: ctx?.from,
+            landingsLength: ctx?.landings?.length ?? 0,
+            landings: ctx?.landings,
+          });
           if (ctx) {
             setSelected(ctx.from);
             setValidTargets(ctx.landings);
+            // eslint-disable-next-line no-console
+            console.log('[handleTargetClick] Set validTargets to:', ctx.landings);
           }
         }
 

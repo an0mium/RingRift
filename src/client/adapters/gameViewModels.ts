@@ -886,8 +886,23 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     // Optional compact status chip for specific decision kinds.
     let statusChip: HUDDecisionPhaseViewModel['statusChip'];
     if (vm.kind === 'ring_elimination') {
+      // Use context-specific text based on elimination type
+      const elimChoice = pendingChoice as import('../../shared/types/game').RingEliminationChoice;
+      const elimContext = elimChoice.eliminationContext;
+      let chipText: string;
+      if (elimContext === 'territory') {
+        chipText = 'Territory claimed – select stack for mandatory elimination';
+      } else if (elimContext === 'line') {
+        chipText = 'Line reward – select stack to eliminate one ring';
+      } else if (elimContext === 'forced') {
+        chipText = 'Forced elimination – select stack cap to eliminate';
+      } else if (elimContext === 'recovery') {
+        chipText = 'Recovery – select stack to extract buried ring';
+      } else {
+        chipText = 'Select stack cap to eliminate';
+      }
       statusChip = {
-        text: 'Select stack cap to eliminate',
+        text: chipText,
         tone: 'attention',
       };
     } else if (vm.kind === 'territory_region_order') {

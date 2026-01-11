@@ -169,7 +169,8 @@ export function enumerateLegalRingPlacements(
     };
 
     if (boardType === 'hexagonal' || boardType === 'hex8') {
-      const radius = config.size - 1;
+      // Hex board size is bounding box (2*radius + 1), so radius = (size - 1) / 2
+      const radius = (config.size - 1) / 2;
       for (let x = -radius; x <= radius; x++) {
         for (let y = -radius; y <= radius; y++) {
           const z = -x - y;
@@ -192,7 +193,8 @@ export function enumerateLegalRingPlacements(
 
   // === Legacy path: board-geometry + no-dead-placement only ===
   if (boardType === 'hexagonal' || boardType === 'hex8') {
-    const radius = config.size - 1;
+    // Hex board size is bounding box (2*radius + 1), so radius = (size - 1) / 2
+    const radius = (config.size - 1) / 2;
     for (let x = -radius; x <= radius; x++) {
       for (let y = -radius; y <= radius; y++) {
         const z = -x - y;

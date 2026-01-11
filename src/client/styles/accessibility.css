@@ -184,7 +184,7 @@
 /* Ensure board scales properly at high zoom levels */
 .board-container {
   touch-action: pan-x pan-y;
-  overflow: auto;
+  overflow: visible; /* Changed from auto to allow coordinate labels to extend outside */
 }
 
 /* At 200%+ zoom, ensure interactive elements remain accessible */
