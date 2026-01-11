@@ -406,4 +406,40 @@ describe('lineDecisionHelpers – shared line decision enumeration and applicati
       }
     });
   });
+
+  // Regression test for overlength line position key matching fix (ca623e913)
+  // The fix ensures position key comparison uses sorted keys for order-independent
+  // matching between process_line and choose_line_option moves.
+  it('overlength line moves can be matched regardless of position order in formedLines', () => {
+    const state = createEmptyState();
+    const positions = seedOverlengthLine(state, 0, 1);
+
+    // Get both process_line moves and choose_line_option moves
+    const processLineMoves = enumerateProcessLineMoves(state, 1, { detectionMode: 'use_board_cache' });
+    const rewardMoves = enumerateChooseLineRewardMoves(state, 1, 0);
+
+    expect(processLineMoves).toHaveLength(1);
+    expect(rewardMoves.length).toBeGreaterThan(0);
+
+    const processLine = processLineMoves[0];
+    const processLineKey = keyFrom(processLine.formedLines![0].positions);
+
+    // All reward moves should reference the same line (by sorted key)
+    rewardMoves.forEach((rewardMove) => {
+      const rewardLineKey = keyFrom(rewardMove.formedLines![0].positions);
+      expect(rewardLineKey).toBe(processLineKey);
+    });
+
+    // Verify minimum collapse options exist for overlength lines
+    const minCollapseMoves = rewardMoves.filter(
+      (m) => m.collapsedMarkers && m.collapsedMarkers.length === requiredLength
+    );
+    expect(minCollapseMoves.length).toBeGreaterThan(0);
+
+    // Applying any minCollapse move should not be a no-op
+    const minCollapseMove = minCollapseMoves[0];
+    const outcome = applyChooseLineRewardDecision(state, minCollapseMove);
+    expect(outcome.nextState).not.toBe(state); // State should change
+    expect(outcome.pendingLineRewardElimination).toBe(false); // Min collapse = no reward
+  });
 });
