@@ -2239,6 +2239,11 @@ class P2POrchestrator(
         self._loops_registered = False
         self._autonomous_queue_loop = None  # Jan 4, 2026: Phase 2 P2P Resilience
 
+        # Jan 11, 2026: Track startup time for voter health grace period
+        # During the first STARTUP_GRACE_PERIOD seconds, we don't warn about offline voters
+        # because heartbeats haven't been exchanged yet
+        self._startup_time = time.time()
+
         # December 27, 2025: Validate manager health at startup
         # This catches initialization issues early rather than at first use
         # NOTE: Must be called AFTER _loop_manager is initialized (was causing AttributeError)
@@ -6351,11 +6356,21 @@ class P2POrchestrator(
         newly_offline = set(offline_voters) - prev_offline
         newly_online = prev_offline - set(offline_voters)
 
+        # Jan 11, 2026: Skip warnings during startup grace period
+        # Voters appear offline until initial heartbeats are exchanged
+        in_grace_period = (time.time() - getattr(self, "_startup_time", 0)) < STARTUP_GRACE_PERIOD
+
         for voter_id in newly_offline:
-            logger.warning(
-                f"[VoterHealth] Voter {voter_id} went OFFLINE "
-                f"({voters_alive}/{voters_total} alive, quorum={quorum_size})"
-            )
+            if in_grace_period:
+                logger.debug(
+                    f"[VoterHealth] Voter {voter_id} appears offline during startup grace period "
+                    f"(waiting for heartbeats, {STARTUP_GRACE_PERIOD - (time.time() - self._startup_time):.0f}s remaining)"
+                )
+            else:
+                logger.warning(
+                    f"[VoterHealth] Voter {voter_id} went OFFLINE "
+                    f"({voters_alive}/{voters_total} alive, quorum={quorum_size})"
+                )
 
         for voter_id in newly_online:
             logger.info(
@@ -6363,8 +6378,8 @@ class P2POrchestrator(
                 f"({voters_alive}/{voters_total} alive, quorum={quorum_size})"
             )
 
-        # Periodic summary log
-        if offline_voters:
+        # Periodic summary log (suppress during grace period)
+        if offline_voters and not in_grace_period:
             logger.warning(
                 f"[VoterHealth] Status: {voters_alive}/{voters_total} voters alive, "
                 f"quorum={'OK' if quorum_ok else 'LOST'}, "
