@@ -1607,10 +1607,13 @@ class UnifiedDistributionDaemon(HandlerBase):
             logger.error(f"NPZ validation failed: {e}")
             return False
 
-    def _get_distribution_targets(self) -> list[str]:
+    def _get_distribution_targets(self) -> list[dict[str, Any]]:
         """Get list of target nodes for model distribution.
 
         December 2025: Migrated to use cluster_config helpers instead of inline YAML.
+        January 2026: Fixed to return dicts with remote_path to avoid discovery failures.
+        Previously returned just IP strings, causing _get_remote_path to probe for paths
+        which failed for some nodes (e.g., Lambda GH200 nodes with non-standard paths).
         """
         try:
             from app.config.cluster_config import get_active_nodes
@@ -1622,7 +1625,13 @@ class UnifiedDistributionDaemon(HandlerBase):
                     continue
                 host = node.best_ip
                 if host:
-                    targets.append(host)
+                    targets.append({
+                        "node_id": node.name,
+                        "host": host,
+                        "user": node.ssh_user or "root",
+                        "remote_path": node.ringrift_path,
+                        "ssh_key": getattr(node, "ssh_key_path", None),
+                    })
             return targets
 
         except (ImportError, OSError, KeyError, TypeError) as e:
