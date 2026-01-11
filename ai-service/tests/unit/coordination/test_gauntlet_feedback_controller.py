@@ -274,11 +274,17 @@ class TestAnalyzeAndAct:
 
 
 class TestRegressionDetection:
-    """Test ELO regression detection logic."""
+    """Test ELO regression detection logic.
+
+    January 2026: Updated to use consolidated RegressionDetector singleton
+    instead of patching individual emission methods.
+    """
 
     @pytest.mark.asyncio
     async def test_detects_elo_drop(self, controller):
         """Detects regression when ELO drops significantly."""
+        from app.training.regression_detector import RegressionEvent, RegressionSeverity
+
         # Set up tracker with previous high ELO
         tracker = ConfigTracker()
         tracker.last_elo = 1200.0
@@ -297,19 +303,35 @@ class TestRegressionDetection:
             games_played=100,
         )
 
-        with patch.object(controller, "_emit_regression_detected", new_callable=AsyncMock):
-            with patch.object(controller, "_emit_rollback_consideration", new_callable=AsyncMock):
-                await controller._analyze_and_act(regression_eval, tracker)
+        # Mock the RegressionDetector to return a moderate regression event
+        mock_event = RegressionEvent(
+            model_id="hex8_2p",
+            severity=RegressionSeverity.MODERATE,
+            timestamp=1000.0,
+            current_elo=1100.0,
+            baseline_elo=1200.0,
+            elo_drop=100.0,
+            consecutive_count=1,
+        )
 
-                # Should increment consecutive regressions
-                assert tracker.consecutive_regressions >= 1
+        with patch("app.coordination.gauntlet_feedback_controller.get_regression_detector") as mock_get_detector:
+            mock_detector = MagicMock()
+            mock_detector.check_regression.return_value = mock_event
+            mock_get_detector.return_value = mock_detector
+
+            await controller._analyze_and_act(regression_eval, tracker)
+
+            # Should sync consecutive_regressions from detector
+            assert tracker.consecutive_regressions == 1
 
     @pytest.mark.asyncio
     async def test_consecutive_regressions_trigger_rollback(self, controller):
         """Multiple consecutive regressions trigger rollback consideration."""
+        from app.training.regression_detector import RegressionEvent, RegressionSeverity
+
         tracker = ConfigTracker()
         tracker.last_elo = 1200.0
-        tracker.consecutive_regressions = 2  # One more triggers rollback
+        tracker.consecutive_regressions = 2  # Will be overwritten by detector's count
         controller._config_trackers["hex8_2p"] = tracker
 
         regression_eval = EvaluationRecord(
@@ -323,13 +345,28 @@ class TestRegressionDetection:
             games_played=100,
         )
 
-        with patch.object(controller, "_emit_regression_detected", new_callable=AsyncMock):
-            with patch.object(controller, "_emit_rollback_consideration", new_callable=AsyncMock) as mock_rollback:
-                actions = await controller._analyze_and_act(regression_eval, tracker)
+        # Mock detector to return a CRITICAL regression (3+ consecutive)
+        mock_event = RegressionEvent(
+            model_id="hex8_2p",
+            severity=RegressionSeverity.CRITICAL,  # Critical triggers rollback
+            timestamp=1000.0,
+            current_elo=1100.0,
+            baseline_elo=1200.0,
+            elo_drop=100.0,
+            consecutive_count=3,  # 3 consecutive = CRITICAL
+        )
 
-                # After 3 consecutive regressions, should consider rollback
-                mock_rollback.assert_called_once()
-                assert FeedbackAction.CONSIDER_ROLLBACK in actions
+        with patch("app.coordination.gauntlet_feedback_controller.get_regression_detector") as mock_get_detector:
+            mock_detector = MagicMock()
+            mock_detector.check_regression.return_value = mock_event
+            mock_get_detector.return_value = mock_detector
+
+            actions = await controller._analyze_and_act(regression_eval, tracker)
+
+            # CRITICAL severity triggers rollback consideration
+            assert FeedbackAction.CONSIDER_ROLLBACK in actions
+            # Consecutive count synced from detector
+            assert tracker.consecutive_regressions == 3
 
 
 # =============================================================================

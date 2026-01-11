@@ -44,6 +44,7 @@ from typing import Any
 from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.event_handler_utils import extract_config_key
 from app.coordination.event_utils import make_config_key, parse_config_key
+from app.training.regression_detector import RegressionSeverity
 from app.coordination.feedback.cluster_health_mixin import FeedbackClusterHealthMixin
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
@@ -2128,21 +2129,25 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
             logger.error(f"[FeedbackLoopController] Error handling evaluation failed: {e}")
 
     def _calculate_regression_amplitude(
-        self, elo_drop: float, consecutive_regressions: int
+        self, elo_drop: float, consecutive_count: int, severity_str: str = "minor"
     ) -> tuple[float, int]:
         """Calculate response amplitude based on regression severity.
 
         January 3, 2026: Implements proportional response to regression severity.
         Larger Elo drops and repeated regressions trigger stronger responses.
 
+        January 2026: Now uses RegressionDetector's severity directly instead of
+        recalculating from elo_drop. This consolidates severity logic in one place.
+
         The amplitude formula:
         - Base boost: 1.5x (EXPLORATION_BOOST_RECOVERY)
-        - Elo scaling: +0.1x per 50 Elo drop (capped at +0.5x)
+        - Severity scaling: MINOR +0.0, MODERATE +0.2, SEVERE +0.35, CRITICAL +0.5
         - Consecutive scaling: +0.15x per consecutive regression
 
         Args:
             elo_drop: Magnitude of Elo regression (positive value)
-            consecutive_regressions: Number of consecutive regression events
+            consecutive_count: Number of consecutive regression events (from RegressionDetector)
+            severity_str: Severity level from RegressionDetector ("minor", "moderate", "severe", "critical")
 
         Returns:
             Tuple of (exploration_boost, target_games):
@@ -2153,22 +2158,33 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         base_boost = EXPLORATION_BOOST_RECOVERY  # 1.5x
         base_games = 500
 
-        # Scale exploration boost by Elo drop magnitude
-        # +0.1x per 50 Elo drop, capped at +0.5x
-        elo_boost = min(0.5, (elo_drop / 50.0) * 0.1)
+        # January 2026: Use severity from RegressionDetector instead of recalculating
+        severity_boost_map = {
+            "minor": 0.0,
+            "moderate": 0.2,
+            "severe": 0.35,
+            "critical": 0.5,
+        }
+        severity_boost = severity_boost_map.get(severity_str, 0.0)
 
-        # Scale by consecutive regressions (+0.15x each, capped at +0.5x)
-        consecutive_boost = min(0.5, consecutive_regressions * 0.15)
+        # Scale by consecutive count (+0.15x each, capped at +0.5x)
+        consecutive_boost = min(0.5, consecutive_count * 0.15)
 
         # Combined boost, capped at EXPLORATION_BOOST_MAX (2.0)
         exploration_boost = min(
             EXPLORATION_BOOST_MAX,
-            base_boost + elo_boost + consecutive_boost
+            base_boost + severity_boost + consecutive_boost
         )
 
         # Scale target games based on severity
-        # More severe regressions get more games to recover from
-        severity_factor = 1.0 + (elo_drop / 100.0) * 0.5 + consecutive_regressions * 0.3
+        # Use severity-based multiplier instead of raw elo_drop calculation
+        severity_game_multiplier = {
+            "minor": 1.0,
+            "moderate": 1.5,
+            "severe": 2.0,
+            "critical": 2.5,
+        }
+        severity_factor = severity_game_multiplier.get(severity_str, 1.0) + consecutive_count * 0.3
         target_games = min(2000, int(base_games * severity_factor))
 
         return exploration_boost, target_games
@@ -2200,23 +2216,27 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
 
             config_key = extract_config_key(payload)
             elo_drop = payload.get("elo_drop", 0.0)
-            consecutive_regressions = payload.get("consecutive_regressions", 1)
+            # January 2026: Use consecutive_count from RegressionDetector (single source of truth)
+            consecutive_count = payload.get("consecutive_count", payload.get("consecutive_regressions", 1))
+            severity_str = payload.get("severity", "minor")
 
             if not config_key:
                 logger.debug("[FeedbackLoopController] REGRESSION_DETECTED missing config_key")
                 return
 
             state = self._get_or_create_state(config_key)
-            state.consecutive_failures += 1
+            # Sync with RegressionDetector's consecutive count instead of maintaining separate tracking
+            state.consecutive_failures = consecutive_count
 
             # Jan 3, 2026: Calculate amplitude-scaled response based on severity
+            # January 2026: Pass severity for severity-aware amplitude calculation
             exploration_boost, target_games = self._calculate_regression_amplitude(
-                elo_drop, consecutive_regressions
+                elo_drop, consecutive_count, severity_str
             )
 
             logger.warning(
                 f"[FeedbackLoopController] Regression detected for {config_key}: "
-                f"elo_drop={elo_drop:.0f}, consecutive={consecutive_regressions}, "
+                f"elo_drop={elo_drop:.0f}, consecutive={consecutive_count}, severity={severity_str}, "
                 f"total_failures={state.consecutive_failures}, "
                 f"amplitude_boost={exploration_boost:.2f}x, target_games={target_games}"
             )

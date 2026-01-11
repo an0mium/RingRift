@@ -46,6 +46,10 @@ from app.config.thresholds import (
     WEAK_VS_RANDOM_THRESHOLD,
 )
 from app.coordination.event_utils import make_config_key
+from app.training.regression_detector import (
+    get_regression_detector,
+    RegressionSeverity,
+)
 from app.coordination.contracts import CoordinatorStatus, HealthCheckResult
 from app.coordination.event_router import DataEventType
 from app.coordination.handler_base import BaseEventHandler, EventHandlerConfig
@@ -367,32 +371,31 @@ class GauntletFeedbackController(BaseEventHandler):
         # Update ELO history
         tracker.elo_history.append(record.elo)
 
-        # Check for regression
-        elo_drop = tracker.last_elo - record.elo
-        if elo_drop > cfg.regression_elo_drop:
-            tracker.consecutive_regressions += 1
+        # Check for regression using the singleton RegressionDetector
+        # January 2026: Consolidated to single source of truth for regression detection
+        detector = get_regression_detector()
+        regression_event = detector.check_regression(
+            model_id=record.config_key,
+            current_elo=record.elo,
+            baseline_elo=tracker.last_elo,
+            current_win_rate=record.win_rate_vs_random,
+            games_played=record.games_played,
+        )
+
+        if regression_event:
+            # Sync tracker state from detector (single source of truth)
+            tracker.consecutive_regressions = regression_event.consecutive_count
             logger.warning(
                 f"[{self.name}] Regression detected for {record.config_key}: "
-                f"ELO {tracker.last_elo:.0f} -> {record.elo:.0f} (drop: {elo_drop:.0f}) "
+                f"ELO {tracker.last_elo:.0f} -> {record.elo:.0f} "
+                f"(drop: {regression_event.elo_drop:.0f}, severity: {regression_event.severity.name}) "
                 f"(consecutive: {tracker.consecutive_regressions})"
             )
 
-            # December 2025: Always emit REGRESSION_DETECTED for feedback loop
-            await self._emit_regression_detected(record, elo_drop)
-
-            # December 2025: Emit REGRESSION_CRITICAL immediately for severe regressions
-            # This enables automatic rollback without waiting for consecutive failures
-            if elo_drop > cfg.severe_regression_elo_drop:
-                logger.warning(
-                    f"[{self.name}] SEVERE regression for {record.config_key}: "
-                    f"ELO drop {elo_drop:.0f} > threshold {cfg.severe_regression_elo_drop:.0f}"
-                )
+            # Consider rollback for severe/critical regressions
+            # Note: RegressionDetector already published events to the event bus
+            if regression_event.severity in (RegressionSeverity.SEVERE, RegressionSeverity.CRITICAL):
                 actions.append(FeedbackAction.CONSIDER_ROLLBACK)
-                await self._emit_rollback_consideration(record, severity="severe", elo_drop=elo_drop)
-            # Also emit CRITICAL after consecutive regressions
-            elif tracker.consecutive_regressions >= cfg.consecutive_regressions_for_rollback:
-                actions.append(FeedbackAction.CONSIDER_ROLLBACK)
-                await self._emit_rollback_consideration(record, severity="consecutive", elo_drop=elo_drop)
         else:
             tracker.consecutive_regressions = 0
 

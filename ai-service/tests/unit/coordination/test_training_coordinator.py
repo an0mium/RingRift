@@ -990,7 +990,10 @@ class TestEventHandlers:
         assert coordinator._events_processed >= 1
 
     def test_regression_moderate_reduces_capacity(self, coordinator):
-        """Moderate regression should reduce capacity."""
+        """Moderate regression should reduce capacity.
+
+        January 2026: Updated to include severity field from RegressionDetector.
+        """
         coordinator._cluster_capacity = 1.0
 
         mock_event = MagicMock()
@@ -999,6 +1002,7 @@ class TestEventHandlers:
             "elo_drop": 40,
             "previous_elo": 1600,
             "current_elo": 1560,
+            "severity": "moderate",  # January 2026: Use RegressionDetector severity
         }
 
         coordinator._on_regression_detected(mock_event)

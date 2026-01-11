@@ -71,6 +71,9 @@ from app.utils.paths import DATA_DIR
 # Use centralized event emission (January 2026 - migrated to event_router)
 from app.coordination.event_emission_helpers import safe_emit_event
 
+# Use centralized regression severity (January 2026 - signal pipeline optimization)
+from app.training.regression_detector import RegressionSeverity
+
 # CoordinatorProtocol support (December 2025 - Phase 14)
 from app.coordination.protocols import (
     CoordinatorStatus,
@@ -621,13 +624,22 @@ class TrainingCoordinator:
 
         self._events_processed += 1
 
-        if elo_drop < 30:
+        # January 2026: Use severity from RegressionDetector instead of raw elo_drop thresholds
+        # This consolidates severity logic in a single source of truth
+        severity_str = payload.get("severity", "minor")
+        try:
+            severity = RegressionSeverity(severity_str)
+        except ValueError:
+            # Fallback to minor if unknown severity
+            severity = RegressionSeverity.MINOR
+
+        if severity == RegressionSeverity.MINOR:
             # Minor regression - just log
             logger.info(
                 f"[TrainingCoordinator] Minor regression for {config_key}: "
                 f"{previous_elo:.0f} → {current_elo:.0f} (drop: {elo_drop:.0f})"
             )
-        elif elo_drop < 50:
+        elif severity == RegressionSeverity.MODERATE:
             # Moderate regression - reduce capacity
             old_capacity = self._cluster_capacity
             self._cluster_capacity = max(0.5, self._cluster_capacity * 0.8)
@@ -645,16 +657,15 @@ class TrainingCoordinator:
                 reason="regression_detected",
                 elo_drop=elo_drop,
             )
-        else:
-            # Severe regression - pause training and rollback model
+        elif severity in (RegressionSeverity.SEVERE, RegressionSeverity.CRITICAL):
+            # Severe/Critical regression - pause training and rollback model
             logger.error(
-                f"[TrainingCoordinator] SEVERE regression for {config_key}: "
+                f"[TrainingCoordinator] {severity.name} regression for {config_key}: "
                 f"Elo drop {elo_drop:.0f}, pausing training and triggering rollback"
             )
-            self._pause_training_for_config(config_key, reason=f"severe_regression_elo_drop_{elo_drop:.0f}")
+            self._pause_training_for_config(config_key, reason=f"{severity.value}_regression_elo_drop_{elo_drop:.0f}")
 
-            # December 2025: Also trigger rollback for severe regressions (not just critical)
-            # A 50+ Elo drop indicates a problematic model that should be rolled back
+            # Trigger rollback for severe/critical regressions
             if model_id:
                 self._trigger_model_rollback(config_key, model_id, elo_drop)
             else:
