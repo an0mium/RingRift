@@ -294,6 +294,51 @@ export class WebSocketServer {
 
     this.setupMiddleware();
     this.setupEventHandlers();
+
+    // P2 FIX: Periodic cleanup of stale connection state entries to prevent memory leaks.
+    // Runs every 5 minutes and removes entries for games that no longer exist.
+    this.startStaleEntryCleanup();
+  }
+
+  /**
+   * Start periodic cleanup of stale connection state entries.
+   * P2 FIX: Prevents memory leak from playerConnectionStates and pendingReconnections
+   * maps accumulating entries for completed/removed games.
+   */
+  private startStaleEntryCleanup(): void {
+    const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+    setInterval(() => {
+      let cleanedConnectionStates = 0;
+      let cleanedPendingReconnections = 0;
+
+      // Clean up playerConnectionStates for games that no longer exist
+      for (const key of this.playerConnectionStates.keys()) {
+        const gameId = key.split(':')[0];
+        if (gameId && !this.sessionManager.getSession(gameId)) {
+          this.playerConnectionStates.delete(key);
+          cleanedConnectionStates++;
+        }
+      }
+
+      // Clean up pendingReconnections for games that no longer exist
+      for (const [key, pending] of this.pendingReconnections.entries()) {
+        if (!this.sessionManager.getSession(pending.gameId)) {
+          clearTimeout(pending.timeout);
+          this.pendingReconnections.delete(key);
+          cleanedPendingReconnections++;
+        }
+      }
+
+      if (cleanedConnectionStates > 0 || cleanedPendingReconnections > 0) {
+        logger.info('Cleaned up stale WebSocket state entries', {
+          cleanedConnectionStates,
+          cleanedPendingReconnections,
+          remainingConnectionStates: this.playerConnectionStates.size,
+          remainingPendingReconnections: this.pendingReconnections.size,
+        });
+      }
+    }, CLEANUP_INTERVAL_MS);
   }
 
   private setupMiddleware() {

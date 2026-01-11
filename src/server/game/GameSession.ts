@@ -1911,6 +1911,11 @@ export class GameSession {
     // the Rules Correctness dashboard.
     getMetricsService().recordMoveRejected('decision_timeout_auto_rejected');
 
+    // P2 FIX: Cancel any pending WebSocket choices for this player before
+    // applying the auto-resolved move. This prevents the WebSocket handler's
+    // independent timeout from firing after we've already resolved the decision.
+    this.wsHandler.cancelAllChoicesForPlayer(playerSnapshot);
+
     const selected = sortedCandidates[0];
 
     let result: RulesResult;

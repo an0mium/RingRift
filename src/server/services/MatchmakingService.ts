@@ -79,6 +79,9 @@ export class MatchmakingService {
   }
 
   private processQueue() {
+    // P2 FIX: Clean up stale entries before processing
+    this.cleanupStaleEntries();
+
     // Sort queue by join time (FCFS)
     this.queue.sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime());
 
@@ -100,6 +103,61 @@ export class MatchmakingService {
         // Update status for unmatched players (e.g. expanded range)
         this.emitStatus(entry);
       }
+    }
+  }
+
+  /**
+   * P2 FIX: Clean up stale queue entries to prevent memory leaks.
+   * Removes entries for:
+   * - Users whose sockets are no longer connected
+   * - Users who have been in queue too long (2x max wait time)
+   * - Entries stuck in matchCreationInProgress for too long (30s timeout)
+   */
+  private cleanupStaleEntries(): void {
+    const now = Date.now();
+    const MAX_QUEUE_TIME_MS = this.MAX_WAIT_TIME_MS * 2; // 2 minutes
+    const MAX_MATCH_CREATION_MS = 30_000; // 30 seconds for DB operation
+
+    const connectedUsers = this.wsServer.getConnectedUsers();
+    const connectedSet = new Set(connectedUsers);
+
+    const staleEntries: QueueEntry[] = [];
+
+    for (const entry of this.queue) {
+      const waitTime = now - entry.joinedAt.getTime();
+
+      // Check if user's socket is disconnected
+      if (!connectedSet.has(entry.userId)) {
+        staleEntries.push(entry);
+        continue;
+      }
+
+      // Check if user has been waiting too long
+      if (waitTime > MAX_QUEUE_TIME_MS) {
+        staleEntries.push(entry);
+        continue;
+      }
+
+      // Check if match creation has been stuck for too long
+      if (entry.matchCreationInProgress && waitTime > MAX_MATCH_CREATION_MS) {
+        // Reset the flag instead of removing - give them another chance
+        entry.matchCreationInProgress = false;
+        logger.warn('Reset stuck matchCreationInProgress flag', {
+          userId: entry.userId,
+          ticketId: entry.ticketId,
+          waitTime,
+        });
+      }
+    }
+
+    // Remove stale entries
+    for (const entry of staleEntries) {
+      this.removeFromQueue(entry.userId);
+      logger.info('Removed stale matchmaking entry', {
+        userId: entry.userId,
+        ticketId: entry.ticketId,
+        reason: !connectedSet.has(entry.userId) ? 'disconnected' : 'timeout',
+      });
     }
   }
 
