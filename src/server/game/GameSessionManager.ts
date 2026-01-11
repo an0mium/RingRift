@@ -23,7 +23,18 @@ export class GameSessionManager {
       return existing;
     }
 
-    const session = new GameSession(gameId, this.io, this.pythonRulesClient, this.userSockets);
+    // Create a bound lock function for this specific game
+    const withLockForGame = <T>(operation: () => Promise<T>): Promise<T> => {
+      return this.withGameLock(gameId, operation);
+    };
+
+    const session = new GameSession(
+      gameId,
+      this.io,
+      this.pythonRulesClient,
+      this.userSockets,
+      withLockForGame
+    );
 
     await session.initialize();
     this.sessions.set(gameId, session);
@@ -62,6 +73,12 @@ export class GameSessionManager {
    * Execute an operation with a distributed lock on the gameId.
    * This prevents race conditions where multiple requests (e.g. concurrent moves)
    * attempt to modify the game state simultaneously.
+   *
+   * P0 FIX (2026-01-11): Increased TTL from 5s to 15s to handle complex operations
+   * that involve Python parity checks, database persistence, and broadcasting.
+   * Operations typically complete in 100-500ms, but network issues or database
+   * latency can occasionally extend this. The 15s TTL provides safety margin
+   * while still preventing deadlocks from crashed processes.
    */
   public async withGameLock<T>(gameId: string, operation: () => Promise<T>): Promise<T> {
     const cacheService = getCacheService();
@@ -74,22 +91,36 @@ export class GameSessionManager {
     }
 
     const lockKey = `lock:game:${gameId}`;
-    const ttlSeconds = 5; // Short TTL sufficient for move processing
-    const maxRetries = 5;
-    const retryDelayMs = 200;
+    // P0 FIX: Increased from 5s to 15s to prevent lock expiration during
+    // complex operations (Python rules calls, DB persistence, broadcasts).
+    const ttlSeconds = 15;
+    const maxRetries = 8; // More retries with longer wait between
+    const retryDelayMs = 250;
 
     for (let i = 0; i < maxRetries; i++) {
       const acquired = await cacheService.acquireLock(lockKey, ttlSeconds);
       if (acquired) {
+        const startTime = Date.now();
         try {
-          return await operation();
+          const result = await operation();
+          const elapsed = Date.now() - startTime;
+          // Warn if operation took more than 50% of TTL
+          if (elapsed > ttlSeconds * 500) {
+            logger.warn('Game lock operation took significant time', {
+              gameId,
+              elapsedMs: elapsed,
+              ttlSeconds,
+            });
+          }
+          return result;
         } finally {
           await cacheService.releaseLock(lockKey);
         }
       }
 
-      // Wait before retrying
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      // Wait before retrying with exponential backoff
+      const backoffDelay = retryDelayMs * Math.min(2 ** i, 4);
+      await new Promise((resolve) => setTimeout(resolve, backoffDelay));
     }
 
     throw new Error('Game is busy, please try again');

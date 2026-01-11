@@ -16,6 +16,9 @@ interface QueueEntry {
   rating: number;
   joinedAt: Date;
   ticketId: string;
+  // P0 FIX: Flag to indicate this entry is currently in match creation.
+  // Entries with this flag should not be matched with other players.
+  matchCreationInProgress?: boolean;
 }
 
 export class MatchmakingService {
@@ -86,6 +89,8 @@ export class MatchmakingService {
 
     for (const entry of this.queue) {
       if (matchedUserIds.has(entry.userId)) continue;
+      // P0 FIX: Skip entries already in match creation process
+      if (entry.matchCreationInProgress) continue;
 
       const match = this.findMatch(entry);
       if (match) {
@@ -118,6 +123,9 @@ export class MatchmakingService {
     const opponent = this.queue.find((other) => {
       if (other.userId === player.userId) return false;
 
+      // P0 FIX: Skip players already in match creation to prevent double-matching
+      if (other.matchCreationInProgress) return false;
+
       // Check board type compatibility
       if (other.preferences.boardType !== player.preferences.boardType) return false;
 
@@ -148,9 +156,11 @@ export class MatchmakingService {
   }
 
   private async createMatch(player1: QueueEntry, player2: QueueEntry) {
-    // Remove both from queue before attempting match creation
-    this.removeFromQueue(player1.userId);
-    this.removeFromQueue(player2.userId);
+    // P0 FIX (2026-01-11): Mark players as "in match creation" instead of removing.
+    // This prevents the race condition where players disappear from queue during
+    // the database call window, and other match attempts can't see them.
+    player1.matchCreationInProgress = true;
+    player2.matchCreationInProgress = true;
 
     try {
       const prisma = getDatabaseClient();
@@ -183,6 +193,10 @@ export class MatchmakingService {
         },
       });
 
+      // Success! Now safe to remove from queue
+      this.removeFromQueue(player1.userId);
+      this.removeFromQueue(player2.userId);
+
       // Notify players
       this.wsServer.sendToUser(player1.userId, 'match-found', { gameId: game.id });
       this.wsServer.sendToUser(player2.userId, 'match-found', { gameId: game.id });
@@ -199,10 +213,9 @@ export class MatchmakingService {
         player2: player2.userId,
       });
 
-      // Re-queue both players so they don't lose their matchmaking session.
-      // Preserve their original join time so they maintain queue priority.
-      this.reQueuePlayer(player1);
-      this.reQueuePlayer(player2);
+      // Clear the in-progress flag so they can be matched again
+      player1.matchCreationInProgress = false;
+      player2.matchCreationInProgress = false;
 
       // Notify players of temporary failure (they remain in queue)
       const errorPayload: WebSocketErrorPayload = {
@@ -216,22 +229,6 @@ export class MatchmakingService {
       // Emit updated status so clients know they're still queued
       this.emitStatus(player1);
       this.emitStatus(player2);
-    }
-  }
-
-  /**
-   * Re-add a player to the queue after a failed match creation.
-   * Preserves their original queue entry (including join time for priority).
-   */
-  private reQueuePlayer(entry: QueueEntry): void {
-    // Only re-queue if not already in queue (avoid duplicates)
-    const existingIndex = this.queue.findIndex((e) => e.userId === entry.userId);
-    if (existingIndex === -1) {
-      this.queue.push(entry);
-      logger.info('Re-queued player after failed match creation', {
-        userId: entry.userId,
-        ticketId: entry.ticketId,
-      });
     }
   }
 

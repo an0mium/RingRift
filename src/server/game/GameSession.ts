@@ -178,17 +178,23 @@ export class GameSession {
   // Default AI request timeout (can be overridden via config)
   private readonly aiRequestTimeoutMs: number;
 
+  // Lock callback for protecting concurrent state modifications (provided by GameSessionManager)
+  private readonly withLock: <T>(operation: () => Promise<T>) => Promise<T>;
+
   constructor(
     gameId: string,
     io: SocketIOServer,
     pythonRulesClient: PythonRulesClient,
-    userSockets: Map<string, string>
+    userSockets: Map<string, string>,
+    withLock?: <T>(operation: () => Promise<T>) => Promise<T>
   ) {
     this.gameId = gameId;
     this.io = io;
     this.pythonRulesClient = pythonRulesClient;
     this.userSockets = userSockets;
     this.aiRequestTimeoutMs = config.aiService?.requestTimeoutMs ?? 30000;
+    // If no lock function provided, execute operations directly (fallback for tests)
+    this.withLock = withLock ?? ((op) => op());
   }
 
   public async initialize(): Promise<void> {
@@ -1765,6 +1771,28 @@ export class GameSession {
       return;
     }
 
+    // P0 FIX: Acquire lock before reading/modifying game state to prevent
+    // race conditions with concurrent player moves (RingRift-2026-01-11).
+    await this.withLock(async () => {
+      await this.handleDecisionPhaseTimedOutLocked(
+        phaseSnapshot,
+        playerSnapshot,
+        choiceTypeSnapshot,
+        choiceKindSnapshot
+      );
+    });
+  }
+
+  /**
+   * Lock-protected implementation of decision phase timeout handling.
+   * Called by handleDecisionPhaseTimedOut after acquiring the game lock.
+   */
+  private async handleDecisionPhaseTimedOutLocked(
+    phaseSnapshot: GamePhase,
+    playerSnapshot: number,
+    choiceTypeSnapshot: PlayerChoiceType,
+    choiceKindSnapshot: DecisionAutoResolvedMeta['choiceKind']
+  ): Promise<void> {
     const state = this.gameEngine.getGameState();
     if (state.gameStatus !== 'active') {
       return;

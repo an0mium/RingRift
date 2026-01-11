@@ -1574,19 +1574,18 @@ export class WebSocketServer {
     const nextState = markDisconnectedExpired(previous, gameId, userId, playerNumber);
     this.playerConnectionStates.set(key, nextState);
 
-    const session = this.sessionManager.getSession(gameId);
-    if (session) {
-      // Cancel all pending choices for this player
-      session.getInteractionHandler().cancelAllChoicesForPlayer(playerNumber);
-
-      // Best-effort game-level abandonment handling. This runs under the
-      // per-game lock so that engine and persistence updates remain
-      // consistent with any concurrent HTTP or WebSocket activity.
-      void this.sessionManager.withGameLock(gameId, async () => {
+    // P1 FIX (2026-01-11): Acquire lock for ALL operations that modify game state
+    // including canceling choices (which affects interaction state).
+    // Use proper error handling instead of void to ensure issues are logged.
+    this.sessionManager
+      .withGameLock(gameId, async () => {
         const lockedSession = this.sessionManager.getSession(gameId);
         if (!lockedSession) {
           return;
         }
+
+        // P1 FIX: Cancel choices INSIDE the lock to prevent race conditions
+        lockedSession.getInteractionHandler().cancelAllChoicesForPlayer(playerNumber);
 
         const state = lockedSession.getGameState();
         if (state.gameStatus !== 'active') {
@@ -1616,18 +1615,17 @@ export class WebSocketServer {
 
         const shouldAwardWin = state.isRated && anyOpponentStillAlive;
 
-        try {
-          await lockedSession.handleAbandonmentForDisconnectedPlayer(playerNumber, shouldAwardWin);
-        } catch (err) {
-          logger.error('Failed to apply abandonment after reconnection timeout', {
-            gameId,
-            userId,
-            playerNumber,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+        await lockedSession.handleAbandonmentForDisconnectedPlayer(playerNumber, shouldAwardWin);
+      })
+      .catch((err) => {
+        // P1 FIX: Proper error handling instead of void
+        logger.error('Failed to handle reconnection timeout', {
+          gameId,
+          userId,
+          playerNumber,
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
-    }
   }
 
   /**
