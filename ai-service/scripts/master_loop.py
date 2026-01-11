@@ -1172,6 +1172,9 @@ class MasterLoopController:
             DaemonType.NODE_AVAILABILITY,
             DaemonType.MODEL_DISTRIBUTION,
             DaemonType.IDLE_RESOURCE,
+            # Jan 2026: COORDINATOR_DISK_MANAGER prevents disk space exhaustion on coordinator
+            # Syncs data to OWC before cleanup, removes synced local copies after 24h
+            DaemonType.COORDINATOR_DISK_MANAGER,
             DaemonType.UTILIZATION_OPTIMIZER,
             DaemonType.QUEUE_POPULATOR,
             DaemonType.SELFPLAY_COORDINATOR,  # Dec 28: Priority-based selfplay scheduling
