@@ -398,55 +398,63 @@ class DistributedNNGauntlet:
         return len(new_models)
 
     def select_baselines(self, config_key: str) -> list[str]:
-        """Select 4 fixed baseline models for gauntlet comparison.
+        """Select diverse baseline opponents for gauntlet comparison.
+
+        January 10, 2026: Expanded from 4 to include diverse opponent types.
+        This ensures models are tested against different playing styles:
+        - NN models (best/median) - test vs learned strategies
+        - Heuristic - test vs hand-crafted evaluation
+        - Random - test basic competence
+        - Canonical model - test vs current production (if different from best)
 
         Selection strategy:
-        1. Best model (highest Elo) - the champion to beat
-        2. Median model (50th percentile) - middle-strength opponent
-        3. Lower quartile (25th percentile) - weaker opponent for floor
-        4. RandomAI - consistent baseline across all evaluations
+        1. Canonical model for this config (production baseline)
+        2. Best model (highest Elo) - the champion to beat
+        3. Heuristic AI - tests against strategic evaluation
+        4. Random AI - consistent competence baseline
 
         Args:
             config_key: Config like "square8_2p"
 
         Returns:
-            List of 4 baseline model IDs
+            List of baseline model IDs (diverse opponent types)
         """
         models = self.get_models_by_elo(config_key)
         baselines = []
 
+        # 1. Canonical model for this config (if it exists and is different from best)
+        canonical_id = f"canonical_{config_key}"
+        baselines.append(canonical_id)
+
         if not models:
-            # No models yet, just use RandomAI
-            return ["random_ai"]
+            # No trained models yet - use diverse AI baselines
+            # January 10, 2026: Include heuristic for strategy testing
+            return [canonical_id, f"canonical_{config_key}:policy_only:t0p3", "heuristic", "random_ai"]
 
         n = len(models)
 
-        # 1. Best model (index 0, highest Elo)
-        baselines.append(models[0][0])
+        # 2. Best model (index 0, highest Elo) - skip if same as canonical
+        if models[0][0] != canonical_id:
+            baselines.append(models[0][0])
 
-        # 2. Median model (middle)
+        # 3. Median model (middle) - for mid-range testing
         if n >= 3:
             median_idx = n // 2
-            baselines.append(models[median_idx][0])
+            if models[median_idx][0] not in baselines:
+                baselines.append(models[median_idx][0])
         elif n >= 2:
-            baselines.append(models[1][0])
+            if models[1][0] not in baselines:
+                baselines.append(models[1][0])
 
-        # 3. Lower quartile (25th percentile from top = 75th percentile down)
-        if n >= 4:
-            lower_q_idx = (3 * n) // 4
-            baselines.append(models[lower_q_idx][0])
-        elif n >= 3:
-            baselines.append(models[-1][0])
+        # 4. Heuristic AI - tests strategic play without neural network
+        # January 10, 2026: Always include for diversity
+        baselines.append("heuristic")
 
-        # 4. RandomAI baseline (always include)
+        # 5. RandomAI baseline (always include for competence floor)
         baselines.append("random_ai")
 
-        # Ensure we have exactly 4 unique baselines
-        baselines = list(dict.fromkeys(baselines))[:4]
-
-        # Pad with random_ai if needed
-        while len(baselines) < 4:
-            baselines.append("random_ai")
+        # Ensure we have unique baselines
+        baselines = list(dict.fromkeys(baselines))
 
         return baselines
 

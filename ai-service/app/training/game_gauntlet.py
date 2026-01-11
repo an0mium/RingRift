@@ -2307,3 +2307,116 @@ def quick_evaluate(
         name: stats["win_rate"]
         for name, stats in result.opponent_results.items()
     }
+
+
+def run_model_vs_model(
+    model_a_path: str | Path,
+    model_b_path: str | Path,
+    board_type: str = "square8",
+    num_players: int = 2,
+    num_games: int = 50,
+    verbose: bool = True,
+) -> dict[str, Any]:
+    """Run head-to-head games between two neural network models.
+
+    January 10, 2026: Added for promotion gate - ensures new models beat current canonical.
+
+    Args:
+        model_a_path: Path to first model (the candidate)
+        model_b_path: Path to second model (the baseline/canonical)
+        board_type: Board type for games
+        num_players: Number of players
+        num_games: Number of games to play (alternates who goes first)
+        verbose: Print progress
+
+    Returns:
+        Dict with:
+            - win_rate: Win rate of model_a vs model_b
+            - games_played: Total games played
+            - wins: Number of wins for model_a
+            - losses: Number of losses for model_a
+            - draws: Number of draws
+    """
+    _ensure_game_modules()
+
+    from app.ai.mcts_ai import MCTSAI
+    from app.rules.game_state import GameState
+    from app.rules.game_engine import GameEngine
+
+    # Load models
+    if verbose:
+        logger.info(f"Loading model A: {model_a_path}")
+        logger.info(f"Loading model B: {model_b_path}")
+
+    # Create AI instances with the models
+    ai_a = MCTSAI(
+        str(model_a_path),
+        simulations=200,
+        board_type=board_type,
+        num_players=num_players,
+    )
+    ai_b = MCTSAI(
+        str(model_b_path),
+        simulations=200,
+        board_type=board_type,
+        num_players=num_players,
+    )
+
+    wins = 0
+    losses = 0
+    draws = 0
+
+    for game_idx in range(num_games):
+        # Alternate who goes first
+        if game_idx % 2 == 0:
+            players = [ai_a, ai_b]
+            a_is_player = 0
+        else:
+            players = [ai_b, ai_a]
+            a_is_player = 1
+
+        # Initialize game
+        state = GameState.create(board_type=board_type, num_players=num_players)
+        max_moves = get_theoretical_max_moves(board_type, num_players)
+        move_count = 0
+
+        # Play game
+        while not state.game_over and move_count < max_moves:
+            current_player = state.current_player
+            ai = players[current_player]
+            move = ai.get_move(state)
+            if move is None:
+                break
+            state = GameEngine.apply_move(state, move)
+            move_count += 1
+
+        # Determine winner
+        if state.game_over and state.winner is not None:
+            if state.winner == a_is_player:
+                wins += 1
+            else:
+                losses += 1
+        else:
+            draws += 1
+
+        if verbose and (game_idx + 1) % 10 == 0:
+            logger.info(
+                f"Head-to-head progress: {game_idx + 1}/{num_games} "
+                f"(A wins: {wins}, B wins: {losses}, draws: {draws})"
+            )
+
+    total_games = wins + losses + draws
+    win_rate = wins / total_games if total_games > 0 else 0.0
+
+    if verbose:
+        logger.info(
+            f"Head-to-head complete: {wins}/{total_games} wins ({win_rate:.1%})"
+        )
+
+    return {
+        "win_rate": win_rate,
+        "games_played": total_games,
+        "wins": wins,
+        "losses": losses,
+        "draws": draws,
+    }

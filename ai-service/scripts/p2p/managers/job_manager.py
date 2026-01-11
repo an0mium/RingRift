@@ -3218,6 +3218,10 @@ class JobManager(EventSubscriptionMixin):
         Finds a GPU worker and delegates training to it, or runs locally
         if this node has a GPU.
 
+        CRITICAL FIX (Jan 2026): Now uses --init-weights to load from canonical
+        model instead of training from scratch. This enables incremental learning
+        where each iteration builds on previous knowledge.
+
         Args:
             job_id: Job ID for the improvement loop
         """
@@ -3242,6 +3246,20 @@ class JobManager(EventSubscriptionMixin):
         )
         os.makedirs(os.path.dirname(new_model_path), exist_ok=True)
 
+        # Jan 2026: Find canonical model for warm start (incremental learning)
+        # This prevents catastrophic forgetting by starting from best known weights
+        config_key = f"{state.board_type}_{state.num_players}p"
+        canonical_model_path = os.path.join(
+            self.ringrift_path, "ai-service", "models",
+            f"canonical_{config_key}.pth"
+        )
+        init_weights = canonical_model_path if os.path.exists(canonical_model_path) else None
+
+        if init_weights:
+            logger.info(f"Using warm start from canonical model: {init_weights}")
+        else:
+            logger.warning(f"No canonical model found for {config_key}, training from scratch")
+
         training_config = {
             "job_id": job_id,
             "iteration": state.current_iteration,
@@ -3252,6 +3270,7 @@ class JobManager(EventSubscriptionMixin):
             "epochs": 10,
             "batch_size": 256,
             "learning_rate": 0.001,
+            "init_weights": init_weights,  # Jan 2026: Warm start from canonical
         }
 
         # For distributed training, would delegate to GPU worker here
@@ -3262,55 +3281,40 @@ class JobManager(EventSubscriptionMixin):
     async def run_local_training(self, config: dict) -> None:
         """Run training locally using subprocess.
 
+        CRITICAL FIX (Jan 2026): Uses proper train.py script with --init-weights
+        for incremental learning instead of creating a fresh model each time.
+
         Args:
             config: Training configuration dict containing:
                 - job_id: Job identifier for event tracking
                 - training_data: Path to training data
                 - output_model: Path to save trained model
                 - board_type, num_players, epochs, batch_size, learning_rate
+                - init_weights: Path to canonical model for warm start (Jan 2026)
         """
         # Dec 2025: Extract job_id from config for event emission
         job_id = config.get("job_id", "unknown")
         logger.info(f"Running local training for job {job_id}")
 
-        training_script = f"""
-import sys
-sys.path.insert(0, '{self.ringrift_path}/ai-service')
-import numpy as np
-import torch
+        # Jan 2026: Build proper training command using train.py
+        # This enables incremental learning with --init-weights
+        cmd = [
+            sys.executable, "-m", "app.training.train",
+            "--board-type", config.get("board_type", "square8"),
+            "--num-players", str(config.get("num_players", 2)),
+            "--data-path", config.get("training_data", ""),
+            "--save-path", config.get("output_model", "/tmp/model.pt"),
+            "--epochs", str(config.get("epochs", 10)),
+            "--batch-size", str(config.get("batch_size", 256)),
+            "--learning-rate", str(config.get("learning_rate", 0.001)),
+            "--model-version", "v2",
+        ]
 
-# Load training data
-try:
-    data = np.load('{config.get("training_data", "")}', allow_pickle=True)
-    print(f"Loaded training data")
-except Exception as e:
-    print(f"No training data available: {{e}}")
-    data = None
-
-# Import or create model architecture
-try:
-    from app.models.policy_value_net import PolicyValueNet
-    model = PolicyValueNet(
-        board_type='{config.get("board_type", "square8")}',
-        num_players={config.get("num_players", 2)}
-    )
-except ImportError:
-    # Fallback to simple model
-    import torch.nn as nn
-    model = nn.Sequential(
-        nn.Linear(64, 256),
-        nn.ReLU(),
-        nn.Linear(256, 128),
-        nn.ReLU(),
-        nn.Linear(128, 64)
-    )
-
-# Save model
-torch.save(model.state_dict(), '{config.get("output_model", "/tmp/model.pt")}')
-print(f"Saved model to {{config.get('output_model', '/tmp/model.pt')}}")
-"""
-
-        cmd = [sys.executable, "-c", training_script]
+        # Jan 2026: Add init_weights for warm start (incremental learning)
+        init_weights = config.get("init_weights")
+        if init_weights and os.path.exists(init_weights):
+            cmd.extend(["--init-weights", init_weights])
+            logger.info(f"Training with warm start from: {init_weights}")
         # December 29, 2025: Use helper for consistent env setup (includes RINGRIFT_ALLOW_PENDING_GATE)
         # Note: Training doesn't skip shadow contracts (include_shadow_skip=False)
         env = self._get_subprocess_env(include_shadow_skip=False)

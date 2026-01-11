@@ -98,6 +98,12 @@ class AutoPromotionConfig:
     # This ensures models prove their strength in head-to-head competition before promotion
     gauntlet_verification_enabled: bool = True
     min_gauntlet_win_rate: float = 0.55  # Require 55% combined win rate vs all opponents
+    # January 10, 2026: Head-to-head gate vs current canonical model
+    # CRITICAL: Ensures new models actually beat the current best, not just baselines
+    # This prevents model regression where new models are worse than current canonical
+    head_to_head_enabled: bool = True
+    min_win_rate_vs_canonical: float = 0.52  # Must win 52%+ vs current canonical
+    head_to_head_games: int = 50  # Games to play vs canonical for evaluation
 
 
 @dataclass
@@ -987,6 +993,106 @@ class AutoPromotionDaemon(HandlerBase):
                 f"(games={total_games}, opponents={', '.join(opponent_rates)})"
             )
 
+    async def _check_head_to_head_gate(
+        self,
+        candidate: PromotionCandidate,
+    ) -> tuple[bool, str]:
+        """Check if candidate beats the current canonical model head-to-head.
+
+        January 10, 2026: CRITICAL gate to prevent model regression.
+        Runs games between candidate and current canonical model.
+        Candidate must win >= min_win_rate_vs_canonical to pass.
+
+        This ensures new models are actually BETTER than the current best,
+        not just better than baselines like random/heuristic.
+
+        Args:
+            candidate: PromotionCandidate to check
+
+        Returns:
+            Tuple of (passed, reason) where reason explains the gate result
+        """
+        if not self.config.head_to_head_enabled:
+            return True, "head_to_head_disabled"
+
+        # Check if we already have head-to-head results cached
+        cached_result = candidate.evaluation_results.get("CANONICAL")
+        if cached_result is not None:
+            games = candidate.evaluation_games.get("CANONICAL", 0)
+            if cached_result >= self.config.min_win_rate_vs_canonical:
+                return True, (
+                    f"head_to_head_pass: {cached_result:.1%} >= "
+                    f"{self.config.min_win_rate_vs_canonical:.0%} (games={games})"
+                )
+            else:
+                return False, (
+                    f"head_to_head_fail: {cached_result:.1%} < "
+                    f"{self.config.min_win_rate_vs_canonical:.0%} (games={games})"
+                )
+
+        # Need to run head-to-head games
+        config_key = candidate.config_key
+        try:
+            # Parse board_type and num_players from config_key
+            parts = config_key.rsplit("_", 1)
+            if len(parts) != 2 or not parts[1].endswith("p"):
+                return True, f"invalid_config_key: {config_key}"
+
+            board_type = parts[0]
+            num_players = int(parts[1][:-1])
+
+            # Find canonical model path
+            import os
+            canonical_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                "models", f"canonical_{config_key}.pth"
+            )
+
+            if not os.path.exists(canonical_path):
+                logger.info(f"[AutoPromotion] No canonical model for {config_key}, skipping head-to-head")
+                return True, f"no_canonical_model: {config_key}"
+
+            # Run head-to-head games
+            logger.info(
+                f"[AutoPromotion] Running head-to-head: {candidate.model_path} vs {canonical_path}"
+            )
+
+            from app.training.game_gauntlet import run_model_vs_model
+            result = await asyncio.to_thread(
+                run_model_vs_model,
+                candidate.model_path,
+                canonical_path,
+                board_type=board_type,
+                num_players=num_players,
+                num_games=self.config.head_to_head_games,
+            )
+
+            win_rate = result.get("win_rate", 0.0)
+            games_played = result.get("games_played", 0)
+
+            # Cache the result
+            candidate.evaluation_results["CANONICAL"] = win_rate
+            candidate.evaluation_games["CANONICAL"] = games_played
+
+            if win_rate >= self.config.min_win_rate_vs_canonical:
+                return True, (
+                    f"head_to_head_pass: {win_rate:.1%} >= "
+                    f"{self.config.min_win_rate_vs_canonical:.0%} (games={games_played})"
+                )
+            else:
+                return False, (
+                    f"head_to_head_fail: {win_rate:.1%} < "
+                    f"{self.config.min_win_rate_vs_canonical:.0%} (games={games_played})"
+                )
+
+        except ImportError as e:
+            logger.warning(f"[AutoPromotion] Head-to-head gate unavailable: {e}")
+            return True, f"head_to_head_unavailable: {e}"
+        except Exception as e:
+            logger.warning(f"[AutoPromotion] Head-to-head gate error: {e}")
+            # Don't block on gate errors, log and continue
+            return True, f"head_to_head_error: {e}"
+
     async def _promote_model(self, candidate: PromotionCandidate) -> None:
         """Promote a model that passed evaluation.
 
@@ -1021,6 +1127,16 @@ class AutoPromotionDaemon(HandlerBase):
                 f"[AutoPromotion] {config_key} blocked by gauntlet gate: {gauntlet_reason}"
             )
             await self._emit_promotion_failed(candidate, error=f"gauntlet_gate: {gauntlet_reason}")
+            return
+
+        # January 10, 2026: CRITICAL - Check head-to-head vs current canonical
+        # This prevents model regression where new models are worse than current best
+        head_to_head_passed, head_to_head_reason = await self._check_head_to_head_gate(candidate)
+        if not head_to_head_passed:
+            logger.warning(
+                f"[AutoPromotion] {config_key} blocked by head-to-head gate: {head_to_head_reason}"
+            )
+            await self._emit_promotion_failed(candidate, error=f"head_to_head_gate: {head_to_head_reason}")
             return
 
         if self.config.dry_run:
