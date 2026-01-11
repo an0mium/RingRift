@@ -473,37 +473,13 @@ export class RuleEngine {
 
     switch (gameState.currentPhase) {
       case 'ring_placement': {
-        // RR-CANON-R204 / compact rules §2.1: When ringsInHand == 0 (placement forbidden)
-        // but the player controls stacks, enumerate movement moves instead.
+        // RR-FIX-2026-01-10: Per RR-CANON-R073, when ringsInHand === 0, the player
+        // MUST emit no_placement_action to transition to movement phase. The
+        // canonical phase sequence is: ring_placement -> no_placement_action -> movement.
+        // We don't enumerate movement moves here - they'll be enumerated after
+        // the phase transition.
         const playerObj = gameState.players.find((p) => p.playerNumber === currentPlayer);
         if (playerObj && playerObj.ringsInHand === 0) {
-          // Check if player has any controlled stacks
-          let hasControlledStack = false;
-          for (const stack of gameState.board.stacks.values()) {
-            if (stack.controllingPlayer === currentPlayer && stack.stackHeight > 0) {
-              hasControlledStack = true;
-              break;
-            }
-          }
-          if (hasControlledStack) {
-            // Return movement moves instead of placement/skip
-            moves.push(...this.getValidStackMovements(currentPlayer, gameState));
-            moves.push(...this.getValidCaptures(currentPlayer, gameState));
-            // If no movements or captures available, emit no_placement_action
-            if (moves.length === 0) {
-              moves.push({
-                id: `no_placement_action-${gameState.moveHistory.length + 1}`,
-                type: 'no_placement_action',
-                player: currentPlayer,
-                to: { x: 0, y: 0 },
-                timestamp: new Date(),
-                thinkTime: 0,
-                moveNumber: gameState.moveHistory.length + 1,
-              });
-            }
-            break;
-          }
-          // No stacks and no rings in hand - emit no_placement_action per RR-CANON-R075
           moves.push({
             id: `no_placement_action-${gameState.moveHistory.length + 1}`,
             type: 'no_placement_action',

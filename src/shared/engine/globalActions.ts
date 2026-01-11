@@ -230,11 +230,16 @@ export function hasPhaseLocalInteractiveMove(state: GameState, player: number): 
 
   switch (phase) {
     case 'ring_placement': {
-      // No placements possible when out of rings.
       const playerState = state.players.find((p) => p.playerNumber === player);
+
+      // RR-FIX-2026-01-10: When ringsInHand === 0, the player must execute
+      // no_placement_action and then move. If they have movement/capture options,
+      // they have a valid action sequence, so this is NOT an ANM state.
       if (!playerState || playerState.ringsInHand <= 0) {
-        return false;
+        // Check if player has any movement or capture options
+        return hasAnyGlobalMovementOrCapture(state, player);
       }
+
       if (hasGlobalPlacementAction(state, player)) {
         return true;
       }

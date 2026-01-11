@@ -170,7 +170,9 @@ class VastCpuPipelineDaemon:
             hosts = load_remote_hosts()
             for name, host in hosts.items():
                 # Check if it's a Vast.ai instance
-                if not name.startswith("vast-") and host.provider != "vast":
+                # Jan 2026: Use getattr() since HostConfig may not have provider attr
+                host_provider = getattr(host, "provider", None)
+                if not name.startswith("vast-") and host_provider != "vast":
                     continue
 
                 # Check if instance is suitable for CPU work

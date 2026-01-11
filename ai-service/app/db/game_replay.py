@@ -296,6 +296,19 @@ WHEN NEW.game_status IN ('completed', 'finished')
 BEGIN
     SELECT RAISE(ABORT, 'Cannot complete game with fewer than 5 moves (MIN_MOVES_REQUIRED). Games with insufficient moves are useless for training.');
 END;
+
+-- Trigger to enforce minimum move count on INSERT for completed games (January 2026)
+-- Prevents orphan games from being created via direct INSERT with completed status
+-- This complements the UPDATE trigger above to close all entry points
+CREATE TRIGGER IF NOT EXISTS enforce_moves_on_insert
+AFTER INSERT ON games
+WHEN NEW.game_status IN ('completed', 'finished')
+BEGIN
+    SELECT CASE
+        WHEN (SELECT COUNT(*) FROM game_moves WHERE game_id = NEW.game_id) < 5
+        THEN RAISE(ABORT, 'Cannot insert completed game with fewer than 5 moves. Move data must be inserted before completing the game.')
+    END;
+END;
 """
 
 

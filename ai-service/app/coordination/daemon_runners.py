@@ -1276,9 +1276,26 @@ async def create_gossip_sync() -> None:
 
     Jan 3, 2026: Fixed to provide required constructor arguments.
     GossipSyncDaemon requires node_id, data_dir, and peers_config.
+
+    Jan 10, 2026: Skip if P2P orchestrator is running (uses same port 8771).
     """
+    import socket
+
+    # Check if port 8771 is already in use (likely P2P orchestrator)
+    test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        import socket
+        test_sock.bind(("0.0.0.0", 8771))
+        test_sock.close()
+    except OSError:
+        # Port already in use - P2P orchestrator likely running
+        logger.info("GossipSync skipped: port 8771 already in use (P2P orchestrator running)")
+        # Sleep forever to keep daemon "running" without conflict
+        import asyncio
+        while True:
+            await asyncio.sleep(3600)
+        return
+
+    try:
         from pathlib import Path
 
         from app.distributed.gossip_sync import GossipSyncDaemon

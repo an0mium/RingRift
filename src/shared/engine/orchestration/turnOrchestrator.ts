@@ -2987,12 +2987,46 @@ function processPostMovePhases(
       (originalMoveType === 'process_line' || originalMoveType === 'choose_line_option') &&
       lineEliminationPending
     ) {
+      // RR-FIX-2026-01-10: Enumerate actual elimination moves for the decision options.
+      // Per RR-CANON-R022/R122: Line reward eliminations remove exactly ONE ring from
+      // the top of any stack the player controls (not the full cap).
+      const lineEliminationMoves: Move[] = [];
+      const linePlayer = updatedStateForLines.currentPlayer;
+      const nextMoveNumber = updatedStateForLines.moveHistory.length + 1;
+
+      for (const [key, stack] of updatedStateForLines.board.stacks.entries()) {
+        if (stack.controllingPlayer !== linePlayer) {
+          continue;
+        }
+        const capHeight = stack.capHeight ?? 0;
+        if (capHeight <= 0) {
+          continue;
+        }
+
+        lineEliminationMoves.push({
+          id: `eliminate-line-${key}`,
+          type: 'eliminate_rings_from_stack',
+          player: linePlayer,
+          to: stack.position,
+          eliminatedRings: [{ player: linePlayer, count: 1 }], // Line cost is always 1 ring
+          eliminationContext: 'line',
+          eliminationFromStack: {
+            position: stack.position,
+            capHeight,
+            totalHeight: stack.stackHeight,
+          },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber: nextMoveNumber,
+        } as Move);
+      }
+
       // Stay in line_processing, do not transition to territory_processing
       return {
         pendingDecision: {
           type: 'line_elimination_required',
-          player: updatedStateForLines.currentPlayer,
-          options: [],
+          player: linePlayer,
+          options: lineEliminationMoves,
           linePosition: stateMachine.processingState.originalMove.to,
           context: {
             description:
@@ -3559,12 +3593,23 @@ export function getValidMoves(state: GameState): Move[] {
       const playerObj = state.players.find((p) => p.playerNumber === player);
 
       // No rings in hand → placement is forbidden for this player.
-      // Per RR-CANON-R076, the core layer does not fabricate
-      // no_placement_action moves here; hosts must either:
-      // - Advance to movement via the shared turnLogic helpers, or
-      // - Construct an explicit no_placement_action move when required.
+      // RR-FIX-2026-01-10: Return no_placement_action as a valid move so that
+      // hosts can select it to advance to movement phase. This fixes the
+      // ACTIVE_NO_MOVES soak test invariant violation.
+      // Per RR-CANON-R073, all players MUST start in ring_placement, but if
+      // they have 0 rings, they MUST emit no_placement_action to advance.
       if (!playerObj || playerObj.ringsInHand === 0) {
-        return [];
+        return [
+          {
+            id: `no-placement-action-${moveNumber}`,
+            type: 'no_placement_action',
+            player,
+            to: { x: 0, y: 0 }, // Sentinel value for bookkeeping move
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber,
+          } as Move,
+        ];
       }
 
       // Interactive placement and skip_placement options only.

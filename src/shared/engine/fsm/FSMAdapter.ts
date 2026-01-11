@@ -876,11 +876,47 @@ function deriveTerritoryProcessingState(
   const validMoves = getValidMoves(state);
   const elimMoves = validMoves.filter((m) => m.type === 'eliminate_rings_from_stack');
 
-  const eliminationsPending = elimMoves.map((m) => ({
+  let eliminationsPending = elimMoves.map((m) => ({
     position: m.to,
     player: m.player,
     count: m.eliminatedRings?.[0]?.count ?? 1,
   }));
+
+  // RR-FIX-2026-01-10: Trust eliminate_rings_from_stack moves during validation.
+  // When the moveHint is an eliminate_rings_from_stack move with territory/recovery context,
+  // include it in eliminationsPending even if getValidMoves doesn't return it.
+  //
+  // Background: The decision loop in processTurnAsync resolves decisions inline before
+  // moveHistory is updated. When FSM validates the elimination move, getValidMoves relies
+  // on moveHistory to find the processed region (via getPendingTerritorySelfEliminationRegion),
+  // but the choose_territory_option move isn't in history yet. This causes getValidMoves to
+  // return empty, making eliminationsPending empty and FSM to reject the move.
+  //
+  // Fix: When the moveHint is an eliminate_rings_from_stack move, trust it as valid.
+  // This mirrors RR-CANON-R075 trust patterns for replay compatibility.
+  if (moveHint?.type === 'eliminate_rings_from_stack') {
+    const elimContext = (
+      moveHint as { eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery' }
+    ).eliminationContext;
+    // Only trust territory/recovery context eliminations in territory_processing phase.
+    // Line-context eliminations should be in line_processing phase (handled by phase derivation).
+    if (elimContext === 'territory' || elimContext === 'recovery' || elimContext === undefined) {
+      const hintInEliminations = eliminationsPending.some(
+        (e) => e.position?.x === moveHint.to?.x && e.position?.y === moveHint.to?.y
+      );
+      if (!hintInEliminations) {
+        // Add the move hint as a pending elimination
+        eliminationsPending = [
+          ...eliminationsPending,
+          {
+            position: moveHint.to,
+            player: moveHint.player,
+            count: moveHint.eliminatedRings?.[0]?.count ?? 1,
+          },
+        ];
+      }
+    }
+  }
 
   return {
     phase: 'territory_processing',

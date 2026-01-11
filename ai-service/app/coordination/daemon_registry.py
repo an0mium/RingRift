@@ -246,10 +246,13 @@ DAEMON_REGISTRY: dict[DaemonType, DaemonSpec] = {
     ),
     # Jan 2, 2026: TRAINING_TRIGGER uses soft deps for cluster daemons
     # to enable local-only training when cluster sync is unavailable.
+    # Jan 10, 2026: Moved AUTO_EXPORT to soft dependency because on coordinator
+    # nodes AUTO_EXPORT is filtered out (CPU-bound), but TRAINING_TRIGGER can
+    # still dispatch training based on NPZ files from cluster nodes.
     DaemonType.TRAINING_TRIGGER: DaemonSpec(
         runner_name="create_training_trigger",
-        depends_on=(DaemonType.EVENT_ROUTER, DaemonType.AUTO_EXPORT),
-        soft_depends_on=(DaemonType.AUTO_SYNC, DaemonType.DATA_PIPELINE),
+        depends_on=(DaemonType.EVENT_ROUTER,),
+        soft_depends_on=(DaemonType.AUTO_EXPORT, DaemonType.AUTO_SYNC, DaemonType.DATA_PIPELINE),
         startup_mode="degraded",  # Enable local-only mode
         category="pipeline",
         health_check_interval=120.0,  # Dec 2025: Training jobs are long-running

@@ -624,7 +624,14 @@ export class GameEngine {
         // TurnEngineAdapter.autoSelectForAI behaviour and preserves the
         // semantics of the shared orchestrator while avoiding HOST_REJECTED_MOVE
         // errors in soak/diagnostic runs.
-        const autoResolvableTypes: string[] = ['elimination_target', 'line_order', 'region_order'];
+        // RR-FIX-2026-01-10: Added 'line_elimination_required' to auto-resolvable types.
+        // This decision type is now populated with actual elimination moves.
+        const autoResolvableTypes: string[] = [
+          'elimination_target',
+          'line_order',
+          'region_order',
+          'line_elimination_required',
+        ];
 
         if (autoResolvableTypes.includes(decision.type)) {
           // Rare defensive case: an elimination_target / ordering decision with
@@ -633,10 +640,13 @@ export class GameEngine {
           // but no eligible stacks). For soak/diagnostic hosts we treat this as
           // a no-op decision rather than a hard HOST_REJECTED_MOVE error.
           if (decision.options.length === 0) {
-            if (decision.type === 'elimination_target') {
+            if (
+              decision.type === 'elimination_target' ||
+              decision.type === 'line_elimination_required'
+            ) {
               debugLog(
                 TRACE_DEBUG_ENABLED,
-                '[GameEngine.DecisionHandler] elimination_target decision with no options; returning no-op elimination move',
+                `[GameEngine.DecisionHandler] ${decision.type} decision with no options; returning no-op elimination move`,
                 {
                   type: decision.type,
                   player: decision.player,
@@ -651,6 +661,8 @@ export class GameEngine {
                 // to host a real stack; applyEliminateRingsFromStackDecision will
                 // treat this as a no-op when no stack exists at this position.
                 to: { x: 0, y: 0 },
+                eliminationContext:
+                  decision.type === 'line_elimination_required' ? 'line' : 'territory',
                 timestamp: new Date(),
                 thinkTime: 0,
                 moveNumber: 0,
