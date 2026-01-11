@@ -1657,13 +1657,14 @@ class EloService:
 
                 # Record match history in local SQLite for queries
                 # Note: id is INTEGER PRIMARY KEY AUTOINCREMENT, so we use game_id for UUID
+                # Jan 11, 2026: Added harness_type column for multi-harness evaluation tracking
                 with self._transaction() as conn:
                     conn.execute("""
                         INSERT INTO match_history
                         (game_id, participant_ids, winner_id, game_length, duration_sec,
                          board_type, num_players, timestamp, elo_before, elo_after,
-                         tournament_id, metadata)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         tournament_id, metadata, harness_type)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         match_id,
                         json.dumps([participant_a, participant_b]),
@@ -1676,7 +1677,8 @@ class EloService:
                         json.dumps(elo_before),
                         json.dumps(elo_after),
                         tournament_id,
-                        json.dumps(metadata) if metadata else None
+                        json.dumps(metadata) if metadata else None,
+                        harness_type,
                     ))
 
                 # Emit events (same as SQLite path)
@@ -1785,12 +1787,13 @@ class EloService:
 
             # Record match with optional metadata (e.g., weight profiles used)
             # Note: id is INTEGER PRIMARY KEY AUTOINCREMENT, so we use game_id for UUID
+            # Jan 11, 2026: Added harness_type column for multi-harness evaluation tracking
             conn.execute("""
                 INSERT INTO match_history
                 (game_id, participant_ids, winner_id, game_length, duration_sec,
                  board_type, num_players, timestamp, elo_before, elo_after,
-                 tournament_id, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 tournament_id, metadata, harness_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 match_id,
                 json.dumps([participant_a, participant_b]),
@@ -1803,7 +1806,8 @@ class EloService:
                 json.dumps(elo_before),
                 json.dumps(elo_after),
                 tournament_id,
-                json.dumps(metadata) if metadata else None
+                json.dumps(metadata) if metadata else None,
+                harness_type,
             ))
 
         # Emit events (uses shared helper for both SQLite and Raft paths)

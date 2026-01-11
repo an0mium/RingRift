@@ -1237,6 +1237,7 @@ class EvaluationDaemon(BaseEventHandler):
                 early_stopping_min_games=self.config.early_stopping_min_games,
                 parallel_games=16,  # Dec 29: Increased for faster evaluation
                 game_count=game_count,  # Dec 30: Graduated thresholds
+                harness_type="gumbel_mcts",  # Jan 11, 2026: Track harness in Elo
             ),
             timeout=timeout,
         )
