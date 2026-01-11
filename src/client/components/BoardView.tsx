@@ -1025,24 +1025,28 @@ export const BoardView: React.FC<BoardViewProps> = ({
       // Calculate natural board dimensions based on actual CSS cell sizes
       // These must match what the board actually renders at scale=1.0
       // Coordinate labels use negative positioning (-24px) so we need extra buffer
-      // on all sides: +100px total (50px each side) to prevent scrolling
-      const labelBuffer = 100;
+      // Board-specific buffers and scale multipliers for visual tuning
       if (effectiveBoardType === 'square8') {
-        const cellSize = isDesktop ? 80 : 44;
+        // Use smaller cell size (72px instead of 80px) to make board 10% smaller naturally
+        const cellSize = isDesktop ? 72 : 40;
+        const labelBuffer = 60;
         naturalWidth = 8 * cellSize + 7 * gap + labelBuffer;
         naturalHeight = 8 * cellSize + 7 * gap + labelBuffer;
       } else if (effectiveBoardType === 'square19') {
         const cellSize = isDesktop ? 56 : 44;
+        const labelBuffer = 100;
         naturalWidth = 19 * cellSize + 18 * gap + labelBuffer;
         naturalHeight = 19 * cellSize + 18 * gap + labelBuffer;
       } else if (effectiveBoardType === 'hex8') {
         // Hex8 board (radius 4): needs more space for hexagonal layout
         const cellSize = isDesktop ? 48 : 44;
+        const labelBuffer = 100;
         naturalWidth = 9 * cellSize * 1.2 + labelBuffer;
         naturalHeight = 9 * cellSize * 1.1 + labelBuffer;
       } else {
         // Hexagonal board (radius 12): large hex grid
         const cellSize = isDesktop ? 48 : 44;
+        const labelBuffer = 100;
         naturalWidth = 25 * cellSize * 1.1 + labelBuffer;
         naturalHeight = 25 * cellSize * 1.0 + labelBuffer;
       }
@@ -1060,17 +1064,31 @@ export const BoardView: React.FC<BoardViewProps> = ({
       const scaleY = availableHeight / naturalHeight;
       const fitScale = Math.min(scaleX, scaleY);
 
-      // Apply scale limits: don't scale up, minimum 0.5
-      const finalScale = Math.max(0.5, Math.min(fitScale, 1.0));
+      // Board-specific scale multipliers for visual tuning
+      // sq19 and hex8 appear 30% too small, so multiply by 1.30
+      const scaleMultipliers: Record<string, number> = {
+        square8: 1.0,
+        square19: 1.3,
+        hex8: 1.3,
+        hexagonal: 1.0,
+      };
+      const multiplier = scaleMultipliers[effectiveBoardType] ?? 1.0;
+
+      // Apply scale limits: minimum 0.5, allow scaling up with multiplier (max 1.3)
+      const adjustedScale = fitScale * multiplier;
+      const containerScale = Math.max(0.5, Math.min(adjustedScale, 1.3));
+
+      // Final scale for rendering
+      const finalScale = containerScale;
 
       setBoardScale(finalScale);
 
-      // Always set scaled dimensions when scaling is needed
-      // This ensures the wrapper container matches the visual size
-      const scaledWidth = Math.ceil(naturalWidth * finalScale);
-      const scaledHeight = Math.ceil(naturalHeight * finalScale);
+      // Container dimensions based on containerScale (without shrink factor)
+      // This keeps the container large enough for coordinate labels
+      const scaledWidth = Math.ceil(naturalWidth * containerScale);
+      const scaledHeight = Math.ceil(naturalHeight * containerScale);
 
-      if (finalScale < 0.99) {
+      if (containerScale < 0.99) {
         setScaledDimensions({ width: scaledWidth, height: scaledHeight });
       } else {
         // At scale 1.0, use natural dimensions for the wrapper
@@ -1723,7 +1741,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
     // Touch target minimum: 44px (WCAG 2.1 AAA recommendation)
     const squareCellSizeClasses =
       boardType === 'square8'
-        ? 'w-11 h-11 sm:w-14 sm:h-14 md:w-20 md:h-20' // 44px → 56px → 80px
+        ? 'w-11 h-11 sm:w-14 sm:h-14 md:w-[72px] md:h-[72px]' // 44px → 56px → 72px (10% smaller than 80px)
         : 'w-11 h-11 md:w-14 md:h-14'; // 44px minimum for touch, 56px on desktop
 
     for (let y = 0; y < size; y++) {

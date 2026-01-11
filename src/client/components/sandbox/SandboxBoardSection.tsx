@@ -155,9 +155,10 @@ export const SandboxBoardSection: React.FC<SandboxBoardSectionProps> = ({
 }) => {
   return (
     <section className="flex-shrink-0">
-      <div className="w-fit space-y-3">
+      {/* Grid layout: board determines column width, panels constrained to match */}
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'min-content' }}>
         {/* Board header with mode toggle and action buttons */}
-        <div className="w-full p-3 sm:p-4 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg overflow-x-auto">
+        <div className="p-3 sm:p-4 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg overflow-x-auto">
           <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
             <div>
               <p className="text-[10px] sm:text-xs uppercase tracking-wide text-slate-400">
@@ -311,7 +312,7 @@ export const SandboxBoardSection: React.FC<SandboxBoardSectionProps> = ({
         />
 
         {/* Board info panel */}
-        <section className="w-full mt-1 p-3 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg flex flex-col gap-2 text-xs text-slate-200 overflow-x-auto">
+        <section className="p-3 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg flex flex-col gap-2 text-xs text-slate-200 overflow-x-auto">
           <div className="flex flex-wrap items-center gap-2">
             {(() => {
               let primarySubtitleText = boardDisplaySubtitle;
@@ -362,7 +363,7 @@ export const SandboxBoardSection: React.FC<SandboxBoardSectionProps> = ({
         </section>
 
         {/* Victory Conditions - placed below game info panel */}
-        <VictoryConditionsPanel className="w-full mt-3" />
+        <VictoryConditionsPanel className="" />
       </div>
     </section>
   );
