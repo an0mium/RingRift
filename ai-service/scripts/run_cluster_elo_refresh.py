@@ -179,15 +179,21 @@ async def run_evaluation_games(
                 model_path=str(model_path),
                 board_type=board_type,
                 num_players=num_players,
-                opponent=BaselineOpponent.RANDOM,
-                num_games=games_vs_random,
+                opponents=[BaselineOpponent.RANDOM],
+                games_per_opponent=games_vs_random,
                 harness_type=harness,
-                simulation_budget=budget,
+                verbose=True,
+                check_baseline_gating=False,  # Skip gating for refresh
             )
-            random_results["wins"] = result.wins
-            random_results["losses"] = result.losses
-            logger.info(f"  vs Random: {result.wins}/{games_vs_random} wins "
-                       f"({result.win_rate*100:.1f}%)")
+            # Extract RANDOM-specific results from the gauntlet result
+            if hasattr(result, 'opponent_results') and BaselineOpponent.RANDOM in result.opponent_results:
+                opp_result = result.opponent_results[BaselineOpponent.RANDOM]
+                random_results["wins"] = opp_result.wins
+                random_results["losses"] = opp_result.losses
+            else:
+                random_results["wins"] = result.wins
+                random_results["losses"] = result.losses
+            logger.info(f"  vs Random: {random_results['wins']}/{games_vs_random} wins")
         except Exception as e:
             logger.warning(f"  vs Random failed: {e}")
 
@@ -200,15 +206,21 @@ async def run_evaluation_games(
                 model_path=str(model_path),
                 board_type=board_type,
                 num_players=num_players,
-                opponent=BaselineOpponent.HEURISTIC,
-                num_games=games_vs_heuristic,
+                opponents=[BaselineOpponent.HEURISTIC],
+                games_per_opponent=games_vs_heuristic,
                 harness_type=harness,
-                simulation_budget=budget,
+                verbose=True,
+                check_baseline_gating=False,  # Skip gating for refresh
             )
-            heuristic_results["wins"] = result.wins
-            heuristic_results["losses"] = result.losses
-            logger.info(f"  vs Heuristic: {result.wins}/{games_vs_heuristic} wins "
-                       f"({result.win_rate*100:.1f}%)")
+            # Extract HEURISTIC-specific results from the gauntlet result
+            if hasattr(result, 'opponent_results') and BaselineOpponent.HEURISTIC in result.opponent_results:
+                opp_result = result.opponent_results[BaselineOpponent.HEURISTIC]
+                heuristic_results["wins"] = opp_result.wins
+                heuristic_results["losses"] = opp_result.losses
+            else:
+                heuristic_results["wins"] = result.wins
+                heuristic_results["losses"] = result.losses
+            logger.info(f"  vs Heuristic: {heuristic_results['wins']}/{games_vs_heuristic} wins")
         except Exception as e:
             logger.warning(f"  vs Heuristic failed: {e}")
 
