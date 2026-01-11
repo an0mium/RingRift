@@ -442,4 +442,65 @@ describe('lineDecisionHelpers – shared line decision enumeration and applicati
     expect(outcome.nextState).not.toBe(state); // State should change
     expect(outcome.pendingLineRewardElimination).toBe(false); // Min collapse = no reward
   });
+
+  // Edge case: multiple overlength lines
+  it('handles multiple overlength lines correctly', () => {
+    const state = createEmptyState();
+
+    // Create two overlength lines on different rows
+    const positions1 = seedOverlengthLine(state, 0, 1);
+    const positions2 = seedOverlengthLine(state, 2, 2);
+
+    const processLineMoves = enumerateProcessLineMoves(state, 1, { detectionMode: 'use_board_cache' });
+
+    // Should enumerate both overlength lines
+    expect(processLineMoves).toHaveLength(2);
+
+    // Each line should be identifiable by its sorted key
+    const keys = processLineMoves.map((m) => keyFrom(m.formedLines![0].positions));
+    expect(keys).toContain(keyFrom(positions1));
+    expect(keys).toContain(keyFrom(positions2));
+
+    // Reward moves should be enumerable for each line
+    const rewards0 = enumerateChooseLineRewardMoves(state, 1, 0);
+    const rewards1 = enumerateChooseLineRewardMoves(state, 1, 1);
+
+    expect(rewards0.length).toBeGreaterThan(0);
+    expect(rewards1.length).toBeGreaterThan(0);
+  });
+
+  // Edge case: mixed exact-length and overlength lines
+  it('handles mixed exact-length and overlength lines correctly', () => {
+    const state = createEmptyState();
+
+    // Create one exact-length line and one overlength line
+    const exactPositions = seedExactLine(state, 0);
+    const overPositions = seedOverlengthLine(state, 2, 1);
+
+    const processLineMoves = enumerateProcessLineMoves(state, 1, { detectionMode: 'use_board_cache' });
+
+    // Should enumerate both lines
+    expect(processLineMoves).toHaveLength(2);
+
+    // Find the move for each line
+    const exactMove = processLineMoves.find(
+      (m) => keyFrom(m.formedLines![0].positions) === keyFrom(exactPositions)
+    );
+    const overMove = processLineMoves.find(
+      (m) => keyFrom(m.formedLines![0].positions) === keyFrom(overPositions)
+    );
+
+    expect(exactMove).toBeDefined();
+    expect(overMove).toBeDefined();
+
+    // Exact-length line should collapse directly via process_line
+    const exactOutcome = applyProcessLineDecision(state, exactMove!);
+    expect(exactOutcome.nextState).not.toBe(state);
+    expect(exactOutcome.pendingLineRewardElimination).toBe(true);
+
+    // Overlength line should be a no-op via process_line (needs choose_line_option)
+    const overOutcome = applyProcessLineDecision(state, overMove!);
+    expect(overOutcome.nextState).toBe(state);
+    expect(overOutcome.pendingLineRewardElimination).toBe(false);
+  });
 });
