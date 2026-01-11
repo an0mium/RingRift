@@ -3255,8 +3255,18 @@ class JobManager(EventSubscriptionMixin):
         )
         init_weights = canonical_model_path if os.path.exists(canonical_model_path) else None
 
+        # Jan 2026: Detect model version from canonical checkpoint to ensure architecture match
+        model_version = "v2"  # Default
         if init_weights:
-            logger.info(f"Using warm start from canonical model: {init_weights}")
+            try:
+                import torch
+                checkpoint = torch.load(init_weights, map_location="cpu", weights_only=True)
+                metadata = checkpoint.get("_versioning_metadata", {})
+                model_version = metadata.get("model_version", "v2")
+                logger.info(f"Using warm start from canonical model: {init_weights} (version: {model_version})")
+            except Exception as e:
+                logger.warning(f"Could not detect model version from {init_weights}: {e}, using default v2")
+                logger.info(f"Using warm start from canonical model: {init_weights}")
         else:
             logger.warning(f"No canonical model found for {config_key}, training from scratch")
 
@@ -3271,6 +3281,7 @@ class JobManager(EventSubscriptionMixin):
             "batch_size": 256,
             "learning_rate": 0.001,
             "init_weights": init_weights,  # Jan 2026: Warm start from canonical
+            "model_version": model_version,  # Jan 2026: Match canonical model architecture
         }
 
         # For distributed training, would delegate to GPU worker here
@@ -3307,7 +3318,7 @@ class JobManager(EventSubscriptionMixin):
             "--epochs", str(config.get("epochs", 10)),
             "--batch-size", str(config.get("batch_size", 256)),
             "--learning-rate", str(config.get("learning_rate", 0.001)),
-            "--model-version", "v2",
+            "--model-version", config.get("model_version", "v2"),  # Jan 2026: Use detected version
         ]
 
         # Jan 2026: Add init_weights for warm start (incremental learning)
