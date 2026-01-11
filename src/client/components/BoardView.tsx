@@ -1029,24 +1029,24 @@ export const BoardView: React.FC<BoardViewProps> = ({
       if (effectiveBoardType === 'square8') {
         // Use smaller cell size (72px instead of 80px) to make board 10% smaller naturally
         const cellSize = isDesktop ? 72 : 40;
-        const labelBuffer = 60;
+        const labelBuffer = 20; // Minimal buffer - grid gap handles label spacing
         naturalWidth = 8 * cellSize + 7 * gap + labelBuffer;
         naturalHeight = 8 * cellSize + 7 * gap + labelBuffer;
       } else if (effectiveBoardType === 'square19') {
         const cellSize = isDesktop ? 56 : 44;
-        const labelBuffer = 100;
+        const labelBuffer = 30; // Minimal buffer - grid gap handles label spacing
         naturalWidth = 19 * cellSize + 18 * gap + labelBuffer;
         naturalHeight = 19 * cellSize + 18 * gap + labelBuffer;
       } else if (effectiveBoardType === 'hex8') {
         // Hex8 board (radius 4): needs more space for hexagonal layout
         const cellSize = isDesktop ? 48 : 44;
-        const labelBuffer = 100;
+        const labelBuffer = 20;
         naturalWidth = 9 * cellSize * 1.2 + labelBuffer;
         naturalHeight = 9 * cellSize * 1.1 + labelBuffer;
       } else {
         // Hexagonal board (radius 12): large hex grid
         const cellSize = isDesktop ? 48 : 44;
-        const labelBuffer = 100;
+        const labelBuffer = 20;
         naturalWidth = 25 * cellSize * 1.1 + labelBuffer;
         naturalHeight = 25 * cellSize * 1.0 + labelBuffer;
       }
