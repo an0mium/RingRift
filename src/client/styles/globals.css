@@ -385,22 +385,23 @@ code {
 }
 
 .decision-pulse-elimination {
-  animation: selection-pulse 2.2s ease-in-out infinite;
+  animation: selection-pulse 1.6s ease-in-out infinite;
   --ring-color: 251, 191, 36; /* amber-300/400 RGB */
   /* Amber inner halo used for elimination choices. The halo is slightly
      inset from the outer border so it appears as a thicker inner ring
      rather than a full cell fill, and remains legible on both square
      and hex boards.
-     RR-UX-2026-01-10: Increased intensity by ~50% for better visibility. */
+     RR-UX-2026-01-10: Increased intensity by ~80% for better visibility. */
   position: relative;
   background-image: radial-gradient(
     circle at center,
-    rgba(251, 191, 36, 0.28),
-    transparent 60%
+    rgba(251, 191, 36, 0.4),
+    rgba(251, 191, 36, 0.15) 50%,
+    transparent 70%
   );
   box-shadow:
-    0 0 0 2px rgba(251, 191, 36, 0.85),
-    0 0 20px 3px rgba(251, 191, 36, 0.35);
+    0 0 0 3px rgba(251, 191, 36, 0.95),
+    0 0 24px 5px rgba(251, 191, 36, 0.5);
 }
 
 .decision-pulse-elimination::before {
@@ -416,15 +417,23 @@ code {
 
 .decision-pulse-territory {
   position: relative;
-  animation: selection-pulse 1.6s ease-in-out infinite;
+  animation: selection-pulse 1.2s ease-in-out infinite;
   /* Neutral teal base glow so territory regions read as a distinct
      decision state compared to captures/eliminations and generic
      decision highlights. Per-region classes add their own colour
-     accents on top of this pulse. */
+     accents on top of this pulse.
+     RR-UX-2026-01-10: Increased intensity by 50% for better visibility. */
   --ring-color: 45, 212, 191; /* teal-400 RGB */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(45, 212, 191, 0.25),
+    rgba(45, 212, 191, 0.1) 50%,
+    transparent 70%
+  );
   box-shadow:
-    0 0 0 1px rgba(45, 212, 191, 0.9),
-    0 0 18px rgba(15, 23, 42, 0.95);
+    0 0 0 2px rgba(45, 212, 191, 0.95),
+    0 0 24px 4px rgba(45, 212, 191, 0.4),
+    0 0 8px rgba(15, 23, 42, 0.95);
 }
 
 /* Territory region palette: each region gets a distinct, high-contrast
@@ -445,51 +454,55 @@ code {
 }
 
 .territory-region-a::before {
-  /* Cyan / teal */
+  /* Cyan / teal - increased intensity by 50% */
   background-image: radial-gradient(
     circle at center,
-    rgba(34, 211, 238, 0.3),
-    transparent 65%
-  );
-  box-shadow:
-    0 0 0 2px rgba(34, 211, 238, 0.9),
-    0 0 20px rgba(8, 47, 73, 0.95);
-}
-
-.territory-region-b::before {
-  /* Rose / magenta */
-  background-image: radial-gradient(
-    circle at center,
-    rgba(244, 114, 182, 0.32),
-    transparent 68%
-  );
-  box-shadow:
-    0 0 0 2px rgba(244, 114, 182, 0.9),
-    0 0 20px rgba(131, 24, 67, 0.95);
-}
-
-.territory-region-c::before {
-  /* Amber / gold */
-  background-image: radial-gradient(
-    circle at center,
-    rgba(251, 191, 36, 0.32),
+    rgba(34, 211, 238, 0.45),
+    rgba(34, 211, 238, 0.15) 50%,
     transparent 70%
   );
   box-shadow:
-    0 0 0 2px rgba(251, 191, 36, 0.95),
-    0 0 22px rgba(120, 53, 15, 0.95);
+    0 0 0 3px rgba(34, 211, 238, 0.95),
+    0 0 28px 4px rgba(34, 211, 238, 0.5);
+}
+
+.territory-region-b::before {
+  /* Rose / magenta - increased intensity by 50% */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(244, 114, 182, 0.48),
+    rgba(244, 114, 182, 0.16) 50%,
+    transparent 70%
+  );
+  box-shadow:
+    0 0 0 3px rgba(244, 114, 182, 0.95),
+    0 0 28px 4px rgba(244, 114, 182, 0.5);
+}
+
+.territory-region-c::before {
+  /* Amber / gold - increased intensity by 50% */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(251, 191, 36, 0.48),
+    rgba(251, 191, 36, 0.16) 50%,
+    transparent 70%
+  );
+  box-shadow:
+    0 0 0 3px rgba(251, 191, 36, 0.95),
+    0 0 30px 4px rgba(251, 191, 36, 0.5);
 }
 
 .territory-region-d::before {
-  /* Violet / indigo */
+  /* Violet / indigo - increased intensity by 50% */
   background-image: radial-gradient(
     circle at center,
-    rgba(167, 139, 250, 0.32),
-    transparent 68%
+    rgba(167, 139, 250, 0.48),
+    rgba(167, 139, 250, 0.16) 50%,
+    transparent 70%
   );
   box-shadow:
-    0 0 0 2px rgba(167, 139, 250, 0.95),
-    0 0 22px rgba(49, 46, 129, 0.98);
+    0 0 0 3px rgba(167, 139, 250, 0.95),
+    0 0 30px 4px rgba(167, 139, 250, 0.5);
 }
 
 .territory-region-overlap::before {
@@ -505,10 +518,12 @@ code {
     0 0 32px rgba(244, 114, 182, 0.9);
 }
 
-/* Stack-level pulse for elimination choices so the stack itself breathes. */
+/* Stack-level pulse for elimination choices so the stack itself breathes.
+   Enhanced visibility with stronger glow and faster pulse for urgency. */
 .decision-elimination-stack-pulse {
-  animation: selection-pulse 1.8s ease-in-out infinite;
+  animation: selection-pulse 1.4s ease-in-out infinite;
   --ring-color: 251, 191, 36; /* amber-300/400 RGB */
+  filter: drop-shadow(0 0 8px rgba(251, 191, 36, 0.7)) drop-shadow(0 0 16px rgba(251, 191, 36, 0.4));
 }
 
 /* ==========================================================================

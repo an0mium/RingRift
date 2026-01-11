@@ -320,9 +320,10 @@ export const SandboxBoardSection: React.FC<SandboxBoardSectionProps> = ({
                 'px-2 py-1 rounded-full bg-slate-800/80 border border-slate-600';
 
               if (isRingEliminationChoice) {
-                primarySubtitleText = 'Select stack cap to eliminate';
+                primarySubtitleText =
+                  '⚠️ SELF-ELIMINATION REQUIRED – Select stack cap to eliminate';
                 primarySubtitleClass =
-                  'px-2 py-1 rounded-full bg-amber-500 text-slate-950 font-semibold border border-amber-300 shadow-sm shadow-amber-500/40';
+                  'px-2 py-1 rounded-full bg-amber-500 text-slate-950 font-semibold border border-amber-300 shadow-lg shadow-amber-500/50 animate-pulse';
               } else if (isRegionOrderChoice) {
                 primarySubtitleText = 'Territory claimed – choose region to process';
                 primarySubtitleClass =

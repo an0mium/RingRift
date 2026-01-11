@@ -89,6 +89,10 @@ export interface SandboxGameSidebarProps {
   canSkipTerritoryProcessing: boolean;
   canSkipRecovery: boolean;
 
+  // Decision state flags
+  /** Whether ring elimination choice is pending */
+  isRingEliminationChoice: boolean;
+
   // Replay state
   /** Whether in replay mode */
   isInReplayMode: boolean;
@@ -222,6 +226,7 @@ export const SandboxGameSidebar: React.FC<SandboxGameSidebarProps> = ({
   canSkipCapture,
   canSkipTerritoryProcessing,
   canSkipRecovery,
+  isRingEliminationChoice,
   isInReplayMode,
   isViewingHistory,
   historyViewIndex,
@@ -412,6 +417,22 @@ export const SandboxGameSidebar: React.FC<SandboxGameSidebarProps> = ({
               </p>
             </div>
           )}
+
+        {/* Self-elimination pending alert */}
+        {isRingEliminationChoice && (
+          <div className="p-3 border-2 border-amber-400 rounded-2xl bg-amber-900/60 text-xs animate-pulse shadow-lg shadow-amber-500/30">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <p className="font-bold text-amber-100 text-sm">Self-Elimination Required</p>
+                <p className="text-amber-200/90 mt-1">
+                  Territory claimed! You must eliminate your entire cap from one of your stacks
+                  outside the processed region. Click a pulsing stack on the board.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Advanced sidebar panels */}

@@ -1753,6 +1753,7 @@ export const SandboxGameHost: React.FC = () => {
             canSkipCapture={canSkipCaptureForTouch}
             canSkipTerritoryProcessing={canSkipTerritoryProcessing}
             canSkipRecovery={canSkipRecoveryForTouch}
+            isRingEliminationChoice={isRingEliminationChoice}
             isInReplayMode={isInReplayMode}
             isViewingHistory={isViewingHistory}
             historyViewIndex={historyViewIndex}
