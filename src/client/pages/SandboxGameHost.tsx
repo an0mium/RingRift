@@ -366,6 +366,11 @@ export const SandboxGameHost: React.FC = () => {
                 regionId: opt.regionId,
               })),
             });
+            // RR-FIX-2026-01-10: Clear any stale capture choice to ensure activePendingChoice
+            // uses sandboxPendingChoice. This prevents a leftover sandboxCaptureChoice from
+            // blocking ring_elimination or region_order UI.
+            setSandboxCaptureChoice(null);
+            setSandboxCaptureTargets([]);
             setSandboxPendingChoice(choice);
           }
 

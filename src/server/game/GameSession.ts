@@ -952,7 +952,7 @@ export class GameSession {
 
       // Game is over – cancel any in-flight player choices so UI and
       // decision Promises don't linger past the terminal state.
-      this.wsHandler.cancelAllChoices();
+      this.wsHandler?.cancelAllChoices();
     } else {
       // Broadcast state to all connected clients in the room
       // For active players, we include their valid moves
@@ -1914,7 +1914,7 @@ export class GameSession {
     // P2 FIX: Cancel any pending WebSocket choices for this player before
     // applying the auto-resolved move. This prevents the WebSocket handler's
     // independent timeout from firing after we've already resolved the decision.
-    this.wsHandler.cancelAllChoicesForPlayer(playerSnapshot);
+    this.wsHandler?.cancelAllChoicesForPlayer(playerSnapshot);
 
     const selected = sortedCandidates[0];
 
