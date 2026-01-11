@@ -393,75 +393,89 @@ class MasterLoopController:
         except Exception as e:
             logger.warning(f"[MasterLoop] Failed to init state DB: {e}")
 
-    def _load_persisted_state(self) -> None:
+    async def _load_persisted_state(self) -> None:
         """Load exploration_boost and other state from database on startup.
 
         Uses threading lock to prevent race conditions during concurrent access.
         Dec 2025: Added locking to fix state corruption issue.
+        January 2026: Made async to avoid blocking event loop.
         """
-        with self._state_lock:
-            try:
-                conn = sqlite3.connect(self._db_path)
-                rows = conn.execute("""
-                    SELECT config_key, exploration_boost, training_intensity, last_quality_score
-                    FROM config_state
-                """).fetchall()
-                conn.close()
+        def _load_sync() -> int:
+            """Synchronous SQLite operations wrapped in lock."""
+            with self._state_lock:
+                try:
+                    conn = sqlite3.connect(self._db_path)
+                    rows = conn.execute("""
+                        SELECT config_key, exploration_boost, training_intensity, last_quality_score
+                        FROM config_state
+                    """).fetchall()
+                    conn.close()
 
-                restored_count = 0
-                for config_key, boost, intensity, quality_score in rows:
-                    if config_key in self._states:
-                        self._states[config_key].exploration_boost = boost
-                        self._states[config_key].training_intensity = intensity
-                        self._states[config_key].last_quality_score = quality_score
-                        restored_count += 1
+                    restored_count = 0
+                    for config_key, boost, intensity, quality_score in rows:
+                        if config_key in self._states:
+                            self._states[config_key].exploration_boost = boost
+                            self._states[config_key].training_intensity = intensity
+                            self._states[config_key].last_quality_score = quality_score
+                            restored_count += 1
 
-                if restored_count > 0:
-                    logger.info(f"[MasterLoop] Restored persisted state for {restored_count} configs")
+                    return restored_count
+                except (sqlite3.Error, OSError) as e:
+                    logger.warning(f"[MasterLoop] Failed to load persisted state: {e}")
+                    return 0
 
-            except Exception as e:
-                logger.warning(f"[MasterLoop] Failed to load persisted state: {e}")
+        restored_count = await asyncio.to_thread(_load_sync)
+        if restored_count > 0:
+            logger.info(f"[MasterLoop] Restored persisted state for {restored_count} configs")
 
-    def _save_persisted_state(self) -> None:
+    async def _save_persisted_state(self) -> None:
         """Save exploration_boost and other state to database.
 
         Uses threading lock and SQLite transaction to prevent race conditions.
         Dec 2025: Added locking to fix state corruption issue.
+        January 2026: Made async to avoid blocking event loop.
         """
-        with self._state_lock:
-            try:
-                conn = sqlite3.connect(self._db_path)
-                now = time.time()
+        def _save_sync() -> None:
+            """Synchronous SQLite operations wrapped in lock."""
+            with self._state_lock:
+                try:
+                    conn = sqlite3.connect(self._db_path)
+                    now = time.time()
 
-                # Use BEGIN IMMEDIATE for SQLite-level write lock
-                conn.execute("BEGIN IMMEDIATE")
+                    # Use BEGIN IMMEDIATE for SQLite-level write lock
+                    conn.execute("BEGIN IMMEDIATE")
 
-                for config_key, state in self._states.items():
-                    conn.execute("""
-                        INSERT OR REPLACE INTO config_state
-                        (config_key, exploration_boost, training_intensity, last_quality_score, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        config_key,
-                        state.exploration_boost,
-                        state.training_intensity,
-                        state.last_quality_score,
-                        now,
-                    ))
+                    for config_key, state in self._states.items():
+                        conn.execute("""
+                            INSERT OR REPLACE INTO config_state
+                            (config_key, exploration_boost, training_intensity, last_quality_score, updated_at)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (
+                            config_key,
+                            state.exploration_boost,
+                            state.training_intensity,
+                            state.last_quality_score,
+                            now,
+                        ))
 
-                conn.commit()
-                conn.close()
-                self._last_state_save = now
-                logger.debug(f"[MasterLoop] Persisted state for {len(self._states)} configs")
+                    conn.commit()
+                    conn.close()
+                    self._last_state_save = now
+                    logger.debug(f"[MasterLoop] Persisted state for {len(self._states)} configs")
 
-            except (sqlite3.Error, OSError) as e:
-                # Dec 29, 2025: Narrowed from bare Exception
-                logger.warning(f"[MasterLoop] Failed to save persisted state: {e}")
+                except (sqlite3.Error, OSError) as e:
+                    # Dec 29, 2025: Narrowed from bare Exception
+                    logger.warning(f"[MasterLoop] Failed to save persisted state: {e}")
 
-    def _maybe_save_state(self) -> None:
-        """Save state if enough time has passed since last save."""
+        await asyncio.to_thread(_save_sync)
+
+    async def _maybe_save_state(self) -> None:
+        """Save state if enough time has passed since last save.
+
+        January 2026: Made async to match _save_persisted_state().
+        """
         if time.time() - self._last_state_save >= STATE_SAVE_INTERVAL_SECONDS:
-            self._save_persisted_state()
+            await self._save_persisted_state()
 
     # =========================================================================
     # Configuration Helpers (December 2025)
@@ -996,7 +1010,8 @@ class MasterLoopController:
         self._subscribe_to_events()
 
         # Restore persisted state (exploration_boost, etc.) - Gap 3 fix
-        self._load_persisted_state()
+        # January 2026: Now async to avoid blocking event loop
+        await self._load_persisted_state()
 
         # Initialize state from current data
         await self._initialize_state()
@@ -1010,7 +1025,8 @@ class MasterLoopController:
         self._shutdown_event.set()
 
         # Save state before shutdown - Gap 3 fix
-        self._save_persisted_state()
+        # January 2026: Now async to avoid blocking event loop
+        await self._save_persisted_state()
 
         # Mark heartbeat as stopped (Dec 2025)
         self._update_heartbeat("stopped")
@@ -1061,7 +1077,8 @@ class MasterLoopController:
                     self._log_status(health)
 
                     # 6. Periodically save state - Gap 3 fix
-                    self._maybe_save_state()
+                    # January 2026: Now async to avoid blocking event loop
+                    await self._maybe_save_state()
 
                     # 7. Update heartbeat for health monitoring (Dec 2025)
                     self._update_heartbeat("running")

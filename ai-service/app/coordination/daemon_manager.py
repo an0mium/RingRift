@@ -3455,7 +3455,13 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
         - GET /status: Detailed daemon status
 
         Default port: 8790 (configurable via RINGRIFT_HEALTH_PORT env var)
+
+        January 2026: Runs in a separate thread with its own event loop to isolate
+        from main loop blocking. This ensures health endpoints always respond even
+        when the main event loop is blocked by synchronous operations.
         """
+        import threading
+
         try:
             from aiohttp import web
         except ImportError:
@@ -3464,174 +3470,153 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
         port = int(os.environ.get("RINGRIFT_HEALTH_PORT", "8790"))
 
-        async def handle_health(request: web.Request) -> web.Response:
-            """Liveness probe - returns 200 if alive."""
-            probe = self.liveness_probe()
-            return web.json_response(probe)
+        # Reference to self for closures in thread
+        manager = self
 
-        async def handle_ready(request: web.Request) -> web.Response:
-            """Readiness probe - returns 200 if ready to serve."""
-            probe = self.readiness_probe()
-            status = 200 if probe.get("ready", False) else 503
-            return web.json_response(probe, status=status)
+        def _run_health_server_in_thread() -> None:
+            """Run the health server in a separate thread with its own event loop.
 
-        async def handle_metrics(request: web.Request) -> web.Response:
-            """Prometheus-style metrics."""
-            try:
-                from app.utils.optional_imports import (
-                    CONTENT_TYPE_LATEST,
-                    PROMETHEUS_AVAILABLE,
-                )
-                content_type = CONTENT_TYPE_LATEST if PROMETHEUS_AVAILABLE else "text/plain"
-            except (ImportError, AttributeError) as e:
-                logger.warning(f"Failed to resolve Prometheus content type: {e}")
-                content_type = "text/plain"
-            return web.Response(text=self.render_metrics(), content_type=content_type)
-
-        async def handle_status(request: web.Request) -> web.Response:
-            """Detailed daemon status.
-
-            December 30, 2025: Added timeout protection per-daemon to prevent
-            slow status collection from blocking the entire endpoint.
-            Also integrates circuit breaker to skip consistently slow daemons.
+            This isolates the health server from main event loop blocking.
             """
-            breaker = get_daemon_status_breaker()
+            import asyncio as thread_asyncio
 
-            try:
-                # Overall timeout for entire status collection
-                async with async_timeout(5.0):
-                    summary = self.health_summary()
-                    # Dec 2025: Fixed to use self._daemons instead of undefined _daemon_states
-                    # and self._factories (which contains Callables, not DaemonInfo)
-                    summary["daemons"] = {}
+            async def handle_health(request: web.Request) -> web.Response:
+                """Liveness probe - returns 200 if alive.
 
-                    # Collect daemon status with individual timeout and circuit breaker
-                    for daemon_type, info in list(self._daemons.items()):
-                        daemon_name = daemon_type.value
-
-                        # Skip if circuit is open (too many recent failures)
-                        if breaker.is_open(daemon_name):
-                            summary["daemons"][daemon_name] = {
-                                "state": "circuit_open",
-                                "error": "Status check disabled after repeated failures",
-                            }
-                            continue
-
-                        try:
-                            # Individual timeout per daemon (1 second each)
-                            async with async_timeout(1.0):
-                                summary["daemons"][daemon_name] = {
-                                    "state": info.state.value,
-                                    "auto_restart": info.auto_restart,
-                                    "uptime_seconds": info.uptime_seconds,
-                                    "restart_count": info.restart_count,
-                                }
-                            breaker.record_success(daemon_name)
-                        except asyncio.TimeoutError:
-                            breaker.record_failure(daemon_name)
-                            summary["daemons"][daemon_name] = {
-                                "state": "timeout",
-                                "error": "Status collection timed out",
-                            }
-                        except Exception as e:  # noqa: BLE001
-                            breaker.record_failure(daemon_name)
-                            summary["daemons"][daemon_name] = {
-                                "state": "error",
-                                "error": str(e),
-                            }
-
-                    # Include circuit breaker status in response
-                    summary["_status_circuit_breaker"] = breaker.get_status()
-
-                    return web.json_response(summary)
-
-            except asyncio.TimeoutError:
-                # Return partial status on overall timeout
+                January 2026: Lightweight implementation that doesn't call any blocking methods.
+                """
                 return web.json_response({
-                    "status": "timeout",
-                    "error": "Status collection timed out",
+                    "alive": manager._running,
                     "timestamp": time.time(),
-                    "_status_circuit_breaker": breaker.get_status(),
-                }, status=504)
+                    "node_id": os.environ.get("RINGRIFT_NODE_ID", "unknown"),
+                })
 
-        async def handle_event(request: web.Request) -> web.Response:
-            """Receive events from P2P nodes (Jan 7, 2026).
-
-            Enables cross-node event propagation for P2P gauntlet → auto_promotion flow.
-            Events emitted on P2P leader are forwarded here to reach local subscribers.
-            """
-            try:
-                data = await request.json()
-                event_type = data.get("event_type")
-                payload = data.get("payload", {})
-                source = data.get("source", "p2p_remote")
-
-                if not event_type:
-                    return web.json_response(
-                        {"error": "event_type required"},
-                        status=400,
-                    )
-
-                # Publish to local event router
-                try:
-                    from app.coordination.event_router import get_router
-
-                    router = get_router()
-                    await router.publish(event_type, payload, source=source)
-                    logger.info(f"Received cross-node event: {event_type} from {source}")
-                    return web.json_response({"status": "ok", "event_type": event_type})
-                except Exception as e:
-                    logger.error(f"Failed to publish cross-node event {event_type}: {e}")
-                    return web.json_response(
-                        {"error": f"publish failed: {e}"},
-                        status=500,
-                    )
-            except Exception as e:
-                logger.error(f"Failed to parse event request: {e}")
-                return web.json_response(
-                    {"error": f"invalid request: {e}"},
-                    status=400,
+            async def handle_ready(request: web.Request) -> web.Response:
+                """Readiness probe - returns 200 if ready to serve."""
+                # Simple readiness check - don't block
+                critical_daemons_running = sum(
+                    1 for d in list(manager._daemons.values())
+                    if d.state == DaemonState.RUNNING
                 )
+                ready = manager._running and critical_daemons_running > 0
+                return web.json_response({
+                    "ready": ready,
+                    "running_daemons": critical_daemons_running,
+                    "timestamp": time.time(),
+                }, status=200 if ready else 503)
 
-        try:
-            app = web.Application()
-            app.router.add_get('/health', handle_health)
-            app.router.add_get('/ready', handle_ready)
-            app.router.add_get('/metrics', handle_metrics)
-            app.router.add_get('/status', handle_status)
-            app.router.add_post('/event', handle_event)
+            async def handle_metrics(request: web.Request) -> web.Response:
+                """Prometheus-style metrics (lightweight version)."""
+                # Return basic metrics without blocking
+                metrics = f"""# HELP daemon_manager_running DaemonManager running status
+# TYPE daemon_manager_running gauge
+daemon_manager_running {1 if manager._running else 0}
+# HELP daemon_manager_daemons_total Total registered daemons
+# TYPE daemon_manager_daemons_total gauge
+daemon_manager_daemons_total {len(manager._daemons)}
+# HELP daemon_manager_running_daemons Number of running daemons
+# TYPE daemon_manager_running_daemons gauge
+daemon_manager_running_daemons {sum(1 for d in manager._daemons.values() if d.state == DaemonState.RUNNING)}
+"""
+                return web.Response(text=metrics, content_type="text/plain")
 
-            runner = web.AppRunner(app)
-            await runner.setup()
+            async def handle_status(request: web.Request) -> web.Response:
+                """Detailed daemon status (lightweight version)."""
+                # Quick snapshot without calling expensive methods
+                daemons = {}
+                for dtype, info in list(manager._daemons.items()):
+                    daemons[dtype.value] = {
+                        "state": info.state.value,
+                        "auto_restart": info.auto_restart,
+                        "restart_count": info.restart_count,
+                    }
+                return web.json_response({
+                    "running": manager._running,
+                    "daemon_count": len(daemons),
+                    "daemons": daemons,
+                    "timestamp": time.time(),
+                })
 
-            # Jan 2, 2026: Try dual-stack IPv6 first (accepts both IPv4 and IPv6)
-            # Fall back to IPv4-only if IPv6 binding fails
-            sites_started = []
+            async def handle_event(request: web.Request) -> web.Response:
+                """Receive events from P2P nodes."""
+                try:
+                    data = await request.json()
+                    event_type = data.get("event_type")
+                    payload = data.get("payload", {})
+                    source = data.get("source", "p2p_remote")
+
+                    if not event_type:
+                        return web.json_response({"error": "missing event_type"}, status=400)
+
+                    try:
+                        from app.coordination.event_router import get_router
+                        router = get_router()
+                        # Use thread-safe event emission
+                        thread_asyncio.get_event_loop().run_in_executor(
+                            None, lambda: router.publish_sync(event_type, payload, source=source)
+                        )
+                        return web.json_response({"status": "ok", "event_type": event_type})
+                    except Exception as e:
+                        logger.error(f"Failed to publish cross-node event {event_type}: {e}")
+                        return web.json_response({"error": f"publish failed: {e}"}, status=500)
+                except Exception as e:
+                    return web.json_response({"error": f"invalid request: {e}"}, status=400)
+
+            async def run_server() -> None:
+                """Set up and run the aiohttp server."""
+                try:
+                    app = web.Application()
+                    app.router.add_get('/health', handle_health)
+                    app.router.add_get('/ready', handle_ready)
+                    app.router.add_get('/metrics', handle_metrics)
+                    app.router.add_get('/status', handle_status)
+                    app.router.add_post('/event', handle_event)
+
+                    runner = web.AppRunner(app)
+                    await runner.setup()
+
+                    # Try dual-stack IPv6 first, fall back to IPv4
+                    try:
+                        site = web.TCPSite(runner, '::', port)
+                        await site.start()
+                        logger.info(f"Health server listening on http://[::]:{port} (dual-stack, isolated thread)")
+                    except OSError:
+                        site = web.TCPSite(runner, '0.0.0.0', port)
+                        await site.start()
+                        logger.info(f"Health server listening on http://0.0.0.0:{port} (IPv4-only, isolated thread)")
+
+                    # Keep running
+                    while manager._running:
+                        await thread_asyncio.sleep(1)
+
+                    await runner.cleanup()
+
+                except OSError as e:
+                    if "address already in use" in str(e).lower():
+                        logger.warning(f"Health server port {port} already in use, skipping")
+                    else:
+                        logger.error(f"Health server failed: {e}")
+
+            # Create new event loop for this thread and run the server
+            loop = thread_asyncio.new_event_loop()
+            thread_asyncio.set_event_loop(loop)
             try:
-                site_v6 = web.TCPSite(runner, '::', port)
-                await site_v6.start()
-                sites_started.append('[::]')
-                logger.info(f"Health server listening on http://[::]:{port} (dual-stack)")
-            except OSError as e:
-                if "address already in use" not in str(e).lower():
-                    logger.debug(f"IPv6 bind failed, falling back to IPv4: {e}")
-                # Fall back to IPv4-only
-                site_v4 = web.TCPSite(runner, '0.0.0.0', port)
-                await site_v4.start()
-                sites_started.append('0.0.0.0')
-                logger.info(f"Health server listening on http://0.0.0.0:{port} (IPv4-only)")
+                loop.run_until_complete(run_server())
+            finally:
+                loop.close()
 
-            # Keep running
-            while True:
-                await asyncio.sleep(3600)
+        # Start health server in separate thread
+        health_thread = threading.Thread(
+            target=_run_health_server_in_thread,
+            name="health-server",
+            daemon=True,
+        )
+        health_thread.start()
+        logger.info("Health server thread started")
 
-        except OSError as e:
-            if "address already in use" in str(e).lower():
-                logger.warning(f"Health server port {port} already in use, skipping")
-            else:
-                logger.error(f"Health server failed: {e}")
-        except (RuntimeError, ConnectionError) as e:
-            logger.error(f"Health server failed: {e}")
+        # Keep this coroutine alive while the thread runs
+        while self._running and health_thread.is_alive():
+            await asyncio.sleep(10)
 
 
 # =============================================================================
