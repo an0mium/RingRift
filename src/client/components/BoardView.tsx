@@ -660,6 +660,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
     width: number;
     height: number;
   } | null>(null);
+  // Top offset to shift board down within wrapper (more top gap, less bottom gap)
+  const [boardTopOffset, setBoardTopOffset] = useState<number>(0);
   const scalingWrapperRef = useRef<HTMLDivElement>(null);
 
   // Precompute a lookup map for view-model cells when provided
@@ -1103,6 +1105,12 @@ export const BoardView: React.FC<BoardViewProps> = ({
       const scaledWidth = Math.ceil(naturalWidth * containerScale);
       const scaledHeight = Math.ceil(naturalHeight * containerScale);
       setScaledDimensions({ width: scaledWidth, height: scaledHeight });
+
+      // Top offset to shift board down within wrapper (more top gap, less bottom gap)
+      // Square boards need ~12px shift; hex boards are fine as-is
+      const topOffset =
+        effectiveBoardType === 'square8' || effectiveBoardType === 'square19' ? 12 : 0;
+      setBoardTopOffset(topOffset);
     };
 
     calculateScale();
@@ -2611,6 +2619,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
           style={{
             transform: `scale(${boardScale})`,
             transformOrigin: 'top left',
+            // Shift board down to create more top gap and less bottom gap
+            marginTop: boardTopOffset > 0 ? boardTopOffset : undefined,
           }}
         >
           {renderBoard()}
