@@ -872,6 +872,11 @@ def train_model(
     # Averages last N checkpoints at end of training for +10-20 Elo improvement
     enable_checkpoint_averaging: bool = True,
     num_checkpoints_to_average: int = 5,
+    # Best checkpoint selection on overfitting (January 2026)
+    # When overfitting detected (val_loss/train_loss > threshold), use best checkpoint
+    # instead of averaged. This prevents averaged overfit checkpoints from degrading quality.
+    prefer_best_on_overfit: bool = True,
+    overfit_divergence_threshold: float = 0.5,  # 50% divergence triggers best checkpoint
     # Quality-weighted training (2025-12) - resurrected from ebmo_network.py
     # December 2025: Enabled by default to improve training signal quality
     # Quality weighting focuses learning on high-quality MCTS-derived moves
@@ -2697,6 +2702,20 @@ def train_model(
             # ImportError: auto-tuning module missing
             logger.warning(f"Batch size auto-tuning failed: {e}. Using original batch size.")
 
+    # Auto-detect canonical model for iterative training (January 2026)
+    # If no init_weights specified and not resuming, use the existing canonical model
+    # This enables continuous self-improvement: train on new data, improving existing model
+    if init_weights_path is None and not os.path.exists(save_path):
+        board_type_str = config.board_type.value if hasattr(config.board_type, 'value') else str(config.board_type)
+        canonical_path = f"models/canonical_{board_type_str}_{num_players}p.pth"
+        if os.path.exists(canonical_path):
+            init_weights_path = canonical_path
+            if not distributed or is_main_process():
+                logger.info(f"[AutoInitWeights] Using canonical model as starting point: {canonical_path}")
+        else:
+            if not distributed or is_main_process():
+                logger.info(f"[AutoInitWeights] No canonical model found at {canonical_path}, training from scratch")
+
     # Load initial weights for transfer learning (before save_path check)
     # This allows starting from a pre-trained model (e.g., 2p->4p transfer)
     # If save_path exists, it will override these weights (resume takes priority)
@@ -3771,6 +3790,7 @@ def train_model(
         logger.info(f"Heartbeat monitor started: {heartbeat_file} (interval={heartbeat_interval}s)")
 
     best_val_loss = float('inf')
+    best_train_loss_at_best_val = float('inf')  # Track train loss at best val for overfitting detection
     avg_val_loss = float('inf')  # Initialize for final checkpoint
     avg_train_loss = float('inf')  # Track for return value
 
@@ -5774,6 +5794,7 @@ def train_model(
             # Save best model (only on main process)
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
+                best_train_loss_at_best_val = avg_train_loss  # Track for overfitting detection
                 if not distributed or is_main_process():
                     # Save with versioning metadata and config validation
                     save_model_checkpoint(
@@ -5890,9 +5911,27 @@ def train_model(
                     )
                 logger.info("Training completed. Final checkpoint saved.")
 
-                # Apply checkpoint averaging if enabled (2025-12)
-                # Averages collected checkpoints for reduced variance and +10-20 Elo improvement
-                if checkpoint_averager is not None and checkpoint_averager.num_stored >= 2:
+                # Apply checkpoint averaging if enabled (2025-12), with overfitting detection (January 2026)
+                # Check for overfitting: if val_loss diverged significantly from train_loss, keep best checkpoint
+                overfitting_detected = False
+                if best_train_loss_at_best_val > 0 and best_val_loss != float('inf'):
+                    divergence = (best_val_loss - best_train_loss_at_best_val) / best_train_loss_at_best_val
+                    if divergence > overfit_divergence_threshold:
+                        overfitting_detected = True
+                        logger.warning(
+                            f"[Overfitting Detected] Val/Train divergence: {divergence:.1%} > {overfit_divergence_threshold:.0%} threshold "
+                            f"(train={best_train_loss_at_best_val:.4f}, val={best_val_loss:.4f})"
+                        )
+
+                # Skip averaging if overfitting detected and prefer_best_on_overfit is enabled
+                skip_averaging = prefer_best_on_overfit and overfitting_detected
+                if skip_averaging:
+                    logger.info(
+                        "[Best Checkpoint Selection] Keeping best validation loss checkpoint (skipping averaging due to overfitting)"
+                    )
+                    if checkpoint_averager is not None:
+                        checkpoint_averager.cleanup()
+                elif checkpoint_averager is not None and checkpoint_averager.num_stored >= 2:
                     logger.info(
                         f"[Checkpoint Averaging] Averaging {checkpoint_averager.num_stored} checkpoints..."
                     )
