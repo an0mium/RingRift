@@ -1040,18 +1040,19 @@ export const BoardView: React.FC<BoardViewProps> = ({
         naturalHeight = 19 * cellSize + 18 * gap + labelBuffer;
       } else if (effectiveBoardType === 'hex8') {
         // Hex8 board (radius 4)
-        // Diagnostics: board 585x538, wrapper 621x582 (68px gap, too large)
-        // Target: ~600x555 wrapper, with 1.30 scale: naturalWidth = 600/1.30 = 462
+        // Diagnostics 2026-01-11: board 585x538, wrapper 562x534 (23px width overflow)
+        // Board pre-scale is 450x414, scaled 1.3x = 585x538
+        // naturalWidth should yield wrapper >= 585 after scaling
         const cellSize = isDesktop ? 48 : 44;
-        naturalWidth = 9 * cellSize * 1.0 + 30; // ~462
-        naturalHeight = 9 * cellSize * 0.93 + 25; // ~427
+        naturalWidth = 9 * cellSize * 1.0 + 50; // ~482 → 482*1.3 = 627 > 585 ✓
+        naturalHeight = 9 * cellSize * 0.93 + 30; // ~432 → 432*1.3 = 562 > 538 ✓
       } else {
         // Hexagonal board (radius 12)
-        // Diagnostics: board 675x619, wrapper 674x620 (1px overflow)
-        // Add small buffer to prevent overflow
+        // Diagnostics 2026-01-11: board 662x608, wrapper 653x620 (9px width overflow)
+        // Add buffer to prevent overflow
         const cellSize = isDesktop ? 48 : 44;
-        naturalWidth = 25 * cellSize * 1.0 + 20; // ~1220, slight extra for safety
-        naturalHeight = 25 * cellSize * 0.92 + 15; // ~1115 for full hex
+        naturalWidth = 25 * cellSize * 1.0 + 30; // ~1230, extra buffer for width
+        naturalHeight = 25 * cellSize * 0.92 + 15; // ~1115 for full hex (height OK)
       }
 
       // Calculate available space for the board

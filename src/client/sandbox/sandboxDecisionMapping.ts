@@ -212,6 +212,68 @@ export function mapPendingDecisionToPlayerChoice(
       return choice;
     }
 
+    case 'line_elimination_required': {
+      // Line elimination after choosing the "collapse all + eliminate" reward
+      // Maps to ring_elimination choice with 'line' context
+      const eliminationMoves = options.filter(
+        (opt: Move) => opt.type === 'eliminate_rings_from_stack' && opt.to
+      );
+
+      const lineEliminationChoice: RingEliminationChoice = {
+        id: generateChoiceId('line-elimination'),
+        gameId: context.gameId,
+        playerNumber: decision.player,
+        type: 'ring_elimination',
+        eliminationContext: 'line',
+        prompt:
+          'Line reward cost: You must eliminate ONE ring from the top of any stack you control.',
+        options: eliminationMoves.map((opt: Move, idx: number) => {
+          const pos = opt.to as Position;
+          const key = positionToString(pos);
+          const stack = context.board.stacks.get(key);
+
+          const capHeight =
+            (opt.eliminationFromStack && opt.eliminationFromStack.capHeight) ||
+            (stack ? stack.capHeight : 1);
+          const totalHeight =
+            (opt.eliminationFromStack && opt.eliminationFromStack.totalHeight) ||
+            (stack ? stack.stackHeight : capHeight || 1);
+
+          // Line elimination always costs 1 ring per RR-CANON-R122
+          const ringsToEliminate = 1;
+
+          return {
+            stackPosition: pos,
+            capHeight,
+            totalHeight,
+            ringsToEliminate,
+            moveId: opt.id || `move-${idx}`,
+          };
+        }),
+      };
+      return lineEliminationChoice;
+    }
+
+    case 'chain_capture': {
+      // Chain capture decision - player must choose next capture direction
+      // Maps to capture_direction choice (same as initial capture_direction)
+      const chainCaptureMoves = options.filter(isCaptureMove);
+      const chainCaptureChoice: CaptureDirectionChoice = {
+        id: generateChoiceId('chain-capture'),
+        gameId: context.gameId,
+        playerNumber: decision.player,
+        type: 'capture_direction',
+        prompt: 'Chain capture: Select next capture direction',
+        options: chainCaptureMoves.map((opt) => ({
+          targetPosition: opt.captureTarget,
+          landingPosition: opt.to,
+          capturedCapHeight:
+            context.board.stacks.get(positionToString(opt.captureTarget))?.capHeight ?? 0,
+        })),
+      };
+      return chainCaptureChoice;
+    }
+
     default:
       // Generic fallback - use line_order as default
       return {
