@@ -681,6 +681,9 @@ export function mutateCapture(
   // We want intermediate cells: path1.slice(1, -1) and path2.slice(1, -1)
   const intermediatePositions = [...path1.slice(1, -1), ...path2.slice(1, -1)];
 
+  // RR-FIX-2026-01-11: Track collapsed marker count to update territorySpaces
+  let collapsedMarkerCount = 0;
+
   for (const pos of intermediatePositions) {
     const key = positionToString(pos);
     const marker = newState.board.markers.get(key);
@@ -696,7 +699,19 @@ export function mutateCapture(
         // Collapse own marker
         newState.board.markers.delete(key);
         newState.board.collapsedSpaces.set(key, action.playerId);
+        collapsedMarkerCount++;
       }
+    }
+  }
+
+  // RR-FIX-2026-01-11: Update player's territorySpaces for collapsed markers
+  if (collapsedMarkerCount > 0) {
+    const playerIdx = newState.players.findIndex((p) => p.playerNumber === action.playerId);
+    if (playerIdx >= 0) {
+      newState.players[playerIdx] = {
+        ...newState.players[playerIdx],
+        territorySpaces: (newState.players[playerIdx].territorySpaces ?? 0) + collapsedMarkerCount,
+      };
     }
   }
 
