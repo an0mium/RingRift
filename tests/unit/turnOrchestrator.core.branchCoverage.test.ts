@@ -755,14 +755,17 @@ describe('TurnOrchestrator core branch coverage', () => {
         expect(Array.isArray(moves)).toBe(true);
       });
 
-      it('returns empty when no rings and no stacks', () => {
+      it('returns no_placement_action when no rings in hand', () => {
         const state = createBaseState('ring_placement');
         state.players[0].ringsInHand = 0;
         // No stacks for player 1
 
         const moves = getValidMoves(state);
 
-        expect(moves.length).toBe(0);
+        // RR-FIX-2026-01-10: Players with 0 rings get a no_placement_action move
+        // to allow hosts to advance to movement phase
+        expect(moves.length).toBe(1);
+        expect(moves[0].type).toBe('no_placement_action');
       });
     });
 
@@ -904,14 +907,16 @@ describe('TurnOrchestrator core branch coverage', () => {
       expect(typeof result).toBe('boolean');
     });
 
-    it('returns false when no moves are available', () => {
+    it('returns true when player has no rings (no_placement_action available)', () => {
       const state = createBaseState('ring_placement');
       state.players[0].ringsInHand = 0;
       // No stacks for player 1
 
       const result = hasValidMoves(state);
 
-      expect(result).toBe(false);
+      // RR-FIX-2026-01-10: Players with 0 rings get a no_placement_action move
+      // so hasValidMoves returns true
+      expect(result).toBe(true);
     });
   });
 

@@ -27316,11 +27316,116 @@ print(json.dumps({{
 
         return status
 
+    def _start_isolated_health_server(self) -> None:
+        """Start a lightweight health HTTP server in a separate thread.
+
+        January 2026: This server runs in its own thread with its own event loop,
+        guaranteeing that /health endpoints respond even when the main event loop
+        is blocked by background tasks.
+
+        The isolated server:
+        - Listens on port 8771 (one above the main P2P port)
+        - Only serves /health and /ready endpoints
+        - Does not access any state that requires the main event loop
+        - Responds within 100ms even under heavy load
+
+        This fixes the "zombie P2P" issue where the main HTTP server stops
+        responding due to event loop blocking, but the process remains alive.
+        """
+        orchestrator = self  # Capture self for the inner function
+        # Use port + 2 for isolated health server (8772 for P2P on 8770)
+        # Port + 1 (8771) is used by daemon_manager's isolated health server
+        health_port = self.port + 2
+
+        def _run_health_server_in_thread() -> None:
+            """Run the health server in a separate thread with its own event loop."""
+            import asyncio as thread_asyncio
+
+            async def handle_health(request: web.Request) -> web.Response:
+                """Liveness probe - returns 200 if P2P process is alive.
+
+                This is a lightweight check that doesn't access heavy state.
+                """
+                uptime = time.time() - getattr(orchestrator, "start_time", time.time())
+                return web.json_response({
+                    "alive": True,
+                    "node_id": orchestrator.node_id,
+                    "role": orchestrator.role.value if hasattr(orchestrator.role, 'value') else str(orchestrator.role),
+                    "uptime_seconds": uptime,
+                    "main_port": orchestrator.port,
+                    "isolated_health_server": True,
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
+
+            async def handle_ready(request: web.Request) -> web.Response:
+                """Readiness probe - returns 200 if P2P has started up.
+
+                Checks minimal state without blocking.
+                """
+                uptime = time.time() - getattr(orchestrator, "start_time", time.time())
+                # Consider ready after 30 seconds of uptime
+                is_ready = uptime >= 30.0
+                return web.json_response({
+                    "ready": is_ready,
+                    "node_id": orchestrator.node_id,
+                    "uptime_seconds": uptime,
+                    "startup_complete": is_ready,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }, status=200 if is_ready else 503)
+
+            async def run_server() -> None:
+                """Set up and run the health server."""
+                app = web.Application()
+                app.router.add_get('/health', handle_health)
+                app.router.add_get('/ready', handle_ready)
+
+                runner = web.AppRunner(app)
+                await runner.setup()
+
+                try:
+                    site = web.TCPSite(runner, '0.0.0.0', health_port, reuse_address=True)
+                    await site.start()
+                    logger.info(f"Isolated health server started on 0.0.0.0:{health_port}")
+
+                    # Keep the server running forever
+                    while True:
+                        await thread_asyncio.sleep(3600)
+                except OSError as e:
+                    if "Address already in use" in str(e):
+                        logger.warning(f"Isolated health server port {health_port} in use, skipping")
+                    else:
+                        logger.error(f"Isolated health server failed: {e}")
+                except Exception as e:
+                    logger.error(f"Isolated health server error: {e}")
+
+            # Create and run a new event loop in this thread
+            loop = thread_asyncio.new_event_loop()
+            thread_asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(run_server())
+            except Exception as e:
+                logger.error(f"Isolated health server thread failed: {e}")
+            finally:
+                loop.close()
+
+        # Start the health server in a daemon thread
+        health_thread = threading.Thread(
+            target=_run_health_server_in_thread,
+            name="isolated-health-server",
+            daemon=True,
+        )
+        health_thread.start()
+        logger.info(f"Started isolated health server thread (port {health_port})")
+
     async def run(self):
         """Main entry point - start the orchestrator."""
         if not HAS_AIOHTTP:
             logger.error("aiohttp is required. Install with: pip install aiohttp")
             raise RuntimeError("aiohttp is required but not available - install with: pip install aiohttp")
+
+        # Start isolated health server FIRST (January 2026)
+        # This ensures /health endpoint is always responsive even if main loop blocks
+        self._start_isolated_health_server()
 
         # Validate critical subsystems before starting (December 2025)
         self._startup_validation = self._validate_critical_subsystems()

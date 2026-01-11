@@ -43,6 +43,7 @@ describe('MatchmakingService', () => {
   let service: MatchmakingService;
   let mockWsServer: {
     sendToUser: jest.Mock;
+    getConnectedUsers: jest.Mock;
   };
 
   const createPreferences = (
@@ -59,6 +60,16 @@ describe('MatchmakingService', () => {
 
     mockWsServer = {
       sendToUser: jest.fn(),
+      // getConnectedUsers returns list of connected user IDs for stale entry cleanup
+      // Default to common test user IDs so they aren't removed as stale
+      getConnectedUsers: jest.fn(() => [
+        'user-1',
+        'user-2',
+        'user-3',
+        'user-lonely',
+        'user-1100',
+        'user-1500',
+      ]),
     };
 
     service = new MatchmakingService(mockWsServer as any);

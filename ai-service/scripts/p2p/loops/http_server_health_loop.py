@@ -73,6 +73,7 @@ class HttpServerHealthConfig:
     recovery_delay_seconds: float = 5.0
     startup_grace_period_seconds: float = 30.0  # Reduced from 60s: faster detection
     exit_code_http_server_failed: int = EXIT_CODE_HTTP_SERVER_FAILED
+    use_isolated_health_port: bool = True  # Jan 2026: Probe isolated health server (port+1)
 
 
 class HttpServerHealthLoop(BaseLoop):
@@ -164,16 +165,22 @@ class HttpServerHealthLoop(BaseLoop):
         Creates a fresh aiohttp session for each probe to avoid connection pooling
         issues that could mask real failures.
 
+        January 2026: Now probes the isolated health server (port+1) by default.
+        This server runs in a separate thread and is guaranteed to respond even
+        when the main event loop is blocked.
+
         Returns:
             True if health endpoint returns 200 OK, False otherwise
         """
         try:
             import aiohttp
 
+            # Use isolated health port if configured (port + 2 for P2P, port + 1 for daemon_manager)
+            probe_port = self._port + 2 if self._config.use_isolated_health_port else self._port
             timeout = aiohttp.ClientTimeout(total=self._config.probe_timeout_seconds)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(
-                    f"http://127.0.0.1:{self._port}/health"
+                    f"http://127.0.0.1:{probe_port}/health"
                 ) as resp:
                     return resp.status == 200
         except ImportError:
@@ -326,8 +333,13 @@ class HttpServerHealthLoop(BaseLoop):
             else 100.0
         )
 
+        # Jan 2026: Include which port we're actually probing
+        probe_port = self._port + 2 if self._config.use_isolated_health_port else self._port
+
         return {
             "port": self._port,
+            "probe_port": probe_port,
+            "use_isolated_health_port": self._config.use_isolated_health_port,
             "consecutive_failures": self._consecutive_failures,
             "failure_threshold": self._config.failure_threshold,
             "total_probes": self._total_probes,

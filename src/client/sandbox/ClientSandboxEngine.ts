@@ -1349,6 +1349,13 @@ export class ClientSandboxEngine {
     const playerNumber = this.gameState.currentPlayer;
     const fromKey = positionToString(from);
 
+    // RR-FIX-2026-01-11: Respect mustMoveFromStackKey constraint.
+    // If a constraint is active and `from` doesn't match, return empty.
+    // This ensures UI highlights only show valid targets per the constraint.
+    if (this._mustMoveFromStackKey && this._mustMoveFromStackKey !== fromKey) {
+      return [];
+    }
+
     // 1. Enumerate capture segments from this stack.
     const captureSegments = this.enumerateCaptureSegmentsFrom(from, playerNumber);
     const captureLandings = captureSegments.map((seg) => seg.landing);

@@ -116,8 +116,9 @@ describe('VictoryModal render', () => {
 
     expect(screen.getAllByText(/Alice/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Bob/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Rings Eliminated/i)).toBeInTheDocument();
-    expect(screen.getByText(/Victory/i)).toBeInTheDocument();
+    // May appear multiple times (e.g., in header + scoreboard)
+    expect(screen.getAllByText(/Rings Eliminated/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Victory/i).length).toBeGreaterThan(0);
 
     // Backdrop click closes modal
     const dialog = screen.getByRole('dialog');

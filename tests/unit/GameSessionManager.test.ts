@@ -86,7 +86,14 @@ describe('GameSessionManager', () => {
 
       expect(session).toBeDefined();
       expect(session.gameId).toBe('game-1');
-      expect(GameSession).toHaveBeenCalledWith('game-1', io, expect.anything(), userSockets);
+      // 5th arg is withLockForGame function
+      expect(GameSession).toHaveBeenCalledWith(
+        'game-1',
+        io,
+        expect.anything(),
+        userSockets,
+        expect.any(Function)
+      );
       expect(session.initialize).toHaveBeenCalled();
     });
 
@@ -157,7 +164,8 @@ describe('GameSessionManager', () => {
       const result = await manager.withGameLock('game-1', operation);
 
       expect(result).toBe('result');
-      expect(mockAcquireLock).toHaveBeenCalledWith('lock:game:game-1', 5);
+      // P0 FIX: Lock TTL increased from 5s to 15s
+      expect(mockAcquireLock).toHaveBeenCalledWith('lock:game:game-1', 15);
       expect(operation).toHaveBeenCalled();
       expect(mockReleaseLock).toHaveBeenCalledWith('lock:game:game-1');
     });
@@ -194,7 +202,7 @@ describe('GameSessionManager', () => {
         'Game is busy, please try again'
       );
 
-      expect(mockAcquireLock).toHaveBeenCalledTimes(5); // maxRetries = 5
+      expect(mockAcquireLock).toHaveBeenCalledTimes(8); // maxRetries = 8
       expect(operation).not.toHaveBeenCalled();
     });
 

@@ -304,9 +304,9 @@ describe('ClientSandboxEngine Branch Coverage 2', () => {
       engine.initFromSerializedState(serialized, ['ai', 'ai'], new MockInteractionHandler());
 
       const state = engine.getGameState();
-      // Default difficulty is 5 when not specified
-      expect(state.players[0].aiDifficulty).toBe(5);
-      expect(state.players[1].aiDifficulty).toBe(5);
+      // Jan 10, 2026: Default difficulty is now 10 for optimal AI play
+      expect(state.players[0].aiDifficulty).toBe(10);
+      expect(state.players[1].aiDifficulty).toBe(10);
     });
 
     it('clears legacy mustMoveFromStackKey in completed games', () => {
