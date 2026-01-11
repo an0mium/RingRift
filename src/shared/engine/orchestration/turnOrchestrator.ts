@@ -3138,9 +3138,7 @@ function processPostMovePhases(
       // choose_territory_option). After an eliminate_rings_from_stack move, the
       // self-elimination requirement has been satisfied and we must not re-open
       // an elimination_target decision based on the stale moveHistory tail.
-      const shouldCheckEliminationAfterRegion =
-        originalMoveType === 'choose_territory_option' ||
-        originalMoveType === 'choose_territory_option';
+      const shouldCheckEliminationAfterRegion = originalMoveType === 'choose_territory_option';
       if (shouldCheckEliminationAfterRegion) {
         // If this turn is in recovery context, the cost is a buried-ring extraction.
         const elimScope: TerritoryEliminationScope = {

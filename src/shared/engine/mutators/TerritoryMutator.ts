@@ -1,6 +1,7 @@
 import { GameState, ProcessTerritoryAction, EliminateStackAction } from '../types';
 import { positionToString } from '../../types/game';
 import { eliminateFromStack, type EliminationContext } from '../aggregates/EliminationAggregate';
+import { getBorderMarkerPositionsForRegion } from '../territoryBorders';
 
 export function mutateProcessTerritory(
   state: GameState,
@@ -35,7 +36,13 @@ export function mutateProcessTerritory(
   let internalEliminations = 0;
   let territoryGain = 0;
 
-  // 1. Process each space in the region
+  // 1. Determine border markers for this region
+  const borderMarkers = getBorderMarkerPositionsForRegion(newState.board, region.spaces, {
+    mode: 'rust_aligned',
+  });
+  const regionKeySet = new Set(region.spaces.map((p) => positionToString(p)));
+
+  // 2. Process each space in the region
   for (const pos of region.spaces) {
     const key = positionToString(pos);
 
@@ -54,10 +61,33 @@ export function mutateProcessTerritory(
     territoryGain++;
   }
 
-  // 2. Remove the territory entry since it's now collapsed
+  // 3. Collapse all border markers to the processing player's territory
+  for (const pos of borderMarkers) {
+    const key = positionToString(pos);
+    if (regionKeySet.has(key)) {
+      // Skip if already processed as region space
+      continue;
+    }
+
+    // Remove any marker at this position
+    newState.board.markers.delete(key);
+
+    // Remove any stack at this position (defensive)
+    const stack = newState.board.stacks.get(key);
+    if (stack) {
+      internalEliminations += stack.stackHeight;
+      newState.board.stacks.delete(key);
+    }
+
+    // Collapse the space to the processing player's territory
+    newState.board.collapsedSpaces.set(key, player);
+    territoryGain++;
+  }
+
+  // 4. Remove the territory entry since it's now collapsed
   newState.board.territories.delete(action.regionId);
 
-  // 3. Update player's territorySpaces
+  // 5. Update player's territorySpaces
   if (territoryGain > 0) {
     const playerObj = newState.players.find((p) => p.playerNumber === player);
     if (playerObj) {
@@ -65,7 +95,7 @@ export function mutateProcessTerritory(
     }
   }
 
-  // 4. Credit internal eliminations to the processing player
+  // 6. Credit internal eliminations to the processing player
   if (internalEliminations > 0) {
     newState.board.eliminatedRings[player] =
       (newState.board.eliminatedRings[player] || 0) + internalEliminations;
