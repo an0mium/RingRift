@@ -17682,16 +17682,18 @@ print(json.dumps({{
             except (ImportError, RuntimeError, AttributeError):
                 pass
 
-    async def _send_heartbeat_to_peer(self, peer_host: str, peer_port: int, scheme: str = "http", timeout: int = 10) -> NodeInfo | None:
+    async def _send_heartbeat_to_peer(self, peer_host: str, peer_port: int, scheme: str = "http", timeout: int = 15) -> NodeInfo | None:
         """Send heartbeat to a peer and return their info.
 
         Args:
             peer_host: Target peer hostname or IP
             peer_port: Target peer port
             scheme: HTTP or HTTPS scheme
-            timeout: Request timeout in seconds (default 10, use smaller for voter heartbeats)
+            timeout: Request timeout in seconds (default 15, use smaller for voter heartbeats)
 
         Dec 2025: Added SSH fallback via HybridTransport when HTTP fails.
+        Jan 11, 2026: Phase 3 - Increased default timeout from 10s to 15s for better
+        reliability with relay/NAT nodes that can exceed 10s latency.
         """
         target = f"{peer_host}:{peer_port}"
         breaker = self._circuit_registry.get_breaker("p2p")
@@ -18660,6 +18662,17 @@ print(json.dumps({{
 
     async def _heartbeat_loop(self):
         """Send heartbeats to all known peers."""
+        # Jan 11, 2026: Phase 5 - Initial heartbeat burst to prevent startup race
+        # Send immediate heartbeats to all known peers so they discover us quickly
+        # This fixes the issue where peers think we're dead before our first heartbeat
+        logger.info("Sending initial heartbeat burst to known peers")
+        for peer_addr in self.known_peers:
+            try:
+                scheme, host, port = self._parse_peer_address(peer_addr)
+                await self._send_heartbeat_to_peer(host, port, scheme=scheme, timeout=10)
+            except Exception:
+                pass  # Best effort, regular loop will retry
+
         while self.running:
             try:
                 # Send to known peers from config
@@ -18744,6 +18757,30 @@ print(json.dumps({{
                     if peer.node_id != self.node_id:
                         if not peer.should_retry():
                             continue
+
+                        # Jan 11, 2026: Phase 2 - Adaptive heartbeat timing based on consecutive failures
+                        # This gives flaky peers time to recover without spamming them
+                        failures = int(getattr(peer, "consecutive_failures", 0) or 0)
+                        if failures == 0:
+                            heartbeat_interval = HEARTBEAT_INTERVAL  # 15s for healthy peers
+                        elif failures == 1:
+                            heartbeat_interval = 5  # Quick retry after first failure
+                        elif failures == 2:
+                            heartbeat_interval = 10  # Second retry
+                        elif failures < 5:
+                            heartbeat_interval = 20  # Slower retries
+                        else:
+                            heartbeat_interval = 30  # Very slow for consistently failing
+
+                        # Check if heartbeat is due for this peer
+                        last_sent = float(getattr(peer, "last_heartbeat_sent", 0.0) or 0.0)
+                        now = time.time()
+                        if now - last_sent < heartbeat_interval:
+                            continue  # Not time yet for this peer
+
+                        # Mark the send time
+                        peer.last_heartbeat_sent = now
+
                         peer_scheme = getattr(peer, "scheme", "http") or "http"
                         info = await self._send_heartbeat_to_peer(peer.host, peer.port, scheme=peer_scheme)
                         if not info and getattr(peer, "reported_host", "") and getattr(peer, "reported_port", 0):
@@ -19029,6 +19066,142 @@ print(json.dumps({{
                 logger.info(f"Voter heartbeat error: {e}")
 
             await asyncio.sleep(VOTER_HEARTBEAT_INTERVAL)
+
+    async def _reconnect_dead_peers_loop(self) -> None:
+        """Attempt to reconnect dead (but not retired) peers with exponential backoff.
+
+        Jan 11, 2026: P2P Stability Fix - Phase 1
+
+        Problem: When a peer goes "dead" (after 60-90s with no heartbeat), there's
+        NO reconnection logic until it's "retired" (1800s). Dead nodes just stay dead
+        in the peer list, causing cluster fragmentation.
+
+        Solution: This loop actively probes dead peers with exponential backoff:
+        - First 60s after death: retry every 15s (fast recovery for transient issues)
+        - 60-120s: retry every 30s
+        - 120-300s: retry every 60s
+        - 300s+: retry every 120s (slow probing until retirement)
+
+        This ensures dead peers can recover quickly while not overloading the network
+        with reconnection attempts for truly offline nodes.
+        """
+        # Wait for startup to complete before starting reconnection attempts
+        await asyncio.sleep(30)
+
+        logger.info("Starting dead peer reconnection loop (Phase 1 P2P stability fix)")
+
+        while self.running:
+            try:
+                now = time.time()
+                async with AsyncLockWrapper(self.peers_lock):
+                    peers_snapshot = list(self.peers.items())
+
+                reconnect_attempts = 0
+                reconnect_successes = 0
+
+                for node_id, peer in peers_snapshot:
+                    if node_id == self.node_id:
+                        continue
+
+                    # Skip alive or retired peers
+                    if peer.is_alive():
+                        continue
+                    if getattr(peer, "retired", False):
+                        continue
+
+                    # Calculate time since death
+                    dead_since = now - peer.last_heartbeat
+
+                    # Skip if not actually dead yet (within timeout window)
+                    if dead_since < PEER_TIMEOUT:
+                        continue
+
+                    # Exponential backoff: 15s, 30s, 60s, 120s based on time since death
+                    if dead_since < 60:
+                        retry_interval = 15
+                    elif dead_since < 120:
+                        retry_interval = 30
+                    elif dead_since < 300:
+                        retry_interval = 60
+                    else:
+                        retry_interval = 120
+
+                    # Check if it's time to retry this peer
+                    last_retry = getattr(peer, "last_reconnect_attempt", 0.0)
+                    if now - last_retry < retry_interval:
+                        continue
+
+                    # Mark the attempt time before trying (to prevent rapid retries on error)
+                    peer.last_reconnect_attempt = now
+                    reconnect_attempts += 1
+
+                    # Try multiple paths to reach the peer
+                    success = False
+                    peer_scheme = getattr(peer, "scheme", "http") or "http"
+
+                    # Path 1: Primary endpoint
+                    try:
+                        result = await self._send_heartbeat_to_peer(
+                            peer.host, peer.port, scheme=peer_scheme, timeout=15
+                        )
+                        if result:
+                            success = True
+                    except Exception:
+                        pass
+
+                    # Path 2: Tailscale IP fallback
+                    if not success:
+                        ts_ip = self._get_tailscale_ip_for_peer(node_id)
+                        if ts_ip and ts_ip != peer.host:
+                            try:
+                                result = await self._send_heartbeat_to_peer(
+                                    ts_ip, peer.port, scheme=peer_scheme, timeout=15
+                                )
+                                if result:
+                                    success = True
+                                    logger.info(f"Reconnected to {node_id} via Tailscale ({ts_ip})")
+                            except Exception:
+                                pass
+
+                    # Path 3: Reported host fallback
+                    if not success:
+                        reported_host = getattr(peer, "reported_host", "")
+                        reported_port = getattr(peer, "reported_port", 0)
+                        if reported_host and reported_port and (reported_host != peer.host or reported_port != peer.port):
+                            try:
+                                result = await self._send_heartbeat_to_peer(
+                                    reported_host, reported_port, scheme=peer_scheme, timeout=15
+                                )
+                                if result:
+                                    success = True
+                                    logger.info(f"Reconnected to {node_id} via reported endpoint ({reported_host}:{reported_port})")
+                            except Exception:
+                                pass
+
+                    if success:
+                        reconnect_successes += 1
+                        async with AsyncLockWrapper(self.peers_lock):
+                            if node_id in self.peers:
+                                self.peers[node_id].consecutive_failures = 0
+                                self.peers[node_id].last_heartbeat = time.time()
+                        logger.info(f"Reconnected to dead peer {node_id} (was dead for {dead_since:.0f}s)")
+
+                        # Emit HOST_ONLINE event for recovered peer
+                        try:
+                            self._emit_host_online_sync(node_id, ["recovered"])
+                        except Exception:
+                            pass
+                    else:
+                        logger.debug(f"Reconnect to {node_id} failed (dead for {dead_since:.0f}s, retry in {retry_interval}s)")
+
+                if reconnect_attempts > 0:
+                    logger.debug(f"Reconnect loop: {reconnect_successes}/{reconnect_attempts} attempts succeeded")
+
+            except Exception as e:
+                logger.error(f"Error in dead peer reconnection loop: {e}")
+
+            # Check every 15s for peers that need reconnection
+            await asyncio.sleep(15)
 
     async def _send_voter_heartbeat(self, voter_peer) -> bool:
         """Send a heartbeat to a voter peer with shorter timeout."""
@@ -21565,19 +21738,39 @@ print(json.dumps({{
                 "collected_at": getattr(local_manifest, "collected_at", 0),
             }
 
-        # Select K random peers to gossip with (fanout = 3)
-        GOSSIP_FANOUT = 3
+        # Jan 11, 2026: Phase 6 - Dynamic gossip fanout based on peer failures
+        # When detecting many peer failures, increase fanout for faster convergence
         with self.peers_lock:
+            all_peers = list(self.peers.values())
             alive_peers = [
-                p for p in self.peers.values()
+                p for p in all_peers
                 if p.is_alive() and not getattr(p, "retired", False)
             ]
 
         if not alive_peers:
             return
 
+        # Count recent failures (peers that became dead within last 2 minutes)
+        now = time.time()
+        recent_failures = sum(
+            1 for p in all_peers
+            if not p.is_alive() and not getattr(p, "retired", False)
+            and now - p.last_heartbeat < 120
+        )
+
+        # Dynamic fanout: base 5, increase when failures detected
+        base_fanout = 5
+        if recent_failures > 5:
+            # Emergency mode: 5 + 5 = 10 fanout (limited to 15)
+            gossip_fanout = min(15, base_fanout + 5)
+        elif recent_failures > 2:
+            # Elevated mode: 5 + 3 = 8 fanout (limited to 12)
+            gossip_fanout = min(12, base_fanout + 3)
+        else:
+            gossip_fanout = base_fanout
+
         import random
-        peers_to_gossip = random.sample(alive_peers, min(GOSSIP_FANOUT, len(alive_peers)))
+        peers_to_gossip = random.sample(alive_peers, min(gossip_fanout, len(alive_peers)))
 
         # Send gossip to selected peers
         timeout = ClientTimeout(total=5)
@@ -27879,6 +28072,11 @@ print(json.dumps({{
             # IMPROVED: Dedicated voter heartbeat loop for reliable leader election - auto-restart
             self._create_safe_task(
                 self._voter_heartbeat_loop(), "voter_heartbeat", factory=self._voter_heartbeat_loop
+            ),
+            # Jan 11, 2026: Dead peer reconnection loop (Phase 1 P2P stability fix)
+            # Actively probes dead peers with exponential backoff to prevent cluster fragmentation
+            self._create_safe_task(
+                self._reconnect_dead_peers_loop(), "dead_peer_reconnect", factory=self._reconnect_dead_peers_loop
             ),
             # NOTE: _nat_management_loop removed Dec 2025 - now runs via LoopManager (NATManagementLoop)
             # See scripts/p2p/loops/network_loops.py for implementation
