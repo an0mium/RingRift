@@ -2920,7 +2920,10 @@ export class ClientSandboxEngine {
           if (eliminationMoves.length > 0) {
             let elimMove: Move = eliminationMoves[0];
 
-            if (eliminationMoves.length > 1) {
+            // RR-FIX-2026-01-10: Always show elimination UI for human players, even with a single option.
+            // Previously only showed UI for multiple options (> 1), causing single-option eliminations
+            // to be silently auto-applied without highlighting or visual feedback.
+            if (eliminationMoves.length >= 1) {
               // Build a descriptive prompt explaining which spaces were claimed
               const spacesList = regionSpaces
                 .slice(0, 4)

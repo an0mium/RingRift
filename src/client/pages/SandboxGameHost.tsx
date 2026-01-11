@@ -330,10 +330,12 @@ export const SandboxGameHost: React.FC = () => {
 
           // Human players with a single available option: auto-resolve the
           // choice without surfacing any blocking UI.
+          // RR-FIX-2026-01-10: Exception for ring_elimination - always show UI for visual feedback
+          // so human players see stack highlighting and confirmation even for single-option eliminations.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- polymorphic choice options access
           const rawOptions = (choice as any).options as TChoice['options'] | undefined;
           const autoOptions = (rawOptions as unknown[]) ?? [];
-          if (autoOptions.length === 1) {
+          if (autoOptions.length === 1 && choice.type !== 'ring_elimination') {
             const onlyOption = autoOptions[0] as TChoice['options'][number];
             return {
               choiceId: choice.id,
