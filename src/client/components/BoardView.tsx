@@ -1029,19 +1029,25 @@ export const BoardView: React.FC<BoardViewProps> = ({
         // Cell size 72px (10% smaller than original 80px)
         const cellSize = isDesktop ? 72 : 40;
         // Buffer for coordinate labels + padding + panel gaps.
-        // Increased by 15px (45→60) to prevent overlap with surrounding panels.
-        const labelBuffer = 60;
-        naturalWidth = 8 * cellSize + 7 * gap + labelBuffer;
-        naturalHeight = 8 * cellSize + 7 * gap + labelBuffer;
+        // Split into X (right) and Y (top+bottom) for independent control.
+        // X: 60 + 5 = 65 (right gap +5)
+        // Y: 60 + 20 = 80 (top gap +15, bottom gap +5)
+        const labelBufferX = 65;
+        const labelBufferY = 80;
+        naturalWidth = 8 * cellSize + 7 * gap + labelBufferX;
+        naturalHeight = 8 * cellSize + 7 * gap + labelBufferY;
       } else if (effectiveBoardType === 'square19') {
         const cellSize = isDesktop ? 56 : 44;
         // Board is full-size (internal scale-75 was removed), so calculate actual dimensions:
         // 19 cells + 18 gaps (space-y-0.5 = 2px) + padding (p-2 = 8px each side) + coord labels
         const gridSize = 19 * cellSize + 18 * gap; // 1064 + 36 = 1100
-        // Buffer increased by 15px (40→55) to prevent overlap with surrounding panels.
-        const labelBuffer = 55;
-        naturalWidth = gridSize + labelBuffer;
-        naturalHeight = gridSize + labelBuffer;
+        // Split into X (right) and Y (top+bottom) for independent control.
+        // X: 55 + 5 = 60 (right gap +5)
+        // Y: 55 + 20 = 75 (top gap +15, bottom gap +5)
+        const labelBufferX = 60;
+        const labelBufferY = 75;
+        naturalWidth = gridSize + labelBufferX;
+        naturalHeight = gridSize + labelBufferY;
       } else if (effectiveBoardType === 'hex8') {
         // Hex8 board (radius 4)
         // Diagnostics 2026-01-11: board 585x538, wrapper 562x534 (23px width overflow)
