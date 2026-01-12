@@ -345,3 +345,24 @@ class TailscaleChecker(StateChecker):
             for inst in instances
             if inst.node_name and inst.state == ProviderInstanceState.RUNNING
         ]
+
+    async def get_terminated_instances(
+        self,
+        config_hosts: dict[str, dict],
+    ) -> list[str]:
+        """Find nodes that appear terminated (offline in Tailscale mesh).
+
+        For Tailscale, "terminated" means the node is configured with a
+        tailscale_ip but is not currently online in the mesh. This could mean:
+        - The cloud instance was actually terminated
+        - The instance is running but Tailscale is dead inside it
+        - Network connectivity issues
+
+        Args:
+            config_hosts: The 'hosts' section from distributed_hosts.yaml
+
+        Returns:
+            List of node names that are configured but offline.
+        """
+        # Reuse get_disconnected_nodes - same semantics for Tailscale
+        return await self.get_disconnected_nodes(config_hosts)
