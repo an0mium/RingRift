@@ -146,6 +146,15 @@ class GameSyncServiceImpl {
       return;
     }
 
+    // Get replay service instance and check if it's configured
+    const replayService = getReplayService();
+
+    // Skip sync if replay service is not configured (production without AI service URL)
+    // This prevents CSP errors from trying to connect to localhost:8001
+    if (!replayService.isConfigured()) {
+      return;
+    }
+
     // Check if we should back off
     if (this.state.consecutiveFailures > 0) {
       const backoffMs = Math.min(
@@ -160,9 +169,6 @@ class GameSyncServiceImpl {
         return; // Still in backoff period
       }
     }
-
-    // Get replay service instance
-    const replayService = getReplayService();
 
     // Get pending games
     let pendingGames: LocalGameRecord[];

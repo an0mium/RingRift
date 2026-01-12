@@ -40,12 +40,25 @@ import type { Move, Position, BoardType, LineInfo, Territory } from '../../share
  *
  * Priority:
  * 1. RINGRIFT_AI_SERVICE_URL (runtime env)
- * 2. Default localhost:8001 for development
+ * 2. Default localhost:8001 for local development
+ * 3. null for production without configured URL (disables sync)
  */
-function getAIServiceUrl(): string {
+function getAIServiceUrl(): string | null {
   const envUrl = readEnv('RINGRIFT_AI_SERVICE_URL');
   if (envUrl && typeof envUrl === 'string') {
     return envUrl.replace(/\/$/, '');
+  }
+
+  // In production without configured URL, return null to disable sync.
+  // This prevents CSP errors from trying to connect to localhost:8001.
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const protocol = window.location.protocol;
+    const isProduction =
+      protocol === 'https:' || (!hostname.includes('localhost') && hostname !== '127.0.0.1');
+    if (isProduction) {
+      return null;
+    }
   }
 
   // Default for local development
@@ -56,16 +69,36 @@ function getAIServiceUrl(): string {
  * ReplayService provides access to the GameReplayDB REST API.
  */
 export class ReplayService {
-  private baseUrl: string;
+  private baseUrl: string | null;
+  private configured: boolean;
 
   constructor(aiServiceUrl?: string) {
-    this.baseUrl = `${aiServiceUrl ?? getAIServiceUrl()}/api/replay`;
+    const url = aiServiceUrl ?? getAIServiceUrl();
+    if (url) {
+      this.baseUrl = `${url}/api/replay`;
+      this.configured = true;
+    } else {
+      this.baseUrl = null;
+      this.configured = false;
+    }
+  }
+
+  /**
+   * Check if the service is configured with a valid URL.
+   * Returns false in production when RINGRIFT_AI_SERVICE_URL is not set.
+   */
+  isConfigured(): boolean {
+    return this.configured;
   }
 
   /**
    * List games with optional filters.
    */
   async listGames(filters: ReplayGameQueryParams = {}): Promise<ReplayGameListResponse> {
+    if (!this.baseUrl) {
+      return { games: [], total: 0, page: 1, pageSize: 0, hasMore: false };
+    }
+
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -87,6 +120,9 @@ export class ReplayService {
    * Get detailed metadata for a specific game including player info.
    */
   async getGame(gameId: string): Promise<ReplayGameMetadata> {
+    if (!this.baseUrl) {
+      throw new Error('ReplayService is not configured');
+    }
     const response = await fetch(`${this.baseUrl}/games/${encodeURIComponent(gameId)}`);
 
     if (!response.ok) {
@@ -106,6 +142,9 @@ export class ReplayService {
    * @param moveNumber - Move number (0 = initial state, N = after move N)
    */
   async getStateAtMove(gameId: string, moveNumber: number): Promise<ReplayStateResponse> {
+    if (!this.baseUrl) {
+      throw new Error('ReplayService is not configured');
+    }
     const params = new URLSearchParams({ move_number: String(moveNumber) });
     const response = await fetch(
       `${this.baseUrl}/games/${encodeURIComponent(gameId)}/state?${params.toString()}`
@@ -135,6 +174,9 @@ export class ReplayService {
     end?: number,
     limit = 100
   ): Promise<ReplayMovesResponse> {
+    if (!this.baseUrl) {
+      throw new Error('ReplayService is not configured');
+    }
     const params = new URLSearchParams({
       start: String(start),
       limit: String(limit),
@@ -161,6 +203,9 @@ export class ReplayService {
    * Get player choices made at a specific move.
    */
   async getChoices(gameId: string, moveNumber: number): Promise<ReplayChoicesResponse> {
+    if (!this.baseUrl) {
+      throw new Error('ReplayService is not configured');
+    }
     const params = new URLSearchParams({ move_number: String(moveNumber) });
     const response = await fetch(
       `${this.baseUrl}/games/${encodeURIComponent(gameId)}/choices?${params.toString()}`
@@ -180,6 +225,9 @@ export class ReplayService {
    * Get database statistics.
    */
   async getStats(): Promise<ReplayStatsResponse> {
+    if (!this.baseUrl) {
+      return { totalGames: 0, totalMoves: 0, boardTypes: {}, playerCounts: {} };
+    }
     const response = await fetch(`${this.baseUrl}/stats`);
 
     if (!response.ok) {
@@ -195,6 +243,10 @@ export class ReplayService {
    * Used by the sandbox UI to persist AI vs AI games to the database.
    */
   async storeGame(request: StoreGameRequest): Promise<StoreGameResponse> {
+    if (!this.baseUrl) {
+      // Return a failed response when not configured (production without AI service URL)
+      return { success: false, message: 'ReplayService is not configured' };
+    }
     const response = await fetch(`${this.baseUrl}/games`, {
       method: 'POST',
       headers: {
@@ -214,6 +266,9 @@ export class ReplayService {
    * Check if the replay service is available.
    */
   async isAvailable(): Promise<boolean> {
+    if (!this.baseUrl) {
+      return false;
+    }
     try {
       const response = await fetch(`${this.baseUrl}/stats`, {
         method: 'GET',
