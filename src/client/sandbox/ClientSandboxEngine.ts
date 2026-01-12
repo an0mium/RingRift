@@ -1284,19 +1284,39 @@ export class ClientSandboxEngine {
       // cell again will place another ring (instead of just selecting it).
       this._selectedStackKey = key;
 
+      // Mark that we've placed this turn and set the must-move key
+      this._hasPlacedThisTurn = true;
+      this._mustMoveFromStackKey = key;
+
+      // Check if player still has rings available for additional placements
+      const currentPlayer = this.gameState.players.find((p) => p.playerNumber === playerNumber);
+      const hasRingsRemaining = currentPlayer && currentPlayer.ringsInHand > 0;
+
       // Keep phase as ring_placement if we can still place more rings (up to 3)
+      // AND the player has rings remaining in hand.
       // The adapter may have transitioned to 'movement', but we override that
       // so humans can continue placing rings with subsequent clicks.
-      if (this._ringsPlacedThisTurn < 3) {
+      if (this._ringsPlacedThisTurn < 3 && hasRingsRemaining) {
         this.gameState = {
           ...this.gameState,
           currentPhase: 'ring_placement',
         };
+      } else if (!hasRingsRemaining && this._mustMoveFromStackKey) {
+        // RR-FIX-2026-01-12: Player placed their last ring and has no rings remaining.
+        // Auto-advance to movement phase so they can move from the placed stack.
+        // Emit no_placement_action to properly advance the phase via the orchestrator.
+        const advanceMoveNumber = this.gameState.history.length + 1;
+        const noPlacementMove: Move = {
+          type: 'no_placement_action',
+          player: playerNumber,
+          id: `no-placement-action-auto-${advanceMoveNumber}`,
+          moveNumber: advanceMoveNumber,
+          timestamp: new Date(),
+          thinkTime: 0,
+          to: { x: 0, y: 0 },
+        } as Move;
+        await this.applyCanonicalMove(noPlacementMove);
       }
-
-      // Mark that we've placed this turn and set the must-move key
-      this._hasPlacedThisTurn = true;
-      this._mustMoveFromStackKey = key;
 
       // The orchestrator adapter already recorded the canonical Move into
       // moveHistory/history. Capture snapshots only so HistoryPlayback remains aligned.
