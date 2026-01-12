@@ -172,9 +172,11 @@ class ReactiveDispatcher(HandlerBase):
 
     async def _on_node_recovered(self, event: Any) -> None:
         """Handle node recovery - dispatch selfplay to recovered node."""
+        # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+        payload = self._get_payload(event)
         await self._enqueue_event(
             event_type="node_recovered",
-            node_id=getattr(event, "node_id", None) or event.get("node_id") if isinstance(event, dict) else None,
+            node_id=payload.get("node_id"),
             metadata={"event": str(event)[:200]},
         )
 

@@ -1106,15 +1106,18 @@ class MasterLoopController:
                     # Allow cancellation to propagate for clean shutdown
                     raise
                 except (OSError, ConnectionError, TimeoutError) as e:
-                    # Network/connection errors - log and continue
+                    # Network/connection errors - log and continue with backoff
                     logger.warning(f"[MasterLoop] Transient error in loop iteration: {e}")
+                    await asyncio.sleep(5.0)  # Jan 2026: Add backoff to prevent CPU spin
                 except Exception as e:
                     # Log unexpected errors but continue loop - Dec 2025: narrowed from bare except
                     logger.error(f"[MasterLoop] Error in loop iteration: {e}", exc_info=True)
+                    await asyncio.sleep(10.0)  # Jan 2026: Add backoff to prevent CPU spin
 
                 # Wait for next iteration
                 elapsed = time.time() - loop_start
-                sleep_time = max(0, LOOP_INTERVAL_SECONDS - elapsed)
+                # Jan 2026: Minimum 1s sleep to prevent CPU spin when operations timeout
+                sleep_time = max(1.0, LOOP_INTERVAL_SECONDS - elapsed)
 
                 try:
                     await asyncio.wait_for(

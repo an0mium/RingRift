@@ -734,98 +734,114 @@ class ClusterResilienceOrchestrator(CoordinatorBase, SingletonMixin):
     # Event Handlers (Phase 6 - Jan 4, 2026)
     # =========================================================================
 
-    def _on_autonomous_queue_activated(self, event: dict[str, Any]) -> None:
+    def _on_autonomous_queue_activated(self, event) -> None:
         """Handle autonomous queue activation."""
         self._autonomous_queue_active = True
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
         logger.info(
             "Autonomous queue activated - leader unavailable",
-            extra={"node_id": event.get("node_id"), "reason": event.get("reason")},
+            extra={"node_id": payload.get("node_id"), "reason": payload.get("reason")},
         )
         self._escalation_count += 1
 
-    def _on_autonomous_queue_deactivated(self, event: dict[str, Any]) -> None:
+    def _on_autonomous_queue_deactivated(self, event) -> None:
         """Handle autonomous queue deactivation."""
         self._autonomous_queue_active = False
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
         logger.info(
             "Autonomous queue deactivated - leader resumed",
-            extra={"node_id": event.get("node_id")},
+            extra={"node_id": payload.get("node_id")},
         )
 
-    def _on_utilization_recovery_started(self, event: dict[str, Any]) -> None:
+    def _on_utilization_recovery_started(self, event) -> None:
         """Handle utilization recovery start."""
         self._utilization_recovery_active = True
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
         logger.info(
             "Utilization recovery started",
             extra={
-                "node_id": event.get("node_id"),
-                "idle_gpu_percent": event.get("idle_gpu_percent"),
-                "work_items_injected": event.get("work_items_injected"),
+                "node_id": payload.get("node_id"),
+                "idle_gpu_percent": payload.get("idle_gpu_percent"),
+                "work_items_injected": payload.get("work_items_injected"),
             },
         )
 
-    def _on_utilization_recovery_completed(self, event: dict[str, Any]) -> None:
+    def _on_utilization_recovery_completed(self, event) -> None:
         """Handle utilization recovery completion."""
         self._utilization_recovery_active = False
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
         logger.info(
             "Utilization recovery completed",
             extra={
-                "node_id": event.get("node_id"),
-                "work_items_processed": event.get("work_items_processed"),
+                "node_id": payload.get("node_id"),
+                "work_items_processed": payload.get("work_items_processed"),
             },
         )
 
-    def _on_utilization_recovery_failed(self, event: dict[str, Any]) -> None:
+    def _on_utilization_recovery_failed(self, event) -> None:
         """Handle utilization recovery failure."""
         self._utilization_recovery_active = False
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
         logger.error(
             "Utilization recovery failed",
             extra={
-                "node_id": event.get("node_id"),
-                "error": event.get("error"),
+                "node_id": payload.get("node_id"),
+                "error": payload.get("error"),
             },
         )
         self._escalation_count += 1
 
-    def _on_fast_failure_alert(self, event: dict[str, Any]) -> None:
+    def _on_fast_failure_alert(self, event) -> None:
         """Handle fast failure alert (10-min detection)."""
-        tier = event.get("tier", "alert")
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
+        tier = payload.get("tier", "alert")
         self._fast_failure_tier = tier
         logger.warning(
             f"Fast failure alert - tier: {tier}",
             extra={
                 "tier": tier,
-                "signals": event.get("signals"),
-                "no_leader_seconds": event.get("no_leader_seconds"),
+                "signals": payload.get("signals"),
+                "no_leader_seconds": payload.get("no_leader_seconds"),
             },
         )
         self._escalation_count += 1
 
         # Emit coordinated escalation event
-        self._emit_escalation_event(tier, event)
+        self._emit_escalation_event(tier, payload)
 
-    def _on_fast_failure_recovery(self, event: dict[str, Any]) -> None:
+    def _on_fast_failure_recovery(self, event) -> None:
         """Handle fast failure recovery (30-min escalation)."""
-        tier = event.get("tier", "recovery")
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
+        tier = payload.get("tier", "recovery")
         self._fast_failure_tier = tier
         logger.warning(
             f"Fast failure recovery triggered - tier: {tier}",
             extra={
                 "tier": tier,
-                "boost_factor": event.get("boost_factor"),
-                "autonomous_triggered": event.get("autonomous_triggered"),
+                "boost_factor": payload.get("boost_factor"),
+                "autonomous_triggered": payload.get("autonomous_triggered"),
             },
         )
         self._escalation_count += 1
 
-    def _on_fast_failure_recovered(self, event: dict[str, Any]) -> None:
+    def _on_fast_failure_recovered(self, event) -> None:
         """Handle fast failure recovered (cluster healthy)."""
         previous_tier = self._fast_failure_tier
         self._fast_failure_tier = "healthy"
+        # Jan 2026: Handle both RouterEvent and dict types
+        payload = event.payload if hasattr(event, "payload") else event
         logger.info(
             f"Fast failure recovered - was at tier: {previous_tier}",
             extra={
                 "previous_tier": previous_tier,
-                "signals": event.get("signals"),
+                "signals": payload.get("signals"),
             },
         )
 

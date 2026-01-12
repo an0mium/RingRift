@@ -211,13 +211,15 @@ class BacklogEvaluationDaemon(HandlerBase):
             "evaluation_failed": self._on_evaluation_failed,
         }
 
-    async def _on_backpressure(self, event: dict) -> None:
+    async def _on_backpressure(self, event) -> None:
         """Handle backpressure signal from EvaluationDaemon."""
         if self._is_duplicate_event(event):
             return
 
         self._backpressure_active = True
-        queue_depth = event.get("queue_depth", 0)
+        # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+        payload = self._get_payload(event)
+        queue_depth = payload.get("queue_depth", 0)
         logger.info(
             f"[BacklogEval] Backpressure active (queue_depth={queue_depth}), "
             f"pausing model queuing"
@@ -231,22 +233,26 @@ class BacklogEvaluationDaemon(HandlerBase):
         self._backpressure_active = False
         logger.info("[BacklogEval] Backpressure released, resuming model queuing")
 
-    async def _on_evaluation_completed(self, event: dict) -> None:
+    async def _on_evaluation_completed(self, event) -> None:
         """Track completed evaluations from backlog."""
-        source = event.get("source", "")
+        # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+        payload = self._get_payload(event)
+        source = payload.get("source", "")
         if source.startswith("backlog_"):
             self._stats.evaluations_completed += 1
             logger.debug(
-                f"[BacklogEval] Evaluation completed: {event.get('model_path', 'unknown')}"
+                f"[BacklogEval] Evaluation completed: {payload.get('model_path', 'unknown')}"
             )
 
-    async def _on_evaluation_failed(self, event: dict) -> None:
+    async def _on_evaluation_failed(self, event) -> None:
         """Track failed evaluations from backlog."""
-        source = event.get("source", "")
+        # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+        payload = self._get_payload(event)
+        source = payload.get("source", "")
         if source.startswith("backlog_"):
             self._stats.evaluations_failed += 1
             logger.warning(
-                f"[BacklogEval] Evaluation failed: {event.get('model_path', 'unknown')}"
+                f"[BacklogEval] Evaluation failed: {payload.get('model_path', 'unknown')}"
             )
 
     # =========================================================================

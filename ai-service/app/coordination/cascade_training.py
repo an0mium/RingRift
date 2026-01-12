@@ -190,16 +190,18 @@ class CascadeTrainingOrchestrator(HandlerBase):
             "CASCADE_TRANSFER_TRIGGERED": self._on_cascade_transfer_triggered,
         }
 
-    async def _on_cascade_transfer_triggered(self, event: dict) -> None:
+    async def _on_cascade_transfer_triggered(self, event) -> None:
         """Handle cascade transfer trigger - actually run the transfer.
 
         December 29, 2025: Added to execute the transfer_2p_to_np script
         when cascade advancement is triggered.
         """
-        board_type = event.get("board_type")
-        source_players = event.get("source_players")
-        target_players = event.get("target_players")
-        source_model = event.get("source_model")
+        # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+        payload = self._get_payload(event)
+        board_type = payload.get("board_type")
+        source_players = payload.get("source_players")
+        target_players = payload.get("target_players")
+        source_model = payload.get("source_model")
 
         if not all([board_type, source_players, target_players, source_model]):
             logger.warning(f"[CascadeTraining] Invalid transfer event: {event}")
@@ -338,10 +340,12 @@ class CascadeTrainingOrchestrator(HandlerBase):
 
         state.last_updated = datetime.now()
 
-    async def _on_evaluation_completed(self, event: dict) -> None:
+    async def _on_evaluation_completed(self, event) -> None:
         """Handle evaluation completion - may trigger cascade advancement."""
-        config_key = event.get("config_key", "")
-        elo = event.get("elo", 0.0)
+        # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+        payload = self._get_payload(event)
+        config_key = payload.get("config_key", "")
+        elo = payload.get("elo", 0.0)
 
         if not config_key or not elo:
             return

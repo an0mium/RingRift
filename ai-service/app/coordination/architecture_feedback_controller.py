@@ -157,7 +157,9 @@ class ArchitectureFeedbackController(HandlerBase):
             # December 30, 2025: Prefer explicit architecture from event payload
             # This supports multi-architecture training where architecture is known
             # Check both metadata and direct payload (event_router puts it in payload)
-            architecture = event.get("architecture") or event.get("metadata", {}).get("architecture")
+            # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+            payload = self._get_payload(event)
+            architecture = payload.get("architecture") or payload.get("metadata", {}).get("architecture")
             if not architecture:
                 # Fallback to extraction from model path
                 architecture = extract_architecture_from_model_path(data.model_path)
@@ -200,7 +202,9 @@ class ArchitectureFeedbackController(HandlerBase):
             from app.coordination.event_utils import extract_training_data
 
             data = extract_training_data(event)
-            duration_seconds = event.get("duration_seconds", 0.0)
+            # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+            payload = self._get_payload(event)
+            duration_seconds = payload.get("duration_seconds", 0.0)
 
             if not data.is_valid or not data.model_path:
                 return
@@ -244,9 +248,11 @@ class ArchitectureFeedbackController(HandlerBase):
         try:
             from app.training.architecture_tracker import get_architecture_tracker
 
-            elo_ratings = event.get("elo_ratings", {})
-            config_data = event.get("config", {})
-            matchups = event.get("matchups", [])
+            # Jan 2026: Use _get_payload() to handle both RouterEvent and dict types
+            payload = self._get_payload(event)
+            elo_ratings = payload.get("elo_ratings", {})
+            config_data = payload.get("config", {})
+            matchups = payload.get("matchups", [])
 
             board_type = config_data.get("board_type", "")
             num_players = config_data.get("num_players", 2)
