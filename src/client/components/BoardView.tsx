@@ -1801,7 +1801,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
     // Touch target minimum: 44px (WCAG 2.1 AAA recommendation)
     const squareCellSizeClasses =
       boardType === 'square8'
-        ? 'w-11 h-11 sm:w-14 sm:h-14 md:w-[72px] md:h-[72px]' // 44px → 56px → 72px (10% smaller than 80px)
+        ? 'w-10 h-10 sm:w-[50px] sm:h-[50px] md:w-[65px] md:h-[65px]' // 40px → 50px → 65px (~10% smaller)
         : 'w-11 h-11 md:w-14 md:h-14'; // 44px minimum for touch, 56px on desktop
 
     for (let y = 0; y < size; y++) {
