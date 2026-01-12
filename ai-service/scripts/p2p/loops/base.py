@@ -185,7 +185,9 @@ class BaseLoop(ABC):
         # Lifecycle state
         self._running = False
         self._task: asyncio.Task | None = None
-        self._shutdown_event = asyncio.Event()
+        # Jan 12, 2026: Lazy-init to avoid "no running event loop" error
+        # asyncio.Event() requires an event loop, which may not exist at __init__ time
+        self._shutdown_event: asyncio.Event | None = None
 
         # State synchronization lock (Jan 2026 - Phase 1.1 P2P Stability)
         # Protects _running flag and _stats from concurrent modification
@@ -241,6 +243,9 @@ class BaseLoop(ABC):
             return
 
         self._running = True
+        # Jan 12, 2026: Lazy-init shutdown event in async context
+        if self._shutdown_event is None:
+            self._shutdown_event = asyncio.Event()
         self._shutdown_event.clear()
         logger.info(f"[{self.name}] Starting loop (interval={self.interval}s)")
 
@@ -346,6 +351,10 @@ class BaseLoop(ABC):
         Args:
             duration: Sleep duration in seconds
         """
+        # Jan 12, 2026: Guard for lazy-init event
+        if self._shutdown_event is None:
+            await asyncio.sleep(duration)
+            return
         try:
             await asyncio.wait_for(
                 self._shutdown_event.wait(),
@@ -365,7 +374,9 @@ class BaseLoop(ABC):
             return
         logger.info(f"[{self.name}] Stop requested")
         self._running = False
-        self._shutdown_event.set()
+        # Jan 12, 2026: Guard for lazy-init event
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
 
     async def stop_async(self, timeout: float = 10.0) -> bool:
         """Request graceful shutdown and wait for loop to stop.

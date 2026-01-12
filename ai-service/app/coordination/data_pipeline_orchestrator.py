@@ -916,6 +916,12 @@ class DataPipelineOrchestrator(
             logger.debug(f"[DataPipelineOrchestrator] Retry cancelled for {stage.value}/{config_key}")
         except Exception as e:
             logger.error(f"[DataPipelineOrchestrator] Retry failed for {stage.value}/{config_key}: {e}")
+        finally:
+            # Jan 12, 2026: Clean up completed retry task to prevent memory leak
+            # Previously, tasks were never removed from _pending_retries, causing
+            # unbounded memory growth during 48h+ autonomous operation.
+            key = (stage.value, config_key)
+            self._pending_retries.pop(key, None)
 
     async def _trigger_stage(
         self,

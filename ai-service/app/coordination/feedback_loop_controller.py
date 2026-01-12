@@ -51,16 +51,48 @@ from app.coordination.protocols import HealthCheckResult
 
 logger = logging.getLogger(__name__)
 
+# Jan 12, 2026: Task error tracking for escalation
+# Previously, task errors were only logged and never escalated, causing silent failures.
+_task_error_count = 0
+_task_error_threshold = 3  # Escalate after this many consecutive errors
+_last_error_context: str = ""
+
 
 def _handle_task_error(task: asyncio.Task, context: str = "") -> None:
-    """Handle errors from fire-and-forget tasks.
+    """Handle errors from fire-and-forget tasks with escalation.
 
     Call this via: task.add_done_callback(lambda t: _handle_task_error(t, "context"))
+
+    Jan 12, 2026: Added error tracking and escalation to prevent silent failures.
+    After 3 consecutive errors, logs a CRITICAL message for alerting.
     """
+    global _task_error_count, _last_error_context
     try:
         exc = task.exception()
         if exc is not None:
+            _task_error_count += 1
+            _last_error_context = context
             logger.error(f"[FeedbackLoopController] Task error{' in ' + context if context else ''}: {exc}")
+
+            # Escalate after threshold
+            if _task_error_count >= _task_error_threshold:
+                logger.critical(
+                    f"[FeedbackLoopController] DEGRADED: {_task_error_count} consecutive task failures. "
+                    f"Last context: {_last_error_context}. Feedback loop may be malfunctioning."
+                )
+                # Try to emit event for monitoring (best effort)
+                try:
+                    from app.coordination.event_emission_helpers import safe_emit_event
+                    safe_emit_event("FEEDBACK_LOOP_DEGRADED", {
+                        "consecutive_errors": _task_error_count,
+                        "last_context": _last_error_context,
+                        "last_error": str(exc),
+                    })
+                except Exception:
+                    pass  # Event emission is best-effort
+        else:
+            # Task succeeded, reset error count
+            _task_error_count = 0
     except asyncio.CancelledError:
         pass  # Task was cancelled, not an error
     except asyncio.InvalidStateError:
