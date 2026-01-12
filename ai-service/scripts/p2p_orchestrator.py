@@ -1859,6 +1859,10 @@ class P2POrchestrator(
         self.training_lock = threading.RLock()
         self.ssh_tournament_lock = threading.RLock()
         self.relay_lock = threading.RLock()
+        # Jan 12, 2026: C1 fix - leader state lock prevents race conditions
+        # during leader elections and state transitions. Protects self.leader_id
+        # and self.role from concurrent modification in async contexts.
+        self.leader_state_lock = threading.RLock()
 
         # ============================================
         # Phase 5: SWIM + Raft Integration (Dec 26, 2025)
@@ -4791,6 +4795,9 @@ class P2POrchestrator(
         Jan 3, 2026: Created to fix critical bug where leader node didn't recognize
         itself as leader due to divergent state between leader_id and role fields.
 
+        Jan 12, 2026: C1 fix - Added leader_state_lock to prevent race conditions
+        during concurrent leader elections and state transitions.
+
         Args:
             new_leader_id: The new leader ID (None to clear leader)
             reason: Human-readable reason for logging/debugging
@@ -4800,49 +4807,51 @@ class P2POrchestrator(
         Returns:
             True if this node is now the leader
         """
-        old_leader_id = self.leader_id
-        old_role = self.role
+        # C1 fix: Acquire lock to prevent race conditions during leader transitions
+        with self.leader_state_lock:
+            old_leader_id = self.leader_id
+            old_role = self.role
 
-        # Determine new role based on leader_id
-        if new_leader_id is None:
-            new_role = NodeRole.FOLLOWER
-            is_now_leader = False
-        elif new_leader_id == self.node_id:
-            new_role = NodeRole.LEADER
-            is_now_leader = True
-        else:
-            new_role = NodeRole.FOLLOWER
-            is_now_leader = False
+            # Determine new role based on leader_id
+            if new_leader_id is None:
+                new_role = NodeRole.FOLLOWER
+                is_now_leader = False
+            elif new_leader_id == self.node_id:
+                new_role = NodeRole.LEADER
+                is_now_leader = True
+            else:
+                new_role = NodeRole.FOLLOWER
+                is_now_leader = False
 
-        # Atomic update of both fields
-        self.leader_id = new_leader_id
-        self.role = new_role
+            # Atomic update of both fields
+            self.leader_id = new_leader_id
+            self.role = new_role
 
-        # Sync to ULSM (Unified Leadership State Machine) if enabled
-        if sync_to_ulsm and hasattr(self, "_leadership_sm") and self._leadership_sm is not None:
-            try:
-                from scripts.p2p.leadership_state_machine import LeaderState
+            # Sync to ULSM (Unified Leadership State Machine) if enabled
+            if sync_to_ulsm and hasattr(self, "_leadership_sm") and self._leadership_sm is not None:
+                try:
+                    from scripts.p2p.leadership_state_machine import LeaderState
 
-                self._leadership_sm._leader_id = new_leader_id
-                self._leadership_sm._state = (
-                    LeaderState.LEADER if is_now_leader else LeaderState.FOLLOWER
+                    self._leadership_sm._leader_id = new_leader_id
+                    self._leadership_sm._state = (
+                        LeaderState.LEADER if is_now_leader else LeaderState.FOLLOWER
+                    )
+                except (ImportError, AttributeError) as e:
+                    logger.debug(f"[LeaderSet] ULSM sync skipped: {e}")
+
+            # Log if changed
+            if old_leader_id != new_leader_id or old_role != new_role:
+                logger.info(
+                    f"[LeaderSet] {old_role.value if hasattr(old_role, 'value') else old_role}->"
+                    f"{new_role.value if hasattr(new_role, 'value') else new_role}, "
+                    f"leader_id={old_leader_id}->{new_leader_id}, reason={reason}"
                 )
-            except (ImportError, AttributeError) as e:
-                logger.debug(f"[LeaderSet] ULSM sync skipped: {e}")
 
-        # Log if changed
-        if old_leader_id != new_leader_id or old_role != new_role:
-            logger.info(
-                f"[LeaderSet] {old_role.value if hasattr(old_role, 'value') else old_role}->"
-                f"{new_role.value if hasattr(new_role, 'value') else new_role}, "
-                f"leader_id={old_leader_id}->{new_leader_id}, reason={reason}"
-            )
+            # Persist state if requested
+            if save_state and (old_leader_id != new_leader_id or old_role != new_role):
+                self._save_state()
 
-        # Persist state if requested
-        if save_state and (old_leader_id != new_leader_id or old_role != new_role):
-            self._save_state()
-
-        return is_now_leader
+            return is_now_leader
 
     def _is_leader(self) -> bool:
         """Check if this node is the current cluster leader with valid lease."""
@@ -4856,11 +4865,13 @@ class P2POrchestrator(
             # Jan 1, 2026: Also check PROVISIONAL_LEADER for consistency
             if self.role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER):
                 logger.info("Inconsistent leadership state (role=leader but leader_id!=self); stepping down")
-                self.role = NodeRole.FOLLOWER
-                self.last_lease_renewal = 0.0
-                if not self.leader_id:
-                    self.leader_lease_id = ""
-                    self.leader_lease_expires = 0.0
+                # C1 fix: Use leader_state_lock for role changes
+                with self.leader_state_lock:
+                    self.role = NodeRole.FOLLOWER
+                    self.last_lease_renewal = 0.0
+                    if not self.leader_id:
+                        self.leader_lease_id = ""
+                        self.leader_lease_expires = 0.0
                 self._release_voter_grant_if_self()
                 self._save_state()
                 # Only force an election when we have no known leader; otherwise we
@@ -4877,11 +4888,13 @@ class P2POrchestrator(
         # Jan 1, 2026: PROVISIONAL_LEADER is also valid for dispatching work (fallback leadership)
         if self.role not in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER):
             logger.info("Inconsistent leadership state (leader_id=self but role!=leader/provisional); clearing leader_id")
-            self.role = NodeRole.FOLLOWER
-            self.leader_id = None
-            self.leader_lease_id = ""
-            self.leader_lease_expires = 0.0
-            self.last_lease_renewal = 0.0
+            # C1 fix: Use leader_state_lock for role/leader_id changes
+            with self.leader_state_lock:
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self.last_lease_renewal = 0.0
             self._release_voter_grant_if_self()
             self._save_state()
             # CRITICAL: Check quorum before starting election to prevent quorum bypass
@@ -5168,14 +5181,16 @@ class P2POrchestrator(
             )
 
             # Step 4: Sync legacy fields (for backward compatibility)
-            self.role = NodeRole.FOLLOWER
-            self.leader_id = None
-            self.leader_lease_id = ""
-            self.leader_lease_expires = 0.0
-            self.last_lease_renewal = 0.0
-            self._is_leader_quorum_fail_count = 0
-            # Jan 2, 2026: Track when we stepped down for leader stickiness
-            self._last_step_down_time = time.time()
+            # C1 fix: Use leader_state_lock for role/leader_id changes
+            with self.leader_state_lock:
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
+                self.leader_lease_id = ""
+                self.leader_lease_expires = 0.0
+                self.last_lease_renewal = 0.0
+                self._is_leader_quorum_fail_count = 0
+                # Jan 2, 2026: Track when we stepped down for leader stickiness
+                self._last_step_down_time = time.time()
             self._release_voter_grant_if_self()
             self._save_state()
 
@@ -5196,8 +5211,10 @@ class P2POrchestrator(
         except Exception as e:
             logger.error(f"ULSM: Error during step-down: {e}", exc_info=True)
             # Fallback: Force follower state
-            self.role = NodeRole.FOLLOWER
-            self.leader_id = None
+            # C1 fix: Use leader_state_lock for role/leader_id changes
+            with self.leader_state_lock:
+                self.role = NodeRole.FOLLOWER
+                self.leader_id = None
             self._save_state()
 
     # =========================================================================
@@ -7577,6 +7594,8 @@ class P2POrchestrator(
                     self.peers[node_id] = info
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Failed to load peer {node_id}: {e}")
+            # C2 fix: Sync peer snapshot after loading persisted peers
+            self._sync_peer_snapshot()
 
             # Apply loaded jobs
             for job_dict in state.jobs:
@@ -7597,18 +7616,20 @@ class P2POrchestrator(
                     logger.error(f"Failed to load job: {e}")
 
             # Apply leader state
+            # C1 fix: Use leader_state_lock for role/leader_id changes
             ls = state.leader_state
-            if ls.leader_id:
-                self.leader_id = ls.leader_id
-            if ls.leader_lease_id:
-                self.leader_lease_id = ls.leader_lease_id
-            if ls.leader_lease_expires:
-                self.leader_lease_expires = ls.leader_lease_expires
-            if ls.last_lease_renewal:
-                self.last_lease_renewal = ls.last_lease_renewal
-            if ls.role:
-                with contextlib.suppress(Exception):
-                    self.role = NodeRole(ls.role)
+            with self.leader_state_lock:
+                if ls.leader_id:
+                    self.leader_id = ls.leader_id
+                if ls.leader_lease_id:
+                    self.leader_lease_id = ls.leader_lease_id
+                if ls.leader_lease_expires:
+                    self.leader_lease_expires = ls.leader_lease_expires
+                if ls.last_lease_renewal:
+                    self.last_lease_renewal = ls.last_lease_renewal
+                if ls.role:
+                    with contextlib.suppress(Exception):
+                        self.role = NodeRole(ls.role)
 
             # Voter grant state
             if ls.voter_grant_leader_id:
@@ -7650,9 +7671,11 @@ class P2POrchestrator(
             # a matching leader_id.
             if self.role == NodeRole.LEADER and not self.leader_id:
                 logger.info("Loaded role=leader but leader_id is empty; stepping down to follower")
-                self.role = NodeRole.FOLLOWER
-                self.leader_lease_id = ""
-                self.leader_lease_expires = 0.0
+                # C1 fix: Use leader_state_lock for role changes
+                with self.leader_state_lock:
+                    self.role = NodeRole.FOLLOWER
+                    self.leader_lease_id = ""
+                    self.leader_lease_expires = 0.0
                 self.last_lease_renewal = 0.0
 
             logger.info(f"Loaded state: {len(self.peers)} peers, {len(self.local_jobs)} jobs")
@@ -8379,6 +8402,8 @@ class P2POrchestrator(
                         last_heartbeat=time.time(),
                         state="alive",
                     )
+                    # C2 fix: Sync peer snapshot after adding new peer
+                    self._sync_peer_snapshot()
                     logger.info(f"Reconnected peer via network health: {actual_node_id} ({host}:{port})")
                     await self._emit_host_online(actual_node_id)
                     return True
@@ -11764,6 +11789,10 @@ class P2POrchestrator(
             # Extract tags into peer info (store as capability hints)
             # Note: Serf tags are for reference only, NodeInfo uses capabilities list
 
+        # C2 fix: Sync peer snapshot after Serf member join updates
+        if members:
+            self._sync_peer_snapshot()
+
     async def _handle_serf_member_leave(self, members: list) -> None:
         """Handle Serf member-leave events (graceful departure)."""
         for member in members:
@@ -11780,6 +11809,10 @@ class P2POrchestrator(
                     # Mark as retired (NodeInfo equivalent of "left")
                     peer.retired = True
                     peer.retired_at = time.time()
+
+        # C2 fix: Sync peer snapshot after Serf member leave updates
+        if members:
+            self._sync_peer_snapshot()
 
     async def _handle_serf_member_failed(self, members: list) -> None:
         """Handle Serf member-failed events (SWIM failure detection).
@@ -11809,6 +11842,10 @@ class P2POrchestrator(
                 # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
                 self._set_leader(None, reason="serf_leader_failed", save_state=True)
                 self.election_in_progress = False  # Allow new election
+
+        # C2 fix: Sync peer snapshot after Serf member failed updates
+        if members:
+            self._sync_peer_snapshot()
 
     async def _handle_serf_member_update(self, members: list) -> None:
         """Handle Serf member-update events (tag changes)."""
@@ -20845,7 +20882,9 @@ print(json.dumps({{
                 f"(stepped down {time.time() - self._last_step_down_time:.1f}s ago)"
             )
             self.election_in_progress = True
-            self.role = NodeRole.CANDIDATE
+            # C1 fix: Use leader_state_lock for role changes
+            with self.leader_state_lock:
+                self.role = NodeRole.CANDIDATE
             try:
                 # Skip bully algorithm - try to become leader directly
                 conflict_keys = self._endpoint_conflict_keys([self.self_info, *peers_snapshot])
@@ -20855,14 +20894,18 @@ print(json.dumps({{
                         logger.info("Incumbent reclaimed leadership successfully")
                         return
             finally:
-                if self.role == NodeRole.CANDIDATE:
-                    self.role = NodeRole.FOLLOWER
+                # C1 fix: Use leader_state_lock for role changes
+                with self.leader_state_lock:
+                    if self.role == NodeRole.CANDIDATE:
+                        self.role = NodeRole.FOLLOWER
                 self.election_in_progress = False
             # If we failed to reclaim, fall through to normal election
             logger.info("Incumbent reclaim failed, falling back to normal election")
 
         self.election_in_progress = True
-        self.role = NodeRole.CANDIDATE
+        # C1 fix: Use leader_state_lock for role changes
+        with self.leader_state_lock:
+            self.role = NodeRole.CANDIDATE
         logger.info(f"Starting election, my ID: {self.node_id}")
 
         try:
@@ -20909,12 +20952,14 @@ print(json.dumps({{
 
         finally:
             self.election_in_progress = False
-            if self.role == NodeRole.CANDIDATE:
-                # Jan 3, 2026 Sprint 13.3: Record election latency for "timeout" outcome
-                # Election ended without becoming leader or adopting one
-                if getattr(self, "_election_started_at", 0) > 0:
-                    self._record_election_latency("timeout")
-                self.role = NodeRole.FOLLOWER
+            # C1 fix: Use leader_state_lock for role changes
+            with self.leader_state_lock:
+                if self.role == NodeRole.CANDIDATE:
+                    # Jan 3, 2026 Sprint 13.3: Record election latency for "timeout" outcome
+                    # Election ended without becoming leader or adopting one
+                    if getattr(self, "_election_started_at", 0) > 0:
+                        self._record_election_latency("timeout")
+                    self.role = NodeRole.FOLLOWER
 
     async def _become_leader(self):
         """Become the cluster leader with lease-based leadership."""
@@ -21087,19 +21132,21 @@ print(json.dumps({{
         now = time.time()
 
         # Set provisional state
-        self.role = NodeRole.PROVISIONAL_LEADER
-        self._provisional_leader_claimed_at = now
-        self._provisional_leader_acks = {self.node_id}  # Self-ack
-        self._provisional_leader_challengers = {}
+        # C1 fix: Use leader_state_lock for role/leader_id changes
+        with self.leader_state_lock:
+            self.role = NodeRole.PROVISIONAL_LEADER
+            self._provisional_leader_claimed_at = now
+            self._provisional_leader_acks = {self.node_id}  # Self-ack
+            self._provisional_leader_challengers = {}
 
-        # Create a provisional lease (shorter than normal)
-        provisional_lease_id = f"PROVISIONAL_{self.node_id}_{uuid.uuid4().hex[:8]}"
-        self.leader_lease_id = provisional_lease_id
-        self.leader_lease_expires = now + PROVISIONAL_LEADER_QUORUM_TIMEOUT
-        self.last_lease_renewal = now
+            # Create a provisional lease (shorter than normal)
+            provisional_lease_id = f"PROVISIONAL_{self.node_id}_{uuid.uuid4().hex[:8]}"
+            self.leader_lease_id = provisional_lease_id
+            self.leader_lease_expires = now + PROVISIONAL_LEADER_QUORUM_TIMEOUT
+            self.last_lease_renewal = now
 
-        # Set ourselves as leader (provisional) so peers know who's claiming
-        self.leader_id = self.node_id
+            # Set ourselves as leader (provisional) so peers know who's claiming
+            self.leader_id = self.node_id
 
         logger.info(f"Provisional leadership claimed: lease={provisional_lease_id}")
 
