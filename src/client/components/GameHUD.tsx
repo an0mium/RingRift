@@ -1844,53 +1844,57 @@ function GameHUDFromViewModel({
         </div>
       )}
 
-      {/* Connection Status */}
-      <div className="flex items-center justify-between text-xs text-slate-300 mb-3">
-        <div className={`font-semibold ${connectionColor}`}>
-          Connection: {connectionLabel}
-          {isConnectionStale && (
-            <span className="ml-1 text-[11px] text-amber-200">(no recent updates from server)</span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {spectatorCount > 0 && !isSpectator && (
-            <span
-              className="text-[11px] text-slate-400 flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700"
-              title={`${spectatorCount} ${spectatorCount === 1 ? 'person' : 'people'} watching`}
-              role="status"
-              aria-label={`${spectatorCount} spectator${spectatorCount === 1 ? '' : 's'}`}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-                className="w-3 h-3"
-                aria-hidden="true"
+      {/* Connection Status - hidden in local sandbox since always connected */}
+      {!isLocalSandboxOnly && (
+        <div className="flex items-center justify-between text-xs text-slate-300 mb-3">
+          <div className={`font-semibold ${connectionColor}`}>
+            Connection: {connectionLabel}
+            {isConnectionStale && (
+              <span className="ml-1 text-[11px] text-amber-200">
+                (no recent updates from server)
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {spectatorCount > 0 && !isSpectator && (
+              <span
+                className="text-[11px] text-slate-400 flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700"
+                title={`${spectatorCount} ${spectatorCount === 1 ? 'person' : 'people'} watching`}
+                role="status"
+                aria-label={`${spectatorCount} spectator${spectatorCount === 1 ? '' : 's'}`}
               >
-                <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                <path
-                  fillRule="evenodd"
-                  d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              <span>{spectatorCount} watching</span>
-            </span>
-          )}
-          {onShowBoardControls && (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Show board controls"
-              onClick={onShowBoardControls}
-              data-testid="board-controls-button"
-              className="h-7 w-7 rounded-full border border-slate-600 text-[11px] leading-none px-0"
-            >
-              ?
-            </Button>
-          )}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  className="w-3 h-3"
+                  aria-hidden="true"
+                >
+                  <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                  <path
+                    fillRule="evenodd"
+                    d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                <span>{spectatorCount} watching</span>
+              </span>
+            )}
+            {onShowBoardControls && (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Show board controls"
+                onClick={onShowBoardControls}
+                data-testid="board-controls-button"
+                className="h-7 w-7 rounded-full border border-slate-600 text-[11px] leading-none px-0"
+              >
+                ?
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Time control summary (when clocks are enabled) */}
       {timeControlSummary && (
@@ -1911,10 +1915,13 @@ function GameHUDFromViewModel({
       {surfaceableWeirdState && (
         <WeirdStateBanner weirdState={surfaceableWeirdState} onShowHelp={handleWeirdStateHelp} />
       )}
-      {/* LPS tracking indicator - shows when a player has consecutive exclusive rounds */}
-      <LpsTrackingIndicator lpsTracking={lpsTracking} players={players} />
-      {/* Victory progress indicator - shows ring elimination and territory progress */}
-      <VictoryProgressIndicator victoryProgress={victoryProgress} players={players} />
+      {/* Dynamic indicators zone - reserve space to prevent layout shifts when indicators appear/disappear */}
+      <div className="min-h-[16px]">
+        {/* LPS tracking indicator - shows when a player has consecutive exclusive rounds */}
+        <LpsTrackingIndicator lpsTracking={lpsTracking} players={players} />
+        {/* Victory progress indicator - shows ring elimination and territory progress */}
+        <VictoryProgressIndicator victoryProgress={victoryProgress} players={players} />
+      </div>
       <PhaseIndicator phase={phase} isMyTurn={isMyTurn} isSpectator={isSpectator} />
       {/* Phase help button zone - min-height prevents layout shift */}
       <div className="min-h-[24px] flex items-end">
@@ -1936,7 +1943,7 @@ function GameHUDFromViewModel({
       <SubPhaseDetails detail={subPhaseDetail} />
 
       {/* Dynamic alerts zone - min-height and transitions prevent jarring layout shift when chips appear/disappear */}
-      <div className="min-h-[72px] flex flex-col justify-end transition-all duration-150 ease-in-out">
+      <div className="min-h-[96px] flex flex-col justify-end transition-all duration-150 ease-in-out">
         {/* High-level decision time-pressure cue for the current phase */}
         {decisionPhase && decisionSeverity && (
           <div className="mt-1 flex items-center text-[11px] text-slate-200">

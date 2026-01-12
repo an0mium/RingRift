@@ -129,7 +129,7 @@ export function EvaluationPanel({
             Move {latest.moveNumber} • {latest.engineProfile}
           </span>
         ) : (
-          <span className="text-[11px] text-slate-500">Waiting for analysis…</span>
+          <span className="text-[11px] text-slate-500">No evaluation data</span>
         )}
       </div>
 

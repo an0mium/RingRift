@@ -134,12 +134,12 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       'Crossing the territory threshold ends the game immediately, even if other wins were possible.',
       // GAP-TERR-04: Self-elimination cost explanation (FAQ Q23)
       'TERRITORY ELIMINATION COST: Processing a disconnected region eliminates all interior rings (scoring for you), but you MUST also eliminate your ENTIRE CAP from an eligible stack OUTSIDE the region.',
-      // RR-CANON-R022/R145: Eligible cap targets for territory processing
-      'ELIGIBLE STACKS FOR TERRITORY: Any controlled stack outside the region is eligible, including height-1 standalone rings. Per RR-CANON-R022/R145, all controlled stacks qualify.',
+      // Eligible cap targets for territory processing
+      'ELIGIBLE STACKS FOR TERRITORY: Any controlled stack outside the region is eligible, including height-1 standalone rings.',
       // GAP-TERR-03: Eligibility indicator
       "CAN'T PROCESS A REGION? You must have a controlled stack OUTSIDE the pending region to pay the self-elimination cost.",
-      // Explicit rules/FAQ reference for mini-regions
-      'For the canonical mini-region pattern and numeric example, see FAQ Q23 "What happens if I cannot eliminate any rings when processing a disconnected region?" in ringrift_complete_rules §12.2.',
+      // Mini-region guidance (external doc reference removed)
+      'Mini-regions that form during gameplay follow the same elimination rules: you must have an outside stack to pay the self-elimination cost.',
     ],
     relatedPhases: ['territory_processing'],
   },
@@ -156,8 +156,8 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       'FIRST TIME SEEING THIS? When you have no legal moves, you enter an "Active-No-Moves" state. This is different from being eliminated – you are still in the game!',
       // GAP-ANM-03: Recovery guidance
       'HOW TO RECOVER FROM ANM: Your opponents might open up movement options for you by moving their stacks, collapsing lines, or processing territories. Stay alert – you can become active again!',
-      // Explicit rules/FAQ reference for ANM/FE behaviour
-      'For full timing diagrams and examples, see "Active–No–Moves & Forced Elimination" in ringrift_complete_rules §10.4 together with ACTIVE_NO_MOVES_BEHAVIOUR.md (ANM-SCEN-01).',
+      // ANM recovery guidance
+      'The Active-No-Moves state is temporary. Keep watching the board for opportunities as other players make moves.',
     ],
     relatedPhases: ['movement', 'line_processing', 'territory_processing'],
   },
@@ -171,8 +171,8 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       'Rings removed by forced elimination are permanently eliminated and count toward global Ring Elimination victory, just like eliminations from movement onto markers, line rewards, or territory processing.',
       'Forced elimination does not count as a "real move" for Last Player Standing, even though each step is recorded as a forced_elimination move in its own phase.',
       'You cannot skip forced elimination when its conditions are met; the rules may let you choose the stack, but some legal forced_elimination move must be recorded.',
-      // Explicit rules reference for FE triggers
-      'Formal FE triggers and guarantees are defined in ringrift_complete_rules §4.4 "Forced elimination when blocked" and in RULES_RULESET_CLARIFICATIONS under the FE invariants.',
+      // FE triggers summary
+      'Forced elimination triggers automatically when you have stacks but no legal real moves. Each elimination removes your entire cap from a chosen stack.',
     ],
     relatedPhases: ['movement', 'territory_processing', 'forced_elimination'],
   },
@@ -200,8 +200,8 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       'RECOVERY AND LPS: Recovery actions do NOT count as "real actions" for Last Player Standing. Like forced elimination, recovery keeps you in the game but does not prevent an opponent from winning via LPS.',
       // Skip option
       'SKIP RECOVERY: You may choose to skip recovery entirely, preserving your buried rings for a future turn.',
-      // Rules reference
-      'For detailed recovery mechanics, see ringrift_complete_rules §4.5 and RULES_CANONICAL_SPEC R110–R115.',
+      // Recovery summary
+      'Recovery gives temporarily eliminated players a way back into the game by using their markers strategically.',
     ],
     relatedPhases: ['movement'],
   },
@@ -250,8 +250,8 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       'ANM vs Stalemate: When only YOU have no moves, the game continues – other players can still play. A structural stalemate only occurs when NOBODY can move at all.',
       // Tiebreak ladder
       'TIEBREAK LADDER: In a stalemate, the winner is determined by: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers on board, 4) Who made the last real action.',
-      // Explicit rules reference for LPS + structural stalemate ladder
-      'See ringrift_complete_rules §13.3 "Last Player Standing" and §13.4 "Structural stalemate and tiebreak ladder" for the full formal definitions and worked examples.',
+      // LPS + Stalemate summary
+      'Last Player Standing requires maintaining real moves for three consecutive rounds while all opponents cannot. Structural stalemate uses a tiebreak ladder to determine the winner.',
     ],
   },
 };
@@ -590,7 +590,7 @@ export function TeachingOverlay({
 
   if (!isOpen || !content) return null;
 
-  const cardClasses = `relative bg-slate-900 border border-slate-600 rounded-xl shadow-2xl max-w-md w-full mx-4 overflow-hidden ${className}`;
+  const cardClasses = `relative bg-slate-900 border border-slate-600 rounded-xl shadow-2xl max-w-sm w-full mx-4 max-h-[85vh] overflow-y-auto ${className}`;
 
   const cardBody = (
     <>

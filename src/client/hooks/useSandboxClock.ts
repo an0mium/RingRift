@@ -69,8 +69,8 @@ export interface UseSandboxClockReturn {
  * @returns Clock state and control functions
  */
 export function useSandboxClock(gameState: GameState | null): UseSandboxClockReturn {
-  // Clock enabled toggle
-  const [clockEnabled, setClockEnabled] = useState(false);
+  // Clock enabled toggle - enabled by default so sandbox games show a timer
+  const [clockEnabled, setClockEnabled] = useState(true);
 
   // Time control settings
   const [timeControl, setTimeControl] = useState<SandboxTimeControl>(DEFAULT_SANDBOX_TIME_CONTROL);

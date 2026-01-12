@@ -181,7 +181,11 @@ export function SandboxDevTools({
                           {meta.error && (
                             <>
                               <span className="text-slate-400">Error</span>
-                              <span className="text-amber-300">{meta.error}</span>
+                              <span className="text-amber-300">
+                                {meta.error === 'service_unavailable'
+                                  ? 'AI service not running'
+                                  : meta.error}
+                              </span>
                             </>
                           )}
                         </div>
@@ -222,7 +226,9 @@ export function SandboxDevTools({
 
           {aiLadderHealthError && (
             <p className="text-xs text-amber-400" data-testid="sandbox-ai-ladder-health-error">
-              {aiLadderHealthError}
+              {aiLadderHealthError === 'service_unavailable'
+                ? 'AI service not running. Start the AI service locally to enable this feature.'
+                : aiLadderHealthError}
             </p>
           )}
 
