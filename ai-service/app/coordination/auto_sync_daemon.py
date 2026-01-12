@@ -246,6 +246,9 @@ class AutoSyncDaemon(
         # Ephemeral-specific state (December 2025 consolidation)
         self._pending_games: list[dict[str, Any]] = []  # For ephemeral mode
         self._push_lock = asyncio.Lock()
+        # Jan 12, 2026: C5 fix - sync cycle lock prevents concurrent sync cycles
+        # within the same process. Combined with sync_mutex for cross-process protection.
+        self._sync_cycle_lock = asyncio.Lock()
         self._wal_initialized = False
         if self._is_ephemeral and self._config.ephemeral_wal_enabled:
             self._init_ephemeral_wal()
@@ -1080,9 +1083,33 @@ class AutoSyncDaemon(
         - HYBRID: Gossip-based replication (default)
         - PULL: Coordinator pulls data from cluster nodes (reverse sync)
 
+        Jan 12, 2026: C5 fix - Added sync cycle locking to prevent concurrent syncs.
+        Uses both local asyncio.Lock (in-process) and distributed sync_mutex (cross-process).
+
         Returns:
             Number of games synced (0 if skipped or no data).
         """
+        # C5 fix: Try to acquire local lock (non-blocking to prevent deadlock)
+        if self._sync_cycle_lock.locked():
+            logger.debug("[AutoSyncDaemon] Skipping sync cycle - another cycle in progress")
+            return 0
+
+        async with self._sync_cycle_lock:
+            # C5 fix: Try to acquire distributed lock for cross-process coordination
+            lock_key = f"sync_cycle:{self.node_id}"
+            lock_acquired = await asyncio.to_thread(acquire_sync_lock, lock_key, "auto_sync", timeout=5)
+            if not lock_acquired:
+                logger.debug("[AutoSyncDaemon] Skipping sync cycle - distributed lock held by another process")
+                return 0
+
+            try:
+                return await self._sync_cycle_inner()
+            finally:
+                # C5 fix: Release distributed lock
+                await asyncio.to_thread(release_sync_lock, lock_key, "auto_sync")
+
+    async def _sync_cycle_inner(self) -> int:
+        """Inner sync cycle logic (called with locks held)."""
         # December 2025: Initialize progress tracking
         self._update_progress(phase="initializing")
 

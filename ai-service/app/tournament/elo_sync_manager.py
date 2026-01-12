@@ -342,6 +342,9 @@ class EloSyncManager(DatabaseSyncManager):
 
         Jan 5, 2026: Added schema detection for cross-cluster compatibility.
 
+        Jan 12, 2026: C6 fix - Added transaction with savepoint for rollback
+        on partial merge failure. Prevents database corruption from partial merges.
+
         Returns:
             Number of new matches inserted.
         """
@@ -350,6 +353,10 @@ class EloSyncManager(DatabaseSyncManager):
         remote_conn = sqlite3.connect(remote_db_path)
 
         try:
+            # C6 fix: Start transaction with savepoint for rollback on failure
+            local_conn.execute("BEGIN IMMEDIATE")
+            local_conn.execute("SAVEPOINT merge_start")
+
             local_cur = local_conn.cursor()
             remote_cur = remote_conn.cursor()
 
@@ -402,6 +409,8 @@ class EloSyncManager(DatabaseSyncManager):
                 )
                 inserted = len(new_matches)
 
+            # C6 fix: Release savepoint and commit on success
+            local_conn.execute("RELEASE merge_start")
             local_conn.commit()
             remote_conn.close()
 
@@ -415,9 +424,17 @@ class EloSyncManager(DatabaseSyncManager):
             local_conn.close()
             return inserted
 
-        except Exception:
-            local_conn.close()
-            remote_conn.close()
+        except Exception as e:
+            # C6 fix: Rollback to savepoint on failure to prevent partial merges
+            try:
+                local_conn.execute("ROLLBACK TO merge_start")
+                local_conn.execute("ROLLBACK")
+                logger.warning(f"[EloSync] Merge rolled back due to error: {e}")
+            except sqlite3.Error as rollback_error:
+                logger.error(f"[EloSync] Rollback failed: {rollback_error}")
+            finally:
+                local_conn.close()
+                remote_conn.close()
             raise
 
     # =========================================================================

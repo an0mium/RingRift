@@ -187,6 +187,9 @@ class RegistrySyncManager(DatabaseSyncManager):
         """Merge remote registry database into local.
 
         Merges both models and versions tables, preserving all unique entries.
+
+        Jan 12, 2026: C6 fix - Added transaction with savepoint for rollback
+        on partial merge failure. Prevents database corruption from partial merges.
         """
         models_merged = 0
         versions_merged = 0
@@ -196,6 +199,10 @@ class RegistrySyncManager(DatabaseSyncManager):
             remote_conn = sqlite3.connect(str(remote_db_path))
             remote_conn.row_factory = sqlite3.Row
             local_conn = sqlite3.connect(str(self.db_path))
+
+            # C6 fix: Start transaction with savepoint for rollback on failure
+            local_conn.execute("BEGIN IMMEDIATE")
+            local_conn.execute("SAVEPOINT merge_start")
 
             # Get existing local model IDs
             local_cursor = local_conn.cursor()
@@ -234,6 +241,8 @@ class RegistrySyncManager(DatabaseSyncManager):
                           row['training_config_json'], row['created_at'], row['updated_at']))
                     versions_merged += 1
 
+            # C6 fix: Release savepoint and commit on success
+            local_conn.execute("RELEASE merge_start")
             local_conn.commit()
             local_conn.close()
             remote_conn.close()
@@ -247,7 +256,23 @@ class RegistrySyncManager(DatabaseSyncManager):
             return True
 
         except Exception as e:
+            # C6 fix: Rollback to savepoint on failure to prevent partial merges
             logger.error(f"Database merge failed: {e}")
+            try:
+                local_conn.execute("ROLLBACK TO merge_start")
+                local_conn.execute("ROLLBACK")
+                logger.warning(f"[RegistrySync] Merge rolled back due to error: {e}")
+            except sqlite3.Error as rollback_error:
+                logger.error(f"[RegistrySync] Rollback failed: {rollback_error}")
+            finally:
+                try:
+                    local_conn.close()
+                except Exception:
+                    pass
+                try:
+                    remote_conn.close()
+                except Exception:
+                    pass
             return False
 
     # =========================================================================
