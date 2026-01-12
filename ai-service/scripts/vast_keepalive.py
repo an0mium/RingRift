@@ -16,6 +16,8 @@ Usage:
 
 Designed to be run via cron every 15-30 minutes.
 """
+from __future__ import annotations
+
 
 import argparse
 import contextlib

@@ -12,6 +12,8 @@ Usage:
     except RulesViolationError as e:
         logger.warning(f"Invalid move: {e.message}, rule: {e.rule_ref}")
 """
+from __future__ import annotations
+
 
 from typing import Any
 

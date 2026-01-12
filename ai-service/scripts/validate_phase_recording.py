@@ -10,6 +10,8 @@ This script checks that every game in a database has:
 Usage:
     python ai-service/scripts/validate_phase_recording.py [--delete-invalid]
 """
+from __future__ import annotations
+
 
 import argparse
 import json

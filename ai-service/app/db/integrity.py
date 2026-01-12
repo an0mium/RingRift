@@ -21,6 +21,8 @@ Usage:
         auto_repair=True,
     )
 """
+from __future__ import annotations
+
 
 import os
 import sqlite3

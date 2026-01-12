@@ -4,6 +4,8 @@ Multi-Task Learning Heads for RingRift AI.
 Provides auxiliary prediction heads to improve representation learning
 and enable additional capabilities beyond policy and value prediction.
 """
+from __future__ import annotations
+
 
 import logging
 import math

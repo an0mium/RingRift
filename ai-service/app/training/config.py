@@ -32,6 +32,8 @@ Configuration Import Guide:
     # Selfplay config (separate module)
     from app.training.selfplay_config import SelfplayConfig
 """
+from __future__ import annotations
+
 
 import os
 import warnings

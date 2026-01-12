@@ -7,6 +7,8 @@ For 3+ player games, properly tests all configurations:
 
 Measures average win rate across all player positions.
 """
+from __future__ import annotations
+
 
 import argparse
 import json

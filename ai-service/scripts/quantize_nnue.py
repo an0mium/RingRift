@@ -14,6 +14,8 @@ Usage:
     # Benchmark quantization speedup
     python scripts/quantize_nnue.py --benchmark models/nnue_square8_best.pth
 """
+from __future__ import annotations
+
 
 import argparse
 import os

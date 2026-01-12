@@ -30,6 +30,8 @@ Usage:
         --init-model models/canonical_hex8_2p.pth \
         --output models/hex8_2p_softfine.pth
 """
+from __future__ import annotations
+
 
 import argparse
 import logging

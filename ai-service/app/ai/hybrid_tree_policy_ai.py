@@ -21,6 +21,8 @@ Usage:
     ai.load_policy_model("models/nnue/nnue_policy_square8_2p.pt")
     move = ai.select_move(game_state)
 """
+from __future__ import annotations
+
 
 import logging
 import os

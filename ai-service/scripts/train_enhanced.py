@@ -24,6 +24,8 @@ Usage:
 
 December 2025: Created to address Elo ceiling observations.
 """
+from __future__ import annotations
+
 
 import argparse
 import logging

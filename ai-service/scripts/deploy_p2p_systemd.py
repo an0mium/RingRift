@@ -22,6 +22,8 @@ Usage:
     python scripts/deploy_p2p_systemd.py --include-local    # Include local nodes
     python scripts/deploy_p2p_systemd.py --sudo             # Force sudo usage
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

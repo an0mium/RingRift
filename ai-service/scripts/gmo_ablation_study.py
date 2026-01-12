@@ -16,6 +16,8 @@ Usage:
     python scripts/gmo_ablation_study.py --games 30
     python scripts/gmo_ablation_study.py --ablation no_uncertainty --games 50
 """
+from __future__ import annotations
+
 
 import argparse
 import json

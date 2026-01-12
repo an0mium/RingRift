@@ -19,6 +19,8 @@ Usage:
     # Check current utilization report
     python scripts/smart_work_router.py --report
 """
+from __future__ import annotations
+
 
 import argparse
 import json

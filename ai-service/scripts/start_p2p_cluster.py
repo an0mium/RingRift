@@ -12,6 +12,8 @@ Usage:
     python scripts/start_p2p_cluster.py --check      # Just check status
     python scripts/start_p2p_cluster.py --node vast  # Filter by name
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

@@ -23,6 +23,8 @@ Usage:
     # Show statistics only
     python scripts/archive_stale_elo_entries.py --stats
 """
+from __future__ import annotations
+
 
 import argparse
 import logging

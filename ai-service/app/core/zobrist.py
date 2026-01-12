@@ -2,6 +2,8 @@
 Zobrist Hashing implementation for RingRift.
 Provides O(1) state hashing for transposition tables.
 """
+from __future__ import annotations
+
 
 import random
 import threading

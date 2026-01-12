@@ -28,6 +28,8 @@ Usage:
     # As systemd service or launchd daemon:
     python scripts/universal_keepalive.py --node-id my-node --daemon
 """
+from __future__ import annotations
+
 
 import argparse
 import json

@@ -18,6 +18,8 @@ Memory Management:
 Uses a singleton model cache similar to neural_net.py to share model
 instances and prevent memory leaks in long-running sessions.
 """
+from __future__ import annotations
+
 
 import contextlib
 import gc

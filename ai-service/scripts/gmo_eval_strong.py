@@ -8,6 +8,8 @@ Usage:
     python scripts/gmo_eval_strong.py --games 50
     python scripts/gmo_eval_strong.py --opponents policy,mcts_100,descent
 """
+from __future__ import annotations
+
 
 import argparse
 import json

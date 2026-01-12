@@ -4,6 +4,8 @@ Automated tier threshold calibration via A/B testing.
 This module replaces manual tier calibration experiments with automated
 A/B testing that uses statistical significance to auto-promote tier thresholds.
 """
+from __future__ import annotations
+
 
 import logging
 import math

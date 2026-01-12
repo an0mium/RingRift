@@ -3,6 +3,8 @@
 
 Uses direct value scoring (no gradient optimization) for fast evaluation.
 """
+from __future__ import annotations
+
 
 import argparse
 import random

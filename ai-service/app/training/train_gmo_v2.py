@@ -10,6 +10,8 @@ Architecture differences from GMO v1:
 - MoveEncoderV2 (256-dim) vs MoveEncoder (128-dim)
 - Ensemble optimization support
 """
+from __future__ import annotations
+
 
 import argparse
 import json

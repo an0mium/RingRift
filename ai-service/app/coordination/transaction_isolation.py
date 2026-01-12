@@ -9,6 +9,8 @@ Key features:
 - Crash recovery with automatic rollback of incomplete merges
 - Isolation between concurrent merge operations
 """
+from __future__ import annotations
+
 
 import json
 import logging

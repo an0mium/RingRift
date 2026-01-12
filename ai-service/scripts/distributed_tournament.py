@@ -4,6 +4,8 @@
 Transfers model shards to cluster nodes, runs games in parallel, and aggregates results.
 Designed for 8-24 hour tournament reduction to 2-4 hours.
 """
+from __future__ import annotations
+
 
 import argparse
 import json

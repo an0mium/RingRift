@@ -8,6 +8,8 @@ Usage:
     python scripts/compare_nnue_models.py --games 100
     python scripts/compare_nnue_models.py --model-a models/nnue/nnue_square8_2p.pt --model-b models/nnue/nnue_256.pt
 """
+from __future__ import annotations
+
 
 import argparse
 import json

@@ -28,6 +28,8 @@ Usage:
     python p2p_model_distribution.py bt-download --torrent models.torrent \
         --dest-dir /path/to/dest --seeders node1:51413,node2:51413
 """
+from __future__ import annotations
+
 
 import argparse
 import hashlib

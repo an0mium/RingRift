@@ -11,6 +11,8 @@ Components:
 - ModelSyncCoordinator: Distributed model synchronization
 - TrainingTrigger: Automatic training triggering based on data
 """
+from __future__ import annotations
+
 
 import asyncio
 import contextlib

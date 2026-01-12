@@ -15,6 +15,8 @@ Requirements:
     - Python GameEngine must be available in the path
     - Games must have 'moves' field with replay data
 """
+from __future__ import annotations
+
 
 import argparse
 import json

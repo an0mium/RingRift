@@ -17,6 +17,8 @@ Usage:
     # Check specific config
     python scripts/audit_stale_elo.py --config square8_2p
 """
+from __future__ import annotations
+
 
 import argparse
 import json

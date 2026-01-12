@@ -13,6 +13,8 @@ The cache is keyed by:
 Cache entries expire after a configurable TTL (default: 7 days) to handle
 model file updates.
 """
+from __future__ import annotations
+
 
 import json
 import logging

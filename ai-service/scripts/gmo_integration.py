@@ -23,6 +23,8 @@ Usage:
     # Evaluate against baselines
     python scripts/gmo_integration.py evaluate --num-games 50
 """
+from __future__ import annotations
+
 
 import argparse
 import json

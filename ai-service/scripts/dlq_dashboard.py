@@ -25,6 +25,8 @@ Usage:
     # Show events by type
     python scripts/dlq_dashboard.py --event-type TRAINING_COMPLETED
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

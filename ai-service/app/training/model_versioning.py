@@ -41,6 +41,8 @@ Typical usage:
     except VersionMismatchError as e:
         print(f"Cannot load: {e}")
 """
+from __future__ import annotations
+
 
 import hashlib
 import logging

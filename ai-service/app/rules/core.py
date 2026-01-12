@@ -2,6 +2,8 @@
 Shared core utilities for RingRift rules.
 Mirrors src/shared/engine/core.ts
 """
+from __future__ import annotations
+
 
 from typing import Any, NamedTuple, Protocol
 

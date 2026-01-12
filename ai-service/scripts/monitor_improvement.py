@@ -12,6 +12,8 @@ Usage:
     python scripts/monitor_improvement.py --watch      # Continuous monitoring
     python scripts/monitor_improvement.py --slack URL  # Send alerts to Slack
 """
+from __future__ import annotations
+
 
 import argparse
 import json

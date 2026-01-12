@@ -5,6 +5,8 @@ Uses MCTS to generate high-quality training data with data augmentation.
 Supports both square (8x8, 19x19) and hexagonal boards.
 Hex boards use D6 symmetry augmentation (12 transformations).
 """
+from __future__ import annotations
+
 
 import argparse
 import contextlib

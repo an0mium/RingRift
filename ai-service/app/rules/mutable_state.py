@@ -17,6 +17,8 @@ Usage:
     score = evaluate(state)
     state.unmake_move(undo)
 """
+from __future__ import annotations
+
 
 import logging
 from dataclasses import dataclass, field

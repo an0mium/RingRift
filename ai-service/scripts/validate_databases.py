@@ -12,6 +12,8 @@ Usage:
   python scripts/validate_databases.py data/games --replay --delete --force
   python scripts/validate_databases.py /path/to/specific.db --replay
 """
+from __future__ import annotations
+
 import argparse
 import json
 import os

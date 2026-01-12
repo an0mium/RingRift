@@ -15,6 +15,8 @@ Usage:
 Note (December 29, 2025): This module uses AlertLevel from app.config.thresholds.
 For new coordination/daemon code, prefer app.coordination.alert_types.AlertSeverity.
 """
+from __future__ import annotations
+
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field

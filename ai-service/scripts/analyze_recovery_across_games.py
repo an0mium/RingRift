@@ -15,6 +15,8 @@ eligibility contract.
 It produces aggregate statistics and finds specific game states where
 recovery should have been possible.
 """
+from __future__ import annotations
+
 
 import argparse
 import json

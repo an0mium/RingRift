@@ -13,6 +13,8 @@ Strategy:
 Integration: This is an ADDITION to the training system, not a replacement.
 Select via AIType.GPU_MINIMAX in the factory.
 """
+from __future__ import annotations
+
 
 import logging
 import os

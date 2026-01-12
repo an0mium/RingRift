@@ -3,6 +3,8 @@ Training Fault Tolerance for RingRift AI.
 
 Provides checkpointing, recovery, and fault handling for robust training.
 """
+from __future__ import annotations
+
 
 import json
 import logging

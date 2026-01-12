@@ -5,6 +5,8 @@ This module is intentionally kept free of torch dependencies so it can be
 imported without loading neural network libraries. Use this module when
 you only need to create game states, not for full training data generation.
 """
+from __future__ import annotations
+
 
 import logging
 import os

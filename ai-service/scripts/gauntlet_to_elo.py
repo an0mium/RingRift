@@ -14,6 +14,8 @@ Usage:
     # Process specific config
     python scripts/gauntlet_to_elo.py --process --config square8_2p
 """
+from __future__ import annotations
+
 
 import argparse
 import json

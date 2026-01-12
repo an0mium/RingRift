@@ -19,6 +19,8 @@ Usage:
 
 December 31, 2025: Created for training loop effectiveness monitoring.
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

@@ -11,6 +11,8 @@ Architecture:
 - SoftLegalityPredictor (optional, for soft constraint learning)
 - GMOValueNetWithUncertainty (256-dim hidden)
 """
+from __future__ import annotations
+
 
 import argparse
 import json

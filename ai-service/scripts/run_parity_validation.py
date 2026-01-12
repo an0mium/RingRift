@@ -8,6 +8,8 @@ Usage:
     python scripts/run_parity_validation.py --databases data/games/*.db --mode canonical
     python scripts/run_parity_validation.py --databases data/games/square8_2p.db --output-json results.json
 """
+from __future__ import annotations
+
 
 import argparse
 import json

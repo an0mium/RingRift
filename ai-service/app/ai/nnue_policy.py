@@ -14,6 +14,8 @@ Training:
 - Policy loss: Cross-entropy on actual move played
 - Combined: L = value_weight * L_value + policy_weight * L_policy
 """
+from __future__ import annotations
+
 
 import logging
 import math

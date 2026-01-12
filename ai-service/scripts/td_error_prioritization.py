@@ -11,6 +11,8 @@ Usage:
     python scripts/td_error_prioritization.py --data training.npz --output prioritized.npz
     python scripts/td_error_prioritization.py --compute-priorities --model models/best.pth
 """
+from __future__ import annotations
+
 
 import argparse
 import sys

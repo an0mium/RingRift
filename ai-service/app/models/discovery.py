@@ -21,6 +21,8 @@ Usage:
     # Write sidecar for a model
     write_model_sidecar(model_path, board_type="square8", num_players=2)
 """
+from __future__ import annotations
+
 
 import json
 import logging

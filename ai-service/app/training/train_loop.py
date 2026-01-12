@@ -37,6 +37,8 @@ See Also:
     - app.training.optimized_pipeline for enhanced pipeline features
     - app.training.train for core training logic
 """
+from __future__ import annotations
+
 
 import json
 import os

@@ -10,6 +10,8 @@ This script replays games from JSONL files and detects:
 Usage:
     python scripts/analyze_game_mechanics.py [--dir PATH] [--limit N] [--verbose]
 """
+from __future__ import annotations
+
 
 import argparse
 import json

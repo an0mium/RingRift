@@ -10,6 +10,8 @@ This module provides an automated pipeline for:
 Integrates with ModelVersionManager for checkpoint loading and
 tournament.py for match execution.
 """
+from __future__ import annotations
+
 
 import json
 import logging

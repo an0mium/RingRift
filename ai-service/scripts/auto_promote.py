@@ -24,6 +24,8 @@ Usage:
     python scripts/auto_promote.py --gauntlet --model models/my_model.pth \\
         --board-type hex8 --num-players 4 --sync-to-cluster
 """
+from __future__ import annotations
+
 
 import argparse
 import json

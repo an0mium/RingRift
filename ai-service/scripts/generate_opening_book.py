@@ -24,6 +24,8 @@ Usage:
     # Export for selfplay
     python scripts/generate_opening_book.py --book data/opening_book.json --export-selfplay data/openings_flat.json
 """
+from __future__ import annotations
+
 
 import argparse
 import glob as glob_module

@@ -24,6 +24,8 @@ Usage:
     # Validate player count in model files
     python scripts/cleanup_phantom_elo_entries.py --validate-players
 """
+from __future__ import annotations
+
 
 import argparse
 import json

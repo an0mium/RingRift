@@ -20,6 +20,8 @@ Integration:
     # After each stage:
     await self.feedback.on_stage_complete(stage_name, result)
 """
+from __future__ import annotations
+
 
 import asyncio
 import json

@@ -14,6 +14,8 @@ Key Features:
 - Lazy sample counting without loading full data
 - Background prefetching for improved GPU utilization (~10-20% speedup)
 """
+from __future__ import annotations
+
 
 import logging
 import os

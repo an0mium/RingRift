@@ -5,6 +5,8 @@ This module provides serialization/deserialization functions that match the
 TypeScript format from src/shared/engine/contracts/serialization.ts, enabling
 Python contract tests to load test vectors and compare results.
 """
+from __future__ import annotations
+
 
 from datetime import datetime
 from typing import Any

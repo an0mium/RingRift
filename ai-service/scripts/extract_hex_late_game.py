@@ -11,6 +11,8 @@ Usage:
     # Create NPZ training data from late-game positions
     python scripts/extract_hex_late_game.py --db data/games/hex8_*.db --min-moves 120 --output npz
 """
+from __future__ import annotations
+
 
 import argparse
 import json

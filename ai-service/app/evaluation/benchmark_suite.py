@@ -4,6 +4,8 @@ Comprehensive Benchmark Suite for RingRift AI.
 Provides reproducible benchmarks for model evaluation across
 performance, quality, and position-specific metrics.
 """
+from __future__ import annotations
+
 
 import json
 import logging

@@ -4,6 +4,8 @@ Temperature Scheduling for Self-Play in RingRift AI.
 Controls exploration vs exploitation during self-play game generation
 through sophisticated temperature schedules.
 """
+from __future__ import annotations
+
 
 import logging
 import math

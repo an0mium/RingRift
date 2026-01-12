@@ -35,6 +35,8 @@ See Also:
     app.training.selfplay_runner: Higher-level selfplay orchestration
     app.training.train: Neural network training pipeline
 """
+from __future__ import annotations
+
 import logging
 import os
 from dataclasses import dataclass

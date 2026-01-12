@@ -24,6 +24,8 @@ Usage:
     contract = ModelConfigContract.for_config(BoardType.SQUARE8, 3)
     violations = contract.validate_model(model)
 """
+from __future__ import annotations
+
 
 import logging
 from dataclasses import dataclass

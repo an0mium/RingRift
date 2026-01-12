@@ -20,6 +20,8 @@ Usage:
     # Custom threshold
     python scripts/model_culling.py --cull --threshold 50 --keep-fraction 0.5
 """
+from __future__ import annotations
+
 
 import argparse
 import shutil

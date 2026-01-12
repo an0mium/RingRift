@@ -21,6 +21,8 @@ Usage:
     # Generate shell script instead of applying
     python scripts/fix_model_naming.py --output-script rename_models.sh
 """
+from __future__ import annotations
+
 
 import argparse
 import logging

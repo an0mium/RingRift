@@ -19,6 +19,8 @@ Usage:
 
 December 2025: Created for cluster-wide S3 backup infrastructure.
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

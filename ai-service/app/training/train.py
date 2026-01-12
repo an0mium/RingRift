@@ -40,6 +40,8 @@ Recommended Usage (December 2025):
         # Run all epochs with early stopping
         results = run_all_epochs(epoch_context)
 """
+from __future__ import annotations
+
 
 import contextlib
 import glob

@@ -12,6 +12,8 @@ Usage:
     python scripts/fix_elo_database.py --recalculate      # Recalculate all ratings
     python scripts/fix_elo_database.py --fix-all          # Do everything
 """
+from __future__ import annotations
+
 
 import argparse
 import hashlib

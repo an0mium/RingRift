@@ -2,6 +2,8 @@
 RingRift AI Service - FastAPI Application
 Provides AI move selection and position evaluation endpoints
 """
+from __future__ import annotations
+
 
 import asyncio
 import logging

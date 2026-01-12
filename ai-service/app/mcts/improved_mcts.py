@@ -8,6 +8,8 @@ Provides advanced MCTS features including:
 - Transposition tables
 - Tree reuse between moves
 """
+from __future__ import annotations
+
 
 import logging
 import math

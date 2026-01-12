@@ -5,6 +5,8 @@ CMA-ES (Covariance Matrix Adaptation Evolution Strategy) approach.
 
 Extracted from train.py to improve modularity (Dec 2025).
 """
+from __future__ import annotations
+
 
 import contextlib
 import math

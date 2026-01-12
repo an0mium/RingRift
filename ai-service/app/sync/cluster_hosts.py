@@ -21,6 +21,8 @@ Used by:
 
     This module re-exports for backward compatibility.
 """
+from __future__ import annotations
+
 
 import json
 import socket

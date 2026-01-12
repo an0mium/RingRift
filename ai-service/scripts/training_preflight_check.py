@@ -9,6 +9,8 @@ Usage:
     cd ai-service
     python scripts/training_preflight_check.py
 """
+from __future__ import annotations
+
 
 import argparse
 import json

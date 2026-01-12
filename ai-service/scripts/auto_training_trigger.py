@@ -9,6 +9,8 @@ the cluster maintains high GPU utilization. It can be run via cron:
 Or as a daemon:
     python3 auto_training_trigger.py --daemon --interval 300
 """
+from __future__ import annotations
+
 
 import argparse
 import json

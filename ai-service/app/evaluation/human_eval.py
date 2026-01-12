@@ -4,6 +4,8 @@ Human Evaluation Interface for RingRift AI.
 Provides tools for collecting human feedback on AI play quality,
 comparing models, and gathering annotations for training improvement.
 """
+from __future__ import annotations
+
 
 import json
 import logging

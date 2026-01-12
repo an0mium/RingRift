@@ -29,6 +29,8 @@ Usage:
     # Full pipeline: collect + train if threshold met
     python scripts/data_pipeline_coordinator.py run --min-games 1000
 """
+from __future__ import annotations
+
 
 import argparse
 import json

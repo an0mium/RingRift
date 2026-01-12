@@ -17,6 +17,8 @@ Usage:
     # Use specific node
     python scripts/trigger_priority_selfplay.py --leader nebius-backbone-1
 """
+from __future__ import annotations
+
 
 import argparse
 import json

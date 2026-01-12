@@ -13,6 +13,8 @@ Key classes:
 The NNUE model predicts game outcome (win/loss/draw) from position features,
 providing a learned evaluation function for alpha-beta search.
 """
+from __future__ import annotations
+
 
 import gzip
 import json

@@ -12,6 +12,8 @@ Usage:
     python scripts/validate_npz_encoding.py data/training/*.npz --board-type square8
     python scripts/validate_npz_encoding.py data/training/ --recursive
 """
+from __future__ import annotations
+
 
 import argparse
 import sys

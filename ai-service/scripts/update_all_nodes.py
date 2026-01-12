@@ -28,6 +28,8 @@ January 9, 2026 - Config Sync:
     Problem: distributed_hosts.yaml is gitignored, so git pull doesn't update it.
     Solution: Explicitly sync config files via SCP when --sync-config is set.
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

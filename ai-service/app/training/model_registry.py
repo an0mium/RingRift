@@ -57,6 +57,8 @@ Typical usage:
     # Later: promote to production after evaluation
     registry.promote_model(model_id, ModelStage.PRODUCTION)
 """
+from __future__ import annotations
+
 
 import hashlib
 import json

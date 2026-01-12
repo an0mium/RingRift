@@ -4,6 +4,8 @@ Value Head Calibration for RingRift AI.
 Ensures value predictions are well-calibrated to actual game outcomes,
 improving MCTS search quality and decision-making.
 """
+from __future__ import annotations
+
 
 import logging
 from dataclasses import dataclass, field

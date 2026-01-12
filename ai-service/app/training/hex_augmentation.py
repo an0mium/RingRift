@@ -23,6 +23,8 @@ The 12 D6 transformations are:
 - 0-5: Rotations R^k for k = 0..5
 - 6-11: Reflections S * R^k for k = 0..5
 """
+from __future__ import annotations
+
 
 
 import numpy as np

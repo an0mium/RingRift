@@ -16,6 +16,8 @@ Example:
         --output-dir ./training_data \\
         --ai-type heuristic
 """
+from __future__ import annotations
+
 
 import argparse
 import random

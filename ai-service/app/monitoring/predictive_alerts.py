@@ -8,6 +8,8 @@ Note (December 29, 2025): This module uses a local AlertSeverity enum for backwa
 compatibility with existing code that expects str values ("info", "warning", "critical").
 For new code, prefer using app.coordination.alert_types.AlertSeverity (IntEnum: 0-4).
 """
+from __future__ import annotations
+
 
 import logging
 import time

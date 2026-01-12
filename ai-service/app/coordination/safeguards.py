@@ -25,6 +25,8 @@ Usage:
     # After failure
     safeguards.record_failure("selfplay", "node-1", "OOM")
 """
+from __future__ import annotations
+
 
 import json
 import logging

@@ -22,6 +22,8 @@ Timeout Handling:
     - Stuck runs are automatically cleaned up by the gauntlet module
     - Failed runs are logged and the script continues to next config
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

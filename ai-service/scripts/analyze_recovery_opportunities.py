@@ -14,6 +14,8 @@ would have been available.
 Usage:
     python scripts/analyze_recovery_opportunities.py [--dir PATH] [--limit N]
 """
+from __future__ import annotations
+
 
 import argparse
 import json

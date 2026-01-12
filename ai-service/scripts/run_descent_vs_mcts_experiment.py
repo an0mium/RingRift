@@ -15,6 +15,8 @@ Usage:
         --eval-games 100 \
         --output-dir experiments/descent_vs_mcts
 """
+from __future__ import annotations
+
 
 import argparse
 import json

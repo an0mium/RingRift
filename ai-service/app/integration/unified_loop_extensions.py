@@ -25,6 +25,8 @@ Usage:
         self.extensions.run_all_loops(),
     )
 """
+from __future__ import annotations
+
 
 import asyncio
 import logging

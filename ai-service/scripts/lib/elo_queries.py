@@ -18,6 +18,8 @@ Usage:
     # Use with custom database path
     candidates = get_production_candidates(db_path=Path("/custom/path.db"))
 """
+from __future__ import annotations
+
 
 import sqlite3
 from dataclasses import dataclass

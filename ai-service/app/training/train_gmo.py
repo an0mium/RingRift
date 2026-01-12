@@ -12,6 +12,8 @@ Training procedure:
 3. Train networks to predict value and uncertainty
 4. Evaluate by playing games vs Random AI
 """
+from __future__ import annotations
+
 
 import argparse
 import json

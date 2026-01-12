@@ -9,6 +9,8 @@ When a sync stalls or times out, it:
 
 This is CRITICAL for cluster reliability in multi-node environments.
 """
+from __future__ import annotations
+
 
 import logging
 import time

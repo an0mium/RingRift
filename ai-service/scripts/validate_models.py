@@ -21,6 +21,8 @@ Usage:
     # Run on remote host
     python scripts/validate_models.py --scan --host vast-rtx3060
 """
+from __future__ import annotations
+
 
 import argparse
 import hashlib

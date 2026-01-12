@@ -4,6 +4,8 @@ Auto-scaling integration for Vast.ai instances based on work queue depth.
 This module provides queue-depth-based scaling that automatically provisions
 or deprovisions Vast.ai GPU instances based on pending work and idle nodes.
 """
+from __future__ import annotations
+
 
 import logging
 import time

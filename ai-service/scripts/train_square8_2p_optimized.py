@@ -29,6 +29,8 @@ Usage:
     # Dry run (show what would happen)
     python scripts/train_square8_2p_optimized.py --dry-run
 """
+from __future__ import annotations
+
 
 import argparse
 import logging

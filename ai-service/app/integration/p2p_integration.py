@@ -11,6 +11,8 @@ Connects all training components with the distributed P2P cluster:
 This module acts as the bridge between the self-improvement loop
 components and the P2P orchestrator's REST API.
 """
+from __future__ import annotations
+
 
 import asyncio
 import contextlib

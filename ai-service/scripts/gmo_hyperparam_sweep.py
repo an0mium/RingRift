@@ -17,6 +17,8 @@ Usage:
     # Resume from checkpoint
     python scripts/gmo_hyperparam_sweep.py --resume sweep_results.json
 """
+from __future__ import annotations
+
 
 import argparse
 import itertools

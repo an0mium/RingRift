@@ -15,6 +15,8 @@ Usage:
     python scripts/monitor_cluster_10h.py --once             # Single check
     python scripts/monitor_cluster_10h.py --duration 2       # 2-hour monitoring
 """
+from __future__ import annotations
+
 
 import argparse
 import json

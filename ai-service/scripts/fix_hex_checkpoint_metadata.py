@@ -10,6 +10,8 @@ This script fixes the metadata and re-saves the checkpoints.
 Usage:
     python scripts/fix_hex_checkpoint_metadata.py [--dry-run]
 """
+from __future__ import annotations
+
 
 import argparse
 import os

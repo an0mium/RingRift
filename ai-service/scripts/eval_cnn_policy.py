@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate CNN policy network against Random baseline."""
+from __future__ import annotations
+
 
 import argparse
 import random

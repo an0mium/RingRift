@@ -15,6 +15,8 @@ Usage:
     PYTHONPATH=. python scripts/test_gpu_minimax.py --full       # Full test suite
     PYTHONPATH=. python scripts/test_gpu_minimax.py --benchmark  # Performance only
 """
+from __future__ import annotations
+
 
 import argparse
 import gc

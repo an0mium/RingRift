@@ -18,6 +18,8 @@ Canonical Rules (from RULES_CANONICAL_SPEC.md):
 All controlled stacks (including height-1 standalone rings) are eligible for
 line, territory, and forced elimination. Recovery uses buried ring extraction.
 """
+from __future__ import annotations
+
 
 from dataclasses import dataclass
 from datetime import datetime

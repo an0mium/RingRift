@@ -18,6 +18,8 @@ Usage (SQLite DB):
         --output data/distilled/sq8_cnn_policy.jsonl \
         --board-type square8
 """
+from __future__ import annotations
+
 
 import argparse
 import gzip

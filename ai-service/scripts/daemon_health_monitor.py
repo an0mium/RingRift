@@ -25,6 +25,8 @@ Environment Variables:
     RINGRIFT_MONITOR_INTERVAL - Check interval in seconds (default: 60)
     RINGRIFT_MONITOR_LOG_FILE - Log file path (default: logs/daemon_monitor.log)
 """
+from __future__ import annotations
+
 
 import argparse
 import asyncio

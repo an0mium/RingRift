@@ -23,6 +23,8 @@ GPU Acceleration (default enabled):
 - Control via RINGRIFT_GPU_MAXN_DISABLE=1 environment variable
 - Shadow validation available via RINGRIFT_GPU_MAXN_SHADOW_VALIDATE=1
 """
+from __future__ import annotations
+
 
 import logging
 import os

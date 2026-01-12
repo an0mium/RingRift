@@ -9,6 +9,8 @@ Game records are the canonical format for storing completed games, supporting:
 
 Mirrors TypeScript types from src/shared/types/gameRecord.ts
 """
+from __future__ import annotations
+
 
 from datetime import datetime
 from enum import Enum

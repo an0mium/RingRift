@@ -36,6 +36,8 @@ Usage:
     # Distribute file via BitTorrent mesh (efficient for multiple nodes)
     python scripts/cluster_file_sync.py torrent-distribute models/large_model.pth 28918742,28925166,28889768:/workspace/models/
 """
+from __future__ import annotations
+
 
 import argparse
 import gzip

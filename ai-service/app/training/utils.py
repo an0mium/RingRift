@@ -4,6 +4,8 @@ Shared utilities for training infrastructure.
 This module provides commonly-used utility functions to avoid duplication
 across the training codebase.
 """
+from __future__ import annotations
+
 
 import logging
 from typing import Any
