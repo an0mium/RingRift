@@ -1,0 +1,1200 @@
+INFO:app.p2p.swim_adapter:swim-p2p loaded successfully (SWIM membership available, TCP+UDP transports)
+INFO:app.config.unified_config:Loaded unified config from /Users/armand/Development/RingRift/ai-service/config/unified_loop.yaml
+INFO:app.config.unified_config:  Training threshold: 200
+INFO:app.config.unified_config:  Elo DB: data/unified_elo.db
+Latency tracker module loaded
+Bandwidth monitor module loaded
+Lifeguard enhancement module loaded
+Metrics collector module loaded
+2026-01-12 17:44:34,170 - app.coordination.safeguards - INFO - Safeguards initialized
+/Users/armand/.pyenv/versions/3.10.13/lib/python3.10/site-packages/paramiko/pkey.py:100: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "cipher": algorithms.TripleDES,
+/Users/armand/.pyenv/versions/3.10.13/lib/python3.10/site-packages/paramiko/transport.py:259: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "class": algorithms.TripleDES,
+2026-01-12 17:44:34,352 - p2p_orchestrator - INFO - [P2P] Acquired singleton lock (PID 1676)
+2026-01-12 17:44:34,353 - p2p_orchestrator - INFO - Initializing P2P orchestrator: node_id=MacBook-Pro-5
+2026-01-12 17:44:34,353 - p2p_orchestrator - INFO - Bootstrap seeds: 5 CLI + 5 hardcoded = 9 total
+2026-01-12 17:44:34,404 - p2p_orchestrator - INFO - Auto-detected storage: RAMDRIVE (RAM: 128GB, Disk: 154GB free / 83% used)
+2026-01-12 17:44:34,414 - app.utils.ramdrive - INFO - ============================================================
+2026-01-12 17:44:34,414 - app.utils.ramdrive - INFO - STORAGE AUTO-DETECTION REPORT
+2026-01-12 17:44:34,414 - app.utils.ramdrive - INFO - ============================================================
+2026-01-12 17:44:34,414 - app.utils.ramdrive - INFO - System RAM:     128.0GB total, 89.6GB available
+2026-01-12 17:44:34,414 - app.utils.ramdrive - INFO - Disk:           926.4GB total, 153.8GB free (83.4% used)
+2026-01-12 17:44:34,414 - app.utils.ramdrive - INFO - Ramdrive:       /tmp - 153.8GB free
+2026-01-12 17:44:34,415 - app.utils.ramdrive - INFO - RAM-rich:       Yes
+2026-01-12 17:44:34,415 - app.utils.ramdrive - INFO - Disk-limited:   Yes
+2026-01-12 17:44:34,415 - app.utils.ramdrive - INFO - Recommendation: USE RAMDRIVE
+2026-01-12 17:44:34,415 - app.utils.ramdrive - INFO - ============================================================
+2026-01-12 17:44:34,618 - p2p_orchestrator - INFO - [P2P] advertise_host changed: fd7a:115c:a1e0::dc01:a487 -> 100.69.164.58 (ipv6_to_ipv4_switch)
+[P2P] Voter quorum enabled: voters=6, quorum=3 (mac-studio, MacBook-Pro-5, lambda-gh200-training, hetzner-cpu1, hetzner-cpu2, hetzner-cpu3)
+2026-01-12 17:44:34,717 - scripts.p2p.leadership_state_machine - INFO - LeadershipStateMachine initialized: node_id=MacBook-Pro-5, state=follower, epoch=0
+2026-01-12 17:44:34,717 - p2p_orchestrator - INFO - MonitoringManager initialized
+2026-01-12 17:44:34,726 - app.coordination.database_sync_manager - INFO - [EloSyncManager] Initialized for elo db=/Users/armand/Development/RingRift/ai-service/data/unified_elo.db, coordinator=nebius-backbone-1
+2026-01-12 17:44:34,726 - p2p_orchestrator - INFO - EloSyncManager initialized (db: /Users/armand/Development/RingRift/ai-service/data/unified_elo.db)
+2026-01-12 17:44:34,726 - p2p_orchestrator - INFO - PFSP opponent pools initialized for 4 configs
+2026-01-12 17:44:34,727 - p2p_orchestrator - INFO - CMA-ES auto-tuners initialized for 4 configs
+2026-01-12 17:44:34,727 - p2p_orchestrator - INFO - P2P protocols: MEMBERSHIP_MODE=hybrid (SWIM=available), CONSENSUS_MODE=hybrid (Raft=available)
+2026-01-12 17:44:34,727 - scripts.p2p.consensus_mixin - WARNING - Raft consensus unavailable: no Raft partners available
+2026-01-12 17:44:34,736 - scripts.p2p.transport_cascade - INFO - Registered transport: http_direct (tier TIER_1_FAST)
+2026-01-12 17:44:34,736 - scripts.p2p.transport_cascade - INFO - Registered transport: tailscale (tier TIER_2_RELIABLE)
+2026-01-12 17:44:34,737 - scripts.p2p.transport_cascade - INFO - Registered transport: ssh_tunnel (tier TIER_3_TUNNELED)
+2026-01-12 17:44:34,737 - scripts.p2p.transport_cascade - INFO - Registered transport: cloudflare_tunnel (tier TIER_3_TUNNELED)
+2026-01-12 17:44:34,756 - scripts.p2p.p2p_mixin_base - INFO - [peer_manager] Multi-relay failover enabled with 7 relays: hetzner-cpu3, hetzner-cpu2, hetzner-cpu1... (preferred: nebius-h100-3)
+2026-01-12 17:44:34,756 - scripts.p2p.transport_cascade - INFO - Registered transport: p2p_relay (tier TIER_4_RELAY)
+2026-01-12 17:44:34,756 - scripts.p2p.p2p_mixin_base - INFO - [peer_manager] Failover system initialized successfully
+2026-01-12 17:44:34,756 - p2p_orchestrator - INFO - Failover system initialized (transport cascade + union discovery)
+2026-01-12 17:44:34,757 - scripts.p2p.managers.state_manager - INFO - Loaded cluster epoch: 3868
+2026-01-12 17:44:34,758 - p2p_orchestrator - INFO - Safeguards: rate_limit=5/min, load_max=2.0x, agent_mode=False
+2026-01-12 17:44:34,759 - scripts.p2p.managers.state_manager - INFO - P0.5: Invalidated expired leader lease on startup. Old leader: hetzner-cpu1, expired at: 0, now: 1768261475
+2026-01-12 17:44:34,759 - scripts.p2p.managers.state_manager - INFO - Loaded state: 42 peers, 0 jobs
+2026-01-12 17:44:34,759 - scripts.p2p.managers.state_manager - INFO - [StateManager] Cleaned stale state: removed 0 jobs, 41 peers
+2026-01-12 17:44:34,759 - p2p_orchestrator - INFO - Loaded state: 1 peers, 0 jobs
+2026-01-12 17:44:34,759 - p2p_orchestrator - INFO - [P2P] Startup state validation passed
+2026-01-12 17:44:34,759 - scripts.p2p.managers.state_manager - INFO - [StateManager] Loaded 44 peer health records
+2026-01-12 17:44:34,760 - p2p_orchestrator - INFO - [P2P] Loaded 44 peer health records
+2026-01-12 17:44:35,530 - p2p_orchestrator - WARNING - [P2P] GPU node MacBook-Pro-5 is marked as coordinator - this may be a misconfiguration. GPU: Apple MPS. Unset RINGRIFT_IS_COORDINATOR or remove role:coordinator from YAML to enable training capabilities.
+2026-01-12 17:44:35,530 - p2p_orchestrator - INFO - [P2P] Coordinator-only mode: no selfplay/training/cmaes capabilities
+2026-01-12 17:44:35,702 - scripts.p2p.managers.node_selector - INFO - [NodeSelector] Subscribed to HOST_OFFLINE
+2026-01-12 17:44:35,703 - scripts.p2p.managers.node_selector - INFO - [NodeSelector] Subscribed to NODE_RECOVERED
+2026-01-12 17:44:35,703 - scripts.p2p.managers.node_selector - INFO - [NodeSelector] Subscribed to HOST_ONLINE
+2026-01-12 17:44:35,703 - p2p_orchestrator - WARNING - Cannot create ramdrive at /dev/shm/ringrift/data: [Errno 1] Operation not permitted: '/dev/shm'. Falling back to disk storage.
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to LEADER_ELECTED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to NODE_RECOVERED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HOST_ONLINE
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (3 events)
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to SELFPLAY_RATE_CHANGED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EXPLORATION_BOOST
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TRAINING_COMPLETED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to ELO_VELOCITY_CHANGED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to NPZ_EXPORT_COMPLETE
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TRAINING_STARTED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_COMPLETED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to PLATEAU_DETECTED
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_BACKPRESSURE
+2026-01-12 17:44:35,703 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_BACKPRESSURE_RELEASED
+2026-01-12 17:44:35,704 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TRAINING_BLOCKED_BY_QUALITY
+2026-01-12 17:44:35,704 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HYPERPARAMETER_UPDATED
+2026-01-12 17:44:35,704 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to QUALITY_SCORE_UPDATED
+2026-01-12 17:44:35,704 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to ARCHITECTURE_WEIGHTS_UPDATED
+2026-01-12 17:44:35,704 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to DATA_STARVATION_CRITICAL
+2026-01-12 17:44:35,704 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (15 events)
+2026-01-12 17:44:35,719 - p2p_orchestrator - INFO - [P2P] Seeded SelfplayScheduler with 1 config game counts from canonical DBs
+2026-01-12 17:44:35,719 - p2p_orchestrator - INFO - [P2P] Underserved config: hex8_4p = 4 games
+2026-01-12 17:44:35,719 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HOST_OFFLINE
+2026-01-12 17:44:35,719 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HOST_ONLINE
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to NODE_RECOVERED
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (3 events)
+2026-01-12 17:44:35,720 - p2p_orchestrator - INFO - [P2P] Spawn verification wired: JobManager <-> SelfplayScheduler
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to SELFPLAY_COMPLETE
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to DATA_SYNC_COMPLETED
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_COMPLETED
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to REGRESSION_DETECTED
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TASK_ABANDONED
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to P2P_NODE_DEAD
+2026-01-12 17:44:35,720 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (6 events)
+2026-01-12 17:44:35,721 - p2p_orchestrator - INFO - [P2P] JobOrchestrationManager initialized
+2026-01-12 17:44:35,721 - p2p_orchestrator - INFO - WorkDiscoveryManager: initialized with 4 discovery channels
+2026-01-12 17:44:35,737 - app.coordination.cross_process_events - INFO - [CrossProcessEventPoller] Resuming from event_id 41456
+2026-01-12 17:44:35,737 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE, REGRESSION_DETECTED, TRAINING_LOSS_ANOMALY, QUORUM_RECOVERY_STARTED, CURRICULUM_ROLLBACK
+2026-01-12 17:44:35,738 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] Started (event-driven mode)
+2026-01-12 17:44:35,738 - app.coordination.curriculum_integration - INFO - [PFSPWeaknessWatcher] Started
+2026-01-12 17:44:35,738 - app.coordination.curriculum_router - INFO - [promotion_failed_curriculum_watcher] Subscribed to ['PROMOTION_FAILED']
+2026-01-12 17:44:35,738 - app.coordination.curriculum_integration - INFO - [PromotionCompletedToCurriculumWatcher] Subscribed to PROMOTION_COMPLETED
+2026-01-12 17:44:35,738 - app.coordination.curriculum_router - INFO - [quality_penalty_curriculum_watcher] Subscribed to ['QUALITY_PENALTY_APPLIED']
+2026-01-12 17:44:35,738 - app.coordination.curriculum_router - INFO - [regression_critical_curriculum_watcher] Subscribed to ['REGRESSION_CRITICAL']
+2026-01-12 17:44:35,738 - app.coordination.curriculum_router - INFO - [architecture_curriculum_bridge] Subscribed to ['ARCHITECTURE_WEIGHTS_UPDATED']
+2026-01-12 17:44:35,739 - app.coordination.curriculum_integration - INFO - [QualityToTemperatureWatcher] Subscribed to quality events
+2026-01-12 17:44:35,740 - app.training.curriculum_feedback - INFO - [CurriculumFeedback] Subscribed to CURRICULUM_ADVANCED + TRAINING_EARLY_STOPPED events
+2026-01-12 17:44:35,740 - app.training.curriculum_feedback - INFO - [EloToCurriculumWatcher] Subscribed to ELO_UPDATED events
+2026-01-12 17:44:35,740 - app.training.curriculum_feedback - INFO - [wire_elo_to_curriculum] ELO events wired to curriculum rebalance (threshold=30.0)
+2026-01-12 17:44:35,740 - app.training.curriculum_feedback - INFO - [PlateauToCurriculumWatcher] Subscribed to PLATEAU_DETECTED events
+2026-01-12 17:44:35,740 - app.training.curriculum_feedback - INFO - [wire_plateau_to_curriculum] PLATEAU_DETECTED events wired to curriculum rebalance (cooldown=600.0s, boost=0.3)
+2026-01-12 17:44:35,740 - app.training.curriculum_feedback - INFO - [TournamentToCurriculumWatcher] Subscribed to EVALUATION_COMPLETED events
+2026-01-12 17:44:35,740 - app.training.curriculum_feedback - INFO - [wire_tournament_to_curriculum] EVALUATION_COMPLETED events wired to curriculum (low=0.45, high=0.65)
+2026-01-12 17:44:35,741 - app.training.curriculum_feedback - INFO - [PromotionToCurriculumWatcher] Subscribed to MODEL_PROMOTED events
+2026-01-12 17:44:35,741 - app.training.curriculum_feedback - INFO - [wire_promotion_to_curriculum] PROMOTION_COMPLETE events wired to curriculum (failure_urgency=high)
+2026-01-12 17:44:35,741 - app.training.curriculum_feedback - INFO - [QualityFeedbackWatcher] Subscribed to QUALITY_SCORE_UPDATED events
+2026-01-12 17:44:35,741 - app.training.curriculum_feedback - INFO - [wire_quality_to_curriculum] Quality events wired to selfplay budget adjustment (window=100)
+2026-01-12 17:44:35,744 - app.training.curriculum_feedback - INFO - [wire_epoch_to_curriculum] EPOCH_COMPLETED events wired to curriculum (check_interval=5 epochs)
+2026-01-12 17:44:35,749 - app.training.curriculum_feedback - INFO - CurriculumFeedback: OpponentWinRateTracker integrated
+2026-01-12 17:44:35,749 - app.training.curriculum_feedback - INFO - Wired OpponentWinRateTracker to CurriculumFeedback
+2026-01-12 17:44:35,749 - app.training.curriculum_feedback - INFO - [wire_all_curriculum_feedback] Wired opponent tracker to curriculum
+2026-01-12 17:44:35,749 - app.training.curriculum_feedback - INFO - [EarlyStopToCurriculumWatcher] Subscribed to TRAINING_EARLY_STOPPED events
+2026-01-12 17:44:35,749 - app.training.curriculum_feedback - INFO - [wire_early_stop_to_curriculum] TRAINING_EARLY_STOPPED events wired to curriculum boost
+2026-01-12 17:44:35,749 - app.training.curriculum_feedback - INFO - [wire_all_curriculum_feedback] Wired 8 curriculum feedback integrations
+2026-01-12 17:44:35,749 - app.coordination.curriculum_integration - INFO - [wire_all_feedback_loops] Wired 9 feedback integrations: momentum_bridge, pfsp_weakness, promotion_failed_curriculum, promotion_completed_curriculum, quality_penalty_curriculum, regression_critical_curriculum, architecture_curriculum, quality_temperature, curriculum_feedback
+2026-01-12 17:44:35,749 - p2p_orchestrator - WARNING - Feedback loops: partial wiring - Unknown error
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - Subscribed to daemon status events
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - Subscribed to training feedback signals
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - Subscribed to manager lifecycle and health events
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - [P2P] Event subscriptions: daemon=✓, feedback=✓, manager=✓
+[P2P] Initialized node MacBook-Pro-5 on 0.0.0.0:8770 (advertise 100.69.164.58:8770)
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - RingRift path: /Users/armand/Development/RingRift
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - Version: main@cfa0946ac
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - Known peers: ['100.68.208.43:8770', '100.100.19.96:8770', '100.121.230.110:8770', '100.71.89.91:8770', '100.94.174.19:8770', '100.126.21.102:8770', '100.67.131.72:8770', '100.94.201.92:8770', '100.110.28.41:8770']
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - Auth: disabled (set RINGRIFT_CLUSTER_AUTH_TOKEN to enable)
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - HybridTransport: enabled (HTTP with SSH fallback for Vast)
+2026-01-12 17:44:35,750 - app.p2p.swim_adapter - INFO - SWIM seeds from cluster_config: [('100.107.168.125', 7947), ('100.68.208.43', 7947), ('100.94.174.19', 7947), ('100.67.131.72', 7947), ('100.126.21.102', 7947)]
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - SWIM membership manager initialized for MacBook-Pro-5
+2026-01-12 17:44:35,750 - p2p_orchestrator - INFO - LoopManager: initialized for extracted background loops
+2026-01-12 17:44:35,752 - p2p_orchestrator - INFO - [P2P] Manager health: 0/8 healthy, 8 starting (grace period: 59s remaining)
+2026-01-12 17:44:35,752 - p2p_orchestrator - INFO - P2P orchestrator initialized successfully: MacBook-Pro-5
+2026-01-12 17:44:35,752 - p2p_orchestrator - INFO - [P2P] Event emitters available - P2P events will be published
+2026-01-12 17:44:35,752 - p2p_orchestrator - INFO - Starting P2P orchestrator main loop: MacBook-Pro-5
+2026-01-12 17:44:35,752 - p2p_orchestrator - INFO - Started isolated health server thread (port 8772)
+2026-01-12 17:44:35,752 - p2p_orchestrator - INFO - [Startup Validation] SWIM protocol available (membership_mode=hybrid)
+2026-01-12 17:44:35,753 - p2p_orchestrator - INFO - [Startup Validation] Raft protocol available (consensus_mode=hybrid)
+2026-01-12 17:44:35,753 - p2p_orchestrator - INFO - [Startup Validation] Protocol config: membership=hybrid, consensus=hybrid
+2026-01-12 17:44:35,753 - p2p_orchestrator - INFO - Isolated health server started on 0.0.0.0:8772
+2026-01-12 17:44:36,195 - p2p_orchestrator - INFO - [Startup Validation] Voter quorum OK: 5/6 voters reachable
+2026-01-12 17:44:36,195 - scripts.p2p.resource_detector - WARNING - [ResourceDetector] GPU detected (Apple MPS) but PyTorch has no CUDA support. Fix: pip install torch --index-url https://download.pytorch.org/whl/cu128
+2026-01-12 17:44:36,195 - p2p_orchestrator - WARNING - [Startup Validation] GPU detected (Apple MPS) but PyTorch has no CUDA support. Fix: pip install torch --index-url https://download.pytorch.org/whl/cu128
+/Users/armand/Development/RingRift/ai-service/scripts/p2p_orchestrator.py:28238: DeprecationWarning: get_event_bus() from data_events is deprecated. Use get_router() from app.coordination.event_router instead.
+  get_event_bus().emit(
+2026-01-12 17:44:36,196 - p2p_orchestrator - WARNING - [Startup Validation] Completed with 1 warnings. Managers: 2/3 available
+2026-01-12 17:44:36,202 - scripts.p2p.routes - WARNING - Missing 2 handlers: ['handle_probe_vast_nodes', 'handle_gpu_rankings']...
+2026-01-12 17:44:36,202 - p2p_orchestrator - INFO - Registered 187 HTTP routes from route registry
+2026-01-12 17:44:36,204 - scripts.p2p.handlers.file_download - INFO - Registered 4 file download routes
+2026-01-12 17:44:36,204 - p2p_orchestrator - INFO - Registered 4 file download routes for HTTP-based sync
+2026-01-12 17:44:36,204 - scripts.p2p.handlers.network_health - INFO - Registered network health routes: /network/health, /network/reconnect, /network/status
+2026-01-12 17:44:36,204 - scripts.p2p.handlers.models - INFO - [ModelHandler] Registered 2 model routes
+2026-01-12 17:44:36,204 - p2p_orchestrator - INFO - Registered 2 model inventory routes
+2026-01-12 17:44:36,223 - scripts.verify_nfs_sync - WARNING - Could not auto-detect NFS root. Set RINGRIFT_NFS_PATH environment variable.
+2026-01-12 17:44:36,223 - scripts.verify_nfs_sync - INFO - NFS not configured, skipping sync verification
+2026-01-12 17:44:36,226 - app.distributed.cluster_manifest - INFO - ClusterManifest initialized: node=MacBook-Pro-5.local, db=/Users/armand/Development/RingRift/ai-service/data/cluster_manifest.db
+2026-01-12 17:44:36,226 - app.distributed.cluster_manifest - INFO - [ClusterManifest] Subscribed to real-time events (NEW_GAMES_AVAILABLE, GAMES_UPLOADED_TO_S3, GAMES_UPLOADED_TO_OWC, BACKUP_COMPLETED)
+2026-01-12 17:44:36,226 - app.coordination.sync_router - INFO - [SyncRouter] External storage configured: mac-studio -> /Volumes/RingRift-Data
+2026-01-12 17:44:36,226 - app.coordination.sync_router - INFO - SyncRouter initialized: 23 nodes
+2026-01-12 17:44:36,226 - p2p_orchestrator - INFO - SyncRouter: initialized for intelligent data routing
+2026-01-12 17:44:36,226 - app.coordination.sync_router - INFO - [SyncRouter] Wired to event router (NEW_GAMES_AVAILABLE, TRAINING_STARTED, HOST_ONLINE/OFFLINE, NODE_RECOVERED, CLUSTER_CAPACITY_CHANGED, MODEL_SYNC_REQUESTED, SYNC_STALLED, SYNC_FAILURE_CRITICAL, BACKPRESSURE_ACTIVATED/RELEASED, CONFIG_UPDATED)
+2026-01-12 17:44:36,227 - p2p_orchestrator - INFO - SyncRouter: wired to event system
+2026-01-12 17:44:36,227 - p2p_orchestrator - INFO - ULSM: Leadership state machine broadcast callback wired
+2026-01-12 17:44:36,227 - p2p_orchestrator - INFO - HTTP server started on 0.0.0.0:8770 (IPv4, backlog=1024)
+2026-01-12 17:44:36,227 - p2p_orchestrator - INFO - HTTP server also listening on [::]:8770 (IPv6)
+2026-01-12 17:44:36,741 - app.coordination.resource_optimizer - INFO - Loaded PID config from /Users/armand/Development/RingRift/ai-service/config/unified_loop.yaml: kp=0.3, ki=0.05, kd=0.1
+2026-01-12 17:44:36,742 - app.coordination.resource_optimizer - INFO - ResourceOptimizer initialized: node=MacBook-Pro-5.local, target=60.0-80.0%
+2026-01-12 17:44:37,236 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:44:37 -0600] "GET /health HTTP/1.1" 200 712 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:44:41,132 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu1 at 127.0.0.1:8770
+2026-01-12 17:44:41,615 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 17:44:42,076 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-3 at 192.222.51.29:8770
+2026-01-12 17:44:42,540 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 17:44:43,031 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-gpu at 100.94.201.92:8770
+2026-01-12 17:44:43,508 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:44:40 -0600] "POST /gossip HTTP/1.1" 200 1977 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:44:43,981 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:44:43 -0600] "POST /heartbeat HTTP/1.1" 200 1906 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:44:44,460 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:44:43 -0600] "POST /heartbeat HTTP/1.1" 200 1896 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:44:44,467 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 17:44:44,467 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 17:44:45,823 - app.distributed.hosts - INFO - Loaded 23 remote host(s) from /Users/armand/Development/RingRift/ai-service/config/distributed_hosts.yaml
+2026-01-12 17:44:45,824 - app.distributed.dynamic_registry - INFO - Loaded 23 hosts into dynamic registry
+2026-01-12 17:44:45,824 - app.distributed.dynamic_registry - INFO - Loaded dynamic registry state from /Users/armand/Development/RingRift/ai-service/logs/p2p_orchestrator/dynamic_registry.json
+2026-01-12 17:44:49,834 - p2p_orchestrator - INFO - [P2P] Startup announcement discovered peer: 192-222-51-195
+2026-01-12 17:44:50,610 - p2p_orchestrator - INFO - [P2P] Startup announcement discovered peer: lambda-gh200-10
+2026-01-12 17:44:51,784 - app.coordination.node_policies - INFO - Loaded 5 node policies, 0 overrides
+2026-01-12 17:44:51,785 - app.coordination.work_queue - INFO - Work queue database initialized at /Users/armand/Development/RingRift/ai-service/data/work_queue.db
+2026-01-12 17:44:51,799 - app.coordination.work_queue - INFO - Loaded 1916 work items from database
+2026-01-12 17:44:51,912 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:44:51 -0600] "GET /status HTTP/1.1" 200 8228 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:44:52,002 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:44:51 -0600] "GET /status HTTP/1.1" 200 8229 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:44:55,605 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: aws-staging at 100.115.97.24:8770
+2026-01-12 17:44:56,086 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu1 at 100.94.174.19:8770
+2026-01-12 17:44:56,588 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-140 at 100.110.143.119:8770
+2026-01-12 17:44:57,058 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu3 at 100.126.21.102:8770
+2026-01-12 17:44:57,545 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-58-171 at 100.83.177.16:8770
+2026-01-12 17:44:58,033 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-48 at 100.106.87.89:8770
+2026-01-12 17:44:58,569 - aiohttp.access - INFO - ::1 [12/Jan/2026:17:44:55 -0600] "GET /status HTTP/1.1" 200 8313 "-" "curl/8.7.1"
+2026-01-12 17:44:58,572 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [12/Jan/2026:17:44:55 -0600] "POST /gossip HTTP/1.1" 200 2026 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:44:59,537 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu1 at 127.0.0.1:8770
+2026-01-12 17:45:00,025 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 17:45:00,525 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-3 at 192.222.51.29:8770
+2026-01-12 17:45:01,051 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 17:45:01,531 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.147.150:7947 at 46.62.147.150:8770
+2026-01-12 17:45:02,044 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: aws-staging at 54.198.219.106:8770
+2026-01-12 17:45:02,534 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 192.222.50.174:8770
+2026-01-12 17:45:03,076 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:44:58 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:45:03,077 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:17:44:58 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:45:03,077 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:44:59 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:45:03,108 - aiohttp.access - INFO - ::1 [12/Jan/2026:17:45:03 -0600] "GET /jobs HTTP/1.1" 404 174 "-" "curl/8.7.1"
+2026-01-12 17:45:03,116 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: aws-staging
+2026-01-12 17:45:03,121 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 17:45:04,108 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 192.222.50.174:8770
+2026-01-12 17:45:04,596 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 17:45:05,066 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-3 at 192.222.51.29:8770
+2026-01-12 17:45:05,555 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 17:45:06,034 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.147.150:7947 at 46.62.147.150:8770
+2026-01-12 17:45:06,995 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:45:04 -0600] "POST /heartbeat HTTP/1.1" 200 1895 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:07,463 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:45:04 -0600] "POST /heartbeat HTTP/1.1" 200 1889 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:07,540 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:45:03 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:45:07,541 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:45:03 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:45:07,613 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu1 came ONLINE (3/6 alive, quorum=3)
+2026-01-12 17:45:07,615 - aiohttp.access - INFO - ::1 [12/Jan/2026:17:44:59 -0600] "GET /status HTTP/1.1" 200 8572 "-" "curl/8.7.1"
+2026-01-12 17:45:07,615 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-140
+2026-01-12 17:45:07,620 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-58-171
+2026-01-12 17:45:07,624 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-50-48
+2026-01-12 17:45:07,629 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: aws-staging
+2026-01-12 17:45:07,632 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 17:45:07,637 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 17:45:07,637 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 17:45:08,125 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:45:07 -0600] "POST /heartbeat HTTP/1.1" 200 1907 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:08,165 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 17:45:08,168 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 17:45:08,253 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:45:07 -0600] "GET /status HTTP/1.1" 200 8880 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:45:09,633 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:45:09 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:45:17,320 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:45:17 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:19,533 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:45:19 -0600] "GET /status HTTP/1.1" 200 8865 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:19,593 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:45:19 -0600] "GET /status HTTP/1.1" 200 8866 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:22,069 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:45:22 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:26,125 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-3: Switching to SSH after 3 HTTP failures
+2026-01-12 17:45:28,455 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-60 at 100.127.168.116:8770
+2026-01-12 17:45:28,923 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu3 at 100.126.21.102:8770
+2026-01-12 17:45:29,408 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [12/Jan/2026:17:45:27 -0600] "POST /gossip HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:29,680 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-60
+2026-01-12 17:45:32,123 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-8: Switching to SSH after 5 HTTP failures
+2026-01-12 17:45:35,950 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 17:45:35,950 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-2 at 100.110.143.119:8770
+2026-01-12 17:45:36,421 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-210 at 100.71.89.91:8770
+2026-01-12 17:45:36,884 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 17:45:37,348 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.147.150:7947 at 46.62.147.150:8770
+2026-01-12 17:45:37,827 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:45:35 -0600] "POST /gossip HTTP/1.1" 200 1946 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:45:38,293 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:45:37 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:45:38,294 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:45:37 -0600] "GET /relay/peers HTTP/1.1" 200 16206 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:38,784 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:45:38 -0600] "POST /heartbeat HTTP/1.1" 200 1906 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:38,791 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-140
+2026-01-12 17:45:38,794 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-210
+2026-01-12 17:45:38,798 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 17:45:39,257 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:17:45:38 -0600] "POST /heartbeat HTTP/1.1" 200 1894 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:39,289 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 17:45:41,065 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:45:41,066 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:45:40 -0600] "GET /status HTTP/1.1" 200 28654 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:45:47,464 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-177 at 100.100.19.96:8770
+2026-01-12 17:45:47,939 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [12/Jan/2026:17:45:46 -0600] "POST /gossip HTTP/1.1" 200 2021 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:48,250 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-12 17:45:50,126 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu3
+2026-01-12 17:45:50,979 - aiohttp.access - INFO - 100.77.186.124 [12/Jan/2026:17:45:50 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:51,414 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:17:45:51 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:51,495 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:17:45:51 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:52,811 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-177 at 100.100.19.96:8770
+2026-01-12 17:45:53,277 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-184 at 192.222.57.184:8770
+2026-01-12 17:45:53,762 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:17:45:52 -0600] "POST /gossip HTTP/1.1" 200 2073 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:45:53,795 - app.tournament.unified_elo_db - INFO - EloDatabase initialized at /Users/armand/Development/RingRift/ai-service/data/unified_elo.db
+2026-01-12 17:45:53,866 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu3 came ONLINE (4/6 alive, quorum=3)
+2026-01-12 17:45:53,866 - p2p_orchestrator - WARNING - [VoterHealth] Status: 4/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2']
+2026-01-12 17:45:53,868 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:45:53 -0600] "GET /status HTTP/1.1" 200 28816 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:45:53,998 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-12 17:45:54,353 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:17:45:54 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:54,353 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:17:45:54 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:54,663 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:17:45:54 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:55,149 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:17:45:55 -0600] "GET /health HTTP/1.1" 200 712 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:56,052 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:17:45:56 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:56,602 - aiohttp.access - INFO - fd7a:115c:a1e0::f901:b146 [12/Jan/2026:17:45:56 -0600] "POST /gossip HTTP/1.1" 200 2098 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:56,755 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:17:45:56 -0600] "GET /health HTTP/1.1" 200 713 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:57,446 - aiohttp.access - INFO - fd7a:115c:a1e0::2e01:d06c [12/Jan/2026:17:45:56 -0600] "POST /gossip HTTP/1.1" 200 2193 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:57,447 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:45:57 -0600] "GET /health HTTP/1.1" 200 734 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:57,448 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:17:45:57 -0600] "GET /health HTTP/1.1" 200 734 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:57,529 - p2p_orchestrator - WARNING - [VoterHealth] Status: 4/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2']
+2026-01-12 17:45:57,529 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:45:57 -0600] "GET /status HTTP/1.1" 200 28816 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:45:58,226 - aiohttp.access - INFO - fd7a:115c:a1e0::2e01:d06c [12/Jan/2026:17:45:57 -0600] "POST /gossip/anti-entropy HTTP/1.1" 200 10203 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:58,815 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:17:45:58 -0600] "GET /health HTTP/1.1" 200 712 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:58,815 - aiohttp.access - INFO - fd7a:115c:a1e0::a001:a888 [12/Jan/2026:17:45:58 -0600] "POST /gossip HTTP/1.1" 200 2141 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:58,827 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:17:45:58 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:59,588 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:17:45:59 -0600] "GET /health HTTP/1.1" 200 712 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:45:59,601 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:17:45:59 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:00,306 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:17:46:00 -0600] "GET /health HTTP/1.1" 200 731 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:03,229 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:46:03 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:03,229 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:46:03 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:03,799 - aiohttp.access - INFO - 100.71.89.91 [12/Jan/2026:17:46:03 -0600] "GET /health HTTP/1.1" 200 732 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:04,616 - aiohttp.access - INFO - fd7a:115c:a1e0::a001:a888 [12/Jan/2026:17:46:04 -0600] "POST /gossip/anti-entropy HTTP/1.1" 200 10753 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:05,216 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:17:46:05 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:06,318 - aiohttp.access - INFO - 100.71.89.91 [12/Jan/2026:17:46:06 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:06,319 - aiohttp.access - INFO - fd7a:115c:a1e0::fb01:597e [12/Jan/2026:17:46:05 -0600] "POST /gossip HTTP/1.1" 200 2149 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:06,460 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:17:46:06 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:07,057 - aiohttp.access - INFO - 100.71.89.91 [12/Jan/2026:17:46:07 -0600] "GET /health HTTP/1.1" 200 712 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:07,595 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-184 at 100.77.186.124:8770
+2026-01-12 17:46:08,053 - aiohttp.access - INFO - fd7a:115c:a1e0::5901:8f96 [12/Jan/2026:17:46:07 -0600] "POST /gossip HTTP/1.1" 200 2101 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:08,054 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:17:46:08 -0600] "GET /health HTTP/1.1" 200 732 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:08,287 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-184
+2026-01-12 17:46:10,259 - aiohttp.access - INFO - fd7a:115c:a1e0::fb01:597e [12/Jan/2026:17:46:09 -0600] "POST /gossip/anti-entropy HTTP/1.1" 200 9015 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:10,730 - aiohttp.access - INFO - fd7a:115c:a1e0::4801:578a [12/Jan/2026:17:46:10 -0600] "POST /gossip/anti-entropy HTTP/1.1" 200 9019 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:12,389 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-2 at 100.110.143.119:8770
+2026-01-12 17:46:12,858 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.147.150:7947 at 46.62.147.150:8770
+2026-01-12 17:46:13,346 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:46:11 -0600] "POST /gossip HTTP/1.1" 200 1892 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:46:13,355 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu3
+2026-01-12 17:46:13,555 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-140
+2026-01-12 17:46:13,789 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 17:46:14,819 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-184
+2026-01-12 17:46:15,501 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-177 at 100.100.19.96:8770
+2026-01-12 17:46:15,967 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.94.174.19:7947 at 100.94.174.19:8770
+2026-01-12 17:46:16,420 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.147.150:7947 at 46.62.147.150:8770
+2026-01-12 17:46:16,884 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:17:46:15 -0600] "POST /gossip HTTP/1.1" 200 1928 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:46:17,097 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-12 17:46:17,390 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 17:46:17,394 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 17:46:21,044 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:46:21 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:25,341 - p2p_orchestrator - WARNING - [VoterHealth] Voter lambda-gh200-training went OFFLINE (3/6 alive, quorum=3)
+2026-01-12 17:46:25,341 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:46:25,342 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:46:25 -0600] "GET /status HTTP/1.1" 200 25455 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:25,401 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:46:25,402 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:46:25 -0600] "GET /status HTTP/1.1" 200 25455 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:27,576 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-177 at 100.100.19.96:8770
+2026-01-12 17:46:28,052 - aiohttp.access - INFO - fd7a:115c:a1e0::8c01:1567 [12/Jan/2026:17:46:27 -0600] "POST /gossip HTTP/1.1" 200 1924 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:28,544 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:46:28 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:28,544 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-12 17:46:28,565 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:46:28 -0600] "GET /health HTTP/1.1" 200 715 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:40,192 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:46:39 -0600] "POST /heartbeat HTTP/1.1" 200 1895 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:46:40,335 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:46:40,336 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:46:40 -0600] "GET /status HTTP/1.1" 200 25757 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:46:49,783 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:46:49,785 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:46:49 -0600] "GET /status HTTP/1.1" 200 25759 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:46:59,780 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-1 at 100.71.89.91:8770
+2026-01-12 17:47:00,230 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.217.168:7947 at 46.62.217.168:8770
+2026-01-12 17:47:00,683 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 17:47:01,143 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [12/Jan/2026:17:46:59 -0600] "POST /gossip HTTP/1.1" 200 1977 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:01,244 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:47:01,245 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:47:01 -0600] "GET /status HTTP/1.1" 200 24036 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:47:01,854 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:47:01 -0600] "GET /health HTTP/1.1" 200 715 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:01,855 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu3
+2026-01-12 17:47:03,991 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:47:03,992 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:47:03 -0600] "GET /status HTTP/1.1" 200 24030 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:08,366 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:47:08 -0600] "GET /health HTTP/1.1" 200 713 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:17,839 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-1 at 100.71.89.91:8770
+2026-01-12 17:47:18,358 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.217.168:7947 at 46.62.217.168:8770
+2026-01-12 17:47:18,815 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 17:47:19,272 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [12/Jan/2026:17:47:17 -0600] "POST /gossip HTTP/1.1" 200 1983 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:19,779 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu3
+2026-01-12 17:47:25,396 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:47:25,397 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:47:25 -0600] "GET /status HTTP/1.1" 200 22321 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:47:26,608 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:47:26 -0600] "GET /relay/peers HTTP/1.1" 200 20948 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:31,481 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:47:31,495 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:47:31 -0600] "GET /status HTTP/1.1" 200 22254 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:31,580 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:47:31,582 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:47:31 -0600] "GET /status HTTP/1.1" 200 22254 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:57,743 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu1 went OFFLINE (2/6 alive, quorum=3)
+2026-01-12 17:47:57,744 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:47:57,744 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:47:57 -0600] "GET /status HTTP/1.1" 200 13559 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:47:58,804 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:47:58 -0600] "POST /heartbeat HTTP/1.1" 200 1906 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:47:58,886 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:47:58,887 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:47:58 -0600] "GET /status HTTP/1.1" 200 15186 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:47:59,607 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:47:59 -0600] "POST /heartbeat HTTP/1.1" 200 1897 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:06,139 - aiohttp.access - INFO - fd7a:115c:a1e0::8c01:1567 [12/Jan/2026:17:48:05 -0600] "POST /gossip HTTP/1.1" 200 1846 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:11,130 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [12/Jan/2026:17:48:10 -0600] "POST /gossip HTTP/1.1" 200 1844 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:11,389 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:48:11,390 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:48:11 -0600] "GET /status HTTP/1.1" 200 15185 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:48:11,595 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:48:11,607 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:48:11 -0600] "GET /status HTTP/1.1" 200 15184 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:11,697 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:48:11,710 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:48:11 -0600] "GET /status HTTP/1.1" 200 15185 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:19,058 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:48:19 -0600] "GET /health HTTP/1.1" 200 731 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:22,022 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:48:22 -0600] "GET /health HTTP/1.1" 200 731 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:23,288 - aiohttp.access - INFO - fd7a:115c:a1e0::8c01:1567 [12/Jan/2026:17:48:22 -0600] "POST /gossip HTTP/1.1" 200 1694 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:26,916 - aiohttp.access - INFO - 100.121.230.110 [12/Jan/2026:17:48:26 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:27,644 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:48:27 -0600] "GET /relay/peers HTTP/1.1" 200 20946 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:30,624 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:48:30 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:48:35,857 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:48:35 -0600] "POST /heartbeat HTTP/1.1" 200 1908 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:48:37,184 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu1 came ONLINE (3/6 alive, quorum=3)
+2026-01-12 17:48:37,184 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:48:37,185 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:48:37 -0600] "GET /status HTTP/1.1" 200 16872 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:37,496 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:48:37,505 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:48:37 -0600] "GET /status HTTP/1.1" 200 16871 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:48,515 - aiohttp.access - INFO - 100.121.230.110 [12/Jan/2026:17:48:48 -0600] "GET /relay/peers HTTP/1.1" 200 20950 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:48:57,399 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:48:57,400 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:48:57 -0600] "GET /status HTTP/1.1" 200 16872 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:05,638 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:49:05,647 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:49:05 -0600] "GET /status HTTP/1.1" 200 16869 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:49:05,746 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:49:05,755 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:49:05 -0600] "GET /status HTTP/1.1" 200 16870 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:49:07,603 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:49:07 -0600] "GET /health HTTP/1.1" 200 712 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:07,711 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:49:07,711 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:49:07 -0600] "GET /status HTTP/1.1" 200 16860 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:07,771 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:49:07,772 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:49:07 -0600] "GET /status HTTP/1.1" 200 16859 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:10,734 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:49:10 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:49:14,235 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:49:14 -0600] "GET /health HTTP/1.1" 200 712 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:49:19,195 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:49:19,203 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:49:19 -0600] "GET /status HTTP/1.1" 200 16871 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:49:19,286 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:49:19,287 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:49:19 -0600] "GET /status HTTP/1.1" 200 16873 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:49:30,793 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mac-studio at 73.74.130.66:8770
+2026-01-12 17:49:31,207 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:49:30 -0600] "POST /gossip HTTP/1.1" 200 1618 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:49:32,449 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:49:32 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:49:35,057 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:49:35 -0600] "GET /health HTTP/1.1" 200 732 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:39,216 - p2p_orchestrator - INFO - [P2P] Startup announcements: 5/9 peers reachable
+2026-01-12 17:49:39,216 - p2p_orchestrator - INFO - [P2P] Local canonical DBs empty, fetching game counts from peers...
+2026-01-12 17:49:39,232 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:49:39 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:49:39,232 - p2p_orchestrator - INFO - [P2P] Fetched 1 game counts from fallback MacBook-Pro-5
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [P2P] Seeded SelfplayScheduler with 1 config game counts from peers
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [P2P] Underserved config (from peers): hex8_4p = 4 games
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [LoopManager] Phase 4 startup: EXTRACTED_LOOPS_ENABLED=True
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [LoopManager] _register_extracted_loops called, already_registered=False
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [LoopManager] Got manager: <scripts.p2p.loops.base.LoopManager object at 0x12ebb1930>
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [P2P] SpawnVerificationLoop enabled for job spawn tracking
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [P2P] PredictiveScalingLoop enabled for proactive job spawning
+2026-01-12 17:49:39,233 - p2p_orchestrator - INFO - [P2P] JobReassignmentLoop enabled for faster orphaned job recovery
+2026-01-12 17:49:39,238 - scripts.p2p.adapters.scale_adapters - INFO - CompositeScaleAdapter initialized with providers: []
+2026-01-12 17:49:39,238 - p2p_orchestrator - INFO - [P2P] AutoScalingLoop enabled with reluctant termination
+2026-01-12 17:49:39,238 - p2p_orchestrator - INFO - ModelFetchLoop: registered for training node model fetching
+2026-01-12 17:49:39,238 - p2p_orchestrator - INFO - [LoopManager] TailscalePeerDiscoveryLoop registered
+2026-01-12 17:49:39,238 - p2p_orchestrator - INFO - [LoopManager] PeerCleanupLoop registered
+2026-01-12 17:49:39,238 - p2p_orchestrator - WARNING - [LoopManager] GossipStateCleanupLoop: not available: 'P2POrchestrator' object has no attribute '_safe_emit_p2p_event'
+2026-01-12 17:49:39,238 - p2p_orchestrator - WARNING - [LoopManager] QuorumCrisisDiscoveryLoop: not available: 'P2POrchestrator' object has no attribute '_safe_emit_p2p_event'
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [LoopManager] WorkerPullLoop registered (with work discovery manager)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [LoopManager] RemoteP2PRecoveryLoop registered (node: MacBook-Pro-5, leader-only execution)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [LoopManager] LeaderProbeLoop registered (fast leader recovery)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] TrainingSyncLoop registered (critical for training pipeline)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] DataAggregationLoop registered (important for training data)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] HealthAggregationLoop registered with auto-recovery (Session 17.26)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] IpDiscoveryLoop registered (handles dynamic IPs)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] TailscaleRecoveryLoop registered (handles Tailscale failures)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] TailscaleKeepaliveLoop registered (userspace_mode=True, interval=30.0s)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] ClusterHealingLoop registered (interval=300.0s, max_heal=5)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] UdpDiscoveryLoop registered (LAN peer discovery)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] SplitBrainDetectionLoop registered (partition detection)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] AutonomousQueuePopulationLoop registered (fallback queue population)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] HttpServerHealthLoop registered (HTTP server zombie detection)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] ComprehensiveEvaluationLoop registered (6-hour model evaluation cycle)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - [P2P] TournamentDataPipelineLoop registered (hourly tournament data export)
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - LoopManager: registered 36 loops
+2026-01-12 17:49:39,239 - scripts.p2p.loops.base - INFO - [p2p_loops] Starting 36 loops in order: ['queue_populator', 'elo_sync', 'job_reaper', 'idle_detection', 'spawn_verification', 'predictive_scaling', 'job_reassignment', 'auto_scaling', 'work_queue_maintenance', 'nat_management', 'manifest_collection', 'data_management', 'model_sync', 'model_fetch', 'validation', 'tailscale_peer_discovery', 'peer_cleanup', 'worker_pull', 'follower_discovery', 'self_healing', 'remote_p2p_recovery', 'leader_probe', 'predictive_monitoring', 'training_sync', 'data_aggregation', 'health_aggregation', 'ip_discovery', 'tailscale_recovery', 'tailscale_keepalive', 'cluster_healing', 'udp_discovery', 'split_brain_detection', 'autonomous_queue_population', 'http_server_health', 'comprehensive_evaluation', 'tournament_data_pipeline']
+2026-01-12 17:49:39,239 - p2p_orchestrator - INFO - Sending initial heartbeat burst to known peers
+2026-01-12 17:49:40,685 - p2p_orchestrator - INFO - Starting voter heartbeat loop (interval=10s)
+2026-01-12 17:49:40,807 - app.p2p.swim_adapter - INFO - SWIM using TCP transport (attempt 1)
+2026-01-12 17:49:40,807 - p2p_orchestrator - INFO - Vast IP update loop started
+2026-01-12 17:49:40,807 - p2p_orchestrator - INFO - AWS IP update loop started
+2026-01-12 17:49:40,807 - p2p_orchestrator - INFO - Tailscale IP update loop started
+2026-01-12 17:49:40,807 - scripts.p2p.loops.base - INFO - [queue_populator] Starting loop (interval=60.0s)
+2026-01-12 17:49:40,815 - scripts.p2p.loops.base - INFO - [elo_sync] Starting loop (interval=300.0s)
+2026-01-12 17:49:40,817 - swim.transport.tcp - INFO - TCP transport bound to all interfaces (0.0.0.0:7947), identifying as 0.0.0.0:7947
+2026-01-12 17:49:40,817 - swim.protocol.node - INFO - Transport successfully bound to 0.0.0.0:7947
+2026-01-12 17:49:40,817 - swim.protocol.member - INFO - Added new member: 0.0.0.0:7947 (method: self)
+2026-01-12 17:49:40,817 - swim.protocol.member - INFO - Created member list with self at 0.0.0.0:7947
+2026-01-12 17:49:40,817 - swim.protocol.member - INFO - Added new member: 100.107.168.125:7947 (method: unknown)
+2026-01-12 17:49:40,818 - swim.protocol.member - INFO - Added new member: 100.68.208.43:7947 (method: unknown)
+2026-01-12 17:49:40,818 - swim.protocol.member - INFO - Added new member: 100.94.174.19:7947 (method: unknown)
+2026-01-12 17:49:40,818 - swim.protocol.member - INFO - Added new member: 100.67.131.72:7947 (method: unknown)
+2026-01-12 17:49:40,818 - swim.protocol.member - INFO - Added new member: 100.126.21.102:7947 (method: unknown)
+2026-01-12 17:49:40,818 - swim.protocol.node - INFO - Added 5 seed nodes to member list
+2026-01-12 17:49:40,818 - swim.protocol.failure_detector - INFO - Failure detector initialized with Lifeguard enhancements
+2026-01-12 17:49:40,818 - swim.protocol.disseminator - INFO - Gossip service initialized with push-pull synchronization
+2026-01-12 17:49:40,818 - swim.protocol.sync - INFO - Sync service initialized
+2026-01-12 17:49:40,818 - swim.protocol.node - INFO - Push-pull sync service enabled
+2026-01-12 17:49:40,819 - swim.protocol.node - INFO - Metrics collection enabled for node 0.0.0.0:7947
+2026-01-12 17:49:40,819 - swim.lifeguard.awareness - INFO - Awareness service initialized (min=0, max=8)
+2026-01-12 17:49:40,819 - swim.lifeguard.timing - INFO - Timing service initialized with adaptive adjustments
+2026-01-12 17:49:40,819 - swim.lifeguard.probe_rate - INFO - Probe rate service initialized with adaptive control
+2026-01-12 17:49:40,819 - swim.protocol.node - INFO - Lifeguard enhancements enabled
+2026-01-12 17:49:40,819 - swim.protocol.node - INFO - Node initialized at 0.0.0.0:7947 with enhanced reliability features
+2026-01-12 17:49:40,819 - swim.protocol.node - INFO - Node created successfully at 0.0.0.0:7947
+2026-01-12 17:49:40,819 - swim.transport.tcp - INFO - TCP receiver task started
+2026-01-12 17:49:40,819 - swim.protocol.node - INFO - Node started at 0.0.0.0:7947
+2026-01-12 17:49:40,819 - app.p2p.swim_adapter - INFO - SWIM bootstrapped from 5 seeds
+2026-01-12 17:49:40,819 - app.p2p.swim_adapter - INFO - SWIM membership started on 0.0.0.0:7947 (failure_timeout=15.0s)
+2026-01-12 17:49:40,819 - p2p_orchestrator - INFO - SWIM membership loop: started successfully
+2026-01-12 17:49:40,819 - scripts.p2p.consensus_mixin - INFO - Deferred Raft init: found 2 partners, attempting initialization
+2026-01-12 17:49:40,819 - scripts.p2p.consensus_mixin - INFO - Initializing Raft consensus: self=100.69.164.58:4321, partners=['100.94.174.19:4321', '100.126.21.102:4321'], mode=hybrid
+2026-01-12 17:49:40,821 - scripts.p2p.consensus_mixin - INFO - Raft consensus initialized successfully
+2026-01-12 17:49:40,821 - scripts.p2p.consensus_mixin - INFO - Deferred Raft initialization succeeded with partners: ['100.94.174.19:4321', '100.126.21.102:4321']
+2026-01-12 17:49:40,821 - swim.protocol.sync - INFO - Sync service started
+2026-01-12 17:49:41,266 - p2p_orchestrator - INFO - LOCAL: Disk at 83% - triggering cleanup
+2026-01-12 17:49:41,266 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 17:49:41,677 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 17:49:41,678 - p2p_orchestrator - WARNING - LOCAL: Memory CRITICAL at 91% - emergency cleanup
+2026-01-12 17:49:41,959 - p2p_orchestrator - INFO - Restarting stuck local selfplay jobs...
+2026-01-12 17:49:42,093 - p2p_orchestrator - INFO - Killed 0 processes, cleared 0 job records
+2026-01-12 17:49:42,446 - p2p_orchestrator - INFO - Emergency memory cleanup: cleared 17 gossip states, 0 manifests, ran gc.collect()
+2026-01-12 17:49:42,876 - p2p_orchestrator - INFO - LOCAL: Disk at 83% - skipping job starts
+2026-01-12 17:49:42,876 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 17:49:43,257 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 17:49:43,258 - p2p_orchestrator - INFO - LOCAL: Memory at 91% - skipping GPU auto-scale
+2026-01-12 17:49:43,259 - scripts.p2p.managers.sync_planner - INFO - Loaded manifest from cache (age: 387s)
+2026-01-12 17:49:43,673 - scripts.p2p.loops.base - INFO - [job_reaper] Starting loop (interval=300.0s)
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-12 17:49:43,679 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-12 17:49:43,758 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu3 went OFFLINE (2/6 alive, quorum=3)
+2026-01-12 17:49:43,764 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:49:43,766 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:49:40 -0600] "GET /status HTTP/1.1" 200 30934 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:49:43,776 - app.coordination.database_sync_manager - INFO - [elo] Discovered 1 nodes from P2P
+2026-01-12 17:49:43,777 - scripts.p2p.loops.base - INFO - [idle_detection] Starting loop (interval=30.0s)
+2026-01-12 17:49:43,810 - app.tournament.elo_sync_manager - INFO - EloSyncManager initialized: 1346 local matches
+2026-01-12 17:49:43,810 - scripts.p2p.loops.elo_sync_loop - INFO - [elo_sync] Started with interval 300.0s (attempt 1/5)
+2026-01-12 17:49:43,889 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:49:43,901 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:49:43 -0600] "GET /status HTTP/1.1" 200 31777 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:43,902 - scripts.p2p.loops.base - INFO - [spawn_verification] Starting loop (interval=5.0s)
+2026-01-12 17:49:44,037 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:49:44,046 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:49:43 -0600] "GET /status HTTP/1.1" 200 31837 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:49:44,048 - app.coordination.database_sync_manager - INFO - [elo] Discovered 1 nodes from P2P
+2026-01-12 17:49:44,058 - scripts.p2p.loops.base - INFO - [predictive_scaling] Starting loop (interval=30.0s)
+2026-01-12 17:49:44,058 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for hetzner-cpu1
+2026-01-12 17:49:44,158 - scripts.p2p.loops.base - INFO - [job_reassignment] Starting loop (interval=60.0s)
+2026-01-12 17:49:44,263 - scripts.p2p.loops.base - INFO - [auto_scaling] Starting loop (interval=120.0s)
+2026-01-12 17:49:44,265 - scripts.p2p.loops.coordination_loops - INFO - [AutoScaling] Scaling up by 3 nodes
+2026-01-12 17:49:44,265 - scripts.p2p.loops.coordination_loops - INFO - [AutoScaling] Added 0 nodes: []
+2026-01-12 17:49:44,361 - scripts.p2p.loops.base - INFO - [work_queue_maintenance] Starting loop (interval=300.0s)
+2026-01-12 17:49:44,361 - scripts.p2p.loops.job_loops - INFO - Work queue maintenance loop starting...
+2026-01-12 17:49:44,462 - scripts.p2p.loops.base - INFO - [nat_management] Starting loop (interval=60.0s)
+2026-01-12 17:49:44,462 - scripts.p2p.loops.network_loops - INFO - Starting advanced NAT management loop
+2026-01-12 17:49:44,548 - swim.protocol.failure_detector - WARNING - [f0ddc676] TIMEOUT waiting for PONG from 100.107.168.125:7947 (attempt 1/3)
+2026-01-12 17:49:44,563 - scripts.p2p.loops.base - INFO - [manifest_collection] Starting loop (interval=300.0s)
+2026-01-12 17:49:44,563 - scripts.p2p.loops.manifest_collection_loop - INFO - [manifest_collection] Starting (first collection in 60.0s)
+2026-01-12 17:49:44,664 - scripts.p2p.loops.base - INFO - [data_management] Starting loop (interval=300.0s)
+2026-01-12 17:49:44,665 - scripts.p2p.loops.data_loops - INFO - [data_management] Starting (first run in 30.0s)
+2026-01-12 17:49:44,765 - scripts.p2p.loops.base - INFO - [model_sync] Starting loop (interval=120.0s)
+2026-01-12 17:49:44,867 - scripts.p2p.loops.base - INFO - [model_fetch] Starting loop (interval=60.0s)
+2026-01-12 17:49:44,949 - swim.protocol.failure_detector - WARNING - [f0ddc676] TIMEOUT waiting for PONG from 100.107.168.125:7947 (attempt 2/3)
+2026-01-12 17:49:44,968 - scripts.p2p.loops.base - INFO - [validation] Starting loop (interval=300.0s)
+2026-01-12 17:49:44,968 - scripts.p2p.loops.validation_loop - INFO - Validation loop: initial delay before first check
+2026-01-12 17:49:45,445 - scripts.p2p.loops.base - INFO - [tailscale_peer_discovery] Starting loop (interval=60.0s)
+2026-01-12 17:49:45,445 - scripts.p2p.loops.network_loops - INFO - [TailscalePeerDiscovery] Starting ALL-NODE peer discovery loop (bootstrap=60.0s, maintenance=120.0s, min_peers=5)
+2026-01-12 17:49:45,445 - swim.protocol.failure_detector - WARNING - [f0ddc676] TIMEOUT waiting for PONG from 100.107.168.125:7947 (attempt 3/3)
+2026-01-12 17:49:45,451 - swim.protocol.failure_detector - WARNING - [f0ddc676] All ping attempts failed to 100.107.168.125:7947, marking as SUSPECT
+2026-01-12 17:49:45,452 - swim.protocol.member - INFO - STATE CHANGE: Member 100.107.168.125:7947 transitioned from ALIVE to SUSPECT (inc=2)
+2026-01-12 17:49:45,546 - scripts.p2p.loops.base - INFO - [peer_cleanup] Starting loop (interval=300.0s)
+2026-01-12 17:49:45,546 - scripts.p2p.loops.peer_cleanup_loop - INFO - [PeerCleanup] Purged 1 stale peers (tier2: 1, tier3: 0). Health ratio: 100.0% → 100.0%
+2026-01-12 17:49:45,647 - scripts.p2p.loops.base - INFO - [worker_pull] Starting loop (interval=10.0s)
+2026-01-12 17:49:45,647 - scripts.p2p.loops.job_loops - INFO - Worker pull loop starting...
+2026-01-12 17:49:45,748 - scripts.p2p.loops.base - INFO - [follower_discovery] Starting loop (interval=60.0s)
+2026-01-12 17:49:45,910 - scripts.p2p.loops.base - INFO - [self_healing] Starting loop (interval=60.0s)
+2026-01-12 17:49:45,911 - scripts.p2p.loops.resilience_loops - INFO - Self-healing loop starting...
+2026-01-12 17:49:46,011 - scripts.p2p.loops.base - INFO - [remote_p2p_recovery] Starting loop (interval=60.0s)
+2026-01-12 17:49:46,113 - scripts.p2p.loops.base - INFO - [leader_probe] Starting loop (interval=10.0s)
+2026-01-12 17:49:46,214 - scripts.p2p.loops.base - INFO - [predictive_monitoring] Starting loop (interval=300.0s)
+2026-01-12 17:49:46,214 - scripts.p2p.loops.resilience_loops - INFO - Predictive monitoring loop starting...
+2026-01-12 17:49:46,315 - scripts.p2p.loops.base - INFO - [training_sync] Starting loop (interval=300.0s)
+2026-01-12 17:49:46,416 - scripts.p2p.loops.base - INFO - [data_aggregation] Starting loop (interval=300.0s)
+2026-01-12 17:49:46,429 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:49:46 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:49:46,517 - scripts.p2p.loops.base - INFO - [health_aggregation] Starting loop (interval=30.0s)
+2026-01-12 17:49:46,585 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:49:46,585 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.107.168.125:7947: 15.00s (base: 5.00s)
+2026-01-12 17:49:46,585 - swim.protocol.node - INFO - [10eee682] Checking suspect member 100.107.168.125:7947 with indirect probe (suspect for 1.13s)
+2026-01-12 17:49:46,585 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.107.168.125:7947 (awareness=0): 7
+2026-01-12 17:49:46,586 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.107.168.125:7947: 7 -> 8
+2026-01-12 17:49:46,618 - scripts.p2p.loops.base - INFO - [ip_discovery] Starting loop (interval=300.0s)
+2026-01-12 17:49:46,719 - scripts.p2p.loops.base - INFO - [tailscale_recovery] Starting loop (interval=120.0s)
+2026-01-12 17:49:46,821 - scripts.p2p.loops.base - INFO - [tailscale_keepalive] Starting loop (interval=30.0s)
+2026-01-12 17:49:46,922 - scripts.p2p.loops.base - INFO - [cluster_healing] Starting loop (interval=300.0s)
+2026-01-12 17:49:46,950 - scripts.p2p.loops.cluster_healing_loop - WARNING - [ClusterHealing] Failed to load hosts YAML: 'str' object has no attribute 'get'
+2026-01-12 17:49:47,023 - scripts.p2p.loops.base - INFO - [udp_discovery] Starting loop (interval=30.0s)
+2026-01-12 17:49:48,025 - scripts.p2p.loops.base - INFO - [split_brain_detection] Starting loop (interval=60.0s)
+2026-01-12 17:49:48,025 - scripts.p2p.loops.resilience_loops - INFO - Split-brain detection loop starting...
+2026-01-12 17:49:48,025 - swim.protocol.failure_detector - INFO - [ddd1db45] Indirect probe failed for 100.107.168.125:7947
+2026-01-12 17:49:48,025 - swim.protocol.node - INFO - [10eee682] Indirect probe FAILED for 100.107.168.125:7947
+2026-01-12 17:49:48,027 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:49:48 -0600] "GET /health HTTP/1.1" 200 713 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:48,126 - scripts.p2p.loops.autonomous_queue_loop - INFO - [AutonomousQueue] Started with config: no_leader_threshold=60.0s, starvation_threshold=10, check_interval=30.0s
+2026-01-12 17:49:48,126 - scripts.p2p.loops.base - INFO - [autonomous_queue_population] Starting loop (interval=30.0s)
+2026-01-12 17:49:48,227 - scripts.p2p.loops.base - INFO - [http_server_health] Starting loop (interval=10.0s)
+2026-01-12 17:49:48,328 - scripts.p2p.loops.base - INFO - [comprehensive_evaluation] Starting loop (interval=21600s)
+2026-01-12 17:49:48,328 - scripts.p2p.loops.comprehensive_evaluation_loop - WARNING - [comprehensive_evaluation] Failed to get role: 'P2POrchestrator' object has no attribute '_role'
+2026-01-12 17:49:48,429 - scripts.p2p.loops.base - INFO - [tournament_data_pipeline] Starting loop (interval=3600s)
+2026-01-12 17:49:48,429 - scripts.p2p.loops.tournament_data_pipeline_loop - WARNING - [tournament_data_pipeline] Failed to get role: 'P2POrchestrator' object has no attribute '_role'
+2026-01-12 17:49:48,527 - swim.protocol.failure_detector - WARNING - [a43c7c5b] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 1/3)
+2026-01-12 17:49:48,530 - scripts.p2p.loops.base - INFO - [p2p_loops] All 36 loops verified running
+2026-01-12 17:49:48,530 - p2p_orchestrator - INFO - LoopManager: started 36/36 loops, job_reaper=running
+2026-01-12 17:49:48,929 - swim.protocol.failure_detector - WARNING - [a43c7c5b] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 2/3)
+2026-01-12 17:49:49,331 - swim.protocol.failure_detector - WARNING - [a43c7c5b] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 3/3)
+2026-01-12 17:49:49,331 - swim.protocol.failure_detector - WARNING - [a43c7c5b] All ping attempts failed to 100.126.21.102:7947, marking as SUSPECT
+2026-01-12 17:49:49,331 - swim.protocol.member - INFO - STATE CHANGE: Member 100.126.21.102:7947 transitioned from ALIVE to SUSPECT (inc=2)
+2026-01-12 17:49:50,333 - swim.protocol.node - INFO - Checking 2 suspect members
+2026-01-12 17:49:50,333 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.107.168.125:7947: 15.00s (base: 5.00s)
+2026-01-12 17:49:50,334 - swim.protocol.node - INFO - [96a23750] Checking suspect member 100.107.168.125:7947 with indirect probe (suspect for 4.88s)
+2026-01-12 17:49:50,334 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.107.168.125:7947 (awareness=0): 7
+2026-01-12 17:49:50,334 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.107.168.125:7947: 7 -> 8
+2026-01-12 17:49:51,335 - swim.protocol.failure_detector - INFO - [53cb6a13] Indirect probe failed for 100.107.168.125:7947
+2026-01-12 17:49:51,336 - swim.protocol.node - INFO - [96a23750] Indirect probe FAILED for 100.107.168.125:7947
+2026-01-12 17:49:51,336 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.126.21.102:7947: 15.00s (base: 5.00s)
+2026-01-12 17:49:51,336 - swim.protocol.node - INFO - [7ce6cb6e] Checking suspect member 100.126.21.102:7947 with indirect probe (suspect for 2.00s)
+2026-01-12 17:49:51,336 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.126.21.102:7947 (awareness=0): 7
+2026-01-12 17:49:51,336 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.126.21.102:7947: 7 -> 8
+2026-01-12 17:49:52,338 - swim.protocol.failure_detector - INFO - [bec95d33] Indirect probe failed for 100.126.21.102:7947
+2026-01-12 17:49:52,338 - swim.protocol.node - INFO - [7ce6cb6e] Indirect probe FAILED for 100.126.21.102:7947
+2026-01-12 17:49:53,180 - swim.protocol.failure_detector - WARNING - [8fe60d31] TIMEOUT waiting for PONG from 100.94.174.19:7947 (attempt 1/3)
+2026-01-12 17:49:53,596 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 17:49:54,001 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mac-studio at 73.74.130.66:8770
+2026-01-12 17:49:54,410 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:17:49:53 -0600] "POST /gossip HTTP/1.1" 200 4372 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:49:54,410 - swim.protocol.failure_detector - WARNING - [8fe60d31] TIMEOUT waiting for PONG from 100.94.174.19:7947 (attempt 2/3)
+2026-01-12 17:49:54,411 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:49:54 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:49:54,812 - swim.protocol.failure_detector - WARNING - [8fe60d31] TIMEOUT waiting for PONG from 100.94.174.19:7947 (attempt 3/3)
+2026-01-12 17:49:54,812 - swim.protocol.failure_detector - WARNING - [8fe60d31] All ping attempts failed to 100.94.174.19:7947, marking as SUSPECT
+2026-01-12 17:49:54,812 - swim.protocol.member - INFO - STATE CHANGE: Member 100.94.174.19:7947 transitioned from ALIVE to SUSPECT (inc=2)
+2026-01-12 17:49:55,729 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:49:55,730 - swim.protocol.sync - ERROR - [362ba54c] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:49:55,813 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:49:55,813 - swim.protocol.disseminator - ERROR - [e7814f67] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:49:55,813 - swim.protocol.node - INFO - Checking 3 suspect members
+2026-01-12 17:49:55,813 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.107.168.125:7947: 15.00s (base: 5.00s)
+2026-01-12 17:49:55,813 - swim.protocol.node - INFO - [cf46095e] Checking suspect member 100.107.168.125:7947 with indirect probe (suspect for 10.36s)
+2026-01-12 17:49:55,813 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.107.168.125:7947 (awareness=0): 7
+2026-01-12 17:49:55,813 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.107.168.125:7947: 7 -> 8
+2026-01-12 17:49:55,813 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:49:55,813 - swim.protocol.failure_detector - ERROR - [1e28e07b] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:49:56,814 - swim.protocol.failure_detector - INFO - [1e28e07b] Indirect probe failed for 100.107.168.125:7947
+2026-01-12 17:49:56,814 - swim.protocol.node - INFO - [cf46095e] Indirect probe FAILED for 100.107.168.125:7947
+2026-01-12 17:49:56,814 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.94.174.19:7947: 15.00s (base: 5.00s)
+2026-01-12 17:49:56,814 - swim.protocol.node - INFO - [f1f462bf] Checking suspect member 100.94.174.19:7947 with indirect probe (suspect for 2.00s)
+2026-01-12 17:49:56,814 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.94.174.19:7947 (awareness=0): 7
+2026-01-12 17:49:56,814 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.94.174.19:7947: 7 -> 8
+2026-01-12 17:49:56,815 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:49:56,815 - swim.protocol.failure_detector - ERROR - [91b52b3b] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:49:57,816 - swim.protocol.failure_detector - INFO - [91b52b3b] Indirect probe failed for 100.94.174.19:7947
+2026-01-12 17:49:57,816 - swim.protocol.node - INFO - [f1f462bf] Indirect probe FAILED for 100.94.174.19:7947
+2026-01-12 17:49:57,817 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.126.21.102:7947: 15.00s (base: 5.00s)
+2026-01-12 17:49:57,817 - swim.protocol.node - INFO - [7c4d6a7e] Checking suspect member 100.126.21.102:7947 with indirect probe (suspect for 8.49s)
+2026-01-12 17:49:57,817 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.126.21.102:7947 (awareness=0): 7
+2026-01-12 17:49:57,817 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.126.21.102:7947: 7 -> 8
+2026-01-12 17:49:57,817 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:49:57,817 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:49:57,817 - swim.protocol.failure_detector - ERROR - [b9c936bb] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:49:58,819 - swim.protocol.failure_detector - INFO - [b9c936bb] Indirect probe failed for 100.126.21.102:7947
+2026-01-12 17:49:58,819 - swim.protocol.node - INFO - [7c4d6a7e] Indirect probe FAILED for 100.126.21.102:7947
+2026-01-12 17:49:59,320 - swim.protocol.failure_detector - WARNING - [f8cd5c00] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 1/3)
+2026-01-12 17:49:59,722 - swim.protocol.failure_detector - WARNING - [f8cd5c00] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 2/3)
+2026-01-12 17:50:00,124 - swim.protocol.failure_detector - WARNING - [f8cd5c00] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 3/3)
+2026-01-12 17:50:00,124 - swim.protocol.failure_detector - WARNING - [f8cd5c00] All ping attempts failed to 100.126.21.102:7947, marking as SUSPECT
+2026-01-12 17:50:01,126 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:01,126 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:01,126 - swim.protocol.disseminator - ERROR - [bc887cc2] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:01,126 - swim.protocol.node - INFO - Checking 3 suspect members
+2026-01-12 17:50:01,126 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.107.168.125:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:01,126 - swim.protocol.node - WARNING - Suspect timeout expired for 100.107.168.125:7947, marking as DEAD
+2026-01-12 17:50:01,126 - swim.protocol.node - WARNING - LIFEGUARD: Potential false positive detected for 100.107.168.125:7947 (heard from 20.3s ago)
+2026-01-12 17:50:01,127 - swim.protocol.member - INFO - STATE CHANGE: Member 100.107.168.125:7947 transitioned from SUSPECT to DEAD (inc=3)
+2026-01-12 17:50:01,127 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.94.174.19:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:01,127 - swim.protocol.node - INFO - [61de1480] Checking suspect member 100.94.174.19:7947 with indirect probe (suspect for 6.31s)
+2026-01-12 17:50:01,127 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.94.174.19:7947 (awareness=0): 7
+2026-01-12 17:50:01,127 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.94.174.19:7947: 7 -> 8
+2026-01-12 17:50:01,127 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:01,127 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:01,127 - swim.protocol.failure_detector - ERROR - [91410194] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:02,127 - swim.protocol.failure_detector - INFO - [91410194] Indirect probe failed for 100.94.174.19:7947
+2026-01-12 17:50:02,128 - swim.protocol.node - INFO - [61de1480] Indirect probe FAILED for 100.94.174.19:7947
+2026-01-12 17:50:02,128 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.126.21.102:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:02,128 - swim.protocol.node - INFO - [8ec97cd9] Checking suspect member 100.126.21.102:7947 with indirect probe (suspect for 12.80s)
+2026-01-12 17:50:02,128 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.126.21.102:7947 (awareness=0): 7
+2026-01-12 17:50:02,128 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.126.21.102:7947: 7 -> 8
+2026-01-12 17:50:02,128 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:02,128 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:02,128 - swim.protocol.failure_detector - ERROR - [512742c9] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:03,130 - swim.protocol.failure_detector - INFO - [512742c9] Indirect probe failed for 100.126.21.102:7947
+2026-01-12 17:50:03,130 - swim.protocol.node - INFO - [8ec97cd9] Indirect probe FAILED for 100.126.21.102:7947
+2026-01-12 17:50:03,631 - swim.protocol.failure_detector - WARNING - [85a860bd] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 1/3)
+2026-01-12 17:50:04,033 - swim.protocol.failure_detector - WARNING - [85a860bd] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 2/3)
+2026-01-12 17:50:04,435 - swim.protocol.failure_detector - WARNING - [85a860bd] TIMEOUT waiting for PONG from 100.126.21.102:7947 (attempt 3/3)
+2026-01-12 17:50:04,435 - swim.protocol.failure_detector - WARNING - [85a860bd] All ping attempts failed to 100.126.21.102:7947, marking as SUSPECT
+2026-01-12 17:50:04,435 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.00s -> 1.10s
+2026-01-12 17:50:05,056 - p2p_orchestrator - INFO - Discovered voter mac-studio from 100.94.174.19
+2026-01-12 17:50:05,537 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:05,537 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:05,537 - swim.protocol.disseminator - ERROR - [67436970] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:05,537 - swim.protocol.node - INFO - Checking 2 suspect members
+2026-01-12 17:50:05,537 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.94.174.19:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:05,537 - swim.protocol.node - INFO - [1ef9d180] Checking suspect member 100.94.174.19:7947 with indirect probe (suspect for 10.73s)
+2026-01-12 17:50:05,537 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.94.174.19:7947 (awareness=0): 7
+2026-01-12 17:50:05,537 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.94.174.19:7947: 7 -> 8
+2026-01-12 17:50:05,537 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:05,538 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:05,538 - swim.protocol.failure_detector - ERROR - [170d6e9f] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:06,539 - swim.protocol.failure_detector - INFO - [170d6e9f] Indirect probe failed for 100.94.174.19:7947
+2026-01-12 17:50:06,539 - swim.protocol.node - INFO - [1ef9d180] Indirect probe FAILED for 100.94.174.19:7947
+2026-01-12 17:50:06,540 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.126.21.102:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:06,540 - swim.protocol.node - WARNING - Suspect timeout expired for 100.126.21.102:7947, marking as DEAD
+2026-01-12 17:50:06,540 - swim.protocol.node - WARNING - LIFEGUARD: Potential false positive detected for 100.126.21.102:7947 (heard from 25.7s ago)
+2026-01-12 17:50:06,540 - swim.protocol.member - INFO - STATE CHANGE: Member 100.126.21.102:7947 transitioned from SUSPECT to DEAD (inc=3)
+2026-01-12 17:50:07,041 - swim.protocol.failure_detector - WARNING - [6a533bbc] TIMEOUT waiting for PONG from 100.67.131.72:7947 (attempt 1/3)
+2026-01-12 17:50:07,443 - swim.protocol.failure_detector - WARNING - [6a533bbc] TIMEOUT waiting for PONG from 100.67.131.72:7947 (attempt 2/3)
+2026-01-12 17:50:07,844 - swim.protocol.failure_detector - WARNING - [6a533bbc] TIMEOUT waiting for PONG from 100.67.131.72:7947 (attempt 3/3)
+2026-01-12 17:50:07,845 - swim.protocol.failure_detector - WARNING - [6a533bbc] All ping attempts failed to 100.67.131.72:7947, marking as SUSPECT
+2026-01-12 17:50:07,845 - swim.protocol.member - INFO - STATE CHANGE: Member 100.67.131.72:7947 transitioned from ALIVE to SUSPECT (inc=2)
+2026-01-12 17:50:07,845 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.10s -> 1.21s
+2026-01-12 17:50:09,057 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:09,057 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:09,057 - swim.protocol.disseminator - ERROR - [a7b97566] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:09,058 - swim.protocol.node - INFO - Checking 2 suspect members
+2026-01-12 17:50:09,058 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.94.174.19:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:09,058 - swim.protocol.node - INFO - [434589fa] Checking suspect member 100.94.174.19:7947 with indirect probe (suspect for 14.25s)
+2026-01-12 17:50:09,058 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.94.174.19:7947 (awareness=0): 7
+2026-01-12 17:50:09,058 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.94.174.19:7947: 7 -> 8
+2026-01-12 17:50:09,058 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:09,058 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:09,058 - swim.protocol.failure_detector - ERROR - [27f8decd] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:10,059 - swim.protocol.failure_detector - INFO - [27f8decd] Indirect probe failed for 100.94.174.19:7947
+2026-01-12 17:50:10,060 - swim.protocol.node - INFO - [434589fa] Indirect probe FAILED for 100.94.174.19:7947
+2026-01-12 17:50:10,060 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.67.131.72:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:10,060 - swim.protocol.node - INFO - [1c92d1bd] Checking suspect member 100.67.131.72:7947 with indirect probe (suspect for 2.21s)
+2026-01-12 17:50:10,060 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.67.131.72:7947 (awareness=0): 7
+2026-01-12 17:50:10,060 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.67.131.72:7947: 7 -> 8
+2026-01-12 17:50:10,060 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:10,060 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:10,060 - swim.protocol.failure_detector - ERROR - [94609128] Error sending PING-REQ to helper 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:10,736 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:10,737 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:10,737 - swim.protocol.sync - ERROR - [f2ff9183] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:10,808 - p2p_orchestrator - INFO - Starting dead peer reconnection loop (Phase 1 P2P stability fix)
+2026-01-12 17:50:11,244 - scripts.p2p.loops.queue_populator_loop - INFO - [queue_populator] Starting with 30.0s initial delay
+2026-01-12 17:50:11,308 - app.coordination.cluster_status_monitor - INFO - Loaded 23 hosts via cluster_config
+2026-01-12 17:50:21,351 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=100.92.222.49, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 17:50:21,398 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=192.222.58.241, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 17:50:21,399 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=208.167.249.164, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 17:50:21,423 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.96.55, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 17:50:21,427 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.114.223, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 17:50:21,432 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.111.107, transport=tailscale, category=timeout, error=ssh: connect to host 100.109.195.71 port 22: Operation timed out
+
+2026-01-12 17:50:21,433 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Scaled queue depth: 50 -> 50 (for 16 active nodes)
+2026-01-12 17:50:21,434 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hex8_2p: 1537.0 (model: hex8_2p_improved, games: 137)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hex8_3p: 1468.1 (model: canonical_hex8_3p:gumbel_mcts:b800, games: 150)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hex8_4p: 1434.0 (model: canonical_hex8_4p:gumbel_mcts:b800, games: 150)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hexagonal_2p: 1514.3 (model: heuristic, games: 20)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hexagonal_3p: 1500.5 (model: canonical_hexagonal_3p:gumbel_mcts:b800, games: 150)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hexagonal_4p: 1532.6 (model: heuristic, games: 10)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_2p: 1506.0 (model: canonical_square19_2p:gumbel_mcts:b800, games: 50)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_3p: 1500.0 (model: ringrift_best_square19_3p, games: 0)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_3p: 1500.0 (model: canonical_square19_3p:gumbel_mcts:b800, games: 50)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_4p: 1500.0 (model: ringrift_best_square19_4p, games: 0)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square8_2p: 1502.0 (model: canonical_square8_2p:gumbel_mcts:b800, games: 50)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square8_3p: 1516.8 (model: heuristic, games: 25)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square8_4p: 1478.4 (model: canonical_square8_4p:gumbel_mcts:b800, games: 150)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - Loaded Elo data: 0/12 configs at target (2000.0+ Elo)
+2026-01-12 17:50:21,435 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Loaded curriculum weights
+2026-01-12 17:50:21,525 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Loaded game counts from canonical DBs: 56 total across 12 configs
+2026-01-12 17:50:21,525 - app.coordination.unified_queue_populator - WARNING - [QueuePopulator] Low game count configs (starvation candidates): hexagonal_3p:1, square8_2p:2, square8_3p:2, square19_2p:2, square19_3p:2
+2026-01-12 17:50:21,525 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] SelfplayScheduler integration enabled
+2026-01-12 17:50:21,525 - scripts.p2p.loops.queue_populator_loop - INFO - [queue_populator] QueuePopulator initialized
+2026-01-12 17:50:21,529 - swim.protocol.sync - INFO - [017b3c79] Performing full sync with 2 members
+2026-01-12 17:50:21,529 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:21,529 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:21,529 - swim.protocol.sync - ERROR - [017b3c79] Error sending full sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:21,529 - scripts.p2p.loops.data_loops - INFO - [data_management] Disk at 83.4% (warning: 70.0%), triggering cleanup
+2026-01-12 17:50:21,529 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 17:50:21,912 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 17:50:21,918 - scripts.p2p.loops.job_loops - INFO - Worker pull loop started
+2026-01-12 17:50:22,404 - p2p_orchestrator - INFO - LOCAL: Disk at 83% - skipping job starts
+2026-01-12 17:50:22,404 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 17:50:22,784 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 17:50:23,213 - swim.protocol.failure_detector - INFO - [94609128] Indirect probe failed for 100.67.131.72:7947
+2026-01-12 17:50:23,221 - swim.protocol.node - INFO - [1c92d1bd] Indirect probe FAILED for 100.67.131.72:7947
+2026-01-12 17:50:24,314 - scripts.p2p.managers.work_discovery_manager - INFO - [WorkDiscovery] MacBook MacBook-Pro-5.local matched mac-studio config, selfplay_enabled=false - disabling direct selfplay
+2026-01-12 17:50:24,403 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:50:24 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:24,405 - swim.protocol.failure_detector - WARNING - [43ea1aef] TIMEOUT waiting for PONG from 100.94.174.19:7947 (attempt 1/3)
+2026-01-12 17:50:24,955 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:50:24 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:50:25,055 - p2p_orchestrator - INFO - [VoterHealth] Voter lambda-gh200-training came ONLINE (3/6 alive, quorum=3)
+2026-01-12 17:50:25,056 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:25,056 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:50:21 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:50:25,155 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:25,156 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:50:21 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:50:25,365 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:25,367 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:50:24 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:50:25,467 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:25,467 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:50:24 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:50:25,468 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:50:24 -0600] "POST /gossip HTTP/1.1" 200 4262 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:50:25,468 - swim.protocol.failure_detector - WARNING - [43ea1aef] TIMEOUT waiting for PONG from 100.94.174.19:7947 (attempt 2/3)
+2026-01-12 17:50:25,635 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:25,637 - aiohttp.access - INFO - ::1 [12/Jan/2026:17:50:24 -0600] "GET /status HTTP/1.1" 200 34201 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:25,638 - scripts.p2p.loops.queue_populator_loop - WARNING - [queue_populator] FOLLOWER TAKEOVER: Leader unreachable for 46s, populating queue
+2026-01-12 17:50:25,746 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Worker capacity limit: 100 -> 50 (capacity=50)
+2026-01-12 17:50:25,771 - app.coordination.work_queue - INFO -  Added work selfplay_square8_2p_1768261825752: selfplay (priority: 50)
+2026-01-12 17:50:25,780 - app.coordination.work_queue - INFO -  Added work selfplay_square8_3p_1768261825771: selfplay (priority: 50)
+2026-01-12 17:50:25,794 - app.coordination.work_queue - INFO -  Added work selfplay_square8_4p_1768261825780: selfplay (priority: 50)
+2026-01-12 17:50:25,801 - app.coordination.work_queue - INFO -  Added work selfplay_square19_2p_1768261825795: selfplay (priority: 50)
+2026-01-12 17:50:25,807 - app.coordination.work_queue - INFO -  Added work selfplay_square19_3p_1768261825801: selfplay (priority: 50)
+2026-01-12 17:50:25,827 - app.coordination.work_queue - INFO -  Added work selfplay_square19_4p_1768261825807: selfplay (priority: 50)
+2026-01-12 17:50:25,835 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_2p_1768261825828: selfplay (priority: 50)
+2026-01-12 17:50:25,842 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_3p_1768261825835: selfplay (priority: 50)
+2026-01-12 17:50:25,854 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_4p_1768261825842: selfplay (priority: 50)
+2026-01-12 17:50:25,862 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_2p_1768261825855: selfplay (priority: 50)
+2026-01-12 17:50:25,867 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_3p_1768261825862: selfplay (priority: 50)
+2026-01-12 17:50:25,871 - swim.protocol.failure_detector - WARNING - [43ea1aef] TIMEOUT waiting for PONG from 100.94.174.19:7947 (attempt 3/3)
+2026-01-12 17:50:25,871 - swim.protocol.failure_detector - WARNING - [43ea1aef] All ping attempts failed to 100.94.174.19:7947, marking as SUSPECT
+2026-01-12 17:50:25,871 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.21s -> 1.33s
+2026-01-12 17:50:25,874 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_4p_1768261825868: selfplay (priority: 50)
+2026-01-12 17:50:25,889 - app.coordination.work_queue - INFO -  Added work selfplay_square8_2p_1768261825874: selfplay (priority: 50)
+2026-01-12 17:50:25,896 - app.coordination.work_queue - INFO -  Added work selfplay_square8_3p_1768261825889: selfplay (priority: 50)
+2026-01-12 17:50:25,904 - app.coordination.work_queue - INFO -  Added work selfplay_square8_4p_1768261825896: selfplay (priority: 50)
+2026-01-12 17:50:25,920 - app.coordination.work_queue - INFO -  Added work selfplay_square19_2p_1768261825912: selfplay (priority: 50)
+2026-01-12 17:50:25,927 - app.coordination.work_queue - INFO -  Added work selfplay_square19_3p_1768261825920: selfplay (priority: 50)
+2026-01-12 17:50:25,932 - app.coordination.work_queue - INFO -  Added work selfplay_square19_4p_1768261825927: selfplay (priority: 50)
+2026-01-12 17:50:25,939 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_2p_1768261825933: selfplay (priority: 50)
+2026-01-12 17:50:25,947 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_3p_1768261825939: selfplay (priority: 50)
+2026-01-12 17:50:25,953 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_4p_1768261825947: selfplay (priority: 50)
+2026-01-12 17:50:25,958 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_2p_1768261825953: selfplay (priority: 50)
+2026-01-12 17:50:25,964 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_3p_1768261825959: selfplay (priority: 50)
+2026-01-12 17:50:25,970 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_4p_1768261825964: selfplay (priority: 50)
+2026-01-12 17:50:25,975 - app.coordination.work_queue - INFO -  Added work selfplay_square8_2p_1768261825970: selfplay (priority: 50)
+2026-01-12 17:50:25,975 - app.distributed.storage_provider - INFO - Storage provider initialized: local
+2026-01-12 17:50:26,143 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:26,144 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:50:25 -0600] "GET /status HTTP/1.1" 200 34206 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:26,248 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:26,248 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:17:50:26 -0600] "GET /status HTTP/1.1" 200 34206 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:27,203 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:27,204 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:27,204 - swim.protocol.disseminator - ERROR - [9c9c9090] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:27,204 - swim.protocol.node - INFO - Checking 2 suspect members
+2026-01-12 17:50:27,204 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.94.174.19:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:27,204 - swim.protocol.node - WARNING - Suspect timeout expired for 100.94.174.19:7947, marking as DEAD
+2026-01-12 17:50:27,204 - swim.protocol.member - INFO - STATE CHANGE: Member 100.94.174.19:7947 transitioned from SUSPECT to DEAD (inc=3)
+2026-01-12 17:50:27,204 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.67.131.72:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:27,204 - swim.protocol.node - WARNING - Suspect timeout expired for 100.67.131.72:7947, marking as DEAD
+2026-01-12 17:50:27,204 - swim.protocol.member - INFO - STATE CHANGE: Member 100.67.131.72:7947 transitioned from SUSPECT to DEAD (inc=3)
+2026-01-12 17:50:27,204 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.33s -> 1.46s
+2026-01-12 17:50:28,169 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:28,169 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:28,169 - swim.protocol.sync - ERROR - [4fcdabc7] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:28,381 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:50:28 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:50:28,670 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:28,670 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:28,670 - swim.protocol.disseminator - ERROR - [6ce6d1f4] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:28,670 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.46s -> 1.61s
+2026-01-12 17:50:29,406 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:50:29,406 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:50:29 -0600] "GET /status HTTP/1.1" 200 34207 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:50:30,282 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:30,282 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,282 - swim.protocol.disseminator - ERROR - [00384ad8] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,282 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:30,282 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,282 - swim.protocol.failure_detector - ERROR - [cb4b293d] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,282 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:30,282 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,283 - swim.protocol.failure_detector - ERROR - [cb4b293d] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,283 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:30,283 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,283 - swim.protocol.failure_detector - ERROR - [cb4b293d] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:30,283 - swim.protocol.failure_detector - WARNING - [cb4b293d] All ping attempts failed to 100.68.208.43:7947, marking as SUSPECT
+2026-01-12 17:50:30,283 - swim.protocol.member - INFO - STATE CHANGE: Member 100.68.208.43:7947 transitioned from ALIVE to SUSPECT (inc=2)
+2026-01-12 17:50:30,283 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.61s -> 1.77s
+2026-01-12 17:50:30,368 - p2p_orchestrator - INFO - Bootstrap: imported 1 new peers from 100.68.208.43:8770
+2026-01-12 17:50:30,911 - scripts.p2p.loops.resilience_loops - INFO - Self-healing loop started
+2026-01-12 17:50:31,170 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:31,170 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:31,170 - swim.protocol.sync - ERROR - [54778078] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:32,056 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:32,056 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:32,056 - swim.protocol.disseminator - ERROR - [25aa88cb] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:32,056 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:32,056 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:32,056 - swim.protocol.node - INFO - [52ab1612] Checking suspect member 100.68.208.43:7947 with indirect probe (suspect for 1.77s)
+2026-01-12 17:50:32,057 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.68.208.43:7947 (awareness=0): 7
+2026-01-12 17:50:32,057 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.68.208.43:7947: 7 -> 8
+2026-01-12 17:50:32,057 - swim.protocol.failure_detector - WARNING - No helpers available for indirect probe of 100.68.208.43:7947
+2026-01-12 17:50:32,057 - swim.protocol.node - INFO - [52ab1612] Indirect probe FAILED for 100.68.208.43:7947
+2026-01-12 17:50:32,057 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.77s -> 1.95s
+2026-01-12 17:50:32,979 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:50:32 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:50:34,007 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:34,007 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:34,007 - swim.protocol.disseminator - ERROR - [f52e6069] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:34,007 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:34,007 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:34,007 - swim.protocol.node - INFO - [fcbe774a] Checking suspect member 100.68.208.43:7947 with indirect probe (suspect for 3.72s)
+2026-01-12 17:50:34,007 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.68.208.43:7947 (awareness=0): 7
+2026-01-12 17:50:34,008 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.68.208.43:7947: 7 -> 8
+2026-01-12 17:50:34,008 - swim.protocol.failure_detector - WARNING - No helpers available for indirect probe of 100.68.208.43:7947
+2026-01-12 17:50:34,008 - swim.protocol.node - INFO - [fcbe774a] Indirect probe FAILED for 100.68.208.43:7947
+2026-01-12 17:50:34,008 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 1.95s -> 2.14s
+2026-01-12 17:50:34,171 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:34,172 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:34,172 - swim.protocol.sync - ERROR - [7d4321c0] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:34,335 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:50:34 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:50:34,512 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:50:34 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:36,009 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:36,009 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:36,010 - swim.protocol.disseminator - ERROR - [505079ae] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:36,010 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:36,010 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:36,010 - swim.protocol.node - INFO - [158044f6] Checking suspect member 100.68.208.43:7947 with indirect probe (suspect for 5.73s)
+2026-01-12 17:50:36,010 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.68.208.43:7947 (awareness=0): 7
+2026-01-12 17:50:36,010 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.68.208.43:7947: 7 -> 8
+2026-01-12 17:50:36,010 - swim.protocol.failure_detector - WARNING - No helpers available for indirect probe of 100.68.208.43:7947
+2026-01-12 17:50:36,010 - swim.protocol.node - INFO - [158044f6] Indirect probe FAILED for 100.68.208.43:7947
+2026-01-12 17:50:36,010 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 2.00s -> 2.20s
+2026-01-12 17:50:36,514 - p2p_orchestrator - INFO - Discovered voter hetzner-cpu2 from 100.94.174.19
+2026-01-12 17:50:37,173 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:37,173 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:37,174 - swim.protocol.sync - ERROR - [144b3bf9] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:37,441 - p2p_orchestrator - INFO - Voter mesh incomplete, missing: ['lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:50:38,012 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:38,012 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:38,012 - swim.protocol.disseminator - ERROR - [4d452e48] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:38,012 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:38,012 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:38,012 - swim.protocol.node - INFO - [07ff888a] Checking suspect member 100.68.208.43:7947 with indirect probe (suspect for 7.73s)
+2026-01-12 17:50:38,012 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.68.208.43:7947 (awareness=0): 7
+2026-01-12 17:50:38,012 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.68.208.43:7947: 7 -> 8
+2026-01-12 17:50:38,013 - swim.protocol.failure_detector - WARNING - No helpers available for indirect probe of 100.68.208.43:7947
+2026-01-12 17:50:38,013 - swim.protocol.node - INFO - [07ff888a] Indirect probe FAILED for 100.68.208.43:7947
+2026-01-12 17:50:38,013 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 2.00s -> 2.20s
+2026-01-12 17:50:39,796 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:17:50:39 -0600] "POST /gossip HTTP/1.1" 200 4398 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:50:40,014 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:40,014 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,014 - swim.protocol.disseminator - ERROR - [be353f79] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,014 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:40,014 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:40,015 - swim.protocol.node - INFO - [3240e837] Checking suspect member 100.68.208.43:7947 with indirect probe (suspect for 9.73s)
+2026-01-12 17:50:40,015 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.68.208.43:7947 (awareness=0): 7
+2026-01-12 17:50:40,015 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.68.208.43:7947: 7 -> 8
+2026-01-12 17:50:40,015 - swim.protocol.failure_detector - WARNING - No helpers available for indirect probe of 100.68.208.43:7947
+2026-01-12 17:50:40,015 - swim.protocol.node - INFO - [3240e837] Indirect probe FAILED for 100.68.208.43:7947
+2026-01-12 17:50:40,015 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:40,015 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,015 - swim.protocol.failure_detector - ERROR - [16c45dfb] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,015 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:40,015 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,015 - swim.protocol.failure_detector - ERROR - [16c45dfb] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,015 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:40,015 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,015 - swim.protocol.failure_detector - ERROR - [16c45dfb] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,015 - swim.protocol.failure_detector - WARNING - [16c45dfb] All ping attempts failed to 100.68.208.43:7947, marking as SUSPECT
+2026-01-12 17:50:40,016 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 2.00s -> 2.20s
+2026-01-12 17:50:40,175 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:40,175 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:40,175 - swim.protocol.sync - ERROR - [86153900] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+Metrics Report: {'timestamp': 1768261840.823337, 'node_id': '0.0.0.0:7947', 'metrics': {'node_event': {'events': {'start': 1}}, 'ping_timeout': {'gauge': 0.5}, 'probe_result': {'counter': 45}, 'ping': {'events': {'failure': 9}}, 'peer_rtt': {'histogram': {'count': 9, 'min': 0.00057220458984375, 'max': 2.649827003479004, 'mean': 1.3058158026801214, 'stdev': 0.9074386790155445, 'p95': 2.649827003479004, 'p99': 2.649827003479004}}, 'timeout_adjustment': {'events': {'1.000->0.500': 1}}, 'member_count': {'gauge': 6}, 'protocol_cycle_duration': {'histogram': {'count': 15, 'min': 0.0004677772521972656, 'max': 16.814360857009888, 'mean': 2.5828110376993814, 'stdev': 4.369798033857665, 'p95': 16.814360857009888, 'p99': 16.814360857009888}}, 'protocol_period': {'gauge': 2.0}, 'suspect_timeout': {'gauge': 15.0, 'events': {'100.107.168.125:7947': 1, '100.126.21.102:7947': 1, '100.94.174.19:7947': 1, '100.67.131.72:7947': 1}}, 'probe_count': {'gauge': 8}, 'indirect_probe': {'events': {'failure': 16}}}}
+2026-01-12 17:50:42,017 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:42,017 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,017 - swim.protocol.disseminator - ERROR - [6a4d8a83] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,017 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:42,017 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:42,017 - swim.protocol.node - INFO - [03d21946] Checking suspect member 100.68.208.43:7947 with indirect probe (suspect for 11.73s)
+2026-01-12 17:50:42,017 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.68.208.43:7947 (awareness=0): 7
+2026-01-12 17:50:42,017 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.68.208.43:7947: 7 -> 8
+2026-01-12 17:50:42,017 - swim.protocol.failure_detector - WARNING - No helpers available for indirect probe of 100.68.208.43:7947
+2026-01-12 17:50:42,018 - swim.protocol.node - INFO - [03d21946] Indirect probe FAILED for 100.68.208.43:7947
+2026-01-12 17:50:42,018 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:42,018 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,018 - swim.protocol.failure_detector - ERROR - [eecd100d] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,018 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:42,018 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,018 - swim.protocol.failure_detector - ERROR - [eecd100d] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,018 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:42,018 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,018 - swim.protocol.failure_detector - ERROR - [eecd100d] Error pinging 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:42,018 - swim.protocol.failure_detector - WARNING - [eecd100d] All ping attempts failed to 100.68.208.43:7947, marking as SUSPECT
+2026-01-12 17:50:42,018 - swim.lifeguard.timing - INFO - LIFEGUARD: Increasing protocol period due to congestion: 2.00s -> 2.20s
+2026-01-12 17:50:43,175 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:43,176 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:43,176 - swim.protocol.sync - ERROR - [6ae13b48] Error sending incremental sync request to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:43,788 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:50:43 -0600] "POST /gossip HTTP/1.1" 200 4430 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:50:44,020 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:44,020 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:44,020 - swim.protocol.disseminator - ERROR - [622191af] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:44,020 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:44,020 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:44,020 - swim.protocol.node - INFO - [306ef10e] Checking suspect member 100.68.208.43:7947 with indirect probe (suspect for 13.74s)
+2026-01-12 17:50:44,020 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.68.208.43:7947 (awareness=0): 7
+2026-01-12 17:50:44,020 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.68.208.43:7947: 7 -> 8
+2026-01-12 17:50:44,020 - swim.protocol.failure_detector - WARNING - No helpers available for indirect probe of 100.68.208.43:7947
+2026-01-12 17:50:44,020 - swim.protocol.node - INFO - [306ef10e] Indirect probe FAILED for 100.68.208.43:7947
+2026-01-12 17:50:44,160 - scripts.p2p.loops.job_loops - INFO - [JobReassignment] Initial delay complete, starting checks
+2026-01-12 17:50:44,326 - scripts.p2p.loops.job_loops - WARNING - [WorkerPull] Partition DETECTED - no leader for 3 consecutive cycles
+2026-01-12 17:50:44,362 - scripts.p2p.loops.job_loops - INFO - Work queue maintenance loop started
+2026-01-12 17:50:44,515 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:50:44 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:46,022 - asyncio - WARNING - socket.send() raised exception.
+2026-01-12 17:50:46,022 - swim.transport.tcp - ERROR - Failed to send data to ('100.68.208.43', 7947): [Errno 54] Connection reset by peer
+2026-01-12 17:50:46,022 - swim.protocol.disseminator - ERROR - [6719e2f4] Error sending heartbeat to 100.68.208.43:7947: [Errno 54] Connection reset by peer
+2026-01-12 17:50:46,022 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 17:50:46,022 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.68.208.43:7947: 15.00s (base: 5.00s)
+2026-01-12 17:50:46,022 - swim.protocol.node - WARNING - Suspect timeout expired for 100.68.208.43:7947, marking as DEAD
+2026-01-12 17:50:46,023 - swim.protocol.member - INFO - STATE CHANGE: Member 100.68.208.43:7947 transitioned from SUSPECT to DEAD (inc=3)
+2026-01-12 17:50:49,381 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:50:49 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:50:50,613 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu3 came ONLINE (4/6 alive, quorum=3)
+2026-01-12 17:50:50,613 - p2p_orchestrator - WARNING - [VoterHealth] Status: 4/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2']
+2026-01-12 17:50:50,614 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:17:50:50 -0600] "GET /status HTTP/1.1" 200 38500 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:50,789 - p2p_orchestrator - WARNING - [VoterHealth] Status: 4/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2']
+2026-01-12 17:50:50,791 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:17:50:50 -0600] "GET /status HTTP/1.1" 200 38501 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:51,156 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:50:51 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:51,157 - p2p_orchestrator - INFO - [P2P] Fetched 1 game counts from fallback MacBook-Pro-5
+2026-01-12 17:50:54,900 - p2p_orchestrator - INFO - Starting election, my ID: MacBook-Pro-5
+2026-01-12 17:50:56,553 - scripts.p2p.loops.autonomous_queue_loop - WARNING - [AutonomousQueue] ACTIVATED: no_leader_for_77s (no_leader_duration=77s)
+2026-01-12 17:50:56,554 - app.coordination.event_emission_helpers - INFO - [AutonomousQueue] Autonomous queue activated: no_leader
+2026-01-12 17:50:56,556 - p2p_orchestrator - WARNING - Isolated: only 3 alive peers (need 5), attempting bootstrap...
+2026-01-12 17:50:56,559 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-83b59f25: selfplay (source: autonomous)
+2026-01-12 17:50:56,559 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:50:56 -0600] "GET /health HTTP/1.1" 200 356 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:50:56,559 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-83b59f25: selfplay_enabled=false for this node
+2026-01-12 17:50:56,839 - p2p_orchestrator - WARNING - Voter lease quorum not reached: 1/3 acks, retrying in 2s...
+2026-01-12 17:50:57,110 - p2p_orchestrator - INFO - Discovered voter lambda-gh200-training from 100.94.174.19
+2026-01-12 17:50:57,346 - p2p_orchestrator - INFO - [LeaderSet] candidate->follower, leader_id=None->hetzner-cpu2, reason=continuous_bootstrap_discover_leader
+2026-01-12 17:50:57,360 - p2p_orchestrator - INFO - Bootstrap from 100.94.174.19:8770: imported 44 peers
+2026-01-12 17:50:57,360 - p2p_orchestrator - INFO - Bootstrap successful! Now have 3 alive peers
+2026-01-12 17:50:59,301 - p2p_orchestrator - INFO - LOCAL: Disk at 83% - skipping job starts
+2026-01-12 17:50:59,301 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 17:50:59,732 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 17:51:00,301 - p2p_orchestrator - INFO - Voter lease acquisition retry 2/3
+2026-01-12 17:51:00,951 - aiohttp.access - INFO - fd7a:115c:a1e0::d201:656d [12/Jan/2026:17:51:00 -0600] "POST /gossip HTTP/1.1" 200 4536 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:02,125 - p2p_orchestrator - INFO - [RelayHealthCheck] Relay lambda-gh200-training unhealthy for test, switching to hetzner-cpu3
+2026-01-12 17:51:02,293 - aiohttp.access - INFO - 100.67.131.72 [12/Jan/2026:17:51:02 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:02,294 - aiohttp.access - INFO - 100.67.131.72 [12/Jan/2026:17:51:02 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:02,953 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:51:02 -0600] "GET /health HTTP/1.1" 200 738 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:51:04,527 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:51:04 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:51:06,596 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Partition HEALED - leader recovered
+2026-01-12 17:51:06,604 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-3101b21c: selfplay (source: autonomous)
+2026-01-12 17:51:06,604 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-3101b21c: selfplay_enabled=false for this node
+2026-01-12 17:51:06,640 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:06 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:12,361 - p2p_orchestrator - WARNING - Isolated: only 3 alive peers (need 5), attempting bootstrap...
+2026-01-12 17:51:13,940 - aiohttp.access - INFO - fd7a:115c:a1e0::d201:656d [12/Jan/2026:17:51:13 -0600] "POST /gossip/anti-entropy HTTP/1.1" 200 15062 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:15,427 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu1 went OFFLINE (3/6 alive, quorum=3)
+2026-01-12 17:51:15,427 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:51:15,428 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:51:15 -0600] "GET /status HTTP/1.1" 200 48431 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:51:15,959 - p2p_orchestrator - INFO - Discovered voter hetzner-cpu2 from 100.94.174.19
+2026-01-12 17:51:15,979 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:51:15,979 - p2p_orchestrator - WARNING - [VoterHealth] QUORUM THREATENED: 3/6 voters alive (at threshold of 3)
+2026-01-12 17:51:16,125 - p2p_orchestrator - WARNING - Voter lease quorum not reached: 1/3 acks, retrying in 5s...
+2026-01-12 17:51:16,216 - scripts.p2p.loops.resilience_loops - INFO - Predictive monitoring loop started
+2026-01-12 17:51:16,606 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-69a6b644: selfplay (source: autonomous)
+2026-01-12 17:51:16,606 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-69a6b644: selfplay_enabled=false for this node
+2026-01-12 17:51:16,660 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:16 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:17,504 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:17:51:17 -0600] "GET /health HTTP/1.1" 200 755 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:20,032 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:51:20,033 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:51:19 -0600] "GET /status HTTP/1.1" 200 48495 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:51:20,131 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:51:20,131 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:51:19 -0600] "GET /status HTTP/1.1" 200 48497 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:51:21,126 - p2p_orchestrator - INFO - Voter lease acquisition retry 3/3
+2026-01-12 17:51:23,665 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:51:23,667 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:51:23 -0600] "GET /status HTTP/1.1" 200 48497 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:51:23,824 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2']
+2026-01-12 17:51:23,834 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:51:23 -0600] "GET /status HTTP/1.1" 200 48496 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:51:23,875 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:17:51:23 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:25,133 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:51:25 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:51:28,004 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-604d6012: selfplay (source: autonomous)
+2026-01-12 17:51:28,004 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-604d6012: selfplay_enabled=false for this node
+2026-01-12 17:51:28,004 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:28 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:34,587 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:17:51:34 -0600] "POST /gossip HTTP/1.1" 200 4060 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:51:34,589 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:17:51:34 -0600] "GET /health HTTP/1.1" 200 757 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:34,869 - p2p_orchestrator - INFO - Bootstrap from 100.68.208.43:8770: imported 6 peers
+2026-01-12 17:51:34,870 - p2p_orchestrator - INFO - Bootstrap successful! Now have 5 alive peers
+2026-01-12 17:51:35,294 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:17:51:35 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:37,126 - p2p_orchestrator - ERROR - Failed to acquire voter lease quorum after 3 attempts
+2026-01-12 17:51:37,126 - p2p_orchestrator - ERROR - Failed to obtain voter lease quorum; refusing leadership: MacBook-Pro-5
+2026-01-12 17:51:37,126 - scripts.p2p.p2p_mixin_base - INFO - [peer_manager] [Election] Completed in 42.97s, outcome=lost
+2026-01-12 17:51:37,126 - p2p_orchestrator - INFO - [LeaderSet] follower->follower, leader_id=hetzner-cpu2->None, reason=election_failed_no_quorum
+2026-01-12 17:51:38,007 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-8568c289: selfplay (source: autonomous)
+2026-01-12 17:51:38,007 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-8568c289: selfplay_enabled=false for this node
+2026-01-12 17:51:38,008 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:38 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+Metrics Report: {'timestamp': 1768261900.8246741, 'node_id': '0.0.0.0:7947', 'metrics': {'node_event': {'events': {'start': 1}}, 'ping_timeout': {'gauge': 0.5}, 'probe_result': {'counter': 49}, 'ping': {'events': {'failure': 10}}, 'peer_rtt': {'histogram': {'count': 10, 'min': 0.00057220458984375, 'max': 2.649827003479004, 'mean': 1.1752928256988526, 'stdev': 0.9499018619598185, 'p95': 2.649827003479004, 'p99': 2.649827003479004}}, 'timeout_adjustment': {'events': {'1.000->0.500': 1}}, 'member_count': {'gauge': 6}, 'protocol_cycle_duration': {'histogram': {'count': 44, 'min': 5.626678466796875e-05, 'max': 16.814360857009888, 'mean': 0.8806462233716791, 'stdev': 2.7839737521290964, 'p95': 4.47940993309021, 'p99': 16.814360857009888}}, 'protocol_period': {'gauge': 2.0}, 'suspect_timeout': {'gauge': 15.0, 'events': {'100.107.168.125:7947': 1, '100.126.21.102:7947': 1, '100.94.174.19:7947': 1, '100.67.131.72:7947': 1, '100.68.208.43:7947': 1}}, 'probe_count': {'gauge': 8}, 'indirect_probe': {'events': {'failure': 18}}}}
+2026-01-12 17:51:41,604 - app.coordination.work_queue - INFO -  Added work training_square8_2p_1768261901588: training (priority: 100)
+2026-01-12 17:51:41,707 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:51:40 -0600] "POST /gossip HTTP/1.1" 200 3789 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:51:43,541 - p2p_orchestrator - INFO - LOCAL: Disk at 83% - skipping job starts
+2026-01-12 17:51:43,541 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 17:51:43,986 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 17:51:43,986 - p2p_orchestrator - INFO - LOCAL: Memory at 98% - skipping GPU auto-scale
+2026-01-12 17:51:44,970 - scripts.p2p.loops.validation_loop - INFO - Validation loop started
+2026-01-12 17:51:45,587 - aiohttp.access - INFO - fd7a:115c:a1e0::2e01:d06c [12/Jan/2026:17:51:45 -0600] "POST /gossip HTTP/1.1" 200 3782 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:45,587 - scripts.p2p.loops.network_loops - INFO - [TailscalePeerDiscovery] Mode transition: bootstrap -> maintenance (peers=5, threshold=5)
+2026-01-12 17:51:46,694 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:17:51:46 -0600] "GET /relay/peers HTTP/1.1" 200 71476 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:47,159 - aiohttp.access - INFO - 100.67.131.72 [12/Jan/2026:17:51:46 -0600] "POST /heartbeat HTTP/1.1" 200 1907 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:48,504 - scripts.p2p.loops.resilience_loops - INFO - Split-brain detection loop started
+2026-01-12 17:51:48,510 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-75809341: selfplay (source: autonomous)
+2026-01-12 17:51:48,510 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-75809341: selfplay_enabled=false for this node
+2026-01-12 17:51:48,546 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:49,674 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu1 came ONLINE (5/6 alive, quorum=3)
+2026-01-12 17:51:49,682 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu2 came ONLINE (5/6 alive, quorum=3)
+2026-01-12 17:51:49,683 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:49,686 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53452 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:49,822 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:49,825 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53451 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,035 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:50,036 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53451 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,142 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:50,143 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53450 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,323 - p2p_orchestrator - WARNING - No valid leader (current: None), attempting bootstrap...
+2026-01-12 17:51:50,448 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:50,449 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53449 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,553 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:50,554 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53449 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,656 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:50,657 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53450 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,762 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:50,763 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53449 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,869 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:50,870 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53450 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:50,876 - p2p_orchestrator - INFO - Reconnected to dead peer aws-staging (was dead for 308s)
+2026-01-12 17:51:51,567 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: aws-staging, invalidating cluster manifest
+2026-01-12 17:51:51,567 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: aws-staging, node available for jobs
+2026-01-12 17:51:51,675 - p2p_orchestrator - WARNING - [VoterHealth] Status: 5/6 voters alive, quorum=OK, offline: ['mac-studio']
+2026-01-12 17:51:51,676 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:17:51:48 -0600] "GET /status HTTP/1.1" 200 53450 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:51,677 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 54.198.219.106
+2026-01-12 17:51:51,886 - p2p_orchestrator - INFO - Reconnected to dead peer 192-222-57-140 (was dead for 237s)
+2026-01-12 17:51:52,356 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-57-140, invalidating cluster manifest
+2026-01-12 17:51:52,356 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-57-140, node available for jobs
+2026-01-12 17:51:52,357 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 192.222.57.140
+2026-01-12 17:51:52,709 - p2p_orchestrator - INFO - Reconnected to dead peer 192-222-58-171 (was dead for 308s)
+2026-01-12 17:51:53,241 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-58-171, invalidating cluster manifest
+2026-01-12 17:51:53,241 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-58-171, node available for jobs
+2026-01-12 17:51:53,241 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 192.222.58.171
+2026-01-12 17:51:53,356 - p2p_orchestrator - INFO - [LeaderSet] follower->follower, leader_id=None->hetzner-cpu2, reason=continuous_bootstrap_discover_leader
+2026-01-12 17:51:53,365 - p2p_orchestrator - INFO - Bootstrap from 100.94.174.19:8770: imported 44 peers
+2026-01-12 17:51:53,366 - p2p_orchestrator - INFO - Bootstrap successful! Now have 5 alive peers
+2026-01-12 17:51:53,742 - p2p_orchestrator - INFO - Reconnected to dead peer 192-222-50-48 (was dead for 308s)
+2026-01-12 17:51:54,192 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-50-48, invalidating cluster manifest
+2026-01-12 17:51:54,192 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-50-48, node available for jobs
+2026-01-12 17:51:54,192 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 192.222.50.48
+2026-01-12 17:51:54,505 - p2p_orchestrator - INFO - Reconnected to dead peer 192-222-51-60 (was dead for 281s)
+2026-01-12 17:51:54,993 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-51-60, invalidating cluster manifest
+2026-01-12 17:51:54,994 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-51-60, node available for jobs
+2026-01-12 17:51:55,507 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.127.168.116
+2026-01-12 17:51:56,808 - p2p_orchestrator - WARNING - [VoterHealth] Voter lambda-gh200-training went OFFLINE (3/6 alive, quorum=3)
+2026-01-12 17:51:56,809 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu2 went OFFLINE (3/6 alive, quorum=3)
+2026-01-12 17:51:56,809 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:51:56,810 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:17:51:56 -0600] "GET /status HTTP/1.1" 200 53696 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:56,915 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:51:56,916 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:17:51:56 -0600] "GET /status HTTP/1.1" 200 53694 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:58,986 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:17:51:58 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:59,004 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:51:59 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:51:59,004 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-0675a6e8: selfplay (source: autonomous)
+2026-01-12 17:51:59,005 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-0675a6e8: selfplay_enabled=false for this node
+2026-01-12 17:52:01,458 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:52:01,459 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:52:01 -0600] "GET /status HTTP/1.1" 200 53986 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:52:03,242 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:52:03,243 - aiohttp.access - INFO - 100.67.131.72 [12/Jan/2026:17:52:03 -0600] "GET /status HTTP/1.1" 200 53988 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:03,341 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/6 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2']
+2026-01-12 17:52:03,342 - aiohttp.access - INFO - 100.67.131.72 [12/Jan/2026:17:52:03 -0600] "GET /status HTTP/1.1" 200 53988 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:07,141 - p2p_orchestrator - INFO - Leader established (hetzner-cpu2), stopping election retry task
+2026-01-12 17:52:08,890 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:52:08 -0600] "POST /heartbeat HTTP/1.1" 200 1917 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:52:09,008 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-4ea385b8: selfplay (source: autonomous)
+2026-01-12 17:52:09,008 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-4ea385b8: selfplay_enabled=false for this node
+2026-01-12 17:52:09,009 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:52:09 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:09,704 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:52:09 -0600] "POST /heartbeat HTTP/1.1" 200 1920 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:52:13,126 - app.distributed.hybrid_transport - INFO - [Transport] hetzner-cpu3: Switching to SSH after 3 HTTP failures
+2026-01-12 17:52:14,421 - aiohttp.access - INFO - 100.67.131.72 [12/Jan/2026:17:52:14 -0600] "GET /health HTTP/1.1" 200 755 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:17,521 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:17:52:17 -0600] "POST /gossip HTTP/1.1" 200 4108 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:52:19,011 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-cd959a16: selfplay (source: autonomous)
+2026-01-12 17:52:19,011 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-cd959a16: selfplay_enabled=false for this node
+2026-01-12 17:52:19,012 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:52:19 -0600] "GET /health HTTP/1.1" 200 353 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:23,009 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:52:23 -0600] "GET /health HTTP/1.1" 200 757 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:52:24,535 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:52:24 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:52:24,544 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:52:24 -0600] "GET /health HTTP/1.1" 200 758 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:52:26,126 - p2p_orchestrator - INFO - [RelayHealthCheck] Relay hetzner-cpu3 unhealthy for mac-studio, switching to hetzner-cpu1
+2026-01-12 17:52:26,126 - p2p_orchestrator - INFO - [RelayHealthCheck] Relay lambda-gh200-training unhealthy for test, switching to hetzner-cpu1
+2026-01-12 17:52:26,126 - p2p_orchestrator - INFO - [RelayHealthCheck] Relay hetzner-cpu3 unhealthy for hetzner-cpu2, switching to hetzner-cpu1
+2026-01-12 17:52:26,126 - p2p_orchestrator - INFO - [RelayHealthCheck] Relay hetzner-cpu3 unhealthy for ringrift-gpu, switching to hetzner-cpu1
+2026-01-12 17:52:26,126 - p2p_orchestrator - INFO - [RelayHealthCheck] Relay hetzner-cpu3 unhealthy for vultr-a100-20gb-2, switching to hetzner-cpu1
+2026-01-12 17:52:26,641 - p2p_orchestrator - INFO - LOCAL: Disk at 83% - skipping job starts
+2026-01-12 17:52:26,641 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 17:52:27,085 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 17:52:27,752 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu3 went OFFLINE (2/6 alive, quorum=3)
+2026-01-12 17:52:27,752 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:52:27,753 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:52:27 -0600] "GET /status HTTP/1.1" 200 52366 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:52:27,853 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:52:27,854 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:52:27 -0600] "GET /status HTTP/1.1" 200 52369 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:52:29,074 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:17:52:28 -0600] "POST /heartbeat HTTP/1.1" 200 1920 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:30,098 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:52:30 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:30,623 - aiohttp.access - INFO - 100.71.89.91 [12/Jan/2026:17:52:30 -0600] "POST /heartbeat HTTP/1.1" 200 1919 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:30,649 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-4048df7f: selfplay (source: autonomous)
+2026-01-12 17:52:30,650 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-4048df7f: selfplay_enabled=false for this node
+2026-01-12 17:52:30,867 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:52:30,881 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:52:30 -0600] "GET /status HTTP/1.1" 200 54002 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:52:31,022 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:52:31,033 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:17:52:30 -0600] "GET /status HTTP/1.1" 200 54002 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:52:35,951 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:17:52:35 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:52:38,640 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:17:52:38 -0600] "GET /health HTTP/1.1" 200 734 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:38,640 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:17:52:38 -0600] "POST /gossip HTTP/1.1" 200 4190 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 17:52:40,652 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-d2adfcb3: selfplay (source: autonomous)
+2026-01-12 17:52:40,652 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-d2adfcb3: selfplay_enabled=false for this node
+Metrics Report: {'timestamp': 1768261960.8285801, 'node_id': '0.0.0.0:7947', 'metrics': {'node_event': {'events': {'start': 1}}, 'ping_timeout': {'gauge': 0.5}, 'probe_result': {'counter': 49}, 'ping': {'events': {'failure': 10}}, 'peer_rtt': {'histogram': {'count': 10, 'min': 0.00057220458984375, 'max': 2.649827003479004, 'mean': 1.1752928256988526, 'stdev': 0.9499018619598185, 'p95': 2.649827003479004, 'p99': 2.649827003479004}}, 'timeout_adjustment': {'events': {'1.000->0.500': 1}}, 'member_count': {'gauge': 6}, 'protocol_cycle_duration': {'histogram': {'count': 73, 'min': 5.626678466796875e-05, 'max': 16.814360857009888, 'mean': 0.5308516940025434, 'stdev': 2.1947662783726, 'p95': 4.311717987060547, 'p99': 16.814360857009888}}, 'protocol_period': {'gauge': 2.0}, 'suspect_timeout': {'gauge': 15.0, 'events': {'100.107.168.125:7947': 1, '100.126.21.102:7947': 1, '100.94.174.19:7947': 1, '100.67.131.72:7947': 1, '100.68.208.43:7947': 1}}, 'probe_count': {'gauge': 8}, 'indirect_probe': {'events': {'failure': 18}}}}
+2026-01-12 17:52:41,117 - aiohttp.access - INFO - 100.77.186.124 [12/Jan/2026:17:52:40 -0600] "POST /heartbeat HTTP/1.1" 200 1918 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:41,118 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:52:41 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:42,573 - aiohttp.access - INFO - 100.77.186.124 [12/Jan/2026:17:52:42 -0600] "POST /heartbeat HTTP/1.1" 200 1919 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:47,453 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/6 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3']
+2026-01-12 17:52:47,454 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:17:52:47 -0600] "GET /status HTTP/1.1" 200 57554 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 17:52:49,692 - aiohttp.access - INFO - fd7a:115c:a1e0::c901:834a [12/Jan/2026:17:52:49 -0600] "GET /data_manifest HTTP/1.1" 200 27364 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:50,654 - scripts.p2p.loops.job_loops - INFO - [WorkerPull] Claimed work autonomous-113aa8e2: selfplay (source: autonomous)
+2026-01-12 17:52:50,654 - p2p_orchestrator - INFO - Skipping selfplay work autonomous-113aa8e2: selfplay_enabled=false for this node
+2026-01-12 17:52:51,121 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:52:51 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:53,353 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:17:52:53 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 17:52:53,398 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:17:52:53 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"

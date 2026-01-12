@@ -1925,13 +1925,44 @@ export const BoardView: React.FC<BoardViewProps> = ({
           }
         }
 
+        // RR-FIX-2026-01-12: Line segment highlighting for overlength line choices
+        const lineSegmentClasses: string[] = [];
+        const allGroupIds = highlightMeta?.groupIds ?? [];
+        if (allGroupIds.length > 0 && isLineDecisionContext) {
+          for (const groupId of allGroupIds) {
+            if (groupId === 'collapse-all') {
+              lineSegmentClasses.push('line-segment-collapse-all');
+            } else if (groupId === 'line-context') {
+              lineSegmentClasses.push('line-segment-context');
+            } else if (groupId.startsWith('segment-')) {
+              // Extract segment index for color coding
+              const segmentIndex = allGroupIds
+                .filter((g) => g.startsWith('segment-'))
+                .indexOf(groupId);
+              switch (segmentIndex) {
+                case 0:
+                  lineSegmentClasses.push('line-segment-min-1');
+                  break;
+                case 1:
+                  lineSegmentClasses.push('line-segment-min-2');
+                  break;
+                default:
+                  lineSegmentClasses.push('line-segment-min-3');
+                  break;
+              }
+            }
+          }
+        }
+
         // Suppress move-destination pulse when elimination or territory decisions are active
         // so the user focuses on the decision targets rather than the prior move
         const suppressMoveDestinationPulse =
           isRingEliminationDecisionContext || isTerritoryRegionDecisionContext;
 
+        // RR-FIX-2026-01-12: Thinner borders for square boards
+        const borderClass = boardType === 'square19' ? 'border-0' : 'border-[0.5px]';
         const cellClasses = [
-          'relative border flex items-center justify-center text-[11px] md:text-xs rounded-sm',
+          `relative ${borderClass} flex items-center justify-center text-[11px] md:text-xs rounded-sm`,
           squareCellSizeClasses,
           'border-slate-600 text-slate-900',
           territoryClasses || baseSquareBg,
@@ -1942,6 +1973,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
           shouldPulseEliminationTarget ? 'decision-pulse-elimination' : '',
           shouldPulseTerritoryRegion ? 'decision-pulse-territory' : '',
           ...territoryRegionClasses,
+          ...lineSegmentClasses,
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting on square boards: thin, bright-green inset
           // ring plus a deeper emerald tint that reads clearly even over the
@@ -2154,8 +2186,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
           </button>
         );
       }
+      // RR-FIX-2026-01-12: Thinner gaps for square boards
+      const gapClass = boardType === 'square19' ? 'gap-0' : 'gap-px';
       rows.push(
-        <div key={y} className="flex gap-[2px]">
+        <div key={y} className={`flex ${gapClass}`}>
           {cells}
         </div>
       );
@@ -2163,10 +2197,14 @@ export const BoardView: React.FC<BoardViewProps> = ({
     // Note: sq19 previously had scale-75 here but that's now handled by the outer
     // scaling wrapper (scaledDimensions + boardScale). Removed to prevent double-scaling
     // which caused extra empty space within the board container.
-    const containerClasses =
+    // RR-FIX-2026-01-12: Thinner vertical spacing for square boards
+    const spaceYClass =
       boardType === 'square8'
-        ? 'relative space-y-1 bg-slate-800/60 p-2 rounded-md border border-slate-700 shadow-inner inline-block'
-        : 'relative space-y-0.5 bg-slate-800/60 p-2 rounded-md border border-slate-700 shadow-inner inline-block';
+        ? 'space-y-0.5'
+        : boardType === 'square19'
+          ? 'space-y-0'
+          : 'space-y-0.5';
+    const containerClasses = `relative ${spaceYClass} bg-slate-800/60 p-2 rounded-md border border-slate-700 shadow-inner inline-block`;
 
     return (
       <div
@@ -2344,6 +2382,35 @@ export const BoardView: React.FC<BoardViewProps> = ({
           }
         }
 
+        // RR-FIX-2026-01-12: Line segment highlighting for overlength line choices (hex)
+        const lineSegmentClassesHex: string[] = [];
+        const allGroupIdsHex = hexHighlightMeta?.groupIds ?? [];
+        if (allGroupIdsHex.length > 0 && isLineDecisionContext) {
+          for (const groupId of allGroupIdsHex) {
+            if (groupId === 'collapse-all') {
+              lineSegmentClassesHex.push('line-segment-collapse-all');
+            } else if (groupId === 'line-context') {
+              lineSegmentClassesHex.push('line-segment-context');
+            } else if (groupId.startsWith('segment-')) {
+              // Extract segment index for color coding
+              const segmentIndex = allGroupIdsHex
+                .filter((g) => g.startsWith('segment-'))
+                .indexOf(groupId);
+              switch (segmentIndex) {
+                case 0:
+                  lineSegmentClassesHex.push('line-segment-min-1');
+                  break;
+                case 1:
+                  lineSegmentClassesHex.push('line-segment-min-2');
+                  break;
+                default:
+                  lineSegmentClassesHex.push('line-segment-min-3');
+                  break;
+              }
+            }
+          }
+        }
+
         // Mobile-responsive hex cell sizing for W3-12 (44px touch targets)
         // Hex cells: 44px minimum for touch, 48px on md (vs square8's 44px/56px/80px)
         // Using rounded-full for hex shape appearance
@@ -2367,6 +2434,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
           shouldPulseEliminationTargetHex ? 'decision-pulse-elimination' : '',
           shouldPulseTerritoryRegionHex ? 'decision-pulse-territory' : '',
           ...territoryRegionClassesHex,
+          ...lineSegmentClassesHex,
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting with subtle pulse animation
           // Suppress when elimination or territory decisions are active to avoid distraction.

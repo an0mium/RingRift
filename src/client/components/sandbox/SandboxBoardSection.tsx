@@ -171,14 +171,11 @@ export const SandboxBoardSection: React.FC<SandboxBoardSectionProps> = ({
         {/* Board header with mode toggle and action buttons */}
         <div className="p-3 sm:p-4 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg overflow-x-auto">
           <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-            <div>
-              <p className="text-[10px] sm:text-xs uppercase tracking-wide text-slate-400">
-                Local Sandbox
-              </p>
-              <h1 className="text-lg sm:text-2xl font-bold text-white">
-                Game – {boardDisplayLabel}
-              </h1>
-            </div>
+            <h1 className="text-base sm:text-xl font-bold text-white">
+              <span className="text-slate-400 font-medium">Local Sandbox</span>
+              <span className="mx-2 text-slate-600">–</span>
+              {boardDisplayLabel}
+            </h1>
             <div className="flex items-center gap-3">
               {/* Beginner/Debug Mode Toggle */}
               <div className="inline-flex rounded-lg border border-slate-600 p-0.5 bg-slate-900/60">

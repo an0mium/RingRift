@@ -518,6 +518,140 @@ code {
     0 0 32px rgba(244, 114, 182, 0.9);
 }
 
+/* ==========================================================================
+   RR-FIX-2026-01-12: Line Segment Highlighting for Overlength Line Choices
+   ========================================================================== */
+
+/* Base decision pulse for line reward choices */
+.decision-pulse-line-reward {
+  position: relative;
+  animation: selection-pulse 1.4s ease-in-out infinite;
+  --ring-color: 251, 191, 36; /* amber-400 RGB */
+}
+
+/* Collapse-all segment: Amber glow indicating ring elimination cost */
+.line-segment-collapse-all {
+  position: relative;
+  animation: selection-pulse 1.4s ease-in-out infinite;
+  --ring-color: 251, 191, 36; /* amber-400 RGB */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(251, 191, 36, 0.3),
+    rgba(251, 191, 36, 0.12) 50%,
+    transparent 75%
+  );
+  box-shadow:
+    0 0 0 2px rgba(251, 191, 36, 0.9),
+    0 0 16px 2px rgba(251, 191, 36, 0.5);
+}
+
+.line-segment-collapse-all::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px rgba(251, 191, 36, 0.85),
+    0 0 10px rgba(251, 191, 36, 0.7);
+}
+
+/* Minimum collapse segment 1: Cyan glow (free, no elimination) */
+.line-segment-min-1 {
+  position: relative;
+  animation: selection-pulse 1.4s ease-in-out infinite;
+  --ring-color: 34, 211, 238; /* cyan-400 RGB */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(34, 211, 238, 0.28),
+    rgba(34, 211, 238, 0.1) 50%,
+    transparent 75%
+  );
+  box-shadow:
+    0 0 0 2px rgba(34, 211, 238, 0.9),
+    0 0 16px 2px rgba(34, 211, 238, 0.5);
+}
+
+.line-segment-min-1::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px rgba(34, 211, 238, 0.85),
+    0 0 10px rgba(34, 211, 238, 0.7);
+}
+
+/* Minimum collapse segment 2: Emerald glow */
+.line-segment-min-2 {
+  position: relative;
+  animation: selection-pulse 1.4s ease-in-out infinite;
+  --ring-color: 52, 211, 153; /* emerald-400 RGB */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(52, 211, 153, 0.28),
+    rgba(52, 211, 153, 0.1) 50%,
+    transparent 75%
+  );
+  box-shadow:
+    0 0 0 2px rgba(52, 211, 153, 0.9),
+    0 0 16px 2px rgba(52, 211, 153, 0.5);
+}
+
+.line-segment-min-2::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px rgba(52, 211, 153, 0.85),
+    0 0 10px rgba(52, 211, 153, 0.7);
+}
+
+/* Minimum collapse segment 3: Violet glow */
+.line-segment-min-3 {
+  position: relative;
+  animation: selection-pulse 1.4s ease-in-out infinite;
+  --ring-color: 167, 139, 250; /* violet-400 RGB */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(167, 139, 250, 0.28),
+    rgba(167, 139, 250, 0.1) 50%,
+    transparent 75%
+  );
+  box-shadow:
+    0 0 0 2px rgba(167, 139, 250, 0.9),
+    0 0 16px 2px rgba(167, 139, 250, 0.5);
+}
+
+.line-segment-min-3::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px rgba(167, 139, 250, 0.85),
+    0 0 10px rgba(167, 139, 250, 0.7);
+}
+
+/* Line context: Secondary highlight for non-collapsing line positions */
+.line-segment-context {
+  position: relative;
+  animation: selection-pulse 2s ease-in-out infinite;
+  --ring-color: 148, 163, 184; /* slate-400 RGB */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(148, 163, 184, 0.15),
+    transparent 60%
+  );
+  box-shadow:
+    0 0 0 1px rgba(148, 163, 184, 0.5),
+    0 0 8px rgba(148, 163, 184, 0.3);
+}
+
 /* Stack-level pulse for elimination choices so the stack itself breathes.
    Enhanced visibility with stronger glow and faster pulse for urgency. */
 .decision-elimination-stack-pulse {

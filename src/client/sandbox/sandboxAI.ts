@@ -2130,6 +2130,24 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
 
         const options = hooks.enumerateCaptureSegmentsFrom(chainPosition, chainPlayer);
         if (options.length === 0) {
+          // RR-FIX-2026-01-12: Log warning if we're breaking out of chain capture
+          // but phase is still chain_capture. This helps diagnose if phase transitions
+          // aren't working correctly.
+          if (stateForChain.currentPhase === 'chain_capture') {
+            const allMoves = hooks.getValidMovesForCurrentPlayer();
+            if (allMoves.length === 0) {
+              console.warn(
+                '[Sandbox AI] Chain capture stuck: no capture options and no valid moves. ' +
+                  'Phase should have advanced but is still chain_capture.',
+                {
+                  boardType: stateForChain.boardType,
+                  currentPlayer: chainPlayer,
+                  chainPosition,
+                  steps,
+                }
+              );
+            }
+          }
           break;
         }
 

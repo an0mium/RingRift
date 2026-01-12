@@ -1069,6 +1069,20 @@ export interface LineRewardChoice extends PlayerChoiceBase {
     option_1_collapse_all_and_eliminate?: string;
     option_2_min_collapse_no_elimination?: string;
   };
+  /**
+   * RR-FIX-2026-01-12: Segment data for graphical board-based selection.
+   * Each segment represents one possible collapse choice with its positions.
+   */
+  segments?: Array<{
+    /** Unique identifier for this segment option (matches a Move ID) */
+    optionId: string;
+    /** Positions of markers that would collapse if this segment is selected */
+    positions: Position[];
+    /** True if this is the "collapse all" option (costs a ring elimination) */
+    isCollapseAll: boolean;
+  }>;
+  /** Full line positions for context highlighting */
+  linePositions?: Position[];
 }
 
 export interface RingEliminationChoice extends PlayerChoiceBase {
@@ -1116,6 +1130,13 @@ export interface RegionOrderChoice extends PlayerChoiceBase {
      * or 'skip_territory_processing').
      */
     moveId: string;
+    /**
+     * RR-FIX-2026-01-12: Full region geometry for highlighting.
+     * When included, deriveBoardDecisionHighlights uses these positions
+     * directly instead of looking up from gameState.board.territories,
+     * ensuring successive territories are highlighted correctly.
+     */
+    spaces?: Position[];
   }>;
 }
 

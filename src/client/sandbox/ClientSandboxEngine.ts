@@ -35,6 +35,7 @@ import type {
   Position,
   RingStack,
   LineInfo,
+  LineRewardChoice,
   RegionOrderChoice,
   Territory,
   MarkerPathHelpers,
@@ -2974,6 +2975,11 @@ export class ClientSandboxEngine {
               size: r.spaces.length,
               representativePosition: representative,
               moveId: `process-region-${index}-${regionKey}`,
+              // RR-FIX-2026-01-12: Include full region geometry for highlighting.
+              // This ensures successive territories are highlighted correctly
+              // since deriveBoardDecisionHighlights uses these positions directly
+              // instead of looking up from potentially stale gameState.board.territories.
+              spaces: r.spaces,
             };
           }),
         };
@@ -3469,25 +3475,104 @@ export class ClientSandboxEngine {
               .join('|') === lineKey
         );
 
-        const preferredSegment = line.positions.slice(0, requiredLength);
-        const preferredKey = preferredSegment.map((p) => positionToString(p)).join('|');
+        // RR-FIX-2026-01-12: For human players, present a graphical choice
+        // for overlength line segment selection instead of auto-applying.
+        const currentPlayer = this.gameState.currentPlayer;
+        const player = this.gameState.players.find((p) => p.playerNumber === currentPlayer);
+        const isHuman = player && player.type === 'human';
 
-        const minCollapse =
-          rewardCandidates.find(
-            (m) =>
-              m.collapsedMarkers &&
-              m.collapsedMarkers.length === requiredLength &&
-              m.collapsedMarkers.map((p) => positionToString(p)).join('|') === preferredKey
-          ) ||
-          rewardCandidates.find(
-            (m) => m.collapsedMarkers && m.collapsedMarkers.length === requiredLength
-          );
+        if (isHuman && rewardCandidates.length > 1) {
+          // Build segments for graphical selection
+          const segments: LineRewardChoice['segments'] = rewardCandidates.map((m) => {
+            const isCollapseAll =
+              m.collapsedMarkers?.length === m.formedLines?.[0]?.positions?.length;
+            return {
+              optionId: m.id || `move-${rewardCandidates.indexOf(m)}`,
+              positions: m.collapsedMarkers || [],
+              isCollapseAll,
+            };
+          });
 
-        if (minCollapse) {
-          moveToApply = minCollapse;
-        } else if (rewardCandidates.length > 0) {
-          // Fallback: use first available reward candidate to prevent freeze
-          moveToApply = rewardCandidates[0];
+          // Build the choice with segment data for graphical rendering
+          const choice: LineRewardChoice = {
+            id: `line-reward-${Date.now()}`,
+            gameId: this.gameState.id,
+            playerNumber: currentPlayer,
+            type: 'line_reward_option',
+            prompt: 'Overlength Line - Choose which markers to collapse',
+            options: rewardCandidates.map((m) => {
+              const isCollapseAll =
+                m.collapsedMarkers?.length === m.formedLines?.[0]?.positions?.length;
+              return isCollapseAll
+                ? ('option_1_collapse_all_and_eliminate' as const)
+                : ('option_2_min_collapse_no_elimination' as const);
+            }),
+            moveIds: rewardCandidates.reduce(
+              (acc, m) => {
+                const isCollapseAll =
+                  m.collapsedMarkers?.length === m.formedLines?.[0]?.positions?.length;
+                const key = isCollapseAll
+                  ? 'option_1_collapse_all_and_eliminate'
+                  : 'option_2_min_collapse_no_elimination';
+                acc[key] = m.id || `move-${rewardCandidates.indexOf(m)}`;
+                return acc;
+              },
+              {} as Record<string, string>
+            ),
+            segments,
+            linePositions: line.positions,
+          };
+
+          // Request choice from player via interaction handler
+          const response = await this.interactionHandler.requestChoice(choice);
+
+          // Find the selected move based on response
+          // Response can come from segment click (optionId) or button click
+          const selectedOptId =
+            (response.selectedOption as { optionId?: string })?.optionId ||
+            (response.selectedOption as string);
+
+          // Try to match by optionId first (from segment click)
+          let selectedMove = rewardCandidates.find((m) => m.id === selectedOptId);
+
+          // If not found, try to match by option type (from button click)
+          if (!selectedMove && typeof selectedOptId === 'string') {
+            const isCollapseAllSelected = selectedOptId.includes('option_1');
+            selectedMove = rewardCandidates.find((m) => {
+              const isCollapseAll =
+                m.collapsedMarkers?.length === m.formedLines?.[0]?.positions?.length;
+              return isCollapseAll === isCollapseAllSelected;
+            });
+          }
+
+          if (selectedMove) {
+            moveToApply = selectedMove;
+          } else {
+            // Fallback to first candidate
+            moveToApply = rewardCandidates[0];
+          }
+        } else {
+          // AI player or only one option: auto-apply minimum collapse
+          const preferredSegment = line.positions.slice(0, requiredLength);
+          const preferredKey = preferredSegment.map((p) => positionToString(p)).join('|');
+
+          const minCollapse =
+            rewardCandidates.find(
+              (m) =>
+                m.collapsedMarkers &&
+                m.collapsedMarkers.length === requiredLength &&
+                m.collapsedMarkers.map((p) => positionToString(p)).join('|') === preferredKey
+            ) ||
+            rewardCandidates.find(
+              (m) => m.collapsedMarkers && m.collapsedMarkers.length === requiredLength
+            );
+
+          if (minCollapse) {
+            moveToApply = minCollapse;
+          } else if (rewardCandidates.length > 0) {
+            // Fallback: use first available reward candidate to prevent freeze
+            moveToApply = rewardCandidates[0];
+          }
         }
       }
 
@@ -4034,6 +4119,14 @@ export class ClientSandboxEngine {
             ...this.gameState,
             currentPhase: 'chain_capture' as GamePhase,
           };
+        } else {
+          // RR-FIX-2026-01-12: Transition OUT of chain_capture when no more captures.
+          // This mirrors the logic at lines 3934-3951 but ensures the phase is advanced
+          // even if that earlier block was skipped (e.g., in traceMode or due to timing).
+          // Without this, the phase can get stuck in chain_capture causing AI freeze.
+          if (!this.traceMode) {
+            this.advanceTurnAndPhaseForCurrentPlayer();
+          }
         }
       }
 

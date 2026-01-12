@@ -301,6 +301,43 @@ export function useSandboxDecisionHandlers({
         return true;
       }
 
+      // RR-FIX-2026-01-12: Handle line_reward_option choice with segments (graphical selection)
+      if (
+        sandboxPendingChoice &&
+        sandboxPendingChoice.type === 'line_reward_option' &&
+        sandboxPendingChoice.segments &&
+        sandboxPendingChoice.segments.length > 0
+      ) {
+        const currentChoice = sandboxPendingChoice;
+        const segments = currentChoice.segments;
+
+        // Find the segment containing the clicked position
+        const clickedSegment = segments.find((segment) =>
+          segment.positions.some((p) => positionsEqual(p, pos))
+        );
+
+        if (clickedSegment) {
+          const resolver = choiceResolverRef.current;
+          if (resolver) {
+            resolver({
+              choiceId: currentChoice.id,
+              playerNumber: currentChoice.playerNumber,
+              choiceType: currentChoice.type,
+              selectedOption: { optionId: clickedSegment.optionId },
+            } as PlayerChoiceResponseFor<PlayerChoice>);
+          }
+          choiceResolverRef.current = null;
+          window.setTimeout(() => {
+            setSandboxPendingChoice(null);
+            setSandboxStateVersion((v) => v + 1);
+            maybeRunSandboxAiIfNeeded();
+          }, 0);
+          return true;
+        }
+        // Click was not on a highlighted segment, let other handlers try
+        return false;
+      }
+
       return false;
     },
     [

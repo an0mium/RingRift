@@ -1120,15 +1120,37 @@ export function deriveBoardDecisionHighlights(
       break;
     }
     case 'line_reward_option': {
-      // Reward choices operate over the currently-detected lines for the
-      // acting player. We highlight all formedLines owned by that player so
-      // the geometry remains visible while the reward UI is active.
-      const linesForPlayer = (gameState.board.formedLines || []).filter(
-        (line) => line.player === pendingChoice.playerNumber
-      );
-      for (const line of linesForPlayer) {
-        for (const pos of line.positions) {
-          pushPosition(pos, 'primary');
+      // RR-FIX-2026-01-12: Use segment data for graphical selection when available.
+      // Each segment gets a distinct groupId for color differentiation.
+      if (pendingChoice.segments && pendingChoice.segments.length > 0) {
+        // Highlight each segment with its optionId as groupId for color coding
+        for (const segment of pendingChoice.segments) {
+          const groupId = segment.isCollapseAll ? 'collapse-all' : `segment-${segment.optionId}`;
+          for (const pos of segment.positions) {
+            pushPosition(pos, 'primary', groupId);
+          }
+        }
+        // Also highlight the full line context if available
+        if (pendingChoice.linePositions) {
+          const segmentKeys = new Set(
+            pendingChoice.segments.flatMap((s) => s.positions.map((p) => positionToString(p)))
+          );
+          for (const pos of pendingChoice.linePositions) {
+            const key = positionToString(pos);
+            if (!segmentKeys.has(key)) {
+              pushPosition(pos, 'secondary', 'line-context');
+            }
+          }
+        }
+      } else {
+        // Fallback: Highlight all formedLines owned by that player
+        const linesForPlayer = (gameState.board.formedLines || []).filter(
+          (line) => line.player === pendingChoice.playerNumber
+        );
+        for (const line of linesForPlayer) {
+          for (const pos of line.positions) {
+            pushPosition(pos, 'primary');
+          }
         }
       }
       break;
@@ -1175,7 +1197,15 @@ export function deriveBoardDecisionHighlights(
 
         let highlighted = false;
 
-        if (territories && territories.size > 0) {
+        // RR-FIX-2026-01-12: Prefer option.spaces when available. This ensures
+        // highlighting works for successive territories even if React state
+        // (gameState.board.territories) is stale from an earlier snapshot.
+        if (option.spaces && option.spaces.length > 0) {
+          for (const pos of option.spaces) {
+            pushPosition(pos, 'primary', option.regionId);
+          }
+          highlighted = true;
+        } else if (territories && territories.size > 0) {
           // Primary mapping: look up the concrete Territory by regionId
           // when available so geometry/choice stay in lockstep even if
           // representativePosition drifts.

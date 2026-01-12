@@ -834,6 +834,23 @@ export class SandboxOrchestratorAdapter {
         };
         return [noTerritoryAction];
       }
+
+      // RR-FIX-2026-01-12: Synthesize skip_capture when in chain_capture or capture
+      // phase with no valid moves. This prevents AI freeze when captures are exhausted
+      // but phase hasn't advanced (e.g., due to phase transition bug or race condition).
+      // This follows the same defensive pattern as the other no_*_action synthesized moves.
+      if (state.currentPhase === 'chain_capture' || state.currentPhase === 'capture') {
+        const skipCapture: Move = {
+          id: `skip-capture-action-${moveNumber}`,
+          type: 'skip_capture',
+          player: state.currentPlayer,
+          to: { x: 0, y: 0 },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber,
+        };
+        return [skipCapture];
+      }
     }
 
     return interactiveMoves;

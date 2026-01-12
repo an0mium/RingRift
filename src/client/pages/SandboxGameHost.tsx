@@ -33,6 +33,7 @@ import { SaveStateDialog } from '../components/SaveStateDialog';
 import { RingPlacementCountDialog } from '../components/RingPlacementCountDialog';
 import { RecoveryLineChoiceDialog } from '../components/RecoveryLineChoiceDialog';
 import { TerritoryRegionChoiceDialog } from '../components/TerritoryRegionChoiceDialog';
+import { LineRewardPanel } from '../components/LineRewardPanel';
 import { StatusBanner } from '../components/ui/StatusBanner';
 import { Button } from '../components/ui/Button';
 import { OnboardingModal } from '../components/OnboardingModal';
@@ -92,10 +93,12 @@ import { useSandboxScenarios, type LoadedScenario } from '../hooks/useSandboxSce
 import { useGameSoundEffects } from '../hooks/useGameSoundEffects';
 import { useSandboxClock } from '../hooks/useSandboxClock';
 import { useSandboxAITracking } from '../hooks/useSandboxAITracking';
+import { useSandboxAIServiceStatus } from '../hooks/useSandboxAIServiceStatus';
 import { useSandboxBoardSelection } from '../hooks/useSandboxBoardSelection';
 import { useSandboxGameLifecycle } from '../hooks/useSandboxGameLifecycle';
 import { useGlobalGameShortcuts } from '../hooks/useKeyboardNavigation';
 import { useSoundOptional } from '../contexts/SoundContext';
+import { AIServiceStatusBanner } from '../components/AIServiceStatusBanner';
 
 const PHASE_COPY: Record<
   string,
@@ -864,6 +867,10 @@ export const SandboxGameHost: React.FC = () => {
     sandboxGameState,
     maybeRunSandboxAiIfNeeded
   );
+
+  // AI service status: tracks connection status and fallback mode
+  const { state: aiServiceState, actions: aiServiceActions } = useSandboxAIServiceStatus();
+
   const sandboxVictoryResult = sandboxEngine ? sandboxEngine.getVictoryResult() : null;
   const sandboxGameEndExplanation = sandboxEngine ? sandboxEngine.getGameEndExplanation() : null;
 
@@ -1936,6 +1943,15 @@ export const SandboxGameHost: React.FC = () => {
           </StatusBanner>
         )}
 
+        {/* AI service fallback warning - shown when using local heuristics instead of service */}
+        <AIServiceStatusBanner
+          status={aiServiceState.status}
+          message={aiServiceState.message}
+          isServiceConfigured={aiServiceState.isServiceConfigured}
+          onRetry={aiServiceActions.retryConnection}
+          onDismiss={aiServiceActions.dismissMessage}
+        />
+
         {sandboxGameOverBannerText && (
           <StatusBanner variant="success" title="Game over">
             <span className="text-xs">{sandboxGameOverBannerText}</span>
@@ -1956,11 +1972,41 @@ export const SandboxGameHost: React.FC = () => {
           />
         )}
 
+        {/* RR-FIX-2026-01-12: Render LineRewardPanel for overlength line choices with segments */}
+        {sandboxPendingChoice &&
+          sandboxPendingChoice.type === 'line_reward_option' &&
+          sandboxPendingChoice.segments &&
+          sandboxPendingChoice.segments.length > 0 && (
+            <LineRewardPanel
+              choice={sandboxPendingChoice}
+              onSelect={(optionId) => {
+                const resolver = sandboxChoiceResolverRef.current;
+                if (resolver) {
+                  resolver({
+                    choiceId: sandboxPendingChoice.id,
+                    playerNumber: sandboxPendingChoice.playerNumber,
+                    choiceType: sandboxPendingChoice.type,
+                    selectedOption: { optionId },
+                  } as PlayerChoiceResponseFor<PlayerChoice>);
+                  sandboxChoiceResolverRef.current = null;
+                }
+                setSandboxPendingChoice(null);
+                setSandboxStateVersion((v) => v + 1);
+              }}
+            />
+          )}
+
         <ChoiceDialog
           choice={
             sandboxPendingChoice &&
             sandboxPendingChoice.type !== 'ring_elimination' &&
-            sandboxPendingChoice.type !== 'region_order'
+            sandboxPendingChoice.type !== 'region_order' &&
+            // Don't show ChoiceDialog for line_reward_option with segments (use LineRewardPanel instead)
+            !(
+              sandboxPendingChoice.type === 'line_reward_option' &&
+              sandboxPendingChoice.segments &&
+              sandboxPendingChoice.segments.length > 0
+            )
               ? sandboxPendingChoice
               : null
           }
