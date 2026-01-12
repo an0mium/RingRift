@@ -11253,107 +11253,61 @@ class P2POrchestrator(
         # Get P2P sync metrics (with error handling for new features)
         # December 27, 2025: Wrapped all metric calls to prevent cascading 500 errors
         # December 31, 2025: Added asyncio.wait_for() timeouts to prevent /status hangs
+        # January 12, 2026: CRITICAL FIX - Run all metric calls in PARALLEL instead of sequential
+        # Previous sequential approach took up to 24 seconds (10 calls × 2s timeout each).
+        # Parallel approach takes at most 2 seconds (max of all timeouts).
         p2p_sync_metrics = getattr(self, "_p2p_sync_metrics", {})
         _STATUS_TIMEOUT = 2.0  # seconds for each blocking call
 
-        try:
-            gossip_metrics = await asyncio.wait_for(
-                asyncio.to_thread(self._get_gossip_metrics_summary),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_gossip_metrics_summary timed out")
-            gossip_metrics = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            gossip_metrics = {"error": str(e)}
+        # Define all metric gathering tasks
+        async def _safe_metric(name: str, func: callable) -> tuple[str, dict]:
+            """Wrapper to safely gather a metric with timeout and error handling."""
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(func),
+                    timeout=_STATUS_TIMEOUT,
+                )
+                return name, result
+            except asyncio.TimeoutError:
+                logger.warning(f"handle_status: {name} timed out")
+                return name, {"error": "timeout"}
+            except Exception as e:  # noqa: BLE001
+                return name, {"error": str(e)}
 
-        try:
-            distributed_training = await asyncio.wait_for(
-                asyncio.to_thread(self._get_distributed_training_summary),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_distributed_training_summary timed out")
-            distributed_training = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            distributed_training = {"error": str(e)}
+        # Run all metric gathering calls in PARALLEL
+        metric_tasks = [
+            _safe_metric("gossip_metrics", self._get_gossip_metrics_summary),
+            _safe_metric("distributed_training", self._get_distributed_training_summary),
+            _safe_metric("cluster_elo", self._get_cluster_elo_summary),
+            _safe_metric("node_recovery", self._get_node_recovery_metrics),
+            _safe_metric("leader_consensus", self._get_cluster_leader_consensus),
+            _safe_metric("peer_reputation", self._get_cluster_peer_reputation),
+            _safe_metric("sync_intervals", self._get_sync_interval_summary),
+            _safe_metric("tournament_scheduling", self._get_distributed_tournament_summary),
+            _safe_metric("data_dedup", self._get_dedup_summary),
+        ]
 
-        try:
-            cluster_elo = await asyncio.wait_for(
-                asyncio.to_thread(self._get_cluster_elo_summary),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_cluster_elo_summary timed out")
-            cluster_elo = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            cluster_elo = {"error": str(e)}
+        # Gather all results in parallel
+        metric_results = await asyncio.gather(*metric_tasks, return_exceptions=True)
 
-        try:
-            node_recovery = await asyncio.wait_for(
-                asyncio.to_thread(self._get_node_recovery_metrics),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_node_recovery_metrics timed out")
-            node_recovery = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            node_recovery = {"error": str(e)}
+        # Extract results into named variables
+        metrics_dict = {}
+        for result in metric_results:
+            if isinstance(result, tuple) and len(result) == 2:
+                name, value = result
+                metrics_dict[name] = value
+            elif isinstance(result, Exception):
+                logger.warning(f"handle_status: metric task failed with {result}")
 
-        try:
-            leader_consensus = await asyncio.wait_for(
-                asyncio.to_thread(self._get_cluster_leader_consensus),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_cluster_leader_consensus timed out")
-            leader_consensus = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            leader_consensus = {"error": str(e)}
-
-        try:
-            peer_reputation = await asyncio.wait_for(
-                asyncio.to_thread(self._get_cluster_peer_reputation),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_cluster_peer_reputation timed out")
-            peer_reputation = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            peer_reputation = {"error": str(e)}
-
-        try:
-            sync_intervals = await asyncio.wait_for(
-                asyncio.to_thread(self._get_sync_interval_summary),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_sync_interval_summary timed out")
-            sync_intervals = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            sync_intervals = {"error": str(e)}
-
-        try:
-            tournament_scheduling = await asyncio.wait_for(
-                asyncio.to_thread(self._get_distributed_tournament_summary),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_distributed_tournament_summary timed out")
-            tournament_scheduling = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            tournament_scheduling = {"error": str(e)}
-
-        try:
-            data_dedup = await asyncio.wait_for(
-                asyncio.to_thread(self._get_dedup_summary),
-                timeout=_STATUS_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("handle_status: _get_dedup_summary timed out")
-            data_dedup = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            data_dedup = {"error": str(e)}
+        gossip_metrics = metrics_dict.get("gossip_metrics", {"error": "not_collected"})
+        distributed_training = metrics_dict.get("distributed_training", {"error": "not_collected"})
+        cluster_elo = metrics_dict.get("cluster_elo", {"error": "not_collected"})
+        node_recovery = metrics_dict.get("node_recovery", {"error": "not_collected"})
+        leader_consensus = metrics_dict.get("leader_consensus", {"error": "not_collected"})
+        peer_reputation = metrics_dict.get("peer_reputation", {"error": "not_collected"})
+        sync_intervals = metrics_dict.get("sync_intervals", {"error": "not_collected"})
+        tournament_scheduling = metrics_dict.get("tournament_scheduling", {"error": "not_collected"})
+        data_dedup = metrics_dict.get("data_dedup", {"error": "not_collected"})
 
         # Phase 5: SWIM/Raft protocol status (Dec 26, 2025)
         swim_raft_status = self._get_swim_raft_status()
