@@ -6167,9 +6167,13 @@ class P2POrchestrator(
             Tuple of (peer_key, peer_info) where peer_key is the key in
             self.peers, or (None, None) if not found.
         """
+        # Jan 12, 2026: Copy-on-write - snapshot for thread-safe iteration
+        with self.peers_lock:
+            peers_snapshot = dict(self.peers)
+
         # Strategy 1: Direct node_id match (most reliable when peers use friendly names)
-        if voter_id in self.peers:
-            return voter_id, self.peers[voter_id]
+        if voter_id in peers_snapshot:
+            return voter_id, peers_snapshot[voter_id]
 
         # Strategy 2: Get voter's known IPs from config
         voter_ip_map = self._build_voter_ip_mapping()
@@ -6179,7 +6183,7 @@ class P2POrchestrator(
             return None, None
 
         # Strategy 3: Check peer info 'host' field for IP match
-        for peer_key, peer_info in self.peers.items():
+        for peer_key, peer_info in peers_snapshot.items():
             if isinstance(peer_info, dict):
                 peer_host = peer_info.get("host", "")
                 if peer_host in voter_ips:
@@ -6188,7 +6192,7 @@ class P2POrchestrator(
                 return peer_key, peer_info
 
         # Strategy 4: Extract IP from peer_key (IP:PORT format, typically IP:8770)
-        for peer_key, peer_info in self.peers.items():
+        for peer_key, peer_info in peers_snapshot.items():
             if ":" in peer_key:
                 peer_ip = peer_key.rsplit(":", 1)[0]
                 if peer_ip in voter_ips:
@@ -7506,43 +7510,46 @@ class P2POrchestrator(
             if self.verbose:
                 logger.debug(f"[P2P] Error collecting gossip states: {e}")
 
-        # Collect peer states
+        # Collect peer states - Jan 12, 2026: Copy-on-write pattern to reduce lock hold time
         with self.peers_lock:
-            for node_id, peer in self.peers.items():
-                if node_id == self.node_id:
-                    continue
+            peers_snapshot = dict(self.peers)  # Quick snapshot, release lock immediately
 
-                # Determine peer state
-                is_retired = getattr(peer, "retired", False)
-                is_alive = peer.is_alive() if hasattr(peer, "is_alive") else True
+        # Process snapshot outside lock to avoid blocking other operations
+        for node_id, peer in peers_snapshot.items():
+            if node_id == self.node_id:
+                continue
 
-                if is_retired:
-                    peer_state = "retired"
-                elif not is_alive:
-                    peer_state = "dead"
-                else:
-                    peer_state = "alive"
+            # Determine peer state
+            is_retired = getattr(peer, "retired", False)
+            is_alive = peer.is_alive() if hasattr(peer, "is_alive") else True
 
-                # Get circuit info
-                circuit_info = circuit_states.get(node_id, {})
-                gossip_fail_count = gossip_failures.get(node_id, 0)
+            if is_retired:
+                peer_state = "retired"
+            elif not is_alive:
+                peer_state = "dead"
+            else:
+                peer_state = "alive"
 
-                # Adjust state if circuit is open
-                if circuit_info.get("state") == "open" and peer_state == "alive":
-                    peer_state = "suspect"
+            # Get circuit info
+            circuit_info = circuit_states.get(node_id, {})
+            gossip_fail_count = gossip_failures.get(node_id, 0)
 
-                health_states.append(
-                    PeerHealthState(
-                        node_id=node_id,
-                        state=peer_state,
-                        failure_count=circuit_info.get("failure_count", 0),
-                        gossip_failure_count=gossip_fail_count,
-                        last_seen=getattr(peer, "last_heartbeat", 0.0) or 0.0,
-                        last_failure=circuit_info.get("last_failure", 0.0),
-                        circuit_state=circuit_info.get("state", "closed"),
-                        circuit_opened_at=circuit_info.get("opened_at", 0.0),
-                    )
+            # Adjust state if circuit is open
+            if circuit_info.get("state") == "open" and peer_state == "alive":
+                peer_state = "suspect"
+
+            health_states.append(
+                PeerHealthState(
+                    node_id=node_id,
+                    state=peer_state,
+                    failure_count=circuit_info.get("failure_count", 0),
+                    gossip_failure_count=gossip_fail_count,
+                    last_seen=getattr(peer, "last_heartbeat", 0.0) or 0.0,
+                    last_failure=circuit_info.get("last_failure", 0.0),
+                    circuit_state=circuit_info.get("state", "closed"),
+                    circuit_opened_at=circuit_info.get("opened_at", 0.0),
                 )
+            )
 
         return health_states
 
@@ -19413,9 +19420,12 @@ print(json.dumps({{
         if not self.voter_node_ids:
             return
 
-        # Check how many voters we know about
+        # Jan 12, 2026: Copy-on-write - snapshot for thread-safe iteration
         with self.peers_lock:
-            known_voters = [v for v in self.voter_node_ids if v in self.peers or v == self.node_id]
+            peers_snapshot = dict(self.peers)
+
+        # Check how many voters we know about (outside lock)
+        known_voters = [v for v in self.voter_node_ids if v in peers_snapshot or v == self.node_id]
 
         if len(known_voters) < len(self.voter_node_ids):
             missing_voters = [v for v in self.voter_node_ids if v not in known_voters]
@@ -19997,10 +20007,18 @@ print(json.dumps({{
 
         This version uses AsyncLockWrapper to avoid blocking the event loop
         when acquiring the peers_lock.
+
+        January 12, 2026: Refactored to move event emissions outside the lock
+        to prevent deadlock risk when event handlers need the same lock.
         """
         now = time.time()
         dead_peers = []
         peers_to_purge = []
+
+        # Jan 12, 2026: Collect event data inside lock, emit outside
+        # This prevents deadlocks when event handlers need peers_lock
+        retired_peers: list[tuple[str, float | None, float]] = []  # (node_id, last_hb, dead_for)
+        recovered_peers: list[tuple[str, list[str]]] = []  # (node_id, capabilities)
 
         async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
             for node_id, info in self.peers.items():
@@ -20015,46 +20033,18 @@ print(json.dumps({{
                         info.retired = True
                         info.retired_at = now
                         logger.info(f"Retiring peer {node_id} (offline for {int(dead_for)}s)")
-                        # CRITICAL: Emit HOST_OFFLINE event (Dec 2025 fix)
+                        # Collect data for event emission outside lock
                         last_hb = getattr(info, "last_heartbeat", None)
-                        asyncio.create_task(self._emit_host_offline(node_id, "retired", last_hb))
-                        # CRITICAL: Emit P2P_NODE_DEAD for work reassignment (Dec 2025)
-                        asyncio.create_task(self._emit_node_dead(
-                            node_id, "retired", last_hb, dead_for
-                        ))
-                        # Emit CLUSTER_CAPACITY_CHANGED (Dec 2025 - enables SyncRouter reaction)
-                        alive_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
-                        gpu_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
-                        training_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "training_enabled", False))
-                        asyncio.create_task(self._emit_cluster_capacity_changed(
-                            total_nodes=len(self.peers),
-                            alive_nodes=alive_count,
-                            gpu_nodes=gpu_count,
-                            training_nodes=training_count,
-                            change_type="node_removed",
-                            change_details={"node_id": node_id, "reason": "peer_timeout"},
-                        ))
+                        retired_peers.append((node_id, last_hb, dead_for))
                 elif info.is_alive() and getattr(info, "retired", False):
                     # Peer came back: clear retirement.
                     info.retired = False
                     info.retired_at = 0.0
-                    # CRITICAL: Emit HOST_ONLINE event (Dec 2025 fix)
+                    # Collect data for event emission outside lock
                     caps = []
                     if hasattr(info, "gpu_type") and info.gpu_type:
                         caps.append(f"gpu:{info.gpu_type}")
-                    asyncio.create_task(self._emit_host_online(node_id, caps))
-                    # Emit CLUSTER_CAPACITY_CHANGED (Dec 2025 - enables SyncRouter reaction)
-                    alive_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
-                    gpu_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
-                    training_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "training_enabled", False))
-                    asyncio.create_task(self._emit_cluster_capacity_changed(
-                        total_nodes=len(self.peers),
-                        alive_nodes=alive_count,
-                        gpu_nodes=gpu_count,
-                        training_nodes=training_count,
-                        change_type="node_added",
-                        change_details={"node_id": node_id, "reason": "peer_recovered"},
-                    ))
+                    recovered_peers.append((node_id, caps))
                     logger.info(f"Peer {node_id} recovered from retirement")
 
             for node_id in dead_peers:
@@ -20095,6 +20085,37 @@ print(json.dumps({{
 
             # Jan 12, 2026: Sync to lock-free snapshot after peer retirement/purge
             self._sync_peer_snapshot()
+
+            # Capture final counts for capacity events (inside lock for consistency)
+            capacity_total = len(self.peers)
+            capacity_alive = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
+            capacity_gpu = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
+            capacity_training = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "training_enabled", False))
+
+        # Jan 12, 2026: Emit events OUTSIDE the lock to prevent deadlocks
+        # Event handlers may need to acquire peers_lock themselves
+        for node_id, last_hb, dead_for in retired_peers:
+            asyncio.create_task(self._emit_host_offline(node_id, "retired", last_hb))
+            asyncio.create_task(self._emit_node_dead(node_id, "retired", last_hb, dead_for))
+            asyncio.create_task(self._emit_cluster_capacity_changed(
+                total_nodes=capacity_total,
+                alive_nodes=capacity_alive,
+                gpu_nodes=capacity_gpu,
+                training_nodes=capacity_training,
+                change_type="node_removed",
+                change_details={"node_id": node_id, "reason": "peer_timeout"},
+            ))
+
+        for node_id, caps in recovered_peers:
+            asyncio.create_task(self._emit_host_online(node_id, caps))
+            asyncio.create_task(self._emit_cluster_capacity_changed(
+                total_nodes=capacity_total,
+                alive_nodes=capacity_alive,
+                gpu_nodes=capacity_gpu,
+                training_nodes=capacity_training,
+                change_type="node_added",
+                change_details={"node_id": node_id, "reason": "peer_recovered"},
+            ))
 
         # Clear stale leader IDs after restarts/partitions
         if self.leader_id and not self._is_leader_lease_valid():
@@ -20269,8 +20290,17 @@ print(json.dumps({{
                 continue
 
     def _check_dead_peers(self):
-        """Check for peers that have stopped responding."""
+        """Check for peers that have stopped responding.
+
+        January 12, 2026: Refactored to move event emissions outside the lock
+        to prevent deadlock risk when event handlers need the same lock.
+        """
         now = time.time()
+
+        # Jan 12, 2026: Collect event data inside lock, emit outside
+        retired_peers: list[tuple[str, float | None, float]] = []  # (node_id, last_hb, dead_for)
+        recovered_peers: list[tuple[str, list[str]]] = []  # (node_id, capabilities)
+
         with self.peers_lock:
             dead_peers = []
             for node_id, info in self.peers.items():
@@ -20285,40 +20315,18 @@ print(json.dumps({{
                         info.retired = True
                         info.retired_at = now
                         logger.info(f"Retiring peer {node_id} (offline for {int(dead_for)}s)")
-                        # CRITICAL: Emit HOST_OFFLINE event (Dec 2025 fix) - sync version
+                        # Collect data for event emission outside lock
                         last_hb = getattr(info, "last_heartbeat", None)
-                        self._emit_host_offline_sync(node_id, "retired", last_hb)
-                        # CRITICAL: Emit P2P_NODE_DEAD for work reassignment (Dec 2025) - sync version
-                        self._emit_node_dead_sync(node_id, "retired", last_hb, dead_for)
-                        # Emit CLUSTER_CAPACITY_CHANGED (Dec 2025 - enables SyncRouter reaction)
-                        alive_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
-                        gpu_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
-                        self._emit_cluster_capacity_changed_sync(
-                            change_type="node_removed",
-                            node_id=node_id,
-                            total_nodes=alive_count,
-                            gpu_nodes=gpu_count,
-                            reason="peer_timeout",
-                        )
+                        retired_peers.append((node_id, last_hb, dead_for))
                 elif info.is_alive() and getattr(info, "retired", False):
                     # Peer came back: clear retirement.
                     info.retired = False
                     info.retired_at = 0.0
-                    # CRITICAL: Emit HOST_ONLINE event (Dec 2025 fix) - sync version
+                    # Collect data for event emission outside lock
                     caps = []
                     if hasattr(info, "gpu_type") and info.gpu_type:
                         caps.append(f"gpu:{info.gpu_type}")
-                    self._emit_host_online_sync(node_id, caps)
-                    # Emit CLUSTER_CAPACITY_CHANGED (Dec 2025 - enables SyncRouter reaction)
-                    alive_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
-                    gpu_count = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
-                    self._emit_cluster_capacity_changed_sync(
-                        change_type="node_added",
-                        node_id=node_id,
-                        total_nodes=alive_count,
-                        gpu_nodes=gpu_count,
-                        reason="peer_recovered",
-                    )
+                    recovered_peers.append((node_id, caps))
                     logger.info(f"Peer {node_id} recovered from retirement")
 
             for node_id in dead_peers:
@@ -20373,6 +20381,32 @@ print(json.dumps({{
 
             # Jan 12, 2026: Sync to lock-free snapshot after peer retirement/purge (sync version)
             self._sync_peer_snapshot()
+
+            # Capture final counts for capacity events (inside lock for consistency)
+            capacity_alive = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
+            capacity_gpu = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
+
+        # Jan 12, 2026: Emit events OUTSIDE the lock to prevent deadlocks (sync version)
+        for node_id, last_hb, dead_for in retired_peers:
+            self._emit_host_offline_sync(node_id, "retired", last_hb)
+            self._emit_node_dead_sync(node_id, "retired", last_hb, dead_for)
+            self._emit_cluster_capacity_changed_sync(
+                change_type="node_removed",
+                node_id=node_id,
+                total_nodes=capacity_alive,
+                gpu_nodes=capacity_gpu,
+                reason="peer_timeout",
+            )
+
+        for node_id, caps in recovered_peers:
+            self._emit_host_online_sync(node_id, caps)
+            self._emit_cluster_capacity_changed_sync(
+                change_type="node_added",
+                node_id=node_id,
+                total_nodes=capacity_alive,
+                gpu_nodes=capacity_gpu,
+                reason="peer_recovered",
+            )
 
         # LEARNED LESSONS - Clear stale leader IDs after restarts/partitions.
         #
@@ -21119,10 +21153,13 @@ print(json.dumps({{
         self._last_election_request = now
 
         accepted = False
+        # Jan 12, 2026: Copy-on-write - single snapshot instead of lock-per-voter
+        with self.peers_lock:
+            peers_snapshot = dict(self.peers)
+
         async with aiohttp.ClientSession() as session:
             for voter_id in voter_node_ids[:3]:  # Limit to 3 voters
-                with self.peers_lock:
-                    voter = self.peers.get(voter_id)
+                voter = peers_snapshot.get(voter_id)
                 if not voter or not voter.is_alive():
                     continue
 
