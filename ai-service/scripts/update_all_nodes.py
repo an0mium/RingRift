@@ -205,6 +205,236 @@ async def sync_config_files(
         return (True, "No config files to sync")
 
 
+async def ensure_ssh_key_exists(key_path: Path) -> Tuple[bool, str]:
+    """Generate SSH cluster key if it doesn't exist.
+
+    Args:
+        key_path: Path to the private key file (public key will be .pub)
+
+    Returns:
+        (success, message)
+    """
+    if key_path.exists():
+        logger.info(f"SSH key already exists: {key_path}")
+        return (True, "Key exists")
+
+    try:
+        import subprocess
+
+        # Generate ed25519 key (secure, compact)
+        cmd = [
+            "ssh-keygen",
+            "-t", "ed25519",
+            "-f", str(key_path),
+            "-N", "",  # No passphrase
+            "-C", "ringrift-cluster",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode == 0:
+            logger.info(f"Generated new SSH key: {key_path}")
+            return (True, f"Generated {key_path}")
+        else:
+            return (False, f"ssh-keygen failed: {result.stderr}")
+
+    except Exception as e:
+        return (False, f"Error generating key: {e}")
+
+
+async def distribute_ssh_key_to_node(
+    client,
+    node_name: str,
+    node_path: str,
+    key_path: Path,
+    dry_run: bool = False,
+) -> Tuple[bool, str]:
+    """Distribute SSH cluster key to a single node.
+
+    This function:
+    1. Adds the public key to the node's authorized_keys (for coordinator -> node SSH)
+    2. Copies the private key to ~/.ssh/id_cluster (for node -> coordinator SSH)
+    3. Adds mac-studio to the node's SSH config
+
+    Args:
+        client: SSH client for the node
+        node_name: Name of the node
+        node_path: Remote ringrift path
+        key_path: Local path to private key
+        dry_run: Preview mode without making changes
+
+    Returns:
+        (success, message)
+    """
+    pub_key_path = Path(str(key_path) + ".pub")
+
+    if not key_path.exists():
+        return (False, "Private key not found")
+    if not pub_key_path.exists():
+        return (False, "Public key not found")
+
+    if dry_run:
+        return (True, "DRY-RUN: Would distribute SSH key")
+
+    try:
+        # Read local keys
+        with open(pub_key_path, 'r') as f:
+            pub_key = f.read().strip()
+        with open(key_path, 'r') as f:
+            priv_key = f.read()
+
+        # 1. Add public key to authorized_keys (idempotent)
+        # Use grep to check if already present, then append if not
+        check_cmd = f"grep -qF '{pub_key}' ~/.ssh/authorized_keys 2>/dev/null"
+        result = await client.run_async(check_cmd, timeout=10)
+
+        if result.returncode != 0:
+            # Key not present, add it
+            add_cmd = f"mkdir -p ~/.ssh && echo '{pub_key}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+            result = await client.run_async(add_cmd, timeout=10)
+            if result.returncode != 0:
+                return (False, f"Failed to add public key: {result.stderr}")
+            logger.info(f"[{node_name}] Added public key to authorized_keys")
+        else:
+            logger.info(f"[{node_name}] Public key already in authorized_keys")
+
+        # 2. Copy private key for node-to-node SSH
+        # Write via heredoc to preserve content
+        priv_key_cmd = f"cat > ~/.ssh/id_cluster << 'SSHKEYEOF'\n{priv_key}SSHKEYEOF"
+        result = await client.run_async(priv_key_cmd, timeout=30)
+        if result.returncode != 0:
+            return (False, f"Failed to copy private key: {result.stderr}")
+
+        # Set permissions
+        chmod_cmd = "chmod 600 ~/.ssh/id_cluster"
+        await client.run_async(chmod_cmd, timeout=10)
+        logger.info(f"[{node_name}] Copied private key to ~/.ssh/id_cluster")
+
+        # 3. Add mac-studio SSH config entry (for node -> coordinator)
+        ssh_config_entry = """
+Host mac-studio
+    HostName 100.107.168.125
+    User armand
+    IdentityFile ~/.ssh/id_cluster
+"""
+        # Check if entry already exists
+        check_config = "grep -q 'Host mac-studio' ~/.ssh/config 2>/dev/null"
+        result = await client.run_async(check_config, timeout=10)
+
+        if result.returncode != 0:
+            # Entry not present, add it
+            add_config = f"cat >> ~/.ssh/config << 'SSHCONFIGEOF'{ssh_config_entry}SSHCONFIGEOF"
+            result = await client.run_async(add_config, timeout=10)
+            if result.returncode != 0:
+                logger.warning(f"[{node_name}] Failed to add SSH config: {result.stderr}")
+            else:
+                logger.info(f"[{node_name}] Added mac-studio to SSH config")
+        else:
+            logger.info(f"[{node_name}] SSH config already has mac-studio entry")
+
+        return (True, "SSH key distributed")
+
+    except Exception as e:
+        return (False, f"Exception: {e}")
+
+
+async def distribute_ssh_keys(
+    key_path: Path,
+    dry_run: bool = False,
+    max_parallel: int = 10,
+) -> Dict[str, Tuple[bool, str]]:
+    """Distribute SSH cluster key to all nodes.
+
+    Args:
+        key_path: Path to local private key
+        dry_run: Preview mode without making changes
+        max_parallel: Maximum concurrent connections
+
+    Returns:
+        Dict mapping node_name -> (success, message)
+    """
+    # Ensure key exists
+    success, msg = await ensure_ssh_key_exists(key_path)
+    if not success:
+        logger.error(f"Failed to ensure SSH key: {msg}")
+        return {"_key_generation": (False, msg)}
+
+    # Load distributed hosts config
+    config_path = Path(__file__).parent.parent / 'config' / 'distributed_hosts.yaml'
+    if not config_path.exists():
+        logger.error(f"Config file not found: {config_path}")
+        return {}
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    hosts = config.get('hosts', {})
+    logger.info(f"Distributing SSH key to {len(hosts)} hosts")
+
+    results = {}
+    semaphore = asyncio.Semaphore(max_parallel)
+
+    async def distribute_to_node(node_name: str, node_config: dict) -> Tuple[str, bool, str]:
+        async with semaphore:
+            # Skip local machine
+            if node_name == 'local-mac':
+                return (node_name, True, "SKIPPED: Local machine")
+
+            # Skip if node is not ready
+            if node_config.get('status') != 'ready':
+                return (node_name, False, f"SKIPPED: Status is {node_config.get('status')}")
+
+            # Get connection info
+            tailscale_ip = node_config.get('tailscale_ip')
+            ssh_host = node_config.get('ssh_host', '')
+            ssh_port = node_config.get('ssh_port', 22)
+
+            if tailscale_ip:
+                primary_host = tailscale_ip
+                primary_port = 22
+            else:
+                primary_host = ssh_host
+                primary_port = ssh_port
+
+            if not primary_host:
+                return (node_name, False, "No SSH host configured")
+
+            try:
+                ssh_config = SSHConfig(
+                    host=primary_host,
+                    port=primary_port,
+                    user=node_config.get('ssh_user', 'root'),
+                    key_path=node_config.get('ssh_key'),
+                    tailscale_ip=tailscale_ip,
+                    work_dir=node_config.get('ringrift_path', '~/ringrift/ai-service'),
+                )
+                client = SSHClient(ssh_config)
+
+                # Test connection
+                test_result = await client.run_async("echo connected", timeout=10)
+                if test_result.returncode != 0:
+                    return (node_name, False, f"Connection failed: {test_result.stderr}")
+
+                node_path = get_node_path(node_name, node_config)
+
+                # Distribute key
+                success, msg = await distribute_ssh_key_to_node(
+                    client, node_name, node_path, key_path, dry_run
+                )
+                return (node_name, success, msg)
+
+            except Exception as e:
+                return (node_name, False, f"Exception: {e}")
+
+    # Run all distributions in parallel
+    tasks = [distribute_to_node(name, cfg) for name, cfg in hosts.items()]
+    completed = await asyncio.gather(*tasks)
+
+    for node_name, success, message in completed:
+        results[node_name] = (success, message)
+
+    return results
+
+
 async def update_node(
     node_name: str,
     node_config: dict,
@@ -599,6 +829,19 @@ Examples:
         help='Validate p2p_voters against Tailscale before sync (use with --sync-config)'
     )
 
+    # January 12, 2026: Automated SSH key distribution
+    parser.add_argument(
+        '--distribute-ssh-key',
+        action='store_true',
+        help='Distribute SSH cluster key (~/.ssh/id_cluster) to all nodes for node-to-node SSH'
+    )
+    parser.add_argument(
+        '--ssh-key-path',
+        type=str,
+        default=str(Path.home() / '.ssh' / 'id_cluster'),
+        help='Path to SSH key to distribute (default: ~/.ssh/id_cluster)'
+    )
+
     args = parser.parse_args()
 
     if args.dry_run:
@@ -635,6 +878,47 @@ Examples:
             logger.error(f"Voter validation error: {e}")
             if not args.dry_run:
                 sys.exit(1)
+
+    # January 12, 2026: Automated SSH key distribution
+    if args.distribute_ssh_key:
+        logger.info("SSH KEY DISTRIBUTION MODE")
+        key_path = Path(args.ssh_key_path)
+        logger.info(f"Key path: {key_path}")
+
+        results = asyncio.run(distribute_ssh_keys(
+            key_path=key_path,
+            dry_run=args.dry_run,
+            max_parallel=args.max_parallel,
+        ))
+
+        # Print summary
+        print("\n" + "=" * 80)
+        print("SSH KEY DISTRIBUTION SUMMARY")
+        print("=" * 80)
+
+        successful = [(n, m) for n, (s, m) in results.items() if s and "SKIPPED" not in m]
+        skipped = [(n, m) for n, (s, m) in results.items() if "SKIPPED" in m]
+        failed = [(n, m) for n, (s, m) in results.items() if not s and "SKIPPED" not in m]
+
+        print(f"\n✅ Successfully distributed: {len(successful)} nodes")
+        for node_name, message in successful:
+            print(f"  - {node_name}: {message}")
+
+        if skipped:
+            print(f"\n⏭️  Skipped: {len(skipped)} nodes")
+            for node_name, message in skipped:
+                print(f"  - {node_name}: {message}")
+
+        if failed:
+            print(f"\n❌ Failed: {len(failed)} nodes")
+            for node_name, message in failed:
+                print(f"  - {node_name}: {message}")
+
+        print("=" * 80 + "\n")
+
+        if failed:
+            sys.exit(1)
+        sys.exit(0)
 
     # January 3, 2026 - Sprint 16.2: Use QuorumSafeUpdateCoordinator in safe mode
     if args.safe_mode:
