@@ -40,8 +40,8 @@ import type { Move, Position, BoardType, LineInfo, Territory } from '../../share
  *
  * Priority:
  * 1. RINGRIFT_AI_SERVICE_URL (runtime env)
- * 2. Default localhost:8001 for local development
- * 3. null for production without configured URL (disables sync)
+ * 2. Current origin for production (uses nginx proxy at /api/replay/)
+ * 3. localhost:8001 for local development
  */
 function getAIServiceUrl(): string | null {
   const envUrl = readEnv('RINGRIFT_AI_SERVICE_URL');
@@ -49,15 +49,15 @@ function getAIServiceUrl(): string | null {
     return envUrl.replace(/\/$/, '');
   }
 
-  // In production without configured URL, return null to disable sync.
-  // This prevents CSP errors from trying to connect to localhost:8001.
+  // In production, use the current origin (nginx proxies /api/replay/ to AI service)
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
     const isProduction =
       protocol === 'https:' || (!hostname.includes('localhost') && hostname !== '127.0.0.1');
     if (isProduction) {
-      return null;
+      // Use same origin - nginx proxies /api/replay/ to the AI service
+      return window.location.origin;
     }
   }
 

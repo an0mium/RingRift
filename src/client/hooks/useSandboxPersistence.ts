@@ -188,11 +188,17 @@ export function useSandboxPersistence(options: SandboxPersistenceOptions): Sandb
           setGameSaveStatus('saved');
           toast.success(`Game saved (${result.totalMoves} moves)`);
         } else {
-          // Server rejected - try local fallback
-          throw new Error('Server rejected game storage');
+          // Server not configured or unavailable - use local fallback
+          // This is expected in production when RINGRIFT_AI_SERVICE_URL is not set
+          throw new Error(result.message || 'Server storage unavailable');
         }
       } catch (error) {
-        console.warn('[useSandboxPersistence] Server save failed, trying local storage:', error);
+        // Note: This is expected in production when AI service URL is not configured.
+        // Games are saved to IndexedDB and can sync later if server becomes available.
+        console.debug(
+          '[useSandboxPersistence] Server storage unavailable, using local storage:',
+          error
+        );
 
         // Fallback to IndexedDB local storage
         try {
