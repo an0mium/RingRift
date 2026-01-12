@@ -4075,7 +4075,15 @@ class P2POrchestrator(
                     # Manager initialized but no health_check method
                     status["managers"][name] = {"status": "initialized", "health_check": "not_available"}
             except Exception as e:  # noqa: BLE001
-                status["managers"][name] = {"status": "error", "error": str(e)}
+                logger.error(
+                    f"[P2P] Manager {name} health check failed: {type(e).__name__}: {e}",
+                    exc_info=True
+                )
+                status["managers"][name] = {
+                    "status": "error",
+                    "error": str(e),
+                    "exception_type": type(e).__name__
+                }
                 status["all_healthy"] = False
                 status["unhealthy_count"] += 1
 
@@ -10975,8 +10983,18 @@ class P2POrchestrator(
                 payload["voter_quorum_size"] = int(getattr(self, "voter_quorum_size", 0) or 0)
                 payload["voter_config_source"] = str(getattr(self, "voter_config_source", "") or "")
             return web.json_response(payload)
+        except json.JSONDecodeError as e:
+            logger.warning(f"[heartbeat] JSON parse error from {request.remote}: {e}")
+            return web.json_response({"error": "invalid_json", "detail": str(e)}, status=400)
+        except KeyError as e:
+            logger.warning(f"[heartbeat] Missing required field from {request.remote}: {e}")
+            return web.json_response({"error": "missing_field", "field": str(e)}, status=400)
+        except ValueError as e:
+            logger.warning(f"[heartbeat] Validation error from {request.remote}: {e}")
+            return web.json_response({"error": "validation_error", "detail": str(e)}, status=400)
         except Exception as e:  # noqa: BLE001
-            return web.json_response({"error": str(e)}, status=400)
+            logger.error(f"[heartbeat] Unexpected error from {request.remote}: {type(e).__name__}: {e}")
+            return web.json_response({"error": "internal_error", "type": type(e).__name__}, status=500)
 
     async def handle_status(self, request: web.Request) -> web.Response:
         """Return cluster status.
