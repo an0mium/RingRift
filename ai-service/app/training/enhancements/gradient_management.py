@@ -156,8 +156,13 @@ class AdaptiveGradientClipper:
         Returns:
             The actual gradient norm before clipping
         """
+        # Jan 12, 2026: Convert generator to list to allow multiple iterations.
+        # Bug fix: generators can only be iterated once, so we need a list
+        # to both calculate the norm AND apply clipping.
+        params_list = list(parameters)
+
         total_norm = 0.0
-        for p in parameters:
+        for p in params_list:
             if p.grad is not None:
                 param_norm = p.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
@@ -173,7 +178,7 @@ class AdaptiveGradientClipper:
             self.current_max_norm = np.clip(threshold * 1.5, self.min_clip, self.max_clip)
 
         # Apply clipping
-        torch.nn.utils.clip_grad_norm_(parameters, self.current_max_norm)
+        torch.nn.utils.clip_grad_norm_(params_list, self.current_max_norm)
         return total_norm
 
     def get_stats(self) -> dict[str, float]:
