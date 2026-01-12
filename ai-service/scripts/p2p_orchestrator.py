@@ -2636,15 +2636,13 @@ class P2POrchestrator(
             # which handles service recovery; this handles peer discovery)
             def _get_current_peer_ids() -> set[str]:
                 """Get node IDs of current P2P peers."""
-                with self.peers_lock:
-                    return {p.node_id for p in self.peers.values()}
+                # Jan 2026: Use lock-free PeerSnapshot for read-only access
+                return {p.node_id for p in self._peer_snapshot.get_snapshot().values()}
 
             def _get_alive_peer_count() -> int:
                 """Count peers that are currently alive."""
-                # Jan 10, 2026: Copy-on-read - minimize lock hold time
-                with self.peers_lock:
-                    peers_snapshot = list(self.peers.values())
-                return sum(1 for p in peers_snapshot if p.is_alive())
+                # Jan 2026: Use lock-free PeerSnapshot for read-only access
+                return sum(1 for p in self._peer_snapshot.get_snapshot().values() if p.is_alive())
 
             async def _probe_and_connect_peer(ip: str, hostname: str) -> bool:
                 """Probe peer health endpoint and send heartbeat to connect."""
