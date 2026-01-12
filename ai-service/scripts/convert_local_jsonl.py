@@ -34,6 +34,10 @@ from pathlib import Path
 # Get paths
 SCRIPT_DIR = Path(__file__).resolve().parent
 AI_SERVICE_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(AI_SERVICE_ROOT))
+
+from app.utils.parallel_defaults import get_default_workers
+
 CHUNKED_CONVERTER = SCRIPT_DIR / "chunked_jsonl_converter.py"
 
 
@@ -60,8 +64,13 @@ def main():
     parser.add_argument(
         "--workers", "-w",
         type=int,
-        default=2,
-        help="Number of parallel workers (default: 2)",
+        default=None,
+        help="Number of parallel workers (default: CPU count - 1)",
+    )
+    parser.add_argument(
+        "--single-threaded",
+        action="store_true",
+        help="Force single-threaded mode for debugging",
     )
     parser.add_argument(
         "--chunk-size", "-c",
@@ -113,11 +122,16 @@ def main():
         "--chunk-size", str(args.chunk_size),
     ]
 
-    # Worker count
-    if args.fast:
-        cmd.extend(["--workers", "4"])
+    # Determine worker count (parallelism is the default)
+    if args.single_threaded:
+        num_workers = 1
+    elif args.fast:
+        num_workers = 4
+    elif args.workers is not None:
+        num_workers = args.workers
     else:
-        cmd.extend(["--workers", str(args.workers)])
+        num_workers = get_default_workers()
+    cmd.extend(["--workers", str(num_workers)])
 
     # Filters
     if args.board:

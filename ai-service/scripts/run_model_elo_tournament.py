@@ -77,6 +77,7 @@ from app.models import (
 from app.rules.default_engine import DefaultRulesEngine
 from app.training.initial_state import create_initial_state
 from app.utils.victory_type import derive_victory_type
+from app.utils.parallel_defaults import get_tournament_workers
 from app.config.thresholds import ARCHIVE_ELO_THRESHOLD
 from scripts.lib.resilience import exponential_backoff_delay
 from scripts.lib.tournament_cli import (
@@ -2337,7 +2338,8 @@ def main():
     parser.add_argument("--board", default="square8", help="Board type")
     parser.add_argument("--players", type=int, default=2, help="Number of players")
     parser.add_argument("--games", type=int, default=10, help="Games per matchup")
-    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers for matchup execution (default: 1 = sequential)")
+    parser.add_argument("--workers", type=int, default=None, help="Number of parallel workers for matchup execution (default: CPU//2)")
+    parser.add_argument("--single-threaded", action="store_true", help="Force single-threaded mode for debugging")
     parser.add_argument("--top-n", type=int, help="Only include top N models by recency")
     parser.add_argument("--top-elo", type=int, help="Only include top N models by ELO rating (recommended for focused evaluation)")
     parser.add_argument("--composite", action="store_true", help="Use composite participant IDs (nn:algo:config) for per-algorithm ELO tracking")
@@ -2408,6 +2410,12 @@ def main():
                         help=f"Timeout for entire tournament in seconds (default: {DEFAULT_TOURNAMENT_TIMEOUT})")
 
     args = parser.parse_args()
+
+    # Determine worker count (parallelism is the default)
+    if args.single_threaded:
+        args.workers = 1
+    elif args.workers is None:
+        args.workers = get_tournament_workers()
 
     # Handle --no-both-ai-types flag (overrides default True for --both-ai-types)
     if args.no_both_ai_types:

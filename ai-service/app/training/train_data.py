@@ -20,6 +20,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler, random_split
 
+from app.utils.parallel_defaults import get_dataloader_workers
+
 if TYPE_CHECKING:
     from app.training.train_config import BoardType, FullTrainingConfig
 
@@ -116,7 +118,7 @@ class DataLoaderConfig:
     batch_size: int = 512
     sampling_weights: str = "uniform"
     val_split: float = 0.2
-    num_workers: int = 0
+    num_workers: int = field(default_factory=get_dataloader_workers)  # Platform-aware parallel loading
     discover_synced_data: bool = False
     filter_empty_policies: bool = True
     enable_elo_weighting: bool = False

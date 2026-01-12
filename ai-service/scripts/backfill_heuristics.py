@@ -43,6 +43,7 @@ from tqdm import tqdm
 
 from app.db.game_replay import GameReplayDB
 from app.models import BoardType, GameState
+from app.utils.parallel_defaults import get_default_workers
 
 logger = logging.getLogger(__name__)
 
@@ -349,8 +350,13 @@ def main():
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="Number of parallel workers (default: 1 = sequential)",
+        default=None,
+        help="Number of parallel workers (default: CPU count - 1)",
+    )
+    parser.add_argument(
+        "--single-threaded",
+        action="store_true",
+        help="Force single-threaded mode for debugging",
     )
     parser.add_argument(
         "--dry-run",
@@ -387,6 +393,15 @@ def main():
 
     logger.info(f"Processing {len(db_paths)} database(s)")
 
+    # Determine worker count (parallelism is the default)
+    if args.single_threaded:
+        num_workers = 1
+    elif args.workers is not None:
+        num_workers = args.workers
+    else:
+        num_workers = get_default_workers()
+    logger.info(f"Using {num_workers} worker(s)")
+
     # Process each database
     total_stats = {
         "databases": 0,
@@ -406,7 +421,7 @@ def main():
             db_path=db_path,
             full_heuristics=args.full,
             dry_run=args.dry_run,
-            workers=args.workers,
+            workers=num_workers,
         )
 
         total_stats["databases"] += 1

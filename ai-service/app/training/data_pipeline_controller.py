@@ -74,6 +74,8 @@ from typing import Any
 
 import numpy as np
 
+from app.utils.parallel_defaults import get_dataloader_workers
+
 logger = logging.getLogger(__name__)
 
 # Import manifest for quality-based data selection
@@ -184,10 +186,10 @@ class PipelineConfig:
     recency_weight: float = 0.3
     late_game_exponent: float = 2.0
 
-    # Performance settings
+    # Performance settings (parallelism is the default, platform-aware for DataLoader)
     prefetch_count: int = 2
     pin_memory: bool = True  # Enable pinned memory for faster CPU->GPU transfers
-    num_workers: int = 0
+    num_workers: int = field(default_factory=get_dataloader_workers)
 
     # Filtering
     board_type: str | None = None

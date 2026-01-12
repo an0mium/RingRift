@@ -21,6 +21,7 @@ from enum import Enum
 from typing import Any
 
 from app.models import BoardType
+from app.utils.parallel_defaults import get_default_workers, get_parallel_games_default
 
 
 class EngineMode(str, Enum):
@@ -228,8 +229,9 @@ class SelfplayConfig:
     compute_heuristics_on_write: bool = True
     full_heuristics: bool = True  # True = 49 features, False = 21 fast features
 
-    # Resource settings
-    num_workers: int = 1
+    # Resource settings (parallelism is the default)
+    num_workers: int = field(default_factory=get_default_workers)
+    parallel_games: int = field(default_factory=get_parallel_games_default)  # Jan 12, 2026: Parallel game simulation
     batch_size: int = 256  # Default 256, use get_optimal_batch_size() for auto-tuning
     use_gpu: bool = True
     gpu_device: int = 0
@@ -268,7 +270,8 @@ class SelfplayConfig:
     telemetry_interval: int = 50  # seconds
 
     # NN batching (for distributed/GPU selfplay)
-    nn_batch_enabled: bool = False
+    # Jan 12, 2026: Enabled by default for parallel selfplay efficiency
+    nn_batch_enabled: bool = True
     nn_batch_timeout_ms: int = 50
     nn_max_batch_size: int = 256
 
@@ -626,13 +629,19 @@ def create_argument_parser(
         help="Cache NNUE features after recording",
     )
 
-    # Resource settings
+    # Resource settings (parallelism is the default - Jan 12, 2026)
     resource_group = parser.add_argument_group("Resource Settings")
     resource_group.add_argument(
         "--num-workers", "-w",
         type=int,
-        default=1,
-        help="Number of parallel workers (default: 1)",
+        default=None,  # None = use auto-scaling default (cpu_count - 1)
+        help="Number of parallel workers (default: auto-scaled based on CPU count)",
+    )
+    resource_group.add_argument(
+        "--parallel-games",
+        type=int,
+        default=None,  # None = use auto-scaling default (16 for 8+ cores)
+        help="Number of parallel games in selfplay (default: 16 for 8+ cores, 8 otherwise)",
     )
     resource_group.add_argument(
         "--batch-size",
@@ -723,12 +732,19 @@ def create_argument_parser(
         help="Telemetry reporting interval in seconds (default: 50)",
     )
 
-    # NN batching
+    # NN batching (enabled by default since Jan 12, 2026)
     nn_group = parser.add_argument_group("NN Batching")
+    nn_group.add_argument(
+        "--no-nn-batch",
+        action="store_true",
+        dest="no_nn_batch",
+        help="Disable NN batching (enabled by default for efficiency)",
+    )
     nn_group.add_argument(
         "--nn-batch-enabled",
         action="store_true",
-        help="Enable NN batching for distributed evaluation",
+        dest="nn_batch_enabled_legacy",
+        help="[DEPRECATED] NN batching is now enabled by default. Use --no-nn-batch to disable.",
     )
     nn_group.add_argument(
         "--nn-batch-timeout-ms",
@@ -930,8 +946,9 @@ def parse_selfplay_args(
         lean_db=getattr(parsed, "lean_db", False),
         store_history_entries=not getattr(parsed, "lean_db", False),
         cache_nnue_features=getattr(parsed, "cache_nnue_features", True),
-        # Resource settings
-        num_workers=parsed.num_workers,
+        # Resource settings (Jan 12, 2026: use dataclass defaults if not specified)
+        num_workers=parsed.num_workers if parsed.num_workers is not None else get_default_workers(),
+        parallel_games=getattr(parsed, "parallel_games", None) or get_parallel_games_default(),
         batch_size=_get_batch_size(parsed, board_type),
         checkpoint_interval=parsed.checkpoint_interval,
         use_gpu=not getattr(parsed, "no_gpu", False),
@@ -952,8 +969,8 @@ def parse_selfplay_args(
         # Telemetry settings
         telemetry_path=getattr(parsed, "telemetry_path", None),
         telemetry_interval=getattr(parsed, "telemetry_interval", 50),
-        # NN batching
-        nn_batch_enabled=getattr(parsed, "nn_batch_enabled", False),
+        # NN batching (Jan 12, 2026: enabled by default, use --no-nn-batch to disable)
+        nn_batch_enabled=not getattr(parsed, "no_nn_batch", False),
         nn_batch_timeout_ms=getattr(parsed, "nn_batch_timeout_ms", 50),
         nn_max_batch_size=getattr(parsed, "nn_max_batch_size", 256),
         # Shadow validation
