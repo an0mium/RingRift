@@ -6063,6 +6063,13 @@ def train_model(
                     logger.info(
                         "[Best Checkpoint Selection] Keeping best validation loss checkpoint (skipping averaging due to overfitting)"
                     )
+                    # Jan 12, 2026 FIX: Actually restore best weights when overfitting detected
+                    # Previously we just skipped averaging but still saved final epoch weights
+                    if early_stopper is not None and hasattr(early_stopper, 'restore_best_weights'):
+                        logger.info(
+                            f"[Auto-Restore Best] Restoring weights from best epoch (val_loss={early_stopper.best_loss:.4f})"
+                        )
+                        early_stopper.restore_best_weights(model_to_save_final)
                     if checkpoint_averager is not None:
                         checkpoint_averager.cleanup()
                 elif checkpoint_averager is not None and checkpoint_averager.num_stored >= 2:
@@ -6111,6 +6118,30 @@ def train_model(
                         f"[Checkpoint Averaging] Skipped: only {checkpoint_averager.num_stored} checkpoint(s) available (need >= 2)"
                     )
                     checkpoint_averager.cleanup()
+
+                # Jan 12, 2026 FIX: Always ensure best weights are restored before final save
+                # This handles the case where training completes without early stopping or
+                # overfitting detection, but the final epoch is worse than the best epoch.
+                if early_stopper is not None and not skip_averaging:
+                    final_val_loss = avg_val_loss if 'avg_val_loss' in dir() else float('inf')
+                    if final_val_loss > early_stopper.best_loss * 1.05:  # 5% tolerance
+                        logger.info(
+                            f"[Auto-Restore Best] Final loss ({final_val_loss:.4f}) > best loss ({early_stopper.best_loss:.4f}). "
+                            f"Restoring best weights before final save."
+                        )
+                        early_stopper.restore_best_weights(model_to_save_final)
+                        # Re-save with best weights
+                        save_model_checkpoint(
+                            model_to_save_final,
+                            save_path,
+                            training_info={
+                                'epoch': early_stopper.best_epoch if hasattr(early_stopper, 'best_epoch') else config.epochs_per_iter,
+                                'best_val_loss': early_stopper.best_loss,
+                                'auto_restored': True,
+                            },
+                            board_type=config.board_type,
+                            num_players=num_players,
+                        )
 
                 # Log reanalysis summary if enabled (2025-12)
                 if enhancements_manager is not None:

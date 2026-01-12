@@ -2080,10 +2080,14 @@ CHECKPOINT_TIMEOUT = 120
 # Dec 28, 2025: Further increased - 15 epochs still plateaus at 1650 Elo.
 # Models need 20+ epochs to learn deep tactics for 1800+ Elo.
 # Jan 12, 2026: Increased to 40 epochs - 20 epochs plateaus at ~1400 Elo.
-# NNs need more training time to learn deep strategy.
+# Jan 12, 2026 FIX: REDUCED back to 15 - 40 epochs causes SEVERE overfitting.
+#   Evidence: Lambda training showed best val_loss at epoch 15 (1.67),
+#   then val_loss diverged to 2.06 by epoch 33 (420% train/val divergence).
+#   The extra epochs HURT performance, not helped.
+#   Trust early stopping instead of forcing minimum epochs.
 #
 # Minimum training epochs before early stopping can trigger
-MIN_TRAINING_EPOCHS = 40
+MIN_TRAINING_EPOCHS = 15
 
 # Validation patience - epochs without improvement before early stopping
 VALIDATION_PATIENCE = 22
