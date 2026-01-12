@@ -36,6 +36,48 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Architecture Mismatch Error (Jan 2026)
+# =============================================================================
+# When loading a model with an expected architecture, we should FAIL LOUDLY
+# if the detected architecture doesn't match. Silent fallback to random weights
+# has caused weeks of wasted training with weak models.
+
+class ArchitectureMismatchError(Exception):
+    """Raised when checkpoint architecture doesn't match expected architecture.
+
+    Jan 12, 2026: Added to prevent silent fallback to random weights.
+    Previously, if a v2 checkpoint was loaded expecting v5_heavy architecture,
+    the loader would silently create fresh random weights, causing models to
+    appear trained but produce random (weak) predictions.
+
+    This error ensures mismatches are caught immediately rather than silently
+    degrading model quality.
+    """
+
+    def __init__(
+        self,
+        expected: "ModelArchitecture | str",
+        detected: "ModelArchitecture | str",
+        checkpoint_path: str | Path,
+        message: str | None = None,
+    ):
+        self.expected = expected
+        self.detected = detected
+        self.checkpoint_path = checkpoint_path
+
+        if message is None:
+            message = (
+                f"Architecture mismatch in {checkpoint_path}!\n"
+                f"  Expected: {expected}\n"
+                f"  Detected: {detected}\n\n"
+                f"Model NOT loaded to prevent silent random weight fallback.\n"
+                f"Either retrain with the correct architecture, or explicitly "
+                f"request the detected architecture."
+            )
+        super().__init__(message)
+
+
+# =============================================================================
 # Model Loading Metrics (Dec 2025)
 # =============================================================================
 
@@ -49,6 +91,7 @@ _loading_stats: dict[str, int] = {
     "magic_byte_fail": 0,
     "metadata_fail": 0,
     "file_not_found": 0,
+    "architecture_mismatch": 0,  # Jan 2026: Track architecture mismatches
 }
 
 
@@ -477,6 +520,7 @@ class UnifiedModelLoader:
         num_players: int | None = None,
         strict: bool = False,
         allow_fresh: bool = True,
+        expected_architecture: ModelArchitecture | str | None = None,
     ) -> LoadedModel:
         """Load a model from checkpoint with automatic architecture detection.
 
@@ -486,12 +530,18 @@ class UnifiedModelLoader:
             num_players: Expected number of players.
             strict: If True, fail on any mismatch. If False, use best effort.
             allow_fresh: If True, return fresh weights if load fails.
+            expected_architecture: If provided, validate that the detected
+                architecture matches. Raises ArchitectureMismatchError if not.
+                This prevents silent fallback to random weights when loading
+                the wrong checkpoint for a given architecture.
 
         Returns:
             LoadedModel containing the model and metadata.
 
         Raises:
             FileNotFoundError: If checkpoint doesn't exist and allow_fresh=False.
+            ArchitectureMismatchError: If expected_architecture is provided and
+                the detected architecture doesn't match.
         """
         path = Path(checkpoint_path)
         cache_key = f"{path.resolve()}:{self.device}"
@@ -566,6 +616,57 @@ class UnifiedModelLoader:
         architecture = detect_architecture(state_dict, metadata)
         if architecture == ModelArchitecture.UNKNOWN:
             logger.warning(f"Unknown architecture in {path}, attempting best-effort load")
+
+        # Jan 12, 2026: CRITICAL - Validate expected architecture if provided
+        # This prevents silent fallback to random weights when loading wrong checkpoint
+        if expected_architecture is not None:
+            # Normalize expected_architecture to ModelArchitecture enum
+            if isinstance(expected_architecture, str):
+                # Convert string like "v5_heavy", "v2", "hex_v5_heavy" to enum
+                expected_str = expected_architecture.lower().replace("-", "_")
+                expected_enum = None
+                for arch in ModelArchitecture:
+                    if arch.name.lower() == expected_str:
+                        expected_enum = arch
+                        break
+                    # Also check common aliases
+                    if expected_str in ("v5_heavy", "v5heavy") and arch == ModelArchitecture.CNN_V5_HEAVY:
+                        expected_enum = arch
+                        break
+                    if expected_str in ("hex_v5_heavy", "hexv5heavy") and arch == ModelArchitecture.HEX_V5_HEAVY:
+                        expected_enum = arch
+                        break
+                    if expected_str in ("v2", "cnn_v2") and arch == ModelArchitecture.CNN_V2:
+                        expected_enum = arch
+                        break
+                    if expected_str in ("hex_v2", "hexv2") and arch == ModelArchitecture.HEX_V2:
+                        expected_enum = arch
+                        break
+                if expected_enum is None:
+                    logger.warning(
+                        f"Unknown expected_architecture '{expected_architecture}', "
+                        f"skipping validation"
+                    )
+                else:
+                    expected_architecture = expected_enum
+
+            # Perform validation
+            if isinstance(expected_architecture, ModelArchitecture):
+                if architecture != expected_architecture:
+                    _increment_loading_stat("architecture_mismatch")
+                    logger.error(
+                        f"[ARCHITECTURE_MISMATCH] {path}: "
+                        f"expected {expected_architecture.name}, "
+                        f"detected {architecture.name}"
+                    )
+                    raise ArchitectureMismatchError(
+                        expected=expected_architecture,
+                        detected=architecture,
+                        checkpoint_path=path,
+                    )
+                logger.debug(
+                    f"Architecture validation passed: {architecture.name}"
+                )
 
         # Infer configuration
         config = infer_config_from_checkpoint(state_dict, architecture, metadata)

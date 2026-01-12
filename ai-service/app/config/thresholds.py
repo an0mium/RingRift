@@ -2079,9 +2079,11 @@ CHECKPOINT_TIMEOUT = 120
 #
 # Dec 28, 2025: Further increased - 15 epochs still plateaus at 1650 Elo.
 # Models need 20+ epochs to learn deep tactics for 1800+ Elo.
+# Jan 12, 2026: Increased to 40 epochs - 20 epochs plateaus at ~1400 Elo.
+# NNs need more training time to learn deep strategy.
 #
 # Minimum training epochs before early stopping can trigger
-MIN_TRAINING_EPOCHS = 20
+MIN_TRAINING_EPOCHS = 40
 
 # Validation patience - epochs without improvement before early stopping
 VALIDATION_PATIENCE = 22
@@ -2093,15 +2095,17 @@ ELO_PATIENCE = 20
 LR_WARMUP_STEPS = 0  # Default: no warmup (set via CLI --warmup-steps)
 
 # Early stopping patience - epochs without validation improvement
-EARLY_STOPPING_PATIENCE = 20
+# Jan 12, 2026: Increased from 20 to 30 - models need longer to break plateaus
+EARLY_STOPPING_PATIENCE = 30
 
 # December 29, 2025: Phase 9 - Board-specific base patience values
 # Weak models on hard boards stop too early with uniform patience
+# Jan 12, 2026: Doubled patience values - models stop too early at ~1400 Elo
 EARLY_STOPPING_PATIENCE_BY_BOARD = {
-    "hex8": 5,       # Smallest board, learns fastest
-    "square8": 5,    # Similar to hex8
-    "square19": 10,  # Large board needs more epochs
-    "hexagonal": 12, # Largest board, slowest to learn
+    "hex8": 10,      # Smallest board, learns fastest
+    "square8": 10,   # Similar to hex8
+    "square19": 18,  # Large board needs more epochs
+    "hexagonal": 25, # Largest board, slowest to learn
 }
 
 
@@ -2228,9 +2232,13 @@ GUMBEL_DEFAULT_BUDGET = GUMBEL_BUDGET_STANDARD
 # When a config has very few games, prioritize game generation speed over quality.
 # This enables faster bootstrapping of new/starved configurations.
 # Thresholds: game_count < threshold uses the corresponding budget
-GUMBEL_BUDGET_BOOTSTRAP_TIER1 = 64   # For <100 games: maximum throughput
-GUMBEL_BUDGET_BOOTSTRAP_TIER2 = 150  # For <500 games: medium speed
-GUMBEL_BUDGET_BOOTSTRAP_TIER3 = 200  # For <1000 games: balanced
+#
+# Jan 12, 2026: CRITICAL FIX - Increased bootstrap budgets significantly.
+# Old values (64/150/200) produced weak training data plateauing at ~1400 Elo.
+# Higher budgets generate higher quality games even during bootstrap.
+GUMBEL_BUDGET_BOOTSTRAP_TIER1 = 150  # For <100 games: was 64, now 150 for quality
+GUMBEL_BUDGET_BOOTSTRAP_TIER2 = 300  # For <500 games: was 150, now 300
+GUMBEL_BUDGET_BOOTSTRAP_TIER3 = 500  # For <1000 games: was 200, now 500
 # Above 1000 games: use Elo-based adaptive budget (STANDARD/QUALITY/ULTIMATE/MASTER)
 
 # Game count thresholds for bootstrap budget tiers

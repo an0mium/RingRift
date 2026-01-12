@@ -415,12 +415,18 @@ export const EnvSchema = z.object({
    * These are development/test tools by default but can be enabled in
    * production-like environments (staging) for QA and sandbox validation.
    */
+  /**
+   * Enable sandbox AI helper endpoints (e.g. /api/games/sandbox/ai/move).
+   *
+   * Defaults to true to allow playing against AI in sandbox mode.
+   * Set to "false" or "0" to disable in production if needed.
+   */
   ENABLE_SANDBOX_AI_ENDPOINTS: z
     .string()
     .optional()
     .transform((val) => {
       if (val === undefined) {
-        return false;
+        return true; // Default enabled for sandbox AI play
       }
       const normalized = val.trim().toLowerCase();
       return ['1', 'true', 'yes', 'on'].includes(normalized);
