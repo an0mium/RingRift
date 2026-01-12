@@ -332,6 +332,8 @@ def _load_loop_classes():
             IdleDetectionLoop,
             UdpDiscoveryLoop,
             SplitBrainDetectionLoop,
+            QuorumCrisisDiscoveryLoop,
+            QuorumCrisisConfig,
         )
         _loop_classes_loaded = True
         return True
@@ -2247,6 +2249,7 @@ class P2POrchestrator(
         self._loop_manager: LoopManager | None = None
         self._loops_registered = False
         self._autonomous_queue_loop = None  # Jan 4, 2026: Phase 2 P2P Resilience
+        self._quorum_crisis_loop = None  # Jan 2026: Aggressive peer discovery during quorum loss
 
         # Jan 11, 2026: Track startup time for voter health grace period
         # During the first STARTUP_GRACE_PERIOD seconds, we don't warn about offline voters
@@ -2727,6 +2730,56 @@ class P2POrchestrator(
                 logger.info("[LoopManager] GossipStateCleanupLoop registered")
             except (ImportError, TypeError, AttributeError) as e:
                 logger.warning(f"[LoopManager] GossipStateCleanupLoop: not available: {e}")
+
+            # QuorumCrisisDiscoveryLoop - January 2026
+            # Aggressive peer discovery during quorum loss to speed up recovery
+            # Reduces bootstrap interval from 60s to 10s when quorum drops
+            try:
+                from scripts.p2p.loops import QuorumCrisisDiscoveryLoop, QuorumCrisisConfig
+
+                def _get_bootstrap_seeds_for_crisis() -> list[str]:
+                    """Get bootstrap seed addresses for crisis discovery."""
+                    seeds = getattr(self, "bootstrap_seeds", [])
+                    return list(seeds) if seeds else []
+
+                def _get_voter_endpoints_for_crisis() -> list[tuple[str, int]]:
+                    """Get voter IP:port tuples for direct probing."""
+                    voters = []
+                    for peer_id, peer_info in self.state_manager.get_peers().items():
+                        if hasattr(peer_info, "is_voter") and peer_info.is_voter:
+                            ip = getattr(peer_info, "tailscale_ip", None) or getattr(peer_info, "ip", None)
+                            port = getattr(peer_info, "port", 8770)
+                            if ip:
+                                voters.append((ip, port))
+                    return voters
+
+                async def _probe_endpoint_for_crisis(addr: str) -> bool:
+                    """Probe a bootstrap seed for health."""
+                    try:
+                        return await self._probe_peer_health(addr)
+                    except Exception:
+                        return False
+
+                async def _on_peer_discovered_during_crisis(peer_id: str, addr: str) -> None:
+                    """Handle peer discovered during crisis mode."""
+                    logger.info(f"[QuorumCrisis] Peer discovered: {peer_id} @ {addr}")
+                    # Trigger immediate gossip sync if peer is new
+                    if peer_id not in self.state_manager.get_peers():
+                        await self._bootstrap_from_peer(addr)
+
+                quorum_crisis = QuorumCrisisDiscoveryLoop(
+                    get_bootstrap_seeds=_get_bootstrap_seeds_for_crisis,
+                    get_voter_endpoints=_get_voter_endpoints_for_crisis,
+                    probe_endpoint=_probe_endpoint_for_crisis,
+                    on_peer_discovered=_on_peer_discovered_during_crisis,
+                    emit_event=self._safe_emit_p2p_event,
+                    config=QuorumCrisisConfig(),
+                )
+                manager.register(quorum_crisis)
+                self._quorum_crisis_loop = quorum_crisis  # Store reference for event handling
+                logger.info("[LoopManager] QuorumCrisisDiscoveryLoop registered")
+            except (ImportError, TypeError, AttributeError) as e:
+                logger.warning(f"[LoopManager] QuorumCrisisDiscoveryLoop: not available: {e}")
 
             # WorkerPullLoop - December 27, 2025
             # Workers poll leader for work (pull model instead of push)
@@ -4849,12 +4902,19 @@ class P2POrchestrator(
                 # NOTE: Don't start election here - we just lost quorum, so election would fail
                 # Wait for quorum to be restored before attempting election
                 logger.warning("Skipping election after quorum loss: no voter quorum available")
+                # Jan 2026: Trigger aggressive peer discovery during quorum crisis
+                if hasattr(self, "_quorum_crisis_loop") and self._quorum_crisis_loop:
+                    self._quorum_crisis_loop.enter_crisis_mode(reason="quorum_lost")
             return False
         else:
             # Reset quorum health counter on success
             # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
             voters_alive = self._count_alive_voters()
             self._leadership_sm.quorum_health.record_success(voters_alive)
+            # Jan 2026: Exit crisis mode when quorum is restored
+            if hasattr(self, "_quorum_crisis_loop") and self._quorum_crisis_loop:
+                if self._quorum_crisis_loop.in_crisis_mode:
+                    self._quorum_crisis_loop.exit_crisis_mode(reason="quorum_restored")
         return True
 
     @property
@@ -19832,11 +19892,11 @@ print(json.dumps({{
         Returns the number of peers that recovered from NAT-blocked state.
         """
         recovered = 0
-        with self.peers_lock:
-            nat_blocked_peers = [
-                p for p in self.peers.values()
-                if p.nat_blocked and p.is_alive()
-            ]
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        nat_blocked_peers = [
+            p for p in self._peer_snapshot.get_snapshot().values()
+            if p.nat_blocked and p.is_alive()
+        ]
 
         if not nat_blocked_peers:
             return 0
@@ -20011,8 +20071,8 @@ print(json.dumps({{
         if self.role == NodeRole.LEADER:
             return False
 
-        with self.peers_lock:
-            peers = [p for p in self.peers.values() if p.node_id != self.node_id]
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        peers = [p for p in self._peer_snapshot.get_snapshot().values() if p.node_id != self.node_id]
 
         conflict_keys = self._endpoint_conflict_keys([self.self_info, *peers])
         leaders = [
@@ -20558,14 +20618,15 @@ print(json.dumps({{
             if not self._has_voter_quorum():
                 return
 
-        with self.peers_lock:
-            peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        snapshot = self._peer_snapshot.get_snapshot()
+        peers_snapshot = [p for p in snapshot.values() if p.node_id != self.node_id]
 
         conflict_keys = self._endpoint_conflict_keys([self.self_info, *peers_snapshot])
 
         if self.leader_id and self.leader_id != self.node_id:
-            with self.peers_lock:
-                leader = self.peers.get(self.leader_id)
+            # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+            leader = snapshot.get(self.leader_id)
             leader_ok = (
                 leader is not None
                 and leader.is_alive()
@@ -20620,17 +20681,18 @@ print(json.dumps({{
 
         try:
             # Send election message to all nodes with higher IDs
-            with self.peers_lock:
-                higher_nodes = [
-                    p for p in self.peers.values()
-                    if (
-                        p.node_id > self.node_id
-                        and self._is_leader_eligible(p, conflict_keys)
-                    )
-                ]
-                voter_node_ids = list(getattr(self, "voter_node_ids", []) or [])
-                if voter_node_ids:
-                    higher_nodes = [p for p in higher_nodes if p.node_id in voter_node_ids]
+            # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+            election_snapshot = self._peer_snapshot.get_snapshot()
+            higher_nodes = [
+                p for p in election_snapshot.values()
+                if (
+                    p.node_id > self.node_id
+                    and self._is_leader_eligible(p, conflict_keys)
+                )
+            ]
+            voter_node_ids = list(getattr(self, "voter_node_ids", []) or [])
+            if voter_node_ids:
+                higher_nodes = [p for p in higher_nodes if p.node_id in voter_node_ids]
 
             got_response = False
 
