@@ -75,7 +75,8 @@ class VoterHealthConfig:
     consecutive_failures_before_offline: int = 3
     # Jan 5, 2026: Increased from 5s to 10s to handle slow nodes better.
     # NAT-blocked nodes using relay have higher latency; 5s was too aggressive.
-    p2p_timeout_seconds: float = 10.0
+    # Jan 12, 2026: Increased to 15s to tolerate lock contention during high cluster load.
+    p2p_timeout_seconds: float = 15.0
     tailscale_timeout_seconds: float = 10.0
     ssh_timeout_seconds: float = 15.0
     enable_ssh_fallback: bool = True
