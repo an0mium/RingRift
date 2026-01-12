@@ -996,7 +996,9 @@ def cleanup_stale_locks(
 
 # Training lock configuration constants
 TRAINING_LOCK_TTL_SECONDS = 4 * 60 * 60  # 4 hours
-TRAINING_HEARTBEAT_INTERVAL_SECONDS = 5 * 60  # 5 minutes
+# January 2026: Reduced heartbeat interval from 5 minutes to 60 seconds
+# for faster detection of crashed training processes
+TRAINING_HEARTBEAT_INTERVAL_SECONDS = 60  # 60 seconds (was 5 minutes)
 TRAINING_LOCK_MAX_AGE_HOURS = 6.0  # Auto-release after 6 hours
 
 
@@ -1007,7 +1009,7 @@ class TrainingLockWithHeartbeat:
     4+ day training stalls. Features:
 
     1. 4-hour TTL on training locks
-    2. Automatic heartbeat every 5 minutes (extends TTL)
+    2. Automatic heartbeat every 60 seconds (extends TTL)
     3. Emits TRAINING_LOCK_TIMEOUT if lock expires without heartbeat
     4. Thread-safe cleanup on release or crash
 

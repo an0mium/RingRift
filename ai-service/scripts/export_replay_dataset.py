@@ -86,11 +86,20 @@ import sqlite3
 # Dec 28, 2025: Disk space reservation to prevent partial writes
 # Dec 29, 2025: Increased from 500MB to 2GB for safety margin after corruption incidents
 DISK_SPACE_SAFETY_MARGIN_MB = 2048  # Keep 2GB free after write (was 500MB)
-NPZ_COMPRESSION_RATIO = 0.30  # Conservative compression ratio estimate (was 0.25)
+# January 2026: Made compression ratio configurable via env var for easier tuning
+# Typical observed ratios: float16 features ~0.25-0.35, int8 policy ~0.40-0.50
+# Default 0.35 is conservative (overestimates size slightly for safety)
+NPZ_COMPRESSION_RATIO = float(os.getenv("RINGRIFT_NPZ_COMPRESSION_RATIO", "0.35"))
 
 
 def _estimate_npz_size(save_kwargs: dict) -> int:
     """Estimate the compressed NPZ file size in bytes.
+
+    Uses NPZ_COMPRESSION_RATIO (configurable via RINGRIFT_NPZ_COMPRESSION_RATIO env var).
+    Typical observed values:
+    - float16 features: ~0.25-0.35 (high entropy, compresses well)
+    - int8 policy targets: ~0.40-0.50 (sparse, less compressible)
+    - Mixed data: ~0.30-0.40
 
     Args:
         save_kwargs: Dictionary of arrays to save
@@ -152,9 +161,9 @@ logger = logging.getLogger(__name__)
 
 
 # Database lock retry configuration (Dec 2025: configurable via env vars)
-# Dec 29 2025: Reduced defaults for faster fail-fast on permanently locked DBs
-# while still handling temporary locks during cluster sync (5 retries = ~15s total)
-DB_LOCK_MAX_RETRIES = int(os.getenv("RINGRIFT_DB_LOCK_MAX_RETRIES", "5"))
+# January 2026: Increased default retries from 5 to 10 to better handle cluster sync
+# which can take 1-2 minutes. With exponential backoff: 0.5+1+2+4+8+16+30+30+30+30 = ~150s max
+DB_LOCK_MAX_RETRIES = int(os.getenv("RINGRIFT_DB_LOCK_MAX_RETRIES", "10"))
 DB_LOCK_INITIAL_WAIT = float(os.getenv("RINGRIFT_DB_LOCK_INITIAL_WAIT", "0.5"))  # seconds
 DB_LOCK_MAX_WAIT = float(os.getenv("RINGRIFT_DB_LOCK_MAX_WAIT", "30.0"))  # seconds
 
