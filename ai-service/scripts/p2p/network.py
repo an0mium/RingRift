@@ -128,14 +128,25 @@ class AsyncLockWrapper:
 
 
 class NonBlockingAsyncLockWrapper:
-    """Non-blocking async wrapper for threading.RLock with timeout support.
+    """Async wrapper for threading.RLock with timeout and lock ordering support.
 
     January 10, 2026: Created to fix lock contention issues on 40+ node clusters.
-    Unlike AsyncLockWrapper which blocks the event loop during acquire, this
-    wrapper uses asyncio.to_thread() for non-blocking lock acquisition.
+
+    January 12, 2026 CRITICAL FIX: Reverted from asyncio.to_thread() to synchronous
+    lock acquisition. threading.RLock requires the same thread that acquired the
+    lock to release it. Using asyncio.to_thread() for acquire caused "cannot release
+    un-acquired lock" errors because:
+    - acquire() ran in a thread pool worker (thread A)
+    - release() ran in the event loop thread (thread B)
+    - RLock rejected release because thread B never acquired the lock
+
+    The fix uses synchronous acquire() with the lock's built-in timeout parameter.
+    This briefly blocks the event loop during acquisition, but:
+    - Timeout prevents indefinite blocking
+    - Critical sections are typically fast (dict operations)
+    - Correctness is more important than non-blocking for P2P coordination
 
     Features:
-    - Non-blocking acquire via asyncio.to_thread()
     - Configurable timeout to prevent indefinite waiting
     - Lock ordering validation to prevent deadlocks
     - Debug logging for lock contention analysis
@@ -143,7 +154,7 @@ class NonBlockingAsyncLockWrapper:
     Usage:
         # Basic usage (recommended for P2P handlers)
         async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-            # ... critical section
+            # ... critical section (keep it fast!)
 
         # Manual acquisition with timeout check
         wrapper = NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0)
@@ -210,7 +221,17 @@ class NonBlockingAsyncLockWrapper:
         return True
 
     async def acquire(self, timeout: Optional[float] = None) -> bool:
-        """Acquire the lock with timeout, non-blocking for event loop.
+        """Acquire the lock with timeout.
+
+        January 12, 2026: FIXED - Use synchronous acquire in the event loop thread
+        to ensure correct RLock semantics. threading.RLock requires the same thread
+        that acquired it to release it. Using asyncio.to_thread() caused "cannot
+        release un-acquired lock" errors because acquire happened in a thread pool
+        worker but release happened in the event loop thread.
+
+        This briefly blocks the event loop during lock acquisition, but the RLock's
+        built-in timeout parameter ensures we don't block indefinitely. For fast
+        critical sections (typical P2P operations), this is acceptable.
 
         Args:
             timeout: Override timeout in seconds. Uses default if None.
@@ -225,22 +246,19 @@ class NonBlockingAsyncLockWrapper:
 
         wait_time = timeout if timeout is not None else self._timeout
 
-        def _blocking_acquire() -> bool:
-            """Blocking acquire in thread pool."""
-            return self._lock.acquire(blocking=True, timeout=wait_time)
-
+        # CRITICAL FIX: Acquire synchronously in the event loop thread.
+        # threading.RLock requires same-thread acquire/release.
+        # The lock's built-in timeout prevents indefinite blocking.
         try:
-            # Run blocking acquire in thread pool to avoid blocking event loop
-            acquired = await asyncio.wait_for(
-                asyncio.to_thread(_blocking_acquire),
-                timeout=wait_time + 1.0,  # Slight buffer for thread scheduling
-            )
+            acquired = self._lock.acquire(blocking=True, timeout=wait_time)
             if acquired:
                 self._acquired = True
                 self._get_held_locks().add(self._lock_name)
+            else:
+                logger.debug(f"Lock {self._lock_name} acquisition timed out after {wait_time}s")
             return acquired
-        except asyncio.TimeoutError:
-            logger.debug(f"Lock {self._lock_name} acquisition timed out after {wait_time}s")
+        except Exception as e:
+            logger.error(f"Lock {self._lock_name} acquisition failed: {e}")
             return False
 
     def release(self) -> None:

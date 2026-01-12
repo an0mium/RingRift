@@ -65,23 +65,35 @@ except ImportError:
 try:
     from scripts.p2p.network import NonBlockingAsyncLockWrapper
 except ImportError:
-    # Fallback - use asyncio.to_thread for non-blocking lock acquisition
+    # Fallback - use synchronous lock acquisition to ensure correct RLock semantics
+    # January 12, 2026: FIXED - Cannot use asyncio.to_thread() because threading.RLock
+    # requires the same thread to acquire and release. The thread pool doesn't guarantee
+    # thread affinity, causing "cannot release un-acquired lock" errors.
     import asyncio
     import contextlib
 
     class NonBlockingAsyncLockWrapper:
-        """Fallback non-blocking lock wrapper."""
+        """Fallback lock wrapper for async contexts with timeout support."""
         def __init__(self, lock, lock_name: str = "unknown", timeout: float = 5.0):
             self._lock = lock
             self._lock_name = lock_name
             self._timeout = timeout
+            self._acquired = False
 
         async def __aenter__(self):
-            await asyncio.to_thread(self._lock.acquire)
+            # Synchronous acquire ensures same-thread semantics for RLock
+            acquired = self._lock.acquire(blocking=True, timeout=self._timeout)
+            if not acquired:
+                raise asyncio.TimeoutError(
+                    f"Lock {self._lock_name} acquisition timed out after {self._timeout}s"
+                )
+            self._acquired = True
             return self
 
         async def __aexit__(self, exc_type, exc_val, exc_tb):
-            self._lock.release()
+            if self._acquired:
+                self._lock.release()
+                self._acquired = False
             return False
 
 
