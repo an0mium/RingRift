@@ -1301,10 +1301,16 @@ export class ClientSandboxEngine {
           ...this.gameState,
           currentPhase: 'ring_placement',
         };
-      } else if (!hasRingsRemaining && this._mustMoveFromStackKey) {
+      } else if (
+        !hasRingsRemaining &&
+        this._mustMoveFromStackKey &&
+        this.gameState.currentPhase === 'ring_placement'
+      ) {
         // RR-FIX-2026-01-12: Player placed their last ring and has no rings remaining.
         // Auto-advance to movement phase so they can move from the placed stack.
         // Emit no_placement_action to properly advance the phase via the orchestrator.
+        // Only do this if we're still in ring_placement phase (orchestrator may have
+        // already advanced the phase).
         const advanceMoveNumber = this.gameState.history.length + 1;
         const noPlacementMove: Move = {
           type: 'no_placement_action',
@@ -1768,6 +1774,80 @@ export class ClientSandboxEngine {
       before: beforeSnapshot,
       after: afterSnapshot,
     });
+
+    // RR-FIX-2026-01-12: Auto-advance for human players with 0 rings in ring_placement phase.
+    // Per RR-CANON-R073, all players start in ring_placement, but players with 0 rings
+    // must emit no_placement_action to advance to movement phase. AI handles this in
+    // sandboxAI.ts, but human players need explicit handling here.
+    this.maybeAutoAdvanceHumanWithNoRings();
+  }
+
+  /**
+   * Auto-advance to movement phase for human players with 0 rings.
+   * Called at the start of a turn to handle the case where a human player
+   * has no rings in hand but needs to move from existing stacks.
+   */
+  private maybeAutoAdvanceHumanWithNoRings(): void {
+    if (this.gameState.gameStatus !== 'active') {
+      return;
+    }
+
+    // Only handle ring_placement phase
+    if (this.gameState.currentPhase !== 'ring_placement') {
+      return;
+    }
+
+    // Skip if we've already placed this turn (handled by handleHumanCellClick)
+    if (this._mustMoveFromStackKey) {
+      return;
+    }
+
+    const currentPlayer = this.gameState.players.find(
+      (p) => p.playerNumber === this.gameState.currentPlayer
+    );
+    if (!currentPlayer) {
+      return;
+    }
+
+    // Only handle human players (AI is handled by sandboxAI.ts)
+    if (currentPlayer.type === 'ai') {
+      return;
+    }
+
+    // Check if player has 0 rings in hand
+    const ringsInHand = currentPlayer.ringsInHand ?? 0;
+    if (ringsInHand > 0) {
+      return;
+    }
+
+    // Human player with 0 rings in ring_placement phase - need to auto-advance.
+    // Use setTimeout to defer so current execution can complete.
+    const playerNumber = currentPlayer.playerNumber;
+    window.setTimeout(() => {
+      // Double-check state hasn't changed
+      if (
+        this.gameState.gameStatus !== 'active' ||
+        this.gameState.currentPhase !== 'ring_placement' ||
+        this.gameState.currentPlayer !== playerNumber
+      ) {
+        return;
+      }
+
+      const moveNumber = this.gameState.history.length + 1;
+      const noPlacementMove: Move = {
+        type: 'no_placement_action',
+        player: playerNumber,
+        id: `no-placement-action-human-0rings-${moveNumber}`,
+        moveNumber,
+        timestamp: new Date(),
+        thinkTime: 0,
+        to: { x: 0, y: 0 },
+      } as Move;
+
+      this.applyCanonicalMove(noPlacementMove).catch((err) => {
+        console.error('[ClientSandboxEngine] Failed to auto-advance human with 0 rings:', err);
+      });
+    }, 50);
   }
 
   // === Internal helpers ===
