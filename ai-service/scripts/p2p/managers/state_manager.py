@@ -833,21 +833,26 @@ class StateManager:
     def load_cluster_epoch(self) -> int:
         """Load cluster epoch from database.
 
+        January 2026: Added lock protection to prevent race condition with
+        increment_cluster_epoch() - was previously modifying _cluster_epoch
+        without holding the lock.
+
         Returns:
             The loaded cluster epoch value
         """
-        try:
-            with self._db_connection(read_only=True) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT value FROM config WHERE key = 'cluster_epoch'")
-                row = cursor.fetchone()
-                if row:
-                    self._cluster_epoch = int(row[0])
-                    logger.info(f"Loaded cluster epoch: {self._cluster_epoch}")
-        except (sqlite3.Error, ValueError, TypeError) as e:
-            if self.verbose:
-                logger.debug(f"Error loading cluster epoch: {e}")
-        return self._cluster_epoch
+        with self._lock:
+            try:
+                with self._db_connection(read_only=True) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT value FROM config WHERE key = 'cluster_epoch'")
+                    row = cursor.fetchone()
+                    if row:
+                        self._cluster_epoch = int(row[0])
+                        logger.info(f"Loaded cluster epoch: {self._cluster_epoch}")
+            except (sqlite3.Error, ValueError, TypeError) as e:
+                if self.verbose:
+                    logger.debug(f"Error loading cluster epoch: {e}")
+            return self._cluster_epoch
 
     def save_cluster_epoch(self) -> None:
         """Save cluster epoch to database."""

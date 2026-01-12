@@ -256,6 +256,7 @@ class DataEventType(Enum):
     QUORUM_AT_RISK = "quorum_at_risk"  # Quorum marginal (e.g., exactly at threshold)
     QUORUM_RECOVERY_STARTED = "quorum_recovery_started"  # Recovery initiated after quorum lost
     QUORUM_VALIDATION_FAILED = "quorum_validation_failed"  # Jan 4, 2026: Pre-startup quorum check failed
+    PEER_DISCOVERY_EMERGENCY = "peer_discovery_emergency"  # Jan 2026: Emergency peer discovery during quorum crisis
 
     # Partition healing events (January 2026)
     PARTITION_HEALING_STARTED = "partition_healing_started"  # Healing pass initiated

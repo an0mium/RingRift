@@ -203,6 +203,11 @@ from .orchestrator_context import (
     JobReaperContext,
     PredictiveScalingContext,
 )
+from .quorum_crisis_discovery_loop import (
+    QuorumCrisisDiscoveryLoop,
+    QuorumCrisisConfig,
+    CrisisStats,
+)
 
 __all__ = [
     # Base
@@ -346,4 +351,8 @@ __all__ = [
     "IdleDetectionContext",
     "JobReaperContext",
     "PredictiveScalingContext",
+    # Quorum Crisis Discovery (Jan 2026 - Fast recovery during quorum loss)
+    "QuorumCrisisDiscoveryLoop",
+    "QuorumCrisisConfig",
+    "CrisisStats",
 ]

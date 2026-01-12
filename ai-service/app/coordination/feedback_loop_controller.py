@@ -289,6 +289,10 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         # for backward compatibility with existing code checking these attributes
         self._running = False
         self._subscribed = False
+        # January 2026: Track actually subscribed events for safe unsubscription
+        # Prevents trying to unsubscribe from events that were skipped due to
+        # coexistence with UnifiedFeedbackOrchestrator
+        self._subscribed_events: set[tuple[Any, Any]] = set()  # (event_type, handler) pairs
         self._lock = threading.Lock()
 
         # Phase 23.1: Track selfplay rate changes for monitoring
@@ -393,6 +397,15 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         """Check if controller is running."""
         return self._running
 
+    def _safe_subscribe(self, bus: Any, event_type: Any, handler: Any) -> None:
+        """Subscribe to an event and track it for safe unsubscription.
+
+        January 2026: Helper to track which events were actually subscribed,
+        enabling safe unsubscription without errors.
+        """
+        bus.subscribe(event_type, handler)
+        self._subscribed_events.add((event_type, handler))
+
     def _subscribe_to_events(self) -> None:
         """Subscribe to all relevant training events.
 
@@ -400,6 +413,9 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
         If the unified orchestrator is already running, we skip subscribing to
         overlapping events to prevent duplicate processing. FeedbackLoopController
         still handles events that the unified orchestrator doesn't cover.
+
+        January 2026: Uses _safe_subscribe() to track subscriptions for clean
+        unsubscription.
         """
         if self._subscribed:
             return
@@ -429,29 +445,29 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
 
             # Core feedback events - skip if unified orchestrator is handling them
             if not unified_running:
-                bus.subscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
-                bus.subscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
-                bus.subscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
-                bus.subscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
+                self._safe_subscribe(bus, DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
+                self._safe_subscribe(bus, DataEventType.TRAINING_COMPLETED, self._on_training_complete)
+                self._safe_subscribe(bus, DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
+                self._safe_subscribe(bus, DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
 
             # Work queue events - FeedbackLoopController only (not in unified)
-            bus.subscribe(DataEventType.WORK_COMPLETED, self._on_work_completed)
+            self._safe_subscribe(bus, DataEventType.WORK_COMPLETED, self._on_work_completed)
 
             # Phase 27: Subscribe to work failure events (December 2025)
             # Closes gap: WORK_FAILED/WORK_TIMEOUT events were orphaned
             if hasattr(DataEventType, 'WORK_FAILED'):
-                bus.subscribe(DataEventType.WORK_FAILED, self._on_work_failed)
+                self._safe_subscribe(bus, DataEventType.WORK_FAILED, self._on_work_failed)
             if hasattr(DataEventType, 'WORK_TIMEOUT'):
-                bus.subscribe(DataEventType.WORK_TIMEOUT, self._on_work_timeout)
+                self._safe_subscribe(bus, DataEventType.WORK_TIMEOUT, self._on_work_timeout)
 
             # Phase 23.1: Subscribe to selfplay rate change events for monitoring
             if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
-                bus.subscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
+                self._safe_subscribe(bus, DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
 
             # Subscribe to DATABASE_CREATED for data awareness (December 2025 - Phase 4A.3)
             # This provides early visibility into new databases before DataPipelineOrchestrator
             if hasattr(DataEventType, 'DATABASE_CREATED'):
-                bus.subscribe(DataEventType.DATABASE_CREATED, self._on_database_created)
+                self._safe_subscribe(bus, DataEventType.DATABASE_CREATED, self._on_database_created)
 
             # Phase 8: Subscribe to training loss anomaly events (December 2025)
             # Closes critical feedback loop: training loss anomaly → quality check/exploration boost
@@ -461,36 +477,36 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
 
             # TRAINING_LOSS_ANOMALY overlaps with unified orchestrator
             if not unified_running and hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
-                bus.subscribe(DataEventType.TRAINING_LOSS_ANOMALY, self._on_training_loss_anomaly)
+                self._safe_subscribe(bus, DataEventType.TRAINING_LOSS_ANOMALY, self._on_training_loss_anomaly)
                 event_count += 1
             # TRAINING_LOSS_TREND is FeedbackLoopController-only (unified doesn't handle it)
             if hasattr(DataEventType, 'TRAINING_LOSS_TREND'):
-                bus.subscribe(DataEventType.TRAINING_LOSS_TREND, self._on_training_loss_trend)
+                self._safe_subscribe(bus, DataEventType.TRAINING_LOSS_TREND, self._on_training_loss_trend)
                 event_count += 1
 
             # QUALITY_DEGRADED overlaps with unified orchestrator (P1.1 Dec 2025)
             if not unified_running and hasattr(DataEventType, 'QUALITY_DEGRADED'):
-                bus.subscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
+                self._safe_subscribe(bus, DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
                 event_count += 1
 
             # P10-LOOP-2 (Dec 2025): EVALUATION_FAILED is FeedbackLoopController-only
             if hasattr(DataEventType, 'EVALUATION_FAILED'):
-                bus.subscribe(DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
+                self._safe_subscribe(bus, DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
                 event_count += 1
 
             # REGRESSION_DETECTED overlaps with unified orchestrator (Dec 2025)
             if not unified_running and hasattr(DataEventType, 'REGRESSION_DETECTED'):
-                bus.subscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
+                self._safe_subscribe(bus, DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
                 event_count += 1
 
             # Dec 2025: Subscribe to DAEMON_STATUS_CHANGED for health monitoring
             if hasattr(DataEventType, 'DAEMON_STATUS_CHANGED'):
-                bus.subscribe(DataEventType.DAEMON_STATUS_CHANGED, self._on_daemon_status_changed)
+                self._safe_subscribe(bus, DataEventType.DAEMON_STATUS_CHANGED, self._on_daemon_status_changed)
                 event_count += 1
 
             # Dec 2025: Subscribe to P2P_CLUSTER_UNHEALTHY for cluster health feedback
             if hasattr(DataEventType, 'P2P_CLUSTER_UNHEALTHY'):
-                bus.subscribe(DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_p2p_cluster_unhealthy)
+                self._safe_subscribe(bus, DataEventType.P2P_CLUSTER_UNHEALTHY, self._on_p2p_cluster_unhealthy)
                 event_count += 1
 
             # Dec 2025: Subscribe to TRAINING_ROLLBACK_NEEDED for rollback coordination
@@ -575,55 +591,30 @@ class FeedbackLoopController(FeedbackClusterHealthMixin, HandlerBase):
             # Note: _subscribed stays False on failure, allowing retry on next start()
 
     def _unsubscribe_from_events(self) -> None:
-        """Unsubscribe from events."""
+        """Unsubscribe from events.
+
+        January 2026: Now uses _subscribed_events tracking to only unsubscribe
+        from events that were actually subscribed. Prevents errors when events
+        were skipped due to UnifiedFeedbackOrchestrator coexistence.
+        """
         if not self._subscribed:
             return
 
         try:
-            from app.coordination.event_router import DataEventType, get_event_bus
+            from app.coordination.event_router import get_event_bus
 
             bus = get_event_bus()
-            bus.unsubscribe(DataEventType.SELFPLAY_COMPLETE, self._on_selfplay_complete)
-            bus.unsubscribe(DataEventType.TRAINING_COMPLETED, self._on_training_complete)
-            bus.unsubscribe(DataEventType.EVALUATION_COMPLETED, self._on_evaluation_complete)
-            bus.unsubscribe(DataEventType.MODEL_PROMOTED, self._on_promotion_complete)
-            bus.unsubscribe(DataEventType.WORK_COMPLETED, self._on_work_completed)
 
-            # Phase 27: Unsubscribe from work failure events
-            if hasattr(DataEventType, 'WORK_FAILED'):
-                bus.unsubscribe(DataEventType.WORK_FAILED, self._on_work_failed)
-            if hasattr(DataEventType, 'WORK_TIMEOUT'):
-                bus.unsubscribe(DataEventType.WORK_TIMEOUT, self._on_work_timeout)
+            # Only unsubscribe from events we actually subscribed to
+            for event_type, handler in list(self._subscribed_events):
+                try:
+                    bus.unsubscribe(event_type, handler)
+                except (ValueError, KeyError) as e:
+                    # Handler not found - may have been unsubscribed elsewhere
+                    logger.debug(f"[FeedbackLoopController] Handler not found during unsubscribe: {e}")
 
-            # Phase 23.1: Unsubscribe from rate change events
-            if hasattr(DataEventType, 'SELFPLAY_RATE_CHANGED'):
-                bus.unsubscribe(DataEventType.SELFPLAY_RATE_CHANGED, self._on_selfplay_rate_changed)
-
-            # Unsubscribe from DATABASE_CREATED
-            if hasattr(DataEventType, 'DATABASE_CREATED'):
-                bus.unsubscribe(DataEventType.DATABASE_CREATED, self._on_database_created)
-
-            # Phase 8: Unsubscribe from training loss events
-            if hasattr(DataEventType, 'TRAINING_LOSS_ANOMALY'):
-                bus.unsubscribe(DataEventType.TRAINING_LOSS_ANOMALY, self._on_training_loss_anomaly)
-            if hasattr(DataEventType, 'TRAINING_LOSS_TREND'):
-                bus.unsubscribe(DataEventType.TRAINING_LOSS_TREND, self._on_training_loss_trend)
-
-            # P1.1: Unsubscribe from QUALITY_DEGRADED
-            if hasattr(DataEventType, 'QUALITY_DEGRADED'):
-                bus.unsubscribe(DataEventType.QUALITY_DEGRADED, self._on_quality_degraded_for_training)
-
-            # P10-LOOP-2: Unsubscribe from EVALUATION_FAILED
-            if hasattr(DataEventType, 'EVALUATION_FAILED'):
-                bus.unsubscribe(DataEventType.EVALUATION_FAILED, self._on_evaluation_failed)
-
-            # Dec 2025: Unsubscribe from REGRESSION_DETECTED
-            if hasattr(DataEventType, 'REGRESSION_DETECTED'):
-                bus.unsubscribe(DataEventType.REGRESSION_DETECTED, self._on_regression_detected)
-
-            # Dec 2025: Unsubscribe from HIGH_QUALITY_DATA_AVAILABLE
-            if hasattr(DataEventType, 'HIGH_QUALITY_DATA_AVAILABLE'):
-                bus.unsubscribe(DataEventType.HIGH_QUALITY_DATA_AVAILABLE, self._on_high_quality_data_available)
+            # Clear tracking set
+            self._subscribed_events.clear()
 
         except (AttributeError, TypeError, RuntimeError) as e:
             logger.debug(f"[FeedbackLoopController] Error unsubscribing: {e}")

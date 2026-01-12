@@ -19460,9 +19460,8 @@ print(json.dumps({{
         if not self.voter_node_ids:
             return
 
-        # Jan 12, 2026: Copy-on-write - snapshot for thread-safe iteration
-        with self.peers_lock:
-            peers_snapshot = dict(self.peers)
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        peers_snapshot = self._peer_snapshot.get_snapshot()
 
         # Check how many voters we know about (outside lock)
         known_voters = [v for v in self.voter_node_ids if v in peers_snapshot or v == self.node_id]
@@ -19492,8 +19491,8 @@ print(json.dumps({{
         external_ips = set()
 
         # Probe multiple peers to detect if we get different external IPs
-        with self.peers_lock:
-            alive_peers = [p for p in self.peers.values() if p.is_alive() and p.node_id != self.node_id]
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        alive_peers = [p for p in self._peer_snapshot.get_snapshot().values() if p.is_alive() and p.node_id != self.node_id]
 
         for peer in alive_peers[:5]:  # Probe up to 5 peers
             try:
@@ -19523,11 +19522,11 @@ print(json.dumps({{
 
     async def _probe_nat_blocked_peers(self):
         """Probe NAT-blocked peers to see if they've become reachable."""
-        with self.peers_lock:
-            nat_blocked_peers = [
-                p for p in self.peers.values()
-                if p.nat_blocked and p.node_id != self.node_id
-            ]
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        nat_blocked_peers = [
+            p for p in self._peer_snapshot.get_snapshot().values()
+            if p.nat_blocked and p.node_id != self.node_id
+        ]
 
         for peer in nat_blocked_peers:
             # Check if enough time has passed since blocking
@@ -19575,13 +19574,13 @@ print(json.dumps({{
     async def _update_relay_preferences(self):
         """Update relay preferences based on connectivity patterns."""
         # Identify peers that consistently fail direct connections
-        with self.peers_lock:
-            peers_needing_relay = [
-                p for p in self.peers.values()
-                if (getattr(p, "consecutive_failures", 0) or 0) >= NAT_RELAY_PREFERENCE_THRESHOLD
-                and not p.nat_blocked
-                and p.node_id != self.node_id
-            ]
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        peers_needing_relay = [
+            p for p in self._peer_snapshot.get_snapshot().values()
+            if (getattr(p, "consecutive_failures", 0) or 0) >= NAT_RELAY_PREFERENCE_THRESHOLD
+            and not p.nat_blocked
+            and p.node_id != self.node_id
+        ]
 
         for peer in peers_needing_relay:
             # Mark as preferring relay
@@ -19603,21 +19602,22 @@ print(json.dumps({{
         node has become unhealthy and automatically switches NAT-blocked peers
         to a healthier relay.
         """
-        with self.peers_lock:
-            nat_blocked_peers = [
-                p for p in self.peers.values()
-                if getattr(p, "nat_blocked", False)
-                and getattr(p, "relay_via", "")
-                and p.node_id != self.node_id
-            ]
+        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        peers_snapshot = self._peer_snapshot.get_snapshot()
+        nat_blocked_peers = [
+            p for p in peers_snapshot.values()
+            if getattr(p, "nat_blocked", False)
+            and getattr(p, "relay_via", "")
+            and p.node_id != self.node_id
+        ]
 
         for peer in nat_blocked_peers:
             relay_id = str(getattr(peer, "relay_via", "") or "")
             if not relay_id:
                 continue
 
-            with self.peers_lock:
-                relay_peer = self.peers.get(relay_id)
+            # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+            relay_peer = peers_snapshot.get(relay_id)
 
             # Check if relay is healthy
             relay_healthy = (
@@ -21140,11 +21140,10 @@ print(json.dumps({{
         if not getattr(self.self_info, "nat_blocked", False):
             eligible_nodes.append(self.node_id)
 
-        # Check peers
-        async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-            for peer_id, peer in self.peers.items():
-                if peer.is_alive() and not getattr(peer, "nat_blocked", False):
-                    eligible_nodes.append(peer_id)
+        # Check peers - Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
+        for peer_id, peer in self._peer_snapshot.get_snapshot().items():
+            if peer.is_alive() and not getattr(peer, "nat_blocked", False):
+                eligible_nodes.append(peer_id)
 
         if not eligible_nodes:
             logger.warning("Deterministic fallback: no eligible nodes found")
