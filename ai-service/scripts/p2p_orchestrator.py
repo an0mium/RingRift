@@ -17700,15 +17700,30 @@ print(json.dumps({{
             except (ImportError, RuntimeError, AttributeError):
                 pass  # Event system not available or no event loop
 
-    async def _update_self_info_async(self):
+    async def _update_self_info_async(self, cache_ttl: float = 5.0):
         """Async version of _update_self_info() to avoid blocking event loop.
 
         Dec 30, 2025: Added to fix gossip latency issues on coordinator nodes.
         The sync version calls subprocess for resource detection which blocks
         the event loop. This async version uses asyncio.to_thread() for those
         blocking operations.
+
+        Jan 12, 2026: Added caching to reduce health endpoint latency from 3-6s
+        to <100ms for repeated requests. Resource metrics are cached for cache_ttl
+        seconds (default 5s) since they don't change rapidly.
+
+        Args:
+            cache_ttl: How long to cache resource metrics (seconds). Default 5s.
         """
         import asyncio
+
+        # Jan 12, 2026: Check cache to avoid expensive resource detection on every request
+        now = time.time()
+        cache_key = "_self_info_cache_time"
+        last_update = getattr(self, cache_key, 0)
+        if (now - last_update) < cache_ttl:
+            # Cache hit - self_info already has recent data
+            return
 
         # Run blocking operations in thread pool
         usage = await self._get_resource_usage_async()
@@ -17803,6 +17818,9 @@ print(json.dumps({{
                 )
             except (ImportError, RuntimeError, AttributeError):
                 pass
+
+        # Jan 12, 2026: Update cache timestamp after successful update
+        setattr(self, "_self_info_cache_time", time.time())
 
     async def _send_heartbeat_to_peer(self, peer_host: str, peer_port: int, scheme: str = "http", timeout: int = 15) -> NodeInfo | None:
         """Send heartbeat to a peer and return their info.
