@@ -1546,8 +1546,18 @@ class P2POrchestrator(
             # Prefer a stable mesh address (Tailscale) when available so nodes
             # behind NAT remain reachable and the cluster converges on a single
             # view of peer endpoints.
-            ts_ip = self._get_tailscale_ip()
+            #
+            # Jan 12, 2026: Use retry mechanism instead of single attempt.
+            # Root cause fix: If Tailscale CLI isn't ready yet, we'd fall back
+            # to local IP (e.g., 10.0.0.62) which other nodes can't reach.
+            # Now we wait up to 30s for Tailscale to become available.
+            ts_ip = _wait_for_tailscale_ip(timeout_seconds=30, interval_seconds=2.0)
             self.advertise_host = ts_ip or self._get_local_ip()
+            if not ts_ip:
+                logger.warning(
+                    f"[P2P] Tailscale unavailable, using local IP: {self.advertise_host}. "
+                    "Set RINGRIFT_ADVERTISE_HOST or ensure Tailscale is running."
+                )
 
         # Dec 30, 2025: Validate advertise_host to prevent private IP issues
         # that cause P2P quorum loss when nodes can't reach each other
@@ -28613,6 +28623,60 @@ print(json.dumps({{
                 await asyncio.wait_for(runner.cleanup(), timeout=30)
             except asyncio.TimeoutError:
                 logger.warning("HTTP server cleanup timed out after 30s")
+
+
+def _wait_for_tailscale_ip(timeout_seconds: int = 30, interval_seconds: float = 2.0) -> str:
+    """Wait for Tailscale IP to become available at startup.
+
+    Jan 12, 2026: Added to fix mac-studio advertising local IP instead of Tailscale IP.
+
+    Root cause: When P2P starts before Tailscale CLI is ready, _get_tailscale_ip()
+    returns empty and the code falls back to local IP (e.g., 10.0.0.62). This
+    persists even after Tailscale becomes available later, causing P2P connectivity
+    issues since other nodes can't reach the local IP.
+
+    Fix: Retry Tailscale IP detection with exponential backoff for up to 30 seconds
+    at startup. This gives Tailscale time to initialize before committing to an
+    advertise IP.
+
+    Args:
+        timeout_seconds: Maximum time to wait for Tailscale (default 30s)
+        interval_seconds: Initial retry interval (doubles with each retry, max 5s)
+
+    Returns:
+        Tailscale IP if available within timeout, else empty string
+    """
+    from scripts.p2p.resource_detector import ResourceDetector
+
+    detector = ResourceDetector()
+    start_time = time.time()
+    attempt = 0
+    current_interval = interval_seconds
+
+    while (time.time() - start_time) < timeout_seconds:
+        attempt += 1
+        ts_ip = detector.get_tailscale_ip()
+        if ts_ip:
+            if attempt > 1:
+                logger.info(f"[TAILSCALE] IP acquired after {attempt} attempts: {ts_ip}")
+            return ts_ip
+
+        elapsed = time.time() - start_time
+        remaining = timeout_seconds - elapsed
+
+        if elapsed >= 5 and attempt <= 3:
+            logger.warning(f"[TAILSCALE] Still waiting for IP (attempt {attempt}, {elapsed:.1f}s elapsed)")
+
+        if remaining <= 0:
+            break
+
+        # Sleep with exponential backoff (max 5s between retries)
+        sleep_time = min(current_interval, remaining, 5.0)
+        time.sleep(sleep_time)
+        current_interval = min(current_interval * 1.5, 5.0)
+
+    logger.warning(f"[TAILSCALE] Timed out waiting for IP after {timeout_seconds}s ({attempt} attempts)")
+    return ""
 
 
 def _auto_detect_node_id() -> str | None:
