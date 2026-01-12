@@ -93,10 +93,11 @@ class MetricsHandlersMixin:
             lines = []
             now = time.time()
 
-            # Cluster metrics
+            # Cluster metrics - Jan 12, 2026: Copy-on-write to reduce lock hold time
             with self.peers_lock:
-                alive_peers = len([p for p in self.peers.values() if p.is_alive()])
-                total_peers = len(self.peers)
+                peers_snapshot = list(self.peers.values())
+            alive_peers = len([p for p in peers_snapshot if p.is_alive()])
+            total_peers = len(peers_snapshot)
 
             lines.append("# HELP ringrift_cluster_peers_total Total number of known peers")
             lines.append("# TYPE ringrift_cluster_peers_total gauge")
@@ -134,13 +135,12 @@ class MetricsHandlersMixin:
             lines.append("# HELP ringrift_selfplay_games_per_hour Estimated games generated per hour")
             lines.append("# TYPE ringrift_selfplay_games_per_hour gauge")
 
-            # Calculate games/hour from peer data
+            # Calculate games/hour from peer data - reuse peers_snapshot from above
             total_cluster_selfplay_jobs = 0
-            with self.peers_lock:
-                for peer in self.peers.values():
-                    if peer.is_alive():
-                        jobs = getattr(peer, 'selfplay_jobs', 0) or 0
-                        total_cluster_selfplay_jobs += jobs
+            for peer in peers_snapshot:
+                if peer.is_alive():
+                    jobs = getattr(peer, 'selfplay_jobs', 0) or 0
+                    total_cluster_selfplay_jobs += jobs
 
             # Estimate games/hour based on running jobs (rough heuristic: ~30 games/hour per job)
             estimated_games_per_hour = total_cluster_selfplay_jobs * 30
@@ -214,36 +214,38 @@ class MetricsHandlersMixin:
             lines.append(f'ringrift_cluster_memory_used_bytes{{node="{node_name}"}} {sys_mem_bytes}')
 
             # Export peer metrics with node labels
+            # Jan 12, 2026: Copy-on-write - snapshot for thread-safe iteration
             with self.peers_lock:
-                for peer_id, peer in self.peers.items():
-                    peer_name = peer_id or "unknown"
-                    peer_role = "worker"
-                    is_alive = 1 if peer.is_alive() else 0
+                peers_items_snapshot = list(self.peers.items())
+            for peer_id, peer in peers_items_snapshot:
+                peer_name = peer_id or "unknown"
+                peer_role = "worker"
+                is_alive = 1 if peer.is_alive() else 0
 
-                    # Get peer resource info if available
-                    peer_cpu = getattr(peer, 'cpu_percent', 0) or 0
-                    peer_mem = getattr(peer, 'memory_percent', 0) or 0
-                    peer_gpu = getattr(peer, 'gpu_percent', 0) or 0
-                    peer_jobs = getattr(peer, 'selfplay_jobs', 0) or 0
-                    peer_gpu_type = getattr(peer, 'gpu_type', 'unknown') or 'unknown'
-                    peer_gpu_type_key = peer_gpu_type.replace(' ', '_').upper() if peer_gpu_type else 'unknown'
-                    peer_hourly_cost = GPU_HOURLY_RATES.get(peer_gpu_type_key, GPU_HOURLY_RATES.get(peer_gpu_type, GPU_HOURLY_RATES['unknown']))
-                    peer_gpu_mem = getattr(peer, 'gpu_memory_used_bytes', 0) or 0
-                    peer_sys_mem = getattr(peer, 'memory_used_bytes', 0) or 0
+                # Get peer resource info if available
+                peer_cpu = getattr(peer, 'cpu_percent', 0) or 0
+                peer_mem = getattr(peer, 'memory_percent', 0) or 0
+                peer_gpu = getattr(peer, 'gpu_percent', 0) or 0
+                peer_jobs = getattr(peer, 'selfplay_jobs', 0) or 0
+                peer_gpu_type = getattr(peer, 'gpu_type', 'unknown') or 'unknown'
+                peer_gpu_type_key = peer_gpu_type.replace(' ', '_').upper() if peer_gpu_type else 'unknown'
+                peer_hourly_cost = GPU_HOURLY_RATES.get(peer_gpu_type_key, GPU_HOURLY_RATES.get(peer_gpu_type, GPU_HOURLY_RATES['unknown']))
+                peer_gpu_mem = getattr(peer, 'gpu_memory_used_bytes', 0) or 0
+                peer_sys_mem = getattr(peer, 'memory_used_bytes', 0) or 0
 
-                    lines.append(f'ringrift_cpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_cpu}')
-                    lines.append(f'ringrift_memory_percent{{node="{peer_name}",role="{peer_role}"}} {peer_mem}')
-                    lines.append(f'ringrift_gpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_gpu}')
-                    lines.append(f'ringrift_selfplay_jobs{{node="{peer_name}",role="{peer_role}"}} {peer_jobs}')
-                    lines.append(f'ringrift_node_alive{{node="{peer_name}",role="{peer_role}"}} {is_alive}')
+                lines.append(f'ringrift_cpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_cpu}')
+                lines.append(f'ringrift_memory_percent{{node="{peer_name}",role="{peer_role}"}} {peer_mem}')
+                lines.append(f'ringrift_gpu_percent{{node="{peer_name}",role="{peer_role}"}} {peer_gpu}')
+                lines.append(f'ringrift_selfplay_jobs{{node="{peer_name}",role="{peer_role}"}} {peer_jobs}')
+                lines.append(f'ringrift_node_alive{{node="{peer_name}",role="{peer_role}"}} {is_alive}')
 
-                    # Export cluster cost metrics for peer
-                    lines.append(f'ringrift_cluster_node_up{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {is_alive}')
-                    lines.append(f'ringrift_cluster_node_cost_per_hour{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_hourly_cost if is_alive else 0}')
-                    lines.append(f'ringrift_cluster_gpu_utilization{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_gpu / 100.0 if peer_gpu else 0}')
-                    lines.append(f'ringrift_cluster_cpu_utilization{{node="{peer_name}"}} {peer_cpu / 100.0 if peer_cpu else 0}')
-                    lines.append(f'ringrift_cluster_gpu_memory_used_bytes{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_gpu_mem}')
-                    lines.append(f'ringrift_cluster_memory_used_bytes{{node="{peer_name}"}} {peer_sys_mem}')
+                # Export cluster cost metrics for peer
+                lines.append(f'ringrift_cluster_node_up{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {is_alive}')
+                lines.append(f'ringrift_cluster_node_cost_per_hour{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_hourly_cost if is_alive else 0}')
+                lines.append(f'ringrift_cluster_gpu_utilization{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_gpu / 100.0 if peer_gpu else 0}')
+                lines.append(f'ringrift_cluster_cpu_utilization{{node="{peer_name}"}} {peer_cpu / 100.0 if peer_cpu else 0}')
+                lines.append(f'ringrift_cluster_gpu_memory_used_bytes{{node="{peer_name}",gpu_type="{peer_gpu_type}"}} {peer_gpu_mem}')
+                lines.append(f'ringrift_cluster_memory_used_bytes{{node="{peer_name}"}} {peer_sys_mem}')
 
             # Elo metrics with config labels
             try:
