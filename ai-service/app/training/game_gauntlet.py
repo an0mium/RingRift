@@ -38,6 +38,7 @@ from typing import Any
 
 from app.training.env import get_theoretical_max_moves
 from app.training.composite_participant import make_composite_participant_id
+from app.utils.parallel_defaults import get_parallel_games_default
 
 logger = logging.getLogger(__name__)
 
@@ -1338,21 +1339,25 @@ def _evaluate_single_opponent(
     early_stopping_confidence: float,
     early_stopping_min_games: int,
     model_id: str | None = None,
-    parallel_games: int = 1,
+    parallel_games: int | None = None,  # Jan 2026: Default to parallel (get_parallel_games_default())
     recording_config: Any | None = None,
     harness_type: str = "",  # Jan 2026: Harness type for composite Elo tracking
 ) -> dict[str, Any]:
     """Evaluate a model against a single baseline opponent.
 
     Args:
-        parallel_games: Number of games to run in parallel (default: 1 = sequential).
-            Phase 3 optimization: Set to 4-8 for ~3-6x speedup on multi-core systems.
+        parallel_games: Number of games to run in parallel (default: auto-scaled based on CPU count).
+            Jan 2026: Defaults to parallel (16 for 8+ cores, 8 otherwise).
         recording_config: Optional RecordingConfig for saving game data (Dec 2025).
 
     Returns:
         Dict with keys: baseline_name, wins, games, losses, draws, win_rate,
         early_stopped, games_saved, model_id
     """
+    # Jan 2026: Default to parallel execution if not specified
+    if parallel_games is None:
+        parallel_games = get_parallel_games_default()
+
     baseline_name = baseline.value
 
     # Derive model_id if not provided
@@ -1725,7 +1730,7 @@ def run_baseline_gauntlet(
     model_elo: float | None = None,
     parallel_opponents: bool = True,
     max_parallel_workers: int = 2,
-    parallel_games: int = 1,
+    parallel_games: int | None = None,  # Jan 2026: Default to parallel (get_parallel_games_default())
     recording_config: Any | None = None,
     save_games_for_training: bool = True,
     confidence_weighted_games: bool = False,
@@ -1754,8 +1759,8 @@ def run_baseline_gauntlet(
         parallel_opponents: Run evaluations against different opponents in parallel (default: True)
             Phase 5 optimization: ~2x speedup when testing vs RANDOM + HEURISTIC concurrently
         max_parallel_workers: Maximum number of parallel opponent evaluations (default: 2)
-        parallel_games: Number of games to run in parallel per opponent (default: 1 = sequential).
-            Phase 3 optimization: Set to 4-8 for ~3-6x speedup on multi-core systems.
+        parallel_games: Number of games to run in parallel per opponent.
+            Jan 2026: Defaults to auto-scaled parallel (16 for 8+ cores, 8 otherwise).
         recording_config: Optional RecordingConfig for saving game data (Dec 2025).
             When provided, games are recorded to canonical databases for training.
         save_games_for_training: Whether to save games for training data (default: True).
@@ -1781,6 +1786,10 @@ def run_baseline_gauntlet(
     if model_path is None and model_getter is None:
         raise ValueError("Must provide either model_path or model_getter")
     _ensure_game_modules()
+
+    # Jan 2026: Default to parallel execution if not specified
+    if parallel_games is None:
+        parallel_games = get_parallel_games_default()
 
     # Dec 30, 2025: Verify model architecture before running gauntlet
     # This catches mismatches (e.g., 4p weights for 2p config) early

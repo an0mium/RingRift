@@ -46,6 +46,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
+from app.utils.parallel_defaults import maybe_parallel_map
+
 logger = logging.getLogger(__name__)
 
 # Board type aliases - some databases use different names
@@ -303,8 +305,31 @@ class GameDiscovery:
         self._cache[cache_key] = matching
         return matching
 
+    def _count_single_db(self, db_info: DatabaseInfo) -> dict[str, int]:
+        """Count games in a single database by config (helper for parallel execution).
+
+        Jan 12, 2026: Extracted for parallel execution in count_games_by_config().
+
+        Args:
+            db_info: Database info object
+
+        Returns:
+            Dict mapping config_key (e.g., "hex8_2p") to game count
+        """
+        if not db_info.path.exists():
+            return {}
+
+        try:
+            return self._get_config_counts(db_info.path)
+        except (sqlite3.Error, OSError, PermissionError) as e:
+            logger.debug(f"Error querying {db_info.path}: {e}")
+            return {}
+
     def count_games_by_config(self, use_cache: bool = True) -> GameCounts:
         """Count games for all board/player configurations.
+
+        Jan 12, 2026: Now uses parallel execution for database queries.
+        Use RINGRIFT_FORCE_SEQUENTIAL=true to disable for debugging.
 
         Returns:
             GameCounts with breakdown by config, board type, and player count.
@@ -313,36 +338,39 @@ class GameDiscovery:
         all_dbs = self.find_all_databases(use_cache=use_cache)
         counts.databases_found = len(all_dbs)
 
-        # Query each database for game counts by config
-        for db_info in all_dbs:
-            if not db_info.path.exists():
-                continue
+        # Query databases in parallel (I/O-bound work)
+        # maybe_parallel_map uses threads by default, falls back to sequential
+        # if RINGRIFT_FORCE_SEQUENTIAL=true or < 4 databases
+        all_config_counts = maybe_parallel_map(
+            self._count_single_db,
+            all_dbs,
+            parallel_threshold=4,
+            use_processes=False,  # Threads for I/O-bound SQLite queries
+        )
 
-            try:
-                config_counts = self._get_config_counts(db_info.path)
-                for config_key, count in config_counts.items():
-                    if count > 0:
-                        counts.by_config[config_key] = (
-                            counts.by_config.get(config_key, 0) + count
-                        )
-                        counts.total += count
+        # Aggregate results from all databases
+        for config_counts in all_config_counts:
+            for config_key, count in config_counts.items():
+                if count > 0:
+                    counts.by_config[config_key] = (
+                        counts.by_config.get(config_key, 0) + count
+                    )
+                    counts.total += count
 
-                        # Parse config key
-                        parts = config_key.rsplit("_", 1)
-                        if len(parts) == 2:
-                            board_type = parts[0]
-                            try:
-                                num_players = int(parts[1].replace("p", ""))
-                                counts.by_board_type[board_type] = (
-                                    counts.by_board_type.get(board_type, 0) + count
-                                )
-                                counts.by_num_players[num_players] = (
-                                    counts.by_num_players.get(num_players, 0) + count
-                                )
-                            except ValueError:
-                                pass
-            except Exception as e:
-                logger.debug(f"Error querying {db_info.path}: {e}")
+                    # Parse config key
+                    parts = config_key.rsplit("_", 1)
+                    if len(parts) == 2:
+                        board_type = parts[0]
+                        try:
+                            num_players = int(parts[1].replace("p", ""))
+                            counts.by_board_type[board_type] = (
+                                counts.by_board_type.get(board_type, 0) + count
+                            )
+                            counts.by_num_players[num_players] = (
+                                counts.by_num_players.get(num_players, 0) + count
+                            )
+                        except ValueError:
+                            pass
 
         return counts
 

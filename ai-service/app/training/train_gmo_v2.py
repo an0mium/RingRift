@@ -31,6 +31,7 @@ from ..ai.gmo_v2 import (
 )
 from ..ai.gmo_ai import GMOValueNetWithUncertainty, nll_loss_with_uncertainty
 from ..models import GameState, Move
+from ..utils.parallel_defaults import get_dataloader_workers
 
 logger = logging.getLogger(__name__)
 
@@ -424,8 +425,12 @@ def train_gmo_v2(
         dataset, [train_size, val_size]
     )
 
-    # Determine num_workers based on device
-    num_workers = 8 if device.type == "cuda" else 0
+    # Jan 12, 2026: Use dynamic num_workers based on platform and GPU availability
+    # get_dataloader_workers() returns:
+    # - 4 for CUDA systems (async loading helps GPU utilization)
+    # - 0 for macOS (memory mapping issues with multiprocessing)
+    # - 2 for Linux CPU (balanced default)
+    num_workers = get_dataloader_workers()
     pin_memory = device.type == "cuda"
 
     train_loader = DataLoader(

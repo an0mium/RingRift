@@ -31,6 +31,8 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from app.utils.parallel_defaults import maybe_parallel_map
+
 logger = logging.getLogger(__name__)
 
 # Lazy import flags
@@ -269,11 +271,44 @@ def _emit_training_blocked_event(
         logger.debug(f"Failed to emit training blocked event: {e}")
 
 
+def _validate_single_file(path: str) -> tuple[str, ValidationResult]:
+    """Validate a single NPZ file (helper for parallel execution).
+
+    Jan 12, 2026: Extracted for parallel validation in validate_training_data_files().
+
+    Args:
+        path: Path to NPZ file
+
+    Returns:
+        Tuple of (path, ValidationResult)
+    """
+    from app.training.data_validation import validate_npz_file
+
+    try:
+        result = validate_npz_file(path)
+        return (path, ValidationResult(
+            valid=result.valid,
+            total_samples=result.total_samples,
+            samples_with_issues=result.samples_with_issues,
+            issues=list(result.issues) if hasattr(result, 'issues') else [],
+        ))
+    except (OSError, ValueError, KeyError) as e:
+        return (path, ValidationResult(
+            valid=False,
+            total_samples=0,
+            samples_with_issues=0,
+            issues=[f"Validation error: {e}"],
+        ))
+
+
 def validate_training_data_files(
     data_paths: list[str],
     fail_on_invalid: bool = False,
 ) -> list[ValidationResult]:
     """Validate training data files for corruption or issues.
+
+    Jan 12, 2026: Now uses parallel execution for file validation.
+    Use RINGRIFT_FORCE_SEQUENTIAL=true to disable for debugging.
 
     Args:
         data_paths: List of paths to .npz files
@@ -289,34 +324,35 @@ def validate_training_data_files(
         logger.warning("Data validation module not available")
         return []
 
-    from app.training.data_validation import validate_npz_file
-
     # Filter to existing paths
     valid_paths = [p for p in data_paths if p and os.path.exists(p)]
     if not valid_paths:
         return []
 
-    logger.info(f"Validating {len(valid_paths)} training data file(s)...")
+    logger.info(f"Validating {len(valid_paths)} training data file(s) (parallel)...")
 
+    # Validate files in parallel (I/O-bound)
+    # maybe_parallel_map falls back to sequential if < 4 files or RINGRIFT_FORCE_SEQUENTIAL
+    path_results = maybe_parallel_map(
+        _validate_single_file,
+        valid_paths,
+        parallel_threshold=4,
+        use_processes=False,  # Threads for I/O-bound NPZ loading
+    )
+
+    # Collect results and log
     results = []
     any_failed = False
 
-    for path in valid_paths:
-        result = validate_npz_file(path)
-        vr = ValidationResult(
-            valid=result.valid,
-            total_samples=result.total_samples,
-            samples_with_issues=result.samples_with_issues,
-            issues=list(result.issues) if hasattr(result, 'issues') else [],
-        )
+    for path, vr in path_results:
         results.append(vr)
 
-        if result.valid:
-            logger.info(f"  ✓ {path}: {result.total_samples} samples OK")
+        if vr.valid:
+            logger.info(f"  ✓ {path}: {vr.total_samples} samples OK")
         else:
             logger.warning(
                 f"  ✗ {path}: {len(vr.issues)} issues in "
-                f"{result.samples_with_issues}/{result.total_samples} samples"
+                f"{vr.samples_with_issues}/{vr.total_samples} samples"
             )
             for issue in vr.issues[:5]:
                 logger.warning(f"    - {issue}")
@@ -333,11 +369,34 @@ def validate_training_data_files(
     return results
 
 
+def _verify_single_checksum(path: str) -> tuple[str, bool, int, list[str]]:
+    """Verify checksums for a single NPZ file (helper for parallel execution).
+
+    Jan 12, 2026: Extracted for parallel validation in validate_data_checksums().
+
+    Args:
+        path: Path to NPZ file
+
+    Returns:
+        Tuple of (path, valid, num_computed, errors)
+    """
+    from app.training.npz_checksum import verify_npz_checksums
+
+    try:
+        all_valid, computed, errors = verify_npz_checksums(path)
+        return (path, all_valid and not errors, len(computed) if computed else 0, errors)
+    except (OSError, ValueError, KeyError) as e:
+        return (path, False, 0, [f"Checksum error: {e}"])
+
+
 def validate_data_checksums(
     data_paths: list[str],
     fail_on_mismatch: bool = False,
 ) -> dict[str, tuple[bool, list[str]]]:
     """Verify embedded checksums in training data files.
+
+    Jan 12, 2026: Now uses parallel execution for checksum verification.
+    Use RINGRIFT_FORCE_SEQUENTIAL=true to disable for debugging.
 
     Args:
         data_paths: List of paths to .npz files
@@ -353,23 +412,28 @@ def validate_data_checksums(
         logger.debug("Checksum verification module not available")
         return {}
 
-    from app.training.npz_checksum import verify_npz_checksums
-
     valid_paths = [p for p in data_paths if p and os.path.exists(p)]
     if not valid_paths:
         return {}
 
-    logger.info("Verifying data checksums...")
+    logger.info(f"Verifying data checksums for {len(valid_paths)} file(s) (parallel)...")
 
+    # Verify checksums in parallel (I/O + hash computation)
+    path_results = maybe_parallel_map(
+        _verify_single_checksum,
+        valid_paths,
+        parallel_threshold=4,
+        use_processes=False,  # Threads for I/O-bound operations
+    )
+
+    # Collect results and log
     results = {}
     any_failed = False
 
-    for path in valid_paths:
-        all_valid, computed, errors = verify_npz_checksums(path)
-
-        if all_valid and not errors:
-            if computed:
-                logger.info(f"  ✓ {path}: checksums verified ({len(computed)} arrays)")
+    for path, valid, num_computed, errors in path_results:
+        if valid:
+            if num_computed:
+                logger.info(f"  ✓ {path}: checksums verified ({num_computed} arrays)")
             else:
                 logger.debug(f"  ○ {path}: no embedded checksums (legacy file)")
             results[path] = (True, [])
@@ -391,6 +455,40 @@ def validate_data_checksums(
     return results
 
 
+def _validate_single_structure(args: tuple[str, bool]) -> tuple[str, StructureValidationResult]:
+    """Validate structure of a single NPZ file (helper for parallel execution).
+
+    Jan 12, 2026: Extracted for parallel validation in validate_npz_structure_files().
+
+    Args:
+        args: Tuple of (path, require_policy)
+
+    Returns:
+        Tuple of (path, StructureValidationResult)
+    """
+    from pathlib import Path
+
+    from app.training.npz_structure_validation import validate_npz_structure
+
+    path, require_policy = args
+
+    try:
+        struct_result = validate_npz_structure(Path(path), require_policy=require_policy)
+        return (path, StructureValidationResult(
+            valid=struct_result.valid,
+            sample_count=getattr(struct_result, 'sample_count', 0),
+            array_shapes=dict(getattr(struct_result, 'array_shapes', {})),
+            errors=list(getattr(struct_result, 'errors', [])),
+        ))
+    except (OSError, ValueError, KeyError) as e:
+        return (path, StructureValidationResult(
+            valid=False,
+            sample_count=0,
+            array_shapes={},
+            errors=[f"Structure validation error: {e}"],
+        ))
+
+
 def validate_npz_structure_files(
     data_paths: list[str],
     require_policy: bool = True,
@@ -400,6 +498,9 @@ def validate_npz_structure_files(
 
     This validation catches issues like rsync --partial creating files with
     unreasonable dimensions (e.g., 22 billion elements instead of 6.3 million).
+
+    Jan 12, 2026: Now uses parallel execution for structure validation.
+    Use RINGRIFT_FORCE_SEQUENTIAL=true to disable for debugging.
 
     Args:
         data_paths: List of paths to .npz files
@@ -416,29 +517,27 @@ def validate_npz_structure_files(
         logger.debug("NPZ structure validation module not available")
         return {}
 
-    from pathlib import Path
-
-    from app.training.npz_structure_validation import validate_npz_structure
-
     valid_paths = [p for p in data_paths if p and os.path.exists(p)]
     if not valid_paths:
         return {}
 
-    logger.info(f"Validating NPZ structure for {len(valid_paths)} file(s)...")
+    logger.info(f"Validating NPZ structure for {len(valid_paths)} file(s) (parallel)...")
 
+    # Validate structure in parallel (I/O-bound)
+    # Pass require_policy with each path as a tuple
+    path_args = [(p, require_policy) for p in valid_paths]
+    path_results = maybe_parallel_map(
+        _validate_single_structure,
+        path_args,
+        parallel_threshold=4,
+        use_processes=False,  # Threads for I/O-bound NPZ loading
+    )
+
+    # Collect results and log
     results = {}
     any_failed = False
 
-    for path in valid_paths:
-        struct_result = validate_npz_structure(Path(path), require_policy=require_policy)
-
-        # Convert to our dataclass
-        result = StructureValidationResult(
-            valid=struct_result.valid,
-            sample_count=getattr(struct_result, 'sample_count', 0),
-            array_shapes=dict(getattr(struct_result, 'array_shapes', {})),
-            errors=list(getattr(struct_result, 'errors', [])),
-        )
+    for path, result in path_results:
         results[path] = result
 
         if result.valid:
