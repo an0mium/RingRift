@@ -200,35 +200,28 @@ export function useSandboxInteractions({
           return;
         }
 
-        // Multiple regions - check if click is within any region's territory
-        const territories = stateBefore.board.territories;
+        // Multiple regions - check if click is within any move's disconnected region.
+        // RR-FIX-2026-01-12: Use move.disconnectedRegions[0].spaces directly instead of
+        // board.territories, which may not accurately represent the disconnected regions
+        // being offered for processing. Each choose_territory_option move carries its
+        // own region definition in disconnectedRegions[0].
         for (const move of territoryOptionMoves) {
-          // Find which region this move corresponds to by checking if the move's
-          // target position is the representative position of a territory
-          const moveTargetKey = move.to ? `${move.to.x},${move.to.y},${move.to.z}` : null;
-          if (!moveTargetKey) continue;
+          // Get the region's spaces from the move itself
+          const regionSpaces = move.disconnectedRegions?.[0]?.spaces ?? [];
+          if (regionSpaces.length === 0) continue;
 
-          // Check each territory region to see if the clicked position is inside
-          for (const [regionId, territory] of territories.entries()) {
-            const spaces = territory.spaces ?? [];
-            const clickedInRegion = spaces.some((space) => positionsEqual(space, pos));
-            if (clickedInRegion) {
-              // Check if this move's target is the representative of this region
-              const representativeMatch = spaces.some(
-                (space) => `${space.x},${space.y},${space.z}` === moveTargetKey
-              );
-              if (representativeMatch) {
-                // Clear validTargets so elimination targets can be computed after the move
-                setValidTargets([]);
-                void (async () => {
-                  await engine.applyCanonicalMove(move);
-                  bumpSandboxTurn();
-                  setSandboxStateVersion((v) => v + 1);
-                  maybeRunSandboxAiIfNeeded();
-                })();
-                return;
-              }
-            }
+          // Check if the clicked position is within this move's region
+          const clickedInRegion = regionSpaces.some((space) => positionsEqual(space, pos));
+          if (clickedInRegion) {
+            // Clear validTargets so elimination targets can be computed after the move
+            setValidTargets([]);
+            void (async () => {
+              await engine.applyCanonicalMove(move);
+              bumpSandboxTurn();
+              setSandboxStateVersion((v) => v + 1);
+              maybeRunSandboxAiIfNeeded();
+            })();
+            return;
           }
         }
         // Click wasn't in any claimable region - don't process further
