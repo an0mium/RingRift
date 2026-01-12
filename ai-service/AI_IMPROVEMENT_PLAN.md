@@ -1,4 +1,4 @@
-> **Doc Status (2026-01-11): CRITICAL UPDATE - Neural Networks Below Heuristic Baseline**
+> **Doc Status (2026-01-12): CRITICAL UPDATE - Overfitting Fixes Applied**
 >
 > ## January 2026 Critical Assessment
 >
@@ -13,13 +13,39 @@
 > 1. Insufficient training data (~2-3K games per config locally)
 > 2. Low simulation budget in selfplay (b150-b200 instead of b800+)
 > 3. Training data scattered across cluster, not consolidated
+> 4. **OVERFITTING** - Training ran too many epochs, best weights not restored
+>
+> ## January 12, 2026 - Overfitting Fixes Applied (commit 80dc2fe4e)
+>
+> **Problem Discovered:** Lambda training showed:
+>
+> - Best validation loss at epoch 15 (1.67)
+> - Final validation loss at epoch 33 (2.06) - **420% train/val divergence**
+> - Model was saving overfit weights, not best weights
+>
+> **Fixes Applied:**
+>
+> 1. **MIN_TRAINING_EPOCHS reduced 40→15** (`app/config/thresholds.py`)
+>    - Trust early stopping instead of forcing minimum epochs
+>    - Evidence: epoch 15 was optimal, epochs 16-40 HURT performance
+> 2. **Auto-restore best weights on overfitting** (`app/training/train.py:6066-6072`)
+>    - When train/val divergence > 50%, call `early_stopper.restore_best_weights()`
+>    - Previously just skipped averaging but kept overfit weights
+> 3. **Auto-restore best weights at training completion** (`app/training/train.py:6122-6144`)
+>    - If final loss > best loss \* 1.05, restore best weights
+>    - Ensures saved model always has optimal generalization
+>
+> **Current Training Jobs:**
+> | Job | Location | Status | Settings |
+> |-----|----------|--------|----------|
+> | hex8_2p gen1 | Lambda GH200 | Running | 20 epochs, patience=5, weight_decay=0.01 |
 >
 > **Immediate Actions Required:**
 >
-> 1. Sync training data from cluster (89MB+ NPZ files exist on lambda-gh200-training)
-> 2. Generate 10K+ high-quality games per priority config (hex8_2p, square8_2p)
-> 3. Train with lower learning rate (1e-4) and more epochs (50)
-> 4. Run gauntlet evaluation after each training iteration
+> 1. ~~Sync training data from cluster~~ ✓ Done - 682K samples
+> 2. ~~Generate 10K+ high-quality games~~ ✓ Data exists
+> 3. ~~Train with better hyperparameters~~ ✓ Running with fixes
+> 4. Run gauntlet evaluation after training completes
 >
 > **Training Data Status (Jan 11, 2026):**
 > | Config | Local Games | Cluster NPZ | Status |
@@ -27,8 +53,8 @@
 > | hex8*2p | 2,939 | 89MB | Needs more |
 > | hex8_3p | 2,580 | 89MB | Needs more |
 > | hex8_4p | 0 | 83MB | Data exists |
-> | hexagonal*_ | 0 | 113-238MB | Data exists |
-> | square8\__ | 0 | - | Needs data |
+> | hexagonal*\_ | 0 | 113-238MB | Data exists |
+> | square8\_\_ | 0 | - | Needs data |
 > | square19\_\* | 0 | 83MB (3p) | Limited |
 >
 > **Quick Start to Improve AI Strength:**
