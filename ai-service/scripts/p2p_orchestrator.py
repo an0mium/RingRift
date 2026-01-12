@@ -1559,8 +1559,11 @@ class P2POrchestrator(
                 self.advertise_host = yaml_ip
                 logger.info(f"[P2P] Using YAML config tailscale_ip: {yaml_ip}")
             else:
-                # Try Tailscale detection with retry (up to 30s)
-                ts_ip = _wait_for_tailscale_ip(timeout_seconds=30, interval_seconds=2.0)
+                # Try Tailscale detection with retry (up to 90s - increased Jan 12, 2026)
+                # Root cause: 30s was insufficient when mac-studio boots and Tailscale
+                # takes 45-60s to initialize. This caused persistent local IP (10.0.0.62)
+                # advertisement, breaking voter quorum.
+                ts_ip = _wait_for_tailscale_ip(timeout_seconds=90, interval_seconds=1.0)
                 self.advertise_host = ts_ip or self._get_local_ip()
                 if not ts_ip:
                     logger.warning(
@@ -5807,32 +5810,63 @@ class P2POrchestrator(
         """Periodically revalidate advertise_host for late Tailscale availability.
 
         Dec 31, 2025: Added for 48-hour autonomous operation.
-        Jan 12, 2026: Enhanced with aggressive startup checking and re-announcement.
+        Jan 12, 2026: Enhanced with aggressive startup checking and Tailscale enforcement.
 
         Problem: If Tailscale is not ready at startup, coordinator advertises private
         IP (10.x.x.x) which breaks mesh connectivity. Tailscale may become available
         later but the private IP persists.
 
-        Solution: Check every 30s for first 3 minutes (aggressive startup), then
-        every 5 minutes. If advertising wrong IP and Tailscale is available, switch
+        Solution: Check every 15s for first 5 minutes (aggressive startup), then
+        every 5 minutes. If advertising private IP and Tailscale is available, switch
         to Tailscale IP, update peer info, and re-announce to bootstrap seeds.
+
+        Jan 12, 2026 Enhancement: Added explicit Tailscale enforcement that checks
+        specifically for private IP + Tailscale availability scenario.
         """
-        interval = 30.0  # Fast checking during startup
+        interval = 15.0  # Very fast checking during startup (was 30s)
         stable_count = 0
-        startup_fast_period = 180.0  # 3 minutes of fast checking
+        startup_fast_period = 300.0  # 5 minutes of fast checking (was 3 min)
         start_time = time.time()
 
-        await asyncio.sleep(10)  # Brief initial delay
+        await asyncio.sleep(5)  # Brief initial delay (was 10s)
 
         while self.running:
             try:
                 old_host = self.advertise_host
+                is_private = self._is_advertising_private_ip()
+
+                # Jan 12, 2026: Explicit Tailscale enforcement for private IP scenarios
+                if is_private:
+                    logger.info(f"[IP_ENFORCE] Advertising private IP {old_host}, checking for Tailscale...")
+                    ts_ip = self._try_get_tailscale_ip()
+                    if ts_ip:
+                        # Tailscale is available - switch immediately
+                        self._set_advertise_host(ts_ip, "tailscale_enforcement")
+                        logger.warning(f"[IP_ENFORCE] Switched from private to Tailscale: {old_host} -> {ts_ip}")
+
+                        # Emit event for monitoring/alerting
+                        self._safe_emit_private_ip_alert(old_host, ts_ip, switched=True)
+
+                        # Re-announce to bootstrap seeds
+                        try:
+                            await self._announce_to_bootstrap_seeds()
+                            logger.info("[IP_ENFORCE] Re-announced to bootstrap seeds with Tailscale IP")
+                        except Exception as announce_err:  # noqa: BLE001
+                            logger.debug(f"[IP_ENFORCE] Re-announce failed: {announce_err}")
+
+                        stable_count = 0
+                        await asyncio.sleep(interval)
+                        continue
+                    else:
+                        # Still no Tailscale - emit warning event periodically
+                        if stable_count % 10 == 0:  # Every ~150s during startup
+                            self._safe_emit_private_ip_alert(old_host, None, switched=False)
+                            logger.warning(f"[IP_ENFORCE] Still advertising private IP {old_host}, Tailscale unavailable")
+
+                # Run normal validation
                 self._validate_and_fix_advertise_host()
 
                 if old_host != self.advertise_host:
-                    # Jan 12, 2026: The setter in _validate_and_fix_advertise_host() now
-                    # updates self.self_info.host atomically, so we don't need to call
-                    # _update_self_info() here. The setter already logged the change.
                     logger.warning(f"[P2P] IP revalidation detected change: {old_host} -> {self.advertise_host}")
 
                     # Re-announce to bootstrap seeds with corrected IP
@@ -5848,7 +5882,7 @@ class P2POrchestrator(
 
                 # Slow down after startup fast period and stable checks
                 elapsed = time.time() - start_time
-                if elapsed > startup_fast_period and stable_count >= 3:
+                if elapsed > startup_fast_period and stable_count >= 6:
                     if interval < 300.0:
                         interval = 300.0  # Slow to 5-minute checks
                         logger.debug("[P2P] IP validation: switching to 5-minute interval")
@@ -5857,6 +5891,72 @@ class P2POrchestrator(
                 logger.debug(f"[P2P] IP revalidation error: {e}")
 
             await asyncio.sleep(interval)
+
+    def _is_advertising_private_ip(self) -> bool:
+        """Check if currently advertising a private/unreachable IP.
+
+        Jan 12, 2026: Helper for Tailscale enforcement loop.
+
+        Returns:
+            True if advertise_host is a private IP (10.x, 192.168.x, 172.16-31.x)
+        """
+        import ipaddress
+
+        if not self.advertise_host:
+            return False
+
+        try:
+            ip = ipaddress.ip_address(self.advertise_host)
+            # Tailscale CGNAT (100.x.x.x) is "private" technically but globally routable via mesh
+            if self.advertise_host.startswith("100."):
+                return False
+            return ip.is_private or ip.is_loopback
+        except ValueError:
+            return False
+
+    def _try_get_tailscale_ip(self) -> str:
+        """Try to get Tailscale IP without waiting/blocking.
+
+        Jan 12, 2026: Helper for Tailscale enforcement loop.
+
+        Returns:
+            Tailscale IP if available, else empty string
+        """
+        try:
+            from scripts.p2p.resource_detector import ResourceDetector
+            detector = ResourceDetector()
+            # Prefer IPv4 for broader compatibility
+            ts_ipv4 = detector.get_tailscale_ipv4()
+            if ts_ipv4:
+                return ts_ipv4
+            ts_ipv6 = detector.get_tailscale_ipv6()
+            if ts_ipv6:
+                return ts_ipv6
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+
+    def _safe_emit_private_ip_alert(self, private_ip: str, tailscale_ip: str | None, switched: bool) -> None:
+        """Emit event for private IP detection (for monitoring/alerting).
+
+        Jan 12, 2026: Part of Tailscale enforcement for autonomous operation.
+        """
+        try:
+            from app.coordination.data_events import DataEventType
+            event_type = DataEventType.PRIVATE_IP_ADVERTISED if hasattr(DataEventType, "PRIVATE_IP_ADVERTISED") else None
+            if event_type:
+                self._emit_event(
+                    str(event_type.value),
+                    {
+                        "node_id": self.node_id,
+                        "private_ip": private_ip,
+                        "tailscale_ip": tailscale_ip,
+                        "switched": switched,
+                        "severity": "info" if switched else "warning",
+                    },
+                )
+        except Exception:  # noqa: BLE001
+            pass  # Event emission is best-effort
 
     def _discover_all_ips(self, exclude_primary: str | None = None) -> set[str]:
         """Discover all IP addresses this node can be reached at (IPv4 AND IPv6).
@@ -28747,22 +28847,24 @@ print(json.dumps({{
                 logger.warning("HTTP server cleanup timed out after 30s")
 
 
-def _wait_for_tailscale_ip(timeout_seconds: int = 30, interval_seconds: float = 2.0) -> str:
+def _wait_for_tailscale_ip(timeout_seconds: int = 90, interval_seconds: float = 1.0) -> str:
     """Wait for Tailscale IP to become available at startup.
 
-    Jan 12, 2026: Added to fix mac-studio advertising local IP instead of Tailscale IP.
+    Jan 12, 2026: Increased timeout from 30s to 90s after observing mac-studio
+    consistently advertising local IP (10.0.0.62) instead of Tailscale IP.
 
     Root cause: When P2P starts before Tailscale CLI is ready, _get_tailscale_ip()
     returns empty and the code falls back to local IP (e.g., 10.0.0.62). This
     persists even after Tailscale becomes available later, causing P2P connectivity
-    issues since other nodes can't reach the local IP.
+    issues since other nodes can't reach the local IP. On mac-studio specifically,
+    Tailscale can take 45-60s to initialize after boot.
 
-    Fix: Retry Tailscale IP detection with exponential backoff for up to 30 seconds
-    at startup. This gives Tailscale time to initialize before committing to an
-    advertise IP.
+    Fix: Retry Tailscale IP detection with exponential backoff for up to 90 seconds
+    at startup with faster initial polling (1s intervals). This gives Tailscale
+    enough time to initialize even on slow boot scenarios.
 
     Args:
-        timeout_seconds: Maximum time to wait for Tailscale (default 30s)
+        timeout_seconds: Maximum time to wait for Tailscale (default 90s)
         interval_seconds: Initial retry interval (doubles with each retry, max 5s)
 
     Returns:

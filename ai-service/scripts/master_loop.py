@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -364,35 +365,37 @@ class MasterLoopController:
     # =========================================================================
 
     def _init_state_db(self) -> None:
-        """Initialize the state persistence database."""
+        """Initialize the state persistence database.
+
+        Jan 12, 2026: Fixed to use context manager for proper connection cleanup.
+        """
         try:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(self._db_path)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS config_state (
-                    config_key TEXT PRIMARY KEY,
-                    exploration_boost REAL NOT NULL DEFAULT 1.0,
-                    training_intensity TEXT NOT NULL DEFAULT 'normal',
-                    last_quality_score REAL NOT NULL DEFAULT 0.7,
-                    updated_at REAL NOT NULL
-                )
-            """)
-            # Heartbeat table for health monitoring (Dec 2025)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS heartbeat (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    last_beat REAL NOT NULL,
-                    loop_iteration INTEGER NOT NULL DEFAULT 0,
-                    active_configs INTEGER NOT NULL DEFAULT 0,
-                    status TEXT NOT NULL DEFAULT 'running'
-                )
-            """)
-            conn.execute("""
-                INSERT OR IGNORE INTO heartbeat (id, last_beat, loop_iteration, active_configs, status)
-                VALUES (1, ?, 0, 0, 'starting')
-            """, (time.time(),))
-            conn.commit()
-            conn.close()
+            with contextlib.closing(sqlite3.connect(self._db_path)) as conn:
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS config_state (
+                        config_key TEXT PRIMARY KEY,
+                        exploration_boost REAL NOT NULL DEFAULT 1.0,
+                        training_intensity TEXT NOT NULL DEFAULT 'normal',
+                        last_quality_score REAL NOT NULL DEFAULT 0.7,
+                        updated_at REAL NOT NULL
+                    )
+                """)
+                # Heartbeat table for health monitoring (Dec 2025)
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS heartbeat (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        last_beat REAL NOT NULL,
+                        loop_iteration INTEGER NOT NULL DEFAULT 0,
+                        active_configs INTEGER NOT NULL DEFAULT 0,
+                        status TEXT NOT NULL DEFAULT 'running'
+                    )
+                """)
+                conn.execute("""
+                    INSERT OR IGNORE INTO heartbeat (id, last_beat, loop_iteration, active_configs, status)
+                    VALUES (1, ?, 0, 0, 'starting')
+                """, (time.time(),))
+                conn.commit()
             logger.debug(f"[MasterLoop] State DB initialized at {self._db_path}")
         except Exception as e:
             logger.warning(f"[MasterLoop] Failed to init state DB: {e}")
@@ -405,25 +408,27 @@ class MasterLoopController:
         January 2026: Made async to avoid blocking event loop.
         """
         def _load_sync() -> int:
-            """Synchronous SQLite operations wrapped in lock."""
+            """Synchronous SQLite operations wrapped in lock.
+
+            Jan 12, 2026: Fixed to use context manager for proper connection cleanup.
+            """
             with self._state_lock:
                 try:
-                    conn = sqlite3.connect(self._db_path)
-                    rows = conn.execute("""
-                        SELECT config_key, exploration_boost, training_intensity, last_quality_score
-                        FROM config_state
-                    """).fetchall()
-                    conn.close()
+                    with contextlib.closing(sqlite3.connect(self._db_path)) as conn:
+                        rows = conn.execute("""
+                            SELECT config_key, exploration_boost, training_intensity, last_quality_score
+                            FROM config_state
+                        """).fetchall()
 
-                    restored_count = 0
-                    for config_key, boost, intensity, quality_score in rows:
-                        if config_key in self._states:
-                            self._states[config_key].exploration_boost = boost
-                            self._states[config_key].training_intensity = intensity
-                            self._states[config_key].last_quality_score = quality_score
-                            restored_count += 1
+                        restored_count = 0
+                        for config_key, boost, intensity, quality_score in rows:
+                            if config_key in self._states:
+                                self._states[config_key].exploration_boost = boost
+                                self._states[config_key].training_intensity = intensity
+                                self._states[config_key].last_quality_score = quality_score
+                                restored_count += 1
 
-                    return restored_count
+                        return restored_count
                 except (sqlite3.Error, OSError) as e:
                     logger.warning(f"[MasterLoop] Failed to load persisted state: {e}")
                     return 0
@@ -440,32 +445,34 @@ class MasterLoopController:
         January 2026: Made async to avoid blocking event loop.
         """
         def _save_sync() -> None:
-            """Synchronous SQLite operations wrapped in lock."""
+            """Synchronous SQLite operations wrapped in lock.
+
+            Jan 12, 2026: Fixed to use context manager for proper connection cleanup.
+            """
             with self._state_lock:
                 try:
-                    conn = sqlite3.connect(self._db_path)
-                    now = time.time()
+                    with contextlib.closing(sqlite3.connect(self._db_path)) as conn:
+                        now = time.time()
 
-                    # Use BEGIN IMMEDIATE for SQLite-level write lock
-                    conn.execute("BEGIN IMMEDIATE")
+                        # Use BEGIN IMMEDIATE for SQLite-level write lock
+                        conn.execute("BEGIN IMMEDIATE")
 
-                    for config_key, state in self._states.items():
-                        conn.execute("""
-                            INSERT OR REPLACE INTO config_state
-                            (config_key, exploration_boost, training_intensity, last_quality_score, updated_at)
-                            VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            config_key,
-                            state.exploration_boost,
-                            state.training_intensity,
-                            state.last_quality_score,
-                            now,
-                        ))
+                        for config_key, state in self._states.items():
+                            conn.execute("""
+                                INSERT OR REPLACE INTO config_state
+                                (config_key, exploration_boost, training_intensity, last_quality_score, updated_at)
+                                VALUES (?, ?, ?, ?, ?)
+                            """, (
+                                config_key,
+                                state.exploration_boost,
+                                state.training_intensity,
+                                state.last_quality_score,
+                                now,
+                            ))
 
-                    conn.commit()
-                    conn.close()
-                    self._last_state_save = now
-                    logger.debug(f"[MasterLoop] Persisted state for {len(self._states)} configs")
+                        conn.commit()
+                        self._last_state_save = now
+                        logger.debug(f"[MasterLoop] Persisted state for {len(self._states)} configs")
 
                 except (sqlite3.Error, OSError) as e:
                     # Dec 29, 2025: Narrowed from bare Exception
@@ -543,17 +550,18 @@ class MasterLoopController:
 
         This allows external monitoring to detect hung loops by checking
         last_beat timestamp. A healthy loop should update every 30-60 seconds.
+
+        Jan 12, 2026: Fixed to use context manager for proper connection cleanup.
         """
         try:
             self._loop_iteration += 1
-            conn = sqlite3.connect(self._db_path)
-            conn.execute("""
-                UPDATE heartbeat
-                SET last_beat = ?, loop_iteration = ?, active_configs = ?, status = ?
-                WHERE id = 1
-            """, (time.time(), self._loop_iteration, len(self.active_configs), status))
-            conn.commit()
-            conn.close()
+            with contextlib.closing(sqlite3.connect(self._db_path)) as conn:
+                conn.execute("""
+                    UPDATE heartbeat
+                    SET last_beat = ?, loop_iteration = ?, active_configs = ?, status = ?
+                    WHERE id = 1
+                """, (time.time(), self._loop_iteration, len(self.active_configs), status))
+                conn.commit()
         except (sqlite3.Error, OSError) as e:
             # Dec 29, 2025: Narrowed from bare Exception
             logger.debug(f"[MasterLoop] Failed to update heartbeat: {e}")
@@ -647,6 +655,8 @@ class MasterLoopController:
     def check_health(db_path: Path | None = None, max_age_seconds: float = 120.0) -> dict[str, Any]:
         """Check if master loop is healthy by reading heartbeat.
 
+        Jan 12, 2026: Fixed to use context manager for proper connection cleanup.
+
         Returns:
             Dict with 'healthy' bool, 'last_beat' timestamp, 'age_seconds', 'status'
         """
@@ -655,27 +665,26 @@ class MasterLoopController:
             if not db_path.exists():
                 return {"healthy": False, "error": "State DB not found"}
 
-            conn = sqlite3.connect(db_path)
-            row = conn.execute("""
-                SELECT last_beat, loop_iteration, active_configs, status
-                FROM heartbeat WHERE id = 1
-            """).fetchone()
-            conn.close()
+            with contextlib.closing(sqlite3.connect(db_path)) as conn:
+                row = conn.execute("""
+                    SELECT last_beat, loop_iteration, active_configs, status
+                    FROM heartbeat WHERE id = 1
+                """).fetchone()
 
-            if not row:
-                return {"healthy": False, "error": "No heartbeat record"}
+                if not row:
+                    return {"healthy": False, "error": "No heartbeat record"}
 
-            last_beat, iteration, active_configs, status = row
-            age = time.time() - last_beat
+                last_beat, iteration, active_configs, status = row
+                age = time.time() - last_beat
 
-            return {
-                "healthy": age < max_age_seconds and status != "stopped",
-                "last_beat": last_beat,
-                "age_seconds": age,
-                "loop_iteration": iteration,
-                "active_configs": active_configs,
-                "status": status,
-            }
+                return {
+                    "healthy": age < max_age_seconds and status != "stopped",
+                    "last_beat": last_beat,
+                    "age_seconds": age,
+                    "loop_iteration": iteration,
+                    "active_configs": active_configs,
+                    "status": status,
+                }
         except Exception as e:
             return {"healthy": False, "error": str(e)}
 
@@ -852,12 +861,12 @@ class MasterLoopController:
                 warnings.append(f"Cluster config: Parse error - {e}")
 
         # 5. Validate state database access
+        # Jan 12, 2026: Fixed to use context manager for proper connection cleanup.
         try:
-            conn = sqlite3.connect(self._db_path)
-            # Quick read test
-            cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = cursor.fetchall()
-            conn.close()
+            with contextlib.closing(sqlite3.connect(self._db_path)) as conn:
+                # Quick read test
+                cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = cursor.fetchall()
             logger.debug(f"[MasterLoop] State database validated: {len(tables)} tables")
         except sqlite3.Error as e:
             errors.append(f"State database: Access failed - {e}")
@@ -1402,13 +1411,31 @@ class MasterLoopController:
                     started_daemons.add(daemon_type.value)
                 else:
                     try:
-                        await asyncio.wait_for(
-                            self.daemon_manager.start(daemon_type),
-                            timeout=DAEMON_STARTUP_TIMEOUT_SECONDS,
-                        )
-                        started_daemons.add(daemon_type.value)
-                        logger.debug(f"[MasterLoop] Started {daemon_type.value}")
+                        # Jan 12, 2026: Fixed to properly cancel task on timeout
+                        # Previously, wait_for() would time out but leave the underlying
+                        # task running, causing zombie tasks to accumulate.
+                        task = asyncio.create_task(self.daemon_manager.start(daemon_type))
+                        try:
+                            await asyncio.wait_for(
+                                asyncio.shield(task),
+                                timeout=DAEMON_STARTUP_TIMEOUT_SECONDS,
+                            )
+                            started_daemons.add(daemon_type.value)
+                            logger.debug(f"[MasterLoop] Started {daemon_type.value}")
+                        except asyncio.TimeoutError:
+                            # Cancel the underlying task to prevent zombie
+                            task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
+                            failed_daemons.add(daemon_type.value)
+                            logger.error(
+                                f"[MasterLoop] Daemon {daemon_type.value} startup timed out "
+                                f"after {DAEMON_STARTUP_TIMEOUT_SECONDS}s (task cancelled)"
+                            )
                     except asyncio.TimeoutError:
+                        # Fallback in case shield() doesn't catch properly
                         failed_daemons.add(daemon_type.value)
                         logger.error(
                             f"[MasterLoop] Daemon {daemon_type.value} startup timed out "
@@ -1715,8 +1742,22 @@ class MasterLoopController:
                     )
 
                     # Create task to emit async event without blocking
+                    # Jan 12, 2026: Fixed fire-and-forget pattern - now captures exceptions
                     import asyncio
-                    asyncio.create_task(get_event_bus().publish(event))
+
+                    def _on_publish_error(task: asyncio.Task) -> None:
+                        """Handle event publish errors to prevent silent failures."""
+                        try:
+                            exc = task.exception()
+                            if exc:
+                                logger.error(
+                                    f"[MasterLoop] EventBus publish failed for {config_key}: {exc}"
+                                )
+                        except asyncio.CancelledError:
+                            pass
+
+                    publish_task = asyncio.create_task(get_event_bus().publish(event))
+                    publish_task.add_done_callback(_on_publish_error)
                 except ImportError:
                     pass  # Event system not available
 

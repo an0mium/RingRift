@@ -302,6 +302,7 @@ class DataEventType(Enum):
     DAEMON_FAILURE_RECOVERED = "daemon_failure_recovered"  # Daemon recovered from failure state
     HOST_ONLINE = "host_online"
     HOST_OFFLINE = "host_offline"
+    PRIVATE_IP_ADVERTISED = "private_ip_advertised"  # Jan 12, 2026: Node advertising private IP instead of Tailscale
     ERROR = "error"
 
     # Config sync events (December 2025 - distributed config propagation)
