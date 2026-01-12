@@ -6513,15 +6513,30 @@ class P2POrchestrator(
         # Track which voters we've counted to avoid double-counting
         counted_voters: set[str] = set()
 
+        # Jan 12, 2026: Get our advertised host for self-recognition
+        # Fixes issue where node_id != voter_id but host matches voter's Tailscale IP
+        self_host = getattr(self, "advertise_host", None) or getattr(self, "host", None)
+
         # Check each voter
         for voter_id in voter_ids:
             if voter_id in counted_voters:
                 continue
 
-            # Check 1: Is this voter us?
+            # Check 1a: Is this voter us? (by node_id)
             if voter_id == self.node_id:
                 alive_count += 1
                 counted_voters.add(voter_id)
+                continue
+
+            # Check 1b: Is this voter us? (by IP - for node_id mismatch cases)
+            # Jan 12, 2026 Root cause fix: Lambda nodes derive node_id from hostname
+            # (e.g., "192-222-51-195") but voter list uses configured names
+            # (e.g., "lambda-gh200-training"). Check if our host matches voter's IPs.
+            voter_ips = voter_ip_map.get(voter_id, set())
+            if self_host and self_host in voter_ips:
+                alive_count += 1
+                counted_voters.add(voter_id)
+                logger.debug(f"[VoterSelfRecognition] Matched self as voter {voter_id} via host {self_host}")
                 continue
 
             # Check 2: Direct node_id match in peers
@@ -6642,14 +6657,22 @@ class P2POrchestrator(
         # Track last known status for change detection
         prev_offline = set(getattr(self, "_last_offline_voters", []))
 
+        # Jan 12, 2026: Get our advertised host for self-recognition by IP
+        self_host = getattr(self, "advertise_host", None) or getattr(self, "host", None)
+
         for voter_id in voter_ids:
             is_alive = False
             status_detail = "unknown"
 
-            # Check 1: Is this voter us?
+            # Check 1a: Is this voter us? (by node_id)
             if voter_id == self.node_id:
                 is_alive = True
                 status_detail = "self"
+            # Check 1b: Is this voter us? (by IP - for node_id mismatch cases)
+            # Jan 12, 2026 Root cause fix: node_id may differ from voter name
+            elif self_host and self_host in voter_ip_map.get(voter_id, set()):
+                is_alive = True
+                status_detail = "self_via_ip"
             else:
                 # Check 2: Direct node_id match in peers
                 peer = self.peers.get(voter_id)
@@ -6657,12 +6680,20 @@ class P2POrchestrator(
                     is_alive = True
                     status_detail = "direct"
                 else:
-                    # Check 3: IP:port match
+                    # Check 3: Peer host or IP:port match
+                    # Jan 12, 2026: Also check peer.host field for peers with different node_ids
                     voter_ips = voter_ip_map.get(voter_id, set())
                     for peer_id, p in self.peers.items():
                         # Jan 7, 2026: Skip SWIM protocol entries (IP:7947) - they pollute voter health
                         if self._is_swim_peer_id(peer_id):
                             continue
+                        # Check peer's host field
+                        peer_host = getattr(p, "host", None) or (p.get("host") if isinstance(p, dict) else None)
+                        if peer_host and peer_host in voter_ips and p.is_alive():
+                            is_alive = True
+                            status_detail = f"host_match:{peer_host}"
+                            break
+                        # Check IP:port format peer_id
                         if ":" in peer_id:
                             peer_ip = peer_id.split(":")[0]
                             if peer_ip in voter_ips and p.is_alive():
