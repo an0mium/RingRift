@@ -11211,8 +11211,16 @@ class P2POrchestrator(
         December 30, 2025: Made non-blocking with timeout-based lock acquisition.
         If locks can't be acquired within 2 seconds, returns partial status with
         "unavailable" markers instead of blocking indefinitely.
+
+        Jan 12, 2026: Changed to non-blocking self_info update - schedules background
+        refresh and returns immediately with cached data. This prevents 15s+ timeouts
+        on macOS where resource detection is slow.
         """
-        self._update_self_info()
+        # Jan 12, 2026: Non-blocking mode - schedule background refresh, use cached data
+        try:
+            asyncio.create_task(self._update_self_info_async())
+        except Exception:
+            pass  # Fire-and-forget, don't block on errors
 
         # Parse query parameters for filtering
         alive_only = request.query.get("alive_only", "true").lower() != "false"

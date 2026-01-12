@@ -120,22 +120,20 @@ class StatusHandlersMixin:
         Jan 8, 2026: Added 15s timeout protection to prevent health endpoint from
         blocking indefinitely if resource detection hangs. Uses async version of
         _update_self_info to avoid blocking the event loop.
+
+        Jan 12, 2026: Changed to non-blocking mode - returns cached data immediately
+        while triggering background refresh. This prevents 15s timeouts on macOS where
+        resource detection (torch import, subprocess calls) is slow.
         """
         try:
-            # Jan 8, 2026: Use async version with timeout to prevent blocking
+            # Jan 12, 2026: Non-blocking mode - schedule background refresh, return cached data
+            # This prevents /health from blocking for 15s on macOS
             try:
-                async with async_timeout(15):
-                    await self._update_self_info_async()
-            except asyncio.TimeoutError:
-                # Return degraded status if update times out
-                logger.warning("[P2P] Health check: _update_self_info_async timed out after 15s")
-                return web.json_response({
-                    "healthy": False,
-                    "node_id": self.node_id,
-                    "error": "health_check_timeout",
-                    "message": "Resource detection timed out after 15 seconds",
-                    "timestamp": datetime.utcnow().isoformat(),
-                }, status=503)
+                asyncio.create_task(self._update_self_info_async())
+            except Exception:
+                pass  # Fire-and-forget, don't block on errors
+
+            # Return immediately with cached self_info data
             is_healthy = self.self_info.is_healthy()
 
             # Calculate uptime and leader status
