@@ -9066,6 +9066,26 @@ class P2POrchestrator(
             import shutil
 
             if shutil.which("pgrep"):
+                # Jan 12, 2026: Helper to filter out SSH processes that dispatch to remote nodes
+                # SSH processes with "selfplay" in their args were being counted as local jobs
+                def _get_ssh_pids() -> set[str]:
+                    """Get PIDs of SSH processes (to exclude from local job counts)."""
+                    ssh_pids: set[str] = set()
+                    try:
+                        out = subprocess.run(
+                            ["pgrep", "-f", "^ssh"],
+                            capture_output=True,
+                            text=True,
+                            timeout=5,
+                        )
+                        if out.returncode == 0 and out.stdout.strip():
+                            ssh_pids.update(out.stdout.strip().split())
+                    except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+                        pass
+                    return ssh_pids
+
+                ssh_pids = _get_ssh_pids()
+
                 # December 2025: Added selfplay.py pattern - the current unified selfplay entry point
                 # December 2025: Added gumbel_selfplay and SelfplayRunner patterns for module invocations
                 for pattern in (
@@ -9085,7 +9105,9 @@ class P2POrchestrator(
                         timeout=5,
                     )
                     if out.returncode == 0 and out.stdout.strip():
-                        selfplay_pids.update([p for p in out.stdout.strip().split() if p])
+                        # Jan 12, 2026: Filter out SSH PIDs - these are dispatchers, not local jobs
+                        pids = [p for p in out.stdout.strip().split() if p and p not in ssh_pids]
+                        selfplay_pids.update(pids)
 
                 for pattern in ("train_", "train.py", "-m app.training.train"):
                     out = subprocess.run(
@@ -9095,7 +9117,9 @@ class P2POrchestrator(
                         timeout=5,
                     )
                     if out.returncode == 0 and out.stdout.strip():
-                        training_pids.update([p for p in out.stdout.strip().split() if p])
+                        # Jan 12, 2026: Filter out SSH PIDs
+                        pids = [p for p in out.stdout.strip().split() if p and p not in ssh_pids]
+                        training_pids.update(pids)
         except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError, KeyError, IndexError, AttributeError, ImportError):
             pass
 
@@ -25018,10 +25042,39 @@ print(json.dumps({{
         try:
             # Count actual selfplay processes
             # Use asyncio.to_thread to avoid blocking event loop (fix Dec 2025)
-            returncode, stdout, _ = await asyncio.to_thread(
-                self._run_subprocess_sync, ["pgrep", "-fc", "selfplay|gpu_selfplay"], 5
-            )
-            actual_processes = int(stdout.strip() or "0") if returncode == 0 else 0
+            # Jan 12, 2026: Use Python subprocess to exclude SSH processes from count
+            # The old pgrep -fc "selfplay|gpu_selfplay" was counting SSH dispatcher processes
+            def _count_local_selfplay_processes() -> int:
+                """Count local selfplay processes, excluding SSH dispatchers."""
+                try:
+                    # Get all selfplay-related PIDs
+                    result = subprocess.run(
+                        ["pgrep", "-f", "selfplay|gpu_selfplay"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    if result.returncode != 0 or not result.stdout.strip():
+                        return 0
+                    all_pids = set(result.stdout.strip().split())
+
+                    # Get SSH PIDs to exclude
+                    ssh_result = subprocess.run(
+                        ["pgrep", "-f", "^ssh"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
+                    )
+                    ssh_pids = set()
+                    if ssh_result.returncode == 0 and ssh_result.stdout.strip():
+                        ssh_pids = set(ssh_result.stdout.strip().split())
+
+                    # Return count excluding SSH processes
+                    return len(all_pids - ssh_pids)
+                except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+                    return 0
+
+            actual_processes = await asyncio.to_thread(_count_local_selfplay_processes)
 
             with self.jobs_lock:
                 tracked_jobs = len(self.local_jobs)
