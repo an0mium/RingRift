@@ -1896,20 +1896,54 @@ function GameHUDFromViewModel({
         </div>
       )}
 
-      {/* Time control summary (when clocks are enabled) */}
-      {timeControlSummary && (
-        <div className="flex items-center justify-between text-[11px] text-slate-300 mb-2">
-          <span className="text-slate-400">
-            Clock:{' '}
-            <span className="font-mono text-slate-100" data-testid="hud-time-control-summary">
-              {timeControlSummary}
-            </span>
-          </span>
-        </div>
-      )}
-      {!timeControlSummary && isLocalSandboxOnly && (
-        <div className="text-[11px] text-slate-500 mb-2">Clock: No clock (local sandbox)</div>
-      )}
+      {/* Time control summary and player times (when clocks are enabled) - min-height prevents layout shift */}
+      <div className="min-h-[40px] mb-2">
+        {timeControlSummary && (
+          <>
+            <div className="flex items-center justify-between text-[11px] text-slate-300">
+              <span className="text-slate-400">
+                Clock:{' '}
+                <span className="font-mono text-slate-100" data-testid="hud-time-control-summary">
+                  {timeControlSummary}
+                </span>
+              </span>
+            </div>
+            {/* Player times row */}
+            {players.some((p) => p.timeRemaining !== undefined) && (
+              <div className="mt-1 flex items-center gap-2 text-[11px]">
+                {players.map((p) => {
+                  if (p.timeRemaining === undefined) return null;
+                  const minutes = Math.floor(p.timeRemaining / 60000);
+                  const seconds = Math.floor((p.timeRemaining % 60000) / 1000);
+                  const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                  const isLow = p.timeRemaining < 60000;
+                  const isCritical = p.timeRemaining < 30000;
+                  return (
+                    <span
+                      key={p.playerNumber}
+                      className={`font-mono ${
+                        p.isCurrentPlayer
+                          ? isCritical
+                            ? 'text-red-400 font-bold animate-pulse'
+                            : isLow
+                              ? 'text-amber-400 font-bold'
+                              : 'text-slate-100 font-semibold'
+                          : 'text-slate-500 text-[10px]'
+                      }`}
+                      title={`Player ${p.playerNumber}${p.isCurrentPlayer ? ' (current turn)' : ''}`}
+                    >
+                      P{p.playerNumber}: {timeStr}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+        {!timeControlSummary && isLocalSandboxOnly && (
+          <div className="text-[11px] text-slate-500">Clock: No clock (local sandbox)</div>
+        )}
+      </div>
 
       {/* Phase Indicator & weird-state banner */}
       {surfaceableWeirdState && (

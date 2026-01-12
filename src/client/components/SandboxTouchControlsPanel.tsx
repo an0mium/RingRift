@@ -123,7 +123,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
 
   return (
     <div
-      className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3 text-xs text-slate-100"
+      className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3 text-xs text-slate-100 min-h-[280px]"
       data-testid="sandbox-touch-controls"
     >
       <div className="flex items-center justify-between gap-2">
