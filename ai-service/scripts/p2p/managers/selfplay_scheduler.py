@@ -21,6 +21,36 @@ if TYPE_CHECKING:
 
 from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
 
+# Jan 2026: Import adaptive budget calculator for dynamic budget selection
+try:
+    from app.coordination.budget_calculator import (
+        get_adaptive_budget_for_games,
+        get_budget_tier_name,
+    )
+    BUDGET_CALCULATOR_AVAILABLE = True
+except ImportError:
+    BUDGET_CALCULATOR_AVAILABLE = False
+    def get_adaptive_budget_for_games(game_count: int, elo: float) -> int:
+        """Fallback budget when calculator not available."""
+        if game_count < 100:
+            return 64
+        elif game_count < 500:
+            return 150
+        elif game_count < 1000:
+            return 200
+        elif elo >= 2000:
+            return 3200
+        elif elo >= 1800:
+            return 1600
+        else:
+            return 800
+
+    def get_budget_tier_name(budget: int) -> str:
+        """Fallback tier name when calculator not available."""
+        names = {64: "BOOTSTRAP_T1", 150: "BOOTSTRAP_T2", 200: "BOOTSTRAP_T3",
+                 800: "STANDARD", 1600: "ULTIMATE", 3200: "MASTER"}
+        return names.get(budget, f"CUSTOM({budget})")
+
 logger = logging.getLogger(__name__)
 
 
@@ -1395,6 +1425,79 @@ class SelfplayScheduler(EventSubscriptionMixin):
             pass
 
         return min(5, boost)  # Cap at +5
+
+    def get_config_elo(self, config_key: str) -> float:
+        """Get the current Elo rating for a config.
+
+        Jan 2026: Added to support adaptive budget calculation based on Elo.
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+
+        Returns:
+            Current Elo rating for the config (default 1500 if unknown)
+        """
+        try:
+            cluster_elo = self.get_cluster_elo()
+            top_models = cluster_elo.get("top_models", [])
+
+            # Find best model for this config
+            for model in top_models:
+                model_name = model.get("name", "")
+                # Match config key pattern in model name
+                if config_key in model_name or config_key.replace("_", "") in model_name.replace("_", ""):
+                    return model.get("elo", 1500)
+
+            # Also check by board type + player count
+            parts = config_key.replace("_", "").split("p")
+            if len(parts) == 2:
+                board_type = parts[0].rstrip("0123456789")
+                num_players = config_key.split("_")[-1].replace("p", "")
+                for model in top_models:
+                    model_name = model.get("name", "")
+                    if board_type in model_name and num_players in model_name:
+                        return model.get("elo", 1500)
+
+        except (AttributeError, TypeError):
+            pass
+
+        return 1500  # Default Elo for unknown configs
+
+    def get_adaptive_selfplay_budget(self, config_key: str) -> int:
+        """Get adaptive Gumbel budget based on game count and Elo.
+
+        Jan 2026: Replaces static budget with dynamic calculation using the
+        budget calculator. Configs with more games and higher Elo get higher
+        budgets for better quality training data.
+
+        Budget tiers:
+        - Bootstrap (<100 games): 64 (max throughput)
+        - Bootstrap (<500 games): 150 (fast iteration)
+        - Bootstrap (<1000 games): 200 (balanced)
+        - Standard (>=1000 games, <1500 Elo): 800
+        - Quality (>=1000 games, 1500+ Elo): 800
+        - Ultimate (>=1000 games, 1800+ Elo): 1600
+        - Master (>=1000 games, 2000+ Elo): 3200
+
+        Args:
+            config_key: Config key (e.g., "hex8_2p")
+
+        Returns:
+            Gumbel MCTS budget
+        """
+        game_counts = self._get_game_counts_per_config()
+        game_count = game_counts.get(config_key, 0)
+        elo = self.get_config_elo(config_key)
+
+        budget = get_adaptive_budget_for_games(game_count, elo)
+        tier_name = get_budget_tier_name(budget)
+
+        logger.debug(
+            f"[Budget] {config_key}: games={game_count}, elo={elo:.0f} -> "
+            f"budget={budget} ({tier_name})"
+        )
+
+        return budget
 
     def _get_data_starvation_boost(self, config_key: str) -> float:
         """Get priority boost for configs that are data-starved for training.
@@ -3137,22 +3240,26 @@ class SelfplayScheduler(EventSubscriptionMixin):
                 num_players = selected.get("num_players", 0)
                 config_key = f"{board_type}_{num_players}p"
 
+                # Jan 2026: Get adaptive budget based on game count and Elo
+                # This replaces static budgets with dynamic calculation
+                adaptive_budget = self.get_adaptive_selfplay_budget(config_key)
+
                 # Jan 2026 Sprint 10: Check for quality boost - forces high-quality modes
                 quality_boost = self.get_quality_boost(config_key)
 
                 if quality_boost > 1.0 and has_gpu:
-                    # Quality boost active - force high-quality Gumbel MCTS with higher budget
-                    # Budget scales with boost: 1.5x boost → budget 200, 2.0x → budget 300
-                    base_budget = 150
-                    boosted_budget = int(base_budget * quality_boost)
-                    boosted_budget = min(boosted_budget, 400)  # Cap at 400 for perf
+                    # Quality boost active - force high-quality Gumbel MCTS
+                    # Budget scales with boost, starting from adaptive budget
+                    boosted_budget = int(adaptive_budget * quality_boost)
+                    # Cap at MASTER tier (3200) to prevent excessive compute
+                    boosted_budget = min(boosted_budget, 3200)
 
                     actual_engine = "gumbel-mcts"
                     extra_args = {"budget": boosted_budget}
 
                     logger.info(
                         f"Quality boost override: {config_key} using '{actual_engine}' "
-                        f"with budget={boosted_budget} (boost={quality_boost:.2f}x)"
+                        f"with budget={boosted_budget} (adaptive={adaptive_budget}, boost={quality_boost:.2f}x)"
                     )
                 else:
                     # Normal selection from engine mix
@@ -3161,6 +3268,17 @@ class SelfplayScheduler(EventSubscriptionMixin):
                         board_type=board_type,
                         num_players=num_players,
                     )
+
+                    # Jan 2026: Override static budget with adaptive budget for gumbel-mcts
+                    # This is the KEY FIX - configs with 1000+ games now get 800+ budget
+                    if actual_engine == "gumbel-mcts" and extra_args:
+                        old_budget = extra_args.get("budget", 0)
+                        extra_args["budget"] = adaptive_budget
+                        if old_budget != adaptive_budget:
+                            logger.info(
+                                f"[AdaptiveBudget] {config_key}: {old_budget} -> {adaptive_budget} "
+                                f"({get_budget_tier_name(adaptive_budget)})"
+                            )
 
                 # Update the config with the selected engine
                 selected["engine_mode"] = actual_engine
