@@ -457,6 +457,108 @@ def auto_tune_batch_size(
     return tuner.find_optimal_batch_size(min_batch, max_batch)
 
 
+def get_optimal_batch_size_from_gpu_memory(
+    model_params: int = 10_000_000,  # ~10M params default
+    feature_channels: int = 56,
+    board_size: int = 8,
+    num_players: int = 4,
+    target_memory_fraction: float = 0.7,
+    min_batch: int = 64,
+    max_batch: int = 8192,
+) -> int:
+    """
+    Calculate optimal batch size based on available GPU memory.
+
+    This is a fast heuristic that avoids expensive profiling. It estimates
+    memory usage per sample and calculates the largest batch that fits
+    in the target memory fraction.
+
+    Args:
+        model_params: Number of model parameters (used for gradient memory)
+        feature_channels: Number of input feature channels
+        board_size: Board size (e.g., 8 for 8x8)
+        num_players: Number of players (affects value head size)
+        target_memory_fraction: Fraction of GPU memory to target (0.7 = 70%)
+        min_batch: Minimum batch size
+        max_batch: Maximum batch size
+
+    Returns:
+        Optimal batch size
+
+    Example:
+        >>> batch = get_optimal_batch_size_from_gpu_memory()
+        >>> print(f"Optimal batch size: {batch}")
+    """
+    try:
+        import torch
+        if not torch.cuda.is_available():
+            logger.info("[AutoBatchSize] No CUDA available, using min_batch")
+            return min_batch
+
+        # Get total GPU memory
+        device = torch.cuda.current_device()
+        total_memory = torch.cuda.get_device_properties(device).total_memory
+
+        # Get currently allocated memory
+        allocated_memory = torch.cuda.memory_allocated(device)
+
+        # Available memory for training
+        available_memory = total_memory - allocated_memory
+        target_memory = int(available_memory * target_memory_fraction)
+
+        # Estimate memory per sample (in bytes)
+        # Components:
+        # 1. Feature tensor: feature_channels * board_size^2 * 4 bytes (float32)
+        # 2. Globals tensor: ~50 floats * 4 bytes
+        # 3. Policy targets: ~7000 * 4 bytes (for square8)
+        # 4. Value targets: num_players * 4 bytes
+        # 5. Intermediate activations: ~10x feature size (conservative)
+        # 6. Gradients: same as activations
+
+        feature_mem = feature_channels * board_size * board_size * 4
+        globals_mem = 50 * 4
+        policy_mem = 7000 * 4  # Conservative for largest policy
+        value_mem = num_players * 4
+        activation_mem = feature_mem * 10  # Conservative multiplier for activations
+        gradient_mem = activation_mem  # Gradients roughly equal activations
+
+        bytes_per_sample = feature_mem + globals_mem + policy_mem + value_mem + activation_mem + gradient_mem
+
+        # Model parameter memory (loaded once, not per sample)
+        # Parameters + gradients + optimizer states (Adam: 2x for m and v)
+        model_overhead = model_params * 4 * 4  # params + grads + 2 optimizer states
+
+        # Subtract model overhead from available memory
+        memory_for_batches = max(0, target_memory - model_overhead)
+
+        # Calculate optimal batch size
+        optimal_batch = memory_for_batches // bytes_per_sample
+
+        # Round down to power of 2 for efficiency
+        if optimal_batch >= 64:
+            optimal_batch = 2 ** (optimal_batch.bit_length() - 1)
+
+        # Clamp to bounds
+        optimal_batch = max(min_batch, min(max_batch, optimal_batch))
+
+        logger.info(
+            f"[AutoBatchSize] GPU: {total_memory / 1e9:.1f}GB total, "
+            f"{available_memory / 1e9:.1f}GB available, "
+            f"targeting {target_memory / 1e9:.1f}GB ({target_memory_fraction*100:.0f}%)"
+        )
+        logger.info(
+            f"[AutoBatchSize] Estimated {bytes_per_sample / 1024:.1f}KB/sample, "
+            f"model overhead {model_overhead / 1e9:.2f}GB"
+        )
+        logger.info(f"[AutoBatchSize] Calculated optimal batch size: {optimal_batch}")
+
+        return optimal_batch
+
+    except Exception as e:
+        logger.warning(f"[AutoBatchSize] Failed to calculate optimal batch size: {e}")
+        return min_batch
+
+
 @dataclass
 class TrainConfig:
     """Configuration for training run.

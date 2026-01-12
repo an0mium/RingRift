@@ -104,12 +104,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help='Number of training epochs'
     )
     parser.add_argument(
-        '--batch-size', type=int, default=256,
-        help='Training batch size (default: 256 for better generalization)'
+        '--batch-size', type=int, default=None,
+        help='Training batch size. If not specified, auto-detects optimal size based on GPU memory.'
     )
     parser.add_argument(
-        '--auto-tune-batch-size', action='store_true',
-        help='Auto-tune batch size via profiling (15-30%% faster, overrides --batch-size)'
+        '--auto-tune-batch-size', action='store_true', default=True,
+        help='Auto-tune batch size based on GPU memory (default: enabled). Use --no-auto-tune-batch-size to disable.'
+    )
+    parser.add_argument(
+        '--no-auto-tune-batch-size', action='store_true',
+        help='Disable auto-tuning batch size. Uses --batch-size value (default: 256) or explicit value.'
     )
     parser.add_argument(
         '--track-calibration', action='store_true',
@@ -1008,7 +1012,8 @@ def main() -> None:
         model_version=model_version,
         num_res_blocks=getattr(args, 'num_res_blocks', None),
         num_filters=getattr(args, 'num_filters', None),
-        auto_tune_batch_size=getattr(args, 'auto_tune_batch_size', False),
+        # January 2026: Auto-tune batch size enabled by default for optimal GPU utilization
+        auto_tune_batch_size=not getattr(args, 'no_auto_tune_batch_size', False),
         track_calibration=getattr(args, 'track_calibration', False),
         # 2024-12 Hot Data Buffer and Integrated Enhancements
         use_hot_data_buffer=getattr(args, 'use_hot_data_buffer', False),

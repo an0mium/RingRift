@@ -2677,30 +2677,39 @@ def train_model(
         enhancements_manager.initialize_all()
 
     # Auto-tune batch size if requested (overrides config.batch_size)
+    # January 2026: Use fast GPU memory heuristic by default for optimal batch size
     if auto_tune_batch_size and str(device).startswith('cuda'):
         try:
-            from app.training.config import auto_tune_batch_size as tune_batch_fn
+            from app.training.config import get_optimal_batch_size_from_gpu_memory
             original_batch = config.batch_size
-            # Get feature shape from model if possible, otherwise use defaults
-            feature_shape = (14 * (config.history_length + 1), board_size, board_size)
-            globals_shape = (20,)  # 20 global features
 
-            logger.info(f"Auto-tuning batch size (original: {original_batch})...")
-            config.batch_size = tune_batch_fn(
-                model=model,
-                device=device,
-                feature_shape=feature_shape,
-                globals_shape=globals_shape,
-                policy_size=policy_size,
-                min_batch=max(32, original_batch // 4),
-                max_batch=min(8192, original_batch * 8),
+            # Count model parameters for memory estimation
+            model_params = sum(p.numel() for p in model.parameters())
+
+            # Get feature channels from model or use defaults
+            try:
+                feature_channels = model.in_channels if hasattr(model, 'in_channels') else 56
+            except Exception:
+                feature_channels = 56
+
+            logger.info(f"[AutoBatchSize] Calculating optimal batch size from GPU memory...")
+            logger.info(f"[AutoBatchSize] Model params: {model_params:,}, board_size: {board_size}, num_players: {num_players}")
+
+            config.batch_size = get_optimal_batch_size_from_gpu_memory(
+                model_params=model_params,
+                feature_channels=feature_channels,
+                board_size=board_size,
+                num_players=num_players,
+                target_memory_fraction=0.7,  # Conservative to leave room for activations
+                min_batch=64,
+                max_batch=8192,
             )
-            logger.info(f"Auto-tuned batch size: {config.batch_size} (was {original_batch})")
+            logger.info(f"[AutoBatchSize] Auto-tuned batch size: {config.batch_size} (was {original_batch})")
         except (RuntimeError, ValueError, ImportError) as e:
             # RuntimeError: CUDA/GPU errors during tuning
             # ValueError: invalid batch size values
             # ImportError: auto-tuning module missing
-            logger.warning(f"Batch size auto-tuning failed: {e}. Using original batch size.")
+            logger.warning(f"[AutoBatchSize] Batch size auto-tuning failed: {e}. Using original batch size.")
 
     # Auto-detect canonical model for iterative training (January 2026)
     # If no init_weights specified and not resuming, use the existing canonical model
