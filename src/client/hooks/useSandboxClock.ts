@@ -186,18 +186,23 @@ export function useSandboxClock(gameState: GameState | null): UseSandboxClockRet
   }, [clockEnabled, gameState?.gameStatus]);
 
   // Compute display times on-the-fly (don't mutate playerTimes during turn)
-  const displayPlayerTimes = { ...playerTimes };
-  if (
-    clockEnabled &&
-    gameState &&
-    gameState.gameStatus === 'active' &&
-    turnStartTimeRef.current !== null
-  ) {
-    const currentPlayer = gameState.currentPlayer;
-    const baseTime =
-      turnBaseTimeRef.current ?? playerTimes[currentPlayer] ?? timeControl.initialTimeMs;
-    const elapsed = Date.now() - turnStartTimeRef.current;
-    displayPlayerTimes[currentPlayer] = Math.max(0, baseTime - elapsed);
+  // Start with initial times for all players, then overlay stored times
+  const displayPlayerTimes: Record<number, number> = {};
+  if (clockEnabled && gameState) {
+    // Initialize all players with initial time
+    for (const player of gameState.players) {
+      displayPlayerTimes[player.playerNumber] =
+        playerTimes[player.playerNumber] ?? timeControl.initialTimeMs;
+    }
+
+    // For the current player during active game, compute elapsed time
+    if (gameState.gameStatus === 'active' && turnStartTimeRef.current !== null) {
+      const currentPlayer = gameState.currentPlayer;
+      const baseTime =
+        turnBaseTimeRef.current ?? playerTimes[currentPlayer] ?? timeControl.initialTimeMs;
+      const elapsed = Date.now() - turnStartTimeRef.current;
+      displayPlayerTimes[currentPlayer] = Math.max(0, baseTime - elapsed);
+    }
   }
 
   return {
