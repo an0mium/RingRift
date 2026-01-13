@@ -33,6 +33,26 @@ export interface QuickStartPreset {
 }
 
 /**
+ * Board type display labels for UI
+ */
+const BOARD_TYPE_LABELS: Record<BoardType, string> = {
+  square8: 'sq8',
+  hex8: 'hex8',
+  square19: 'sq19',
+  hexagonal: 'hex24',
+};
+
+/**
+ * Board type row headers for grouping
+ */
+const BOARD_TYPE_ROW_HEADERS: Record<BoardType, string> = {
+  square8: '8×8 Square',
+  hex8: '8-Hex Compact',
+  square19: '19×19 Square',
+  hexagonal: '24-Hex Full',
+};
+
+/**
  * Sandbox time control configuration
  */
 export interface SandboxTimeControl {
@@ -92,16 +112,17 @@ export const BOARD_PRESETS: BoardPreset[] = [
 ];
 
 /**
- * Default quick-start presets
+ * Default quick-start presets (5 per board type)
  */
 export const QUICK_START_PRESETS: QuickStartPreset[] = [
+  // ===== sq8 presets (5) =====
   {
-    id: 'learn-basics',
-    label: 'Learn the Basics',
-    description: 'Best for first-time players',
+    id: 'sq8-1h-1ai',
+    label: 'Human vs AI',
+    description: '1 human, 1 AI',
     learnMoreText:
-      'Start here to learn ring placement, movement, and captures on a compact board. The AI plays at a beginner-friendly level.',
-    icon: '📚',
+      'Standard 1v1 match against the AI. Great for learning and practicing strategies.',
+    icon: '🤖',
     badge: 'Recommended',
     config: {
       boardType: 'square8',
@@ -110,61 +131,9 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
     },
   },
   {
-    id: 'human-vs-ai',
-    label: 'Human vs AI',
-    description: 'Quick 1v1 against the computer',
-    learnMoreText:
-      'A standard match against the AI. Practice your strategies and see how different tactics play out.',
-    icon: '🤖',
-    config: {
-      boardType: 'square8',
-      numPlayers: 2,
-      playerTypes: ['human', 'ai', 'human', 'human'],
-    },
-  },
-  {
-    id: 'square19-human-vs-ai',
-    label: 'Full Board vs AI',
-    description: '19×19 human vs AI marathon',
-    learnMoreText:
-      'Play a full-length RingRift game on the 19×19 board against the AI. Best once you are comfortable on 8×8.',
-    icon: '🏰',
-    config: {
-      boardType: 'square19',
-      numPlayers: 2,
-      playerTypes: ['human', 'ai', 'human', 'human'],
-    },
-  },
-  {
-    id: 'ai-battle',
-    label: 'AI Battle',
-    description: 'Watch two AIs compete',
-    learnMoreText:
-      'Observe AI strategies without playing. Great for learning tactics and understanding game flow.',
-    icon: '⚔️',
-    config: {
-      boardType: 'square8',
-      numPlayers: 2,
-      playerTypes: ['ai', 'ai', 'human', 'human'],
-    },
-  },
-  {
-    id: 'square19-ai-battle',
-    label: 'Full Board AI Battle',
-    description: 'Watch two AIs on 19×19',
-    learnMoreText:
-      'Let two AIs play a long game on the classic 19×19 board. Good for observing late-game territory and elimination patterns.',
-    icon: '🎥',
-    config: {
-      boardType: 'square19',
-      numPlayers: 2,
-      playerTypes: ['ai', 'ai', 'human', 'human'],
-    },
-  },
-  {
-    id: 'hotseat',
+    id: 'sq8-2h',
     label: 'Hotseat',
-    description: 'Two humans on one device',
+    description: '2 humans',
     learnMoreText:
       'Pass-and-play mode for two players sharing a device. Take turns and compete face-to-face.',
     icon: '👥',
@@ -175,25 +144,49 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
     },
   },
   {
-    id: 'hex-challenge',
-    label: 'Hex Challenge',
-    description: 'Human vs AI on hex board',
-    learnMoreText:
-      'Hexagonal boards offer 6-way movement and unique tactical possibilities. A step up in complexity.',
-    icon: '⬡',
+    id: 'sq8-2ai',
+    label: 'AI Battle',
+    description: '2 AIs',
+    learnMoreText: 'Watch two AIs compete. Great for learning tactics and understanding game flow.',
+    icon: '⚔️',
     config: {
-      boardType: 'hexagonal',
+      boardType: 'square8',
       numPlayers: 2,
-      playerTypes: ['human', 'ai', 'human', 'human'],
+      playerTypes: ['ai', 'ai', 'human', 'human'],
     },
   },
   {
-    id: 'hex8-vs-ai',
-    label: 'Hex 8 vs AI',
-    description: 'Human vs AI on compact hex',
+    id: 'sq8-2h-1ai',
+    label: 'Co-op vs AI',
+    description: '2 humans, 1 AI',
+    learnMoreText: 'Team up with a friend against one AI opponent. Coordinate your strategies!',
+    icon: '🤝',
+    config: {
+      boardType: 'square8',
+      numPlayers: 3,
+      playerTypes: ['human', 'human', 'ai', 'human'],
+    },
+  },
+  {
+    id: 'sq8-1h-2ai',
+    label: 'Challenge',
+    description: '1 human, 2 AIs',
+    learnMoreText: 'Test your skills against two AI opponents. Can you outplay them both?',
+    icon: '🎯',
+    config: {
+      boardType: 'square8',
+      numPlayers: 3,
+      playerTypes: ['human', 'ai', 'ai', 'human'],
+    },
+  },
+  // ===== hex8 presets (5) =====
+  {
+    id: 'hex8-1h-1ai',
+    label: 'Human vs AI',
+    description: '1 human, 1 AI',
     learnMoreText:
-      'A smaller hex board for faster games. Same 6-way movement as full hex, but quicker to learn and play.',
-    icon: '⬡',
+      'A smaller hex board for faster games. Same 6-way movement as full hex, but quicker.',
+    icon: '🤖',
     config: {
       boardType: 'hex8',
       numPlayers: 2,
@@ -201,11 +194,145 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
     },
   },
   {
-    id: 'four-player',
-    label: '4-Player Free-for-All',
-    description: 'Chaotic multiplayer on hex',
+    id: 'hex8-2h',
+    label: 'Hotseat',
+    description: '2 humans',
+    learnMoreText: 'Pass-and-play mode on compact hex. Take turns with 6-directional movement.',
+    icon: '👥',
+    config: {
+      boardType: 'hex8',
+      numPlayers: 2,
+      playerTypes: ['human', 'human', 'human', 'human'],
+    },
+  },
+  {
+    id: 'hex8-2ai',
+    label: 'AI Battle',
+    description: '2 AIs',
+    learnMoreText: 'Watch two AIs compete on compact hex. Fast-paced 6-directional gameplay.',
+    icon: '⚔️',
+    config: {
+      boardType: 'hex8',
+      numPlayers: 2,
+      playerTypes: ['ai', 'ai', 'human', 'human'],
+    },
+  },
+  {
+    id: 'hex8-2h-1ai',
+    label: 'Co-op vs AI',
+    description: '2 humans, 1 AI',
+    learnMoreText: 'Team up against the AI on compact hex. Fast co-op battles!',
+    icon: '🤝',
+    config: {
+      boardType: 'hex8',
+      numPlayers: 3,
+      playerTypes: ['human', 'human', 'ai', 'human'],
+    },
+  },
+  {
+    id: 'hex8-1h-2ai',
+    label: 'Challenge',
+    description: '1 human, 2 AIs',
+    learnMoreText: 'Face two AI opponents on compact hex. Quick and intense!',
+    icon: '🎯',
+    config: {
+      boardType: 'hex8',
+      numPlayers: 3,
+      playerTypes: ['human', 'ai', 'ai', 'human'],
+    },
+  },
+  // ===== sq19 presets (5) =====
+  {
+    id: 'sq19-1h-1ai',
+    label: 'Human vs AI',
+    description: '1 human, 1 AI',
+    learnMoreText: 'Full-length RingRift on 19×19. Best once you are comfortable on 8×8.',
+    icon: '🤖',
+    config: {
+      boardType: 'square19',
+      numPlayers: 2,
+      playerTypes: ['human', 'ai', 'human', 'human'],
+    },
+  },
+  {
+    id: 'sq19-2h',
+    label: 'Hotseat',
+    description: '2 humans',
+    learnMoreText: 'Pass-and-play on the full 19×19 board. Epic long-form competition.',
+    icon: '👥',
+    config: {
+      boardType: 'square19',
+      numPlayers: 2,
+      playerTypes: ['human', 'human', 'human', 'human'],
+    },
+  },
+  {
+    id: 'sq19-2ai',
+    label: 'AI Battle',
+    description: '2 AIs',
     learnMoreText:
-      'Compete against three AI opponents. Alliances shift, territory control is crucial, and no one is safe.',
+      'Watch two AIs play on 19×19. Great for observing territory and elimination patterns.',
+    icon: '⚔️',
+    config: {
+      boardType: 'square19',
+      numPlayers: 2,
+      playerTypes: ['ai', 'ai', 'human', 'human'],
+    },
+  },
+  {
+    id: 'sq19-2h-1ai',
+    label: 'Co-op vs AI',
+    description: '2 humans, 1 AI',
+    learnMoreText: 'Team up on the full board against one AI. Epic cooperative strategy!',
+    icon: '🤝',
+    config: {
+      boardType: 'square19',
+      numPlayers: 3,
+      playerTypes: ['human', 'human', 'ai', 'human'],
+    },
+  },
+  {
+    id: 'sq19-1h-2ai',
+    label: 'Challenge',
+    description: '1 human, 2 AIs',
+    learnMoreText: 'Face two AIs on the full 19×19 board. Territory control is critical.',
+    icon: '🎯',
+    config: {
+      boardType: 'square19',
+      numPlayers: 3,
+      playerTypes: ['human', 'ai', 'ai', 'human'],
+    },
+  },
+  // ===== hexagonal presets (5) =====
+  {
+    id: 'hex24-1h-1ai',
+    label: 'Human vs AI',
+    description: '1 human, 1 AI',
+    learnMoreText: 'Full hex board with 6-way movement. Unique tactical possibilities.',
+    icon: '🤖',
+    config: {
+      boardType: 'hexagonal',
+      numPlayers: 2,
+      playerTypes: ['human', 'ai', 'human', 'human'],
+    },
+  },
+  {
+    id: 'hex24-2h',
+    label: 'Hotseat',
+    description: '2 humans',
+    learnMoreText: 'Pass-and-play on the full hex board. 6-directional strategic depth.',
+    icon: '👥',
+    config: {
+      boardType: 'hexagonal',
+      numPlayers: 2,
+      playerTypes: ['human', 'human', 'human', 'human'],
+    },
+  },
+  {
+    id: 'hex24-1h-3ai',
+    label: '4-Player FFA',
+    description: '1 human, 3 AIs',
+    learnMoreText: 'Epic 4-player battle on the full hex board. Chaotic 6-way warfare!',
     icon: '🎲',
     config: {
       boardType: 'hexagonal',
@@ -214,55 +341,27 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
     },
   },
   {
-    id: 'hex-ai-battle-2p',
-    label: 'Hex AI Battle (2P)',
-    description: 'Watch two AIs on hex board',
-    learnMoreText:
-      'Two AI players compete from an empty hex board. Watch how they develop positions, form lines, and compete for territory using 6-directional movement.',
-    icon: '⬡',
-    config: {
-      boardType: 'hexagonal',
-      numPlayers: 2,
-      playerTypes: ['ai', 'ai', 'human', 'human'],
-    },
-  },
-  {
-    id: 'hex-ai-battle-3p',
-    label: 'Hex AI Battle (3P)',
-    description: 'Three AIs battle on hex',
-    learnMoreText:
-      'Three AI players compete on the hex board. Watch how they balance aggression and defense when facing multiple opponents simultaneously.',
-    icon: '⬡',
+    id: 'hex24-2h-1ai',
+    label: 'Co-op vs AI',
+    description: '2 humans, 1 AI',
+    learnMoreText: 'Team up on the full hex board against one AI. Coordinate 6-way attacks!',
+    icon: '🤝',
     config: {
       boardType: 'hexagonal',
       numPlayers: 3,
-      playerTypes: ['ai', 'ai', 'ai', 'human'],
+      playerTypes: ['human', 'human', 'ai', 'human'],
     },
   },
   {
-    id: 'hex-ai-battle-4p',
-    label: 'Hex AI Battle (4P)',
-    description: 'Four AIs clash on hex',
-    learnMoreText:
-      'Four AI players compete on the hex board. With limited space, watch how AIs handle crowded conditions with frequent captures and territory battles.',
-    icon: '⬡',
+    id: 'hex24-1h-2ai',
+    label: 'Challenge',
+    description: '1 human, 2 AIs',
+    learnMoreText: 'Face two AIs on the full hex board. Balance aggression and defense!',
+    icon: '🎯',
     config: {
       boardType: 'hexagonal',
-      numPlayers: 4,
-      playerTypes: ['ai', 'ai', 'ai', 'ai'],
-    },
-  },
-  {
-    id: 'hex8-ai-battle',
-    label: 'Hex 8 AI Battle',
-    description: 'Watch AIs on compact hex',
-    learnMoreText:
-      'Two AI players compete on the smaller hex board. Fast-paced games with 6-directional movement.',
-    icon: '⬡',
-    config: {
-      boardType: 'hex8',
-      numPlayers: 2,
-      playerTypes: ['ai', 'ai', 'human', 'human'],
+      numPlayers: 3,
+      playerTypes: ['human', 'ai', 'ai', 'human'],
     },
   },
 ];
@@ -407,44 +506,67 @@ export const SandboxGameConfig: React.FC<SandboxGameConfigProps> = ({
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {QUICK_START_PRESETS.map((preset) => {
-            const isLearnBasics = preset.id === 'learn-basics';
-            const shouldHighlight = isLearnBasics && isFirstTimePlayer;
+        {/* Group presets by board type in rows */}
+        <div className="space-y-3">
+          {(['square8', 'hex8', 'square19', 'hexagonal'] as BoardType[]).map((boardType) => {
+            const presetsForType = QUICK_START_PRESETS.filter(
+              (p) => p.config.boardType === boardType
+            );
+            if (presetsForType.length === 0) return null;
 
             return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => onQuickStartPreset(preset)}
-                title={preset.learnMoreText}
-                className={`relative flex items-center gap-2 px-3 py-2 rounded-xl border text-slate-200 transition text-sm ${
-                  shouldHighlight
-                    ? 'border-emerald-400 bg-emerald-900/40 ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-slate-900 animate-pulse hover:animate-none hover:bg-emerald-900/50'
-                    : preset.badge
-                      ? 'border-emerald-500/50 bg-emerald-900/20 hover:border-emerald-400 hover:bg-emerald-900/30'
-                      : 'border-slate-600 bg-slate-900/60 hover:border-emerald-400'
-                } hover:text-emerald-200`}
-              >
-                {preset.badge && (
-                  <span
-                    className={`absolute -top-2 -right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${
-                      shouldHighlight
-                        ? 'bg-emerald-400 text-slate-950'
-                        : 'bg-emerald-500 text-slate-950'
-                    }`}
-                  >
-                    {shouldHighlight ? '✨ Start Here' : preset.badge}
-                  </span>
-                )}
-                <span className="text-lg" role="img" aria-hidden="true">
-                  {preset.icon}
-                </span>
-                <div className="text-left">
-                  <p className="font-semibold">{preset.label}</p>
-                  <p className="text-xs text-slate-400">{preset.description}</p>
+              <div key={boardType}>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-1.5">
+                  {BOARD_TYPE_ROW_HEADERS[boardType]}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {presetsForType.map((preset) => {
+                    const isLearnBasics = preset.id === 'learn-basics';
+                    const shouldHighlight = isLearnBasics && isFirstTimePlayer;
+                    const boardLabel = BOARD_TYPE_LABELS[preset.config.boardType];
+
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => onQuickStartPreset(preset)}
+                        title={preset.learnMoreText}
+                        className={`relative flex items-center gap-2 px-3 py-2 rounded-xl border text-slate-200 transition text-sm ${
+                          shouldHighlight
+                            ? 'border-emerald-400 bg-emerald-900/40 ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-slate-900 animate-pulse hover:animate-none hover:bg-emerald-900/50'
+                            : preset.badge
+                              ? 'border-emerald-500/50 bg-emerald-900/20 hover:border-emerald-400 hover:bg-emerald-900/30'
+                              : 'border-slate-600 bg-slate-900/60 hover:border-emerald-400'
+                        } hover:text-emerald-200`}
+                      >
+                        {preset.badge && (
+                          <span
+                            className={`absolute -top-2 -right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${
+                              shouldHighlight
+                                ? 'bg-emerald-400 text-slate-950'
+                                : 'bg-emerald-500 text-slate-950'
+                            }`}
+                          >
+                            {shouldHighlight ? '✨ Start Here' : preset.badge}
+                          </span>
+                        )}
+                        <span className="text-lg" role="img" aria-hidden="true">
+                          {preset.icon}
+                        </span>
+                        <div className="text-left">
+                          <p className="font-semibold">
+                            {preset.label}
+                            <span className="ml-1.5 text-[10px] font-normal text-slate-500">
+                              {boardLabel}
+                            </span>
+                          </p>
+                          <p className="text-xs text-slate-400">{preset.description}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>

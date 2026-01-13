@@ -162,63 +162,91 @@ export function useSandboxDecisionHandlers({
           size: number;
           representativePosition: Position;
           moveId: string;
+          spaces?: Position[]; // RR-FIX-2026-01-12: Added for direct position matching
         }>;
 
         if (options.length === 0) {
           return true; // Handled but nothing to do
         }
 
-        const engine = sandboxEngine;
-        const state = engine?.getGameState();
-        const territories = state?.board.territories;
+        let selectedOption: (typeof options)[number] | undefined;
 
-        if (!engine || !state || !territories || territories.size === 0) {
-          return true;
-        }
+        // RR-FIX-2026-01-12: First try to match using option.spaces directly.
+        // This is more reliable than looking up from territories map which may be stale.
+        const optionsWithSpaces = options.filter((opt) => opt.spaces && opt.spaces.length > 0);
+        if (optionsWithSpaces.length > 0) {
+          const matchingBySpaces = optionsWithSpaces.filter((opt) =>
+            opt.spaces!.some((space) => positionsEqual(space, pos))
+          );
 
-        // Identify which territory region(s) contain the clicked cell
-        const clickedRegionIds: string[] = [];
-        territories.forEach((territory, regionId) => {
-          const spaces = territory.spaces ?? [];
-          if (spaces.some((space) => positionsEqual(space, pos))) {
-            clickedRegionIds.push(regionId);
+          if (matchingBySpaces.length === 1) {
+            selectedOption = matchingBySpaces[0];
+          } else if (matchingBySpaces.length > 1) {
+            // Multiple regions overlap at this cell - show disambiguation prompt
+            setTerritoryRegionPrompt({
+              options: matchingBySpaces,
+              clickedPosition: pos,
+            });
+            return true;
           }
-        });
-
-        // Find all options whose regions contain the clicked cell.
-        const matchingOptions = options.filter((opt) => clickedRegionIds.includes(opt.regionId));
-
-        // If multiple regions overlap at this cell, show disambiguation prompt
-        if (matchingOptions.length > 1) {
-          setTerritoryRegionPrompt({
-            options: matchingOptions,
-            clickedPosition: pos,
-          });
-          return true;
+          // If no match via spaces, selectedOption remains undefined - fall through to territories lookup
         }
 
-        let selectedOption: (typeof options)[number] | undefined =
-          matchingOptions.length === 1 ? matchingOptions[0] : undefined;
-
-        // Fallback: representative-position heuristic
+        // Fallback: Look up from territories map (may have stale regionIds)
         if (!selectedOption) {
-          territories.forEach((territory, regionId) => {
-            if (selectedOption) return;
-            const spaces = territory.spaces ?? [];
-            const containsClick = spaces.some((space) => positionsEqual(space, pos));
-            if (!containsClick) return;
+          const engine = sandboxEngine;
+          const state = engine?.getGameState();
+          const territories = state?.board.territories;
 
-            const hasRepresentative = spaces.some((space) =>
-              options.some((opt) => positionsEqual(opt.representativePosition, space))
+          if (engine && state && territories && territories.size > 0) {
+            // Identify which territory region(s) contain the clicked cell
+            const clickedRegionIds: string[] = [];
+            territories.forEach((territory, regionId) => {
+              const spaces = territory.spaces ?? [];
+              if (spaces.some((space) => positionsEqual(space, pos))) {
+                clickedRegionIds.push(regionId);
+              }
+            });
+
+            // Find all options whose regions contain the clicked cell.
+            const matchingOptions = options.filter((opt) =>
+              clickedRegionIds.includes(opt.regionId)
             );
-            if (hasRepresentative) {
-              selectedOption = options.find((opt) =>
-                spaces.some((space) => positionsEqual(space, opt.representativePosition))
-              );
-            } else {
-              selectedOption = options.find((opt) => opt.regionId === regionId);
+
+            // If multiple regions overlap at this cell, show disambiguation prompt
+            if (matchingOptions.length > 1) {
+              setTerritoryRegionPrompt({
+                options: matchingOptions,
+                clickedPosition: pos,
+              });
+              return true;
             }
-          });
+
+            if (matchingOptions.length === 1) {
+              selectedOption = matchingOptions[0];
+            }
+
+            // Final fallback: representative-position heuristic
+            if (!selectedOption) {
+              territories.forEach((territory, regionId) => {
+                if (selectedOption) return;
+                const spaces = territory.spaces ?? [];
+                const containsClick = spaces.some((space) => positionsEqual(space, pos));
+                if (!containsClick) return;
+
+                const hasRepresentative = spaces.some((space) =>
+                  options.some((opt) => positionsEqual(opt.representativePosition, space))
+                );
+                if (hasRepresentative) {
+                  selectedOption = options.find((opt) =>
+                    spaces.some((space) => positionsEqual(space, opt.representativePosition))
+                  );
+                } else {
+                  selectedOption = options.find((opt) => opt.regionId === regionId);
+                }
+              });
+            }
+          }
         }
 
         if (selectedOption) {
@@ -266,10 +294,17 @@ export function useSandboxDecisionHandlers({
           return true;
         }
 
-        // RR-FIX-2026-01-11: Return false when no matching option found so the phase
-        // handler can try fallback logic using getValidMoves(). Previously returned
-        // true unconditionally, which blocked the line_processing phase handler from
-        // processing elimination moves when the decision options were empty or stale.
+        // RR-FIX-2026-01-12: If there are valid options with a resolver waiting, block
+        // fall-through to prevent normal movement handling from interfering. Only return
+        // false when options are empty (stale choice) to allow phase handler fallback.
+        if (options.length > 0 && choiceResolverRef.current) {
+          // User clicked elsewhere while elimination choice is active.
+          // Block the click - they must click on a highlighted elimination target.
+          // The UI should be showing valid targets via decisionHighlights.
+          return true;
+        }
+
+        // Options empty or no resolver - allow phase handler fallback via getValidMoves()
         return false;
       }
 
