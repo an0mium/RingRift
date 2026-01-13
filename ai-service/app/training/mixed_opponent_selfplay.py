@@ -68,17 +68,18 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
     maximum training diversity across different search strategies.
     """
 
-    # Default mix for all player counts (unified Dec 31, 2025)
-    # All search algorithms now support 2-4 players
+    # Default mix for all player counts (unified Dec 31, 2025, updated Jan 13, 2026)
+    # Jan 13, 2026: Increased heuristic to 50% for stronger training signal.
+    # Target: ~50% heuristic, ~30% NN-based, ~20% search diversity
     DEFAULT_MIX = {
-        "random": 0.10,       # Pure exploration
-        "heuristic": 0.15,    # Fast tactical play
-        "mcts": 0.20,         # Strong strategic play (Gumbel MCTS)
-        "minimax": 0.15,      # Alpha-beta/Paranoid search
-        "maxn": 0.10,         # Max-N score vectors
-        "brs": 0.10,          # Fast best-reply search
-        "policy_only": 0.10,  # Direct neural network policy
-        "descent": 0.10,      # Gradient-based exploration
+        "random": 0.05,       # Pure exploration (baseline)
+        "heuristic": 0.50,    # Strong tactical signal - dominates training
+        "mcts": 0.15,         # Strong strategic play (Gumbel MCTS) - NN-based
+        "minimax": 0.05,      # Alpha-beta/Paranoid search
+        "maxn": 0.05,         # Max-N score vectors
+        "brs": 0.05,          # Fast best-reply search
+        "policy_only": 0.10,  # Direct neural network policy - NN-based
+        "descent": 0.05,      # Gradient-based exploration - NN-based
     }
 
     # Legacy aliases for backward compatibility
