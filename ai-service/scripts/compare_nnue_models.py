@@ -19,10 +19,64 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+import torch
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.ai.nnue import NNUEEvaluator, load_nnue_model
+from app.ai.nnue import RingRiftNNUE, extract_features_from_mutable
+from app.models import BoardType
 from app.rules import MutableGameState, create_game_state
+from app.utils.torch_utils import safe_load_checkpoint
+
+
+def load_nnue_model_from_path(model_path: str) -> RingRiftNNUE:
+    """Load an NNUE model from a checkpoint file."""
+    checkpoint = safe_load_checkpoint(model_path, map_location="cpu")
+
+    # Get model config from checkpoint
+    board_type_str = checkpoint.get("board_type", "square8")
+    if isinstance(board_type_str, str):
+        board_type = BoardType(board_type_str)
+    else:
+        board_type = board_type_str
+
+    hidden_dim = checkpoint.get("hidden_dim", 256)
+    num_hidden_layers = checkpoint.get("num_hidden_layers", 2)
+
+    # Create model
+    model = RingRiftNNUE(
+        board_type=board_type,
+        hidden_dim=hidden_dim,
+        num_hidden_layers=num_hidden_layers,
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+
+    return model
+
+
+class SimpleNNUEEvaluator:
+    """Simple wrapper for NNUE model evaluation.
+
+    Wraps a pre-loaded NNUE model and provides evaluation methods.
+    """
+
+    SCORE_SCALE = 10000.0
+
+    def __init__(self, model: RingRiftNNUE, player_number: int = 0):
+        self.model = model
+        self.player_number = player_number
+        self.available = model is not None
+
+    def evaluate(self, state: MutableGameState) -> float:
+        """Evaluate a mutable game state."""
+        if not self.available or self.model is None:
+            return 0.0
+
+        features = extract_features_from_mutable(state, self.player_number)
+        with torch.no_grad():
+            value = self.model.forward_single(features)
+        return value * self.SCORE_SCALE
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -37,8 +91,8 @@ class GameResult:
 
 
 def play_game(
-    eval_a: NNUEEvaluator,
-    eval_b: NNUEEvaluator,
+    eval_a: SimpleNNUEEvaluator,
+    eval_b: SimpleNNUEEvaluator,
     board_type: str = "square8",
     num_players: int = 2,
     max_moves: int = 300,
@@ -133,16 +187,16 @@ def run_comparison(
     # Load models
     print("\nLoading models...")
     try:
-        model_a = load_nnue_model(str(model_a_path))
-        eval_a = NNUEEvaluator(model_a, board_type=board_type, num_players=num_players)
+        model_a = load_nnue_model_from_path(str(model_a_path))
+        eval_a = SimpleNNUEEvaluator(model_a, player_number=0)
         print(f"  Model A loaded: {sum(p.numel() for p in model_a.parameters())} params")
     except Exception as e:
         print(f"  ERROR loading Model A: {e}")
         return {"error": str(e)}
 
     try:
-        model_b = load_nnue_model(str(model_b_path))
-        eval_b = NNUEEvaluator(model_b, board_type=board_type, num_players=num_players)
+        model_b = load_nnue_model_from_path(str(model_b_path))
+        eval_b = SimpleNNUEEvaluator(model_b, player_number=0)
         print(f"  Model B loaded: {sum(p.numel() for p in model_b.parameters())} params")
     except Exception as e:
         print(f"  ERROR loading Model B: {e}")
