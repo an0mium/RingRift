@@ -14461,12 +14461,39 @@ print(json.dumps(result))
 
             logger.info(f"Auto-importing {game_count} validated GPU games to canonical DB...")
 
-            # Use sqlite3 to merge games from validated_db to canonical_db
-            import sqlite3
+            # Jan 12, 2026: Wrap blocking SQLite operations in thread to avoid blocking event loop
+            imported = await asyncio.to_thread(
+                self._import_gpu_selfplay_sync, validated_db, canonical_db
+            )
 
-            # Phase 3.4 Dec 29, 2025: Use context managers to prevent connection leaks
-            with safe_db_connection(validated_db) as src_conn, \
-                 safe_db_connection(canonical_db) as dst_conn:
+            logger.info(f"Successfully imported {imported} GPU selfplay games to canonical DB")
+
+            # Update cluster data manifest to reflect new games
+            config_key = f"{board_type}_{num_players}p"
+            if hasattr(self, 'cluster_data_manifest') and self.cluster_data_manifest and config_key in self.cluster_data_manifest.by_board_type:
+                self.cluster_data_manifest.by_board_type[config_key]["total_games"] = (
+                    self.cluster_data_manifest.by_board_type[config_key].get("total_games", 0) + imported
+                )
+
+            # Notify improvement cycle manager of new games
+            if self.improvement_cycle_manager and imported > 0:
+                self.improvement_cycle_manager.record_games(board_type, num_players, imported)
+
+        except Exception as e:  # noqa: BLE001
+            logger.info(f"GPU selfplay import error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _import_gpu_selfplay_sync(self, validated_db: Path, canonical_db: Path) -> int:
+        """Synchronous helper for _import_gpu_selfplay_to_canonical().
+
+        Jan 12, 2026: Extracted to allow wrapping in asyncio.to_thread().
+        """
+        import sqlite3
+
+        # Phase 3.4 Dec 29, 2025: Use context managers to prevent connection leaks
+        with safe_db_connection(validated_db) as src_conn, \
+             safe_db_connection(canonical_db) as dst_conn:
 
                 # Ensure destination tables exist
                 dst_conn.execute("""
@@ -14559,23 +14586,7 @@ print(json.dumps(result))
 
                     dst_conn.commit()
 
-            logger.info(f"Successfully imported {imported} GPU selfplay games to canonical DB")
-
-            # Update cluster data manifest to reflect new games
-            config_key = f"{board_type}_{num_players}p"
-            if hasattr(self, 'cluster_data_manifest') and self.cluster_data_manifest and config_key in self.cluster_data_manifest.by_board_type:
-                self.cluster_data_manifest.by_board_type[config_key]["total_games"] = (
-                    self.cluster_data_manifest.by_board_type[config_key].get("total_games", 0) + imported
-                )
-
-            # Notify improvement cycle manager of new games
-            if self.improvement_cycle_manager and imported > 0:
-                self.improvement_cycle_manager.record_games(board_type, num_players, imported)
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"GPU selfplay import error: {e}")
-            import traceback
-            traceback.print_exc()
+        return imported
 
     # =========================================================================
 
@@ -17627,7 +17638,8 @@ print(json.dumps(result))
         """
         try:
             hours = float(request.query.get("hours", "24"))
-            summary = self.get_metrics_summary(hours)
+            # Jan 12, 2026: Wrap blocking SQLite call to avoid blocking event loop
+            summary = await asyncio.to_thread(self.get_metrics_summary, hours)
             return web.json_response(summary)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
@@ -17652,7 +17664,9 @@ print(json.dumps(result))
             num_players = int(request.query.get("players")) if request.query.get("players") else None
             limit = int(request.query.get("limit", "1000"))
 
-            history = self.get_metrics_history(
+            # Jan 12, 2026: Wrap blocking SQLite call to avoid blocking event loop
+            history = await asyncio.to_thread(
+                self.get_metrics_history,
                 metric_type=metric_type,
                 board_type=board_type,
                 num_players=num_players,
