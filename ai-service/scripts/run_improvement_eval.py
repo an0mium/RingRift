@@ -137,7 +137,7 @@ def run_improvement_evaluation(
 
                 # Get AI move
                 game_state = mutable.to_immutable()
-                action = ai.get_action(game_state, current_player)
+                action = ai.select_move(game_state)
 
                 if action is None:
                     break
