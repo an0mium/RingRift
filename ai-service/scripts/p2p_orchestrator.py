@@ -9084,25 +9084,41 @@ class P2POrchestrator(
             import shutil
 
             if shutil.which("pgrep"):
-                # Jan 12, 2026: Helper to filter out SSH processes that dispatch to remote nodes
-                # SSH processes with "selfplay" in their args were being counted as local jobs
-                def _get_ssh_pids() -> set[str]:
-                    """Get PIDs of SSH processes (to exclude from local job counts)."""
-                    ssh_pids: set[str] = set()
-                    try:
-                        out = subprocess.run(
-                            ["pgrep", "-f", "^ssh"],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                        )
-                        if out.returncode == 0 and out.stdout.strip():
-                            ssh_pids.update(out.stdout.strip().split())
-                    except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
-                        pass
-                    return ssh_pids
+                # Jan 12, 2026: Helper to filter out non-Python processes
+                # SSH processes and shell wrappers (zsh, bash) with "selfplay" in their args
+                # were being counted as local jobs - only count actual Python processes
+                def _get_excluded_pids() -> set[str]:
+                    """Get PIDs of SSH and shell processes (to exclude from local job counts)."""
+                    excluded_pids: set[str] = set()
+                    # Exclude SSH processes (dispatchers to remote nodes)
+                    for pattern in ("^ssh", "ssh "):
+                        try:
+                            out = subprocess.run(
+                                ["pgrep", "-f", pattern],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
+                            if out.returncode == 0 and out.stdout.strip():
+                                excluded_pids.update(out.stdout.strip().split())
+                        except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+                            pass
+                    # Exclude shell processes (Claude wrappers that contain "selfplay" in args)
+                    for shell_pattern in ("/bin/zsh", "/bin/bash", "/bin/sh"):
+                        try:
+                            out = subprocess.run(
+                                ["pgrep", "-f", shell_pattern],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
+                            if out.returncode == 0 and out.stdout.strip():
+                                excluded_pids.update(out.stdout.strip().split())
+                        except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+                            pass
+                    return excluded_pids
 
-                ssh_pids = _get_ssh_pids()
+                excluded_pids = _get_excluded_pids()
 
                 # December 2025: Added selfplay.py pattern - the current unified selfplay entry point
                 # December 2025: Added gumbel_selfplay and SelfplayRunner patterns for module invocations
@@ -9123,8 +9139,8 @@ class P2POrchestrator(
                         timeout=5,
                     )
                     if out.returncode == 0 and out.stdout.strip():
-                        # Jan 12, 2026: Filter out SSH PIDs - these are dispatchers, not local jobs
-                        pids = [p for p in out.stdout.strip().split() if p and p not in ssh_pids]
+                        # Jan 12, 2026: Filter out excluded PIDs (SSH, shells) - not local jobs
+                        pids = [p for p in out.stdout.strip().split() if p and p not in excluded_pids]
                         selfplay_pids.update(pids)
 
                 for pattern in ("train_", "train.py", "-m app.training.train"):
@@ -9135,8 +9151,8 @@ class P2POrchestrator(
                         timeout=5,
                     )
                     if out.returncode == 0 and out.stdout.strip():
-                        # Jan 12, 2026: Filter out SSH PIDs
-                        pids = [p for p in out.stdout.strip().split() if p and p not in ssh_pids]
+                        # Jan 12, 2026: Filter out excluded PIDs (SSH, shells)
+                        pids = [p for p in out.stdout.strip().split() if p and p not in excluded_pids]
                         training_pids.update(pids)
         except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError, KeyError, IndexError, AttributeError, ImportError):
             pass
@@ -25033,10 +25049,11 @@ print(json.dumps({{
         try:
             # Count actual selfplay processes
             # Use asyncio.to_thread to avoid blocking event loop (fix Dec 2025)
-            # Jan 12, 2026: Use Python subprocess to exclude SSH processes from count
+            # Jan 12, 2026: Use Python subprocess to exclude non-Python processes from count
             # The old pgrep -fc "selfplay|gpu_selfplay" was counting SSH dispatcher processes
+            # and shell wrappers (zsh, bash) from Claude commands
             def _count_local_selfplay_processes() -> int:
-                """Count local selfplay processes, excluding SSH dispatchers."""
+                """Count local selfplay processes, excluding SSH dispatchers and shells."""
                 try:
                     # Get all selfplay-related PIDs
                     result = subprocess.run(
@@ -25049,19 +25066,23 @@ print(json.dumps({{
                         return 0
                     all_pids = set(result.stdout.strip().split())
 
-                    # Get SSH PIDs to exclude
-                    ssh_result = subprocess.run(
-                        ["pgrep", "-f", "^ssh"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    ssh_pids = set()
-                    if ssh_result.returncode == 0 and ssh_result.stdout.strip():
-                        ssh_pids = set(ssh_result.stdout.strip().split())
+                    # Get PIDs to exclude (SSH and shell processes)
+                    excluded_pids: set[str] = set()
+                    for pattern in ("^ssh", "ssh ", "/bin/zsh", "/bin/bash", "/bin/sh"):
+                        try:
+                            exclude_result = subprocess.run(
+                                ["pgrep", "-f", pattern],
+                                capture_output=True,
+                                text=True,
+                                timeout=5,
+                            )
+                            if exclude_result.returncode == 0 and exclude_result.stdout.strip():
+                                excluded_pids.update(exclude_result.stdout.strip().split())
+                        except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
+                            pass
 
-                    # Return count excluding SSH processes
-                    return len(all_pids - ssh_pids)
+                    # Return count excluding non-Python processes
+                    return len(all_pids - excluded_pids)
                 except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
                     return 0
 
