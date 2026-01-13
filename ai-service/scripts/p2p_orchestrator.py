@@ -19558,6 +19558,38 @@ print(json.dumps({{
                     if time.time() - last_refresh > 60:  # Refresh at most once per minute
                         self._last_partition_ip_refresh = time.time()
                         asyncio.create_task(self._force_ip_refresh_all_sources())
+
+                    # Jan 13, 2026: Exponential backoff during isolation
+                    # Check if we're completely isolated (no alive peers)
+                    alive_peers = sum(1 for p in self.peers.values() if p.is_alive() and p.node_id != self.node_id)
+                    if alive_peers == 0:
+                        # Track isolation start time
+                        if not hasattr(self, "_isolation_start"):
+                            self._isolation_start = time.time()
+                            self._isolation_backoff_seconds = HEARTBEAT_INTERVAL
+                            logger.warning("Node is isolated - no alive peers, starting exponential backoff")
+
+                        # Calculate exponential backoff based on isolation duration
+                        isolation_duration = time.time() - self._isolation_start
+                        if isolation_duration > 60:  # After 1 min
+                            self._isolation_backoff_seconds = min(30, self._isolation_backoff_seconds * 1.5)
+                        if isolation_duration > 180:  # After 3 min
+                            self._isolation_backoff_seconds = min(60, self._isolation_backoff_seconds * 1.5)
+                        if isolation_duration > 300:  # After 5 min
+                            self._isolation_backoff_seconds = min(120, self._isolation_backoff_seconds)
+
+                        logger.debug(f"Isolated for {isolation_duration:.0f}s, backoff={self._isolation_backoff_seconds:.0f}s")
+                        # Apply additional backoff sleep (on top of normal HEARTBEAT_INTERVAL)
+                        extra_backoff = self._isolation_backoff_seconds - HEARTBEAT_INTERVAL
+                        if extra_backoff > 0:
+                            await asyncio.sleep(extra_backoff)
+                    else:
+                        # Reset isolation tracking when peers are reachable
+                        if hasattr(self, "_isolation_start"):
+                            logger.info(f"Isolation ended after {time.time() - self._isolation_start:.0f}s, {alive_peers} peers alive")
+                            delattr(self, "_isolation_start")
+                            if hasattr(self, "_isolation_backoff_seconds"):
+                                delattr(self, "_isolation_backoff_seconds")
                 elif getattr(self, "_tailscale_priority", False):
                     # Check if priority mode should expire
                     if time.time() > getattr(self, "_tailscale_priority_until", 0):
@@ -19583,6 +19615,9 @@ print(json.dumps({{
                     self.leader_lease_id = ""
                     self.leader_lease_expires = 0.0
                     self._release_voter_grant_if_self()
+                    # Jan 13, 2026: Add sleep before continue to prevent busy loop
+                    # when repeatedly stepping down due to degraded health
+                    await asyncio.sleep(HEARTBEAT_INTERVAL)
                     continue  # Skip leader duties this cycle
 
                 # P0 Dec 2025: Monitor leader heartbeat for early warning
@@ -19692,6 +19727,8 @@ print(json.dumps({{
                     if not voter_peer:
                         # Try to discover voter from known peers
                         await self._discover_voter_peer(voter_id)
+                        # Jan 13, 2026: Add brief sleep to prevent busy loop when many voters unavailable
+                        await asyncio.sleep(0.1)
                         continue
 
                     # Attempt heartbeat to voter
@@ -28035,11 +28072,14 @@ print(json.dumps({{
     async def _discovery_loop(self):
         """Broadcast UDP discovery messages to find peers on local network."""
         # Phase 3.1 Dec 29, 2025: Add max iterations to prevent infinite loop
+        # Jan 13, 2026: Fix busy loop - add yield points and run socket ops in thread
         MAX_RECEIVE_ITERATIONS = 100
+        YIELD_EVERY_N_PACKETS = 10  # Yield to event loop every N packets
 
-        while self.running:
+        def _do_udp_discovery() -> list[dict]:
+            """Run blocking UDP discovery in thread pool to avoid blocking event loop."""
+            discovered = []
             try:
-                # Create UDP socket
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 sock.settimeout(1.0)
@@ -28055,31 +28095,49 @@ print(json.dumps({{
                 with contextlib.suppress(OSError):
                     sock.sendto(message, ("<broadcast>", DISCOVERY_PORT))
 
-                # Listen for responses
-                # Phase 3.1 Dec 29, 2025: Add max iterations to prevent infinite loop
-                # if recvfrom keeps returning data (e.g., broadcast storms)
+                # Listen for responses with iteration limit
                 receive_count = 0
                 try:
                     while receive_count < MAX_RECEIVE_ITERATIONS:
                         data, _addr = sock.recvfrom(1024)
                         receive_count += 1
-                        msg = json.loads(data.decode())
-                        if msg.get("type") == "p2p_discovery" and msg.get("node_id") != self.node_id:
-                            # Found a peer!
-                            peer_addr = f"{msg.get('host')}:{msg.get('port')}"
-                            if peer_addr not in self.known_peers:
-                                self.known_peers.append(peer_addr)
-                                logger.info(f"Discovered peer: {msg.get('node_id')} at {peer_addr}")
-                    # Warn if we hit the limit
-                    if receive_count >= MAX_RECEIVE_ITERATIONS:
-                        logger.warning(f"[UdpDiscovery] Hit max receive limit ({MAX_RECEIVE_ITERATIONS})")
+                        try:
+                            msg = json.loads(data.decode())
+                            if msg.get("type") == "p2p_discovery" and msg.get("node_id") != self.node_id:
+                                discovered.append(msg)
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            continue
                 except TimeoutError:
                     pass
 
-                sock.close()
+                if receive_count >= MAX_RECEIVE_ITERATIONS:
+                    logger.warning(f"[UdpDiscovery] Hit max receive limit ({MAX_RECEIVE_ITERATIONS})")
 
-            except (json.JSONDecodeError, AttributeError):
-                pass
+                sock.close()
+            except OSError as e:
+                logger.debug(f"[UdpDiscovery] Socket error: {e}")
+            return discovered
+
+        while self.running:
+            try:
+                # Run blocking socket operations in thread pool
+                discovered = await asyncio.to_thread(_do_udp_discovery)
+
+                # Process discovered peers (yield periodically to prevent busy loop)
+                for i, msg in enumerate(discovered):
+                    peer_addr = f"{msg.get('host')}:{msg.get('port')}"
+                    if peer_addr not in self.known_peers:
+                        self.known_peers.append(peer_addr)
+                        logger.info(f"Discovered peer: {msg.get('node_id')} at {peer_addr}")
+                    # Yield to event loop every N packets to prevent blocking
+                    if (i + 1) % YIELD_EVERY_N_PACKETS == 0:
+                        await asyncio.sleep(0)
+
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[UdpDiscovery] Error: {e}")
+                # Brief sleep on error to prevent tight retry loop
+                await asyncio.sleep(1.0)
+                continue
 
             await asyncio.sleep(DISCOVERY_INTERVAL)
 
