@@ -135,6 +135,24 @@ export function useSandboxInteractions({
 
     // Ring placement phase
     if (phaseBefore === 'ring_placement') {
+      // RR-FIX-2026-01-12: Handle stuck ring_placement phase for human players.
+      // When a player has rings in hand but no valid placements (all blocked or violate
+      // no-dead-placement) and no stacks to skip to movement, auto-apply no_placement_action.
+      const validMoves = engine.getValidMoves(stateBefore.currentPlayer);
+      const hasOnlyNoPlacementAction =
+        validMoves.length === 1 && validMoves[0].type === 'no_placement_action';
+
+      if (hasOnlyNoPlacementAction) {
+        // Auto-apply the no_placement_action move to advance the game
+        void (async () => {
+          await engine.applyCanonicalMove(validMoves[0]);
+          bumpSandboxTurn();
+          setSandboxStateVersion((v) => v + 1);
+          maybeRunSandboxAiIfNeeded();
+        })();
+        return;
+      }
+
       handleRingPlacementClick(pos);
       return;
     }
@@ -148,22 +166,29 @@ export function useSandboxInteractions({
     // Movement phase - auto-apply no_movement_action when no valid moves exist
     // RR-FIX-2026-01-12: Handle stuck movement phase for human players.
     // When a player has no movements, captures, or recovery options, we must
-    // construct and apply a no_movement_action move to progress to line_processing.
+    // apply a no_movement_action move to progress to line_processing.
     // This eventually leads to forced_elimination if the player has no actions all turn.
     if (phaseBefore === 'movement') {
       const validMoves = engine.getValidMoves(stateBefore.currentPlayer);
 
-      if (validMoves.length === 0) {
-        // No valid moves in movement phase - construct and apply no_movement_action
-        const noMovementAction = {
-          id: `no-movement-${stateBefore.moveHistory.length + 1}`,
-          type: 'no_movement_action' as const,
-          player: stateBefore.currentPlayer,
-          to: { x: 0, y: 0 },
-          timestamp: new Date(),
-          thinkTime: 0,
-          moveNumber: stateBefore.moveHistory.length + 1,
-        };
+      // RR-FIX-2026-01-12: Also handle when getValidMoves returns [no_movement_action]
+      // instead of an empty array. This happens when the player has no stacks.
+      const hasOnlyNoMovementAction =
+        validMoves.length === 1 && validMoves[0].type === 'no_movement_action';
+
+      if (validMoves.length === 0 || hasOnlyNoMovementAction) {
+        // No valid moves in movement phase - apply no_movement_action
+        const noMovementAction = hasOnlyNoMovementAction
+          ? validMoves[0]
+          : {
+              id: `no-movement-${stateBefore.moveHistory.length + 1}`,
+              type: 'no_movement_action' as const,
+              player: stateBefore.currentPlayer,
+              to: { x: 0, y: 0 },
+              timestamp: new Date(),
+              thinkTime: 0,
+              moveNumber: stateBefore.moveHistory.length + 1,
+            };
         void (async () => {
           await engine.applyCanonicalMove(noMovementAction);
           bumpSandboxTurn();

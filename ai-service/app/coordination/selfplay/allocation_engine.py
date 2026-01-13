@@ -375,7 +375,12 @@ class AllocationEngine:
             )
 
             # Determine minimum floor based on starvation level
-            if game_count < DATA_STARVATION_ULTRA_THRESHOLD:
+            # Jan 12, 2026: Added ABSOLUTE_ZERO tier for configs with literally 0 games
+            if game_count == 0:
+                # ABSOLUTE_ZERO: 0 games - 5x allocation (bootstrap priority)
+                min_floor = int(games_per_config * 5.0)
+                level = "ABSOLUTE_ZERO"
+            elif game_count < DATA_STARVATION_ULTRA_THRESHOLD:
                 # ULTRA: <20 games - 3x allocation (highest priority)
                 min_floor = int(games_per_config * 3.0)
                 level = "ULTRA"

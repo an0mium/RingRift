@@ -1096,6 +1096,71 @@ class UnifiedGameRecorder:
         self._recorder.finalize(final_state, metadata)
         self._finalized = True
 
+        # January 2026: Emit event to trigger consolidation pipeline
+        self._emit_new_games()
+
+    def _emit_new_games(self) -> None:
+        """Emit NEW_GAMES_AVAILABLE event after recording a game.
+
+        January 2026: Closes gap where gauntlet/tournament games were
+        recorded but never triggered the consolidation pipeline.
+        """
+        try:
+            from app.coordination.event_emission_helpers import safe_emit_event
+
+            safe_emit_event(
+                "new_games",
+                {
+                    "config_key": self.config.config_key,
+                    "board_type": self.config.board_type,
+                    "num_players": self.config.num_players,
+                    "new_games": 1,
+                    "source": self.config.source,
+                    "db_path": str(self.config.get_db_path()),
+                },
+                context="UnifiedGameRecorder",
+            )
+        except Exception:
+            pass  # Non-critical - don't break recording
+
+
+def emit_games_recorded_batch(
+    config: RecordingConfig,
+    games_recorded: int,
+) -> None:
+    """Emit NEW_GAMES_AVAILABLE event for a batch of recorded games.
+
+    Use this after recording multiple games (e.g., gauntlet runs) to
+    trigger consolidation without per-game event overhead.
+
+    January 2026: Added to close the gap where gauntlet/tournament
+    games were recorded but never triggered the consolidation pipeline.
+
+    Args:
+        config: RecordingConfig used for the batch
+        games_recorded: Number of games recorded in this batch
+    """
+    if games_recorded <= 0:
+        return
+
+    try:
+        from app.coordination.event_emission_helpers import safe_emit_event
+
+        safe_emit_event(
+            "new_games",
+            {
+                "config_key": config.config_key,
+                "board_type": config.board_type,
+                "num_players": config.num_players,
+                "new_games": games_recorded,
+                "source": config.source,
+                "db_path": str(config.get_db_path()),
+            },
+            context="UnifiedRecording.batch",
+        )
+    except Exception:
+        pass  # Non-critical
+
 
 # -----------------------------------------------------------------------------
 # Unified recording functions
@@ -1209,6 +1274,8 @@ __all__ = [
     "cache_nnue_features_batch",
     # NNUE caching
     "cache_nnue_features_for_game",
+    # Batch event emission (January 2026)
+    "emit_games_recorded_batch",
     "get_default_db_path",
     "get_or_create_db",
     "get_unified_db",

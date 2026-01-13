@@ -181,7 +181,7 @@ class AutoSyncConfig:
                 is_coordinator_by_flag = host_config.get("is_coordinator", False)
                 is_coordinator_by_hostname = any(
                     pattern in host_name.lower()
-                    for pattern in ["mac-studio", "localhost", "local-mac", "coordinator"]
+                    for pattern in ["mac-studio", "localhost", "local-mac", "coordinator", "macbook"]
                 )
                 is_coordinator = is_coordinator_by_role or is_coordinator_by_flag or is_coordinator_by_hostname
 

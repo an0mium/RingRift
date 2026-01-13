@@ -86,8 +86,9 @@ class AutoPromotionConfig:
     min_elo_improvement: float = 10.0
     # December 2025: Quality gate settings to prevent bad model promotion
     quality_gate_enabled: bool = True
-    # Dec 30: REVERTED from 500 to 1000 - require sufficient training data
-    min_training_games: int = 1000
+    # Jan 12, 2026: Lowered from 1000 to 100 to enable early promotion for bootstrap configs
+    # 100 games provides ~10% confidence interval, aligns with MIN_GAMES_FOR_EXPORT_4P
+    min_training_games: int = 100
     # Dec 30: REVERTED to 0.55 - balance between quality and iteration speed
     min_quality_score: float = 0.55
     require_parity_validation: bool = True  # Require TS parity validation passed

@@ -3667,6 +3667,26 @@ export function getValidMoves(state: GameState): Move[] {
         });
       }
 
+      // RR-FIX-2026-01-12: When a player has rings in hand but cannot place them
+      // anywhere (all positions blocked or violate no-dead-placement) AND cannot
+      // skip to movement (no stacks to move), return no_placement_action to allow
+      // the turn to advance. Without this, the game stalls with an empty valid
+      // moves array. This can happen when the board is heavily collapsed and the
+      // player has no stacks while another player still does.
+      if (moves.length === 0) {
+        return [
+          {
+            id: `no-placement-action-blocked-${moveNumber}`,
+            type: 'no_placement_action',
+            player,
+            to: { x: 0, y: 0 }, // Sentinel value for bookkeeping move
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber,
+          } as Move,
+        ];
+      }
+
       return moves;
     }
 
@@ -3827,7 +3847,28 @@ export function getValidMoves(state: GameState): Move[] {
         );
       }
 
-      return [...movements, ...captures, ...filteredRecoveryMoves];
+      const allMoves = [...movements, ...captures, ...filteredRecoveryMoves];
+
+      // RR-FIX-2026-01-12: When a player has no movement, capture, or recovery
+      // options (e.g., they have no stacks on the board), return no_movement_action
+      // to allow the turn to advance. Without this, the game stalls with an empty
+      // valid moves array. This can happen when a player lost all their stacks but
+      // still has rings in hand that they couldn't place.
+      if (allMoves.length === 0) {
+        return [
+          {
+            id: `no-movement-action-blocked-${moveNumber}`,
+            type: 'no_movement_action',
+            player,
+            to: { x: 0, y: 0 }, // Sentinel value for bookkeeping move
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber,
+          } as Move,
+        ];
+      }
+
+      return allMoves;
     }
 
     case 'capture': {

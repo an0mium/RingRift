@@ -1198,3 +1198,966 @@ Metrics Report: {'timestamp': 1768261960.8285801, 'node_id': '0.0.0.0:7947', 'me
 2026-01-12 17:52:51,121 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:17:52:51 -0600] "GET /health HTTP/1.1" 200 355 "-" "Python/3.10 aiohttp/3.13.2"
 2026-01-12 17:52:53,353 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:17:52:53 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
 2026-01-12 17:52:53,398 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:17:52:53 -0600] "GET /game_counts HTTP/1.1" 200 264 "-" "Python/3.10 aiohttp/3.13.2"
+/Users/armand/local/aws-cli/python: /Users/armand/local/aws-cli/python: cannot execute binary file
+INFO:app.p2p.swim_adapter:swim-p2p loaded successfully (SWIM membership available, TCP+UDP transports)
+INFO:app.config.unified_config:Loaded unified config from /Users/armand/Development/RingRift/ai-service/config/unified_loop.yaml
+INFO:app.config.unified_config:  Training threshold: 200
+INFO:app.config.unified_config:  Elo DB: data/unified_elo.db
+Latency tracker module loaded
+Bandwidth monitor module loaded
+Lifeguard enhancement module loaded
+Metrics collector module loaded
+2026-01-12 22:44:24,168 - app.coordination.safeguards - INFO - Safeguards initialized
+/Users/armand/.pyenv/versions/3.10.13/lib/python3.10/site-packages/paramiko/pkey.py:100: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "cipher": algorithms.TripleDES,
+/Users/armand/.pyenv/versions/3.10.13/lib/python3.10/site-packages/paramiko/transport.py:259: CryptographyDeprecationWarning: TripleDES has been moved to cryptography.hazmat.decrepit.ciphers.algorithms.TripleDES and will be removed from cryptography.hazmat.primitives.ciphers.algorithms in 48.0.0.
+  "class": algorithms.TripleDES,
+2026-01-12 22:44:24,473 - p2p_orchestrator - INFO - [P2P] Acquired singleton lock (PID 98974)
+2026-01-12 22:44:24,474 - p2p_orchestrator - INFO - Initializing P2P orchestrator: node_id=MacBook-Pro-5
+2026-01-12 22:44:24,475 - p2p_orchestrator - INFO - Bootstrap seeds: 3 CLI + 5 hardcoded = 8 total
+2026-01-12 22:44:24,556 - p2p_orchestrator - INFO - Auto-detected storage: RAMDRIVE (RAM: 128GB, Disk: 163GB free / 82% used)
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - ============================================================
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - STORAGE AUTO-DETECTION REPORT
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - ============================================================
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - System RAM:     128.0GB total, 89.6GB available
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - Disk:           926.4GB total, 162.8GB free (82.4% used)
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - Ramdrive:       /tmp - 162.8GB free
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - RAM-rich:       Yes
+2026-01-12 22:44:24,574 - app.utils.ramdrive - INFO - Disk-limited:   Yes
+2026-01-12 22:44:24,575 - app.utils.ramdrive - INFO - Recommendation: USE RAMDRIVE
+2026-01-12 22:44:24,575 - app.utils.ramdrive - INFO - ============================================================
+2026-01-12 22:44:24,893 - p2p_orchestrator - INFO - [P2P] advertise_host changed: fd7a:115c:a1e0::dc01:a487 -> 100.69.164.58 (ipv6_to_ipv4_switch)
+[P2P] Voter quorum enabled: voters=8, quorum=3 (mac-studio, MacBook-Pro-5, lambda-gh200-training, hetzner-cpu1, hetzner-cpu2, hetzner-cpu3, vultr-a100-20gb, nebius-h100-3)
+2026-01-12 22:44:24,923 - scripts.p2p.leadership_state_machine - INFO - LeadershipStateMachine initialized: node_id=MacBook-Pro-5, state=follower, epoch=0
+2026-01-12 22:44:24,924 - p2p_orchestrator - INFO - MonitoringManager initialized
+2026-01-12 22:44:24,939 - app.coordination.database_sync_manager - INFO - [EloSyncManager] Initialized for elo db=/Users/armand/Development/RingRift/ai-service/data/unified_elo.db, coordinator=nebius-backbone-1
+2026-01-12 22:44:24,940 - p2p_orchestrator - INFO - EloSyncManager initialized (db: /Users/armand/Development/RingRift/ai-service/data/unified_elo.db)
+2026-01-12 22:44:24,940 - p2p_orchestrator - INFO - PFSP opponent pools initialized for 4 configs
+2026-01-12 22:44:24,940 - p2p_orchestrator - INFO - CMA-ES auto-tuners initialized for 4 configs
+2026-01-12 22:44:24,940 - p2p_orchestrator - INFO - P2P protocols: MEMBERSHIP_MODE=hybrid (SWIM=available), CONSENSUS_MODE=hybrid (Raft=available)
+2026-01-12 22:44:24,940 - scripts.p2p.consensus_mixin - WARNING - Raft consensus unavailable: no Raft partners available
+2026-01-12 22:44:24,953 - scripts.p2p.transport_cascade - INFO - Registered transport: http_direct (tier TIER_1_FAST)
+2026-01-12 22:44:24,953 - scripts.p2p.transport_cascade - INFO - Registered transport: tailscale (tier TIER_2_RELIABLE)
+2026-01-12 22:44:24,953 - scripts.p2p.transport_cascade - INFO - Registered transport: ssh_tunnel (tier TIER_3_TUNNELED)
+2026-01-12 22:44:24,953 - scripts.p2p.transport_cascade - INFO - Registered transport: cloudflare_tunnel (tier TIER_3_TUNNELED)
+2026-01-12 22:44:24,982 - scripts.p2p.p2p_mixin_base - INFO - [peer_manager] Multi-relay failover enabled with 7 relays: hetzner-cpu3, hetzner-cpu1, nebius-h100-3... (preferred: nebius-backbone-1)
+2026-01-12 22:44:24,982 - scripts.p2p.transport_cascade - INFO - Registered transport: p2p_relay (tier TIER_4_RELAY)
+2026-01-12 22:44:24,982 - scripts.p2p.p2p_mixin_base - INFO - [peer_manager] Failover system initialized successfully
+2026-01-12 22:44:24,983 - p2p_orchestrator - INFO - Failover system initialized (transport cascade + union discovery)
+2026-01-12 22:44:24,986 - scripts.p2p.managers.state_manager - INFO - Loaded cluster epoch: 3886
+2026-01-12 22:44:24,987 - p2p_orchestrator - INFO - Safeguards: rate_limit=5/min, load_max=2.0x, agent_mode=False
+2026-01-12 22:44:24,989 - scripts.p2p.managers.state_manager - INFO - P0.5: Invalidated expired leader lease on startup. Old leader: hetzner-cpu3, expired at: 0, now: 1768279465
+2026-01-12 22:44:24,989 - scripts.p2p.managers.state_manager - INFO - Loaded state: 42 peers, 0 jobs
+2026-01-12 22:44:24,990 - scripts.p2p.managers.state_manager - INFO - [StateManager] Cleaned stale state: removed 0 jobs, 41 peers
+2026-01-12 22:44:24,990 - p2p_orchestrator - INFO - Loaded state: 1 peers, 0 jobs
+2026-01-12 22:44:24,990 - p2p_orchestrator - INFO - [P2P] Startup state validation passed
+2026-01-12 22:44:24,991 - scripts.p2p.managers.state_manager - INFO - [StateManager] Loaded 44 peer health records
+2026-01-12 22:44:24,991 - p2p_orchestrator - INFO - [P2P] Loaded 44 peer health records
+2026-01-12 22:44:26,161 - p2p_orchestrator - WARNING - [P2P] GPU node MacBook-Pro-5 is marked as coordinator - this may be a misconfiguration. GPU: Apple MPS. Unset RINGRIFT_IS_COORDINATOR or remove role:coordinator from YAML to enable training capabilities.
+2026-01-12 22:44:26,161 - p2p_orchestrator - INFO - [P2P] Coordinator-only mode: no selfplay/training/cmaes capabilities
+2026-01-12 22:44:26,381 - scripts.p2p.managers.node_selector - INFO - [NodeSelector] Subscribed to HOST_OFFLINE
+2026-01-12 22:44:26,381 - scripts.p2p.managers.node_selector - INFO - [NodeSelector] Subscribed to NODE_RECOVERED
+2026-01-12 22:44:26,381 - scripts.p2p.managers.node_selector - INFO - [NodeSelector] Subscribed to HOST_ONLINE
+2026-01-12 22:44:26,382 - p2p_orchestrator - WARNING - Cannot create ramdrive at /dev/shm/ringrift/data: [Errno 1] Operation not permitted: '/dev/shm'. Falling back to disk storage.
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to LEADER_ELECTED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to NODE_RECOVERED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HOST_ONLINE
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (3 events)
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to SELFPLAY_RATE_CHANGED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EXPLORATION_BOOST
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TRAINING_COMPLETED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to ELO_VELOCITY_CHANGED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to NPZ_EXPORT_COMPLETE
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TRAINING_STARTED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_COMPLETED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to PLATEAU_DETECTED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_BACKPRESSURE
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_BACKPRESSURE_RELEASED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TRAINING_BLOCKED_BY_QUALITY
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HYPERPARAMETER_UPDATED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to QUALITY_SCORE_UPDATED
+2026-01-12 22:44:26,382 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to ARCHITECTURE_WEIGHTS_UPDATED
+2026-01-12 22:44:26,383 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to DATA_STARVATION_CRITICAL
+2026-01-12 22:44:26,383 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (15 events)
+2026-01-12 22:44:26,399 - p2p_orchestrator - INFO - [P2P] Seeded SelfplayScheduler with 3 config game counts from canonical DBs
+2026-01-12 22:44:26,399 - p2p_orchestrator - INFO - [P2P] Underserved config: hex8_3p = 2 games
+2026-01-12 22:44:26,400 - p2p_orchestrator - INFO - [P2P] Underserved config: hex8_4p = 4 games
+2026-01-12 22:44:26,400 - p2p_orchestrator - INFO - [P2P] Underserved config: hex8_2p = 9 games
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HOST_OFFLINE
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to HOST_ONLINE
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to NODE_RECOVERED
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (3 events)
+2026-01-12 22:44:26,400 - p2p_orchestrator - INFO - [P2P] Spawn verification wired: JobManager <-> SelfplayScheduler
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to SELFPLAY_COMPLETE
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to DATA_SYNC_COMPLETED
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to EVALUATION_COMPLETED
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to REGRESSION_DETECTED
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to TASK_ABANDONED
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Subscribed to P2P_NODE_DEAD
+2026-01-12 22:44:26,400 - scripts.p2p.p2p_mixin_base - INFO - [EventSubscriptionMixin] Event subscriptions complete (6 events)
+2026-01-12 22:44:26,400 - p2p_orchestrator - INFO - [P2P] JobOrchestrationManager initialized
+2026-01-12 22:44:26,400 - p2p_orchestrator - INFO - WorkDiscoveryManager: initialized with 4 discovery channels
+2026-01-12 22:44:26,416 - app.coordination.cross_process_events - INFO - [CrossProcessEventPoller] Resuming from event_id 43117
+2026-01-12 22:44:26,416 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE, REGRESSION_DETECTED, TRAINING_LOSS_ANOMALY, QUORUM_RECOVERY_STARTED, CURRICULUM_ROLLBACK
+2026-01-12 22:44:26,416 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] Started (event-driven mode)
+2026-01-12 22:44:26,417 - app.coordination.curriculum_integration - INFO - [PFSPWeaknessWatcher] Started
+2026-01-12 22:44:26,417 - app.coordination.curriculum_router - INFO - [promotion_failed_curriculum_watcher] Subscribed to ['PROMOTION_FAILED']
+2026-01-12 22:44:26,417 - app.coordination.curriculum_integration - INFO - [PromotionCompletedToCurriculumWatcher] Subscribed to PROMOTION_COMPLETED
+2026-01-12 22:44:26,417 - app.coordination.curriculum_router - INFO - [quality_penalty_curriculum_watcher] Subscribed to ['QUALITY_PENALTY_APPLIED']
+2026-01-12 22:44:26,417 - app.coordination.curriculum_router - INFO - [regression_critical_curriculum_watcher] Subscribed to ['REGRESSION_CRITICAL']
+2026-01-12 22:44:26,419 - app.coordination.curriculum_router - INFO - [architecture_curriculum_bridge] Subscribed to ['ARCHITECTURE_WEIGHTS_UPDATED']
+2026-01-12 22:44:26,419 - app.coordination.curriculum_integration - INFO - [QualityToTemperatureWatcher] Subscribed to quality events
+2026-01-12 22:44:26,419 - app.training.curriculum_feedback - INFO - [CurriculumFeedback] Subscribed to CURRICULUM_ADVANCED + TRAINING_EARLY_STOPPED events
+2026-01-12 22:44:26,420 - app.training.curriculum_feedback - INFO - [EloToCurriculumWatcher] Subscribed to ELO_UPDATED events
+2026-01-12 22:44:26,420 - app.training.curriculum_feedback - INFO - [wire_elo_to_curriculum] ELO events wired to curriculum rebalance (threshold=30.0)
+2026-01-12 22:44:26,420 - app.training.curriculum_feedback - INFO - [PlateauToCurriculumWatcher] Subscribed to PLATEAU_DETECTED events
+2026-01-12 22:44:26,421 - app.training.curriculum_feedback - INFO - [wire_plateau_to_curriculum] PLATEAU_DETECTED events wired to curriculum rebalance (cooldown=600.0s, boost=0.3)
+2026-01-12 22:44:26,421 - app.training.curriculum_feedback - INFO - [TournamentToCurriculumWatcher] Subscribed to EVALUATION_COMPLETED events
+2026-01-12 22:44:26,421 - app.training.curriculum_feedback - INFO - [wire_tournament_to_curriculum] EVALUATION_COMPLETED events wired to curriculum (low=0.45, high=0.65)
+2026-01-12 22:44:26,421 - app.training.curriculum_feedback - INFO - [PromotionToCurriculumWatcher] Subscribed to MODEL_PROMOTED events
+2026-01-12 22:44:26,421 - app.training.curriculum_feedback - INFO - [wire_promotion_to_curriculum] PROMOTION_COMPLETE events wired to curriculum (failure_urgency=high)
+2026-01-12 22:44:26,421 - app.training.curriculum_feedback - INFO - [QualityFeedbackWatcher] Subscribed to QUALITY_SCORE_UPDATED events
+2026-01-12 22:44:26,421 - app.training.curriculum_feedback - INFO - [wire_quality_to_curriculum] Quality events wired to selfplay budget adjustment (window=100)
+2026-01-12 22:44:26,427 - app.training.curriculum_feedback - INFO - [wire_epoch_to_curriculum] EPOCH_COMPLETED events wired to curriculum (check_interval=5 epochs)
+2026-01-12 22:44:26,433 - app.training.curriculum_feedback - INFO - CurriculumFeedback: OpponentWinRateTracker integrated
+2026-01-12 22:44:26,433 - app.training.curriculum_feedback - INFO - Wired OpponentWinRateTracker to CurriculumFeedback
+2026-01-12 22:44:26,433 - app.training.curriculum_feedback - INFO - [wire_all_curriculum_feedback] Wired opponent tracker to curriculum
+2026-01-12 22:44:26,433 - app.training.curriculum_feedback - INFO - [EarlyStopToCurriculumWatcher] Subscribed to TRAINING_EARLY_STOPPED events
+2026-01-12 22:44:26,433 - app.training.curriculum_feedback - INFO - [wire_early_stop_to_curriculum] TRAINING_EARLY_STOPPED events wired to curriculum boost
+2026-01-12 22:44:26,433 - app.training.curriculum_feedback - INFO - [wire_all_curriculum_feedback] Wired 8 curriculum feedback integrations
+2026-01-12 22:44:26,433 - app.coordination.curriculum_integration - INFO - [wire_all_feedback_loops] Wired 9 feedback integrations: momentum_bridge, pfsp_weakness, promotion_failed_curriculum, promotion_completed_curriculum, quality_penalty_curriculum, regression_critical_curriculum, architecture_curriculum, quality_temperature, curriculum_feedback
+2026-01-12 22:44:26,433 - p2p_orchestrator - WARNING - Feedback loops: partial wiring - Unknown error
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - Subscribed to daemon status events
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - Subscribed to training feedback signals
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - Subscribed to manager lifecycle and health events
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - [P2P] Event subscriptions: daemon=✓, feedback=✓, manager=✓
+[P2P] Initialized node MacBook-Pro-5 on 0.0.0.0:8770 (advertise 100.69.164.58:8770)
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - RingRift path: /Users/armand/Development/RingRift
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - Version: main@ecd2f2b9f
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - Known peers: ['http://100.94.174.19:8770', 'http://100.126.21.102:8770', 'http://100.67.131.72:8770', '100.126.21.102:8770', '100.94.174.19:8770', '100.67.131.72:8770', '100.94.201.92:8770', '100.110.28.41:8770']
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - Auth: disabled (set RINGRIFT_CLUSTER_AUTH_TOKEN to enable)
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - HybridTransport: enabled (HTTP with SSH fallback for Vast)
+2026-01-12 22:44:26,434 - app.p2p.swim_adapter - INFO - SWIM seeds from cluster_config: [('100.107.168.125', 7947), ('100.68.208.43', 7947), ('100.94.174.19', 7947), ('100.67.131.72', 7947), ('100.126.21.102', 7947), ('100.94.201.92', 7947), ('100.109.195.71', 7947)]
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - SWIM membership manager initialized for MacBook-Pro-5
+2026-01-12 22:44:26,434 - p2p_orchestrator - INFO - LoopManager: initialized for extracted background loops
+2026-01-12 22:44:26,435 - p2p_orchestrator - INFO - [P2P] Manager health: 0/8 healthy, 8 starting (grace period: 58s remaining)
+2026-01-12 22:44:26,436 - p2p_orchestrator - INFO - P2P orchestrator initialized successfully: MacBook-Pro-5
+2026-01-12 22:44:26,436 - p2p_orchestrator - INFO - [P2P] Event emitters available - P2P events will be published
+2026-01-12 22:44:26,436 - p2p_orchestrator - INFO - Starting P2P orchestrator main loop: MacBook-Pro-5
+2026-01-12 22:44:26,436 - p2p_orchestrator - INFO - Started isolated health server thread (port 8772)
+2026-01-12 22:44:26,436 - p2p_orchestrator - INFO - [Startup Validation] SWIM protocol available (membership_mode=hybrid)
+2026-01-12 22:44:26,437 - p2p_orchestrator - INFO - [Startup Validation] Raft protocol available (consensus_mode=hybrid)
+2026-01-12 22:44:26,437 - p2p_orchestrator - INFO - [Startup Validation] Protocol config: membership=hybrid, consensus=hybrid
+2026-01-12 22:44:26,437 - p2p_orchestrator - INFO - Isolated health server started on 0.0.0.0:8772
+2026-01-12 22:44:31,013 - p2p_orchestrator - INFO - [Startup Validation] Voter quorum OK: 5/8 voters reachable
+2026-01-12 22:44:31,014 - scripts.p2p.resource_detector - WARNING - [ResourceDetector] GPU detected (Apple MPS) but PyTorch has no CUDA support. Fix: pip install torch --index-url https://download.pytorch.org/whl/cu128
+2026-01-12 22:44:31,014 - p2p_orchestrator - WARNING - [Startup Validation] GPU detected (Apple MPS) but PyTorch has no CUDA support. Fix: pip install torch --index-url https://download.pytorch.org/whl/cu128
+/Users/armand/Development/RingRift/ai-service/scripts/p2p_orchestrator.py:28365: DeprecationWarning: get_event_bus() from data_events is deprecated. Use get_router() from app.coordination.event_router instead.
+  get_event_bus().emit(
+2026-01-12 22:44:31,014 - p2p_orchestrator - WARNING - [Startup Validation] Completed with 1 warnings. Managers: 2/3 available
+2026-01-12 22:44:31,019 - scripts.p2p.routes - WARNING - Missing 2 handlers: ['handle_probe_vast_nodes', 'handle_gpu_rankings']...
+2026-01-12 22:44:31,020 - p2p_orchestrator - INFO - Registered 187 HTTP routes from route registry
+2026-01-12 22:44:31,022 - scripts.p2p.handlers.file_download - INFO - Registered 4 file download routes
+2026-01-12 22:44:31,022 - p2p_orchestrator - INFO - Registered 4 file download routes for HTTP-based sync
+2026-01-12 22:44:31,022 - scripts.p2p.handlers.network_health - INFO - Registered network health routes: /network/health, /network/reconnect, /network/status
+2026-01-12 22:44:31,022 - scripts.p2p.handlers.models - INFO - [ModelHandler] Registered 2 model routes
+2026-01-12 22:44:31,022 - p2p_orchestrator - INFO - Registered 2 model inventory routes
+2026-01-12 22:44:31,041 - scripts.verify_nfs_sync - WARNING - Could not auto-detect NFS root. Set RINGRIFT_NFS_PATH environment variable.
+2026-01-12 22:44:31,041 - scripts.verify_nfs_sync - INFO - NFS not configured, skipping sync verification
+2026-01-12 22:44:31,043 - app.distributed.cluster_manifest - INFO - ClusterManifest initialized: node=MacBook-Pro-5.local, db=/Users/armand/Development/RingRift/ai-service/data/cluster_manifest.db
+2026-01-12 22:44:31,044 - app.distributed.cluster_manifest - INFO - [ClusterManifest] Subscribed to real-time events (NEW_GAMES_AVAILABLE, GAMES_UPLOADED_TO_S3, GAMES_UPLOADED_TO_OWC, BACKUP_COMPLETED)
+2026-01-12 22:44:31,044 - app.coordination.sync_router - INFO - [SyncRouter] External storage configured: mac-studio -> /Volumes/RingRift-Data
+2026-01-12 22:44:31,044 - app.coordination.sync_router - INFO - SyncRouter initialized: 23 nodes
+2026-01-12 22:44:31,044 - p2p_orchestrator - INFO - SyncRouter: initialized for intelligent data routing
+2026-01-12 22:44:31,044 - app.coordination.sync_router - INFO - [SyncRouter] Wired to event router (NEW_GAMES_AVAILABLE, TRAINING_STARTED, HOST_ONLINE/OFFLINE, NODE_RECOVERED, CLUSTER_CAPACITY_CHANGED, MODEL_SYNC_REQUESTED, SYNC_STALLED, SYNC_FAILURE_CRITICAL, BACKPRESSURE_ACTIVATED/RELEASED, CONFIG_UPDATED)
+2026-01-12 22:44:31,044 - p2p_orchestrator - INFO - SyncRouter: wired to event system
+2026-01-12 22:44:31,044 - p2p_orchestrator - INFO - ULSM: Leadership state machine broadcast callback wired
+2026-01-12 22:44:31,045 - p2p_orchestrator - INFO - HTTP server started on 0.0.0.0:8770 (IPv4, backlog=1024)
+2026-01-12 22:44:31,045 - p2p_orchestrator - INFO - HTTP server also listening on [::]:8770 (IPv6)
+2026-01-12 22:44:31,814 - app.coordination.resource_optimizer - INFO - Loaded PID config from /Users/armand/Development/RingRift/ai-service/config/unified_loop.yaml: kp=0.3, ki=0.05, kd=0.1
+2026-01-12 22:44:31,816 - app.coordination.resource_optimizer - INFO - ResourceOptimizer initialized: node=MacBook-Pro-5.local, target=60.0-80.0%
+2026-01-12 22:44:32,077 - app.coordination.node_policies - INFO - Loaded 5 node policies, 0 overrides
+2026-01-12 22:44:32,079 - app.coordination.work_queue - INFO - Work queue database initialized at /Users/armand/Development/RingRift/ai-service/data/work_queue.db
+2026-01-12 22:44:32,229 - app.coordination.work_queue - INFO - Loaded 2706 work items from database
+2026-01-12 22:44:32,232 - app.coordination.work_queue - INFO - [WorkQueue] Restored backpressure active state from DB (pending=2706)
+2026-01-12 22:44:32,383 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:44:32 -0600] "GET /status HTTP/1.1" 200 7592 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:44:32,408 - p2p_orchestrator - INFO - [P2P] Startup announcement discovered peer: hetzner-cpu1
+2026-01-12 22:44:37,242 - p2p_orchestrator - INFO - First-contact peer registered: lambda-gh200-8 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:44:38,168 - aiohttp.access - INFO - 100.121.230.110 [12/Jan/2026:22:44:37 -0600] "POST /heartbeat HTTP/1.1" 200 1931 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:44:38,169 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: lambda-gh200-8, invalidating cluster manifest
+2026-01-12 22:44:38,169 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: lambda-gh200-8, node available for jobs
+2026-01-12 22:44:38,170 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.121.230.110
+2026-01-12 22:44:45,161 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu1 came ONLINE (2/8 alive, quorum=3)
+2026-01-12 22:44:45,163 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:44:44 -0600] "GET /status HTTP/1.1" 200 11606 "-" "curl/8.7.1"
+2026-01-12 22:44:46,930 - p2p_orchestrator - INFO - First-contact peer registered: aws-staging (caps: ['selfplay', 'large_boards'])
+2026-01-12 22:44:47,966 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:44:46 -0600] "POST /heartbeat HTTP/1.1" 200 1932 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:44:47,966 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: aws-staging, invalidating cluster manifest
+2026-01-12 22:44:47,967 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: aws-staging, node available for jobs
+2026-01-12 22:44:47,967 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.115.97.24
+2026-01-12 22:44:47,978 - p2p_orchestrator - INFO - [P2P] Startup announcement discovered peer: hetzner-cpu3
+2026-01-12 22:44:50,939 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:22:44:50 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:44:50,939 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:22:44:50 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:44:51,919 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-10 at 192.222.50.177:8770
+2026-01-12 22:44:52,869 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-60 at 100.127.168.116:8770
+2026-01-12 22:44:54,010 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu2 at 100.67.131.72:8770
+2026-01-12 22:44:54,895 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-4 at 100.77.186.124:8770
+2026-01-12 22:44:56,014 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-5 at 192.222.58.171:8770
+2026-01-12 22:44:56,860 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mac-studio at 73.74.130.66:8770
+2026-01-12 22:44:57,736 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:22:44:51 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:44:57,743 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:22:44:57 -0600] "GET /health HTTP/1.1" 200 711 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:44:58,654 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-10 at 192.222.50.177:8770
+2026-01-12 22:44:59,548 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-60 at 100.127.168.116:8770
+2026-01-12 22:45:00,380 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu2 at 100.67.131.72:8770
+2026-01-12 22:45:01,330 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-4 at 100.77.186.124:8770
+2026-01-12 22:45:02,191 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-5 at 192.222.58.171:8770
+2026-01-12 22:45:02,987 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mac-studio at 73.74.130.66:8770
+2026-01-12 22:45:03,782 - aiohttp.access - INFO - 100.121.230.110 [12/Jan/2026:22:44:57 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:03,782 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:44:57 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:03,910 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:44:57 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:03,910 - aiohttp.access - INFO - fd7a:115c:a1e0::8c01:1567 [12/Jan/2026:22:44:57 -0600] "GET /data_manifest HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:03,928 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-60
+2026-01-12 22:45:04,269 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu3 came ONLINE (3/8 alive, quorum=3)
+2026-01-12 22:45:04,280 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:45:03 -0600] "GET /status HTTP/1.1" 200 14366 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:04,530 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:45:03 -0600] "GET /status HTTP/1.1" 200 14365 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:04,985 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:45:03 -0600] "GET /status HTTP/1.1" 200 14366 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:04,989 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:22:45:04 -0600] "GET /data_manifest HTTP/1.1" 200 26583 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:05,006 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-60
+2026-01-12 22:45:05,544 - p2p_orchestrator - INFO - [LeaderSet] follower->follower, leader_id=None->hetzner-cpu3, reason=gossip_adopt_from_hetzner-cpu1
+2026-01-12 22:45:05,558 - p2p_orchestrator - INFO - Adopted leader hetzner-cpu3 from heartbeat via hetzner-cpu1
+2026-01-12 22:45:06,442 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:45:05 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:07,199 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:45:06 -0600] "POST /heartbeat HTTP/1.1" 200 1956 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:07,448 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:45:07 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:07,458 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:45:07 -0600] "GET /health HTTP/1.1" 200 753 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:08,217 - aiohttp.access - INFO - 100.121.230.110 [12/Jan/2026:22:45:08 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:10,400 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:45:10 -0600] "GET /status HTTP/1.1" 200 18278 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:11,486 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:45:11 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:13,269 - app.distributed.hosts - INFO - Loaded 23 remote host(s) from /Users/armand/Development/RingRift/ai-service/config/distributed_hosts.yaml
+2026-01-12 22:45:13,270 - app.distributed.dynamic_registry - INFO - Loaded 23 hosts into dynamic registry
+2026-01-12 22:45:13,270 - app.distributed.dynamic_registry - INFO - Loaded dynamic registry state from /Users/armand/Development/RingRift/ai-service/logs/p2p_orchestrator/dynamic_registry.json
+2026-01-12 22:45:13,490 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:22:45:13 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:13,837 - p2p_orchestrator - INFO - First-contact peer registered: lambda-gh200-10 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:45:14,943 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:45:13 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:14,944 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: lambda-gh200-10, invalidating cluster manifest
+2026-01-12 22:45:14,944 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: lambda-gh200-10, node available for jobs
+2026-01-12 22:45:14,945 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.100.19.96
+2026-01-12 22:45:14,971 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-12 22:45:15,866 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-4 at 100.77.186.124:8770
+2026-01-12 22:45:16,690 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-177 at 100.100.19.96:8770
+2026-01-12 22:45:17,423 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-184 at 100.77.186.124:8770
+2026-01-12 22:45:18,121 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:45:18,836 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:45:19,693 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:45:20,544 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:45:21,385 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:45:22,363 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:45:23,161 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:45:23,930 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:45:24,725 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:45:25,552 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-5 at 100.83.177.16:8770
+2026-01-12 22:45:26,472 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-gpu at 208.167.249.164:8770
+2026-01-12 22:45:27,238 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.217.168:7947 at 46.62.217.168:8770
+2026-01-12 22:45:28,012 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:45:14 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:28,017 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:22:45:28 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:28,018 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:45:28 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:28,106 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:45:28 -0600] "GET /health HTTP/1.1" 200 744 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:32,553 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-29 at 100.69.101.108:8770
+2026-01-12 22:45:32,564 - app.tournament.unified_elo_db - INFO - EloDatabase initialized at /Users/armand/Development/RingRift/ai-service/data/unified_elo.db
+2026-01-12 22:45:33,396 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-210 at 100.71.89.91:8770
+2026-01-12 22:45:34,299 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-48 at 100.106.87.89:8770
+2026-01-12 22:45:35,153 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-140 at 100.110.143.119:8770
+2026-01-12 22:45:36,025 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 22:45:36,850 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu2 at 100.67.131.72:8770
+2026-01-12 22:45:36,850 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-29 at 100.69.101.108:8770
+2026-01-12 22:45:37,653 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-210 at 100.71.89.91:8770
+2026-01-12 22:45:38,449 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-48 at 100.106.87.89:8770
+2026-01-12 22:45:39,334 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-140 at 100.110.143.119:8770
+2026-01-12 22:45:40,513 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu2 at 100.67.131.72:8770
+2026-01-12 22:45:41,291 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:42,082 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1955 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:42,824 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1952 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:43,594 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1955 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:44,397 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1955 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:45,176 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:45,944 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:46,726 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,532 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:45:32 -0600] "POST /heartbeat HTTP/1.1" 200 1955 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,533 - aiohttp.access - INFO - 100.121.230.110 [12/Jan/2026:22:45:28 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,551 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:45:28 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,551 - aiohttp.access - INFO - 100.121.230.110 [12/Jan/2026:22:45:28 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,551 - aiohttp.access - INFO - fd7a:115c:a1e0::a001:a888 [12/Jan/2026:22:45:28 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,569 - app.distributed.hybrid_transport - INFO - [Transport] hetzner-cpu2: Switching to SSH after 3 HTTP failures
+2026-01-12 22:45:47,599 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-12 22:45:47,600 - aiohttp.access - INFO - fd7a:115c:a1e0::2501:e689 [12/Jan/2026:22:45:28 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-12 22:45:47,600 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-12 22:45:47,601 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-12 22:45:47,602 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-12 22:45:47,606 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-5
+2026-01-12 22:45:47,722 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:45:47,723 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:22:45:28 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,833 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:45:47,834 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:45:28 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,944 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:45:47,944 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:45:28 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:47,945 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:45:47 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:47,973 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:45:47 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:47,974 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:45:47 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:49,306 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:45:47 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:49,308 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:45:49 -0600] "GET /health HTTP/1.1" 200 730 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:45:49,524 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:45:49,529 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:45:47 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:49,572 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-5
+2026-01-12 22:45:49,592 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-12 22:45:49,601 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:45:49,637 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-5
+2026-01-12 22:45:50,365 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:45:50,368 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:45:50 -0600] "GET /status HTTP/1.1" 200 20776 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:52,386 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:45:52 -0600] "GET /health HTTP/1.1" 200 751 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:53,066 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:45:53 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:55,224 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mac-studio at 73.74.130.66:8770
+2026-01-12 22:45:56,046 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:22:45:54 -0600] "POST /gossip HTTP/1.1" 200 5187 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:45:57,696 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:45:57 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:57,854 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:45:57 -0600] "GET /health HTTP/1.1" 200 731 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:45:59,378 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:45:58 -0600] "POST /heartbeat HTTP/1.1" 200 1955 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:46:02,215 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 22:46:02,982 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu2 at 100.67.131.72:8770
+2026-01-12 22:46:02,983 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: Mac-Studio at 100.107.168.125:8770
+2026-01-12 22:46:03,789 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:46:04,792 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 22:46:05,926 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-4: Switching to SSH after 3 HTTP failures
+2026-01-12 22:46:05,967 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:46:01 -0600] "POST /gossip HTTP/1.1" 200 4904 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:46:05,970 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:46:05 -0600] "GET /health HTTP/1.1" 200 753 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:46:06,008 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:46:05 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:46:06,321 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:46:06,333 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:46:06 -0600] "GET /status HTTP/1.1" 200 24820 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:46:06,609 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:46:06,619 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:46:06 -0600] "GET /status HTTP/1.1" 200 24820 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:46:06,657 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-60
+2026-01-12 22:46:16,464 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:46:15 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:46:16,630 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:46:16,631 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:46:16 -0600] "GET /status HTTP/1.1" 200 22999 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:46:26,650 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu3 went OFFLINE (2/8 alive, quorum=3)
+2026-01-12 22:46:26,651 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:46:26,652 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:46:26 -0600] "GET /status HTTP/1.1" 200 21284 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:46:26,783 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:46:26,803 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:46:26 -0600] "GET /status HTTP/1.1" 200 21284 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:46:27,691 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:46:27 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:46:32,382 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:46:32 -0600] "GET /health HTTP/1.1" 200 733 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:46:34,960 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-195 at 100.68.208.43:8770
+2026-01-12 22:46:36,084 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-12 22:46:36,907 - aiohttp.access - INFO - fd7a:115c:a1e0::a001:a888 [12/Jan/2026:22:46:34 -0600] "POST /gossip HTTP/1.1" 200 4728 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:46:37,175 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-195
+2026-01-12 22:46:42,696 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu1 went OFFLINE (2/8 alive, quorum=3)
+2026-01-12 22:46:42,696 - p2p_orchestrator - INFO - [VoterHealth] Voter lambda-gh200-training came ONLINE (2/8 alive, quorum=3)
+2026-01-12 22:46:42,696 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:46:42,697 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:46:42 -0600] "GET /status HTTP/1.1" 200 19729 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:46:45,270 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:46:45 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:46:47,904 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mac-studio at 73.74.130.66:8770
+2026-01-12 22:46:47,919 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:22:46:47 -0600] "POST /gossip HTTP/1.1" 200 4797 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:46:59,378 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:46:59 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:47:06,036 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:47:06 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:07,756 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:47:07 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:47:08,247 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-8: Switching to SSH after 3 HTTP failures
+2026-01-12 22:47:12,095 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:47:12,096 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:47:11 -0600] "GET /status HTTP/1.1" 200 19933 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:47:12,190 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:47:12,191 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:47:11 -0600] "GET /status HTTP/1.1" 200 19933 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:47:13,295 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:22:47:13 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:15,283 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:22:47:15 -0600] "GET /health HTTP/1.1" 200 736 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:17,876 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:22:47:17 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:17,877 - aiohttp.access - INFO - 100.68.208.43 [12/Jan/2026:22:47:17 -0600] "GET /health HTTP/1.1" 200 755 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:19,438 - aiohttp.access - INFO - fd7a:115c:a1e0::2e01:d06c [12/Jan/2026:22:47:17 -0600] "POST /gossip HTTP/1.1" 200 4652 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:19,438 - aiohttp.access - INFO - fd7a:115c:a1e0::a001:a888 [12/Jan/2026:22:47:17 -0600] "POST /gossip HTTP/1.1" 200 4509 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:21,075 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:22:47:20 -0600] "POST /gossip HTTP/1.1" 200 4670 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:47:24,111 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 22:47:24,917 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:47:23 -0600] "POST /gossip HTTP/1.1" 200 4737 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:47:25,048 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu1 came ONLINE (3/8 alive, quorum=3)
+2026-01-12 22:47:25,049 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:47:25,051 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:47:23 -0600] "GET /status HTTP/1.1" 200 16343 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:47:25,330 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-60
+2026-01-12 22:47:25,347 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:47:25 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:28,320 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:47:28,321 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:47:28 -0600] "GET /status HTTP/1.1" 200 16339 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:47:32,521 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:47:32,523 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:47:32 -0600] "GET /status HTTP/1.1" 200 14515 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:32,609 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:47:32,610 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:47:32 -0600] "GET /status HTTP/1.1" 200 14515 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:36,611 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:47:36 -0600] "GET /health HTTP/1.1" 200 756 "-" "curl/8.7.1"
+2026-01-12 22:47:43,038 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:47:43 -0600] "POST /dispatch_selfplay HTTP/1.1" 503 250 "-" "curl/8.7.1"
+2026-01-12 22:47:44,092 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:47:43 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:46,223 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:47:46 -0600] "GET /health HTTP/1.1" 200 755 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:47:50,423 - p2p_orchestrator - INFO - First-contact peer registered: 192-222-50-177 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:47:51,089 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:47:50 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:51,089 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-50-177, invalidating cluster manifest
+2026-01-12 22:47:51,090 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-50-177, node available for jobs
+2026-01-12 22:47:51,777 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-57-140 at 100.110.143.119:8770
+2026-01-12 22:47:52,717 - aiohttp.access - INFO - fd7a:115c:a1e0::a001:a888 [12/Jan/2026:22:47:51 -0600] "POST /gossip HTTP/1.1" 200 4682 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:47:53,566 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:47:52 -0600] "POST /heartbeat HTTP/1.1" 200 1952 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:47:53,858 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-140
+2026-01-12 22:47:55,800 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/8 voters alive, quorum=OK, offline: ['mac-studio', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:47:55,801 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:47:55 -0600] "GET /status HTTP/1.1" 200 20209 "-" "curl/8.7.1"
+2026-01-12 22:48:00,570 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-48 at 100.106.87.89:8770
+2026-01-12 22:48:01,265 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:47:59 -0600] "POST /gossip HTTP/1.1" 200 4674 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:02,346 - p2p_orchestrator - INFO - First-contact peer registered: 192-222-50-48 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:48:03,046 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:22:48:02 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:03,046 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-50-48, invalidating cluster manifest
+2026-01-12 22:48:03,046 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-50-48, node available for jobs
+2026-01-12 22:48:03,047 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.106.87.89
+2026-01-12 22:48:03,059 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-50-48
+2026-01-12 22:48:03,899 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:48:03 -0600] "POST /gossip HTTP/1.1" 200 4691 "-" "curl/8.7.1"
+2026-01-12 22:48:04,853 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:48:04 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:48:05,422 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:48:05 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:10,867 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:48:09 -0600] "POST /network/reconnect HTTP/1.1" 200 312 "-" "curl/8.7.1"
+2026-01-12 22:48:10,868 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [12/Jan/2026:22:48:09 -0600] "POST /gossip HTTP/1.1" 200 4585 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:48:12,245 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:48:12 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:12,281 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:12 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:18,273 - p2p_orchestrator - WARNING - [VoterHealth] Voter lambda-gh200-training went OFFLINE (2/8 alive, quorum=3)
+2026-01-12 22:48:18,282 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:48:18,285 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:18 -0600] "GET /status HTTP/1.1" 200 22259 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:18,402 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:48:18,404 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:18 -0600] "GET /status HTTP/1.1" 200 22259 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:26,512 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:48:26 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:48:27,458 - p2p_orchestrator - INFO - First-contact peer registered: 192-222-57-210 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:48:28,322 - aiohttp.access - INFO - 100.71.89.91 [12/Jan/2026:22:48:27 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:28,322 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-57-210, invalidating cluster manifest
+2026-01-12 22:48:28,323 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-57-210, node available for jobs
+2026-01-12 22:48:28,323 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.71.89.91
+2026-01-12 22:48:29,122 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:28 -0600] "POST /heartbeat HTTP/1.1" 200 1952 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:29,124 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:28 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:29,248 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:48:29,249 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:48:28 -0600] "GET /status HTTP/1.1" 200 24333 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:48:35,648 - p2p_orchestrator - INFO - First-contact peer registered: 192-222-57-184 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:48:36,359 - aiohttp.access - INFO - 100.77.186.124 [12/Jan/2026:22:48:35 -0600] "POST /heartbeat HTTP/1.1" 200 1955 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:36,360 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-57-184, invalidating cluster manifest
+2026-01-12 22:48:36,360 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-57-184, node available for jobs
+2026-01-12 22:48:36,360 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.77.186.124
+2026-01-12 22:48:38,439 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:48:38,441 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:48:38 -0600] "GET /status HTTP/1.1" 200 26420 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:38,562 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:48:38,579 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:48:38 -0600] "GET /status HTTP/1.1" 200 26420 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:39,252 - p2p_orchestrator - INFO - First-contact peer registered: 192-222-51-29 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:48:39,988 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:22:48:39 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:39,989 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-51-29, invalidating cluster manifest
+2026-01-12 22:48:39,989 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-51-29, node available for jobs
+2026-01-12 22:48:39,990 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.69.101.108
+2026-01-12 22:48:41,253 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:48:41,972 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:48:42,719 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:48:43,440 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:48:44,214 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:48:44,936 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:48:45,896 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:48:46,745 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:48:47,526 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:48:48,298 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:48:49,129 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:48:40 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:49,131 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:48:49 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:49,132 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:49 -0600] "GET /health HTTP/1.1" 200 753 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:49,820 - aiohttp.access - INFO - 100.127.168.116 [12/Jan/2026:22:48:49 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:50,505 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:48:50,505 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:48:50,505 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:48:50,506 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:48:50,506 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:48:50,506 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:48:50,506 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:48:50,506 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:48:50,506 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:48:51,273 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:48:52,994 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:48:50 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:53,729 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:48:50 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:54,731 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:48:50 -0600] "POST /heartbeat HTTP/1.1" 200 1946 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:55,826 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:48:50 -0600] "POST /heartbeat HTTP/1.1" 200 1946 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:56,624 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:48:55 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:48:56,656 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:49 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:48:56,658 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:48:57,615 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:48:57,616 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:48:58,396 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:48:59,149 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 22:49:00,683 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:48:57 -0600] "POST /heartbeat HTTP/1.1" 200 1945 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:00,683 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:48:56 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:00,693 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:48:56 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:00,697 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:49:01,429 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-1 at 192.222.57.210:8770
+2026-01-12 22:49:02,152 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-3 at 192.222.51.29:8770
+2026-01-12 22:49:02,853 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-9 at 192.222.51.60:8770
+2026-01-12 22:49:03,550 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:49:03,551 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:49:03,551 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:49:03,551 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:49:03,551 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:49:03,551 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-cpu1 at 100.94.174.19:8770
+2026-01-12 22:49:04,520 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:49:04,521 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:49:04,521 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:49:04,521 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:49:05,294 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-11 at 100.106.87.89:8770
+2026-01-12 22:49:06,710 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:49:06,711 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:49:07,405 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:49:07,405 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 22:49:08,811 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:06 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:08,851 - aiohttp.access - INFO - fd7a:115c:a1e0::a001:a888 [12/Jan/2026:22:49:00 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:08,852 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:00 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:08,852 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-60
+2026-01-12 22:49:09,627 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:08 -0600] "POST /heartbeat HTTP/1.1" 200 1955 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:10,384 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:22:49:08 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:10,385 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:08 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:10,386 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:49:10,387 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:22:49:08 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:10,388 - aiohttp.access - INFO - 100.77.186.124 [12/Jan/2026:22:49:08 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:11,103 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:10 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:11,787 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:11 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:11,788 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:22:49:08 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:11,788 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:08 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:11,906 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu1 went OFFLINE (1/8 alive, quorum=3)
+2026-01-12 22:49:11,906 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:11,907 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:49:08 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:49:11,913 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-50-48
+2026-01-12 22:49:11,917 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:49:11,917 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:49:12,585 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:49:12,586 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:49:13,271 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:49:13,272 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 22:49:13,935 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:49:11 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:13,936 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:49:11 -0600] "POST /gossip HTTP/1.1" 200 4920 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:14,607 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:13 -0600] "POST /heartbeat HTTP/1.1" 200 1954 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:14,614 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:49:16,694 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:22:49:16 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:17,281 - aiohttp.access - INFO - 100.69.101.108 [12/Jan/2026:22:49:17 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:17,997 - aiohttp.access - INFO - 100.71.89.91 [12/Jan/2026:22:49:17 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:18,779 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:18 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:21,973 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:22:49:21 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:22,241 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-1: Switching to SSH after 3 HTTP failures
+2026-01-12 22:49:22,497 - aiohttp.access - INFO - 100.77.186.124 [12/Jan/2026:22:49:22 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:22,566 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-1: Switching back to HTTP
+2026-01-12 22:49:22,577 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-57-210
+2026-01-12 22:49:23,240 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-3: Switching to SSH after 3 HTTP failures
+2026-01-12 22:49:23,545 - app.distributed.hybrid_transport - INFO - [Transport] lambda-gh200-3: Switching back to HTTP
+2026-01-12 22:49:23,552 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-51-29
+2026-01-12 22:49:24,269 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:24,270 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:24 -0600] "GET /status HTTP/1.1" 200 25461 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:24,382 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:24,383 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:24 -0600] "GET /status HTTP/1.1" 200 25461 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:25,321 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:24 -0600] "GET /api/cluster/status HTTP/1.1" 200 12936 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,229 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:24 -0600] "GET /api/cluster/status HTTP/1.1" 200 12937 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,229 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:24 -0600] "POST /tailscale_health HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,229 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:24 -0600] "GET /status/peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,271 - p2p_orchestrator - INFO - [P2P] Startup announcements: 3/8 peers reachable
+2026-01-12 22:49:26,286 - p2p_orchestrator - INFO - [P2P] Local canonical DBs empty, fetching game counts from peers...
+2026-01-12 22:49:26,389 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:49:26 -0600] "POST /dispatch_selfplay HTTP/1.1" 503 250 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,460 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:22:49:26 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,462 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:22:49:26 -0600] "GET /health HTTP/1.1" 200 752 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,463 - aiohttp.access - INFO - 100.106.87.89 [12/Jan/2026:22:49:26 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:26,464 - p2p_orchestrator - INFO - First-contact peer registered: 192-222-58-171 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-12 22:49:27,308 - aiohttp.access - INFO - 100.83.177.16 [12/Jan/2026:22:49:26 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:27,317 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-58-171, invalidating cluster manifest
+2026-01-12 22:49:27,324 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-58-171, node available for jobs
+2026-01-12 22:49:27,456 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:27,458 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:24 -0600] "GET /status HTTP/1.1" 200 25555 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:27,458 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.83.177.16
+2026-01-12 22:49:27,727 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:27,762 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:49:26 -0600] "GET /status HTTP/1.1" 200 25555 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:28,022 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:28,025 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:49:26 -0600] "GET /status HTTP/1.1" 200 25554 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:28,061 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:28 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:28,067 - p2p_orchestrator - INFO - [P2P] Fetched 3 game counts from fallback MacBook-Pro-5
+2026-01-12 22:49:28,097 - p2p_orchestrator - INFO - [P2P] Seeded SelfplayScheduler with 3 config game counts from peers
+2026-01-12 22:49:28,098 - p2p_orchestrator - INFO - [P2P] Underserved config (from peers): hex8_3p = 2 games
+2026-01-12 22:49:28,098 - p2p_orchestrator - INFO - [P2P] Underserved config (from peers): hex8_4p = 4 games
+2026-01-12 22:49:28,098 - p2p_orchestrator - INFO - [P2P] Underserved config (from peers): hex8_2p = 9 games
+2026-01-12 22:49:28,098 - p2p_orchestrator - INFO - [LoopManager] Phase 4 startup: EXTRACTED_LOOPS_ENABLED=True
+2026-01-12 22:49:28,098 - p2p_orchestrator - INFO - [LoopManager] _register_extracted_loops called, already_registered=False
+2026-01-12 22:49:28,099 - p2p_orchestrator - INFO - [LoopManager] Got manager: <scripts.p2p.loops.base.LoopManager object at 0x12fa04e80>
+2026-01-12 22:49:28,099 - p2p_orchestrator - INFO - [P2P] SpawnVerificationLoop enabled for job spawn tracking
+2026-01-12 22:49:28,100 - p2p_orchestrator - INFO - [P2P] PredictiveScalingLoop enabled for proactive job spawning
+2026-01-12 22:49:28,100 - p2p_orchestrator - INFO - [P2P] JobReassignmentLoop enabled for faster orphaned job recovery
+2026-01-12 22:49:28,119 - scripts.p2p.adapters.scale_adapters - INFO - CompositeScaleAdapter initialized with providers: []
+2026-01-12 22:49:28,119 - p2p_orchestrator - INFO - [P2P] AutoScalingLoop enabled with reluctant termination
+2026-01-12 22:49:28,120 - p2p_orchestrator - INFO - ModelFetchLoop: registered for training node model fetching
+2026-01-12 22:49:28,120 - p2p_orchestrator - INFO - [LoopManager] TailscalePeerDiscoveryLoop registered
+2026-01-12 22:49:28,120 - p2p_orchestrator - INFO - [LoopManager] PeerCleanupLoop registered
+2026-01-12 22:49:28,120 - p2p_orchestrator - WARNING - [LoopManager] GossipStateCleanupLoop: not available: 'P2POrchestrator' object has no attribute '_safe_emit_p2p_event'
+2026-01-12 22:49:28,120 - p2p_orchestrator - WARNING - [LoopManager] QuorumCrisisDiscoveryLoop: not available: 'P2POrchestrator' object has no attribute '_safe_emit_p2p_event'
+2026-01-12 22:49:28,120 - p2p_orchestrator - INFO - [LoopManager] WorkerPullLoop registered (with work discovery manager)
+2026-01-12 22:49:28,120 - p2p_orchestrator - INFO - [LoopManager] RemoteP2PRecoveryLoop registered (node: MacBook-Pro-5, leader-only execution)
+2026-01-12 22:49:28,120 - p2p_orchestrator - INFO - [LoopManager] LeaderProbeLoop registered (fast leader recovery)
+2026-01-12 22:49:28,146 - p2p_orchestrator - INFO - [P2P] TrainingSyncLoop registered (critical for training pipeline)
+2026-01-12 22:49:28,146 - p2p_orchestrator - INFO - [P2P] DataAggregationLoop registered (important for training data)
+2026-01-12 22:49:28,147 - p2p_orchestrator - INFO - [P2P] HealthAggregationLoop registered with auto-recovery (Session 17.26)
+2026-01-12 22:49:28,147 - p2p_orchestrator - INFO - [P2P] IpDiscoveryLoop registered (handles dynamic IPs)
+2026-01-12 22:49:28,147 - p2p_orchestrator - INFO - [P2P] TailscaleRecoveryLoop registered (handles Tailscale failures)
+2026-01-12 22:49:28,147 - p2p_orchestrator - INFO - [P2P] TailscaleKeepaliveLoop registered (userspace_mode=True, interval=30.0s)
+2026-01-12 22:49:28,148 - p2p_orchestrator - INFO - [P2P] ClusterHealingLoop registered (interval=300.0s, max_heal=5)
+2026-01-12 22:49:28,148 - p2p_orchestrator - INFO - [P2P] UdpDiscoveryLoop registered (LAN peer discovery)
+2026-01-12 22:49:28,148 - p2p_orchestrator - INFO - [P2P] SplitBrainDetectionLoop registered (partition detection)
+2026-01-12 22:49:28,148 - p2p_orchestrator - INFO - [P2P] AutonomousQueuePopulationLoop registered (fallback queue population)
+2026-01-12 22:49:28,149 - p2p_orchestrator - INFO - [P2P] HttpServerHealthLoop registered (with graceful restart support)
+2026-01-12 22:49:28,149 - p2p_orchestrator - INFO - [P2P] ComprehensiveEvaluationLoop registered (6-hour model evaluation cycle)
+2026-01-12 22:49:28,149 - p2p_orchestrator - INFO - [P2P] TournamentDataPipelineLoop registered (hourly tournament data export)
+2026-01-12 22:49:28,149 - p2p_orchestrator - INFO - LoopManager: registered 36 loops
+2026-01-12 22:49:28,149 - scripts.p2p.loops.base - INFO - [p2p_loops] Starting 36 loops in order: ['queue_populator', 'elo_sync', 'job_reaper', 'idle_detection', 'spawn_verification', 'predictive_scaling', 'job_reassignment', 'auto_scaling', 'work_queue_maintenance', 'nat_management', 'manifest_collection', 'data_management', 'model_sync', 'model_fetch', 'validation', 'tailscale_peer_discovery', 'peer_cleanup', 'worker_pull', 'follower_discovery', 'self_healing', 'remote_p2p_recovery', 'leader_probe', 'predictive_monitoring', 'training_sync', 'data_aggregation', 'health_aggregation', 'ip_discovery', 'tailscale_recovery', 'tailscale_keepalive', 'cluster_healing', 'udp_discovery', 'split_brain_detection', 'autonomous_queue_population', 'http_server_health', 'comprehensive_evaluation', 'tournament_data_pipeline']
+2026-01-12 22:49:28,150 - p2p_orchestrator - INFO - Sending initial heartbeat burst to known peers
+2026-01-12 22:49:29,555 - p2p_orchestrator - INFO - Starting voter heartbeat loop (interval=10s)
+2026-01-12 22:49:29,593 - app.p2p.swim_adapter - INFO - SWIM using TCP transport (attempt 1)
+2026-01-12 22:49:29,593 - p2p_orchestrator - INFO - Vast IP update loop started
+2026-01-12 22:49:29,593 - p2p_orchestrator - INFO - AWS IP update loop started
+2026-01-12 22:49:29,594 - p2p_orchestrator - INFO - Tailscale IP update loop started
+2026-01-12 22:49:29,594 - scripts.p2p.loops.base - INFO - [queue_populator] Starting loop (interval=60.0s)
+2026-01-12 22:49:29,622 - scripts.p2p.loops.base - INFO - [elo_sync] Starting loop (interval=300.0s)
+2026-01-12 22:49:29,651 - swim.transport.tcp - INFO - TCP transport bound to all interfaces (0.0.0.0:7947), identifying as 0.0.0.0:7947
+2026-01-12 22:49:29,652 - swim.protocol.node - INFO - Transport successfully bound to 0.0.0.0:7947
+2026-01-12 22:49:29,652 - swim.protocol.member - INFO - Added new member: 0.0.0.0:7947 (method: self)
+2026-01-12 22:49:29,652 - swim.protocol.member - INFO - Created member list with self at 0.0.0.0:7947
+2026-01-12 22:49:29,653 - swim.protocol.member - INFO - Added new member: 100.107.168.125:7947 (method: unknown)
+2026-01-12 22:49:29,653 - swim.protocol.member - INFO - Added new member: 100.68.208.43:7947 (method: unknown)
+2026-01-12 22:49:29,653 - swim.protocol.member - INFO - Added new member: 100.94.174.19:7947 (method: unknown)
+2026-01-12 22:49:29,653 - swim.protocol.member - INFO - Added new member: 100.67.131.72:7947 (method: unknown)
+2026-01-12 22:49:29,653 - swim.protocol.member - INFO - Added new member: 100.126.21.102:7947 (method: unknown)
+2026-01-12 22:49:29,653 - swim.protocol.member - INFO - Added new member: 100.94.201.92:7947 (method: unknown)
+2026-01-12 22:49:29,653 - swim.protocol.member - INFO - Added new member: 100.109.195.71:7947 (method: unknown)
+2026-01-12 22:49:29,653 - swim.protocol.node - INFO - Added 7 seed nodes to member list
+2026-01-12 22:49:29,653 - swim.protocol.failure_detector - INFO - Failure detector initialized with Lifeguard enhancements
+2026-01-12 22:49:29,653 - swim.protocol.disseminator - INFO - Gossip service initialized with push-pull synchronization
+2026-01-12 22:49:29,654 - swim.protocol.sync - INFO - Sync service initialized
+2026-01-12 22:49:29,654 - swim.protocol.node - INFO - Push-pull sync service enabled
+2026-01-12 22:49:29,655 - swim.protocol.node - INFO - Metrics collection enabled for node 0.0.0.0:7947
+2026-01-12 22:49:29,655 - swim.lifeguard.awareness - INFO - Awareness service initialized (min=0, max=8)
+2026-01-12 22:49:29,655 - swim.lifeguard.timing - INFO - Timing service initialized with adaptive adjustments
+2026-01-12 22:49:29,655 - swim.lifeguard.probe_rate - INFO - Probe rate service initialized with adaptive control
+2026-01-12 22:49:29,655 - swim.protocol.node - INFO - Lifeguard enhancements enabled
+2026-01-12 22:49:29,655 - swim.protocol.node - INFO - Node initialized at 0.0.0.0:7947 with enhanced reliability features
+2026-01-12 22:49:29,655 - swim.protocol.node - INFO - Node created successfully at 0.0.0.0:7947
+2026-01-12 22:49:29,656 - swim.transport.tcp - INFO - TCP receiver task started
+2026-01-12 22:49:29,656 - swim.protocol.node - INFO - Node started at 0.0.0.0:7947
+2026-01-12 22:49:29,656 - app.p2p.swim_adapter - INFO - SWIM bootstrapped from 7 seeds
+2026-01-12 22:49:29,656 - app.p2p.swim_adapter - INFO - SWIM membership started on 0.0.0.0:7947 (failure_timeout=15.0s)
+2026-01-12 22:49:29,657 - p2p_orchestrator - INFO - SWIM membership loop: started successfully
+2026-01-12 22:49:29,658 - scripts.p2p.consensus_mixin - INFO - Deferred Raft init: found 2 partners, attempting initialization
+2026-01-12 22:49:29,658 - scripts.p2p.consensus_mixin - INFO - Initializing Raft consensus: self=100.69.164.58:4321, partners=['100.94.174.19:4321', '100.126.21.102:4321'], mode=hybrid
+2026-01-12 22:49:29,677 - scripts.p2p.consensus_mixin - INFO - Raft consensus initialized successfully
+2026-01-12 22:49:29,680 - scripts.p2p.consensus_mixin - INFO - Deferred Raft initialization succeeded with partners: ['100.94.174.19:4321', '100.126.21.102:4321']
+2026-01-12 22:49:29,693 - swim.protocol.sync - INFO - Sync service started
+2026-01-12 22:49:29,833 - scripts.p2p.loops.base - INFO - [job_reaper] Starting loop (interval=300.0s)
+2026-01-12 22:49:29,834 - swim.transport.tcp - ERROR - Failed to establish connection to 100.126.21.102:7947: [Errno 61] Connect call failed ('100.126.21.102', 7947)
+2026-01-12 22:49:29,835 - swim.transport.tcp - ERROR - Connection refused to 100.126.21.102:7947
+2026-01-12 22:49:30,217 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:30,218 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:29 -0600] "GET /status HTTP/1.1" 200 46325 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:31,630 - p2p_orchestrator - INFO - LOCAL: Disk at 82% - triggering cleanup
+2026-01-12 22:49:31,632 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 22:49:33,391 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 22:49:33,391 - p2p_orchestrator - WARNING - LOCAL: Memory CRITICAL at 99% - emergency cleanup
+2026-01-12 22:49:34,426 - p2p_orchestrator - INFO - Restarting stuck local selfplay jobs...
+2026-01-12 22:49:34,826 - p2p_orchestrator - INFO - Killed 0 processes, cleared 0 job records
+2026-01-12 22:49:36,076 - p2p_orchestrator - INFO - Emergency memory cleanup: cleared 20 gossip states, 0 manifests, ran gc.collect()
+2026-01-12 22:49:37,415 - p2p_orchestrator - INFO - LOCAL: Disk at 83% - skipping job starts
+2026-01-12 22:49:37,416 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 22:49:38,453 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 22:49:38,456 - p2p_orchestrator - INFO - LOCAL: Memory at 95% - skipping GPU auto-scale
+2026-01-12 22:49:39,776 - app.coordination.database_sync_manager - INFO - [elo] Discovered 8 nodes from P2P
+2026-01-12 22:49:39,777 - scripts.p2p.loops.base - INFO - [idle_detection] Starting loop (interval=30.0s)
+2026-01-12 22:49:39,951 - app.tournament.elo_sync_manager - INFO - EloSyncManager initialized: 1362 local matches
+2026-01-12 22:49:39,952 - scripts.p2p.loops.elo_sync_loop - INFO - [elo_sync] Started with interval 300.0s (attempt 1/5)
+2026-01-12 22:49:39,954 - scripts.p2p.loops.base - INFO - [spawn_verification] Starting loop (interval=5.0s)
+2026-01-12 22:49:39,984 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:49:39 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:39,985 - aiohttp.access - INFO - 100.100.19.96 [12/Jan/2026:22:49:39 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:43,606 - scripts.p2p.loops.base - INFO - [predictive_scaling] Starting loop (interval=30.0s)
+2026-01-12 22:49:43,639 - aiohttp.access - INFO - fd7a:115c:a1e0::5901:8f96 [12/Jan/2026:22:49:39 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:43,639 - aiohttp.access - INFO - fd7a:115c:a1e0::d201:656d [12/Jan/2026:22:49:39 -0600] "POST /gossip HTTP/1.1" 200 4982 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:43,640 - aiohttp.access - INFO - fd7a:115c:a1e0::1c01:ba91 [12/Jan/2026:22:49:39 -0600] "POST /gossip HTTP/1.1" 200 4970 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:43,640 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-12 22:49:43,640 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-12 22:49:43,641 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-12 22:49:43,641 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-12 22:49:43,641 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-12 22:49:43,641 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-12 22:49:43,641 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-12 22:49:43,641 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-12 22:49:43,641 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-12 22:49:43,641 - aiohttp.access - INFO - 100.110.143.119 [12/Jan/2026:22:49:39 -0600] "POST /gossip HTTP/1.1" 200 4970 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:43,946 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:43,948 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:49:39 -0600] "GET /status HTTP/1.1" 200 45122 "-" "curl/8.7.1"
+2026-01-12 22:49:43,950 - scripts.p2p.loops.base - INFO - [job_reassignment] Starting loop (interval=60.0s)
+2026-01-12 22:49:44,077 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:44,078 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:43 -0600] "GET /status HTTP/1.1" 200 46614 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:44,200 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:44,201 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:43 -0600] "GET /status HTTP/1.1" 200 46614 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:44,319 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:44,320 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:43 -0600] "GET /status HTTP/1.1" 200 46614 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:44,445 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:44,445 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:43 -0600] "GET /status HTTP/1.1" 200 46614 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:44,561 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:44,563 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:49:43 -0600] "GET /status HTTP/1.1" 200 46614 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:44,563 - app.coordination.database_sync_manager - INFO - [elo] Discovered 8 nodes from P2P
+2026-01-12 22:49:44,564 - app.coordination.database_sync_manager - INFO - [elo] Discovered 8 nodes from P2P
+2026-01-12 22:49:44,564 - scripts.p2p.loops.base - INFO - [auto_scaling] Starting loop (interval=120.0s)
+2026-01-12 22:49:44,565 - scripts.p2p.loops.coordination_loops - INFO - [AutoScaling] Scaling up by 3 nodes
+2026-01-12 22:49:44,565 - scripts.p2p.loops.coordination_loops - INFO - [AutoScaling] Added 0 nodes: []
+2026-01-12 22:49:44,565 - p2p_orchestrator - INFO - Discovered voter mac-studio from 100.126.21.102
+2026-01-12 22:49:44,566 - app.coordination.database_sync_manager - INFO - [elo] Discovered 8 nodes from P2P
+2026-01-12 22:49:44,566 - app.coordination.database_sync_manager - INFO - [elo] Discovered 8 nodes from P2P
+2026-01-12 22:49:44,567 - app.coordination.database_sync_manager - INFO - [elo] Discovered 8 nodes from P2P
+2026-01-12 22:49:44,567 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for aws-staging
+2026-01-12 22:49:44,568 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for 192-222-51-60
+2026-01-12 22:49:44,568 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for 192-222-57-184
+2026-01-12 22:49:44,568 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for 192-222-51-29
+2026-01-12 22:49:44,568 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for MacBook-Pro-5
+2026-01-12 22:49:44,568 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for 192-222-50-48
+2026-01-12 22:49:44,568 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for 192-222-57-210
+2026-01-12 22:49:44,569 - app.coordination.database_sync_manager - WARNING - [elo] No transports available for 192-222-58-171
+2026-01-12 22:49:44,665 - scripts.p2p.loops.base - INFO - [work_queue_maintenance] Starting loop (interval=300.0s)
+2026-01-12 22:49:44,665 - scripts.p2p.loops.job_loops - INFO - Work queue maintenance loop starting...
+2026-01-12 22:49:45,481 - scripts.p2p.loops.base - INFO - [nat_management] Starting loop (interval=60.0s)
+2026-01-12 22:49:45,481 - scripts.p2p.loops.network_loops - INFO - Starting advanced NAT management loop
+2026-01-12 22:49:46,314 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:49:46,315 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:49:47,317 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:49:47,318 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 22:49:48,503 - scripts.p2p.loops.base - INFO - [manifest_collection] Starting loop (interval=300.0s)
+2026-01-12 22:49:48,504 - scripts.p2p.loops.manifest_collection_loop - INFO - [manifest_collection] Starting (first collection in 60.0s)
+2026-01-12 22:49:48,504 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:49:45 -0600] "POST /gossip HTTP/1.1" 200 4942 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:48,507 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:48 -0600] "GET /health HTTP/1.1" 200 737 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:48,508 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:49:48 -0600] "GET /health HTTP/1.1" 200 736 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:49,553 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:48 -0600] "POST /heartbeat HTTP/1.1" 200 1953 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:49,575 - scripts.p2p.loops.base - INFO - [data_management] Starting loop (interval=300.0s)
+2026-01-12 22:49:49,575 - scripts.p2p.loops.data_loops - INFO - [data_management] Starting (first run in 30.0s)
+2026-01-12 22:49:50,664 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: local-mac at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-12 22:49:50,665 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-12 22:49:51,632 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: mbp-16gb at 100.66.142.46:8770
+2026-01-12 22:49:51,632 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.127.168.116:7947 at 100.127.168.116:8770
+2026-01-12 22:49:52,653 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:49:52,671 - scripts.p2p.loops.base - INFO - [model_sync] Starting loop (interval=120.0s)
+2026-01-12 22:49:52,674 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:49:49 -0600] "POST /gossip HTTP/1.1" 200 4942 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:49:53,612 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:52 -0600] "POST /heartbeat HTTP/1.1" 200 1945 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:53,621 - scripts.p2p.loops.base - INFO - [model_fetch] Starting loop (interval=60.0s)
+2026-01-12 22:49:53,624 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: MacBook-Pro-5
+2026-01-12 22:49:53,721 - scripts.p2p.loops.base - INFO - [validation] Starting loop (interval=300.0s)
+2026-01-12 22:49:53,723 - scripts.p2p.loops.validation_loop - INFO - Validation loop: initial delay before first check
+2026-01-12 22:49:53,822 - scripts.p2p.loops.base - INFO - [tailscale_peer_discovery] Starting loop (interval=60.0s)
+2026-01-12 22:49:53,822 - scripts.p2p.loops.network_loops - INFO - [TailscalePeerDiscovery] Starting ALL-NODE peer discovery loop (bootstrap=60.0s, maintenance=120.0s, min_peers=5)
+2026-01-12 22:49:53,822 - scripts.p2p.loops.network_loops - INFO - [TailscalePeerDiscovery] Mode transition: bootstrap -> maintenance (peers=8, threshold=5)
+2026-01-12 22:49:53,923 - scripts.p2p.loops.base - INFO - [peer_cleanup] Starting loop (interval=300.0s)
+2026-01-12 22:49:53,923 - scripts.p2p.loops.peer_cleanup_loop - INFO - [PeerCleanup] Purged 1 stale peers (tier2: 1, tier3: 0). Health ratio: 100.0% → 100.0%
+2026-01-12 22:49:54,030 - scripts.p2p.loops.base - INFO - [worker_pull] Starting loop (interval=10.0s)
+2026-01-12 22:49:54,030 - scripts.p2p.loops.job_loops - INFO - Worker pull loop starting...
+2026-01-12 22:49:54,130 - scripts.p2p.loops.base - INFO - [follower_discovery] Starting loop (interval=60.0s)
+2026-01-12 22:49:54,230 - scripts.p2p.loops.base - INFO - [self_healing] Starting loop (interval=60.0s)
+2026-01-12 22:49:54,230 - scripts.p2p.loops.resilience_loops - INFO - Self-healing loop starting...
+2026-01-12 22:49:54,330 - scripts.p2p.loops.base - INFO - [remote_p2p_recovery] Starting loop (interval=60.0s)
+2026-01-12 22:49:54,431 - scripts.p2p.loops.base - INFO - [leader_probe] Starting loop (interval=10.0s)
+2026-01-12 22:49:54,531 - scripts.p2p.loops.base - INFO - [predictive_monitoring] Starting loop (interval=300.0s)
+2026-01-12 22:49:54,532 - scripts.p2p.loops.resilience_loops - INFO - Predictive monitoring loop starting...
+2026-01-12 22:49:54,632 - scripts.p2p.loops.base - INFO - [training_sync] Starting loop (interval=300.0s)
+2026-01-12 22:49:54,732 - scripts.p2p.loops.base - INFO - [data_aggregation] Starting loop (interval=300.0s)
+2026-01-12 22:49:54,833 - scripts.p2p.loops.base - INFO - [health_aggregation] Starting loop (interval=30.0s)
+2026-01-12 22:49:54,843 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:54 -0600] "GET /health HTTP/1.1" 200 745 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:55,082 - scripts.p2p.loops.base - INFO - [ip_discovery] Starting loop (interval=300.0s)
+2026-01-12 22:49:55,182 - scripts.p2p.loops.base - INFO - [tailscale_recovery] Starting loop (interval=120.0s)
+2026-01-12 22:49:55,283 - scripts.p2p.loops.base - INFO - [tailscale_keepalive] Starting loop (interval=30.0s)
+2026-01-12 22:49:55,383 - scripts.p2p.loops.base - INFO - [cluster_healing] Starting loop (interval=300.0s)
+2026-01-12 22:49:55,407 - scripts.p2p.loops.cluster_healing_loop - WARNING - [ClusterHealing] Failed to load hosts YAML: 'str' object has no attribute 'get'
+2026-01-12 22:49:55,484 - scripts.p2p.loops.base - INFO - [udp_discovery] Starting loop (interval=30.0s)
+2026-01-12 22:49:56,509 - scripts.p2p.loops.base - INFO - [split_brain_detection] Starting loop (interval=60.0s)
+2026-01-12 22:49:56,509 - scripts.p2p.loops.resilience_loops - INFO - Split-brain detection loop starting...
+2026-01-12 22:49:56,605 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:49:56,606 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:49:56 -0600] "GET /status HTTP/1.1" 200 47460 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:49:56,607 - scripts.p2p.loops.autonomous_queue_loop - INFO - [AutonomousQueue] Started with config: no_leader_threshold=60.0s, starvation_threshold=10, check_interval=30.0s
+2026-01-12 22:49:56,607 - scripts.p2p.loops.base - INFO - [autonomous_queue_population] Starting loop (interval=30.0s)
+2026-01-12 22:49:56,707 - scripts.p2p.loops.base - INFO - [http_server_health] Starting loop (interval=10.0s)
+2026-01-12 22:49:56,808 - scripts.p2p.loops.base - INFO - [comprehensive_evaluation] Starting loop (interval=21600s)
+2026-01-12 22:49:56,808 - scripts.p2p.loops.comprehensive_evaluation_loop - WARNING - [comprehensive_evaluation] Failed to get role: 'P2POrchestrator' object has no attribute '_role'
+2026-01-12 22:49:56,909 - scripts.p2p.loops.base - INFO - [tournament_data_pipeline] Starting loop (interval=3600s)
+2026-01-12 22:49:56,909 - scripts.p2p.loops.tournament_data_pipeline_loop - WARNING - [tournament_data_pipeline] Failed to get role: 'P2POrchestrator' object has no attribute '_role'
+2026-01-12 22:49:57,009 - scripts.p2p.loops.base - INFO - [p2p_loops] All 36 loops verified running
+2026-01-12 22:49:57,009 - p2p_orchestrator - INFO - LoopManager: started 36/36 loops, job_reaper=running
+2026-01-12 22:49:59,259 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:49:59 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:49:59,594 - p2p_orchestrator - INFO - Starting dead peer reconnection loop (Phase 1 P2P stability fix)
+2026-01-12 22:50:00,431 - scripts.p2p.loops.queue_populator_loop - INFO - [queue_populator] Starting with 30.0s initial delay
+2026-01-12 22:50:00,548 - app.coordination.cluster_status_monitor - INFO - Loaded 23 hosts via cluster_config
+2026-01-12 22:50:10,605 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=100.92.222.49, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 22:50:10,691 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=192.222.58.241, transport=tailscale, category=timeout, error=ssh: connect to host 100.79.47.27 port 22: Operation timed out
+
+2026-01-12 22:50:10,733 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.114.223, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 22:50:10,740 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.96.55, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 22:50:10,740 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=208.167.249.164, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 22:50:10,757 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.111.107, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-12 22:50:10,758 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Scaled queue depth: 50 -> 50 (for 16 active nodes)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hex8_2p: 1537.0 (model: hex8_2p_improved, games: 137)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hex8_3p: 1468.1 (model: canonical_hex8_3p:gumbel_mcts:b800, games: 150)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hex8_4p: 1434.0 (model: canonical_hex8_4p:gumbel_mcts:b800, games: 150)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hexagonal_2p: 1514.3 (model: heuristic, games: 20)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hexagonal_3p: 1500.5 (model: canonical_hexagonal_3p:gumbel_mcts:b800, games: 150)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for hexagonal_4p: 1532.6 (model: heuristic, games: 10)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_2p: 1506.0 (model: canonical_square19_2p:gumbel_mcts:b800, games: 50)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_3p: 1500.0 (model: ringrift_best_square19_3p, games: 0)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_3p: 1500.0 (model: canonical_square19_3p:gumbel_mcts:b800, games: 50)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square19_4p: 1500.0 (model: ringrift_best_square19_4p, games: 0)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square8_2p: 1502.0 (model: canonical_square8_2p:gumbel_mcts:b800, games: 50)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square8_3p: 1516.8 (model: heuristic, games: 25)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded existing Elo for square8_4p: 1478.4 (model: canonical_square8_4p:gumbel_mcts:b800, games: 150)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - Loaded Elo data: 0/12 configs at target (2000.0+ Elo)
+2026-01-12 22:50:10,759 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Loaded curriculum weights
+2026-01-12 22:50:10,949 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Loaded game counts from canonical DBs: 161 total across 12 configs
+2026-01-12 22:50:10,949 - app.coordination.unified_queue_populator - WARNING - [QueuePopulator] Low game count configs (starvation candidates): hexagonal_3p:1, square8_2p:2, square8_3p:2, square19_2p:2, square19_3p:2
+2026-01-12 22:50:10,950 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] SelfplayScheduler integration enabled
+2026-01-12 22:50:10,950 - scripts.p2p.loops.queue_populator_loop - INFO - [queue_populator] QueuePopulator initialized
+2026-01-12 22:50:11,131 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:50:11 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:12,108 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:50:12,118 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:50:11 -0600] "GET /status HTTP/1.1" 200 48722 "-" "curl/8.7.1"
+2026-01-12 22:50:12,207 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:50:11 -0600] "POST /gossip HTTP/1.1" 200 4680 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:12,535 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:50:12,540 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:50:12 -0600] "GET /status HTTP/1.1" 200 48719 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:15,340 - scripts.p2p.loops.queue_populator_loop - WARNING - [queue_populator] FOLLOWER TAKEOVER: Leader unreachable for 47s, populating queue
+2026-01-12 22:50:15,597 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Worker capacity limit: 100 -> 50 (capacity=50)
+2026-01-12 22:50:15,615 - app.coordination.work_queue - INFO -  Added work selfplay_square8_2p_1768279815598: selfplay (priority: 50)
+2026-01-12 22:50:15,622 - app.coordination.work_queue - INFO -  Added work selfplay_square8_3p_1768279815615: selfplay (priority: 50)
+2026-01-12 22:50:15,630 - app.coordination.work_queue - INFO -  Added work selfplay_square8_4p_1768279815623: selfplay (priority: 50)
+2026-01-12 22:50:15,638 - app.coordination.work_queue - INFO -  Added work selfplay_square19_2p_1768279815630: selfplay (priority: 50)
+2026-01-12 22:50:15,645 - app.coordination.work_queue - INFO -  Added work selfplay_square19_3p_1768279815638: selfplay (priority: 50)
+2026-01-12 22:50:15,652 - app.coordination.work_queue - INFO -  Added work selfplay_square19_4p_1768279815645: selfplay (priority: 50)
+2026-01-12 22:50:15,660 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_2p_1768279815652: selfplay (priority: 50)
+2026-01-12 22:50:15,667 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_3p_1768279815660: selfplay (priority: 50)
+2026-01-12 22:50:15,674 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_4p_1768279815667: selfplay (priority: 50)
+2026-01-12 22:50:15,682 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_2p_1768279815675: selfplay (priority: 50)
+2026-01-12 22:50:15,691 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_3p_1768279815682: selfplay (priority: 50)
+2026-01-12 22:50:15,698 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_4p_1768279815691: selfplay (priority: 50)
+2026-01-12 22:50:15,706 - app.coordination.work_queue - INFO -  Added work selfplay_square8_2p_1768279815698: selfplay (priority: 50)
+2026-01-12 22:50:15,713 - app.coordination.work_queue - INFO -  Added work selfplay_square8_3p_1768279815706: selfplay (priority: 50)
+2026-01-12 22:50:15,720 - app.coordination.work_queue - INFO -  Added work selfplay_square8_4p_1768279815713: selfplay (priority: 50)
+2026-01-12 22:50:15,727 - app.coordination.work_queue - INFO -  Added work selfplay_square19_2p_1768279815720: selfplay (priority: 50)
+2026-01-12 22:50:15,734 - app.coordination.work_queue - INFO -  Added work selfplay_square19_3p_1768279815727: selfplay (priority: 50)
+2026-01-12 22:50:15,741 - app.coordination.work_queue - INFO -  Added work selfplay_square19_4p_1768279815734: selfplay (priority: 50)
+2026-01-12 22:50:15,750 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_2p_1768279815742: selfplay (priority: 50)
+2026-01-12 22:50:15,757 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_3p_1768279815750: selfplay (priority: 50)
+2026-01-12 22:50:15,763 - app.coordination.work_queue - INFO -  Added work selfplay_hex8_4p_1768279815757: selfplay (priority: 50)
+2026-01-12 22:50:15,770 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_2p_1768279815763: selfplay (priority: 50)
+2026-01-12 22:50:15,777 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_3p_1768279815770: selfplay (priority: 50)
+2026-01-12 22:50:15,784 - app.coordination.work_queue - INFO -  Added work selfplay_hexagonal_4p_1768279815777: selfplay (priority: 50)
+2026-01-12 22:50:15,792 - app.coordination.work_queue - INFO -  Added work selfplay_square8_2p_1768279815784: selfplay (priority: 50)
+2026-01-12 22:50:15,793 - app.distributed.storage_provider - INFO - Storage provider initialized: local
+2026-01-12 22:50:18,543 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:50:18,549 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:50:18 -0600] "GET /status HTTP/1.1" 200 48765 "-" "curl/8.7.1"
+2026-01-12 22:50:19,576 - scripts.p2p.loops.data_loops - INFO - [data_management] Disk at 82.9% (warning: 70.0%), triggering cleanup
+2026-01-12 22:50:19,577 - p2p_orchestrator - INFO - Running local disk cleanup...
+2026-01-12 22:50:20,322 - p2p_orchestrator - INFO - Disk monitor cleanup failed: 
+2026-01-12 22:50:20,343 - p2p_orchestrator - INFO - Bootstrap: imported 1 new peers from 100.126.21.102:8770
+2026-01-12 22:50:22,198 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:50:22 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:24,031 - scripts.p2p.loops.job_loops - INFO - Worker pull loop started
+2026-01-12 22:50:24,058 - scripts.p2p.managers.work_discovery_manager - INFO - [WorkDiscovery] MacBook MacBook-Pro-5.local matched mac-studio config, selfplay_enabled=false - disabling direct selfplay
+2026-01-12 22:50:26,161 - p2p_orchestrator - WARNING - [VoterHealth] Status: 1/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:50:26,163 - aiohttp.access - INFO - ::1 [12/Jan/2026:22:50:25 -0600] "GET /status HTTP/1.1" 200 47270 "-" "curl/8.7.1"
+2026-01-12 22:50:28,041 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:50:28 -0600] "GET /health HTTP/1.1" 200 754 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:50:28,618 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-12 22:50:29,043 - p2p_orchestrator - INFO - Reconnected to dead peer hetzner-cpu1 (was dead for 163s)
+Metrics Report: {'timestamp': 1768279829.65568, 'node_id': '0.0.0.0:7947', 'metrics': {'node_event': {'events': {'start': 1}}}}
+2026-01-12 22:50:30,244 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: hetzner-cpu1, invalidating cluster manifest
+2026-01-12 22:50:30,245 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: hetzner-cpu1, node available for jobs
+2026-01-12 22:50:30,246 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.94.174.19
+2026-01-12 22:50:31,879 - p2p_orchestrator - INFO - Reconnected to dead peer lambda-gh200-8 (was dead for 322s)
+2026-01-12 22:50:33,144 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: lambda-gh200-8, invalidating cluster manifest
+2026-01-12 22:50:33,145 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: lambda-gh200-8, node available for jobs
+2026-01-12 22:50:35,228 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:50:35 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:35,576 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu1 came ONLINE (2/8 alive, quorum=3)
+2026-01-12 22:50:35,577 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:50:35,585 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:50:35 -0600] "GET /status HTTP/1.1" 200 49226 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:50:35,999 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu2', 'hetzner-cpu3', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:50:36,006 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:50:35 -0600] "GET /status HTTP/1.1" 200 49226 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:50:36,018 - p2p_orchestrator - INFO - Reconnected to dead peer hetzner-cpu3 (was dead for 312s)
+2026-01-12 22:50:37,163 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: hetzner-cpu3, invalidating cluster manifest
+2026-01-12 22:50:37,164 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: hetzner-cpu3, node available for jobs
+2026-01-12 22:50:37,165 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.126.21.102
+2026-01-12 22:50:38,036 - aiohttp.access - INFO - 100.94.174.19 [12/Jan/2026:22:50:36 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:50:38,054 - aiohttp.access - INFO - 100.115.97.24 [12/Jan/2026:22:50:38 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:50:38,762 - p2p_orchestrator - INFO - Discovered voter hetzner-cpu2 from 100.94.174.19
+2026-01-12 22:50:39,747 - scripts.p2p.loops.resilience_loops - INFO - Self-healing loop started
+2026-01-12 22:50:41,150 - p2p_orchestrator - WARNING - [VoterHealth] Voter hetzner-cpu1 went OFFLINE (2/8 alive, quorum=3)
+2026-01-12 22:50:41,150 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu3 came ONLINE (2/8 alive, quorum=3)
+2026-01-12 22:50:41,151 - p2p_orchestrator - WARNING - [VoterHealth] Status: 2/8 voters alive, quorum=LOST, offline: ['mac-studio', 'lambda-gh200-training', 'hetzner-cpu1', 'hetzner-cpu2', 'vultr-a100-20gb', 'nebius-h100-3']
+2026-01-12 22:50:41,152 - aiohttp.access - INFO - 100.107.168.125 [12/Jan/2026:22:50:40 -0600] "GET /status HTTP/1.1" 200 49345 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-12 22:50:41,158 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:50:41 -0600] "GET /health HTTP/1.1" 200 756 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:42,254 - aiohttp.access - INFO - 100.69.164.58 [12/Jan/2026:22:50:42 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:42,255 - p2p_orchestrator - INFO - [P2P] Fetched 3 game counts from fallback MacBook-Pro-5
+2026-01-12 22:50:43,239 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [12/Jan/2026:22:50:42 -0600] "POST /gossip HTTP/1.1" 200 4658 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-12 22:50:43,952 - scripts.p2p.loops.job_loops - INFO - [JobReassignment] Initial delay complete, starting checks
+2026-01-12 22:50:44,666 - scripts.p2p.loops.job_loops - INFO - Work queue maintenance loop started
+2026-01-12 22:50:44,839 - swim.transport.tcp - ERROR - Failed to establish connection to 100.109.195.71:7947: [Errno 60] Connect call failed ('100.109.195.71', 7947)
+2026-01-12 22:50:44,839 - swim.transport.tcp - ERROR - Failed to send data to ('100.109.195.71', 7947): [Errno 60] Connect call failed ('100.109.195.71', 7947)
+2026-01-12 22:50:44,839 - swim.protocol.sync - ERROR - [ff554c56] Error sending incremental sync request to 100.109.195.71:7947: [Errno 60] Connect call failed ('100.109.195.71', 7947)
+2026-01-12 22:50:44,840 - swim.protocol.disseminator - ERROR - [13c6a86c] Error sending heartbeat to 100.126.21.102:7947: [Errno 61] Connect call failed ('100.126.21.102', 7947)
+2026-01-12 22:50:45,527 - swim.protocol.failure_detector - WARNING - [2c8a4d27] TIMEOUT waiting for PONG from 100.107.168.125:7947 (attempt 1/3)
+2026-01-12 22:50:45,928 - swim.protocol.failure_detector - WARNING - [2c8a4d27] TIMEOUT waiting for PONG from 100.107.168.125:7947 (attempt 2/3)
+2026-01-12 22:50:46,020 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:50:46 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:46,330 - swim.protocol.failure_detector - WARNING - [2c8a4d27] TIMEOUT waiting for PONG from 100.107.168.125:7947 (attempt 3/3)
+2026-01-12 22:50:46,330 - swim.protocol.failure_detector - WARNING - [2c8a4d27] All ping attempts failed to 100.107.168.125:7947, marking as SUSPECT
+2026-01-12 22:50:46,331 - swim.protocol.member - INFO - STATE CHANGE: Member 100.107.168.125:7947 transitioned from ALIVE to SUSPECT (inc=2)
+2026-01-12 22:50:47,510 - swim.transport.tcp - ERROR - Failed to establish connection to 100.126.21.102:7947: [Errno 61] Connect call failed ('100.126.21.102', 7947)
+2026-01-12 22:50:47,511 - swim.transport.tcp - ERROR - Connection refused to 100.126.21.102:7947
+2026-01-12 22:50:47,511 - swim.protocol.disseminator - ERROR - [5bfada43] Error sending heartbeat to 100.126.21.102:7947: [Errno 61] Connect call failed ('100.126.21.102', 7947)
+2026-01-12 22:50:47,511 - swim.protocol.node - INFO - Checking 1 suspect members
+2026-01-12 22:50:47,511 - swim.protocol.node - INFO - LIFEGUARD: Using adaptive suspect timeout for 100.107.168.125:7947: 15.00s (base: 5.00s)
+2026-01-12 22:50:47,511 - swim.protocol.node - INFO - [6e6c8105] Checking suspect member 100.107.168.125:7947 with indirect probe (suspect for 1.18s)
+2026-01-12 22:50:47,511 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Probe count for 100.107.168.125:7947 (awareness=0): 7
+2026-01-12 22:50:47,511 - swim.lifeguard.probe_rate - INFO - LIFEGUARD: Increased probe count due to high failure rate (100.0%) for 100.107.168.125:7947: 7 -> 8
+2026-01-12 22:50:47,841 - swim.protocol.sync - INFO - [5e694780] Performing full sync with 2 members
+2026-01-12 22:50:55,884 - aiohttp.access - INFO - 100.126.21.102 [12/Jan/2026:22:50:55 -0600] "GET /game_counts HTTP/1.1" 200 292 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-12 22:50:56,023 - aiohttp.access - INFO - 127.0.0.1 [12/Jan/2026:22:50:56 -0600] "GET /health HTTP/1.1" 200 354 "-" "Python/3.10 aiohttp/3.13.2"

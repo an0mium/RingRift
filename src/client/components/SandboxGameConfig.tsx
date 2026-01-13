@@ -179,7 +179,19 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
       playerTypes: ['human', 'ai', 'ai', 'human'],
     },
   },
-  // ===== hex8 presets (5) =====
+  {
+    id: 'sq8-1h-3ai',
+    label: '4-Player FFA',
+    description: '1 human, 3 AIs',
+    learnMoreText: 'Epic 4-player chaos on the compact board. Can you survive against three AIs?',
+    icon: '🎲',
+    config: {
+      boardType: 'square8',
+      numPlayers: 4,
+      playerTypes: ['human', 'ai', 'ai', 'ai'],
+    },
+  },
+  // ===== hex8 presets (6) =====
   {
     id: 'hex8-1h-1ai',
     label: 'Human vs AI',
@@ -241,7 +253,19 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
       playerTypes: ['human', 'ai', 'ai', 'human'],
     },
   },
-  // ===== sq19 presets (5) =====
+  {
+    id: 'hex8-1h-3ai',
+    label: '4-Player FFA',
+    description: '1 human, 3 AIs',
+    learnMoreText: 'Chaotic 4-player hex battle. Fast and furious 6-way combat!',
+    icon: '🎲',
+    config: {
+      boardType: 'hex8',
+      numPlayers: 4,
+      playerTypes: ['human', 'ai', 'ai', 'ai'],
+    },
+  },
+  // ===== sq19 presets (6) =====
   {
     id: 'sq19-1h-1ai',
     label: 'Human vs AI',
@@ -303,7 +327,19 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
       playerTypes: ['human', 'ai', 'ai', 'human'],
     },
   },
-  // ===== hexagonal presets (5) =====
+  {
+    id: 'sq19-1h-3ai',
+    label: '4-Player FFA',
+    description: '1 human, 3 AIs',
+    learnMoreText: 'Massive 4-player warfare on 19×19. Strategic depth meets chaos!',
+    icon: '🎲',
+    config: {
+      boardType: 'square19',
+      numPlayers: 4,
+      playerTypes: ['human', 'ai', 'ai', 'ai'],
+    },
+  },
+  // ===== hexagonal presets (6) =====
   {
     id: 'hex24-1h-1ai',
     label: 'Human vs AI',
@@ -329,15 +365,15 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
     },
   },
   {
-    id: 'hex24-1h-3ai',
-    label: '4-Player FFA',
-    description: '1 human, 3 AIs',
-    learnMoreText: 'Epic 4-player battle on the full hex board. Chaotic 6-way warfare!',
-    icon: '🎲',
+    id: 'hex24-2ai',
+    label: 'AI Battle',
+    description: '2 AIs',
+    learnMoreText: 'Watch two AIs compete on full hex. See 6-directional strategies unfold.',
+    icon: '⚔️',
     config: {
       boardType: 'hexagonal',
-      numPlayers: 4,
-      playerTypes: ['human', 'ai', 'ai', 'ai'],
+      numPlayers: 2,
+      playerTypes: ['ai', 'ai', 'human', 'human'],
     },
   },
   {
@@ -362,6 +398,18 @@ export const QUICK_START_PRESETS: QuickStartPreset[] = [
       boardType: 'hexagonal',
       numPlayers: 3,
       playerTypes: ['human', 'ai', 'ai', 'human'],
+    },
+  },
+  {
+    id: 'hex24-1h-3ai',
+    label: '4-Player FFA',
+    description: '1 human, 3 AIs',
+    learnMoreText: 'Epic 4-player battle on the full hex board. Chaotic 6-way warfare!',
+    icon: '🎲',
+    config: {
+      boardType: 'hexagonal',
+      numPlayers: 4,
+      playerTypes: ['human', 'ai', 'ai', 'ai'],
     },
   },
 ];

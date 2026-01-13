@@ -215,7 +215,7 @@ class ClusterConsolidationDaemon(HandlerBase):
 
         # Also check common coordinator hostnames
         hostname = socket.gethostname().lower()
-        coordinator_names = ("mac-studio", "local-mac", "coordinator")
+        coordinator_names = ("mac-studio", "local-mac", "coordinator", "macbook")
         is_coordinator = is_coordinator or any(n in hostname for n in coordinator_names)
 
         self._is_coordinator = is_coordinator

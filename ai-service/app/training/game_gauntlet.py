@@ -2090,6 +2090,19 @@ def run_baseline_gauntlet(
         clear_model_cache()
         logger.debug("[gauntlet] Cleared model cache after gauntlet evaluation")
 
+    # January 2026: Emit batch event to trigger consolidation pipeline
+    # This ensures gauntlet games are consolidated into canonical databases for training
+    if recording_config is not None and result.total_games > 0:
+        try:
+            from app.db.unified_recording import emit_games_recorded_batch
+            emit_games_recorded_batch(recording_config, result.total_games)
+            logger.debug(
+                f"[gauntlet] Emitted NEW_GAMES_AVAILABLE for {result.total_games} games "
+                f"({board_type_str}_{num_players}p)"
+            )
+        except ImportError:
+            pass
+
     return result
 
 
