@@ -201,8 +201,10 @@ LEADER_LEASE_EXPIRY_GRACE_SECONDS = _CONSTANTS["LEADER_LEASE_EXPIRY_GRACE_SECOND
 # January 8, 2026: Reduced from 600s to 180s for faster autonomous recovery
 # January 12, 2026: Reduced from 180s to 60s for faster quorum loss recovery
 # January 13, 2026: Made configurable via RINGRIFT_SINGLE_NODE_FALLBACK_TIMEOUT
+# January 13, 2026: Increased default from 60s to 180s to prevent premature split-brain
+# during transient network issues - gives partition healing time to run
 _env_single_node_timeout = os.environ.get("RINGRIFT_SINGLE_NODE_FALLBACK_TIMEOUT", "").strip()
-SINGLE_NODE_FALLBACK_TIMEOUT = int(_env_single_node_timeout) if _env_single_node_timeout.isdigit() else 60
+SINGLE_NODE_FALLBACK_TIMEOUT = int(_env_single_node_timeout) if _env_single_node_timeout.isdigit() else 180
 
 # January 13, 2026: Allow disabling single-node fallback for strict quorum enforcement
 # Set RINGRIFT_ALLOW_SINGLE_NODE=false to disable (default: true)
@@ -212,9 +214,10 @@ ALLOW_SINGLE_NODE_FALLBACK = os.environ.get("RINGRIFT_ALLOW_SINGLE_NODE", "true"
 # When network partitions occur, voters may become temporarily unreachable.
 # This grace period allows the cluster to continue operating based on
 # last-known quorum state, preventing quorum flip-flopping.
-# Set RINGRIFT_QUORUM_STALE_GRACE to customize (default: 30 seconds)
+# Set RINGRIFT_QUORUM_STALE_GRACE to customize (default: 60 seconds)
+# January 13, 2026: Increased default from 30s to 60s for better partition tolerance
 _env_stale_grace = os.environ.get("RINGRIFT_QUORUM_STALE_GRACE", "").strip()
-QUORUM_STALE_GRACE_SECONDS = int(_env_stale_grace) if _env_stale_grace.isdigit() else 30
+QUORUM_STALE_GRACE_SECONDS = int(_env_stale_grace) if _env_stale_grace.isdigit() else 60
 
 # Phase 3.2 (January 2026): Dynamic voter management
 # Enable via RINGRIFT_P2P_DYNAMIC_VOTER=true
