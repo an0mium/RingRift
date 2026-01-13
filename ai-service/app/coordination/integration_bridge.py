@@ -331,13 +331,16 @@ def wire_pipeline_feedback_events(
             # Call original
             original_emit(signal)
             # Publish to router
+            # Jan 2026: Use getattr() for severity - not all FeedbackSignal types have this field
+            severity_raw = getattr(signal, "severity", "info")
+            severity = severity_raw.value if hasattr(severity_raw, "value") else str(severity_raw)
             publish_sync(
                 EVENT_FEEDBACK_SIGNAL,
                 {
                     "action": signal.action.value if hasattr(signal.action, "value") else str(signal.action),
                     "reason": signal.reason,
                     "metadata": signal.metadata,
-                    "severity": signal.severity.value if hasattr(signal.severity, "value") else str(signal.severity),
+                    "severity": severity,
                 },
                 source="pipeline_feedback",
             )
