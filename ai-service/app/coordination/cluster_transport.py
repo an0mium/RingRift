@@ -763,6 +763,132 @@ class ClusterTransport:
                 },
             )
 
+    async def _http_push(
+        self,
+        local_path: Path,
+        remote_path: str,
+        node: NodeConfig,
+    ) -> TransportResult:
+        """Push file to remote node via HTTP upload endpoint.
+
+        January 2026: Added for Vast.ai nodes where SSH-based transports fail.
+
+        Uses the /files/upload endpoint on the P2P orchestrator to upload files.
+        The endpoint expects multipart form data with:
+        - file: The file content
+        - path: The destination path (models/foo.pth or data/foo.db)
+
+        Args:
+            local_path: Local file to upload
+            remote_path: Remote path (format: ai-service/models/foo.pth)
+            node: Target node configuration
+
+        Returns:
+            TransportResult with success status
+        """
+        try:
+            import aiohttp
+        except ImportError:
+            return TransportResult(success=False, error="aiohttp not available")
+
+        if not local_path.exists():
+            return TransportResult(
+                success=False,
+                error=f"File not found: {local_path}",
+            )
+
+        # Determine the file category and relative path
+        # Expected remote_path format: ai-service/models/foo.pth or ai-service/data/foo.db
+        if "models/" in remote_path:
+            relative_path = "models/" + remote_path.split("models/")[-1]
+        elif "data/" in remote_path:
+            relative_path = "data/" + remote_path.split("data/")[-1]
+        else:
+            return TransportResult(
+                success=False,
+                error=f"HTTP push only supports models/ or data/ paths, got: {remote_path}",
+            )
+
+        # Build URL using P2P port
+        host = node.tailscale_ip or node.hostname
+        p2p_port = getattr(node, 'p2p_port', P2P_DEFAULT_PORT)
+        url = f"http://{host}:{p2p_port}/files/upload"
+
+        file_size = local_path.stat().st_size
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=self.operation_timeout)
+
+            # Read file content in thread pool to avoid blocking
+            def _read_file() -> bytes:
+                with open(local_path, "rb") as f:
+                    return f.read()
+
+            file_content = await asyncio.to_thread(_read_file)
+
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                # Create multipart form data
+                form = aiohttp.FormData()
+                form.add_field(
+                    "file",
+                    file_content,
+                    filename=local_path.name,
+                    content_type="application/octet-stream",
+                )
+                form.add_field("path", relative_path)
+
+                async with session.post(url, data=form) as resp:
+                    if resp.status == 404:
+                        # Endpoint not implemented on remote
+                        return TransportResult(
+                            success=False,
+                            error="HTTP upload endpoint not available on remote node",
+                            metadata={"retryable": False},
+                        )
+                    if resp.status >= 400:
+                        error_text = await resp.text()
+                        return TransportResult(
+                            success=False,
+                            error=f"HTTP upload failed: {resp.status} - {error_text[:100]}",
+                            metadata={"retryable": resp.status >= 500},
+                        )
+
+                    logger.info(
+                        f"HTTP upload complete: {local_path} -> {host}:{p2p_port}/{relative_path} "
+                        f"({file_size / 1024 / 1024:.1f} MB)"
+                    )
+
+                    return TransportResult(
+                        success=True,
+                        transport_used="http",
+                        bytes_transferred=file_size,
+                    )
+
+        except aiohttp.ClientError as e:
+            return TransportResult(
+                success=False,
+                error=f"HTTP upload client error: {e}",
+                metadata={"retryable": True},
+            )
+        except asyncio.TimeoutError:
+            return TransportResult(
+                success=False,
+                error="HTTP upload timeout",
+                metadata={"retryable": True},
+            )
+        except MemoryError:
+            return TransportResult(
+                success=False,
+                error="File too large for HTTP upload (out of memory)",
+                metadata={"retryable": False},
+            )
+        except (OSError, IOError) as e:
+            return TransportResult(
+                success=False,
+                error=f"HTTP upload file error: {e}",
+                metadata={"retryable": False},
+            )
+
     async def _transfer_via_http(
         self,
         local_path: Path,
@@ -770,29 +896,28 @@ class ClusterTransport:
         node: NodeConfig,
         direction: str,
     ) -> TransportResult:
-        """Transfer file via HTTP using P2P file download endpoints.
+        """Transfer file via HTTP using P2P file endpoints.
 
-        This transport uses the /files/models/ and /files/data/ endpoints
-        on the P2P orchestrator (port 8770) to download files when SSH fails.
+        This transport uses the /files/upload and /files/models/, /files/data/
+        endpoints on the P2P orchestrator (port 8770) for file transfers.
 
         **When this is useful:**
         - All SSH-based transports fail (connection resets, timeouts)
-        - Pulling files from nodes with P2P orchestrator running
-        - Large files where SSH connections are unstable
+        - Vast.ai or other nodes with SSH firewall issues
+        - Pulling/pushing files from/to nodes with P2P orchestrator running
 
-        **Limitations:**
-        - Currently only supports "pull" direction (remote -> local)
-        - Requires P2P orchestrator to be running on the remote node
+        **Push limitations:**
+        - Requires /files/upload endpoint on P2P orchestrator
+        - Only supports files in models/ or data/ directories
+
+        **Pull limitations:**
         - Only supports files in models/ or data/ directories
 
         December 2025 - Added as permanent workaround for SSH connectivity issues
+        January 2026 - Added HTTP push support for Vast.ai nodes
         """
         if direction == "push":
-            # HTTP push not supported yet - would need to implement upload endpoint
-            return TransportResult(
-                success=False,
-                error="HTTP push not implemented - use rsync/base64 for push",
-            )
+            return await self._http_push(local_path, remote_path, node)
 
         try:
             import aiohttp

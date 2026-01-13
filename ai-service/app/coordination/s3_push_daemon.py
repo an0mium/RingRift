@@ -33,8 +33,18 @@ from pathlib import Path
 from typing import Any
 
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
+from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
+
+# January 2026: Retry configuration for S3 uploads
+S3_RETRY_CONFIG = RetryConfig(
+    max_attempts=5,       # Up to 5 attempts
+    base_delay=2.0,       # Start with 2 second delay
+    max_delay=60.0,       # Cap at 60 seconds
+    exponential=True,     # Exponential backoff
+    jitter=0.2,           # 20% jitter to prevent thundering herd
+)
 
 
 @dataclass
@@ -216,12 +226,14 @@ class S3PushDaemon(HandlerBase):
     async def _push_if_modified(self, local_path: Path, s3_key: str) -> bool:
         """Push file to S3 if it has been modified since last push.
 
+        January 2026: Added exponential backoff retry (up to 5 attempts).
+
         Args:
             local_path: Local file path
             s3_key: S3 object key
 
         Returns:
-            True if file was pushed, False if skipped (not modified)
+            True if file was pushed, False if skipped (not modified) or failed
         """
         if not local_path.exists():
             return False
@@ -235,50 +247,110 @@ class S3PushDaemon(HandlerBase):
                 return False
 
             s3_uri = f"s3://{self.config.bucket}/{s3_key}"
+            file_size = local_path.stat().st_size
 
-            # Run aws s3 cp in a thread to not block
-            result = await asyncio.to_thread(
-                subprocess.run,
-                [
-                    "aws",
-                    "s3",
-                    "cp",
-                    str(local_path),
-                    s3_uri,
-                    "--storage-class",
-                    self.config.storage_class,
-                    "--region",
-                    self.config.region,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout for large files
-            )
+            # January 2026: Retry loop with exponential backoff
+            last_error: str | None = None
+            for attempt in S3_RETRY_CONFIG.attempts():
+                try:
+                    # Run aws s3 cp in a thread to not block
+                    result = await asyncio.to_thread(
+                        subprocess.run,
+                        [
+                            "aws",
+                            "s3",
+                            "cp",
+                            str(local_path),
+                            s3_uri,
+                            "--storage-class",
+                            self.config.storage_class,
+                            "--region",
+                            self.config.region,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=300,  # 5 minute timeout for large files
+                    )
 
-            if result.returncode == 0:
-                file_size = local_path.stat().st_size
-                self._last_push_times[str(local_path)] = mtime
-                self._push_stats.total_files_pushed += 1
-                self._push_stats.total_bytes_pushed += file_size
-                logger.info(
-                    f"[S3PushDaemon] Pushed {local_path.name} to {s3_uri} "
-                    f"({file_size / (1024*1024):.1f} MB)"
-                )
-                return True
-            else:
-                logger.warning(
-                    f"[S3PushDaemon] Failed to push {local_path.name}: {result.stderr}"
-                )
-                self._push_stats.push_errors += 1
-                return False
+                    if result.returncode == 0:
+                        self._last_push_times[str(local_path)] = mtime
+                        self._push_stats.total_files_pushed += 1
+                        self._push_stats.total_bytes_pushed += file_size
+                        if attempt.number > 1:
+                            logger.info(
+                                f"[S3PushDaemon] Pushed {local_path.name} to {s3_uri} "
+                                f"({file_size / (1024*1024):.1f} MB) - succeeded on attempt {attempt.number}"
+                            )
+                        else:
+                            logger.info(
+                                f"[S3PushDaemon] Pushed {local_path.name} to {s3_uri} "
+                                f"({file_size / (1024*1024):.1f} MB)"
+                            )
+                        return True
 
-        except subprocess.TimeoutExpired:
-            logger.warning(f"[S3PushDaemon] Push timed out for {local_path.name}")
+                    # Non-zero return code - retryable error
+                    last_error = result.stderr or f"aws s3 cp failed with code {result.returncode}"
+
+                    # Check if error is retryable (transient errors)
+                    is_retryable = any(
+                        err in last_error.lower()
+                        for err in [
+                            "service unavailable", "timeout", "connection",
+                            "throttl", "slowdown", "internal error", "503",
+                            "500", "network", "socket", "reset",
+                        ]
+                    )
+
+                    if not is_retryable:
+                        # Permanent error (e.g., access denied, no such bucket)
+                        logger.warning(
+                            f"[S3PushDaemon] Permanent error pushing {local_path.name}: {last_error}"
+                        )
+                        self._push_stats.push_errors += 1
+                        self._push_stats.last_error = last_error
+                        return False
+
+                    if attempt.should_retry:
+                        delay = attempt.delay
+                        logger.warning(
+                            f"[S3PushDaemon] Push {local_path.name} failed "
+                            f"(attempt {attempt.number}/{S3_RETRY_CONFIG.max_attempts}): {last_error[:100]}. "
+                            f"Retrying in {delay:.1f}s"
+                        )
+                        await attempt.wait_async()
+                    else:
+                        # Final attempt failed
+                        logger.warning(
+                            f"[S3PushDaemon] Push {local_path.name} failed after "
+                            f"{S3_RETRY_CONFIG.max_attempts} attempts: {last_error[:200]}"
+                        )
+
+                except subprocess.TimeoutExpired:
+                    last_error = "Timeout (>5 min)"
+                    if attempt.should_retry:
+                        delay = attempt.delay
+                        logger.warning(
+                            f"[S3PushDaemon] Push {local_path.name} timed out "
+                            f"(attempt {attempt.number}/{S3_RETRY_CONFIG.max_attempts}). "
+                            f"Retrying in {delay:.1f}s"
+                        )
+                        await attempt.wait_async()
+                    else:
+                        logger.warning(
+                            f"[S3PushDaemon] Push {local_path.name} timed out after "
+                            f"{S3_RETRY_CONFIG.max_attempts} attempts"
+                        )
+
+            # All retries exhausted
             self._push_stats.push_errors += 1
+            self._push_stats.last_error = last_error
             return False
-        except Exception as e:
-            logger.warning(f"[S3PushDaemon] Push error for {local_path.name}: {e}")
+
+        except (OSError, ValueError) as e:
+            # Non-retryable local errors (file not found, invalid path, etc.)
+            logger.warning(f"[S3PushDaemon] Local error for {local_path.name}: {e}")
             self._push_stats.push_errors += 1
+            self._push_stats.last_error = str(e)
             return False
 
     def _get_event_subscriptions(self) -> dict[str, Any]:

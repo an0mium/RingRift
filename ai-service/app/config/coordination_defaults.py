@@ -902,7 +902,8 @@ class MonitoringDefaults:
     GPU_MEMORY_CRITICAL: float = _env_float("RINGRIFT_GPU_MEMORY_CRITICAL", 98.0)
 
     # Node offline detection (seconds)
-    NODE_OFFLINE_THRESHOLD: int = _env_int("RINGRIFT_NODE_OFFLINE_THRESHOLD", 300)
+    # Jan 13, 2026: Reduced from 300s to 60s for faster quorum detection during 48h autonomous ops
+    NODE_OFFLINE_THRESHOLD: int = _env_int("RINGRIFT_NODE_OFFLINE_THRESHOLD", 60)
 
     # Cluster health check interval (seconds)
     CLUSTER_CHECK_INTERVAL: int = _env_int("RINGRIFT_CLUSTER_CHECK_INTERVAL", 60)
@@ -3213,7 +3214,8 @@ class GossipDefaults:
     # =========================================================================
 
     # Dead peer detection: seconds since last seen before marking as dead
-    DEAD_PEER_TIMEOUT: float = _env_float("RINGRIFT_GOSSIP_DEAD_PEER_TIMEOUT", 300.0)
+    # Jan 13, 2026: Reduced from 300s to 60s for faster quorum detection during 48h autonomous ops
+    DEAD_PEER_TIMEOUT: float = _env_float("RINGRIFT_GOSSIP_DEAD_PEER_TIMEOUT", 60.0)
 
     # Cleanup interval: minimum seconds between gossip state cleanup passes
     CLEANUP_INTERVAL: float = _env_float("RINGRIFT_GOSSIP_CLEANUP_INTERVAL", 300.0)

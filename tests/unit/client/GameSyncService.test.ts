@@ -24,10 +24,12 @@ jest.mock('../../../src/client/services/LocalGameStorage', () => ({
 
 // ReplayService is stubbed so we can control storeGame outcomes.
 const mockStoreGame = jest.fn();
+const mockIsConfigured = jest.fn().mockReturnValue(true);
 jest.mock('../../../src/client/services/ReplayService', () => ({
   __esModule: true,
   getReplayService: () => ({
     storeGame: mockStoreGame,
+    isConfigured: mockIsConfigured,
   }),
 }));
 
@@ -85,6 +87,21 @@ describe('GameSyncService', () => {
     expect(state.status === 'offline' || state.status === 'idle').toBe(true);
 
     onlineSpy.mockRestore();
+  });
+
+  it('does not attempt sync when replay service is not configured', async () => {
+    const onlineSpy = jest.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(true);
+    mockIsConfigured.mockReturnValue(false);
+    localGameStorage.getPendingCount.mockResolvedValue(3);
+
+    const serviceAny = GameSyncService as any;
+    await serviceAny.attemptSync();
+
+    expect(mockIsConfigured).toHaveBeenCalled();
+    expect(localGameStorage.getUnsyncedGames).not.toHaveBeenCalled();
+
+    onlineSpy.mockRestore();
+    mockIsConfigured.mockReturnValue(true); // Reset for other tests
   });
 
   it('skips sync while in backoff window after previous failures', async () => {

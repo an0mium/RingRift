@@ -260,6 +260,7 @@ class DatabaseSyncManager(SyncManagerBase):
         p2p_url: str | None = None,
         enable_merge: bool = True,
         circuit_breaker_config: CircuitBreakerConfig | None = None,
+        require_move_data: bool = False,
     ):
         """Initialize database sync manager.
 
@@ -272,6 +273,8 @@ class DatabaseSyncManager(SyncManagerBase):
             p2p_url: P2P orchestrator URL for node discovery
             enable_merge: Whether to merge on pull (vs replace)
             circuit_breaker_config: Config for per-node circuit breakers
+            require_move_data: Whether to validate game_moves table exists
+                              (False for ELO/registry DBs, True for game DBs)
         """
         super().__init__(
             state_path=state_path,
@@ -289,6 +292,9 @@ class DatabaseSyncManager(SyncManagerBase):
             from app.config.ports import get_local_p2p_url
             self.p2p_url = get_local_p2p_url()
         self.enable_merge = enable_merge
+        # Jan 2026: Whether to require move data during validation
+        # False for ELO/registry databases, True for game databases
+        self.require_move_data = require_move_data
 
         # Override state with database-specific version
         self._db_state = DatabaseSyncState()
@@ -630,11 +636,22 @@ class DatabaseSyncManager(SyncManagerBase):
                 return False
 
             # Dec 2025: Validate synced database integrity
-            is_valid, errors = validate_synced_database(tmp_path, check_integrity=True)
+            # Jan 2026: Use require_move_data from instance (False for ELO/registry DBs)
+            is_valid, errors = validate_synced_database(
+                tmp_path,
+                check_integrity=True,
+                require_move_data=self.require_move_data,
+            )
             if not is_valid:
-                logger.warning(
-                    f"[{self.db_type}] Synced database failed validation: {errors}"
-                )
+                # Jan 2026: Log at debug level for metadata-only skip, warning for real errors
+                if any("metadata-only" in err for err in errors):
+                    logger.debug(
+                        f"[{self.db_type}] Skipping metadata-only database: {tmp_path.name}"
+                    )
+                else:
+                    logger.warning(
+                        f"[{self.db_type}] Synced database failed validation: {errors}"
+                    )
                 shutil.rmtree(tmp_dir, ignore_errors=True)
                 return False
 

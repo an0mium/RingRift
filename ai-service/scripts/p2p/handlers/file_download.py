@@ -1,14 +1,16 @@
-"""HTTP-based file download handlers for P2P cluster.
+"""HTTP-based file transfer handlers for P2P cluster.
 
-Provides endpoints for downloading files when SSH/SCP is unreliable:
+Provides endpoints for file transfers when SSH/SCP is unreliable:
 - GET /files/models/<path> - Download model files
 - GET /files/data/<path> - Download data files (databases, NPZ)
+- POST /files/upload - Upload files to models/ or data/ directories
 - GET /files/list - List available files
 
-This is a permanent workaround for SSH connectivity issues on nodes like Nebius
-where connection resets are frequent.
+This is a permanent workaround for SSH connectivity issues on nodes like
+Nebius and Vast.ai where connection resets are frequent.
 
 December 2025: Created as alternative to SSH-based sync.
+January 2026: Added upload endpoint for Vast.ai nodes.
 """
 
 import logging
@@ -285,9 +287,119 @@ class FileDownloadHandler:
             "url": f"/files/{file_type}s/{rel_path}",
         })
 
+    @handler_timeout(HANDLER_TIMEOUT_DELIVERY)
+    async def handle_file_upload(self, request: "web.Request") -> "web.Response":
+        """POST /files/upload - Upload a file to models/ or data/ directory.
+
+        January 2026: Added for Vast.ai nodes where SSH-based transports fail.
+
+        Expects multipart form data with:
+        - file: The file content
+        - path: Destination path (e.g., "models/foo.pth" or "data/foo.db")
+
+        Returns:
+            JSON response with success status and file info
+        """
+        import asyncio
+
+        try:
+            reader = await request.multipart()
+        except (ValueError, TypeError) as e:
+            return self._json_response(
+                {"error": f"Invalid multipart request: {e}"}, status=400
+            )
+
+        file_content: bytes | None = None
+        dest_path: str | None = None
+
+        async for field in reader:
+            if field.name == "file":
+                # Read file content
+                chunks = []
+                total_size = 0
+                while True:
+                    chunk = await field.read_chunk(1024 * 1024)  # 1MB chunks
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    total_size += len(chunk)
+                    if total_size > self.MAX_FILE_SIZE:
+                        return self._json_response(
+                            {"error": f"File too large (max {self.MAX_FILE_SIZE / 1024 / 1024:.0f} MB)"},
+                            status=413,
+                        )
+                file_content = b"".join(chunks)
+            elif field.name == "path":
+                dest_path = (await field.read()).decode("utf-8")
+
+        if not file_content:
+            return self._json_response({"error": "No file provided"}, status=400)
+        if not dest_path:
+            return self._json_response({"error": "No path provided"}, status=400)
+
+        # Determine base directory and validate path
+        dest_path = dest_path.lstrip("/").replace("..", "")
+
+        if dest_path.startswith("models/"):
+            base_dir = self.ai_service_root / "models"
+            rel_path = dest_path[7:]  # Remove "models/" prefix
+        elif dest_path.startswith("data/"):
+            base_dir = self.ai_service_root / "data"
+            rel_path = dest_path[5:]  # Remove "data/" prefix
+        else:
+            return self._json_response(
+                {"error": "Path must start with 'models/' or 'data/'"},
+                status=400,
+            )
+
+        # Check extension
+        ext = Path(rel_path).suffix.lower()
+        if ext not in self.ALLOWED_EXTENSIONS:
+            return self._json_response(
+                {"error": f"File type not allowed: {ext}"},
+                status=400,
+            )
+
+        try:
+            full_path = (base_dir / rel_path).resolve()
+            # Ensure path is within base_dir
+            full_path.relative_to(base_dir.resolve())
+        except (ValueError, OSError):
+            return self._json_response(
+                {"error": "Path traversal not allowed"},
+                status=400,
+            )
+
+        # Write file (in thread to avoid blocking)
+        def _write_file() -> None:
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(full_path, "wb") as f:
+                f.write(file_content)
+
+        try:
+            await asyncio.to_thread(_write_file)
+        except (OSError, PermissionError) as e:
+            logger.error(f"Failed to write uploaded file {full_path}: {e}")
+            return self._json_response(
+                {"error": f"Failed to write file: {e}"},
+                status=500,
+            )
+
+        file_size = len(file_content)
+        logger.info(
+            f"Received file via HTTP upload: {dest_path} ({file_size / 1024 / 1024:.1f} MB)"
+        )
+
+        return self._json_response({
+            "success": True,
+            "path": dest_path,
+            "size": file_size,
+            "node_id": getattr(self.orchestrator, "node_id", "unknown"),
+        })
+
 
 def register_file_download_routes(app: "web.Application", orchestrator) -> int:
-    """Register file download routes on the aiohttp application.
+    """Register file transfer routes on the aiohttp application.
 
     Returns:
         Number of routes registered
@@ -299,8 +411,9 @@ def register_file_download_routes(app: "web.Application", orchestrator) -> int:
 
     app.router.add_get("/files/models/{path:.*}", handler.handle_model_download)
     app.router.add_get("/files/data/{path:.*}", handler.handle_data_download)
+    app.router.add_post("/files/upload", handler.handle_file_upload)
     app.router.add_get("/files/list", handler.handle_list_files)
     app.router.add_get("/files/info", handler.handle_file_info)
 
-    logger.info("Registered 4 file download routes")
-    return 4
+    logger.info("Registered 5 file transfer routes (4 download, 1 upload)")
+    return 5

@@ -2335,7 +2335,7 @@ class GossipProtocolMixin(P2PMixinBase):
             from app.config.coordination_defaults import GossipDefaults
             cutoff = time.time() - GossipDefaults.DEAD_PEER_TIMEOUT
         except ImportError:
-            cutoff = time.time() - 300  # 5 minutes default
+            cutoff = time.time() - 60  # 1 minute fallback (Jan 13, 2026: reduced for faster quorum detection)
         for node_id, state in gossip_states.items():
             if state.get("timestamp", 0) > cutoff:
                 known[node_id] = state

@@ -65,6 +65,20 @@ except ImportError:
     SQLITE_BUSY_TIMEOUT_MS = 10000  # 10s standard timeout (was 30s, reduced for training)
     SQLITE_TIMEOUT = 30
 
+# January 2026: Import retry config for database lock handling
+try:
+    from app.utils.retry import RetryConfig
+    DATABASE_LOCK_RETRY_CONFIG = RetryConfig(
+        max_attempts=5,       # Up to 5 attempts
+        base_delay=1.0,       # Start with 1 second delay
+        max_delay=15.0,       # Cap at 15 seconds
+        exponential=True,     # Exponential backoff
+        jitter=0.3,           # 30% jitter to prevent thundering herd
+    )
+except ImportError:
+    # Fallback - no retry if retry module unavailable
+    DATABASE_LOCK_RETRY_CONFIG = None
+
 # SQL schema creation statements (v2)
 SCHEMA_SQL = """
 -- Metadata table for schema versioning
@@ -822,39 +836,120 @@ class GameReplayDB:
             # These can occur if the connection was already closed or file deleted
             pass
 
+    @staticmethod
+    def _is_database_locked(e: Exception) -> bool:
+        """Check if an exception indicates a database lock.
+
+        January 2026: Helper for retry logic.
+        """
+        error_str = str(e).lower()
+        return any(
+            lock_msg in error_str
+            for lock_msg in ["database is locked", "database locked", "busy"]
+        )
+
     @contextmanager
     def _get_conn(self):
-        """Get a database connection with proper cleanup.
+        """Get a database connection with proper cleanup and retry for locks.
 
         Uses configurable journal mode and busy timeout for better concurrency.
         WAL mode is best for local storage, DELETE mode is best for NFS.
+
+        January 2026: Added retry with exponential backoff for database locks.
+        When concurrent processes contend for the same database, the busy_timeout
+        PRAGMA may not be enough. This retry logic provides a second layer of
+        protection with longer wait times between attempts.
 
         Raises:
             DiskSpaceError: If commit fails due to ENOSPC (disk full).
                 This is converted from sqlite3.OperationalError for proper handling.
         """
-        conn = sqlite3.connect(str(self._db_path), timeout=float(SQLITE_TIMEOUT))
-        conn.row_factory = sqlite3.Row
-        # Set journal mode (WAL for local, DELETE for NFS)
-        conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
-        # Wait for locks using centralized threshold (10s standard, was 30s)
-        conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
-        conn.execute("PRAGMA foreign_keys = ON")
-        try:
-            yield conn
-            conn.commit()
-        except sqlite3.OperationalError as e:
-            conn.rollback()
-            # Dec 28, 2025: Check for ENOSPC specifically and convert to DiskSpaceError
-            # This enables proper handling (event emission, alerts) vs silent failure
-            if is_enospc_error(e):
-                handle_enospc_error(e, self._db_path, operation="database commit")
-            raise
-        except (sqlite3.Error, OSError):
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        import time
+
+        last_error: Exception | None = None
+
+        # January 2026: Retry loop for database locks
+        if DATABASE_LOCK_RETRY_CONFIG is not None:
+            attempts = list(DATABASE_LOCK_RETRY_CONFIG.attempts())
+        else:
+            # Fallback: single attempt if retry not available
+            from dataclasses import dataclass
+
+            @dataclass
+            class FakeAttempt:
+                number: int = 1
+                should_retry: bool = False
+                delay: float = 0.0
+
+            attempts = [FakeAttempt()]
+
+        for attempt in attempts:
+            try:
+                conn = sqlite3.connect(str(self._db_path), timeout=float(SQLITE_TIMEOUT))
+                conn.row_factory = sqlite3.Row
+                # Set journal mode (WAL for local, DELETE for NFS)
+                conn.execute(f"PRAGMA journal_mode={self._journal_mode}")
+                # Wait for locks using centralized threshold (10s standard, was 30s)
+                conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+                conn.execute("PRAGMA foreign_keys = ON")
+                try:
+                    yield conn
+                    conn.commit()
+                    return  # Success - exit the retry loop
+                except sqlite3.OperationalError as e:
+                    conn.rollback()
+                    # Dec 28, 2025: Check for ENOSPC specifically
+                    if is_enospc_error(e):
+                        handle_enospc_error(e, self._db_path, operation="database commit")
+                        raise
+
+                    # January 2026: Check for database lock - retry if possible
+                    if self._is_database_locked(e):
+                        last_error = e
+                        if attempt.should_retry:
+                            delay = attempt.delay
+                            logger.warning(
+                                f"Database locked during commit ({self._db_path.name}), "
+                                f"retry {attempt.number}/{DATABASE_LOCK_RETRY_CONFIG.max_attempts} "
+                                f"in {delay:.1f}s"
+                            )
+                            time.sleep(delay)
+                            continue
+                        else:
+                            logger.error(
+                                f"Database locked after {DATABASE_LOCK_RETRY_CONFIG.max_attempts} "
+                                f"retries ({self._db_path.name})"
+                            )
+                    raise
+                except (sqlite3.Error, OSError):
+                    conn.rollback()
+                    raise
+                finally:
+                    conn.close()
+
+            except sqlite3.OperationalError as e:
+                # Connection-level lock (failed to even connect)
+                if self._is_database_locked(e):
+                    last_error = e
+                    if attempt.should_retry:
+                        delay = attempt.delay
+                        logger.warning(
+                            f"Database locked during connect ({self._db_path.name}), "
+                            f"retry {attempt.number}/{DATABASE_LOCK_RETRY_CONFIG.max_attempts} "
+                            f"in {delay:.1f}s"
+                        )
+                        time.sleep(delay)
+                        continue
+                    else:
+                        logger.error(
+                            f"Database locked after {DATABASE_LOCK_RETRY_CONFIG.max_attempts} "
+                            f"retries ({self._db_path.name})"
+                        )
+                raise
+
+        # If we get here, all retries exhausted
+        if last_error:
+            raise last_error
 
     def checkpoint_wal(self) -> tuple[int, int]:
         """Perform WAL checkpoint to prevent unbounded WAL growth.
