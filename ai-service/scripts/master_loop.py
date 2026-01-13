@@ -545,6 +545,24 @@ class MasterLoopController:
         logger.info("[MasterLoop] No AWS credentials found - S3 daemons will be disabled")
         return False
 
+    def _has_npx(self) -> bool:
+        """Check if npx (Node.js package runner) is available.
+
+        January 2026: Added to support parity validation daemon on any node
+        with Node.js installed, not just coordinators.
+
+        Returns:
+            True if npx is available, False otherwise.
+        """
+        import shutil
+
+        if shutil.which("npx"):
+            logger.debug("[MasterLoop] npx found, parity validation available")
+            return True
+
+        logger.debug("[MasterLoop] npx not found - parity validation will be disabled")
+        return False
+
     def _update_heartbeat(self, status: str = "running") -> None:
         """Update heartbeat for health monitoring (Dec 2025).
 
@@ -1361,6 +1379,17 @@ class MasterLoopController:
                     logger.info(
                         f"[MasterLoop] Coordinator mode: added {daemon.value} for disk management"
                     )
+
+        # January 2026: Add PARITY_VALIDATION on any node with npx available
+        # The parity daemon validates pending_gate databases and stores TS hashes.
+        # It requires Node.js (npx) but isn't resource-intensive, so it can run
+        # on non-coordinator nodes that have npx installed.
+        if DaemonType.PARITY_VALIDATION not in daemons:
+            if self._has_npx():
+                daemons.append(DaemonType.PARITY_VALIDATION)
+                logger.info(
+                    "[MasterLoop] Node has npx available: added PARITY_VALIDATION daemon"
+                )
 
         # Ensure event router starts first when present
         if DaemonType.EVENT_ROUTER in daemons:
