@@ -479,7 +479,7 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         elimination_context = getattr(last_move, 'elimination_context', None)
 
         if elimination_context == 'line' or game_state.current_phase == GamePhase.LINE_PROCESSING:
-            # Line reward elimination - check for remaining lines, then territory
+            # Line reward elimination - check for remaining lines
             # Per RR-CANON-R123, after line elimination, continue with normal line processing flow
             remaining_lines = [
                 m
@@ -493,12 +493,14 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
                 # Stay in line_processing; hosts will surface the next PROCESS_LINE
                 game_state.current_phase = GamePhase.LINE_PROCESSING
             else:
-                # No more lines - transition to territory or end turn
-                _on_line_processing_complete(
-                    game_state,
-                    trace_mode=trace_mode,
-                    last_move=last_move,
-                )
+                # RR-FIX-2026-01-13: No more lines after line elimination.
+                # Per TS parity (turnOrchestrator.ts:2999-3010), eliminate_rings_from_stack
+                # is NOT a "line phase move" in TS's isLinePhaseMove definition. When there
+                # are no remaining lines after elimination, TS stays in line_processing and
+                # returns a no_line_action_required pending decision. Python must match this:
+                # stay in LINE_PROCESSING to wait for the explicit NO_LINE_ACTION move.
+                # The NO_LINE_ACTION move (handled above) will then call _on_line_processing_complete().
+                game_state.current_phase = GamePhase.LINE_PROCESSING
         else:
             # Territory elimination - check for remaining regions
             # This follows the same pattern as CHOOSE_TERRITORY_OPTION: check for remaining
