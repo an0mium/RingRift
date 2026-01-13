@@ -18,6 +18,8 @@ import {
 } from '../utils/difficultyCalibrationTelemetry';
 import { useMatchmaking } from '../hooks/useMatchmaking';
 import { QueueStatus } from '../components/QueueStatus';
+import { AIQuickPlayPanel, AIQuickPlayOption } from '../components/AIQuickPlayPanel';
+import { getDifficultyAiType } from '../config/aiQuickPlay';
 
 interface FormState {
   boardType: BoardType;
@@ -729,6 +731,40 @@ export default function LobbyPage() {
     }
   };
 
+  const handleAIQuickPlay = async (option: AIQuickPlayOption) => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      const payload: CreateGameRequest = {
+        boardType: option.boardType,
+        maxPlayers: option.numPlayers,
+        isRated: false,
+        isPrivate: false,
+        timeControl: {
+          type: 'rapid',
+          initialTime: 600,
+          increment: 5,
+        },
+        aiOpponents: {
+          count: option.numPlayers - 1,
+          difficulty: Array(option.numPlayers - 1).fill(option.difficulty),
+          mode: 'service',
+          aiType: getDifficultyAiType(option.difficulty) as
+            | 'random'
+            | 'heuristic'
+            | 'minimax'
+            | 'mcts',
+        },
+      };
+      const game = await gameApi.createGame(payload);
+      navigate(`/game/${game.id}`);
+    } catch (error: unknown) {
+      setError(extractErrorMessage(error, 'Failed to start AI game'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleFindMatch = () => {
     // Get user rating from localStorage or default to 1200
     const storedRating = localStorage.getItem('userRating');
@@ -1125,52 +1161,59 @@ export default function LobbyPage() {
           </Dialog>
         </section>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Filters Sidebar */}
-          <div className="lg:col-span-1">
-            <LobbyFilters filters={filters} onFilterChange={setFilters} />
-          </div>
+        <div className="space-y-6">
+          {/* AI Quick Play Panel */}
+          <AIQuickPlayPanel onStartGame={handleAIQuickPlay} isLoading={isSubmitting} />
 
-          {/* Games List */}
-          <div className="lg:col-span-3">
-            <div className="flex justify-between items-center mb-4">
-              <div className="text-slate-400 text-sm">
-                {filteredGames.length} game
-                {filteredGames.length !== 1 ? 's' : ''} available
-              </div>
-              <SortControls sortBy={sortBy} onSortChange={setSortBy} />
+          {/* Multiplayer Games Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Filters Sidebar */}
+            <div className="lg:col-span-1">
+              <LobbyFilters filters={filters} onFilterChange={setFilters} />
             </div>
 
-            {joinError && (
-              <InlineAlert variant="error" className="mb-4">
-                {joinError}
-              </InlineAlert>
-            )}
+            {/* Games List */}
+            <div className="lg:col-span-3">
+              <h2 className="text-lg font-semibold text-white mb-4">Open Games (Multiplayer)</h2>
+              <div className="flex justify-between items-center mb-4">
+                <div className="text-slate-400 text-sm">
+                  {filteredGames.length} game
+                  {filteredGames.length !== 1 ? 's' : ''} available
+                </div>
+                <SortControls sortBy={sortBy} onSortChange={setSortBy} />
+              </div>
 
-            {isLoadingGames ? (
-              <div className="flex justify-center py-16">
-                <LoadingSpinner size="lg" />
-              </div>
-            ) : sortedGames.length === 0 ? (
-              <EmptyLobby
-                hasFilters={hasFilters}
-                onClearFilters={() => setFilters({})}
-                onCreate={() => setShowCreateForm(true)}
-              />
-            ) : (
-              <div className="space-y-3">
-                {sortedGames.map((game) => (
-                  <GameCard
-                    key={game.id}
-                    game={game}
-                    onJoin={handleJoinGame}
-                    onSpectate={handleSpectate}
-                    onCancel={handleCancelGame}
-                    currentUserId={currentUserId}
-                  />
-                ))}
-              </div>
-            )}
+              {joinError && (
+                <InlineAlert variant="error" className="mb-4">
+                  {joinError}
+                </InlineAlert>
+              )}
+
+              {isLoadingGames ? (
+                <div className="flex justify-center py-16">
+                  <LoadingSpinner size="lg" />
+                </div>
+              ) : sortedGames.length === 0 ? (
+                <EmptyLobby
+                  hasFilters={hasFilters}
+                  onClearFilters={() => setFilters({})}
+                  onCreate={() => setShowCreateForm(true)}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {sortedGames.map((game) => (
+                    <GameCard
+                      key={game.id}
+                      game={game}
+                      onJoin={handleJoinGame}
+                      onSpectate={handleSpectate}
+                      onCancel={handleCancelGame}
+                      currentUserId={currentUserId}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
