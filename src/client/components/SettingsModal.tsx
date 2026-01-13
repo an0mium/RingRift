@@ -34,7 +34,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           ref={closeButtonRef}
           type="button"
           onClick={onClose}
-          className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition-colors"
+          className="p-1.5 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-800 hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 transition-all duration-200"
           aria-label="Close settings"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -5,7 +5,7 @@
  * in "Learn the Basics" tutorial mode.
  */
 
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import type { TutorialHint } from '../../hooks/useTutorialHints';
 
 export interface TutorialHintBannerProps {
@@ -27,6 +27,7 @@ export interface TutorialHintBannerProps {
  * - "Learn More" opens the TeachingOverlay for deeper explanation
  * - "Got it" dismisses and marks the phase as seen
  * - "Don't show" disables all future hints
+ * - Smooth exit animation when dismissing
  */
 export function TutorialHintBanner({
   hint,
@@ -34,8 +35,31 @@ export function TutorialHintBanner({
   onLearnMore,
   onDisableHints,
 }: TutorialHintBannerProps) {
+  const [isDismissing, setIsDismissing] = useState(false);
+
+  const handleDismiss = useCallback(() => {
+    setIsDismissing(true);
+    // Wait for exit animation to complete before calling onDismiss
+    setTimeout(() => {
+      onDismiss();
+    }, 250);
+  }, [onDismiss]);
+
+  const handleDisableHints = useCallback(() => {
+    setIsDismissing(true);
+    setTimeout(() => {
+      onDisableHints();
+    }, 250);
+  }, [onDisableHints]);
+
   return (
-    <div className="animate-in slide-in-from-top duration-300 mx-2 sm:mx-4 mb-3">
+    <div
+      className={`mx-2 sm:mx-4 mb-3 transition-all duration-250 ${
+        isDismissing
+          ? 'animate-out slide-out-to-top fade-out duration-250'
+          : 'animate-in slide-in-from-top duration-300'
+      }`}
+    >
       <div className="rounded-xl border border-emerald-500/30 bg-slate-800/90 backdrop-blur-sm shadow-lg overflow-hidden">
         <div className="p-3 sm:p-4">
           <div className="flex items-start gap-3">
@@ -59,8 +83,9 @@ export function TutorialHintBanner({
           {/* Actions */}
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-700/50">
             <button
-              onClick={onDisableHints}
-              className="text-xs text-slate-500 hover:text-slate-400 transition"
+              onClick={handleDisableHints}
+              disabled={isDismissing}
+              className="text-xs text-slate-500 hover:text-slate-400 transition disabled:opacity-50"
             >
               Don't show hints
             </button>
@@ -68,13 +93,15 @@ export function TutorialHintBanner({
             <div className="flex items-center gap-2">
               <button
                 onClick={onLearnMore}
-                className="px-3 py-1.5 rounded-lg border border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-400 transition text-sm font-medium"
+                disabled={isDismissing}
+                className="px-3 py-1.5 rounded-lg border border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-400 transition text-sm font-medium disabled:opacity-50"
               >
                 Learn More
               </button>
               <button
-                onClick={onDismiss}
-                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition text-sm font-medium"
+                onClick={handleDismiss}
+                disabled={isDismissing}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition text-sm font-medium disabled:opacity-50"
               >
                 Got it
               </button>

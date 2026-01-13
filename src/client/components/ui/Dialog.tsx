@@ -174,11 +174,16 @@ export function Dialog({
     .filter(Boolean)
     .join(' ');
 
-  const backdropClasses = ['absolute inset-0', backdropClassName ?? 'bg-black/60 backdrop-blur-sm']
+  const backdropClasses = [
+    'absolute inset-0 animate-in fade-in duration-150',
+    backdropClassName ?? 'bg-black/60 backdrop-blur-sm',
+  ]
     .filter(Boolean)
     .join(' ');
 
-  const dialogClasses = ['relative', className].filter(Boolean).join(' ');
+  const dialogClasses = ['relative animate-in fade-in zoom-in-95 duration-200', className]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div

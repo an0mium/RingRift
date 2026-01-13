@@ -9,7 +9,7 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
 }
 
 const baseClasses =
-  'w-full rounded-md border bg-slate-900 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-500';
+  'w-full rounded-md border bg-slate-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500';
 
 const sizeClasses: Record<InputSize, string> = {
   sm: 'text-xs py-1.5',

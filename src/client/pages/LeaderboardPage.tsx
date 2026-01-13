@@ -63,10 +63,33 @@ export default function LeaderboardPage() {
               {users.map((user, index) => {
                 const winRate =
                   user.gamesPlayed > 0 ? Math.round((user.gamesWon / user.gamesPlayed) * 100) : 0;
+                const rank = index + 1;
+
+                // Top 3 rank styling
+                const rankBadge =
+                  rank === 1 ? (
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-amber-500/20 text-amber-400 font-bold">
+                      1
+                    </span>
+                  ) : rank === 2 ? (
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-400/20 text-slate-300 font-bold">
+                      2
+                    </span>
+                  ) : rank === 3 ? (
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-orange-700/20 text-orange-400 font-bold">
+                      3
+                    </span>
+                  ) : (
+                    <span className="font-mono text-slate-500">{rank}</span>
+                  );
 
                 return (
-                  <tr key={user.id} className="hover:bg-slate-700/30 transition-colors">
-                    <td className="px-6 py-4 text-center font-mono text-slate-500">{index + 1}</td>
+                  <tr
+                    key={user.id}
+                    className="hover:bg-slate-700/50 focus-within:bg-slate-700/50 transition-colors"
+                    tabIndex={0}
+                  >
+                    <td className="px-6 py-4 text-center">{rankBadge}</td>
                     <td className="px-6 py-4 font-medium text-white">{user.username}</td>
                     <td className="px-6 py-4 text-right font-mono text-emerald-400 font-bold">
                       {user.rating}

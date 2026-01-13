@@ -33,9 +33,9 @@ export function EmptyState({ title, description, icon, action, className = '' }:
       role="status"
       aria-live="polite"
     >
-      {icon && <div className="mb-3 text-slate-500">{icon}</div>}
-      <h3 className="text-sm font-medium text-slate-300">{title}</h3>
-      {description && <p className="mt-1 text-xs text-slate-500 max-w-xs">{description}</p>}
+      {icon && <div className="mb-4 text-4xl text-slate-500">{icon}</div>}
+      <h3 className="text-base font-medium text-slate-300">{title}</h3>
+      {description && <p className="mt-1.5 text-sm text-slate-400 max-w-xs">{description}</p>}
       {action && (
         <Button
           type="button"

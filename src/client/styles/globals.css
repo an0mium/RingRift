@@ -192,10 +192,23 @@ code {
 
 /* Loading spinner */
 .spinner {
-  border: 2px solid #f3f3f3;
-  border-top: 2px solid #3498db;
+  border: 2px solid rgba(100, 116, 139, 0.3);
+  border-top: 2px solid currentColor;
   border-radius: 50%;
   animation: spin 1s linear infinite;
+}
+
+/* Spinner color variants */
+.spinner-primary {
+  color: #10b981; /* emerald-500 */
+}
+
+.spinner-secondary {
+  color: #3b82f6; /* blue-500 */
+}
+
+.spinner-muted {
+  color: #64748b; /* slate-500 */
 }
 
 @keyframes spin {

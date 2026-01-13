@@ -18,7 +18,7 @@ export default function HomePage() {
       <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Link
           to="/lobby"
-          className="group relative overflow-hidden rounded-2xl border border-emerald-600/70 bg-gradient-to-br from-emerald-700 to-emerald-500 px-5 py-6 shadow-lg hover:shadow-emerald-500/40 transition-shadow"
+          className="group relative overflow-hidden rounded-2xl border border-emerald-600/70 bg-gradient-to-br from-emerald-700 to-emerald-500 px-5 py-6 shadow-lg hover:shadow-emerald-500/40 hover:scale-[1.02] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
         >
           <div className="flex flex-col gap-2">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
@@ -36,7 +36,7 @@ export default function HomePage() {
 
         <Link
           to="/sandbox"
-          className="group rounded-2xl border border-slate-700 bg-slate-900/70 px-5 py-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors"
+          className="group rounded-2xl border border-slate-700 bg-slate-900/70 px-5 py-6 hover:border-emerald-500/70 hover:bg-slate-900 hover:shadow-lg hover:scale-[1.01] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
         >
           <h2 className="text-lg font-semibold text-slate-100">Open Local Sandbox</h2>
           <p className="mt-1 text-sm text-slate-300">
@@ -51,7 +51,7 @@ export default function HomePage() {
 
         <Link
           to="/sandbox?preset=learn-basics"
-          className="group rounded-2xl border border-emerald-500/40 bg-slate-900/70 px-5 py-6 hover:border-emerald-400/70 hover:bg-slate-900 transition-colors"
+          className="group rounded-2xl border border-emerald-500/40 bg-slate-900/70 px-5 py-6 hover:border-emerald-400/70 hover:bg-slate-900 hover:shadow-lg hover:scale-[1.01] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
         >
           <div className="flex items-start justify-between gap-3">
             <h2 className="text-lg font-semibold text-slate-100">Learn the Basics</h2>
@@ -71,7 +71,7 @@ export default function HomePage() {
 
         <Link
           to="/leaderboard"
-          className="group rounded-2xl border border-slate-700 bg-slate-900/70 px-5 py-6 hover:border-amber-500/70 hover:bg-slate-900 transition-colors"
+          className="group rounded-2xl border border-slate-700 bg-slate-900/70 px-5 py-6 hover:border-amber-500/70 hover:bg-slate-900 hover:shadow-lg hover:scale-[1.01] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
         >
           <h2 className="text-lg font-semibold text-slate-100">View Leaderboard</h2>
           <p className="mt-1 text-sm text-slate-300">
@@ -81,7 +81,7 @@ export default function HomePage() {
 
         <Link
           to="/profile"
-          className="group rounded-2xl border border-slate-700 bg-slate-900/70 px-5 py-6 hover:border-sky-500/70 hover:bg-slate-900 transition-colors"
+          className="group rounded-2xl border border-slate-700 bg-slate-900/70 px-5 py-6 hover:border-sky-500/70 hover:bg-slate-900 hover:shadow-lg hover:scale-[1.01] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
         >
           <h2 className="text-lg font-semibold text-slate-100">Profile & Settings</h2>
           <p className="mt-1 text-sm text-slate-300">
@@ -92,7 +92,7 @@ export default function HomePage() {
 
         <Link
           to="/sandbox"
-          className="group rounded-2xl border border-slate-800 bg-slate-950/60 px-5 py-6 hover:border-fuchsia-500/60 hover:bg-slate-950 transition-colors"
+          className="group rounded-2xl border border-slate-800 bg-slate-950/60 px-5 py-6 hover:border-fuchsia-500/60 hover:bg-slate-950 hover:shadow-lg hover:scale-[1.01] transition-all duration-200 focus-visible:ring-2 focus-visible:ring-fuchsia-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900"
         >
           <h2 className="text-lg font-semibold text-slate-100">Rules & Diagnostics</h2>
           <p className="mt-1 text-sm text-slate-300">
