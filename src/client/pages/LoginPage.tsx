@@ -110,13 +110,17 @@ export default function LoginPage() {
                 {isSubmitting ? 'Logging in…' : 'Login'}
               </Button>
 
-              <p className="text-xs text-slate-400">
-                Don't have an account yet?{' '}
-                <Link to="/register" className="text-emerald-400 hover:text-emerald-300 underline">
-                  Create an account
-                </Link>
-                .
-              </p>
+              <div className="pt-3 border-t border-slate-700/50">
+                <p className="text-sm text-slate-300">
+                  Don't have an account yet?{' '}
+                  <Link
+                    to="/register"
+                    className="text-emerald-400 hover:text-emerald-300 underline font-medium"
+                  >
+                    Create an account
+                  </Link>
+                </p>
+              </div>
             </form>
           </section>
 
