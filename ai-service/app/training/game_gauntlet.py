@@ -1518,61 +1518,31 @@ def _evaluate_single_opponent(
                 result["draws"] += 1
 
             # Record match to unified Elo database (December 2025 fix for 3p/4p tracking)
-            # This ensures gauntlet games are counted toward Elo ratings for ALL configs
+            # January 12, 2026: Migrated to elo_recording facade for better error handling
             try:
-                from app.training.elo_service import get_elo_service
+                from app.training.elo_recording import (
+                    record_gauntlet_match,
+                    HarnessType,
+                )
 
-                elo_service = get_elo_service()
                 board_value = getattr(board_type, "value", str(board_type))
-
-                # Derive model_id from result context or use placeholder
                 model_id = result.get("model_id", "candidate_model")
 
-                # Determine winner for Elo calculation
-                if game_result.candidate_won:
-                    winner_id = model_id
-                elif game_result.winner is not None:
-                    winner_id = baseline_name
-                else:
-                    winner_id = None  # Draw
+                # Map harness_type string to HarnessType enum
+                harness_enum = HarnessType.from_string(harness_type) if harness_type else HarnessType.GUMBEL_MCTS
 
-                # Jan 2026: Generate composite participant IDs for model+harness tracking
-                if harness_type:
-                    composite_model_id = make_composite_participant_id(
-                        nn_id=model_id,
-                        ai_type=harness_type,
-                        config=None,  # Use default config for harness
-                    )
-                    # Baseline remains simple since it's not a model+harness combo
-                    composite_baseline = baseline_name
-                    # Update winner to use composite ID
-                    if winner_id == model_id:
-                        composite_winner = composite_model_id
-                    elif winner_id == baseline_name:
-                        composite_winner = composite_baseline
-                    else:
-                        composite_winner = None
-                else:
-                    composite_model_id = model_id
-                    composite_baseline = baseline_name
-                    composite_winner = winner_id
-
-                elo_service.record_match(
-                    participant_a=composite_model_id,
-                    participant_b=composite_baseline,
-                    winner=composite_winner,
+                # Use facade - handles composite IDs, validation, error logging, DLQ
+                record_gauntlet_match(
+                    model_id=model_id,
+                    baseline=baseline_name,
+                    model_won=game_result.candidate_won,
                     board_type=board_value,
                     num_players=num_players,
+                    harness_type=harness_enum,
                     game_length=game_result.move_count,
-                    tournament_id=f"gauntlet_{board_value}_{num_players}p",
-                    # Jan 2026: Use "gumbel_mcts" as default when harness_type is empty
-                    harness_type=harness_type if harness_type else "gumbel_mcts",
                 )
             except ImportError:
-                pass  # EloService not available
-            except Exception as elo_err:
-                # Jan 12, 2026: Widened from (OSError, RuntimeError, ValueError) to catch all errors
-                logger.error(f"[gauntlet] Failed to record Elo: {type(elo_err).__name__}: {elo_err}")
+                pass  # elo_recording facade not available
 
             if verbose:
                 outcome = "WIN" if game_result.candidate_won else "LOSS"
@@ -2175,12 +2145,13 @@ async def run_baseline_calibration(
     """
     _ensure_game_modules()
 
+    # January 12, 2026: Use elo_recording facade for better error handling
     try:
-        from app.training.elo_service import get_elo_service
-        elo_service = get_elo_service()
+        from app.training.elo_recording import record_baseline_calibration_match
+        has_elo_recording = True
     except ImportError:
-        logger.warning("[calibration] EloService not available, skipping Elo recording")
-        elo_service = None
+        logger.warning("[calibration] elo_recording facade not available, skipping Elo recording")
+        has_elo_recording = False
 
     results: dict[str, Any] = {}
     board_value = getattr(board_type, "value", str(board_type))
@@ -2255,24 +2226,17 @@ async def run_baseline_calibration(
                 draws += 1
                 winner_baseline = None
 
-            # Record match for Elo update
-            if elo_service is not None:
-                try:
-                    elo_service.record_match(
-                        participant_a=f"none:{baseline_a.value}:d1",
-                        participant_b=f"none:{baseline_b.value}:d5",
-                        winner=winner_baseline,
-                        board_type=board_value,
-                        num_players=num_players,
-                        game_length=game_result.move_count,
-                        tournament_id=f"baseline_calibration_{board_value}_{num_players}p",
-                        # Jan 12, 2026: Added harness_type for multi-harness tracking
-                        harness_type="heuristic",
-                    )
-                except Exception as e:
-                    # January 12, 2026: Widened from (RuntimeError, ValueError, OSError)
-                    # to catch all exceptions and avoid silent failures
-                    logger.error(f"[calibration] Failed to record Elo: {type(e).__name__}: {e}")
+            # Record match for Elo update using facade
+            # January 12, 2026: Migrated to elo_recording facade - handles errors internally
+            if has_elo_recording:
+                record_baseline_calibration_match(
+                    baseline_a=baseline_a.value,
+                    baseline_b=baseline_b.value,
+                    winner=winner_baseline,
+                    board_type=board_value,
+                    num_players=num_players,
+                    game_length=game_result.move_count,
+                )
 
         # Store results for this matchup
         total = wins_a + wins_b + draws

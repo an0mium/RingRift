@@ -1644,6 +1644,25 @@ class EloService:
     ) -> MatchResult:
         """Record a match result and update Elo ratings.
 
+        .. note:: Prefer using ``app.training.elo_recording.safe_record_elo()``
+
+            The elo_recording facade provides better validation, required harness_type,
+            model type detection, and DLQ integration. Direct calls to record_match()
+            are supported for backwards compatibility but may miss important metadata.
+
+            Example using facade::
+
+                from app.training.elo_recording import safe_record_elo, EloMatchSpec, HarnessType
+
+                result = safe_record_elo(EloMatchSpec(
+                    participant_a="model_v1",
+                    participant_b="heuristic",
+                    winner="model_v1",
+                    board_type="hex8",
+                    num_players=2,
+                    harness_type=HarnessType.GUMBEL_MCTS,  # REQUIRED
+                ))
+
         Args:
             metadata: Optional dict with match metadata. Useful keys:
                 - weight_profile_a: Heuristic weight profile ID for participant A
@@ -1652,7 +1671,7 @@ class EloService:
             harness_type: AI harness type used for this match (e.g., "gumbel_mcts", "minimax").
                 December 30, 2025: Added to support multi-harness evaluation tracking.
                 January 2026: Now defaults to "gumbel_mcts" instead of None to ensure
-                all matches have harness tracking.
+                all matches have harness tracking. PREFER using elo_recording facade.
             is_multi_harness: True if this match is part of a multi-harness evaluation.
                 When True, the harness_type is included in emitted events.
         """
