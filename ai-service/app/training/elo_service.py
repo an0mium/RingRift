@@ -1397,6 +1397,22 @@ class EloService:
 
         if row:
             confidence = min(1.0, row["games_played"] / self.CONFIDENCE_GAMES)
+            # Jan 13, 2026: Ensure row exists for original participant_id
+            # When alias resolves to different lookup_id, we need both rows
+            # so that record_match() UPDATE succeeds for participant_id
+            if lookup_id != participant_id:
+                with self._transaction() as txn_conn:
+                    txn_conn.execute("""
+                        INSERT OR IGNORE INTO elo_ratings
+                        (participant_id, board_type, num_players, rating, last_update,
+                         games_played, wins, losses, draws, peak_rating)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        participant_id, board_type, num_players,
+                        row["rating"], row["last_update"],
+                        row["games_played"], row["wins"], row["losses"], row["draws"],
+                        row["rating"]  # peak_rating = current rating
+                    ))
             return EloRating(
                 participant_id=participant_id,
                 rating=row["rating"],
@@ -1622,7 +1638,8 @@ class EloService:
         tournament_id: str | None = None,
         metadata: dict | None = None,
         # December 30, 2025: Multi-harness evaluation support
-        harness_type: str | None = None,
+        # January 2026: Default to "gumbel_mcts" to ensure harness tracking
+        harness_type: str = "gumbel_mcts",
         is_multi_harness: bool = False,
     ) -> MatchResult:
         """Record a match result and update Elo ratings.
@@ -1634,6 +1651,8 @@ class EloService:
                 - source: Origin of the match (e.g., "tournament", "selfplay")
             harness_type: AI harness type used for this match (e.g., "gumbel_mcts", "minimax").
                 December 30, 2025: Added to support multi-harness evaluation tracking.
+                January 2026: Now defaults to "gumbel_mcts" instead of None to ensure
+                all matches have harness tracking.
             is_multi_harness: True if this match is part of a multi-harness evaluation.
                 When True, the harness_type is included in emitted events.
         """
@@ -1776,7 +1795,8 @@ class EloService:
                 loss_inc = 1 if score == 0.0 else 0
                 draw_inc = 1 if score == 0.5 else 0
 
-                conn.execute("""
+                # Jan 13, 2026: Use cursor to check rowcount and handle missing rows
+                cursor = conn.execute("""
                     UPDATE elo_ratings
                     SET rating = ?,
                         games_played = games_played + 1,
@@ -1791,6 +1811,23 @@ class EloService:
                     new_rating, time.time(),
                     pid, board_type, num_players
                 ))
+
+                # Jan 13, 2026: Handle missing row by inserting if UPDATE affected 0 rows
+                if cursor.rowcount == 0:
+                    logger.warning(
+                        f"[EloService] UPDATE affected 0 rows for {pid}, "
+                        f"inserting new row (board={board_type}, players={num_players})"
+                    )
+                    conn.execute("""
+                        INSERT OR IGNORE INTO elo_ratings
+                        (participant_id, board_type, num_players, rating, last_update,
+                         games_played, wins, losses, draws, peak_rating)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        pid, board_type, num_players,
+                        new_rating, time.time(),
+                        1, win_inc, loss_inc, draw_inc, new_rating
+                    ))
 
             # Record match with optional metadata (e.g., weight profiles used)
             # Note: id is INTEGER PRIMARY KEY AUTOINCREMENT, so we use game_id for UUID
