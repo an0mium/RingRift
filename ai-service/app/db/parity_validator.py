@@ -1270,7 +1270,7 @@ def _update_parity_status(
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).isoformat()
-        with db._get_connection() as conn:
+        with db._get_conn() as conn:
             conn.execute(
                 """
                 UPDATE games
@@ -1295,7 +1295,7 @@ def _update_database_parity_gate(
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).isoformat()
-        with db._get_connection() as conn:
+        with db._get_conn() as conn:
             # Update or insert metadata
             conn.execute(
                 """
@@ -1369,7 +1369,7 @@ CREATE INDEX IF NOT EXISTS idx_ts_hashes_game ON ts_parity_hashes(game_id);
 def _ensure_ts_hashes_table(db: GameReplayDB) -> None:
     """Ensure ts_parity_hashes table exists in database."""
     try:
-        with db._get_connection() as conn:
+        with db._get_conn() as conn:
             conn.executescript(TS_PARITY_HASHES_SCHEMA)
             conn.commit()
     except Exception as e:
@@ -1401,7 +1401,7 @@ def store_ts_hashes(
     stored = 0
 
     try:
-        with db._get_connection() as conn:
+        with db._get_conn() as conn:
             # Clear any existing hashes for this game
             conn.execute(
                 "DELETE FROM ts_parity_hashes WHERE game_id = ?",
@@ -1453,7 +1453,7 @@ def get_ts_hashes(
         Dict mapping move_number to StateSummary, or None if no hashes stored
     """
     try:
-        with db._get_connection() as conn:
+        with db._get_conn() as conn:
             cursor = conn.execute(
                 """
                 SELECT move_number, ts_state_hash, ts_current_player,
@@ -1489,7 +1489,7 @@ def get_ts_hashes(
 def has_ts_hashes(db: GameReplayDB, game_id: str) -> bool:
     """Check if a game has stored TypeScript reference hashes."""
     try:
-        with db._get_connection() as conn:
+        with db._get_conn() as conn:
             cursor = conn.execute(
                 "SELECT 1 FROM ts_parity_hashes WHERE game_id = ? LIMIT 1",
                 (game_id,),
@@ -1503,7 +1503,7 @@ def has_ts_hashes(db: GameReplayDB, game_id: str) -> bool:
 def count_games_with_ts_hashes(db: GameReplayDB) -> int:
     """Count how many games have stored TS reference hashes."""
     try:
-        with db._get_connection() as conn:
+        with db._get_conn() as conn:
             cursor = conn.execute(
                 "SELECT COUNT(DISTINCT game_id) FROM ts_parity_hashes"
             )

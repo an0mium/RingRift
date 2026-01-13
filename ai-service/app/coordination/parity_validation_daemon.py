@@ -377,9 +377,9 @@ class ParityValidationDaemon(HandlerBase):
         games_needing_validation = []
 
         # Get all completed games
-        # Jan 2026: Use _get_connection() context manager, not _connection attribute
+        # Jan 2026: Use _get_conn() context manager, not _connection attribute
         try:
-            with db._get_connection() as conn:
+            with db._get_conn() as conn:
                 cursor = conn.execute(
                     """
                     SELECT game_id, parity_status
@@ -416,9 +416,9 @@ class ParityValidationDaemon(HandlerBase):
 
             # Update parity_status to 'passed'
             # Jan 2026: Fixed column name (parity_status not parity_gate)
-            # Jan 2026: Use _get_connection() context manager
+            # Jan 2026: Use _get_conn() context manager
             try:
-                with db._get_connection() as conn:
+                with db._get_conn() as conn:
                     conn.execute(
                         "UPDATE games SET parity_status = 'passed' WHERE game_id = ?",
                         (game_id,),
