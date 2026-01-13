@@ -40,6 +40,9 @@ import { OnboardingModal } from '../components/OnboardingModal';
 // Sandbox components for decomposed view
 import { SandboxBoardSection, SandboxGameSidebar } from '../components/sandbox';
 import { useFirstTimePlayer } from '../hooks/useFirstTimePlayer';
+import { useTutorialHints } from '../hooks/useTutorialHints';
+import { TutorialHintBanner } from '../components/tutorial/TutorialHintBanner';
+import { TeachingOverlay, type TeachingTopic } from '../components/TeachingOverlay';
 import {
   SandboxGameConfig,
   BOARD_PRESETS,
@@ -157,8 +160,15 @@ export const SandboxGameHost: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { colorVisionMode, effectiveReducedMotion } = useAccessibility();
-  const { shouldShowWelcome, markWelcomeSeen, markGameCompleted, isFirstTimePlayer } =
-    useFirstTimePlayer();
+  const {
+    shouldShowWelcome,
+    markWelcomeSeen,
+    markGameCompleted,
+    isFirstTimePlayer,
+    state: onboardingState,
+    markPhaseHintSeen,
+    setTutorialHintsEnabled,
+  } = useFirstTimePlayer();
   const presetParam = searchParams.get('preset');
 
   const {
@@ -863,6 +873,20 @@ export const SandboxGameHost: React.FC = () => {
 
   // Game view once configured (local sandbox)
   const sandboxGameState: GameState | null = sandboxEngine ? sandboxEngine.getGameState() : null;
+
+  // Tutorial hints for "Learn the Basics" mode
+  // Active when in beginner mode and hints are enabled
+  const isLearnBasicsMode = isBeginnerMode && onboardingState.tutorialHintsEnabled;
+  const { currentHint, dismissHint, getTeachingTopic } = useTutorialHints({
+    gameState: sandboxGameState,
+    isLearnMode: isLearnBasicsMode,
+    seenPhases: onboardingState.seenTutorialPhases,
+    hintsEnabled: onboardingState.tutorialHintsEnabled,
+  });
+
+  // Teaching overlay state for "Learn More" from hints
+  const [showTeachingOverlay, setShowTeachingOverlay] = useState(false);
+  const [teachingTopic, setTeachingTopic] = useState<TeachingTopic | null>(null);
 
   // AI tracking: timing, diagnostics, ladder health via extracted hook
   const { state: aiTrackingState, actions: aiTrackingActions } = useSandboxAITracking(
@@ -2075,6 +2099,30 @@ export const SandboxGameHost: React.FC = () => {
         />
 
         <main className="flex flex-col lg:flex-row lg:gap-2 gap-4">
+          {/* Tutorial Hint Banner - shown in "Learn the Basics" mode */}
+          {currentHint && isLearnBasicsMode && (
+            <div className="w-full lg:col-span-full">
+              <TutorialHintBanner
+                hint={currentHint}
+                onDismiss={() => {
+                  markPhaseHintSeen(currentHint.phase);
+                  dismissHint();
+                }}
+                onLearnMore={() => {
+                  const topic = getTeachingTopic();
+                  if (topic) {
+                    setTeachingTopic(topic);
+                    setShowTeachingOverlay(true);
+                  }
+                }}
+                onDisableHints={() => {
+                  setTutorialHintsEnabled(false);
+                  dismissHint();
+                }}
+              />
+            </div>
+          )}
+
           {/* Board Section - extracted component */}
           {sandboxBoardState && sandboxBoardViewModel && sandboxGameState && (
             <SandboxBoardSection
@@ -2328,6 +2376,18 @@ export const SandboxGameHost: React.FC = () => {
             toast.success(`Saved state: ${scenario.name}`);
           }}
         />
+
+        {/* Teaching Overlay - shown when "Learn More" is clicked in tutorial hints */}
+        {teachingTopic && (
+          <TeachingOverlay
+            topic={teachingTopic}
+            isOpen={showTeachingOverlay}
+            onClose={() => {
+              setShowTeachingOverlay(false);
+              setTeachingTopic(null);
+            }}
+          />
+        )}
       </div>
     </div>
   );

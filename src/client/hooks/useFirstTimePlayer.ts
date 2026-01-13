@@ -34,6 +34,10 @@ export interface OnboardingState {
   firstVisit: number;
   /** Timestamp of last game */
   lastGameTimestamp: number | null;
+  /** Tutorial phases that have been seen (for Learn the Basics mode) */
+  seenTutorialPhases: string[];
+  /** Whether tutorial hints are enabled */
+  tutorialHintsEnabled: boolean;
 }
 
 const DEFAULT_STATE: OnboardingState = {
@@ -48,6 +52,8 @@ const DEFAULT_STATE: OnboardingState = {
   lastGameNumPlayers: null,
   firstVisit: Date.now(),
   lastGameTimestamp: null,
+  seenTutorialPhases: [],
+  tutorialHintsEnabled: true,
 };
 
 function loadState(): OnboardingState {
@@ -103,6 +109,14 @@ export interface UseFirstTimePlayerResult {
   markVictoryModalSeen: () => void;
   /** Reset onboarding state (for testing) */
   resetOnboarding: () => void;
+  /** Mark a tutorial phase hint as seen */
+  markPhaseHintSeen: (phase: string) => void;
+  /** Check if a tutorial phase hint has been seen */
+  isPhaseHintSeen: (phase: string) => boolean;
+  /** Enable or disable tutorial hints */
+  setTutorialHintsEnabled: (enabled: boolean) => void;
+  /** Reset only tutorial progress (keep other onboarding state) */
+  resetTutorialProgress: () => void;
 }
 
 /**
@@ -158,6 +172,34 @@ export function useFirstTimePlayer(): UseFirstTimePlayerResult {
     }
   }, []);
 
+  const markPhaseHintSeen = useCallback((phase: string) => {
+    setState((prev) => ({
+      ...prev,
+      seenTutorialPhases: prev.seenTutorialPhases.includes(phase)
+        ? prev.seenTutorialPhases
+        : [...prev.seenTutorialPhases, phase],
+    }));
+  }, []);
+
+  const isPhaseHintSeen = useCallback(
+    (phase: string) => {
+      return state.seenTutorialPhases.includes(phase);
+    },
+    [state.seenTutorialPhases]
+  );
+
+  const setTutorialHintsEnabled = useCallback((enabled: boolean) => {
+    setState((prev) => ({ ...prev, tutorialHintsEnabled: enabled }));
+  }, []);
+
+  const resetTutorialProgress = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      seenTutorialPhases: [],
+      tutorialHintsEnabled: true,
+    }));
+  }, []);
+
   const isFirstTimePlayer = !state.hasCompletedFirstGame;
   const isNewPlayer = state.gamesPlayed < 5;
   const shouldShowWelcome = !state.hasSeenWelcome;
@@ -172,5 +214,9 @@ export function useFirstTimePlayer(): UseFirstTimePlayerResult {
     markControlsHelpSeen,
     markVictoryModalSeen,
     resetOnboarding,
+    markPhaseHintSeen,
+    isPhaseHintSeen,
+    setTutorialHintsEnabled,
+    resetTutorialProgress,
   };
 }
