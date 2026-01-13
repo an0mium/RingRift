@@ -369,6 +369,9 @@ class BaselineOpponent(Enum):
     DESCENT_NN = "descent_nn"                # Descent with Full NN evaluation
     DESCENT_NNUE = "descent_nnue"            # Descent with NNUE evaluation
 
+    # GPU-accelerated variants (Jan 2026) - high throughput evaluation
+    GPU_GUMBEL = "gpu_gumbel"                # GPU Gumbel MCTS (~1600 Elo, 2-10x faster)
+
 
 # ============================================
 # Early Stopping with Statistical Confidence (Dec 2025)
@@ -645,6 +648,59 @@ class GauntletResult:
     failure_reason: str = ""  # Non-empty if passed=False (e.g., architecture mismatch)
 
 
+class _HarnessToAIWrapper:
+    """Wrapper that adapts AIHarness interface to the AI interface expected by play_single_game.
+
+    Jan 2026: Created to allow harness-based opponents (GPU_GUMBEL, etc.) to work with
+    the gauntlet's play_single_game function which expects AI instances with select_move().
+    """
+
+    def __init__(self, harness: Any, player_number: int) -> None:
+        """Initialize the wrapper.
+
+        Args:
+            harness: An AIHarness instance (from app.ai.harness)
+            player_number: Player number this AI represents
+        """
+        self.harness = harness
+        self.player_number = player_number
+        self._last_visit_distribution: tuple[list, list] | None = None
+
+    def select_move(self, game_state: Any) -> Any:
+        """Select a move using the harness.
+
+        Args:
+            game_state: Current game state
+
+        Returns:
+            The selected move
+        """
+        move, metadata = self.harness.evaluate(game_state, self.player_number)
+
+        # Store visit distribution for extraction by play_single_game
+        visit_dist = self.harness.get_visit_distribution()
+        if visit_dist:
+            moves = list(visit_dist.keys())
+            probs = list(visit_dist.values())
+            self._last_visit_distribution = (moves, probs)
+
+        return move
+
+    def get_visit_distribution(self) -> tuple[list, list] | None:
+        """Get the visit distribution from the last search.
+
+        Returns:
+            Tuple of (moves, probabilities) or None if not available.
+        """
+        return self._last_visit_distribution
+
+    def reset(self) -> None:
+        """Reset internal state between games."""
+        self._last_visit_distribution = None
+        if hasattr(self.harness, 'reset'):
+            self.harness.reset()
+
+
 def create_baseline_ai(
     baseline: BaselineOpponent,
     player: int,
@@ -652,6 +708,7 @@ def create_baseline_ai(
     difficulty: int | None = None,
     game_seed: int | None = None,
     num_players: int = 2,
+    model_path: str | Path | None = None,  # Jan 2026: For harness-based baselines
 ) -> Any:
     """Create an AI instance for a baseline opponent.
 
@@ -662,6 +719,7 @@ def create_baseline_ai(
         difficulty: Optional difficulty override
         game_seed: Optional seed for RNG variation per game
         num_players: Number of players in the game (for NNUE multiplayer baselines)
+        model_path: Path to model checkpoint (for GPU_GUMBEL and other harness-based baselines)
 
     Returns:
         AI instance ready to play
@@ -945,6 +1003,39 @@ def create_baseline_ai(
             board_type=board_type,
             num_players=num_players,
         )
+
+    elif baseline == BaselineOpponent.GPU_GUMBEL:
+        # GPU-accelerated Gumbel MCTS (~1600 Elo, 2-10x faster)
+        # Uses tensor_gumbel_tree.GPUGumbelMCTS with GPU-batched rollouts
+        # Jan 2026: Requires model_path, auto-detects CUDA/MPS/CPU
+        from app.ai.harness import HarnessType, create_harness
+
+        # Auto-detect device
+        import torch
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        # Create GPU Gumbel harness which wraps GPUGumbelMCTS
+        harness = create_harness(
+            harness_type=HarnessType.GPU_GUMBEL,
+            model_path=model_path,  # Uses canonical model if provided
+            board_type=board_type,
+            num_players=num_players,
+            difficulty=difficulty or 7,
+            simulations=200,  # Balanced budget for evaluation
+            extra={
+                "num_sampled_actions": 16,
+                "device": device,
+                "eval_mode": "heuristic",  # Fast GPU heuristic rollouts
+            },
+        )
+
+        # Return a wrapper that adapts harness.evaluate() to select_move()
+        return _HarnessToAIWrapper(harness, player)
 
     else:
         raise ValueError(f"Unknown baseline: {baseline}")

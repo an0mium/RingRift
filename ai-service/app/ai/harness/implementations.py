@@ -28,13 +28,15 @@ class GumbelMCTSHarness(AIHarness):
         from ...models import AIConfig
         from ..gumbel_mcts_ai import GumbelMCTSAI
 
+        # Pass model_path via nn_model_id in config (not as direct parameter)
         ai_config = AIConfig(
             difficulty=self.config.difficulty,
             think_time=self.config.think_time_ms,
             simulations=self.config.simulations,
+            nn_model_id=self.config.model_path,  # Jan 2026: Fix - use config field
             **self.config.extra,
         )
-        ai = GumbelMCTSAI(player_number, ai_config, model_path=self.config.model_path)
+        ai = GumbelMCTSAI(player_number, ai_config, board_type=self.config.board_type)
         return ai
 
     def _select_move_impl(
@@ -80,50 +82,90 @@ class GumbelMCTSHarness(AIHarness):
 
 
 class GPUGumbelHarness(AIHarness):
-    """Harness for GPU-accelerated Gumbel MCTS."""
+    """Harness for GPU-accelerated Gumbel MCTS.
+
+    Uses tensor_gumbel_tree.GPUGumbelMCTS for GPU-accelerated tree search.
+    The search runs on GPU with batched rollouts and GPU-accelerated game simulation.
+
+    Jan 2026 fix: Updated to match GPUGumbelMCTS interface which takes a config
+    object and requires neural_net passed to search() method.
+    """
 
     supports_nn = True
     supports_nnue = False
     requires_policy_head = True
 
+    def __init__(self, config: HarnessConfig) -> None:
+        """Initialize GPU Gumbel harness.
+
+        Args:
+            config: Harness configuration.
+        """
+        super().__init__(config)
+        self._neural_net: Any = None  # Cached neural net for search()
+
     def _create_underlying_ai(self, player_number: int) -> Any:
         from ...models import AIConfig
-        from ..tensor_gumbel_tree import GPUGumbelMCTS
+        from ..tensor_gumbel_tree import GPUGumbelMCTS, GPUGumbelMCTSConfig
 
+        # Create neural net for evaluation (cached for search calls)
+        # Pass model_path via nn_model_id in config (not as direct parameter)
         ai_config = AIConfig(
             difficulty=self.config.difficulty,
             think_time=self.config.think_time_ms,
             simulations=self.config.simulations,
+            nn_model_id=self.config.model_path,  # Jan 2026: Fix - use config field
             **self.config.extra,
         )
-        # GPUGumbelMCTS needs neural net loaded
         from ..neural_net import NeuralNetAI
-        nn_ai = NeuralNetAI(player_number, ai_config, model_path=self.config.model_path)
-        ai = GPUGumbelMCTS(
-            neural_net=nn_ai,
-            budget=self.config.simulations,
-            **self.config.extra,
+        self._neural_net = NeuralNetAI(player_number, ai_config, board_type=self.config.board_type)
+
+        # Create GPU MCTS config
+        gpu_config = GPUGumbelMCTSConfig(
+            simulation_budget=self.config.simulations,
+            num_sampled_actions=self.config.extra.get("num_sampled_actions", 16),
+            max_nodes=self.config.extra.get("max_nodes", 1024),
+            device=self.config.extra.get("device", "cuda"),
+            eval_mode=self.config.extra.get("eval_mode", "heuristic"),
         )
-        return ai
+
+        return GPUGumbelMCTS(gpu_config)
 
     def _select_move_impl(
         self,
         game_state: GameState,
         player_number: int,
     ) -> tuple[Move | None, dict[str, Any]]:
-        move = self._underlying_ai.search(game_state)
+        # Ensure neural net is created for this player
+        if self._neural_net is None or self._neural_net.player_number != player_number:
+            self._underlying_ai = self._create_underlying_ai(player_number)
 
-        # GPU Gumbel provides visit distribution directly
-        visit_dist = self._underlying_ai.get_root_visit_distribution()
-        if visit_dist:
+        # GPUGumbelMCTS.search() returns (move, policy_dict) or (move, policy_dict, stats)
+        # depending on code path (early exit vs full search)
+        result = self._underlying_ai.search(game_state, self._neural_net)
+
+        if len(result) == 3:
+            move, policy_dict, stats = result
+        else:
+            move, policy_dict = result
+            stats = None
+
+        # Store visit distribution from returned policy
+        if policy_dict:
             self._last_visit_distribution = {
-                str(k): float(v) for k, v in visit_dist.items()
+                str(k): float(v) for k, v in policy_dict.items()
             }
 
+        # Extract stats from SearchStats dataclass (if available)
         metadata = {
-            "value_estimate": getattr(self._underlying_ai, 'root_value', 0.0),
-            "nodes_visited": getattr(self._underlying_ai, 'total_nodes', 0),
-            "simulations": self.config.simulations,
+            "value_estimate": getattr(stats, 'root_value', 0.0) if stats else 0.0,
+            "nodes_visited": getattr(stats, 'nodes_explored', 0) if stats else 0,
+            "search_depth": getattr(stats, 'search_depth', None) if stats else None,
+            "simulations": getattr(stats, 'total_simulations', self.config.simulations) if stats else 1,
+            "extra": {
+                "uncertainty": getattr(stats, 'uncertainty', 0.0) if stats else 0.0,
+                "q_values": getattr(stats, 'q_values', {}) if stats else {},
+            },
         }
         return move, metadata
 
@@ -296,11 +338,13 @@ class PolicyOnlyHarness(AIHarness):
         from ...models import AIConfig
         from ..policy_only_ai import PolicyOnlyAI
 
+        # Pass model_path via nn_model_id in config (not as direct parameter)
         ai_config = AIConfig(
             difficulty=self.config.difficulty,
+            nn_model_id=self.config.model_path,  # Jan 2026: Fix - use config field
             **self.config.extra,
         )
-        ai = PolicyOnlyAI(player_number, ai_config, model_path=self.config.model_path)
+        ai = PolicyOnlyAI(player_number, ai_config, board_type=self.config.board_type)
         return ai
 
     def _select_move_impl(
@@ -338,12 +382,14 @@ class DescentHarness(AIHarness):
         from ...models import AIConfig
         from ..descent_ai import DescentAI
 
+        # Pass model_path via nn_model_id in config (not as direct parameter)
         ai_config = AIConfig(
             difficulty=self.config.difficulty,
             think_time=self.config.think_time_ms,
+            nn_model_id=self.config.model_path,  # Jan 2026: Fix - use config field
             **self.config.extra,
         )
-        ai = DescentAI(player_number, ai_config, model_path=self.config.model_path)
+        ai = DescentAI(player_number, ai_config, board_type=self.config.board_type)
         return ai
 
     def _select_move_impl(
