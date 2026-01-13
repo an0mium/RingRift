@@ -748,6 +748,7 @@ export const SandboxGameHost: React.FC = () => {
     setSandboxStateVersion,
     setLastLoadedScenario,
     setIsSandboxVictoryModalDismissed,
+    setSandboxMode,
   });
 
   const isMobile = useIsMobile();

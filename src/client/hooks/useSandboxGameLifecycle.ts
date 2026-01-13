@@ -101,6 +101,8 @@ export interface GameLifecycleDeps {
   setLastLoadedScenario: (scenario: LoadedScenario | null) => void;
   /** Set victory modal dismissed state */
   setIsSandboxVictoryModalDismissed: (dismissed: boolean) => void;
+  /** Set sandbox mode (beginner/developer) */
+  setSandboxMode: (mode: 'beginner' | 'developer') => void;
 }
 
 /**
@@ -200,6 +202,7 @@ export function useSandboxGameLifecycle(deps: GameLifecycleDeps): UseSandboxGame
     setSandboxStateVersion: _setSandboxStateVersion,
     setLastLoadedScenario,
     setIsSandboxVictoryModalDismissed,
+    setSandboxMode,
   } = deps;
 
   /**
@@ -318,6 +321,7 @@ export function useSandboxGameLifecycle(deps: GameLifecycleDeps): UseSandboxGame
     (preset: QuickStartPreset) => {
       if (preset.id === 'learn-basics') {
         markWelcomeSeen();
+        setSandboxMode('beginner'); // Enable beginner mode for tutorial hints
       }
       clearScenarioContext();
       resetGameUIState();
@@ -344,6 +348,7 @@ export function useSandboxGameLifecycle(deps: GameLifecycleDeps): UseSandboxGame
       config.aiDifficulties,
       setConfig,
       markWelcomeSeen,
+      setSandboxMode,
       clearScenarioContext,
       resetGameUIState,
       startGame,
