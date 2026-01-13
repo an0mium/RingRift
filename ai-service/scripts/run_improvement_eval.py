@@ -133,7 +133,8 @@ def run_improvement_evaluation(
 
             while not mutable.is_game_over() and move_count < max_moves:
                 current_player = mutable.current_player
-                ai = player_ais[current_player]
+                # current_player is 1-indexed, convert to 0-indexed for list access
+                ai = player_ais[current_player - 1]
 
                 # Get AI move
                 game_state = mutable.to_immutable()
