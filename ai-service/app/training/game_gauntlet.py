@@ -2269,8 +2269,10 @@ async def run_baseline_calibration(
                         # Jan 12, 2026: Added harness_type for multi-harness tracking
                         harness_type="heuristic",
                     )
-                except (RuntimeError, ValueError, OSError) as e:
-                    logger.error(f"[calibration] Failed to record Elo: {e}")
+                except Exception as e:
+                    # January 12, 2026: Widened from (RuntimeError, ValueError, OSError)
+                    # to catch all exceptions and avoid silent failures
+                    logger.error(f"[calibration] Failed to record Elo: {type(e).__name__}: {e}")
 
         # Store results for this matchup
         total = wins_a + wins_b + draws

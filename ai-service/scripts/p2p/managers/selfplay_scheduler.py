@@ -338,6 +338,58 @@ class SelfplayScheduler(EventSubscriptionMixin):
     # Standard board types that should use the standard board engine mix
     STANDARD_BOARD_TYPES = {"hex8", "square8"}
 
+    # Jan 2026: Mode-specific engine mixes for diversity tracking
+    # These allow BRS and MaxN to be tracked as distinct modes when using category modes
+
+    # Minimax-only: All heuristic-based search algorithms (minimax, BRS, MaxN)
+    MINIMAX_ONLY_ENGINE_MIX = [
+        # (engine_mode, weight, gpu_required, extra_args)
+        ("minimax", 35, False, {"depth": 4}),  # 35% - paranoid minimax
+        ("brs", 35, False, None),  # 35% - Best Reply Search
+        ("maxn", 30, False, None),  # 30% - Multi-player MaxN
+    ]
+
+    # MCTS-only: All tree search variants (including BRS/MaxN for diversity)
+    MCTS_ONLY_ENGINE_MIX = [
+        # (engine_mode, weight, gpu_required, extra_args)
+        ("gumbel-mcts", 50, True, {"budget": 800}),  # 50% - primary MCTS
+        ("minimax", 15, False, {"depth": 3}),  # 15% - tree search variant
+        ("brs", 20, False, None),  # 20% - BRS for diversity
+        ("maxn", 15, False, None),  # 15% - MaxN for diversity
+    ]
+
+    # MCTS-only CPU variant (no GPU)
+    MCTS_ONLY_ENGINE_MIX_CPU = [
+        # (engine_mode, weight, gpu_required, extra_args)
+        ("minimax", 35, False, {"depth": 4}),  # 35% - tree search
+        ("brs", 35, False, None),  # 35% - BRS for diversity
+        ("maxn", 30, False, None),  # 30% - MaxN for diversity
+    ]
+
+    # Descent-only: Neural descent with BRS/MaxN for comparison baseline
+    DESCENT_ONLY_ENGINE_MIX = [
+        # (engine_mode, weight, gpu_required, extra_args)
+        ("nn-descent", 50, True, None),  # 50% - primary neural descent
+        ("policy-only", 20, True, None),  # 20% - policy network
+        ("brs", 15, False, None),  # 15% - BRS baseline
+        ("maxn", 15, False, None),  # 15% - MaxN baseline
+    ]
+
+    # Descent-only CPU variant (no GPU)
+    DESCENT_ONLY_ENGINE_MIX_CPU = [
+        # (engine_mode, weight, gpu_required, extra_args)
+        ("heuristic", 40, False, None),  # 40% - heuristic fallback
+        ("brs", 30, False, None),  # 30% - BRS baseline
+        ("maxn", 30, False, None),  # 30% - MaxN baseline
+    ]
+
+    # Mode-specific engine mixes mapping
+    MODE_SPECIFIC_MIXES = {
+        "minimax-only": (MINIMAX_ONLY_ENGINE_MIX, MINIMAX_ONLY_ENGINE_MIX),  # (GPU, CPU)
+        "mcts-only": (MCTS_ONLY_ENGINE_MIX, MCTS_ONLY_ENGINE_MIX_CPU),
+        "descent-only": (DESCENT_ONLY_ENGINE_MIX, DESCENT_ONLY_ENGINE_MIX_CPU),
+    }
+
     @classmethod
     def _select_board_engine(
         cls,
@@ -3295,6 +3347,44 @@ class SelfplayScheduler(EventSubscriptionMixin):
                         f"{board_category.capitalize()} board engine mix: {board_type}_{num_players}p '{engine_mode}' -> "
                         f"'{actual_engine}' (gpu={has_gpu}, extra_args={extra_args})"
                     )
+
+            # Jan 2026: Handle mode-specific mixes (minimax-only, mcts-only, descent-only)
+            # These modes now resolve to specific engines (including BRS/MaxN) for diversity tracking
+            elif engine_mode in self.MODE_SPECIFIC_MIXES:
+                has_gpu = self._node_has_gpu(node)
+                num_players = selected.get("num_players", 0)
+                config_key = f"{board_type}_{num_players}p"
+
+                # Get the appropriate mix based on GPU availability
+                gpu_mix, cpu_mix = self.MODE_SPECIFIC_MIXES[engine_mode]
+                engine_mix = gpu_mix if has_gpu else cpu_mix
+
+                # Filter to available engines (respect GPU requirements)
+                available_engines = [
+                    (mode, weight, gpu_required, args)
+                    for mode, weight, gpu_required, args in engine_mix
+                    if not gpu_required or has_gpu
+                ]
+
+                if available_engines:
+                    # Weighted random selection
+                    weighted_engines = []
+                    for mode, weight, _gpu, args in available_engines:
+                        weighted_engines.extend([(mode, args)] * weight)
+
+                    if weighted_engines:
+                        import random
+                        actual_engine, extra_args = random.choice(weighted_engines)
+
+                        # Update the config with the selected engine
+                        selected["engine_mode"] = actual_engine
+                        if extra_args:
+                            selected["engine_extra_args"] = extra_args
+
+                        logger.info(
+                            f"Mode-specific engine mix: {config_key} '{engine_mode}' -> "
+                            f"'{actual_engine}' (gpu={has_gpu}, extra_args={extra_args})"
+                        )
 
         # Session 17.22: Add architecture selection based on Elo performance
         # This closes the feedback loop: better-performing architectures get more selfplay

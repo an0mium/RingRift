@@ -84,6 +84,9 @@ class DataEventType(Enum):
     EVALUATION_BACKPRESSURE_RELEASED = "evaluation_backpressure_released"  # Dec 29, 2025: Eval queue drained, resume training
     MODEL_EVALUATION_BLOCKED = "model_evaluation_blocked"  # Dec 2025 Phase 3: Model not distributed for eval
     ELO_UPDATED = "elo_updated"
+    # January 12, 2026: Elo recording facade events (from elo_recording.py)
+    ELO_RECORDING_FAILED = "elo_recording_failed"  # Elo recording failed (queued to DLQ)
+    ELO_VALIDATION_FAILED = "elo_validation_failed"  # Harness/model validation failed
     HARNESS_EVALUATION_COMPLETED = "harness_evaluation_completed"  # Dec 31, 2025: Per-harness Elo tracking
     # Sprint 13 Session 4 (Jan 3, 2026): Model evaluation automation
     EVALUATION_REQUESTED = "evaluation_requested"  # Request to evaluate a model (from scanner daemon)
