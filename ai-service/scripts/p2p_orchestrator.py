@@ -24878,6 +24878,15 @@ print(json.dumps({{
         """Check if the current leader's lease is still valid."""
         if not self.leader_id:
             return False
+
+        # Jan 13, 2026: Reject proxy_only leaders - they should never have been elected
+        # This forces a re-election if a proxy_only node somehow became leader
+        if self._is_node_proxy_only(self.leader_id):
+            logger.warning(
+                f"[LeaderValidation] Current leader {self.leader_id} is proxy_only - invalidating lease"
+            )
+            return False
+
         if self.leader_id == self.node_id:
             # We are leader - check our own lease
             return time.time() < self.leader_lease_expires
