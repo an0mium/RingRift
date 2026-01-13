@@ -19046,6 +19046,25 @@ print(json.dumps({{
             logger.debug(f"Could not load bootstrap seeds from config: {e}")
             return []
 
+    def _is_node_proxy_only(self, node_id: str) -> bool:
+        """Check if a node is configured as proxy_only in distributed_hosts.yaml.
+
+        Jan 13, 2026: Added to prevent proxy nodes from becoming cluster leaders.
+        Proxy nodes are SSH jump hosts or API proxies with no AI/training capability.
+
+        Args:
+            node_id: Node identifier to check
+
+        Returns:
+            True if node has status="proxy_only" in config
+        """
+        try:
+            hosts = self._load_distributed_hosts().get("hosts", {})
+            node_config = hosts.get(node_id, {})
+            return node_config.get("status", "") == "proxy_only"
+        except Exception:  # noqa: BLE001
+            return False
+
     def _load_distributed_hosts(self) -> dict[str, Any]:
         """Load distributed hosts configuration for NetworkHealthMixin.
 
@@ -20573,6 +20592,12 @@ print(json.dumps({{
             return False
         # Jan 2, 2026: Reject force_relay_mode nodes (can't serve peers directly)
         if getattr(peer, "force_relay_mode", False):
+            return False
+        # Jan 13, 2026: Reject proxy_only nodes (cannot coordinate cluster operations)
+        # These nodes are SSH jump hosts or API proxies with no AI/training capability
+        # Check both NodeInfo.status and config (config is authoritative)
+        node_status = getattr(peer, "status", "")
+        if node_status == "proxy_only" or self._is_node_proxy_only(peer.node_id):
             return False
         # Jan 2, 2026: Require minimum connectivity score
         if self._compute_connectivity_score(peer) < 0.3:

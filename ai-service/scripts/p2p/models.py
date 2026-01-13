@@ -104,6 +104,9 @@ class NodeInfo:
     last_gpu_job_success: float = 0.0  # Unix timestamp of last successful GPU job
     last_gpu_job_failure: float = 0.0  # Unix timestamp of last failed GPU job
     gpu_failure_count: int = 0       # Consecutive GPU job failures (reset on success)
+    # Jan 13, 2026: Node status from distributed_hosts.yaml (e.g., "proxy_only", "active")
+    # Used by _is_leader_eligible() to reject proxy nodes from becoming cluster leaders
+    status: str = ""
 
     def get_health_state(self) -> NodeHealthState:
         """Get detailed health state based on heartbeat timing.
