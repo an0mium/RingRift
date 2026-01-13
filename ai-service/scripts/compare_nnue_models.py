@@ -101,7 +101,7 @@ def play_game(
     """Play a single game between two NNUE evaluators."""
 
     state = create_game_state(board_type=board_type, num_players=num_players)
-    mutable = MutableGameState.from_game_state(state)
+    mutable = MutableGameState.from_immutable(state)
 
     start_time = time.time()
     moves = 0
