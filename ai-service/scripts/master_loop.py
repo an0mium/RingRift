@@ -1198,6 +1198,9 @@ class MasterLoopController:
             DaemonType.QUEUE_POPULATOR,
             DaemonType.SELFPLAY_COORDINATOR,  # Dec 28: Priority-based selfplay scheduling
             DaemonType.AUTO_EXPORT,
+            # Jan 2026: CLUSTER_CONSOLIDATION pulls games from P2P cluster nodes to coordinator
+            # Must run after AUTO_SYNC (needs cluster connectivity) and before DATA_CONSOLIDATION
+            DaemonType.CLUSTER_CONSOLIDATION,
             # Dec 2025: DATA_CONSOLIDATION merges scattered selfplay games into canonical DBs
             # Must run after AUTO_SYNC (games need to be synced first) and before training
             DaemonType.DATA_CONSOLIDATION,
