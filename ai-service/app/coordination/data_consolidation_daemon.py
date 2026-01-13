@@ -723,6 +723,11 @@ class DataConsolidationDaemon(HandlerBase):
             source_conn.row_factory = sqlite3.Row
             target_conn = sqlite3.connect(str(target_db), timeout=SQLITE_TIMEOUT)
 
+            # January 2026: Temporarily disable enforce_moves_on_insert trigger
+            # The trigger requires moves to exist before game insert, but we need
+            # to insert game first (FK constraint) then copy moves.
+            target_conn.execute("DROP TRIGGER IF EXISTS enforce_moves_on_insert")
+
             # December 29, 2025: Get target database columns to filter source columns
             # This prevents INSERT errors when source has columns target doesn't have
             target_cursor = target_conn.execute("PRAGMA table_info(games)")
@@ -855,6 +860,21 @@ class DataConsolidationDaemon(HandlerBase):
                     logger.debug(f"[DataConsolidationDaemon] Error inserting game {game_id}: {e}")
                     stats["invalid"] += 1
 
+            target_conn.commit()
+
+            # January 2026: Recreate the enforce_moves_on_insert trigger after consolidation
+            # This maintains database integrity for other operations that insert games
+            target_conn.execute("""
+                CREATE TRIGGER IF NOT EXISTS enforce_moves_on_insert
+                AFTER INSERT ON games
+                WHEN NEW.game_status IN ('completed', 'finished')
+                BEGIN
+                    SELECT CASE
+                        WHEN (SELECT COUNT(*) FROM game_moves WHERE game_id = NEW.game_id) < 5
+                        THEN RAISE(ABORT, 'Cannot insert completed game with fewer than 5 moves. Move data must be inserted before completing the game.')
+                    END;
+                END
+            """)
             target_conn.commit()
 
         except sqlite3.Error as e:
