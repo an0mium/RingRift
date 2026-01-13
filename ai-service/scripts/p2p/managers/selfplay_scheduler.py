@@ -3373,7 +3373,6 @@ class SelfplayScheduler(EventSubscriptionMixin):
                         weighted_engines.extend([(mode, args)] * weight)
 
                     if weighted_engines:
-                        import random
                         actual_engine, extra_args = random.choice(weighted_engines)
 
                         # Update the config with the selected engine
