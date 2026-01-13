@@ -582,7 +582,9 @@ class TrainConfig:
     # Jan 13, 2026: Increased from 32 to 128 for stronger gradient signals
     # Larger batches provide more stable gradients and faster convergence
     batch_size: int = 128  # Will be auto-scaled in __post_init__ if GPU available
-    weight_decay: float = 1e-4
+    # Jan 13, 2026: Increased weight decay from 1e-4 to 2e-4 to prevent overfitting
+    # with larger batch sizes (weight decay should scale with batch size)
+    weight_decay: float = 2e-4
     history_length: int = 3
     # Feature encoding version. v1 matches legacy encoders; v2 adds
     # chain/forced-elimination signals for hex encoders.

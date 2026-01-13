@@ -2102,18 +2102,24 @@ LR_WARMUP_STEPS = 0  # Default: no warmup (set via CLI --warmup-steps)
 
 # Early stopping patience - epochs without validation improvement
 # Jan 12, 2026: Increased from 20 to 30 - models need longer to break plateaus
-# Jan 13, 2026: Increased from 30 to 50 - allow more exploration before stopping
-EARLY_STOPPING_PATIENCE = 50
+# Jan 13, 2026: Set to 35 - balance exploration vs overfitting (50 caused severe overfitting)
+EARLY_STOPPING_PATIENCE = 35
+
+# Jan 13, 2026: Overfitting detection thresholds
+# If val_loss / train_loss exceeds OVERFIT_DETECTION_RATIO, trigger early stopping
+# This catches cases where training loss keeps improving but model is memorizing
+OVERFIT_DETECTION_RATIO = 3.0  # Max 3x divergence before forced stop
+OVERFIT_DETECTION_MIN_EPOCHS = 10  # Don't check until training stabilizes
 
 # December 29, 2025: Phase 9 - Board-specific base patience values
 # Weak models on hard boards stop too early with uniform patience
 # Jan 12, 2026: Doubled patience values - models stop too early at ~1400 Elo
-# Jan 13, 2026: Increased further to allow more exploration on all boards
+# Jan 13, 2026: Moderate increase to balance exploration vs overfitting
 EARLY_STOPPING_PATIENCE_BY_BOARD = {
-    "hex8": 20,      # Smallest board, learns fastest
-    "square8": 20,   # Similar to hex8
-    "square19": 30,  # Large board needs more epochs
-    "hexagonal": 40, # Largest board, slowest to learn
+    "hex8": 15,      # Smallest board, learns fastest - prone to overfitting
+    "square8": 15,   # Similar to hex8
+    "square19": 25,  # Large board needs more epochs
+    "hexagonal": 30, # Largest board, slowest to learn
 }
 
 
