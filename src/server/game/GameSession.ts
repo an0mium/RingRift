@@ -237,7 +237,7 @@ export class GameSession {
     const effectiveRingsPerPlayer = rulesOptions?.ringsPerPlayer ?? boardConfig.ringsPerPlayer;
     const initialTimeMs =
       typeof game.timeControl === 'string'
-        ? (JSON.parse(game.timeControl).initialTime as number)
+        ? (JSON.parse(game.timeControl).initialTime as number) * 1000 // Convert seconds to ms
         : 600000;
 
     if (game.player1) {

@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { BoardType } from '../../shared/types/game';
-import { Select } from './ui/Select';
 import {
   AIQuickPlayOption,
-  BOARD_DISPLAY_NAMES,
   TIER_COLORS,
   getOptionsForConfig,
   DifficultyTier,
@@ -13,6 +11,13 @@ interface AIQuickPlayPanelProps {
   onStartGame: (option: AIQuickPlayOption) => void;
   isLoading: boolean;
 }
+
+const BOARD_OPTIONS: { value: BoardType; label: string; subtitle: string }[] = [
+  { value: 'square8', label: '8×8', subtitle: 'Compact' },
+  { value: 'square19', label: '19×19', subtitle: 'Classic' },
+  { value: 'hex8', label: 'Hex 8', subtitle: 'Small hex' },
+  { value: 'hexagonal', label: 'Full Hex', subtitle: 'Large hex' },
+];
 
 function DifficultyCard({
   option,
@@ -70,44 +75,53 @@ export function AIQuickPlayPanel({ onStartGame, isLoading }: AIQuickPlayPanelPro
         <p className="text-xs text-slate-400">Choose difficulty and start immediately</p>
       </div>
 
-      {/* Board/Player selector */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div>
-          <label htmlFor="ai-quick-board" className="block text-sm font-medium text-slate-300 mb-1">
-            Board
-          </label>
-          <Select
-            id="ai-quick-board"
-            value={selectedBoard}
-            onChange={(e) => setSelectedBoard(e.target.value as BoardType)}
-          >
-            {Object.entries(BOARD_DISPLAY_NAMES).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
+      {/* Board selector - card grid */}
+      <div className="mb-4">
+        <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Board</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {BOARD_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setSelectedBoard(opt.value)}
+              className={`p-3 text-left rounded-xl border transition ${
+                selectedBoard === opt.value
+                  ? 'border-emerald-400 bg-emerald-900/20 text-white'
+                  : 'border-slate-600 bg-slate-900/60 text-slate-200 hover:border-slate-400'
+              }`}
+            >
+              <p className="font-semibold text-sm">{opt.label}</p>
+              <p className="text-[10px] text-slate-400">{opt.subtitle}</p>
+            </button>
+          ))}
         </div>
-        <div>
-          <label
-            htmlFor="ai-quick-players"
-            className="block text-sm font-medium text-slate-300 mb-1"
-          >
-            Players
-          </label>
-          <Select
-            id="ai-quick-players"
-            value={selectedPlayers}
-            onChange={(e) => setSelectedPlayers(Number(e.target.value))}
-          >
-            <option value={2}>1 vs 1 AI</option>
-            <option value={3}>1 vs 2 AI</option>
-            <option value={4}>1 vs 3 AI</option>
-          </Select>
+      </div>
+
+      {/* Player count selector - pill buttons */}
+      <div className="mb-6">
+        <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Players</p>
+        <div className="flex gap-2">
+          {[2, 3, 4].map((count) => (
+            <button
+              key={count}
+              type="button"
+              onClick={() => setSelectedPlayers(count)}
+              className={`px-4 py-2 rounded-full border transition text-sm ${
+                selectedPlayers === count
+                  ? 'border-emerald-400 text-emerald-200 bg-emerald-900/30'
+                  : 'border-slate-600 text-slate-300 hover:border-slate-400'
+              }`}
+            >
+              1v{count - 1} AI
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Difficulty cards */}
+      <div className="mb-2">
+        <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Difficulty</p>
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {sortedOptions.map((option) => (
           <DifficultyCard
