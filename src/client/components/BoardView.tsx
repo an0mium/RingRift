@@ -1071,14 +1071,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
       // Calibrated using diagnostics: target ~15px extra space (like sq19)
       // Diagnostics showed: sq8 had 81px extra, hex8 had 115px extra, hexagonal had 62px extra
       if (effectiveBoardType === 'square8') {
-        // Cell size 72px (10% smaller than original 80px)
-        const cellSize = isDesktop ? 72 : 40;
+        // Cell size matches CSS: md:w-[65px] md:h-[65px] for desktop, w-10 (40px) for mobile
+        const cellSize = isDesktop ? 65 : 40;
         // Buffer for coordinate labels + padding + panel gaps.
         // Split into X (right) and Y (top+bottom) for independent control.
-        // X: 60 + 5 = 65 (right gap +5)
-        // Y: 60 + 20 = 80 (top gap +15, bottom gap +5)
-        const labelBufferX = 65;
-        const labelBufferY = 80;
+        // Reduced buffers to minimize gap between board and status panel.
+        const labelBufferX = 50;
+        const labelBufferY = 55;
         naturalWidth = 8 * cellSize + 7 * gap + labelBufferX;
         naturalHeight = 8 * cellSize + 7 * gap + labelBufferY;
       } else if (effectiveBoardType === 'square19') {
