@@ -903,3 +903,196 @@ class TestEventEmission:
         # The _emit_event method has try/except, so it should handle any errors
         # Just verify it doesn't raise
         loop._emit_event("TEST_EVENT", {"data": "value"})
+
+
+# =============================================================================
+# Dynamic Threshold Tests (P2.1 - Jan 13, 2026)
+# =============================================================================
+
+
+class TestDynamicThreshold:
+    """Tests for dynamic failure threshold scaling."""
+
+    def test_dynamic_threshold_default_when_disabled(self) -> None:
+        """Test that base threshold is used when dynamic scaling is disabled."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+        loop._dynamic_threshold_enabled = False
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        assert threshold == 6
+
+    def test_dynamic_threshold_reduces_for_healthy_quorum(self) -> None:
+        """Test threshold reduces when quorum is HEALTHY."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+
+        # Mock healthy quorum
+        from scripts.p2p.leader_election import QuorumHealthLevel
+        orchestrator._check_quorum_health = MagicMock(return_value=QuorumHealthLevel.HEALTHY)
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        # Should reduce by 2 (but clamped to min)
+        assert threshold <= 6
+        assert threshold >= loop._min_failure_threshold
+
+    def test_dynamic_threshold_increases_for_degraded_quorum(self) -> None:
+        """Test threshold increases when quorum is DEGRADED."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+
+        from scripts.p2p.leader_election import QuorumHealthLevel
+        orchestrator._check_quorum_health = MagicMock(return_value=QuorumHealthLevel.DEGRADED)
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        # Should increase by 2
+        assert threshold >= 6
+        assert threshold <= loop._max_failure_threshold
+
+    def test_dynamic_threshold_increases_more_for_minimum_quorum(self) -> None:
+        """Test threshold increases significantly when quorum is at MINIMUM."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+
+        from scripts.p2p.leader_election import QuorumHealthLevel
+        orchestrator._check_quorum_health = MagicMock(return_value=QuorumHealthLevel.MINIMUM)
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        # Should increase by 4
+        assert threshold >= 8
+        assert threshold <= loop._max_failure_threshold
+
+    def test_dynamic_threshold_increases_for_high_latency(self) -> None:
+        """Test threshold increases when latency is high."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+        orchestrator._check_quorum_health = MagicMock(return_value=None)
+
+        # Add high latency samples (>2s)
+        loop._latency_history.extend([2.5, 2.8, 3.0])
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        # Should increase by 3 for very high latency
+        assert threshold >= 9
+
+    def test_dynamic_threshold_moderate_increase_for_moderate_latency(self) -> None:
+        """Test threshold increases moderately for moderate latency."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+        orchestrator._check_quorum_health = MagicMock(return_value=None)
+
+        # Add moderate latency samples (>1s)
+        loop._latency_history.extend([1.2, 1.3, 1.1])
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        # Should increase by 1
+        assert threshold >= 7
+
+    def test_dynamic_threshold_reduces_for_low_latency(self) -> None:
+        """Test threshold reduces when latency is very low."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+        orchestrator._check_quorum_health = MagicMock(return_value=None)
+
+        # Add very low latency samples (<100ms)
+        loop._latency_history.extend([0.05, 0.04, 0.06])
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        # Should reduce by 1 (but clamped to min)
+        assert threshold <= 6
+        assert threshold >= loop._min_failure_threshold
+
+    def test_dynamic_threshold_clamped_to_min(self) -> None:
+        """Test threshold is clamped to minimum value."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=3)
+
+        from scripts.p2p.leader_election import QuorumHealthLevel
+        orchestrator._check_quorum_health = MagicMock(return_value=QuorumHealthLevel.HEALTHY)
+        loop._latency_history.extend([0.01, 0.01, 0.01])
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        assert threshold >= loop._min_failure_threshold
+
+    def test_dynamic_threshold_clamped_to_max(self) -> None:
+        """Test threshold is clamped to maximum value."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=10)
+
+        from scripts.p2p.leader_election import QuorumHealthLevel
+        orchestrator._check_quorum_health = MagicMock(return_value=QuorumHealthLevel.MINIMUM)
+        loop._latency_history.extend([5.0, 6.0, 7.0])
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        assert threshold <= loop._max_failure_threshold
+
+    def test_dynamic_threshold_combines_factors(self) -> None:
+        """Test that quorum health and latency factors combine."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+
+        from scripts.p2p.leader_election import QuorumHealthLevel
+        orchestrator._check_quorum_health = MagicMock(return_value=QuorumHealthLevel.DEGRADED)
+        loop._latency_history.extend([1.5, 1.6, 1.4])  # Moderate latency
+
+        threshold = loop._compute_dynamic_failure_threshold()
+
+        # DEGRADED (+2) + moderate latency (+1) = 9
+        assert threshold >= 8
+
+    def test_get_status_includes_dynamic_threshold(self) -> None:
+        """Test that get_status() includes dynamic threshold info."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6)
+        loop._running = True
+
+        status = loop.get_status()
+
+        assert "dynamic_threshold" in status
+        assert "dynamic_timeout_seconds" in status
+        assert "dynamic_threshold_enabled" in status
+
+    @pytest.mark.asyncio
+    async def test_probe_failure_uses_dynamic_threshold(self) -> None:
+        """Test that _on_probe_failure uses dynamic threshold for election."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6, startup_grace_period=0)
+
+        from scripts.p2p.leader_election import QuorumHealthLevel
+        orchestrator._check_quorum_health = MagicMock(return_value=QuorumHealthLevel.HEALTHY)
+        loop._latency_history.extend([0.05, 0.04, 0.06])  # Low latency
+
+        # Dynamic threshold should be ~4 (healthy quorum -2, low latency -1)
+        # Set failures just below dynamic threshold
+        loop._consecutive_failures = 3  # Will become 4
+
+        with patch.object(loop, "_emit_event"):
+            with patch.object(loop, "_trigger_election", new_callable=AsyncMock) as mock_election:
+                await loop._on_probe_failure("leader-1")
+
+        # Should trigger election at dynamic threshold (4), not base (6)
+        mock_election.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_probe_failure_event_includes_dynamic_threshold(self) -> None:
+        """Test that LEADER_PROBE_FAILED event includes dynamic threshold info."""
+        orchestrator = create_mock_orchestrator()
+        loop = LeaderProbeLoop(orchestrator, failure_threshold=6, startup_grace_period=0)
+
+        with patch.object(loop, "_emit_event") as mock_emit:
+            await loop._on_probe_failure("leader-1")
+
+        call_args = mock_emit.call_args
+        payload = call_args[0][1]
+        assert "failure_threshold" in payload
+        assert "base_threshold" in payload
+        assert "dynamic_threshold_enabled" in payload

@@ -121,6 +121,13 @@ class LeaderProbeLoop(BaseLoop):
         self._split_brain_detected = False
         self._split_brain_check_interval = 3  # Check every 3rd cycle (~30s at 10s interval)
 
+        # Jan 13, 2026: Dynamic failure threshold scaling (P2.1)
+        # Scale failure threshold based on quorum health and latency
+        # Range: 4-12 failures (45-120s at 10s probe interval)
+        self._min_failure_threshold = 4  # 45s - healthy cluster, fast failover
+        self._max_failure_threshold = 12  # 120s - degraded cluster, avoid false elections
+        self._dynamic_threshold_enabled = True
+
     def _is_in_startup_phase(self) -> bool:
         """Check if we're still in the startup grace period.
 
@@ -152,6 +159,71 @@ class LeaderProbeLoop(BaseLoop):
         # Add random jitter (±20%) to stagger elections from different voters
         jitter = base_cooldown * self._cooldown_jitter * (2 * random.random() - 1)
         return base_cooldown + jitter
+
+    def _compute_dynamic_failure_threshold(self) -> int:
+        """Compute failure threshold based on cluster health metrics.
+
+        Jan 13, 2026 - P2.1 Dynamic Quorum Timeout Scaling.
+
+        Problem: Fixed 60s timeout doesn't account for cluster load. During high
+        latency or degraded quorum, false leader elections can destabilize the cluster.
+
+        Solution: Scale the failure threshold (and thus timeout) based on:
+        1. Quorum health level (HEALTHY → fast, DEGRADED → slow)
+        2. Probe latency trending (low latency → fast, high latency → slow)
+
+        Returns:
+            Failure threshold in number of consecutive failures (4-12)
+            At 10s probe interval: 4=40s, 6=60s, 8=80s, 12=120s
+        """
+        if not self._dynamic_threshold_enabled:
+            return self._failure_threshold
+
+        # Start with base threshold
+        threshold = self._failure_threshold
+
+        # Factor 1: Quorum health level
+        # HEALTHY: Use faster timeout (reduce threshold)
+        # DEGRADED/MINIMUM: Use slower timeout (increase threshold)
+        try:
+            check_quorum = getattr(self._orchestrator, "_check_quorum_health", None)
+            if check_quorum:
+                from scripts.p2p.leader_election import QuorumHealthLevel
+                quorum_health = check_quorum()
+
+                if quorum_health == QuorumHealthLevel.HEALTHY:
+                    # Cluster is healthy - can afford faster failover
+                    threshold = max(threshold - 2, self._min_failure_threshold)
+                elif quorum_health == QuorumHealthLevel.DEGRADED:
+                    # Cluster is degraded - be more cautious
+                    threshold = min(threshold + 2, self._max_failure_threshold)
+                elif quorum_health == QuorumHealthLevel.MINIMUM:
+                    # Cluster is at minimum - be very cautious
+                    threshold = min(threshold + 4, self._max_failure_threshold)
+                # LOST is handled separately - elections are blocked entirely
+        except Exception as e:
+            logger.debug(f"[LeaderProbe] Failed to check quorum health: {e}")
+
+        # Factor 2: Latency trending
+        # High latency suggests network issues - use slower timeout
+        if len(self._latency_history) >= 3:
+            recent_latencies = list(self._latency_history)[-3:]
+            avg_latency = sum(recent_latencies) / len(recent_latencies)
+
+            if avg_latency > 2.0:
+                # Very high latency (>2s) - network is struggling
+                threshold = min(threshold + 3, self._max_failure_threshold)
+            elif avg_latency > 1.0:
+                # High latency (>1s) - be more cautious
+                threshold = min(threshold + 1, self._max_failure_threshold)
+            elif avg_latency < 0.1:
+                # Very low latency (<100ms) - network is healthy
+                threshold = max(threshold - 1, self._min_failure_threshold)
+
+        # Clamp to valid range
+        threshold = max(self._min_failure_threshold, min(threshold, self._max_failure_threshold))
+
+        return threshold
 
     async def _run_once(self) -> None:
         """Single probe iteration - check if leader is reachable.
@@ -400,19 +472,24 @@ class LeaderProbeLoop(BaseLoop):
             )
             return
 
+        # Jan 13, 2026: Use dynamic threshold based on cluster health
+        dynamic_threshold = self._compute_dynamic_failure_threshold()
+
         logger.warning(
             f"[LeaderProbe] Leader {leader_id} unreachable "
-            f"({self._consecutive_failures}/{self._failure_threshold})"
+            f"({self._consecutive_failures}/{dynamic_threshold})"
         )
 
         self._emit_event("LEADER_PROBE_FAILED", {
             "leader_id": leader_id,
             "consecutive_failures": self._consecutive_failures,
-            "failure_threshold": self._failure_threshold,
+            "failure_threshold": dynamic_threshold,
+            "base_threshold": self._failure_threshold,
+            "dynamic_threshold_enabled": self._dynamic_threshold_enabled,
         })
 
-        # Check if we should trigger election
-        if self._consecutive_failures >= self._failure_threshold:
+        # Check if we should trigger election using dynamic threshold
+        if self._consecutive_failures >= dynamic_threshold:
             await self._trigger_election(leader_id)
 
     # =========================================================================
@@ -904,12 +981,19 @@ class LeaderProbeLoop(BaseLoop):
                 "latency_warning_active": self._latency_warning_emitted,
             }
 
+        # Jan 13, 2026: Include dynamic threshold info
+        dynamic_threshold = self._compute_dynamic_failure_threshold()
+        timeout_seconds = dynamic_threshold * self.interval
+
         return {
             "name": self.name,
             "running": self.running,
             "enabled": self.enabled,
             "consecutive_failures": self._consecutive_failures,
             "failure_threshold": self._failure_threshold,
+            "dynamic_threshold": dynamic_threshold,
+            "dynamic_timeout_seconds": timeout_seconds,
+            "dynamic_threshold_enabled": self._dynamic_threshold_enabled,
             "last_success_time": self._last_success_time,
             "seconds_since_success": time.time() - self._last_success_time,
             "election_triggered_recently": self._election_triggered_recently,
@@ -968,15 +1052,19 @@ class LeaderProbeLoop(BaseLoop):
                 self._startup_grace_period - (time.time() - self._startup_time), 1
             )
 
+        # Jan 13, 2026: Use dynamic threshold for health check
+        dynamic_threshold = self._compute_dynamic_failure_threshold()
+
         # Check if leader is unreachable (approaching election trigger)
-        if self._consecutive_failures >= self._failure_threshold:
+        if self._consecutive_failures >= dynamic_threshold:
             return HealthCheckResult(
                 healthy=False,
                 status=CoordinatorStatus.ERROR,
                 message=f"Leader unreachable ({self._consecutive_failures} failures), election triggered",
                 details={
                     "consecutive_failures": self._consecutive_failures,
-                    "failure_threshold": self._failure_threshold,
+                    "failure_threshold": dynamic_threshold,
+                    "base_threshold": self._failure_threshold,
                     "seconds_since_success": time.time() - self._last_success_time,
                     "election_triggered_recently": self._election_triggered_recently,
                     **startup_info,
