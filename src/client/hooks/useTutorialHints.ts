@@ -37,39 +37,44 @@ const PHASE_TO_TOPIC: Partial<Record<GamePhase, TeachingTopic>> = {
 const PHASE_HINTS: Partial<Record<GamePhase, Omit<TutorialHint, 'phase' | 'topic'>>> = {
   ring_placement: {
     title: 'Place Your Rings',
-    message: 'Click empty cells to place rings. Adjacent rings form stronger positions!',
+    message:
+      'Click any empty cell to place a ring, or click an existing stack to add rings on top. Place adjacent to your own rings to build connected groups for territory. You have limited rings - use them wisely!',
     icon: '🎯',
   },
   movement: {
     title: 'Move Your Stacks',
     message:
-      'Click a stack, then a destination. You must move at least as far as the stack is tall.',
+      'Click your stack, then a highlighted destination. Move in a straight line at least as many spaces as your stack is tall (height 2 = move 2+ spaces). Stacks and territory block your path, but you can land on markers (this eliminates your top ring).',
     icon: '↗️',
   },
   capture: {
     title: 'Capture!',
     message:
-      'Jump over an adjacent enemy stack to capture it. Your stack must be at least as tall.',
+      'Jump over an adjacent enemy stack and land on the empty space beyond. Your stack must be at least as tall as theirs. The captured ring joins the bottom of your stack. Capturing is optional, but powerful!',
     icon: '⚔️',
   },
   chain_capture: {
-    title: 'Keep Capturing!',
-    message: 'You started a capture chain - you must continue until no captures remain!',
+    title: 'Chain Capture!',
+    message:
+      'Once you start capturing, you MUST continue until no more captures are possible. Choose your direction when multiple targets exist. Plan ahead - you cannot stop mid-chain!',
     icon: '⇉',
   },
   line_processing: {
     title: 'Line Formed!',
-    message: 'Your markers formed a line! Choose how to collapse it into territory.',
+    message:
+      'Your markers formed a line of 5+ (6+ on hex)! This line will collapse into territory. You must pay a cost: eliminate one ring from any stack you control.',
     icon: '━',
   },
   territory_processing: {
     title: 'Claim Territory',
-    message: 'A region is surrounded. Pay the cost from an outside stack to claim it.',
+    message:
+      'A region is now surrounded by your pieces! Pay the territory cost by eliminating rings from a stack you control outside the region. Territory spaces score points and block movement.',
     icon: '🏰',
   },
   forced_elimination: {
-    title: 'No Moves Available',
-    message: 'You have no legal moves. Select a stack to eliminate rings from.',
+    title: 'No Legal Moves',
+    message:
+      'You have no valid moves this turn. You must eliminate rings from one of your stacks to continue. Select a stack to remove rings from.',
     icon: '💎',
   },
 };
