@@ -174,7 +174,10 @@ class GumbelSelfplayConfig:
     use_gpu_tree: bool = True  # RR-GPU-TREE-001: defensive validation added
     # Architecture version for model selection (v2, v4, v5, v5-heavy, etc.)
     # Jan 5, 2026: Added for architecture selection feedback loop
-    model_version: str = "v5"
+    # Jan 12, 2026: Changed default to "v2" - the NeuralNetAI loader currently
+    # expects HexNeuralNet_v2 architecture. Using v5-heavy checkpoints (v5.1.0-hex)
+    # triggers VersionMismatchError since the weights are incompatible.
+    model_version: str = "v2"
 
     def get_temperature_for_move(self, move_number: int) -> float:
         """Get temperature for a specific move number.
@@ -897,8 +900,9 @@ def main():
     parser.add_argument(
         "--model-version",
         type=str,
-        default="v5",
-        help="Architecture version (v2, v4, v5, v5-heavy, etc.) for model selection",
+        default="v2",
+        help="Architecture version (v2, v4, v5, v5-heavy, etc.) for model selection. "
+             "Default v2 to match NeuralNetAI's HexNeuralNet_v2 architecture.",
     )
     parser.add_argument(
         "--no-gpu",
