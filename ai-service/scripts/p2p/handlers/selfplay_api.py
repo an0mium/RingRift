@@ -25,10 +25,18 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
+
+# Jan 2026: Allow selfplay in degraded mode (quorum loss doesn't block local GPU work)
+# Selfplay is a local operation that doesn't require cluster consensus.
+# Set RINGRIFT_ALLOW_DEGRADED_SELFPLAY=true to enable (default: true)
+ALLOW_DEGRADED_SELFPLAY = os.environ.get(
+    "RINGRIFT_ALLOW_DEGRADED_SELFPLAY", "true"
+).lower() in ("true", "1", "yes")
 
 if TYPE_CHECKING:
     pass
@@ -67,27 +75,89 @@ class SelfplayHandlersMixin:
         except Exception as e:  # noqa: BLE001
             return web.json_response({"success": False, "error": str(e)}, status=400)
 
+    def _can_dispatch_selfplay_degraded(self) -> tuple[bool, str]:
+        """Check if selfplay can be dispatched in degraded cluster state.
+
+        January 2026: Selfplay is a local GPU operation that doesn't require
+        cluster consensus. Allow it even when quorum is lost, as long as the
+        local node is healthy.
+
+        Returns:
+            (can_dispatch, reason) - True if selfplay can proceed locally
+        """
+        # Check local resource health
+        try:
+            import psutil
+            memory_percent = psutil.virtual_memory().percent
+            if memory_percent > 95:
+                return False, f"Local memory usage too high: {memory_percent:.1f}%"
+
+            # Check GPU memory if available
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    for i in range(torch.cuda.device_count()):
+                        mem_info = torch.cuda.memory_stats(i)
+                        if "allocated_bytes.all.current" in mem_info:
+                            allocated = mem_info["allocated_bytes.all.current"]
+                            total = torch.cuda.get_device_properties(i).total_memory
+                            if allocated / total > 0.95:
+                                return False, f"GPU {i} memory too high: {allocated/total:.1%}"
+            except (ImportError, RuntimeError):
+                pass  # No GPU or torch not available
+
+        except ImportError:
+            pass  # psutil not available
+
+        return True, "Local health OK for degraded-mode selfplay"
+
     async def handle_selfplay_start(self, request: web.Request) -> web.Response:
         """POST /selfplay/start - Start GPU selfplay job on this node.
 
         Called by leader to dispatch GPU selfplay work to worker nodes.
         Uses run_hybrid_selfplay.py for GPU-accelerated game generation.
+
+        January 2026: Now supports degraded mode operation when ALLOW_DEGRADED_SELFPLAY
+        is enabled. Selfplay doesn't require cluster consensus - it's local GPU work.
         """
         try:
             # Phase 2.4 (Dec 29, 2025): Block dispatch if in partition readonly mode
+            # Jan 2026: Allow bypass for selfplay (doesn't require consensus)
             if self.is_partition_readonly():
                 status = self.get_partition_status()
-                logger.warning(
-                    f"[P2P] Rejecting selfplay start: partition readonly mode "
-                    f"(status={status['partition_status']}, ratio={status['health_ratio']:.2%})"
-                )
-                return web.json_response({
-                    "success": False,
-                    "error": "Node is in partition readonly mode",
-                    "partition_status": status["partition_status"],
-                    "health_ratio": status["health_ratio"],
-                    "retry_after_seconds": 60,
-                }, status=503)
+
+                # Check if degraded selfplay is allowed
+                if ALLOW_DEGRADED_SELFPLAY:
+                    can_proceed, reason = self._can_dispatch_selfplay_degraded()
+                    if can_proceed:
+                        logger.info(
+                            f"[P2P] Allowing selfplay in degraded mode: "
+                            f"partition_status={status['partition_status']}, reason={reason}"
+                        )
+                        # Continue with selfplay - don't return 503
+                    else:
+                        logger.warning(
+                            f"[P2P] Rejecting selfplay in degraded mode: {reason}"
+                        )
+                        return web.json_response({
+                            "success": False,
+                            "error": f"Degraded mode selfplay blocked: {reason}",
+                            "partition_status": status["partition_status"],
+                            "health_ratio": status["health_ratio"],
+                            "retry_after_seconds": 30,
+                        }, status=503)
+                else:
+                    logger.warning(
+                        f"[P2P] Rejecting selfplay start: partition readonly mode "
+                        f"(status={status['partition_status']}, ratio={status['health_ratio']:.2%})"
+                    )
+                    return web.json_response({
+                        "success": False,
+                        "error": "Node is in partition readonly mode",
+                        "partition_status": status["partition_status"],
+                        "health_ratio": status["health_ratio"],
+                        "retry_after_seconds": 60,
+                    }, status=503)
 
             data = await request.json()
             board_type = data.get("board_type", "square8")

@@ -3108,8 +3108,11 @@ class SelfplayScheduler(EventSubscriptionMixin):
             or 0
         )
         if gpu_vram and gpu_vram < 48:
+            # Jan 12, 2026: Allow hex8 and square8 on smaller GPUs, only filter truly large boards
+            # Previous filter was too restrictive (only square8), blocking hex8 which fits in 8GB
             selfplay_configs = [
-                c for c in selfplay_configs if c.get("board_type") == "square8"
+                c for c in selfplay_configs
+                if c.get("board_type") not in ("square19", "hexagonal")
             ]
 
         # December 2025: Filter by GPU capability

@@ -1565,7 +1565,8 @@ def _evaluate_single_opponent(
                     num_players=num_players,
                     game_length=game_result.move_count,
                     tournament_id=f"gauntlet_{board_value}_{num_players}p",
-                    harness_type=harness_type if harness_type else None,
+                    # Jan 2026: Use "gumbel_mcts" as default when harness_type is empty
+                    harness_type=harness_type if harness_type else "gumbel_mcts",
                 )
             except ImportError:
                 pass  # EloService not available

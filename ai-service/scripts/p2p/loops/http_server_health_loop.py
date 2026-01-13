@@ -38,7 +38,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from scripts.p2p.loops.base import BaseLoop
 
@@ -64,6 +64,7 @@ class HttpServerHealthConfig:
         recovery_delay_seconds: Delay between recovery attempts (default: 5s)
         startup_grace_period_seconds: Skip probes during startup (default: 60s)
         exit_code_http_server_failed: Exit code when terminating (default: 3)
+        server_restart_attempts: Number of server restart attempts before termination (default: 3)
     """
 
     probe_interval_seconds: float = 10.0
@@ -74,6 +75,7 @@ class HttpServerHealthConfig:
     startup_grace_period_seconds: float = 30.0  # Reduced from 60s: faster detection
     exit_code_http_server_failed: int = EXIT_CODE_HTTP_SERVER_FAILED
     use_isolated_health_port: bool = True  # Jan 2026: Probe isolated health server (port+1)
+    server_restart_attempts: int = 3  # Jan 2026: Try restarting server before os._exit()
 
 
 class HttpServerHealthLoop(BaseLoop):
@@ -99,12 +101,17 @@ class HttpServerHealthLoop(BaseLoop):
         self,
         port: int = 8770,
         config: HttpServerHealthConfig | None = None,
+        restart_callback: "Callable[[], Awaitable[bool]] | None" = None,
     ):
         """Initialize the HTTP server health loop.
 
         Args:
             port: HTTP port to probe for health endpoint
             config: Configuration for monitoring behavior (uses defaults if None)
+            restart_callback: Optional async callback to restart HTTP server.
+                If provided, will be called before falling back to os._exit().
+                The callback should return True if restart succeeded.
+                January 2026: Added to enable graceful recovery.
         """
         self._config = config or HttpServerHealthConfig()
         super().__init__(
@@ -118,6 +125,8 @@ class HttpServerHealthLoop(BaseLoop):
         self._total_probes = 0
         self._total_failures = 0
         self._recovery_triggered = False
+        self._restart_callback = restart_callback
+        self._restart_attempts = 0
 
     async def _run_once(self) -> None:
         """Execute one health probe iteration.
@@ -198,10 +207,15 @@ class HttpServerHealthLoop(BaseLoop):
             return False
 
     async def _handle_server_failure(self) -> None:
-        """Handle HTTP server failure with recovery attempts.
+        """Handle HTTP server failure with graceful recovery and restart attempts.
 
-        Attempts recovery by waiting and re-probing. If all recovery attempts
-        fail, emits zombie detection event and terminates the process.
+        January 2026: Now attempts server restart via callback before terminating.
+
+        Recovery sequence:
+        1. Wait and re-probe (recovery_attempts times)
+        2. If still failing and restart_callback available, try server restart
+        3. If restart succeeds, re-probe to verify
+        4. Only terminate with os._exit() if all recovery options exhausted
         """
         self._recovery_triggered = True
         logger.error(
@@ -210,6 +224,7 @@ class HttpServerHealthLoop(BaseLoop):
             f"Attempting recovery ({self._config.recovery_attempts} attempts)..."
         )
 
+        # Phase 1: Try simple wait-and-reprobe recovery
         for attempt in range(1, self._config.recovery_attempts + 1):
             logger.info(
                 f"[{self.name}] Recovery attempt {attempt}/{self._config.recovery_attempts}"
@@ -225,11 +240,53 @@ class HttpServerHealthLoop(BaseLoop):
                 self._recovery_triggered = False
                 return
 
-        # Recovery failed - terminate process
+        # Phase 2: Try server restart if callback is available (Jan 2026)
+        if self._restart_callback is not None:
+            logger.warning(
+                f"[{self.name}] Recovery failed, attempting HTTP server restart "
+                f"({self._config.server_restart_attempts} attempts)..."
+            )
+
+            for restart_attempt in range(1, self._config.server_restart_attempts + 1):
+                self._restart_attempts += 1
+                logger.info(
+                    f"[{self.name}] Server restart attempt "
+                    f"{restart_attempt}/{self._config.server_restart_attempts}"
+                )
+
+                try:
+                    restart_success = await self._restart_callback()
+                    if restart_success:
+                        # Wait for server to stabilize, then re-probe
+                        await asyncio.sleep(2.0)
+                        if await self._probe_local_health():
+                            logger.info(
+                                f"[{self.name}] HTTP server restarted successfully "
+                                f"on attempt {restart_attempt}"
+                            )
+                            self._consecutive_failures = 0
+                            self._last_success_time = time.time()
+                            self._recovery_triggered = False
+                            return
+                        else:
+                            logger.warning(
+                                f"[{self.name}] Server restarted but health probe "
+                                f"still failing, continuing recovery..."
+                            )
+                except Exception as e:
+                    logger.error(
+                        f"[{self.name}] Server restart attempt {restart_attempt} "
+                        f"raised exception: {type(e).__name__}: {e}"
+                    )
+
+                await asyncio.sleep(self._config.recovery_delay_seconds)
+
+        # Phase 3: All recovery options exhausted - terminate process
         logger.critical(
             f"[{self.name}] HTTP server unresponsive after "
-            f"{self._config.failure_threshold} failures and "
-            f"{self._config.recovery_attempts} recovery attempts. "
+            f"{self._config.failure_threshold} failures, "
+            f"{self._config.recovery_attempts} recovery attempts, and "
+            f"{self._restart_attempts} restart attempts. "
             f"Terminating process (exit code {self._config.exit_code_http_server_failed}) "
             f"to trigger systemd restart."
         )
@@ -349,4 +406,7 @@ class HttpServerHealthLoop(BaseLoop):
             "uptime_seconds": uptime,
             "recovery_triggered": self._recovery_triggered,
             "in_grace_period": uptime < self._config.startup_grace_period_seconds,
+            # Jan 2026: Track server restarts
+            "restart_attempts": self._restart_attempts,
+            "has_restart_callback": self._restart_callback is not None,
         }

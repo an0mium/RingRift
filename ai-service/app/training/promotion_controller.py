@@ -378,6 +378,69 @@ class PromotionController:
         """Clear a pending promotion check after evaluation."""
         self._pending_promotion_checks.pop(model_id, None)
 
+    def _check_multi_harness_gate(
+        self,
+        model_id: str,
+        board_type: str,
+        num_players: int,
+        min_harnesses: int = 2,
+    ) -> tuple[bool, str, list[str]]:
+        """Check if model has been evaluated under multiple harnesses.
+
+        January 2026: Require multi-harness evaluation before production promotion.
+        This ensures models are robust across different evaluation methods, not just
+        optimized for a single harness.
+
+        Args:
+            model_id: Model to check
+            board_type: Board type for evaluation
+            num_players: Number of players
+            min_harnesses: Minimum number of distinct harnesses required (default: 2)
+
+        Returns:
+            (passes, reason, harnesses_tested) - Tuple with pass status, explanation,
+            and list of harness types that have been tested
+        """
+        harnesses_tested: list[str] = []
+
+        if self.elo_service is None:
+            return False, "Elo service not available", harnesses_tested
+
+        try:
+            # Query match_history for distinct harness types for this model
+            conn = self.elo_service._get_connection()
+            cursor = conn.execute("""
+                SELECT DISTINCT harness_type
+                FROM match_history
+                WHERE (player1_id = ? OR player2_id = ?)
+                AND board_type = ?
+                AND num_players = ?
+                AND harness_type IS NOT NULL
+                AND harness_type != ''
+            """, (model_id, model_id, board_type, num_players))
+
+            for row in cursor:
+                if row[0]:
+                    harnesses_tested.append(row[0])
+
+        except Exception as e:
+            logger.warning(f"Multi-harness gate check failed: {e}")
+            return False, f"Failed to query harness data: {e}", harnesses_tested
+
+        if len(harnesses_tested) < min_harnesses:
+            return (
+                False,
+                f"Only {len(harnesses_tested)} harness(es) tested ({harnesses_tested}), "
+                f"need >= {min_harnesses}. Run multi_harness_gauntlet first.",
+                harnesses_tested,
+            )
+
+        return (
+            True,
+            f"Passed with {len(harnesses_tested)} harnesses: {', '.join(harnesses_tested)}",
+            harnesses_tested,
+        )
+
     def evaluate_promotion(
         self,
         model_id: str,
@@ -531,6 +594,23 @@ class PromotionController:
                 reason = (
                     f"Meets all criteria: Elo +{elo_improvement or 0:.1f}, {games_played} games"
                 )
+
+        # January 2026: Multi-harness gate for PRODUCTION promotions
+        # Require evaluation under multiple harnesses to ensure robustness
+        harnesses_tested: list[str] = []
+        if should_promote and promotion_type == PromotionType.PRODUCTION:
+            gate_passes, gate_reason, harnesses_tested = self._check_multi_harness_gate(
+                model_id, board_type, num_players, min_harnesses=2
+            )
+            if not gate_passes:
+                should_promote = False
+                reason = f"Multi-harness gate failed: {gate_reason}"
+                logger.info(
+                    f"Model {model_id} blocked by multi-harness gate: {gate_reason}"
+                )
+            else:
+                # Gate passed - include harness info in reason
+                reason = f"{reason} | Multi-harness: {', '.join(harnesses_tested)}"
 
         decision = PromotionDecision(
             model_id=model_id,
