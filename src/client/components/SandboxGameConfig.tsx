@@ -47,9 +47,9 @@ const BOARD_TYPE_LABELS: Record<BoardType, string> = {
  */
 const BOARD_TYPE_ROW_HEADERS: Record<BoardType, string> = {
   square8: '8×8 Square',
-  hex8: 'Hex8 Compact',
+  hex8: 'Hex8 (Compact)',
   square19: '19×19 Square',
-  hexagonal: '24-Hex Full',
+  hexagonal: 'Hex24 (Full Hex)',
 };
 
 /**
