@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.game_engine import GameEngine
 from app.models import GameState, Move, BoardType
 from app.training.encoding import HexStateEncoder, SquareStateEncoder
+from app.training.initial_state import create_initial_state
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ def replay_game(
     try:
         # Create initial state
         bt = BoardType(board_type)
-        state = GameEngine.create_initial_state(bt, num_players)
+        state = create_initial_state(board_type=bt, num_players=num_players)
 
         # Replay moves
         for move_dict in moves:
@@ -186,7 +187,7 @@ def export_database(
 
     # Determine board size for policy encoding
     bt = BoardType(board_type)
-    state = GameEngine.create_initial_state(bt, num_players)
+    state = create_initial_state(board_type=bt, num_players=num_players)
     num_cells = len(state.board.cells) if hasattr(state.board, 'cells') else 64
 
     # For square8, it's 64 cells

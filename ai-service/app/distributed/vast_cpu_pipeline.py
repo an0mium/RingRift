@@ -180,7 +180,7 @@ class VastCpuPipelineDaemon:
                 is_cpu_capable = (
                     getattr(host, "cpu_capable", False)
                     or not getattr(host, "has_gpu", True)
-                    or host.gpu_count == 0
+                    or getattr(host, "gpu_count", 0) == 0
                 )
 
                 if is_cpu_capable and host.best_ip:
