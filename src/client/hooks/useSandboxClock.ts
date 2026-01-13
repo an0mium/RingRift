@@ -139,46 +139,73 @@ export function useSandboxClock(gameState: GameState | null): UseSandboxClockRet
     prevCurrentPlayerRef.current = currentPlayer;
   }, [clockEnabled, gameState, timeControl.incrementMs, timeControl.initialTimeMs]);
 
-  // Decrement the active player's clock every second
+  // Track base time at start of current turn (before elapsed deduction)
+  const turnBaseTimeRef = useRef<number | null>(null);
+
+  // Store base time when turn starts
+  useEffect(() => {
+    if (!clockEnabled || !gameState) {
+      return;
+    }
+
+    const currentPlayer = gameState.currentPlayer;
+    // When turn changes or game starts, capture the base time for this turn
+    if (turnBaseTimeRef.current === null && playerTimes[currentPlayer] !== undefined) {
+      turnBaseTimeRef.current = playerTimes[currentPlayer];
+    }
+  }, [clockEnabled, gameState, playerTimes]);
+
+  // Reset base time ref when turn changes
+  useEffect(() => {
+    if (!clockEnabled || !gameState) {
+      return;
+    }
+
+    const currentPlayer = gameState.currentPlayer;
+    const prevPlayer = prevCurrentPlayerRef.current;
+
+    if (prevPlayer !== null && prevPlayer !== currentPlayer) {
+      // Turn changed - reset base time ref for next turn
+      turnBaseTimeRef.current = null;
+    }
+  }, [clockEnabled, gameState]);
+
+  // Force re-render every second to update display (without modifying playerTimes)
+  const [, setTick] = useState(0);
+
   useEffect(() => {
     if (!clockEnabled || !gameState || gameState.gameStatus !== 'active') {
       return;
     }
 
     const interval = setInterval(() => {
-      const currentPlayer = gameState.currentPlayer;
-      const turnStart = turnStartTimeRef.current;
-
-      if (turnStart === null) {
-        return;
-      }
-
-      const elapsed = Date.now() - turnStart;
-
-      // Update the display (the real deduction happens on turn change)
-      setPlayerTimes((prev) => {
-        // Only update if turn hasn't changed
-        if (gameState.currentPlayer === currentPlayer) {
-          const currentBase = prev[currentPlayer] ?? timeControl.initialTimeMs;
-          const displayTime = Math.max(0, currentBase - elapsed);
-
-          if (displayTime !== prev[currentPlayer]) {
-            return { ...prev, [currentPlayer]: displayTime };
-          }
-        }
-        return prev;
-      });
+      setTick((t) => t + 1);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [clockEnabled, gameState, playerTimes, timeControl.initialTimeMs]);
+  }, [clockEnabled, gameState?.gameStatus]);
+
+  // Compute display times on-the-fly (don't mutate playerTimes during turn)
+  const displayPlayerTimes = { ...playerTimes };
+  if (
+    clockEnabled &&
+    gameState &&
+    gameState.gameStatus === 'active' &&
+    turnStartTimeRef.current !== null
+  ) {
+    const currentPlayer = gameState.currentPlayer;
+    const baseTime =
+      turnBaseTimeRef.current ?? playerTimes[currentPlayer] ?? timeControl.initialTimeMs;
+    const elapsed = Date.now() - turnStartTimeRef.current;
+    displayPlayerTimes[currentPlayer] = Math.max(0, baseTime - elapsed);
+  }
 
   return {
     clockEnabled,
     setClockEnabled,
     timeControl,
     setTimeControl,
-    playerTimes,
+    playerTimes: displayPlayerTimes,
     resetPlayerTimes,
   };
 }
