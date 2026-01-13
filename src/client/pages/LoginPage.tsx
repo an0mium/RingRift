@@ -54,7 +54,14 @@ export default function LoginPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 space-y-4 sm:space-y-6">
         <header className="flex flex-col gap-2 sm:gap-3">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold mb-1">Login</h1>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold mb-1 flex items-center gap-2">
+            <img
+              src="/ringrift-icon.png"
+              alt="RingRift"
+              className="w-6 h-6 sm:w-8 sm:h-8 flex-shrink-0"
+            />
+            <span>RingRift – Login</span>
+          </h1>
           <p className="text-sm text-slate-400">
             Sign in to play backend games, use the lobby, and track your stats. You can also jump
             straight into a local sandbox game without an account.
