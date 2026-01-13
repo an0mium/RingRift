@@ -23,6 +23,11 @@ const app = express();
 const server = createServer(app);
 let metricsServer: ReturnType<typeof createServer> | null = null;
 
+// Trust proxy headers for accurate client IP detection behind nginx/Cloudflare.
+// This allows rate limiters and logging to use the real client IP from
+// X-Forwarded-For instead of always seeing 127.0.0.1 (the proxy IP).
+app.set('trust proxy', true);
+
 const metricsEnabled = config.metrics.enabled;
 const metricsExposeOnMain = config.metrics.exposeOnMain;
 const metricsUseSeparateServer = metricsEnabled && !metricsExposeOnMain;
