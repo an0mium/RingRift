@@ -531,6 +531,7 @@ class AutonomousQueuePopulationLoop(BaseLoop):
             "priority": 50,  # Medium priority
             "created_at": time.time(),
             "games_requested": 10,  # Small batch for quick iteration
+            "engine_mode": "mixed",  # Jan 12, 2026: Enable harness diversity
         }
 
     async def pop_local_work(self) -> dict[str, Any] | None:
