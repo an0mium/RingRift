@@ -383,6 +383,7 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
         state = initial_state
         moves = []
         move_objects = []
+        move_probs_list = []  # Jan 2026: Capture MCTS policy distributions for training
 
         max_moves = getattr(self.config, 'max_moves', 500)
 
@@ -393,6 +394,18 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
             move = self._get_move_for_opponent(opponent_type, state, current_player)
             if not move:
                 break
+
+            # Jan 2026: Capture MCTS visit distribution for policy training
+            # Only MCTS opponent provides visit distributions
+            move_probs = None
+            if opponent_type == "mcts" and self._mcts_ai:
+                try:
+                    moves_list, probs_list = self._mcts_ai.get_visit_distribution()
+                    if moves_list and probs_list:
+                        move_probs = {str(m): float(p) for m, p in zip(moves_list, probs_list)}
+                except (AttributeError, TypeError, ValueError):
+                    pass
+            move_probs_list.append(move_probs)
 
             state = self._engine.apply_move(state, move)
             moves.append({"player": current_player, "move": str(move)})
@@ -425,6 +438,7 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
             initial_state=initial_state,
             final_state=state,
             move_objects=move_objects,
+            move_probs=move_probs_list,  # Jan 2026: Include MCTS policy distributions
         )
 
     def _get_move_for_opponent(
