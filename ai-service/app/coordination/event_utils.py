@@ -249,59 +249,67 @@ def extract_board_type_and_players(event: dict[str, Any]) -> tuple[str, int]:
     return board_type or "", num_players or 0
 
 
-def extract_evaluation_data(event: dict[str, Any]) -> EvaluationEventData:
+def extract_evaluation_data(event: Any) -> EvaluationEventData:
     """Extract all relevant fields from an evaluation event.
 
     Handles EVALUATION_COMPLETED, ELO_UPDATED, and similar events.
+    Supports both RouterEvent objects and plain dict payloads.
 
     Args:
-        event: Event payload dictionary
+        event: Event object (RouterEvent with .payload) or payload dictionary
 
     Returns:
         EvaluationEventData with all extracted fields.
     """
-    config_key = extract_config_key(event)
-    board_type, num_players = extract_board_type_and_players(event)
-    model_path = extract_model_path(event)
+    # Jan 2026: Normalize payload to handle RouterEvent objects
+    payload = normalize_event_payload(event)
+
+    config_key = extract_config_key(payload)
+    board_type, num_players = extract_board_type_and_players(payload)
+    model_path = extract_model_path(payload)
 
     return EvaluationEventData(
         config_key=config_key,
         board_type=board_type,
         num_players=num_players,
         model_path=model_path,
-        elo=event.get("elo", 1000.0),
-        games_played=event.get("games_played", 0) or event.get("games", 0),
-        win_rate=event.get("win_rate", 0.0),
-        harness_results=event.get("harness_results"),
-        best_harness=event.get("best_harness"),
-        composite_participant_ids=event.get("composite_participant_ids"),
-        is_multi_harness=event.get("is_multi_harness", False),
+        elo=payload.get("elo", 1000.0),
+        games_played=payload.get("games_played", 0) or payload.get("games", 0),
+        win_rate=payload.get("win_rate", 0.0),
+        harness_results=payload.get("harness_results"),
+        best_harness=payload.get("best_harness"),
+        composite_participant_ids=payload.get("composite_participant_ids"),
+        is_multi_harness=payload.get("is_multi_harness", False),
     )
 
 
-def extract_training_data(event: dict[str, Any]) -> TrainingEventData:
+def extract_training_data(event: Any) -> TrainingEventData:
     """Extract all relevant fields from a training event.
 
     Handles TRAINING_COMPLETED and similar events.
+    Supports both RouterEvent objects and plain dict payloads.
 
     Args:
-        event: Event payload dictionary
+        event: Event object (RouterEvent with .payload) or payload dictionary
 
     Returns:
         TrainingEventData with all extracted fields.
     """
-    config_key = extract_config_key(event)
-    board_type, num_players = extract_board_type_and_players(event)
-    model_path = extract_model_path(event)
+    # Jan 2026: Normalize payload to handle RouterEvent objects
+    payload = normalize_event_payload(event)
+
+    config_key = extract_config_key(payload)
+    board_type, num_players = extract_board_type_and_players(payload)
+    model_path = extract_model_path(payload)
 
     return TrainingEventData(
         config_key=config_key,
         board_type=board_type,
         num_players=num_players,
         model_path=model_path,
-        epochs=event.get("epochs", 0),
-        final_loss=event.get("final_loss", 0.0) or event.get("loss", 0.0),
-        samples_trained=event.get("samples_trained", 0) or event.get("samples", 0),
+        epochs=payload.get("epochs", 0),
+        final_loss=payload.get("final_loss", 0.0) or payload.get("loss", 0.0),
+        samples_trained=payload.get("samples_trained", 0) or payload.get("samples", 0),
     )
 
 
