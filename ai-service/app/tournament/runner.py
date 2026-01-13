@@ -495,7 +495,8 @@ class TournamentRunner:
                 board_type = match.board_type.value
                 tournament_id = self.tournament_id or "default"
                 # January 2026: Extract harness_type from agent IDs for per-harness Elo
-                harness_type = extract_harness_type(result.agent_ids[0]) if result.agent_ids else None
+                # Default to gumbel_mcts for legacy model names without composite ID
+                harness_type = (extract_harness_type(result.agent_ids[0]) if result.agent_ids else None) or "gumbel_mcts"
                 if len(result.rankings) == 2:
                     self._elo_service.record_match(
                         result.agent_ids[0],

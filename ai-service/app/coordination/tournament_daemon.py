@@ -1361,13 +1361,16 @@ class TournamentDaemon(HandlerBase):
 
                             # Record match for Elo update
                             if winner is not None:
-                                winner_id = newer_path.stem if winner == newer_player else older_path.stem
-                                loser_id = older_path.stem if winner == newer_player else newer_path.stem
+                                # Jan 2026: Fixed incorrect parameter names (was winner_id/loser_id)
+                                winner_model_id = newer_path.stem if winner == newer_player else older_path.stem
+                                loser_model_id = older_path.stem if winner == newer_player else newer_path.stem
                                 # January 2026: Extract harness_type for per-harness Elo tracking
-                                harness_type = extract_harness_type(winner_id)
+                                # Default to gumbel_mcts for legacy model names without composite ID
+                                harness_type = extract_harness_type(winner_model_id) or "gumbel_mcts"
                                 elo_service.record_match(
-                                    winner_id=winner_id,
-                                    loser_id=loser_id,
+                                    participant_a=winner_model_id,
+                                    participant_b=loser_model_id,
+                                    winner=winner_model_id,
                                     board_type=board,
                                     num_players=num_players,
                                     harness_type=harness_type,
@@ -1466,7 +1469,8 @@ class TournamentDaemon(HandlerBase):
                 winner_id = model_id if winner == 0 else (opponent_id if winner == 1 else None)
 
                 # January 2026: Extract harness_type for per-harness Elo tracking
-                harness_type = extract_harness_type(model_id)
+                # Default to gumbel_mcts for legacy model names without composite ID
+                harness_type = extract_harness_type(model_id) or "gumbel_mcts"
                 elo_service.record_match(
                     participant_a=model_id,
                     participant_b=opponent_id,
@@ -1898,7 +1902,8 @@ class TournamentDaemon(HandlerBase):
                             participant_a = Path(model_a["model_path"]).stem
                             participant_b = Path(model_b["model_path"]).stem
                             # January 2026: Extract harness_type for per-harness Elo tracking
-                            harness_type = extract_harness_type(participant_a)
+                            # Default to gumbel_mcts for legacy model names without composite ID
+                            harness_type = extract_harness_type(participant_a) or "gumbel_mcts"
                             for _ in range(wins_a):
                                 elo_service.record_match(
                                     participant_a=participant_a,
@@ -2152,7 +2157,8 @@ class TournamentDaemon(HandlerBase):
 
                         # Record in Elo service
                         try:
-                            harness_type = extract_harness_type(model_a["participant_id"])
+                            # January 2026: Default to gumbel_mcts for legacy model names
+                            harness_type = extract_harness_type(model_a["participant_id"]) or "gumbel_mcts"
                             for _ in range(wins_a):
                                 elo_service.record_match(
                                     participant_a=model_a["participant_id"],

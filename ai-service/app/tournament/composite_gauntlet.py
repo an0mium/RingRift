@@ -510,7 +510,8 @@ class CompositeGauntlet:
                         winner = baseline_id
 
                     # January 2026: Extract harness_type from composite IDs for Elo tracking
-                    harness_type = extract_harness_type(participant_id)
+                    # Default to gumbel_mcts for legacy model names
+                    harness_type = extract_harness_type(participant_id) or "gumbel_mcts"
                     self.elo_service.record_match(
                         participant_a=participant_id,
                         participant_b=baseline_id,

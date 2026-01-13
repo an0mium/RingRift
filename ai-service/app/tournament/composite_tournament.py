@@ -213,7 +213,8 @@ class BaseTournament(ABC):
 
                 if result:
                     # Record match - January 2026: Extract harness_type for Elo tracking
-                    harness_type = extract_harness_type(result["participant_a"])
+                    # Default to gumbel_mcts for legacy model names
+                    harness_type = extract_harness_type(result["participant_a"]) or "gumbel_mcts"
                     self.elo_service.record_match(
                         participant_a=result["participant_a"],
                         participant_b=result["participant_b"],
@@ -503,7 +504,8 @@ class CombinedTournament(BaseTournament):
 
                     if result:
                         # January 2026: Extract harness_type for Elo tracking
-                        harness_type = extract_harness_type(result["participant_a"])
+                        # Default to gumbel_mcts for legacy model names
+                        harness_type = extract_harness_type(result["participant_a"]) or "gumbel_mcts"
                         self.elo_service.record_match(
                             participant_a=result["participant_a"],
                             participant_b=result["participant_b"],

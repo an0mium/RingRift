@@ -187,9 +187,10 @@ class EloServiceFacade:
         new_ratings: dict[str, float] = {}
 
         # January 2026: Try to extract harness_type from composite participant IDs if not provided
+        # Default to gumbel_mcts for legacy model names without composite ID
         effective_harness_type = harness_type
         if effective_harness_type is None and participant_ids:
-            effective_harness_type = extract_harness_type(participant_ids[0])
+            effective_harness_type = extract_harness_type(participant_ids[0]) or "gumbel_mcts"
 
         # For 2-player games, use direct record_match
         if len(participant_ids) == 2:
