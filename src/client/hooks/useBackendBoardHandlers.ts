@@ -494,12 +494,121 @@ export function useBackendBoardHandlers(
           }
         }
 
-        if (!hasStack) {
-          const placeMovesAtPos = validMoves.filter(
-            (m) => m.type === 'place_ring' && positionsEqual(m.to, pos)
+        // Click-to-accumulate ring placement:
+        // - First click on empty cell: enter pending state with count=1
+        // - Additional clicks on same cell: increment count (up to max)
+        // - Click on valid landing position: submit placement + movement chain
+        // - Click elsewhere: show error or start new pending at that position
+        // - Press Enter/Escape: confirm or cancel pending (handled in keyboard effect)
+
+        const placeMovesAtPos = validMoves.filter(
+          (m) => m.type === 'place_ring' && positionsEqual(m.to, pos)
+        );
+
+        // Case 1: Clicking on same position as pending placement - increment count
+        if (pendingRingPlacement && pendingRingPlacement.positionKey === posKey) {
+          const newCount =
+            pendingRingPlacement.currentCount >= pendingRingPlacement.maxCount
+              ? 1 // Wrap around to 1 at max
+              : pendingRingPlacement.currentCount + 1;
+          setPendingRingPlacement({
+            ...pendingRingPlacement,
+            currentCount: newCount,
+          });
+          // Update valid landing positions based on new stack height
+          const boardView = createMovementBoardView(board);
+          const landings = enumerateSimpleMoveTargetsFromStack(
+            board.type as BoardType,
+            pendingRingPlacement.position,
+            gameState.currentPlayer,
+            boardView,
+            newCount
           );
+          setValidTargets(landings.map((t) => t.to));
+          return;
+        }
+
+        // Case 2: There's a pending placement at different position - check if this click is a valid landing
+        if (pendingRingPlacement) {
+          // Compute valid landing positions for the pending placement position
+          const boardView = createMovementBoardView(board);
+          const pendingPlaceMove = pendingRingPlacement.placeMovesAtPos.find(
+            (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
+          );
+
+          if (pendingPlaceMove) {
+            // After placement, we'd need to move from pendingRingPlacement.position
+            // Check if clicked position is a valid landing
+            const validLandings = enumerateSimpleMoveTargetsFromStack(
+              board.type as BoardType,
+              pendingRingPlacement.position,
+              gameState.currentPlayer,
+              boardView,
+              pendingRingPlacement.currentCount // Stack height after placement
+            );
+            const isValidLanding = validLandings.some((t) => positionsEqual(t.to, pos));
+
+            if (isValidLanding) {
+              // Submit placement, store pending movement for after phase transition
+              pendingMovementRef.current = {
+                from: pendingRingPlacement.position,
+                to: pos,
+                timestamp: Date.now(),
+              };
+              submitMove({
+                type: 'place_ring',
+                to: pendingPlaceMove.to,
+                placementCount: pendingRingPlacement.currentCount,
+                placedOnStack: pendingPlaceMove.placedOnStack,
+              } as PartialMove);
+              setPendingRingPlacement(null);
+              setSelected(undefined);
+              setValidTargets([]);
+              return;
+            }
+          }
+
+          // Not a valid landing - check if we can start new placement here instead
+          if (!hasStack && placeMovesAtPos.length > 0) {
+            // Start new pending at this position, abandoning previous
+            const counts = placeMovesAtPos.map((m) => m.placementCount ?? 1);
+            const maxCount = Math.max(...counts);
+            setPendingRingPlacement({
+              position: pos,
+              positionKey: posKey,
+              currentCount: 1,
+              maxCount,
+              placeMovesAtPos,
+            });
+            setSelected(pos);
+            // Show valid landings for this new position
+            const newLandings = enumerateSimpleMoveTargetsFromStack(
+              board.type as BoardType,
+              pos,
+              gameState.currentPlayer,
+              boardView,
+              1 // Initial placement of 1 ring
+            );
+            setValidTargets(newLandings.map((t) => t.to));
+            return;
+          }
+
+          // Invalid click location - show error and keep pending
+          const reason = analyzeInvalid(gameState, pos, {
+            isPlayer,
+            isMyTurn,
+            isConnected: isConnectionActive,
+            selectedPosition: pendingRingPlacement.position,
+            validMoves: validMoves ?? undefined,
+            mustMoveFrom,
+          });
+          triggerInvalidMove(pos, reason);
+          return;
+        }
+
+        // Case 3: No pending - start new pending placement on empty cell
+        if (!hasStack) {
           if (placeMovesAtPos.length === 0) {
-            // Use enhanced invalid move feedback with shake animation and explanatory toast
             const reason = analyzeInvalid(gameState, pos, {
               isPlayer,
               isMyTurn,
@@ -512,18 +621,16 @@ export function useBackendBoardHandlers(
             return;
           }
 
-          // Calculate max placeable rings at this position
           const counts = placeMovesAtPos.map((m) => m.placementCount ?? 1);
           const maxCount = Math.max(...counts);
 
-          // If max is 1, submit immediately (no click-to-increment)
+          // If only 1 ring can be placed, submit immediately (no accumulation possible)
           if (maxCount <= 1) {
-            const chosen =
-              placeMovesAtPos.find((m) => (m.placementCount ?? 1) === 1) || placeMovesAtPos[0];
+            const chosen = placeMovesAtPos[0];
             submitMove({
               type: 'place_ring',
               to: chosen.to,
-              placementCount: chosen.placementCount,
+              placementCount: 1,
               placedOnStack: chosen.placedOnStack,
             } as PartialMove);
             setSelected(undefined);
@@ -531,62 +638,51 @@ export function useBackendBoardHandlers(
             return;
           }
 
-          // Click-to-increment logic for multi-ring placement
-          if (pendingRingPlacement && pendingRingPlacement.positionKey === posKey) {
-            // Same cell: increment count (wrap to 1 at max)
-            const newCount =
-              pendingRingPlacement.currentCount >= pendingRingPlacement.maxCount
-                ? 1
-                : pendingRingPlacement.currentCount + 1;
-            setPendingRingPlacement({
-              ...pendingRingPlacement,
-              currentCount: newCount,
-            });
-          } else {
-            // Different cell or no pending: if we have pending, submit it first
-            if (pendingRingPlacement) {
-              const chosen = pendingRingPlacement.placeMovesAtPos.find(
-                (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
-              );
-              if (chosen) {
-                submitMove({
-                  type: 'place_ring',
-                  to: chosen.to,
-                  placementCount: chosen.placementCount,
-                  placedOnStack: chosen.placedOnStack,
-                } as PartialMove);
-              }
-            }
-            // Create new pending for the clicked cell
-            setPendingRingPlacement({
-              position: pos,
-              positionKey: posKey,
-              currentCount: 1,
-              maxCount,
-              placeMovesAtPos,
-            });
-            setSelected(pos);
-          }
+          // Start pending state for click-to-accumulate
+          setPendingRingPlacement({
+            position: pos,
+            positionKey: posKey,
+            currentCount: 1,
+            maxCount,
+            placeMovesAtPos,
+          });
+          setSelected(pos);
+          // Show valid landings from this position (with 1 ring initially)
+          const boardView = createMovementBoardView(board);
+          const landings = enumerateSimpleMoveTargetsFromStack(
+            board.type as BoardType,
+            pos,
+            gameState.currentPlayer,
+            boardView,
+            1
+          );
+          setValidTargets(landings.map((t) => t.to));
           return;
         }
 
-        // Clicking stacks in placement phase: submit pending if exists, then select stack
-        if (pendingRingPlacement) {
-          const chosen = pendingRingPlacement.placeMovesAtPos.find(
-            (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
-          );
-          if (chosen) {
-            submitMove({
-              type: 'place_ring',
-              to: chosen.to,
-              placementCount: chosen.placementCount,
-              placedOnStack: chosen.placedOnStack,
-            } as PartialMove);
-          }
+        // Case 4: Clicking on existing stack - place 1 ring immediately (stacks max at 1 per placement)
+        const stackPlaceMoves = validMoves.filter(
+          (m) => m.type === 'place_ring' && positionsEqual(m.to, pos)
+        );
+        if (stackPlaceMoves.length > 0) {
+          const chosen =
+            stackPlaceMoves.find((m) => (m.placementCount ?? 1) === 1) || stackPlaceMoves[0];
+          submitMove({
+            type: 'place_ring',
+            to: chosen.to,
+            placementCount: chosen.placementCount,
+            placedOnStack: chosen.placedOnStack,
+          } as PartialMove);
+          setSelected(undefined);
+          setValidTargets([]);
           setPendingRingPlacement(null);
+          return;
         }
+
+        // No placement moves on this stack - just select it (for skip_placement + move)
         setSelected(pos);
         setValidTargets([]);
+        setPendingRingPlacement(null);
         return;
       }
 
@@ -838,10 +934,11 @@ export function useBackendBoardHandlers(
       pendingChoice,
       onRespondToChoice,
       pendingRingPlacement,
+      setPendingRingPlacement,
     ]
   );
 
-  // Handle double-click: confirm pending placement if exists, otherwise 2-ring placement
+  // Handle double-click: place 2 rings on empty cells, 1 ring on stacks
   const handleCellDoubleClick = useCallback(
     (pos: Position, board: BoardState) => {
       if (!gameState) return;
@@ -855,25 +952,7 @@ export function useBackendBoardHandlers(
         return;
       }
 
-      // If there's a pending ring placement, confirm it on double-click
-      if (pendingRingPlacement) {
-        const chosen = pendingRingPlacement.placeMovesAtPos.find(
-          (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
-        );
-        if (chosen) {
-          submitMove({
-            type: 'place_ring',
-            to: chosen.to,
-            placementCount: chosen.placementCount,
-            placedOnStack: chosen.placedOnStack,
-          } as PartialMove);
-        }
-        setPendingRingPlacement(null);
-        setSelected(undefined);
-        setValidTargets([]);
-        return;
-      }
-
+      // Double-click: place 2 rings on empty cell, or 1 ring on stack
       if (!Array.isArray(validMoves) || validMoves.length === 0) {
         return;
       }
@@ -912,16 +991,7 @@ export function useBackendBoardHandlers(
       setSelected(undefined);
       setValidTargets([]);
     },
-    [
-      gameState,
-      validMoves,
-      isPlayer,
-      isConnectionActive,
-      submitMove,
-      setSelected,
-      setValidTargets,
-      pendingRingPlacement,
-    ]
+    [gameState, validMoves, isPlayer, isConnectionActive, submitMove, setSelected, setValidTargets]
   );
 
   // Handle context-menu for ring placement count selection

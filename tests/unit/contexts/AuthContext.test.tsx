@@ -204,7 +204,8 @@ describe('AuthContext', () => {
         expect(screen.getByTestId('user')).toHaveTextContent('testuser');
       });
 
-      expect(mockAuthApi.login).toHaveBeenCalledWith('test@example.com', 'password123');
+      // login() now accepts optional rememberMe parameter (passed as undefined here)
+      expect(mockAuthApi.login).toHaveBeenCalledWith('test@example.com', 'password123', undefined);
       expect(localStorageMock['token']).toBe(mockToken);
     });
 

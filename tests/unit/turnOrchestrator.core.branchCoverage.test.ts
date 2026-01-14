@@ -1287,7 +1287,9 @@ describe('TurnOrchestrator core branch coverage', () => {
 
       const moves = getValidMoves(state);
 
-      expect(moves.length).toBe(0);
+      // Player with no stacks gets no_movement_action to skip their turn
+      expect(moves.length).toBe(1);
+      expect(moves[0].type).toBe('no_movement_action');
     });
 
     it('handles completed game state', () => {

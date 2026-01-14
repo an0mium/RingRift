@@ -202,6 +202,7 @@ describe('Late-Join Spectator Tests (LF3)', () => {
       getValidMoves: jest.fn(() => []),
       getInteractionHandler: jest.fn(() => interactionHandler),
       handleAbandonmentForDisconnectedPlayer: jest.fn(),
+      maybePerformAITurn: jest.fn(),
     };
 
     mockGetOrCreateSession.mockResolvedValue(mockSession);

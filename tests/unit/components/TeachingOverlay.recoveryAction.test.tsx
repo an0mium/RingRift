@@ -102,8 +102,9 @@ describe('TeachingOverlay - Recovery Action Topic', () => {
     );
 
     // GAP-RECOV-03: Temporary vs permanent elimination
-    expect(screen.getByText(/TEMPORARILY ELIMINATED/i)).toBeInTheDocument();
-    expect(screen.getByText(/PERMANENTLY ELIMINATED/i)).toBeInTheDocument();
+    // Multiple elements may contain these patterns so use getAllByText
+    expect(screen.getAllByText(/TEMPORARILY ELIMINATED/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/PERMANENTLY ELIMINATED/i).length).toBeGreaterThan(0);
   });
 
   it('displays recovery vs LPS guidance (GAP-RECOV-04)', () => {
@@ -125,13 +126,14 @@ describe('TeachingOverlay - Recovery Action Topic', () => {
     expect(screen.getByText(/preserving your buried rings/i)).toBeInTheDocument();
   });
 
-  it('displays rules reference', () => {
+  it('displays recovery action description and tips', () => {
     render(
       <TeachingOverlay topic="recovery_action" isOpen={true} onClose={onClose} position="center" />
     );
 
-    expect(screen.getByText(/ringrift_complete_rules §4.5/)).toBeInTheDocument();
-    expect(screen.getByText(/R110–R115/)).toBeInTheDocument();
+    // Verify main description and key tips are rendered (content based on RR-CANON-R110–R115)
+    expect(screen.getByText(/sliding markers to form lines/i)).toBeInTheDocument();
+    expect(screen.getByText(/Recovery gives temporarily eliminated/i)).toBeInTheDocument();
   });
 
   it('closes on close button click', () => {

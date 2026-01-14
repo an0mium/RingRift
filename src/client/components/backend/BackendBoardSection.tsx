@@ -27,7 +27,7 @@ export interface BackendBoardSectionProps {
   /** Position key of cell currently shaking (invalid move feedback) */
   shakingCellKey: string | null;
   /** Pending ring placement for click-to-increment UI */
-  pendingRingPlacement?: { positionKey: string; count: number } | null;
+  pendingRingPlacement?: { positionKey: string; count: number; playerNumber: number } | null;
   /** Whether to show movement grid overlay */
   showMovementGrid?: boolean;
   /** Whether to show coordinate labels (A-H, 1-8 for square boards) */
@@ -128,7 +128,7 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
         <div className="p-2 sm:p-2.5 rounded-xl border border-slate-700 bg-slate-900/70 shadow-lg overflow-x-auto">
           <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
             <h1 className="text-sm sm:text-base font-bold text-white">
-              <span className="text-[10px] sm:text-xs text-slate-400 font-medium">Game</span>
+              <span className="text-[8px] sm:text-[9px] text-slate-400 font-medium">Game</span>
               <span className="mx-1.5 text-slate-600">–</span>
               {boardDisplayLabel}
             </h1>
@@ -149,31 +149,33 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
           </div>
         </div>
 
-        {/* Board view */}
-        <BoardView
-          boardType={boardType}
-          board={board}
-          viewModel={viewModel}
-          selectedPosition={selectedPosition}
-          validTargets={validTargets}
-          onCellClick={onCellClick}
-          onCellDoubleClick={onCellDoubleClick}
-          onCellContextMenu={onCellContextMenu}
-          isSpectator={isSpectator}
-          pendingAnimation={pendingAnimation}
-          onAnimationComplete={onAnimationComplete}
-          chainCapturePath={chainCapturePath}
-          shakingCellKey={shakingCellKey}
-          pendingRingPlacement={pendingRingPlacement}
-          showMovementGrid={showMovementGrid}
-          showCoordinateLabels={showCoordinateLabels}
-          squareRankFromBottom={squareRankFromBottom}
-          showLineOverlays={showLineOverlays}
-          showTerritoryRegionOverlays={showTerritoryRegionOverlays}
-          decisionHighlights={decisionHighlights}
-          onShowKeyboardHelp={onShowBoardControls}
-          scaleAdjustment={boardType === 'square8' ? 0.8 : 1.0}
-        />
+        {/* Board view - extra vertical padding for sq8 boards */}
+        <div style={boardType === 'square8' ? { paddingTop: 10, paddingBottom: 10 } : undefined}>
+          <BoardView
+            boardType={boardType}
+            board={board}
+            viewModel={viewModel}
+            selectedPosition={selectedPosition}
+            validTargets={validTargets}
+            onCellClick={onCellClick}
+            onCellDoubleClick={onCellDoubleClick}
+            onCellContextMenu={onCellContextMenu}
+            isSpectator={isSpectator}
+            pendingAnimation={pendingAnimation}
+            onAnimationComplete={onAnimationComplete}
+            chainCapturePath={chainCapturePath}
+            shakingCellKey={shakingCellKey}
+            pendingRingPlacement={pendingRingPlacement}
+            showMovementGrid={showMovementGrid}
+            showCoordinateLabels={showCoordinateLabels}
+            squareRankFromBottom={squareRankFromBottom}
+            showLineOverlays={showLineOverlays}
+            showTerritoryRegionOverlays={showTerritoryRegionOverlays}
+            decisionHighlights={decisionHighlights}
+            onShowKeyboardHelp={onShowBoardControls}
+            scaleAdjustment={boardType === 'square8' ? 0.8 : 1.0}
+          />
+        </div>
 
         {/* Board info panel with status chips and player chips */}
         <section className="p-3 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg flex flex-col gap-2 text-xs text-slate-200 overflow-x-auto">

@@ -175,6 +175,7 @@ describe('Spectator Flow Tests', () => {
       getValidMoves: jest.fn(() => []),
       getInteractionHandler: jest.fn(() => interactionHandler),
       handleAbandonmentForDisconnectedPlayer: jest.fn(),
+      maybePerformAITurn: jest.fn(),
     };
 
     mockGetOrCreateSession.mockResolvedValue(mockSession);
@@ -270,7 +271,11 @@ describe('Spectator Flow Tests', () => {
       expect(payload).toBeDefined();
       expect(payload.type).toBe('game_update');
       expect(payload.data.gameId).toBe(gameId);
-      expect(payload.data.gameState).toEqual(gameState);
+      // Game state is serialized (Maps converted to objects), check key properties
+      expect(payload.data.gameState.id).toBe(gameState.id);
+      expect(payload.data.gameState.gameStatus).toBe(gameState.gameStatus);
+      expect(payload.data.gameState.currentPhase).toBe(gameState.currentPhase);
+      expect(payload.data.gameState.currentPlayer).toBe(gameState.currentPlayer);
       expect(payload.data.validMoves).toEqual([]);
     });
 

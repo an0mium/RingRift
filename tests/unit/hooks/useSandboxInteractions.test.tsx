@@ -446,8 +446,10 @@ describe('useSandboxInteractions', () => {
           screen.getByTestId('click-0-0').click();
         });
 
-        // Should have triggered AI turn
-        expect(mockEngine.maybeRunAITurn).toHaveBeenCalled();
+        // Should have triggered AI turn (async, so wait for it)
+        await waitFor(() => {
+          expect(mockEngine.maybeRunAITurn).toHaveBeenCalled();
+        });
       });
     });
 
@@ -989,10 +991,12 @@ describe('useSandboxInteractions', () => {
 
       await act(async () => {
         screen.getByTestId('run-ai').click();
-        await Promise.resolve();
       });
 
-      expect(mockEngine.maybeRunAITurn).toHaveBeenCalled();
+      // AI turn is async, so wait for it to be called
+      await waitFor(() => {
+        expect(mockEngine.maybeRunAITurn).toHaveBeenCalled();
+      });
     });
 
     it('should not run AI when current player is human', async () => {

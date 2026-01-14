@@ -86,11 +86,11 @@ function renderGameHeader(gameState: GameState) {
 
   return (
     <>
-      <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold flex items-center gap-2">
-        <img src="/ringrift-icon.png" alt="RingRift" className="w-6 h-6 sm:w-8 sm:h-8" />
+      <h1 className="text-base sm:text-lg lg:text-xl font-bold flex items-center gap-1.5">
+        <img src="/ringrift-icon.png" alt="RingRift" className="w-5 h-5 sm:w-6 sm:h-6" />
         Game
       </h1>
-      <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">
+      <p className="text-[10px] sm:text-xs text-gray-500 hidden sm:block">
         Board: {gameState.boardType} • {playerSummary}
       </p>
       <p className="text-xs text-gray-500 sm:hidden">
@@ -610,6 +610,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   // We handle most keyboard shortcuts via useGlobalGameShortcuts. Keep a
   // narrow Escape handler here so the overlay closes even if it is mocked
   // in tests or rendered outside the focus trap.
+  // NOTE: Ring placement keyboard shortcuts (Enter/Escape) are handled in a separate
+  // useEffect below after boardHandlers destructuring to avoid temporal dead zone issues.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
@@ -624,19 +626,6 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         }
       }
 
-      // Pending ring placement keyboard shortcuts (Enter to confirm, Escape to cancel)
-      if (pendingRingPlacement) {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          confirmPendingRingPlacement();
-          return;
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          clearPendingRingPlacement();
-          return;
-        }
-      }
-
       if (event.key === 'Escape' && showBoardControls) {
         event.preventDefault();
         setShowBoardControls(false);
@@ -647,12 +636,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [
-    showBoardControls,
-    pendingRingPlacement,
-    confirmPendingRingPlacement,
-    clearPendingRingPlacement,
-  ]);
+  }, [showBoardControls]);
 
   // ================== Memoized values (must be before early returns) ==================
   // Game end explanation - builds explanation from victory state
@@ -828,6 +812,39 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     confirmPendingRingPlacement,
     clearPendingRingPlacement,
   } = boardHandlers;
+
+  // Ring placement keyboard shortcuts (Enter to confirm, Escape to cancel)
+  // This effect is placed after boardHandlers destructuring to avoid temporal dead zone issues.
+  useEffect(() => {
+    if (!pendingRingPlacement) return;
+
+    const handleRingPlacementKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName;
+        const isEditableTag = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+        const isContentEditable = (target as HTMLElement).isContentEditable;
+        if (isEditableTag || isContentEditable) {
+          return;
+        }
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        confirmPendingRingPlacement();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        clearPendingRingPlacement();
+      }
+    };
+
+    window.addEventListener('keydown', handleRingPlacementKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleRingPlacementKeyDown);
+    };
+  }, [pendingRingPlacement, confirmPendingRingPlacement, clearPendingRingPlacement]);
 
   // Auto-advance through no-action phases (matching sandbox behavior)
   useAutoAdvancePhases(gameState, validMoves, isMyTurn, submitMove);
@@ -1149,7 +1166,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="container mx-auto px-2 sm:px-4 py-1 sm:py-2 space-y-1">
+      <div className="container mx-auto px-2 sm:px-4 pt-0.5 pb-1 sm:pt-1 sm:pb-2 space-y-0.5">
         {/* Screen reader live region for game announcements */}
         <ScreenReaderAnnouncer
           queue={announcementQueue}
@@ -1231,7 +1248,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           </StatusBanner>
         )}
 
-        <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             {renderGameHeader(gameState)}
             {!isPlayer && (
@@ -1297,6 +1314,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
                 ? {
                     positionKey: pendingRingPlacement.positionKey,
                     count: pendingRingPlacement.currentCount,
+                    playerNumber: gameState.currentPlayer,
                   }
                 : null
             }

@@ -220,6 +220,7 @@ describe('GameSession Reconnect Flow Tests', () => {
       getValidMoves: jest.fn(() => []),
       getInteractionHandler: jest.fn(() => interactionHandler),
       handleAbandonmentForDisconnectedPlayer: jest.fn(),
+      maybePerformAITurn: jest.fn(),
     };
 
     mockGetOrCreateSession.mockResolvedValue(mockSession);
@@ -591,6 +592,16 @@ describe('WebSocketServer Reconnection Lifecycle', () => {
       currentPlayer: 1,
       gameStatus: 'active',
       isRated: true,
+      board: {
+        type: 'square8',
+        size: 8,
+        stacks: new Map(),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        eliminatedRings: { 1: 0, 2: 0 },
+        formedLines: [],
+      },
     };
 
     mockSession = {
@@ -598,6 +609,7 @@ describe('WebSocketServer Reconnection Lifecycle', () => {
       getValidMoves: jest.fn(() => []),
       getInteractionHandler: jest.fn(() => interactionHandler),
       handleAbandonmentForDisconnectedPlayer: jest.fn(),
+      maybePerformAITurn: jest.fn(),
     };
 
     mockGetOrCreateSession.mockResolvedValue(mockSession);
