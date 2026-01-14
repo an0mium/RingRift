@@ -180,7 +180,10 @@ class TestVultrProviderCLI:
         mock_result.stderr = ""
         mock_result.returncode = 0
 
-        with patch("subprocess.run", return_value=mock_result):
+        with patch(
+            "app.coordination.providers.vultr_provider.async_subprocess_run",
+            return_value=mock_result,
+        ):
             stdout, stderr, rc = await vultr_provider._run_cli("instance", "list")
 
             assert stdout == '{"status": "ok"}'
@@ -195,10 +198,14 @@ class TestVultrProviderCLI:
         mock_result.stderr = ""
         mock_result.returncode = 0
 
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with patch(
+            "app.coordination.providers.vultr_provider.async_subprocess_run",
+            return_value=mock_result,
+        ) as mock_run:
             await vultr_provider._run_cli("instance", "list")
 
-            call_args = mock_run.call_args[0][0]
+            # Check that the command includes --output json
+            call_args = mock_run.call_args[0][0]  # First positional arg is the command list
             assert "--output" in call_args
             assert "json" in call_args
 
@@ -210,7 +217,10 @@ class TestVultrProviderCLI:
         mock_result.stderr = "Error: API key invalid"
         mock_result.returncode = 1
 
-        with patch("subprocess.run", return_value=mock_result):
+        with patch(
+            "app.coordination.providers.vultr_provider.async_subprocess_run",
+            return_value=mock_result,
+        ):
             stdout, stderr, rc = await vultr_provider._run_cli("instance", "list")
 
             assert rc == 1
