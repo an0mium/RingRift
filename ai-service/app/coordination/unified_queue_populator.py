@@ -1331,15 +1331,15 @@ class UnifiedQueuePopulator:
     _ENGINE_MODES_2P = [
         ("gumbel", True, None),       # High-quality MCTS with NN
         ("heuristic-only", False, None),  # Fast bootstrap
-        ("minimax", True, 2),         # Alpha-beta (2p only)
+        # ("minimax", True, 2),       # DISABLED Jan 14 2026: Requires NNUE models (supports_nn=False)
         ("policy-only", True, None),  # Policy network only
         ("descent", True, None),      # Gradient descent search
     ]
     _ENGINE_MODES_MP = [
         ("gumbel", True, None),       # High-quality MCTS with NN
         ("heuristic-only", False, None),  # Fast bootstrap
-        ("maxn", True, (3, 4)),       # Max-N for multiplayer
-        ("brs", True, (3, 4)),        # Best-Reply Search
+        # ("maxn", True, (3, 4)),     # DISABLED Jan 14 2026: Requires NNUE models (supports_nn=False)
+        # ("brs", True, (3, 4)),      # DISABLED Jan 14 2026: Requires NNUE models (supports_nn=False)
         ("policy-only", True, None),  # Policy network only
     ]
     _engine_mode_counter = 0
@@ -1377,9 +1377,12 @@ class UnifiedQueuePopulator:
 
         # Select engine mode with diversity rotation
         # Jan 1, 2026: Rotate through multiple engine modes instead of always using one
+        # Jan 14, 2026: Allow gumbel for large boards with reduced simulations when model exists
         if board_type in LARGE_BOARDS:
-            # Large boards: heuristic-only (gumbel too slow without GPU tree)
-            engine_mode = "heuristic-only"
+            if best_model:
+                engine_mode = "gumbel"  # Use reduced simulations (set below)
+            else:
+                engine_mode = "heuristic-only"
         else:
             # Select engine mode based on player count and rotation counter
             modes = self._ENGINE_MODES_2P if num_players == 2 else self._ENGINE_MODES_MP
@@ -1425,6 +1428,10 @@ class UnifiedQueuePopulator:
             "engine_mode": engine_mode,
             "requires_gpu": requires_gpu,
         }
+
+        # Jan 14, 2026: Reduce simulations for large boards to make gumbel feasible
+        if board_type in LARGE_BOARDS and engine_mode == "gumbel":
+            config["gumbel_simulations"] = 64  # Reduced from default 800
 
         if best_model and model_elo >= 1600:
             config["model_id"] = best_model
