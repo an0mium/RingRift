@@ -118,8 +118,6 @@ export interface BackendGameHostProps {
 export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeGameId }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  // Extract stable dependency (avoids React error #310)
-  const userId = user?.id;
   const {
     pendingRematchRequest,
     requestRematch,
@@ -753,7 +751,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   // Rematch status - derives status from pending request or last status
   const rematchStatus: RematchStatus | undefined = useMemo(() => {
     if (pendingRematchRequest) {
-      const isRequester = userId === pendingRematchRequest.requesterId;
+      const isRequester = user?.id === pendingRematchRequest.requesterId;
       return {
         isPending: true,
         requestId: pendingRematchRequest.id,
@@ -772,7 +770,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     }
 
     return undefined;
-  }, [pendingRematchRequest, rematchLastStatus, userId]);
+  }, [pendingRematchRequest, rematchLastStatus, user?.id]);
 
   // ================== Extracted Hook: Board Handlers ==================
   const boardHandlers = useBackendBoardHandlers({

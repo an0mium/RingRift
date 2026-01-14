@@ -108,12 +108,6 @@ export function useGameSoundEffects({
   const prevMoveHistoryLengthRef = useRef<number>(0);
   const gameEndSoundPlayedRef = useRef<boolean>(false);
 
-  // Extract stable dependencies (avoids React error #310)
-  const currentPhase = gameState?.currentPhase;
-  const currentPlayer = gameState?.currentPlayer;
-  const gameStatus = gameState?.gameStatus;
-  const moveHistoryLength = gameState?.moveHistory?.length ?? 0;
-
   // Phase change sounds
   useEffect(() => {
     if (!gameState) {
@@ -121,6 +115,7 @@ export function useGameSoundEffects({
       return;
     }
 
+    const currentPhase = gameState.currentPhase;
     const prevPhase = prevPhaseRef.current;
 
     // Only play sound if phase actually changed (not initial load)
@@ -128,8 +123,8 @@ export function useGameSoundEffects({
       playPhaseChangeSound();
     }
 
-    prevPhaseRef.current = currentPhase ?? null;
-  }, [currentPhase, gameState, playPhaseChangeSound]);
+    prevPhaseRef.current = currentPhase;
+  }, [gameState?.currentPhase, playPhaseChangeSound]);
 
   // Turn start sounds (when it becomes your turn)
   useEffect(() => {
@@ -138,6 +133,7 @@ export function useGameSoundEffects({
       return;
     }
 
+    const currentPlayer = gameState.currentPlayer;
     const prevPlayer = prevCurrentPlayerRef.current;
 
     // Only play sound if:
@@ -148,13 +144,13 @@ export function useGameSoundEffects({
       prevPlayer !== null &&
       currentPlayer !== prevPlayer &&
       currentPlayer === myPlayerNumber &&
-      gameStatus === 'active'
+      gameState.gameStatus === 'active'
     ) {
       playTurnStartSound();
     }
 
-    prevCurrentPlayerRef.current = currentPlayer ?? null;
-  }, [currentPlayer, gameStatus, gameState, myPlayerNumber, playTurnStartSound]);
+    prevCurrentPlayerRef.current = currentPlayer;
+  }, [gameState?.currentPlayer, gameState?.gameStatus, myPlayerNumber, playTurnStartSound]);
 
   // Move sounds (when new moves are added to history)
   useEffect(() => {
@@ -163,7 +159,7 @@ export function useGameSoundEffects({
       return;
     }
 
-    const currentLength = moveHistoryLength;
+    const currentLength = gameState.moveHistory.length;
     const prevLength = prevMoveHistoryLengthRef.current;
 
     // Play sound for each new move
@@ -183,7 +179,7 @@ export function useGameSoundEffects({
     }
 
     prevMoveHistoryLengthRef.current = currentLength;
-  }, [moveHistoryLength, gameState, playMoveSound]);
+  }, [gameState?.moveHistory?.length, playMoveSound]);
 
   // Game end sounds
   useEffect(() => {

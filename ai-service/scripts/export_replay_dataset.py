@@ -788,10 +788,13 @@ def export_replay_dataset_multi(
             else:
                 # Warn and continue - orphan games will be filtered by require_moves
                 print(f"{orphan_msg} (continuing due to --no-strict)")
-        elif not validation_result.has_game_moves_table:
-            # Database is metadata-only, skip entirely
-            print(f"    SKIPPED (metadata-only database, no game_moves table)")
+        elif not validation_result.has_any_move_data:
+            # Database has no move data in any format, skip entirely
+            print(f"    SKIPPED (metadata-only database, no move data)")
             continue
+        elif validation_result.has_inline_moves and not validation_result.has_game_moves_table:
+            # Database has inline moves only - will use fallback parsing
+            print(f"    Using inline moves: {validation_result.inline_moves_count} games with games.moves data")
 
         db_games = 0
         db_samples = 0
@@ -2226,10 +2229,13 @@ def main(argv: list[str] | None = None) -> int:
         for db_path in db_paths:
             try:
                 result = MoveDataValidator.validate_database(db_path)
-                if not result.has_game_moves_table:
+                if not result.has_any_move_data:
                     strict_failures.append(
-                        f"  {os.path.basename(db_path)}: No game_moves table (metadata-only database)"
+                        f"  {os.path.basename(db_path)}: No move data (metadata-only database)"
                     )
+                elif result.has_inline_moves and not result.has_game_moves_table:
+                    # Inline moves only - not a failure, just informational
+                    print(f"  INFO: {os.path.basename(db_path)} ({result.inline_moves_count} games with inline moves)")
                 elif result.invalid_count > 0:
                     strict_failures.append(
                         f"  {os.path.basename(db_path)}: {result.invalid_count}/{result.total_games} games "

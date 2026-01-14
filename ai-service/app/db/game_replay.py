@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from app.models import BoardType, GameState, Move
 
 if TYPE_CHECKING:
@@ -2058,6 +2060,9 @@ class GameReplayDB:
     ) -> list[Move]:
         """Get moves in a range.
 
+        Tries the normalized `game_moves` table first, then falls back to
+        the inline `games.moves` JSON column for legacy databases.
+
         Args:
             game_id: Game identifier
             start: Start move number (inclusive)
@@ -2067,6 +2072,7 @@ class GameReplayDB:
             List of Move objects
         """
         with self._get_conn() as conn:
+            # Try normalized game_moves table first
             if end is None:
                 rows = conn.execute(
                     """
@@ -2086,7 +2092,69 @@ class GameReplayDB:
                     (game_id, start, end),
                 ).fetchall()
 
-            return [_deserialize_move(row["move_json"]) for row in rows]
+            if rows:
+                return [_deserialize_move(row["move_json"]) for row in rows]
+
+            # Fallback: read from inline games.moves JSON column
+            return self._get_moves_from_inline_json(conn, game_id, start, end)
+
+    def _get_moves_from_inline_json(
+        self,
+        conn: sqlite3.Connection,
+        game_id: str,
+        start: int = 0,
+        end: int | None = None,
+    ) -> list[Move]:
+        """Fallback: get moves from inline JSON in games.moves column.
+
+        Some databases store moves as a JSON array in the games.moves column
+        instead of the normalized game_moves table. This method handles that case.
+
+        Args:
+            conn: Database connection
+            game_id: Game identifier
+            start: Start move number (inclusive)
+            end: End move number (exclusive), or None for all
+
+        Returns:
+            List of Move objects
+        """
+        row = conn.execute(
+            "SELECT moves FROM games WHERE game_id = ?",
+            (game_id,),
+        ).fetchone()
+
+        if not row or not row["moves"]:
+            return []
+
+        try:
+            moves_data = json.loads(row["moves"])
+            if not isinstance(moves_data, list):
+                return []
+
+            # Apply range filter
+            if end is None:
+                moves_data = moves_data[start:]
+            else:
+                moves_data = moves_data[start:end]
+
+            # Convert each move dict to Move object
+            result = []
+            for move_dict in moves_data:
+                if isinstance(move_dict, str):
+                    # Already JSON string
+                    result.append(_deserialize_move(move_dict))
+                elif isinstance(move_dict, dict):
+                    # Dict - validate directly
+                    result.append(Move.model_validate(move_dict))
+                else:
+                    logger.warning(f"Unknown move format in game {game_id}: {type(move_dict)}")
+
+            return result
+
+        except (json.JSONDecodeError, ValidationError) as e:
+            logger.warning(f"Failed to parse inline moves for game {game_id}: {e}")
+            return []
 
     def get_initial_states_batch(
         self,
@@ -2166,6 +2234,9 @@ class GameReplayDB:
         This is more efficient than calling get_moves() for each game
         when processing many games (avoids N+1 query pattern).
 
+        Tries the normalized `game_moves` table first, then falls back to
+        the inline `games.moves` JSON column for games without normalized data.
+
         Args:
             game_ids: List of game identifiers
 
@@ -2178,6 +2249,7 @@ class GameReplayDB:
         results: dict[str, list[Move]] = {gid: [] for gid in game_ids}
 
         with self._get_conn() as conn:
+            # Try normalized game_moves table first
             placeholders = ",".join("?" * len(game_ids))
             rows = conn.execute(
                 f"""
@@ -2193,7 +2265,57 @@ class GameReplayDB:
                 move = _deserialize_move(row["move_json"])
                 results[row["game_id"]].append(move)
 
+            # Find games without moves from game_moves table
+            games_without_moves = [gid for gid in game_ids if not results[gid]]
+
+            if games_without_moves:
+                # Fallback: read from inline games.moves JSON column
+                self._get_moves_batch_from_inline_json(conn, games_without_moves, results)
+
         return results
+
+    def _get_moves_batch_from_inline_json(
+        self,
+        conn: sqlite3.Connection,
+        game_ids: list[str],
+        results: dict[str, list[Move]],
+    ) -> None:
+        """Fallback: get moves from inline JSON for multiple games.
+
+        Updates results dict in-place with moves parsed from games.moves column.
+
+        Args:
+            conn: Database connection
+            game_ids: List of game identifiers to fetch
+            results: Dict to update with parsed moves
+        """
+        placeholders = ",".join("?" * len(game_ids))
+        rows = conn.execute(
+            f"""
+            SELECT game_id, moves
+            FROM games
+            WHERE game_id IN ({placeholders})
+              AND moves IS NOT NULL
+              AND LENGTH(moves) > 10
+            """,
+            game_ids,
+        ).fetchall()
+
+        for row in rows:
+            game_id = row["game_id"]
+            try:
+                moves_data = json.loads(row["moves"])
+                if not isinstance(moves_data, list):
+                    continue
+
+                for move_dict in moves_data:
+                    if isinstance(move_dict, str):
+                        results[game_id].append(_deserialize_move(move_dict))
+                    elif isinstance(move_dict, dict):
+                        results[game_id].append(Move.model_validate(move_dict))
+
+            except (json.JSONDecodeError, ValidationError) as e:
+                logger.debug(f"Failed to parse inline moves for game {game_id}: {e}")
 
     def get_move_probs_batch(
         self,

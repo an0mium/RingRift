@@ -90,12 +90,19 @@ class DatabaseValidationResult:
     invalid_count: int
     total_games: int
     has_game_moves_table: bool
+    has_inline_moves: bool = False  # True if games.moves column has data
+    inline_moves_count: int = 0  # Number of games with inline move data
     errors: list[str] = field(default_factory=list)
 
     @property
     def is_valid(self) -> bool:
         """Database is valid if all games have sufficient moves."""
-        return self.invalid_count == 0 and self.has_game_moves_table
+        return self.invalid_count == 0 and (self.has_game_moves_table or self.has_inline_moves)
+
+    @property
+    def has_any_move_data(self) -> bool:
+        """True if database has move data in any format."""
+        return self.has_game_moves_table or self.has_inline_moves
 
     @property
     def validation_rate(self) -> float:
@@ -210,18 +217,41 @@ class MoveDataValidator:
         try:
             # Check if game_moves table exists
             has_moves_table = MoveDataValidator.has_game_moves_table(conn)
+            total_games = MoveDataValidator._count_games(conn)
+
+            # Check for inline moves in games.moves column
+            inline_count = MoveDataValidator._count_inline_moves(conn, min_moves)
+            has_inline_moves = inline_count > 0
+
             if not has_moves_table:
-                return DatabaseValidationResult(
-                    db_path=db_path,
-                    valid_count=0,
-                    invalid_count=0,
-                    total_games=MoveDataValidator._count_games(conn),
-                    has_game_moves_table=False,
-                    errors=[
-                        "Database is metadata-only: no game_moves table. "
-                        "Cannot use for training."
-                    ],
-                )
+                # No game_moves table - check if we have inline moves as fallback
+                if has_inline_moves:
+                    return DatabaseValidationResult(
+                        db_path=db_path,
+                        valid_count=inline_count,
+                        invalid_count=total_games - inline_count,
+                        total_games=total_games,
+                        has_game_moves_table=False,
+                        has_inline_moves=True,
+                        inline_moves_count=inline_count,
+                        errors=[
+                            f"Database has {inline_count} games with inline moves "
+                            f"(games.moves column). Will use fallback parsing."
+                        ] if inline_count < total_games else [],
+                    )
+                else:
+                    return DatabaseValidationResult(
+                        db_path=db_path,
+                        valid_count=0,
+                        invalid_count=0,
+                        total_games=total_games,
+                        has_game_moves_table=False,
+                        has_inline_moves=False,
+                        errors=[
+                            "Database is metadata-only: no game_moves table and "
+                            "no inline moves in games.moves column. Cannot use for training."
+                        ],
+                    )
 
             # Get game counts with move data using a single efficient query
             cursor = conn.execute(
@@ -257,12 +287,15 @@ class MoveDataValidator:
 
             total_games = valid_count + invalid_count
 
+            # Also report inline moves if present (for databases with both formats)
             return DatabaseValidationResult(
                 db_path=db_path,
                 valid_count=valid_count,
                 invalid_count=invalid_count,
                 total_games=total_games,
                 has_game_moves_table=True,
+                has_inline_moves=has_inline_moves,
+                inline_moves_count=inline_count,
                 errors=errors,
             )
 
@@ -309,6 +342,52 @@ class MoveDataValidator:
             cursor = conn.execute("SELECT COUNT(*) FROM games")
             return cursor.fetchone()[0]
         except sqlite3.OperationalError:
+            return 0
+
+    @staticmethod
+    def _count_inline_moves(
+        conn: sqlite3.Connection,
+        min_moves: int = MIN_MOVES_REQUIRED,
+    ) -> int:
+        """Count games with inline moves in games.moves column.
+
+        Some databases store moves as a JSON array in the games.moves column
+        instead of the normalized game_moves table. This counts those games.
+
+        Args:
+            conn: SQLite connection
+            min_moves: Minimum moves required
+
+        Returns:
+            Count of games with inline moves meeting minimum requirement
+        """
+        try:
+            # Check if moves column exists
+            cursor = conn.execute("PRAGMA table_info(games)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "moves" not in columns:
+                return 0
+
+            # Count games with non-empty moves JSON array
+            # We estimate move count by looking for arrays with enough elements
+            # A proper count would require parsing JSON which is slow for large DBs
+            # Use LENGTH as a heuristic: min 5 moves * ~500 bytes/move = ~2500 chars
+            min_length = min_moves * 200  # Conservative estimate
+
+            cursor = conn.execute(
+                """
+                SELECT COUNT(*)
+                FROM games
+                WHERE moves IS NOT NULL
+                  AND LENGTH(moves) > ?
+                  AND moves LIKE '[%'
+                """,
+                (min_length,),
+            )
+            return cursor.fetchone()[0]
+
+        except sqlite3.OperationalError as e:
+            logger.debug(f"Error counting inline moves: {e}")
             return 0
 
     @staticmethod
