@@ -11,10 +11,16 @@ Usage:
     print(f"This node is: {identity.canonical_id}")
     print(f"Tailscale IP: {identity.tailscale_ip}")
 
-Priority Order:
+    # Validate a peer's identity claim
+    from app.config.node_identity import validate_identity_claim
+    valid, reason = validate_identity_claim("lambda-gh200-1", {"100.69.164.58"})
+
+Priority Order (Phase 1 of P2P Cluster Stability Plan):
+    0. /etc/ringrift/node-id file (canonical, written by deployment)
     1. RINGRIFT_NODE_ID environment variable (explicit override)
-    2. Hostname match against distributed_hosts.yaml
-    3. Tailscale IP match against distributed_hosts.yaml
+    2. /etc/default/ringrift-p2p file (legacy compatibility)
+    3. Hostname match against distributed_hosts.yaml
+    4. Tailscale IP match against distributed_hosts.yaml
 
 This module solves the identity mismatch problem where:
 - socket.gethostname() returns "ip-192-222-57-210" (Lambda cloud hostname)
@@ -37,10 +43,23 @@ from typing import Any
 __all__ = [
     "NodeIdentity",
     "IdentityError",
+    "NodeIdentityError",  # Alias for clarity
     "get_node_identity",
     "get_tailscale_ip",
     "resolve_node_id",
+    "validate_identity_claim",
+    "clear_identity_cache",
+    "get_node_id_safe",
+    "NODE_ID_FILE",
+    "LEGACY_P2P_CONFIG",
 ]
+
+# Canonical node identity file - written by deployment scripts
+# This is the single source of truth for node identification
+NODE_ID_FILE = Path("/etc/ringrift/node-id")
+
+# Legacy P2P config file (for backward compatibility)
+LEGACY_P2P_CONFIG = Path("/etc/default/ringrift-p2p")
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +73,57 @@ class IdentityError(Exception):
     """
 
     pass
+
+
+# Alias for clearer naming in imports
+NodeIdentityError = IdentityError
+
+
+def _read_node_id_file(path: Path) -> str | None:
+    """Read node ID from a file, returning None if not available.
+
+    Args:
+        path: Path to the node ID file
+
+    Returns:
+        Node ID string or None if file doesn't exist or is invalid
+    """
+    try:
+        if not path.exists():
+            return None
+        content = path.read_text().strip()
+        # Validate: must be non-empty and not contain newlines
+        if content and "\n" not in content:
+            return content
+        logger.debug(f"Invalid node ID content in {path}")
+        return None
+    except (OSError, PermissionError) as e:
+        logger.debug(f"Cannot read {path}: {e}")
+        return None
+
+
+def _read_legacy_p2p_config() -> str | None:
+    """Read NODE_ID from /etc/default/ringrift-p2p (shell format).
+
+    Returns:
+        Node ID string or None if not available
+    """
+    try:
+        if not LEGACY_P2P_CONFIG.exists():
+            return None
+        for line in LEGACY_P2P_CONFIG.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("NODE_ID="):
+                # Handle both NODE_ID=value and NODE_ID="value"
+                value = line.split("=", 1)[1].strip()
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                if value:
+                    return value
+        return None
+    except (OSError, PermissionError) as e:
+        logger.debug(f"Cannot read {LEGACY_P2P_CONFIG}: {e}")
+        return None
 
 
 @dataclass
@@ -96,6 +166,20 @@ class NodeIdentity:
         hosts = config.get("hosts", {})
         hostname = socket.gethostname()
 
+        # Priority 0: Canonical file (written by deployment)
+        # This is the single source of truth
+        file_id = _read_node_id_file(NODE_ID_FILE)
+        if file_id:
+            if file_id in hosts:
+                logger.debug(f"Node ID resolved from {NODE_ID_FILE}: {file_id}")
+                return cls._from_config(file_id, hosts, "canonical_file")
+            else:
+                # File exists but ID not in config - configuration mismatch
+                logger.warning(
+                    f"Node ID from {NODE_ID_FILE} ({file_id}) not in config, "
+                    "trying other resolution methods"
+                )
+
         # Priority 1: Explicit env var
         env_id = os.environ.get("RINGRIFT_NODE_ID")
         if env_id:
@@ -107,6 +191,13 @@ class NodeIdentity:
                 f"RINGRIFT_NODE_ID={env_id} not in config, "
                 "trying other resolution methods"
             )
+
+        # Priority 2: Legacy P2P config file
+        legacy_id = _read_legacy_p2p_config()
+        if legacy_id:
+            if legacy_id in hosts:
+                logger.debug(f"Node ID resolved from {LEGACY_P2P_CONFIG}: {legacy_id}")
+                return cls._from_config(legacy_id, hosts, "legacy_config")
 
         # Priority 2: Hostname match (direct config key match)
         if hostname in hosts:
@@ -330,3 +421,91 @@ def get_node_id_safe() -> str:
 
     # Fallback to old behavior
     return os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
+
+
+def validate_identity_claim(
+    claimed_id: str,
+    claimed_ips: set[str] | None = None,
+    config: dict[str, Any] | None = None,
+) -> tuple[bool, str]:
+    """Validate a peer's identity claim against the cluster configuration.
+
+    This function is used to verify that a peer claiming to be a particular
+    node actually has credentials (IP addresses) that match the expected
+    configuration. This prevents impersonation and helps detect
+    misconfigured nodes.
+
+    Args:
+        claimed_id: The node ID the peer claims to be
+        claimed_ips: Set of IP addresses the peer is reachable from
+        config: Optional pre-loaded config dict. If None, loads from YAML.
+
+    Returns:
+        Tuple of (valid: bool, reason: str)
+        - If valid is True, reason is "OK"
+        - If valid is False, reason explains the validation failure
+
+    Examples:
+        >>> valid, reason = validate_identity_claim(
+        ...     "lambda-gh200-1",
+        ...     {"100.69.164.58", "192.168.1.100"}
+        ... )
+        >>> if not valid:
+        ...     logger.warning(f"Identity claim rejected: {reason}")
+    """
+    # Load config if not provided
+    if config is None:
+        config = _load_hosts_config()
+
+    hosts = config.get("hosts", {})
+
+    # Check if the claimed ID exists in config
+    if claimed_id not in hosts:
+        return False, f"Unknown node ID: {claimed_id}"
+
+    node_cfg = hosts.get(claimed_id, {})
+    if not isinstance(node_cfg, dict):
+        return False, f"Invalid config for node: {claimed_id}"
+
+    # If no IPs provided, we can't validate further
+    if not claimed_ips:
+        return True, "OK (no IP validation)"
+
+    # Build expected IP set from config
+    expected_ips: set[str] = set()
+
+    if node_cfg.get("tailscale_ip"):
+        expected_ips.add(node_cfg["tailscale_ip"])
+
+    if node_cfg.get("ssh_host"):
+        # ssh_host might be hostname or IP
+        ssh_host = node_cfg["ssh_host"]
+        # Only add if it looks like an IP
+        if ssh_host.replace(".", "").isdigit():
+            expected_ips.add(ssh_host)
+
+    if node_cfg.get("public_ip"):
+        expected_ips.add(node_cfg["public_ip"])
+
+    # Check for IP overlap
+    if not expected_ips:
+        # No IPs in config to validate against
+        return True, "OK (no expected IPs in config)"
+
+    if not (claimed_ips & expected_ips):
+        return False, (
+            f"IP mismatch for {claimed_id}: "
+            f"claimed {claimed_ips}, expected {expected_ips}"
+        )
+
+    return True, "OK"
+
+
+def clear_identity_cache() -> None:
+    """Clear the cached node identity.
+
+    Call this after updating the node ID file or config to force re-resolution.
+    """
+    global _identity_cache
+    _identity_cache = None
+    get_node_id_safe.cache_clear()

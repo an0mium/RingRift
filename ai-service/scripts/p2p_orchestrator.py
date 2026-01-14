@@ -5039,6 +5039,53 @@ class P2POrchestrator(
             "self_recognition_ok": leader_id_is_self == is_leader_call,  # Quick health check
         }
 
+    def _get_config_version(self) -> dict:
+        """Get config file version info for drift detection.
+
+        Jan 13, 2026: Phase 1 of P2P Cluster Stability Plan
+        Enables gossip-based config drift detection across the cluster.
+
+        Returns:
+            Dictionary with config hash, timestamp, and metadata.
+        """
+        import hashlib
+        from pathlib import Path
+
+        config_paths = [
+            Path(__file__).parent.parent / "config" / "distributed_hosts.yaml",
+            Path.cwd() / "config" / "distributed_hosts.yaml",
+        ]
+
+        for config_path in config_paths:
+            if config_path.exists():
+                try:
+                    content = config_path.read_text()
+                    stat = config_path.stat()
+
+                    # Compute hash of content
+                    content_hash = hashlib.sha256(content.encode()).hexdigest()
+
+                    return {
+                        "hash": content_hash[:16],  # First 16 chars for display
+                        "full_hash": content_hash,
+                        "timestamp": stat.st_mtime,
+                        "mtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stat.st_mtime)),
+                        "path": str(config_path),
+                        "size_bytes": stat.st_size,
+                    }
+                except (OSError, PermissionError) as e:
+                    return {
+                        "hash": None,
+                        "error": str(e),
+                        "path": str(config_path),
+                    }
+
+        return {
+            "hash": None,
+            "error": "config_not_found",
+            "searched_paths": [str(p) for p in config_paths],
+        }
+
     def _was_recently_leader(self) -> bool:
         """Check if this node was the cluster leader within RECENT_LEADER_WINDOW.
 
@@ -12070,6 +12117,8 @@ class P2POrchestrator(
             # is set correctly but role doesn't match.
             "leadership_consistency": self._get_leadership_consistency_metrics(),
             "is_leader": self._is_leader(),  # Explicit field for quick checks
+            # Jan 13, 2026: Config version for drift detection (P2P Cluster Stability Plan Phase 1)
+            "config_version": self._get_config_version(),
         })
 
     # -------------------------------------------------------------------------
@@ -29653,166 +29702,76 @@ def _wait_for_tailscale_ip(timeout_seconds: int = 90, interval_seconds: float = 
 
 
 def _auto_detect_node_id() -> str | None:
-    """Auto-detect node ID from environment, config, or hostname.
+    """Auto-detect node ID using unified identity resolution.
 
     Jan 2, 2026: Added to prevent startup failures when --node-id is forgotten.
-    Jan 12, 2026: Added /etc/ringrift/node-id file support and IP normalization
-                  to fix cloud nodes using dashed IP hostnames as node-id.
+    Jan 12, 2026: Added /etc/ringrift/node-id file support and IP normalization.
+    Jan 13, 2026: Delegated to app.config.node_identity module (P2P Cluster Stability Plan).
 
-    Detection order:
-    1. /etc/ringrift/node-id file (canonical source, set during deployment)
-    2. RINGRIFT_NODE_ID environment variable
-    3. Match current IP addresses against distributed_hosts.yaml
-    4. Normalize dashed hostname (192-222-51-29 -> 192.222.51.29) and re-match
-    5. Fall back to hostname (with warning)
+    Detection order (from node_identity module):
+    0. /etc/ringrift/node-id file (canonical source, written by deployment)
+    1. RINGRIFT_NODE_ID environment variable
+    2. /etc/default/ringrift-p2p file (legacy compatibility)
+    3. Hostname match against distributed_hosts.yaml
+    4. Tailscale IP match against distributed_hosts.yaml
+    5. Fall back to get_node_id_safe() which uses hostname
 
     Returns:
         Detected node_id string, or None if detection failed
     """
-    import socket
-
-    # 1. Check /etc/ringrift/node-id file (most authoritative)
     try:
-        with open("/etc/ringrift/node-id") as f:
-            node_id = f.read().strip()
-            if node_id:
-                logger.info(f"[NODE-ID] Using node-id from /etc/ringrift/node-id: {node_id}")
-                return node_id
-    except (FileNotFoundError, PermissionError):
-        pass
+        from app.config.node_identity import (
+            get_node_identity,
+            get_node_id_safe,
+            NodeIdentityError,
+        )
 
-    # 2. Check environment variable
-    node_id = os.environ.get("RINGRIFT_NODE_ID")
-    if node_id:
-        return node_id
-
-    # 2. Try to match IP against config
-    try:
-        # Get all local IPs
-        local_ips = set()
-        hostname = socket.gethostname()
+        # Try strict resolution first
         try:
-            for info in socket.getaddrinfo(hostname, None):
-                ip = info[4][0]
-                if ip and not ip.startswith("127."):
-                    local_ips.add(ip)
-        except socket.gaierror:
+            identity = get_node_identity()
+            logger.info(
+                f"[NODE-ID] Resolved node ID via {identity.resolution_method}: "
+                f"{identity.canonical_id}"
+            )
+            return identity.canonical_id
+        except NodeIdentityError as e:
+            # Strict resolution failed, use safe fallback
+            logger.warning(f"[NODE-ID] Strict resolution failed: {e}")
+            node_id = get_node_id_safe()
+            logger.warning(
+                f"[NODE-ID] Using fallback node ID: {node_id} - "
+                f"Run 'python scripts/provision_node_id.py --auto-detect' to fix"
+            )
+            return node_id
+
+    except ImportError as e:
+        # Module not available (running standalone or tests)
+        logger.debug(f"[NODE-ID] node_identity module not available: {e}")
+
+        # Minimal fallback: check canonical file and env var
+        try:
+            with open("/etc/ringrift/node-id") as f:
+                node_id = f.read().strip()
+                if node_id:
+                    logger.info(f"[NODE-ID] Using node-id from /etc/ringrift/node-id: {node_id}")
+                    return node_id
+        except (FileNotFoundError, PermissionError):
             pass
 
-        # Also get IPs from network interfaces
-        try:
-            import netifaces
-            for iface in netifaces.interfaces():
-                addrs = netifaces.ifaddresses(iface)
-                for addr_family in (netifaces.AF_INET, netifaces.AF_INET6):
-                    if addr_family in addrs:
-                        for addr in addrs[addr_family]:
-                            ip = addr.get("addr", "")
-                            if ip and not ip.startswith("127.") and not ip.startswith("fe80"):
-                                local_ips.add(ip.split("%")[0])  # Remove interface suffix
-        except ImportError:
-            # Fallback: use subprocess to get IPs (works without netifaces)
-            import subprocess
-            try:
-                # Try 'ip addr' (Linux)
-                result = subprocess.run(
-                    ["ip", "-4", "addr", "show"], capture_output=True, text=True, timeout=5
-                )
-                if result.returncode == 0:
-                    import re
-                    for match in re.findall(r"inet\s+(\d+\.\d+\.\d+\.\d+)", result.stdout):
-                        if not match.startswith("127."):
-                            local_ips.add(match)
-            except (subprocess.SubprocessError, FileNotFoundError):
-                try:
-                    # Try 'hostname -I' (simpler Linux fallback)
-                    result = subprocess.run(
-                        ["hostname", "-I"], capture_output=True, text=True, timeout=5
-                    )
-                    if result.returncode == 0:
-                        for ip in result.stdout.strip().split():
-                            if not ip.startswith("127."):
-                                local_ips.add(ip)
-                except (subprocess.SubprocessError, FileNotFoundError):
-                    pass
+        node_id = os.environ.get("RINGRIFT_NODE_ID")
+        if node_id:
+            return node_id
 
-        # Load config and match
-        config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
-        if config_path.exists():
-            import yaml
-            with open(config_path) as f:
-                config = yaml.safe_load(f)
-
-            for name, host_cfg in config.get("hosts", {}).items():
-                host_ips = set()
-                if host_cfg.get("ssh_host"):
-                    host_ips.add(host_cfg["ssh_host"])
-                if host_cfg.get("tailscale_ip"):
-                    host_ips.add(host_cfg["tailscale_ip"])
-
-                if local_ips & host_ips:
-                    logger.info(f"Matched node_id '{name}' by IP: {local_ips & host_ips}")
-                    return name
-
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"Config-based node_id detection failed: {e}")
-        config = {}  # Used for IP normalization fallback
-
-    # 4. Try to normalize dashed hostname (e.g., "192-222-51-29" -> "192.222.51.29")
-    # Cloud nodes often have IP-based hostnames with dashes instead of dots
-    try:
+        # Fall back to hostname
+        import socket
         hostname = socket.gethostname()
-        # Clean up hostname (remove .local, etc.)
-        if "." in hostname:
-            hostname = hostname.split(".")[0]
-
-        # Normalize dashed hostnames that look like IPs
-        normalized = hostname.replace("-", ".")
-        if normalized.count(".") == 3:  # Looks like IPv4
-            # Verify it's actually a valid IP pattern
-            parts = normalized.split(".")
-            if all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
-                logger.debug(f"[NODE-ID] Hostname '{hostname}' normalized to IP: {normalized}")
-
-                # Try to match normalized IP against config
-                config_path = Path(__file__).parent.parent / "config" / "distributed_hosts.yaml"
-                if config_path.exists() and not config:
-                    import yaml
-                    with open(config_path) as f:
-                        config = yaml.safe_load(f) or {}
-
-                for name, host_cfg in config.get("hosts", {}).items():
-                    host_ips = set()
-                    if host_cfg.get("ssh_host"):
-                        host_ips.add(host_cfg["ssh_host"])
-                    if host_cfg.get("tailscale_ip"):
-                        host_ips.add(host_cfg["tailscale_ip"])
-                    host_ips.discard(None)
-
-                    if normalized in host_ips:
-                        logger.info(
-                            f"[NODE-ID] Matched node_id '{name}' by normalized IP: "
-                            f"{hostname} -> {normalized}"
-                        )
-                        return name
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"IP normalization failed: {e}")
-
-    # 5. Fall back to hostname with WARNING
-    # This often results in wrong node-id on cloud nodes where hostname != config name
-    try:
-        hostname = socket.gethostname()
-        # Clean up hostname (remove .local, etc.)
         if "." in hostname:
             hostname = hostname.split(".")[0]
         logger.warning(
-            f"[NODE-ID] Falling back to hostname '{hostname}' - this may not match "
-            f"distributed_hosts.yaml! Set RINGRIFT_NODE_ID environment variable or "
-            f"pass --node-id explicitly to avoid cluster partition issues."
+            f"[NODE-ID] Falling back to hostname '{hostname}' - "
+            f"Set RINGRIFT_NODE_ID or run provision_node_id.py"
         )
         return hostname
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def _acquire_singleton_lock(

@@ -21,18 +21,35 @@ RINGRIFT_PATH="${SCRIPT_DIR%/scripts}"
 P2P_PORT="${RINGRIFT_P2P_PORT:-8770}"
 LOGFILE="$RINGRIFT_PATH/logs/p2p_keepalive.log"
 
-# Auto-detect node ID from hostname if not set
-# Priority: 1) RINGRIFT_NODE_ID env var
-#           2) /etc/default/ringrift-p2p NODE_ID
-#           3) hostname -s (fallback)
-if [ -n "$RINGRIFT_NODE_ID" ]; then
+# Auto-detect node ID from canonical file or fallbacks
+# Priority (Jan 13, 2026 - P2P Cluster Stability Plan Phase 1):
+#   0) /etc/ringrift/node-id (canonical, written by deployment)
+#   1) RINGRIFT_NODE_ID env var
+#   2) /etc/default/ringrift-p2p NODE_ID (legacy)
+#   3) hostname -s (fallback with WARNING)
+if [ -f /etc/ringrift/node-id ]; then
+    # Priority 0: Canonical file (single source of truth)
+    NODE_ID="$(cat /etc/ringrift/node-id 2>/dev/null | tr -d '[:space:]')"
+    if [ -z "$NODE_ID" ]; then
+        echo "[$(date)] WARNING: /etc/ringrift/node-id exists but is empty" >> "$LOGFILE"
+    fi
+fi
+
+if [ -z "$NODE_ID" ] && [ -n "$RINGRIFT_NODE_ID" ]; then
+    # Priority 1: Environment variable
     NODE_ID="$RINGRIFT_NODE_ID"
-elif [ -f /etc/default/ringrift-p2p ]; then
-    # Try to read from systemd service config
+fi
+
+if [ -z "$NODE_ID" ] && [ -f /etc/default/ringrift-p2p ]; then
+    # Priority 2: Legacy systemd service config
     source /etc/default/ringrift-p2p 2>/dev/null
-    NODE_ID="${NODE_ID:-$(hostname -s)}"
-else
+fi
+
+if [ -z "$NODE_ID" ]; then
+    # Priority 3: Hostname fallback (with warning)
     NODE_ID="$(hostname -s)"
+    echo "[$(date)] WARNING: No canonical node ID found, using hostname '$NODE_ID'" >> "$LOGFILE"
+    echo "[$(date)] Run 'sudo python scripts/provision_node_id.py --auto-detect' to fix" >> "$LOGFILE"
 fi
 
 # Validate node ID looks correct (warn if it looks like a hostname that doesn't match expected patterns)
