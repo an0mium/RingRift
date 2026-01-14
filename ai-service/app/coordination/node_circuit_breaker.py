@@ -582,6 +582,93 @@ class NodeCircuitBreaker:
                 "open_nodes": self.get_open_circuits(),
             }
 
+    def get_prometheus_metrics(self) -> str:
+        """Export circuit breaker metrics in Prometheus format.
+
+        January 2026: Added for observability dashboard integration.
+
+        Returns:
+            Prometheus-formatted metrics string
+        """
+        lines: list[str] = []
+
+        # Add metric descriptions (TYPE and HELP)
+        lines.append("# HELP ringrift_circuit_breaker_state Circuit breaker state per node (0=closed, 1=half_open, 2=open)")
+        lines.append("# TYPE ringrift_circuit_breaker_state gauge")
+        lines.append("# HELP ringrift_circuit_breaker_failures Total failure count per node")
+        lines.append("# TYPE ringrift_circuit_breaker_failures counter")
+        lines.append("# HELP ringrift_circuit_breaker_successes Total success count per node")
+        lines.append("# TYPE ringrift_circuit_breaker_successes counter")
+        lines.append("# HELP ringrift_circuit_breaker_open_duration_seconds Time circuit has been open")
+        lines.append("# TYPE ringrift_circuit_breaker_open_duration_seconds gauge")
+
+        with self._lock:
+            # Summary metrics
+            summary = self.get_summary()
+            lines.append(f'ringrift_circuit_breaker_total_nodes {summary["total_nodes"]}')
+            lines.append(f'ringrift_circuit_breaker_closed_count {summary["closed"]}')
+            lines.append(f'ringrift_circuit_breaker_open_count {summary["open"]}')
+            lines.append(f'ringrift_circuit_breaker_half_open_count {summary["half_open"]}')
+
+            # Per-node metrics
+            now = time.time()
+            for node_id, circuit in self._circuits.items():
+                # State as numeric (0=closed, 1=half_open, 2=open)
+                state_value = {
+                    NodeCircuitState.CLOSED: 0,
+                    NodeCircuitState.HALF_OPEN: 1,
+                    NodeCircuitState.OPEN: 2,
+                }.get(circuit.state, 0)
+
+                # Escape node_id for Prometheus label
+                safe_node_id = node_id.replace('"', '\\"')
+
+                lines.append(f'ringrift_circuit_breaker_state{{node="{safe_node_id}"}} {state_value}')
+                lines.append(f'ringrift_circuit_breaker_failures{{node="{safe_node_id}"}} {circuit.failure_count}')
+                lines.append(f'ringrift_circuit_breaker_successes{{node="{safe_node_id}"}} {circuit.success_count}')
+
+                # Open duration (only if circuit is open)
+                if circuit.state == NodeCircuitState.OPEN and circuit.opened_at:
+                    open_duration = now - circuit.opened_at
+                    lines.append(f'ringrift_circuit_breaker_open_duration_seconds{{node="{safe_node_id}"}} {open_duration:.1f}')
+
+        return "\n".join(lines)
+
+    def get_metrics_dict(self) -> dict[str, Any]:
+        """Get detailed metrics as a dictionary for JSON APIs.
+
+        January 2026: Added for /metrics JSON endpoint.
+
+        Returns:
+            Dictionary with per-node and aggregate metrics
+        """
+        with self._lock:
+            now = time.time()
+            per_node: dict[str, dict[str, Any]] = {}
+
+            for node_id, circuit in self._circuits.items():
+                self._check_recovery(circuit, node_id)
+                open_duration = None
+                if circuit.state == NodeCircuitState.OPEN and circuit.opened_at:
+                    open_duration = now - circuit.opened_at
+
+                per_node[node_id] = {
+                    "state": circuit.state.value,
+                    "failure_count": circuit.failure_count,
+                    "success_count": circuit.success_count,
+                    "last_failure_time": circuit.last_failure_time,
+                    "opened_at": circuit.opened_at,
+                    "open_duration_seconds": open_duration,
+                    "half_open_at": circuit.half_open_at,
+                }
+
+            summary = self.get_summary()
+            return {
+                "summary": summary,
+                "per_node": per_node,
+                "timestamp": now,
+            }
+
     def reset(self, node_id: str) -> None:
         """Reset circuit for a node to CLOSED state."""
         with self._lock:

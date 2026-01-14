@@ -630,6 +630,41 @@ class StatusHandlersMixin:
             logger.error(f"Circuit breaker status error: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_node_circuit_breaker_metrics(self, request: web.Request) -> web.Response:
+        """GET /circuit-breakers/nodes - Get per-node circuit breaker metrics.
+
+        January 2026: Added for observability dashboard.
+
+        Query params:
+            format: "json" (default) or "prometheus"
+
+        Returns per-node circuit breaker state, failure counts, and durations.
+        """
+        try:
+            from app.coordination.node_circuit_breaker import get_node_circuit_breaker
+
+            breaker = get_node_circuit_breaker()
+            output_format = request.query.get("format", "json")
+
+            if output_format == "prometheus":
+                metrics_text = breaker.get_prometheus_metrics()
+                return web.Response(
+                    text=metrics_text,
+                    content_type="text/plain; charset=utf-8",
+                )
+            else:
+                metrics = breaker.get_metrics_dict()
+                return web.json_response(metrics)
+
+        except ImportError:
+            return web.json_response({
+                "available": False,
+                "message": "Node circuit breaker not available",
+            })
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Node circuit breaker metrics error: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_transport_stats(self, request: web.Request) -> web.Response:
         """GET /connectivity/transport_stats - Get transport statistics for all nodes.
 

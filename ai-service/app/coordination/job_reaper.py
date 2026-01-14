@@ -735,6 +735,128 @@ def get_node_id() -> str:
 
 
 # =============================================================================
+# HandlerBase Integration (January 2026)
+# =============================================================================
+
+try:
+    from app.coordination.handler_base import HandlerBase
+    from app.coordination.contracts import HealthCheckResult as HBHealthCheckResult
+
+    HAS_HANDLER_BASE = True
+except ImportError:
+    HAS_HANDLER_BASE = False
+
+if HAS_HANDLER_BASE:
+
+    class JobReaperHandler(HandlerBase):
+        """HandlerBase wrapper for JobReaperDaemon.
+
+        January 2026: Added for unified daemon lifecycle management.
+        The handler wraps the existing daemon and delegates to its methods.
+
+        Note: This daemon only operates on the P2P leader node.
+        """
+
+        def __init__(self, work_queue: "WorkQueue | None" = None):
+            super().__init__(
+                name="job_reaper",
+                cycle_interval=CHECK_INTERVAL,
+            )
+            # Lazy-load work queue if not provided
+            if work_queue is None:
+                try:
+                    from app.coordination.work_queue import WorkQueue
+                    work_queue = WorkQueue.get_instance()
+                except (ImportError, RuntimeError):
+                    work_queue = None  # Will fail gracefully in _run_cycle
+
+            self._daemon = JobReaperDaemon(work_queue=work_queue) if work_queue else None
+
+        async def _run_cycle(self) -> None:
+            """Run one reaper cycle (only on P2P leader)."""
+            if not self._daemon:
+                logger.warning("[JobReaperHandler] No work queue available, skipping")
+                return
+
+            # Check if this node is the P2P leader
+            is_leader, leader_id = await check_p2p_leader_status(timeout=LEADER_CHECK_TIMEOUT)
+            self._daemon.stats.leader_checks += 1
+
+            if not is_leader:
+                self._daemon.stats.not_leader_skips += 1
+                if self._daemon.stats.not_leader_skips % 10 == 1:
+                    logger.debug(f"[JobReaperHandler] Skipping - not leader (leader: {leader_id})")
+                return
+
+            # We are the leader - proceed with reaping
+            if self._daemon.stats.not_leader_skips > 0:
+                logger.info(f"[JobReaperHandler] Resuming as leader")
+                self._daemon.stats.not_leader_skips = 0
+
+            self._daemon.stats.record_attempt()
+
+            # Cleanup expired blacklists
+            await self._daemon._cleanup_expired_blacklists()
+
+            # Reap stuck jobs
+            await self._daemon._reap_stuck_jobs()
+
+            # Reassign failed work
+            await self._daemon._reassign_failed_work()
+
+            # Clean up orphaned work items
+            try:
+                cleanup_result = self._daemon.work_queue.cleanup_stale_items(
+                    max_pending_age_hours=24.0,
+                    max_claimed_age_hours=4.0,
+                )
+                if cleanup_result.get("removed_stale_pending", 0) > 0:
+                    logger.info(f"Cleaned up {cleanup_result['removed_stale_pending']} stale pending items")
+                if cleanup_result.get("reset_stale_claimed", 0) > 0:
+                    logger.info(f"Reset {cleanup_result['reset_stale_claimed']} stale claimed items")
+            except Exception as cleanup_err:
+                logger.debug(f"Stale item cleanup failed: {cleanup_err}")
+
+        def _get_event_subscriptions(self) -> dict:
+            """Get event subscriptions for job reaper."""
+            return {
+                "JOB_STUCK": self._on_job_stuck,
+                "NODE_FAILED": self._on_node_failed,
+            }
+
+        async def _on_job_stuck(self, event: dict) -> None:
+            """Handle job stuck event - trigger immediate reap check."""
+            if self._daemon:
+                job_id = event.get("job_id", "unknown")
+                logger.info(f"[JobReaperHandler] Triggered by JOB_STUCK event: {job_id}")
+                # Run cycle will handle it
+
+        async def _on_node_failed(self, event: dict) -> None:
+            """Handle node failed event - blacklist the node."""
+            if self._daemon:
+                node_id = event.get("node_id", "")
+                reason = event.get("reason", "NODE_FAILED event")
+                if node_id:
+                    self._daemon.blacklist_node(node_id, reason)
+
+        def health_check(self) -> HBHealthCheckResult:
+            """Return health check result."""
+            if not self._daemon:
+                return HBHealthCheckResult(
+                    healthy=False,
+                    status="unavailable",
+                    details={"error": "No work queue available"},
+                )
+
+            result = self._daemon.health_check()
+            return HBHealthCheckResult(
+                healthy=result.healthy,
+                status=result.status.value if hasattr(result.status, 'value') else str(result.status),
+                details=result.details or {},
+            )
+
+
+# =============================================================================
 # Module Exports
 # =============================================================================
 
@@ -754,3 +876,7 @@ __all__ = [
     "MAX_REASSIGN_ATTEMPTS",
     "NODE_BLACKLIST_DURATION",
 ]
+
+# Add HandlerBase wrapper to exports if available
+if HAS_HANDLER_BASE:
+    __all__.append("JobReaperHandler")

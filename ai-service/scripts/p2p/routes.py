@@ -62,6 +62,7 @@ CORE_ROUTES = [
     Route("GET", "/peer-health", "handle_peer_health"),  # Jan 3, 2026: Sprint 10+ P2P hardening
     Route("GET", "/game_counts", "handle_game_counts"),  # Jan 5, 2026: Session 17.41 - P2P game count seeding
     Route("POST", "/refresh_game_counts", "handle_refresh_game_counts"),  # Jan 6, 2026: Session 17.48 - manual/periodic refresh
+    Route("GET", "/data/summary", "handle_data_summary"),  # Jan 13, 2026: Unified data discovery across all sources
     Route("GET", "/", "handle_root"),
 ]
 
@@ -455,6 +456,7 @@ LOOP_MANAGEMENT_ROUTES = [
 
 CIRCUIT_BREAKER_ROUTES = [
     Route("GET", "/circuit-breakers/status", "handle_circuit_breaker_status"),
+    Route("GET", "/circuit-breakers/nodes", "handle_node_circuit_breaker_metrics"),  # Jan 2026: Per-node CB metrics
 ]
 
 # ===========================================================================
