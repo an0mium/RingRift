@@ -271,10 +271,16 @@ def process_chunk(
                 move_rows = []
                 for move_num, move in enumerate(moves):
                     if isinstance(move, dict):
-                        player = move.get("player", 0)
-                        move_type = move.get("type", "unknown")
-                        phase = move.get("phase", "")
-                        move_json = json.dumps(move)
+                        # Handle nested move format from Gumbel selfplay: {"move": {...}, "policy": {...}}
+                        if "move" in move and isinstance(move["move"], dict):
+                            inner_move = move["move"]
+                        else:
+                            inner_move = move
+                        player = inner_move.get("player", 0)
+                        move_type = inner_move.get("type", "unknown")
+                        phase = inner_move.get("phase", "")
+                        # Store only the inner move, not the wrapper with policy
+                        move_json = json.dumps(inner_move)
                     else:
                         # Move might be a string or other format
                         player = 0
