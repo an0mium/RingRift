@@ -189,3 +189,423 @@ Metrics collector module loaded
 2026-01-13 18:40:04,356 - app.coordination.work_queue - INFO - [WorkQueue] Restored backpressure active state from DB (pending=4080)
 2026-01-13 18:40:04,652 - aiohttp.access - INFO - ::1 [13/Jan/2026:18:40:04 -0600] "GET /status HTTP/1.1" 200 7486 "-" "curl/8.7.1"
 2026-01-13 18:40:14,809 - p2p_orchestrator - INFO - First-contact peer registered: aws-staging (caps: ['selfplay', 'large_boards'])
+2026-01-13 18:40:16,258 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:14 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:40:16,259 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: aws-staging, invalidating cluster manifest
+2026-01-13 18:40:16,259 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: aws-staging, node available for jobs
+2026-01-13 18:40:16,259 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.115.97.24
+2026-01-13 18:40:20,069 - p2p_orchestrator - INFO - Adopting higher cluster epoch: 3957 (was 3954)
+2026-01-13 18:40:21,481 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-174 at 100.121.230.110:8770
+2026-01-13 18:40:22,824 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-10 at 192.222.50.177:8770
+2026-01-13 18:40:24,235 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: Mac.localdomain at 127.0.0.1:8770
+2026-01-13 18:40:25,683 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [13/Jan/2026:18:40:20 -0600] "POST /gossip HTTP/1.1" 200 2164 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:40:27,602 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:26 -0600] "POST /heartbeat HTTP/1.1" 200 1934 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:40:27,638 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-50-174
+2026-01-13 18:40:28,393 - p2p_orchestrator - INFO - [VoterHealth] Voter aws-staging came ONLINE (3/4 alive, quorum=2)
+2026-01-13 18:40:28,413 - p2p_orchestrator - INFO - [VoterHealth] Voter lambda-gh200-8 came ONLINE (3/4 alive, quorum=2)
+2026-01-13 18:40:28,434 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:40:25 -0600] "GET /status HTTP/1.1" 200 9889 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:40:29,345 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:40:25 -0600] "GET /status HTTP/1.1" 200 9890 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:40:29,745 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:40:25 -0600] "GET /status HTTP/1.1" 200 9890 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:40:30,444 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:40:25 -0600] "GET /status HTTP/1.1" 200 9889 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:40:30,444 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:40:30,521 - app.distributed.hosts - INFO - Loaded 23 remote host(s) from /Users/armand/Development/RingRift/ai-service/config/distributed_hosts.yaml
+2026-01-13 18:40:30,522 - app.distributed.dynamic_registry - INFO - Loaded 23 hosts into dynamic registry
+2026-01-13 18:40:30,522 - app.distributed.dynamic_registry - INFO - Loaded dynamic registry state from /Users/armand/Development/RingRift/ai-service/logs/p2p_orchestrator/dynamic_registry.json
+2026-01-13 18:40:34,862 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:34 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:40:40,056 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:40:39 -0600] "GET /game_counts HTTP/1.1" 200 467 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:40:40,998 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:40:39 -0600] "GET /status HTTP/1.1" 200 9908 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:40:41,348 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:40:39 -0600] "GET /status HTTP/1.1" 200 9909 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:40:42,177 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:40:39 -0600] "GET /status HTTP/1.1" 200 9908 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:40:44,189 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu1 at 100.94.174.19:8770
+2026-01-13 18:40:45,626 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-13 18:40:46,923 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-13 18:40:48,340 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-13 18:40:49,864 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-13 18:40:51,283 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-cpu1 at 100.94.174.19:8770
+2026-01-13 18:40:52,705 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-13 18:40:54,012 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-13 18:40:55,528 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-13 18:40:56,640 - app.coordination.sync_router - WARNING - [SyncRouter] Global backpressure activated: queue_depth=0. Sync continues normally.
+2026-01-13 18:40:56,823 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-11 at 127.0.0.1:8770
+2026-01-13 18:40:58,186 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:40:42 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:40:58,189 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:58 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:40:58,728 - aiohttp.access - INFO - 100.121.230.110 [13/Jan/2026:18:40:58 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:00,025 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:01,611 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:02,867 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:04,219 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:05,479 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:06,918 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:08,396 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1945 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:09,709 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:40:58 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:11,008 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['hetzner-cpu1']
+2026-01-13 18:41:11,011 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:58 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:11,468 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['hetzner-cpu1']
+2026-01-13 18:41:11,469 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:58 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:11,913 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['hetzner-cpu1']
+2026-01-13 18:41:11,914 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:58 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:12,637 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['hetzner-cpu1']
+2026-01-13 18:41:12,638 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:58 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:12,853 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['hetzner-cpu1']
+2026-01-13 18:41:12,854 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:40:58 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:12,855 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-13 18:41:12,864 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:41:12,864 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:41:12,864 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:41:14,401 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:12 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:15,785 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:12 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:15,787 - aiohttp.access - INFO - 100.121.230.110 [13/Jan/2026:18:41:12 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:15,787 - aiohttp.access - INFO - 100.121.230.110 [13/Jan/2026:18:41:12 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:15,788 - aiohttp.access - INFO - 100.121.230.110 [13/Jan/2026:18:41:12 -0600] "GET /health HTTP/1.1" 200 726 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:21,462 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-10 at 100.100.19.96:8770
+2026-01-13 18:41:24,738 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-13 18:41:24,743 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:24 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:26,170 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:24 -0600] "POST /heartbeat HTTP/1.1" 200 1930 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:26,172 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:41:24 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:41:26,172 - aiohttp.access - INFO - 100.121.230.110 [13/Jan/2026:18:41:12 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:26,173 - aiohttp.access - INFO - fd7a:115c:a1e0::2501:e689 [13/Jan/2026:18:41:12 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:26,173 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:41:12 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:27,745 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:41:26 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:29,061 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:41:26 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:30,458 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:41:26 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:31,720 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:41:26 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:33,196 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:41:26 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:33,197 - aiohttp.access - INFO - fd7a:115c:a1e0::4f01:ae13 [13/Jan/2026:18:41:12 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:41:33,201 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:21 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:33,205 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:33 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:33,206 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:33 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:33,206 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:41:33 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:41:34,814 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:33 -0600] "POST /heartbeat HTTP/1.1" 200 1941 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:34,878 - app.tournament.unified_elo_db - INFO - EloDatabase initialized at /Users/armand/Development/RingRift/ai-service/data/unified_elo.db
+2026-01-13 18:41:37,909 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-8 at 100.121.230.110:8770
+2026-01-13 18:41:39,203 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-11 at 127.0.0.1:8770
+2026-01-13 18:41:39,204 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-training at 100.68.208.43:8770
+2026-01-13 18:41:40,883 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: nebius-h100-1 at 127.0.0.1:8770
+2026-01-13 18:41:40,884 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: d6928e099d99 at 127.0.0.1:8770
+2026-01-13 18:41:40,884 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2.local at 127.0.0.1:8770
+2026-01-13 18:41:40,884 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00gyg7x6xhkc7fs5x at 127.0.0.1:8770
+2026-01-13 18:41:40,884 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-cpu1 at 100.94.174.19:8770
+2026-01-13 18:41:42,159 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: computeinstance-e00hcbnn7s7p0c7bbp at 127.0.0.1:8770
+2026-01-13 18:41:42,159 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: b148b1697229 at 127.0.0.1:8770
+2026-01-13 18:41:42,159 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: vast-29031159 at 127.0.0.1:8770
+2026-01-13 18:41:42,159 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: lambda-gh200-11 at 127.0.0.1:8770
+2026-01-13 18:41:42,159 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: Mac at 100.69.164.58:8770
+2026-01-13 18:41:43,678 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-13 18:41:43,786 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [13/Jan/2026:18:41:34 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:43,787 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:41:34 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:43,788 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-10
+2026-01-13 18:41:44,948 - p2p_orchestrator - INFO - [VoterHealth] Voter hetzner-cpu1 came ONLINE (4/4 alive, quorum=2)
+2026-01-13 18:41:44,956 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:41:33 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:41:45,822 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:41:33 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:41:46,389 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:41:33 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:41:47,861 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:41:43 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:49,444 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:41:43 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:50,950 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:41:43 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:52,417 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:41:43 -0600] "POST /heartbeat HTTP/1.1" 200 1936 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:54,082 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:41:52 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:54,082 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:52 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:59,142 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:41:57 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:41:59,619 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:57 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:41:59,619 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:57 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:41:59,621 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:57 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:02,659 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:52 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:02,673 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:52 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:02,700 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-training
+2026-01-13 18:42:02,726 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-13 18:42:02,743 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:42:02 -0600] "GET /health HTTP/1.1" 200 724 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:42:02,746 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:41:57 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:02,746 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:41:57 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:04,657 - aiohttp.access - INFO - ::1 [13/Jan/2026:18:42:02 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "curl/8.7.1"
+2026-01-13 18:42:06,254 - aiohttp.access - INFO - ::1 [13/Jan/2026:18:42:02 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "curl/8.7.1"
+2026-01-13 18:42:07,773 - aiohttp.access - INFO - ::1 [13/Jan/2026:18:42:02 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "curl/8.7.1"
+2026-01-13 18:42:09,186 - aiohttp.access - INFO - ::1 [13/Jan/2026:18:42:02 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "curl/8.7.1"
+2026-01-13 18:42:10,710 - aiohttp.access - INFO - ::1 [13/Jan/2026:18:42:02 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "curl/8.7.1"
+2026-01-13 18:42:11,156 - p2p_orchestrator - WARNING - [VoterHealth] Voter lambda-gh200-8 went OFFLINE (3/4 alive, quorum=2)
+2026-01-13 18:42:11,156 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:11,157 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:57 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:11,368 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:11,369 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:57 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:12,820 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:12,823 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:57 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:13,504 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:13,506 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:41:57 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:13,506 - app.distributed.hybrid_transport - INFO - [Transport] local-mac: Switching to SSH after 6 HTTP failures
+2026-01-13 18:42:13,508 - aiohttp.access - INFO - 100.126.21.102 [13/Jan/2026:18:42:10 -0600] "GET /game_counts HTTP/1.1" 200 467 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:15,628 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:13 -0600] "POST /heartbeat HTTP/1.1" 200 1945 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:15,676 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:15 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:15,678 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:15 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:15,678 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:15 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:15,692 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:42:15,697 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:42:15,742 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:42:15,748 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:42:15,752 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:42:17,245 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-5 at 100.69.164.58:8770
+2026-01-13 18:42:18,664 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: hetzner-cpu3 at 100.126.21.102:8770
+2026-01-13 18:42:20,183 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: Mac at 100.69.164.58:8770
+2026-01-13 18:42:23,466 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:42:21 -0600] "POST /heartbeat HTTP/1.1" 200 1936 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:42:25,811 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:25,812 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:13 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:26,482 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:26,484 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:13 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:27,223 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:27,224 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:13 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:27,435 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:27,436 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:13 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:28,120 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:42:28,159 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:13 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:28,159 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:42:15 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:29,699 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:42:28 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:31,226 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:42:28 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:42:32,858 - app.distributed.hybrid_transport - INFO - [Transport] local-mac: Switching back to HTTP
+2026-01-13 18:42:32,873 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:42:34,332 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:42:32 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:42:34,332 - p2p_orchestrator - INFO - First-contact peer registered: hetzner-cpu3 (caps: ['selfplay'])
+2026-01-13 18:42:35,914 - aiohttp.access - INFO - 100.126.21.102 [13/Jan/2026:18:42:32 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:37,324 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:42:32 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:42:37,344 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: hetzner-cpu3, invalidating cluster manifest
+2026-01-13 18:42:37,344 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: hetzner-cpu3, node available for jobs
+2026-01-13 18:42:39,056 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.126.21.102
+2026-01-13 18:42:39,057 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [13/Jan/2026:18:42:28 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:40,676 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:39 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:40,678 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:42:39 -0600] "GET /health HTTP/1.1" 200 725 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:40,699 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:42:32 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:40,700 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:42:45,099 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:40 -0600] "POST /heartbeat HTTP/1.1" 200 1945 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:46,650 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-5 at 100.69.164.58:8770
+2026-01-13 18:42:48,184 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: Mac at 100.69.164.58:8770
+2026-01-13 18:42:49,693 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:42:40 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:49,703 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu3
+2026-01-13 18:42:49,707 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:40 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:51,341 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:42:49 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:42:51,343 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:42:49 -0600] "GET /health HTTP/1.1" 200 726 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:42:51,343 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:49 -0600] "GET /health HTTP/1.1" 200 725 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:51,344 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:42:49 -0600] "GET /health HTTP/1.1" 200 725 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:54,617 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-5 at 100.69.164.58:8770
+2026-01-13 18:42:56,120 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-50-48 at 100.106.87.89:8770
+2026-01-13 18:42:59,284 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:42:57 -0600] "POST /heartbeat HTTP/1.1" 200 1941 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:42:59,285 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:42:51 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:42:59,285 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [13/Jan/2026:18:42:51 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:00,658 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:43:02,020 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:42:59 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:43:02,261 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:02 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:03,850 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:02 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:06,823 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:43:08,877 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:43:06 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:11,953 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:43:08 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:43:11,967 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:43:13,374 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:43:11 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:13,375 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:43:11 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:13,376 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:02 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:13,376 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:43:02 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:13,702 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:13,703 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:42:59 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:14,448 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:14,449 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:42:59 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:14,685 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:14,686 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:42:59 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:15,247 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:15,248 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:42:59 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:15,263 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:43:06 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:15,263 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: 192-222-50-48
+2026-01-13 18:43:18,242 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:16 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:18,404 - p2p_orchestrator - INFO - [P2P] Startup announcement discovered peer: hetzner-cpu2
+2026-01-13 18:43:20,162 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:15 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:21,845 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:43:20 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:43:22,281 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:22,282 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:16 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:23,019 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:23,023 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:16 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:23,882 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:23,883 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:20 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:24,348 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:43:24,350 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:20 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:24,365 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:24 -0600] "GET /health HTTP/1.1" 200 728 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:24,372 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:24 -0600] "GET /health HTTP/1.1" 200 728 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:24,384 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: local-mac
+2026-01-13 18:43:24,385 - aiohttp.access - INFO - 100.126.21.102 [13/Jan/2026:18:43:24 -0600] "GET /game_counts HTTP/1.1" 200 467 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:26,566 - aiohttp.access - INFO - 100.126.21.102 [13/Jan/2026:18:43:25 -0600] "POST /heartbeat HTTP/1.1" 200 1941 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:28,280 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:43:26 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:43:30,195 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:28 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:31,833 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-195 at 100.68.208.43:8770
+2026-01-13 18:43:33,266 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-13 18:43:34,629 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.217.168:7947 at 46.62.217.168:8770
+2026-01-13 18:43:36,172 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.94.174.19:7947 at 100.94.174.19:8770
+2026-01-13 18:43:37,621 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.147.150:7947 at 46.62.147.150:8770
+2026-01-13 18:43:39,227 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-cpu3 at 100.126.21.102:8770
+2026-01-13 18:43:40,710 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: Mac.localdomain at 127.0.0.1:8770
+2026-01-13 18:43:42,318 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:43:28 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:44,008 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:42 -0600] "POST /heartbeat HTTP/1.1" 200 1939 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:43:52,642 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-gpu at 100.94.201.92:8770
+2026-01-13 18:43:54,187 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 192-222-51-195 at 100.68.208.43:8770
+2026-01-13 18:43:55,507 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: MacBook-Pro-2 at 100.69.164.58:8770
+2026-01-13 18:43:57,027 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.217.168:7947 at 46.62.217.168:8770
+2026-01-13 18:43:58,469 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 100.94.174.19:7947 at 100.94.174.19:8770
+2026-01-13 18:43:59,946 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: 46.62.147.150:7947 at 46.62.147.150:8770
+2026-01-13 18:44:01,405 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: ringrift-cpu3 at 100.126.21.102:8770
+2026-01-13 18:44:02,933 - p2p_orchestrator - INFO - Attempting connection to gossip-learned peer: Mac.localdomain at 127.0.0.1:8770
+2026-01-13 18:44:04,504 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:43:42 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:04,505 - aiohttp.access - INFO - 100.106.87.89 [13/Jan/2026:18:43:42 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:04,505 - aiohttp.access - INFO - 100.77.186.124 [13/Jan/2026:18:43:42 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:04,505 - aiohttp.access - INFO - 100.126.21.102 [13/Jan/2026:18:43:42 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:06,141 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:44:04 -0600] "POST /heartbeat HTTP/1.1" 200 1941 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:44:07,804 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:44:04 -0600] "POST /heartbeat HTTP/1.1" 200 1940 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:44:07,946 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:43:42 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:07,947 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:43:42 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:07,947 - aiohttp.access - INFO - fd7a:115c:a1e0::1d01:1390 [13/Jan/2026:18:43:42 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:07,947 - aiohttp.access - INFO - fd7a:115c:a1e0::8c01:1567 [13/Jan/2026:18:43:42 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:07,949 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:43:42 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:07,980 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:07,981 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:07,982 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:07,983 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:07,984 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: lambda-gh200-training
+2026-01-13 18:44:07,991 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-13 18:44:07,996 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu3
+2026-01-13 18:44:07,999 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu1
+2026-01-13 18:44:08,003 - p2p_orchestrator - INFO - Successfully connected to gossip-learned peer: hetzner-cpu3
+2026-01-13 18:44:10,494 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:07 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:10,495 - aiohttp.access - INFO - 100.106.87.89 [13/Jan/2026:18:44:07 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:12,037 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:44:07 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:13,451 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:44:07 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:13,452 - aiohttp.access - INFO - 100.106.87.89 [13/Jan/2026:18:44:07 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:13,454 - aiohttp.access - INFO - 100.106.87.89 [13/Jan/2026:18:44:07 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:14,906 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:44:07 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:14,908 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:44:07 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:15,411 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:44:15,413 - aiohttp.access - INFO - 100.69.101.108 [13/Jan/2026:18:43:42 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:15,895 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:44:15,896 - aiohttp.access - INFO - 100.69.101.108 [13/Jan/2026:18:43:42 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:16,218 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:44:16,219 - aiohttp.access - INFO - 100.69.101.108 [13/Jan/2026:18:43:42 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:16,810 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:44:16,811 - aiohttp.access - INFO - 100.69.101.108 [13/Jan/2026:18:43:42 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:19,906 - p2p_orchestrator - INFO - First-contact peer registered: lambda-gh200-3 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-13 18:44:21,177 - aiohttp.access - INFO - 100.69.101.108 [13/Jan/2026:18:44:14 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:22,715 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:14 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:22,717 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:14 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:22,717 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:14 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:22,718 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:14 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:24,173 - aiohttp.access - INFO - 100.126.21.102 [13/Jan/2026:18:44:14 -0600] "POST /heartbeat HTTP/1.1" 200 1943 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:24,454 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:14 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:25,938 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:44:14 -0600] "POST /heartbeat HTTP/1.1" 200 1940 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:27,428 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:44:14 -0600] "POST /heartbeat HTTP/1.1" 200 1931 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:29,130 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:44:14 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:29,130 - p2p_orchestrator - INFO - First-contact peer registered: 192-222-57-210 (caps: ['selfplay', 'training', 'cmaes', 'large_boards'])
+2026-01-13 18:44:30,615 - aiohttp.access - INFO - 100.71.89.91 [13/Jan/2026:18:44:14 -0600] "POST /heartbeat HTTP/1.1" 200 1945 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:30,616 - aiohttp.access - INFO - 100.67.131.72 [13/Jan/2026:18:44:14 -0600] "GET /health HTTP/1.1" 200 727 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:30,617 - aiohttp.access - INFO - 100.67.131.72 [13/Jan/2026:18:44:14 -0600] "GET /peers HTTP/1.1" 404 174 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:30,619 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: lambda-gh200-3, invalidating cluster manifest
+2026-01-13 18:44:30,619 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: lambda-gh200-3, node available for jobs
+2026-01-13 18:44:38,054 - scripts.p2p.p2p_mixin_base - INFO - [sync_planner] HOST_ONLINE: 192-222-57-210, invalidating cluster manifest
+2026-01-13 18:44:38,054 - scripts.p2p.p2p_mixin_base - INFO - [job_manager] HOST_ONLINE: 192-222-57-210, node available for jobs
+2026-01-13 18:44:38,107 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.69.101.108
+2026-01-13 18:44:38,109 - aiohttp.access - INFO - 100.67.131.72 [13/Jan/2026:18:44:14 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:38,110 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:14 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:38,113 - app.coordination.sync_router - INFO - [SyncRouter] Added new node: 100.71.89.91
+2026-01-13 18:44:39,941 - aiohttp.access - INFO - 127.0.0.1 [13/Jan/2026:18:44:38 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:44:42,070 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:44:38 -0600] "POST /heartbeat HTTP/1.1" 200 1944 "-" "Python/3.10 aiohttp/3.13.3"
+2026-01-13 18:44:42,071 - aiohttp.access - INFO - 100.67.131.72 [13/Jan/2026:18:44:38 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:42,074 - aiohttp.access - INFO - 100.106.87.89 [13/Jan/2026:18:44:14 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:42,075 - aiohttp.access - INFO - 100.69.101.108 [13/Jan/2026:18:44:14 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:42,109 - aiohttp.access - INFO - 100.94.174.19 [13/Jan/2026:18:44:14 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.12.14"
+2026-01-13 18:44:42,149 - aiohttp.access - INFO - fd7a:115c:a1e0::4801:578a [13/Jan/2026:18:44:14 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:42,151 - aiohttp.access - INFO - fd7a:115c:a1e0::1:611a [13/Jan/2026:18:44:14 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:44,349 - aiohttp.access - INFO - 100.69.101.108 [13/Jan/2026:18:44:42 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:45,835 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:42 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:47,359 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:42 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:47,361 - aiohttp.access - INFO - 100.106.87.89 [13/Jan/2026:18:44:14 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:47,361 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:14 -0600] "POST /gossip HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:47,363 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: gossip_metrics timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: distributed_training timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: cluster_elo timed out
+2026-01-13 18:44:47,364 - p2p_orchestrator - WARNING - handle_status: node_recovery timed out
+2026-01-13 18:44:47,365 - p2p_orchestrator - WARNING - handle_status: leader_consensus timed out
+2026-01-13 18:44:47,365 - p2p_orchestrator - WARNING - handle_status: peer_reputation timed out
+2026-01-13 18:44:47,365 - p2p_orchestrator - WARNING - handle_status: sync_intervals timed out
+2026-01-13 18:44:47,365 - p2p_orchestrator - WARNING - handle_status: tournament_scheduling timed out
+2026-01-13 18:44:47,365 - p2p_orchestrator - WARNING - handle_status: data_dedup timed out
+2026-01-13 18:44:49,432 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:47 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:51,049 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:47 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:51,051 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:47 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:51,051 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:47 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:51,052 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:47 -0600] "GET /peers HTTP/1.1" 404 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:52,680 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:44:47 -0600] "POST /heartbeat HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:52,682 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:44:47 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:44:52,682 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:47 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:44:52,683 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:47 -0600] "GET /health HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:45:07,876 - app.distributed.hybrid_transport - INFO - [Transport] hetzner-cpu1: Switching to SSH after 3 HTTP failures
+2026-01-13 18:45:07,896 - app.distributed.hybrid_transport - INFO - [Transport] hetzner-cpu3: Switching to SSH after 3 HTTP failures
+2026-01-13 18:45:08,137 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:45:08,139 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:44:14 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:08,896 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:45:08,898 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:44:14 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:09,509 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:45:09,511 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:44:14 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:09,948 - p2p_orchestrator - WARNING - [VoterHealth] Status: 3/4 voters alive, quorum=OK, offline: ['lambda-gh200-8']
+2026-01-13 18:45:09,949 - aiohttp.access - INFO - 100.100.19.96 [13/Jan/2026:18:44:14 -0600] "GET /status HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:09,954 - aiohttp.access - INFO - 100.127.168.116 [13/Jan/2026:18:44:47 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:09,957 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:47 -0600] "GET /game_counts HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:45:09,982 - aiohttp.access - INFO - fd7a:115c:a1e0::1c01:ba91 [13/Jan/2026:18:44:47 -0600] "POST /gossip/anti-entropy HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:09,986 - aiohttp.access - INFO - 100.68.208.43 [13/Jan/2026:18:44:47 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:09,986 - aiohttp.access - INFO - 100.115.97.24 [13/Jan/2026:18:44:47 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.11 aiohttp/3.12.14"
+2026-01-13 18:45:09,986 - aiohttp.access - INFO - 100.127.168.116 [13/Jan/2026:18:44:47 -0600] "GET /relay/peers HTTP/1.1" 200 0 "-" "Python/3.10 aiohttp/3.13.2"
+2026-01-13 18:45:12,365 - aiohttp.access - INFO - 100.69.164.58 [13/Jan/2026:18:45:09 -0600] "POST /heartbeat HTTP/1.1" 200 1942 "-" "Python/3.10 aiohttp/3.13.3"

@@ -205,6 +205,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const connectionRef = useRef<GameConnection | null>(null);
   const lastStatusRef = useRef<ConnectionStatus | null>(null);
   const hasEverConnectedRef = useRef(false);
+  // Ref to track current gameId without causing connectToGame to re-create on gameId changes
+  const gameIdRef = useRef<string | null>(null);
+
+  // Keep gameIdRef in sync with state (for use in callbacks without deps)
+  useEffect(() => {
+    gameIdRef.current = gameId;
+  }, [gameId]);
 
   const getConnection = useCallback((): GameConnection => {
     if (connectionRef.current) {
@@ -463,7 +470,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     async (targetGameId: string) => {
       const connection = getConnection();
 
-      if (gameId === targetGameId && connection.status !== 'disconnected') {
+      // Use ref instead of state to avoid re-creating this callback when gameId changes
+      if (gameIdRef.current === targetGameId && connection.status !== 'disconnected') {
         return;
       }
 
@@ -486,7 +494,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         setConnectionStatus('disconnected');
       }
     },
-    [gameId, disconnect, getConnection]
+    [disconnect, getConnection]
   );
   // Clean up on unmount
   useEffect(() => {

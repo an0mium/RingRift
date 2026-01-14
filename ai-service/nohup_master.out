@@ -7491,3 +7491,638 @@ RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 2026-01-13 18:33:12,587 - app.coordination.unified_queue_populator - ERROR - Failed to add replacement selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hexagonal_4p_1768350792586 rejected. Wait for queue to drain or use force=True.
 2026-01-13 18:35:44,688 - app.coordination.unified_queue_populator - ERROR - Failed to add training item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item training_square8_2p_1768350944687 rejected. Wait for queue to drain or use force=True.
 2026-01-13 18:38:31,910 - app.coordination.unified_queue_populator - ERROR - Failed to add training item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item training_square8_3p_1768351111909 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,770 - app.coordination.unified_queue_populator - ERROR - Failed to add training item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item training_square8_4p_1768351255769 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,770 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Training skipped for 1 configs (no data), added 0 training + 1 extra selfplay
+2026-01-13 18:40:55,771 - app.coordination.unified_queue_populator - ERROR - Failed to add tournament item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item tournament_square8_2p_1768351255770 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,771 - app.coordination.unified_queue_populator - ERROR - Failed to add tournament item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item tournament_square8_3p_1768351255771 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,772 - app.coordination.unified_queue_populator - ERROR - Failed to add tournament item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item tournament_square8_4p_1768351255771 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,773 - app.coordination.unified_queue_populator - ERROR - Failed to add tournament item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item tournament_square19_2p_1768351255772 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,773 - app.coordination.unified_queue_populator - ERROR - Failed to add tournament item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item tournament_square19_3p_1768351255773 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,774 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_square8_2p_1768351255774 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,775 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_square8_3p_1768351255774 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,776 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_square8_4p_1768351255775 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,776 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_square19_2p_1768351255776 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,777 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_hex8_2p_1768351255776 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,778 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_hex8_3p_1768351255777 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,779 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_hex8_4p_1768351255778 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,779 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_hexagonal_2p_1768351255779 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,780 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_hexagonal_3p_1768351255779 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,781 - app.coordination.unified_queue_populator - ERROR - Failed to add sweep item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item sweep_hexagonal_4p_1768351255780 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,784 - app.coordination.unified_queue_populator - ERROR - [Exploration] Failed to add item for square8_2p: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_2p_1768351255781 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,786 - app.coordination.unified_queue_populator - ERROR - [Exploration] Failed to add item for square8_3p: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_3p_1768351255784 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,788 - app.coordination.unified_queue_populator - ERROR - [Exploration] Failed to add item for square8_4p: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_4p_1768351255786 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:40:55,788 - app.coordination.unified_queue_populator - INFO - Populated queue with 0 items (selfplay=31, training=0, tournament=5, sweeps=0, exploration=0)
+2026-01-13 18:40:56,475 - app.coordination.p2p_recovery_daemon - CRITICAL - VOTER QUORUM LOST: 0/3 voters online (need 4 for quorum)
+2026-01-13 18:40:56,476 - app.coordination.p2p_recovery_daemon - INFO - Triggering proactive quorum recovery (consecutive at-risk checks: 2)
+2026-01-13 18:40:56,481 - app.coordination.quorum_recovery - INFO - QuorumRecovery: Loaded 3 voters, 18 GPU nodes from config
+2026-01-13 18:40:56,482 - app.coordination.sync_event_mixin - WARNING - [AutoSyncDaemon] DATA_STALE received for square8_2p: age=5.4h - triggering urgent sync
+2026-01-13 18:40:56,533 - app.coordination.event_normalization - WARNING - [EventTypeValidator] Unknown event type: 'comprehensive_consolidation_complete'. Did you mean: CONSOLIDATION_COMPLETE, consolidation_complete, comprehensive_evaluation_completed?
+2026-01-13 18:40:56,534 - app.coordination.event_router - WARNING - [EventRouter] Unknown event type: 'comprehensive_consolidation_complete'. Did you mean: CONSOLIDATION_COMPLETE, consolidation_complete, comprehensive_evaluation_completed?. Event will still be published but may not be received by subscribers.
+2026-01-13 18:40:56,536 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-13 18:40:56,536 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-13 18:40:56,536 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-13 18:40:56,537 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-13 18:40:56,537 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-13 18:40:56,537 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-13 18:40:56,538 - app.coordination.resource_monitoring_coordinator - WARNING - [ResourceMonitoringCoordinator] Backpressure activated: ringrift-gh200-8 (critical)
+2026-01-13 18:40:56,543 - app.coordination.unified_health_manager - INFO - [UnifiedHealthManager] Daemon started: availability_recovery_engine on Mac.localdomain
+2026-01-13 18:40:56,544 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:40:56,544 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:40:56,544 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:40:56,544 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:40:56,545 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:40:56,545 - app.coordination.owc_push_daemon - INFO - [OWCPush] Pushed canonical_square8_4p.db (123.6 MB)
+2026-01-13 18:40:56,568 - app.coordination.unified_backup_daemon - WARNING - [UnifiedBackup] S3 push timed out for square8_3p.db
+2026-01-13 18:40:56,569 - app.coordination.s3_push_daemon - WARNING - [S3PushDaemon] Push canonical_hex8_2p.db timed out (attempt 1/5). Retrying in 0.0s
+2026-01-13 18:40:56,581 - app.coordination.reactive_dispatcher - WARNING - [ReactiveDispatcher] P2P leader unknown, cannot dispatch
+2026-01-13 18:40:56,603 - app.coordination.reactive_dispatcher - WARNING - [ReactiveDispatcher] Dispatch failed for host_online
+2026-01-13 18:40:56,610 - app.providers.lambda_manager - ERROR - Lambda API request failed: 
+2026-01-13 18:40:56,611 - app.integration.p2p_integration - ERROR - P2P API request failed: GET /api/cluster/status: 
+2026-01-13 18:40:56,611 - app.integration.p2p_integration - ERROR - P2P API request failed: GET /api/cluster/status: 
+2026-01-13 18:40:56,613 - app.coordination.unified_distribution_daemon - WARNING - [DistributionVerification] Timeout: canonical_square19_4p_20251225_115114.pth only on 0/5 nodes
+2026-01-13 18:40:56,614 - app.coordination.evaluation_daemon - WARNING - [EvaluationDaemon] Model models/canonical_square19_4p_20251225_115114.pth distribution incomplete: 0/5 nodes
+2026-01-13 18:40:56,614 - app.coordination.evaluation_daemon - WARNING - [EvaluationDaemon] Skipping evaluation: models/canonical_square19_4p_20251225_115114.pth not available on sufficient nodes (0 nodes)
+2026-01-13 18:40:56,614 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued retry #2 for models/canonical_square19_4p_20251225_115114.pth in 131s (reason: distribution_incomplete:0)
+2026-01-13 18:40:56,614 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Re-queued retry #2 for models/canonical_square8_2p_retrained_20260112_150223.pth
+2026-01-13 18:40:56,616 - app.coordination.reactive_dispatcher - INFO - [ReactiveDispatcher] Stats: received=20, dispatched=0, deduplicated=6, dropped_backpressure=0, queue_size=11
+2026-01-13 18:40:56,616 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Running periodic unevaluated model scan (interval=5min)
+2026-01-13 18:40:56,616 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Starting scan for unevaluated canonical models...
+2026-01-13 18:40:56,618 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_150223.pth (square8_2p)
+2026-01-13 18:40:56,619 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_150223.pth (square8_2p)
+2026-01-13 18:40:56,620 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_150223.pth (square8_2p)
+2026-01-13 18:40:56,620 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_150223.pth (square8_2p)
+2026-01-13 18:40:56,621 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_4p_20251225_115114.pth (square19_4p)
+2026-01-13 18:40:56,621 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_4p_20251225_115114.pth (square19_4p)
+2026-01-13 18:40:56,621 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_4p_20251225_115114.pth (square19_4p)
+2026-01-13 18:40:56,622 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_4p_20251225_115114.pth (square19_4p)
+2026-01-13 18:40:56,623 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_sq8_2p_v1.pth (sq8_2p)
+2026-01-13 18:40:56,623 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_sq8_2p_v1.pth (sq8_2p)
+2026-01-13 18:40:56,623 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_sq8_2p_v1.pth (sq8_2p)
+2026-01-13 18:40:56,623 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_sq8_2p_v1.pth (sq8_2p)
+2026-01-13 18:40:56,624 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_4p_20251225_115300.pth (square19_4p)
+2026-01-13 18:40:56,624 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_4p_20251225_115300.pth (square19_4p)
+2026-01-13 18:40:56,624 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_4p_20251225_115300.pth (square19_4p)
+2026-01-13 18:40:56,624 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_4p_20251225_115300.pth (square19_4p)
+2026-01-13 18:40:56,625 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_new_20251227_092521.pth (square8_2p)
+2026-01-13 18:40:56,625 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_new_20251227_092521.pth (square8_2p)
+2026-01-13 18:40:56,625 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_new_20251227_092521.pth (square8_2p)
+2026-01-13 18:40:56,625 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_new_20251227_092521.pth (square8_2p)
+2026-01-13 18:40:56,626 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,626 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,626 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,626 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,627 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,627 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,627 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,627 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,628 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,628 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,628 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,628 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,629 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_173402.pth (square8_2p)
+2026-01-13 18:40:56,629 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_173402.pth (square8_2p)
+2026-01-13 18:40:56,629 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_173402.pth (square8_2p)
+2026-01-13 18:40:56,629 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_173402.pth (square8_2p)
+2026-01-13 18:40:56,630 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_162123.pth (square8_2p)
+2026-01-13 18:40:56,630 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_162123.pth (square8_2p)
+2026-01-13 18:40:56,630 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_162123.pth (square8_2p)
+2026-01-13 18:40:56,630 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_162123.pth (square8_2p)
+2026-01-13 18:40:56,630 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,631 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,631 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,631 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,631 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_120138.pth (square8_2p)
+2026-01-13 18:40:56,632 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_120138.pth (square8_2p)
+2026-01-13 18:40:56,632 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_120138.pth (square8_2p)
+2026-01-13 18:40:56,633 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_120138.pth (square8_2p)
+2026-01-13 18:40:56,633 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,633 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,633 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,634 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,634 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,634 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,634 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,635 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,635 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,635 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,635 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,636 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,636 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_2p_v2.pth (hex8_2p)
+2026-01-13 18:40:56,636 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_2p_v2.pth (hex8_2p)
+2026-01-13 18:40:56,636 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_2p_v2.pth (hex8_2p)
+2026-01-13 18:40:56,637 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_2p_v2.pth (hex8_2p)
+2026-01-13 18:40:56,637 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_4p_20251225_114856.pth (hexagonal_4p)
+2026-01-13 18:40:56,637 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_4p_20251225_114856.pth (hexagonal_4p)
+2026-01-13 18:40:56,637 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_4p_20251225_114856.pth (hexagonal_4p)
+2026-01-13 18:40:56,637 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_4p_20251225_114856.pth (hexagonal_4p)
+2026-01-13 18:40:56,638 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,638 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,638 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,638 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,639 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_114818.pth (square8_2p)
+2026-01-13 18:40:56,639 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_114818.pth (square8_2p)
+2026-01-13 18:40:56,639 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_114818.pth (square8_2p)
+2026-01-13 18:40:56,639 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_114818.pth (square8_2p)
+2026-01-13 18:40:56,640 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_4p_v2.pth (square19_4p)
+2026-01-13 18:40:56,640 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_4p_v2.pth (square19_4p)
+2026-01-13 18:40:56,640 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_4p_v2.pth (square19_4p)
+2026-01-13 18:40:56,641 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_4p_v2.pth (square19_4p)
+2026-01-13 18:40:56,641 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_4p_20251225_114843.pth (hexagonal_4p)
+2026-01-13 18:40:56,641 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_4p_20251225_114843.pth (hexagonal_4p)
+2026-01-13 18:40:56,642 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_4p_20251225_114843.pth (hexagonal_4p)
+2026-01-13 18:40:56,642 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_4p_20251225_114843.pth (hexagonal_4p)
+2026-01-13 18:40:56,643 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,643 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,644 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,644 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,644 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-13 18:40:56,645 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-13 18:40:56,645 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-13 18:40:56,645 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-13 18:40:56,645 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,646 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,646 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,646 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,646 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_3p_jan8_averaged.pth (hexagonal_3p)
+2026-01-13 18:40:56,647 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_3p_jan8_averaged.pth (hexagonal_3p)
+2026-01-13 18:40:56,647 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_3p_jan8_averaged.pth (hexagonal_3p)
+2026-01-13 18:40:56,647 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_3p_jan8_averaged.pth (hexagonal_3p)
+2026-01-13 18:40:56,647 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,648 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,648 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,648 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,648 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-13 18:40:56,648 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-13 18:40:56,649 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-13 18:40:56,649 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-13 18:40:56,649 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,649 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,650 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,650 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,650 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,650 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,651 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,651 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,651 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,651 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,651 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,652 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,652 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_123304.pth (square8_2p)
+2026-01-13 18:40:56,652 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_123304.pth (square8_2p)
+2026-01-13 18:40:56,652 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_123304.pth (square8_2p)
+2026-01-13 18:40:56,653 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_123304.pth (square8_2p)
+2026-01-13 18:40:56,654 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_4p_20251225_115036.pth (square19_4p)
+2026-01-13 18:40:56,654 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_4p_20251225_115036.pth (square19_4p)
+2026-01-13 18:40:56,654 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_4p_20251225_115036.pth (square19_4p)
+2026-01-13 18:40:56,654 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_4p_20251225_115036.pth (square19_4p)
+2026-01-13 18:40:56,655 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_151419.pth (square8_2p)
+2026-01-13 18:40:56,656 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_151419.pth (square8_2p)
+2026-01-13 18:40:56,656 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_151419.pth (square8_2p)
+2026-01-13 18:40:56,656 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_151419.pth (square8_2p)
+2026-01-13 18:40:56,657 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_3p_new.pth (hex8_3p)
+2026-01-13 18:40:56,657 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_3p_new.pth (hex8_3p)
+2026-01-13 18:40:56,657 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_3p_new.pth (hex8_3p)
+2026-01-13 18:40:56,657 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_3p_new.pth (hex8_3p)
+2026-01-13 18:40:56,658 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_2p_new.pth (hex8_2p)
+2026-01-13 18:40:56,658 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_2p_new.pth (hex8_2p)
+2026-01-13 18:40:56,658 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_2p_new.pth (hex8_2p)
+2026-01-13 18:40:56,659 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_2p_new.pth (hex8_2p)
+2026-01-13 18:40:56,659 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_2p_new_20251227_082254.pth (hex8_2p)
+2026-01-13 18:40:56,659 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_2p_new_20251227_082254.pth (hex8_2p)
+2026-01-13 18:40:56,659 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_2p_new_20251227_082254.pth (hex8_2p)
+2026-01-13 18:40:56,660 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_2p_new_20251227_082254.pth (hex8_2p)
+2026-01-13 18:40:56,660 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_fixed.pth (square8_2p)
+2026-01-13 18:40:56,660 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_fixed.pth (square8_2p)
+2026-01-13 18:40:56,660 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_fixed.pth (square8_2p)
+2026-01-13 18:40:56,661 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_fixed.pth (square8_2p)
+2026-01-13 18:40:56,661 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_2p_new_20251227_082137.pth (hex8_2p)
+2026-01-13 18:40:56,661 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_2p_new_20251227_082137.pth (hex8_2p)
+2026-01-13 18:40:56,661 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_2p_new_20251227_082137.pth (hex8_2p)
+2026-01-13 18:40:56,661 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_2p_new_20251227_082137.pth (hex8_2p)
+2026-01-13 18:40:56,663 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_4p_20251225_114913.pth (hexagonal_4p)
+2026-01-13 18:40:56,663 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_4p_20251225_114913.pth (hexagonal_4p)
+2026-01-13 18:40:56,664 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_4p_20251225_114913.pth (hexagonal_4p)
+2026-01-13 18:40:56,664 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_4p_20251225_114913.pth (hexagonal_4p)
+2026-01-13 18:40:56,665 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_4p_20251225_115147.pth (square19_4p)
+2026-01-13 18:40:56,666 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_4p_20251225_115147.pth (square19_4p)
+2026-01-13 18:40:56,666 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_4p_20251225_115147.pth (square19_4p)
+2026-01-13 18:40:56,666 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_4p_20251225_115147.pth (square19_4p)
+2026-01-13 18:40:56,666 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_4p_20251225_114904.pth (hexagonal_4p)
+2026-01-13 18:40:56,667 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_4p_20251225_114904.pth (hexagonal_4p)
+2026-01-13 18:40:56,667 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_4p_20251225_114904.pth (hexagonal_4p)
+2026-01-13 18:40:56,667 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_4p_20251225_114904.pth (hexagonal_4p)
+2026-01-13 18:40:56,667 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained.pth (square8_2p)
+2026-01-13 18:40:56,668 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained.pth (square8_2p)
+2026-01-13 18:40:56,668 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained.pth (square8_2p)
+2026-01-13 18:40:56,668 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained.pth (square8_2p)
+2026-01-13 18:40:56,668 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_new_20251227_093225.pth (square8_2p)
+2026-01-13 18:40:56,669 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_new_20251227_093225.pth (square8_2p)
+2026-01-13 18:40:56,669 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_new_20251227_093225.pth (square8_2p)
+2026-01-13 18:40:56,669 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_new_20251227_093225.pth (square8_2p)
+2026-01-13 18:40:56,669 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_3p_v2.pth (square19_3p)
+2026-01-13 18:40:56,670 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_3p_v2.pth (square19_3p)
+2026-01-13 18:40:56,670 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_3p_v2.pth (square19_3p)
+2026-01-13 18:40:56,670 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_3p_v2.pth (square19_3p)
+2026-01-13 18:40:56,670 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_new.pth (square8_2p)
+2026-01-13 18:40:56,671 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_new.pth (square8_2p)
+2026-01-13 18:40:56,671 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_new.pth (square8_2p)
+2026-01-13 18:40:56,671 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_new.pth (square8_2p)
+2026-01-13 18:40:56,671 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_new_20251227_092853.pth (square8_2p)
+2026-01-13 18:40:56,671 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_new_20251227_092853.pth (square8_2p)
+2026-01-13 18:40:56,672 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_new_20251227_092853.pth (square8_2p)
+2026-01-13 18:40:56,672 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_new_20251227_092853.pth (square8_2p)
+2026-01-13 18:40:56,672 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_124557.pth (square8_2p)
+2026-01-13 18:40:56,672 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_124557.pth (square8_2p)
+2026-01-13 18:40:56,673 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_124557.pth (square8_2p)
+2026-01-13 18:40:56,673 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_124557.pth (square8_2p)
+2026-01-13 18:40:56,673 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_v2.pth (square8_2p)
+2026-01-13 18:40:56,673 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_v2.pth (square8_2p)
+2026-01-13 18:40:56,674 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_v2.pth (square8_2p)
+2026-01-13 18:40:56,674 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_v2.pth (square8_2p)
+2026-01-13 18:40:56,674 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_125857.pth (square8_2p)
+2026-01-13 18:40:56,674 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_125857.pth (square8_2p)
+2026-01-13 18:40:56,675 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_125857.pth (square8_2p)
+2026-01-13 18:40:56,675 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_125857.pth (square8_2p)
+2026-01-13 18:40:56,675 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_new_20251227_091025.pth (square8_2p)
+2026-01-13 18:40:56,676 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_new_20251227_091025.pth (square8_2p)
+2026-01-13 18:40:56,676 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_new_20251227_091025.pth (square8_2p)
+2026-01-13 18:40:56,676 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_new_20251227_091025.pth (square8_2p)
+2026-01-13 18:40:56,676 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_121359.pth (square8_2p)
+2026-01-13 18:40:56,677 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_121359.pth (square8_2p)
+2026-01-13 18:40:56,677 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_121359.pth (square8_2p)
+2026-01-13 18:40:56,677 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_121359.pth (square8_2p)
+2026-01-13 18:40:56,677 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-13 18:40:56,677 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-13 18:40:56,678 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-13 18:40:56,678 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-13 18:40:56,678 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,678 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,679 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,679 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,679 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_4p_20251225_115333.pth (square19_4p)
+2026-01-13 18:40:56,679 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_4p_20251225_115333.pth (square19_4p)
+2026-01-13 18:40:56,680 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_4p_20251225_115333.pth (square19_4p)
+2026-01-13 18:40:56,680 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_4p_20251225_115333.pth (square19_4p)
+2026-01-13 18:40:56,680 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_2p_20260113_141122.pth (hex8_2p)
+2026-01-13 18:40:56,680 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_2p_20260113_141122.pth (hex8_2p)
+2026-01-13 18:40:56,681 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_2p_20260113_141122.pth (hex8_2p)
+2026-01-13 18:40:56,681 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_2p_20260113_141122.pth (hex8_2p)
+2026-01-13 18:40:56,681 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_new_20251227_091741.pth (square8_2p)
+2026-01-13 18:40:56,681 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_new_20251227_091741.pth (square8_2p)
+2026-01-13 18:40:56,681 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_new_20251227_091741.pth (square8_2p)
+2026-01-13 18:40:56,682 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_new_20251227_091741.pth (square8_2p)
+2026-01-13 18:40:56,682 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p_retrained_20260112_021825.pth (square8_2p)
+2026-01-13 18:40:56,682 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p_retrained_20260112_021825.pth (square8_2p)
+2026-01-13 18:40:56,682 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p_retrained_20260112_021825.pth (square8_2p)
+2026-01-13 18:40:56,683 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p_retrained_20260112_021825.pth (square8_2p)
+2026-01-13 18:40:56,683 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_4p_v2.pth (hex8_4p)
+2026-01-13 18:40:56,683 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_4p_v2.pth (hex8_4p)
+2026-01-13 18:40:56,684 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_4p_v2.pth (hex8_4p)
+2026-01-13 18:40:56,684 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_4p_v2.pth (hex8_4p)
+2026-01-13 18:40:56,684 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_4p_new.pth (hex8_4p)
+2026-01-13 18:40:56,685 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_4p_new.pth (hex8_4p)
+2026-01-13 18:40:56,685 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_4p_new.pth (hex8_4p)
+2026-01-13 18:40:56,685 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_4p_new.pth (hex8_4p)
+2026-01-13 18:40:56,686 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,686 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,687 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,687 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_3p.pth (sq8_3p)
+2026-01-13 18:40:56,687 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_4p_20251214_010722.pth (sq8_4p)
+2026-01-13 18:40:56,687 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_4p_20251214_010722.pth (sq8_4p)
+2026-01-13 18:40:56,688 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_4p_20251214_010722.pth (sq8_4p)
+2026-01-13 18:40:56,688 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_4p_20251214_010722.pth (sq8_4p)
+2026-01-13 18:40:56,688 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,688 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,689 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,689 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_square19_3p.pth (square19_3p)
+2026-01-13 18:40:56,689 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_4p_20251214_010658.pth (hex_4p)
+2026-01-13 18:40:56,690 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_4p_20251214_010658.pth (hex_4p)
+2026-01-13 18:40:56,690 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_4p_20251214_010658.pth (hex_4p)
+2026-01-13 18:40:56,690 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_4p_20251214_010658.pth (hex_4p)
+2026-01-13 18:40:56,691 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_3p_20251214_010709.pth (sq19_3p)
+2026-01-13 18:40:56,691 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_3p_20251214_010709.pth (sq19_3p)
+2026-01-13 18:40:56,691 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_3p_20251214_010709.pth (sq19_3p)
+2026-01-13 18:40:56,692 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_3p_20251214_010709.pth (sq19_3p)
+2026-01-13 18:40:56,692 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,692 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,693 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,693 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_square19_2p.pth (square19_2p)
+2026-01-13 18:40:56,693 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_4p.pth (sq19_4p)
+2026-01-13 18:40:56,693 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_4p.pth (sq19_4p)
+2026-01-13 18:40:56,694 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_4p.pth (sq19_4p)
+2026-01-13 18:40:56,694 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_4p.pth (sq19_4p)
+2026-01-13 18:40:56,694 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_2p_mps.pth (sq8_2p)
+2026-01-13 18:40:56,694 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_2p_mps.pth (sq8_2p)
+2026-01-13 18:40:56,695 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_2p_mps.pth (sq8_2p)
+2026-01-13 18:40:56,695 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_2p_mps.pth (sq8_2p)
+2026-01-13 18:40:56,695 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_3p_mps.pth (sq8_3p)
+2026-01-13 18:40:56,695 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_3p_mps.pth (sq8_3p)
+2026-01-13 18:40:56,695 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_3p_mps.pth (sq8_3p)
+2026-01-13 18:40:56,696 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_3p_mps.pth (sq8_3p)
+2026-01-13 18:40:56,696 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,696 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,696 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,697 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_2p.pth (sq8_2p)
+2026-01-13 18:40:56,697 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_3p_mps.pth (hex_3p)
+2026-01-13 18:40:56,697 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_3p_mps.pth (hex_3p)
+2026-01-13 18:40:56,697 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_3p_mps.pth (hex_3p)
+2026-01-13 18:40:56,698 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_3p_mps.pth (hex_3p)
+2026-01-13 18:40:56,698 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_2p_mps.pth (hex_2p)
+2026-01-13 18:40:56,698 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_2p_mps.pth (hex_2p)
+2026-01-13 18:40:56,698 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_2p_mps.pth (hex_2p)
+2026-01-13 18:40:56,698 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_2p_mps.pth (hex_2p)
+2026-01-13 18:40:56,699 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_3p.pth (sq19_3p)
+2026-01-13 18:40:56,699 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_3p.pth (sq19_3p)
+2026-01-13 18:40:56,699 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_3p.pth (sq19_3p)
+2026-01-13 18:40:56,699 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_3p.pth (sq19_3p)
+2026-01-13 18:40:56,700 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_4p_20251214_010714.pth (sq19_4p)
+2026-01-13 18:40:56,700 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_4p_20251214_010714.pth (sq19_4p)
+2026-01-13 18:40:56,700 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_4p_20251214_010714.pth (sq19_4p)
+2026-01-13 18:40:56,700 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_4p_20251214_010714.pth (sq19_4p)
+2026-01-13 18:40:56,701 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_2p_new.pth (sq8_2p)
+2026-01-13 18:40:56,702 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_2p_new.pth (sq8_2p)
+2026-01-13 18:40:56,702 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_2p_new.pth (sq8_2p)
+2026-01-13 18:40:56,703 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_2p_new.pth (sq8_2p)
+2026-01-13 18:40:56,703 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_4p_mps.pth (sq8_4p)
+2026-01-13 18:40:56,704 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_4p_mps.pth (sq8_4p)
+2026-01-13 18:40:56,704 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_4p_mps.pth (sq8_4p)
+2026-01-13 18:40:56,704 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_4p_mps.pth (sq8_4p)
+2026-01-13 18:40:56,704 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_3p_20251214_010653.pth (hex_3p)
+2026-01-13 18:40:56,705 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_3p_20251214_010653.pth (hex_3p)
+2026-01-13 18:40:56,705 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_3p_20251214_010653.pth (hex_3p)
+2026-01-13 18:40:56,705 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_3p_20251214_010653.pth (hex_3p)
+2026-01-13 18:40:56,705 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_4p_mps.pth (hex_4p)
+2026-01-13 18:40:56,706 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_4p_mps.pth (hex_4p)
+2026-01-13 18:40:56,706 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_4p_mps.pth (hex_4p)
+2026-01-13 18:40:56,706 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_4p_mps.pth (hex_4p)
+2026-01-13 18:40:56,706 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_2p_20251214_010416.1.pth (hex_2p)
+2026-01-13 18:40:56,707 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_2p_20251214_010416.1.pth (hex_2p)
+2026-01-13 18:40:56,707 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_2p_20251214_010416.1.pth (hex_2p)
+2026-01-13 18:40:56,707 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_2p_20251214_010416.1.pth (hex_2p)
+2026-01-13 18:40:56,707 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_4p.pth (sq8_4p)
+2026-01-13 18:40:56,708 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_4p.pth (sq8_4p)
+2026-01-13 18:40:56,708 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_4p.pth (sq8_4p)
+2026-01-13 18:40:56,708 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_4p.pth (sq8_4p)
+2026-01-13 18:40:56,708 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,709 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,709 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,709 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_square19_4p.pth (square19_4p)
+2026-01-13 18:40:56,709 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,709 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,710 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,710 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_2p.pth (sq19_2p)
+2026-01-13 18:40:56,710 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_2p_20251214_010704.pth (sq19_2p)
+2026-01-13 18:40:56,710 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_2p_20251214_010704.pth (sq19_2p)
+2026-01-13 18:40:56,711 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_2p_20251214_010704.pth (sq19_2p)
+2026-01-13 18:40:56,711 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_2p_20251214_010704.pth (sq19_2p)
+2026-01-13 18:40:56,711 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,712 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,712 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,712 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_square8_2p.pth (square8_2p)
+2026-01-13 18:40:56,713 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,713 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,713 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,714 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hexagonal_2p.pth (hexagonal_2p)
+2026-01-13 18:40:56,714 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_3p.pth (hex_3p)
+2026-01-13 18:40:56,715 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_3p.pth (hex_3p)
+2026-01-13 18:40:56,715 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_3p.pth (hex_3p)
+2026-01-13 18:40:56,715 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_3p.pth (hex_3p)
+2026-01-13 18:40:56,716 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_3p_20251214_010719.pth (sq8_3p)
+2026-01-13 18:40:56,716 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_3p_20251214_010719.pth (sq8_3p)
+2026-01-13 18:40:56,716 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_3p_20251214_010719.pth (sq8_3p)
+2026-01-13 18:40:56,717 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_3p_20251214_010719.pth (sq8_3p)
+2026-01-13 18:40:56,717 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,718 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,718 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,718 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex8_4p.pth (hex8_4p)
+2026-01-13 18:40:56,718 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_2p.pth (hex_2p)
+2026-01-13 18:40:56,719 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_2p.pth (hex_2p)
+2026-01-13 18:40:56,719 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_2p.pth (hex_2p)
+2026-01-13 18:40:56,720 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_2p.pth (hex_2p)
+2026-01-13 18:40:56,720 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,720 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,721 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,721 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hexagonal_3p.pth (hexagonal_3p)
+2026-01-13 18:40:56,722 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,722 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,722 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,723 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_square8_3p.pth (square8_3p)
+2026-01-13 18:40:56,723 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex8_2p_mps.pth (hex8_2p)
+2026-01-13 18:40:56,723 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex8_2p_mps.pth (hex8_2p)
+2026-01-13 18:40:56,723 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex8_2p_mps.pth (hex8_2p)
+2026-01-13 18:40:56,724 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex8_2p_mps.pth (hex8_2p)
+2026-01-13 18:40:56,724 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_4p_mps.pth (sq19_4p)
+2026-01-13 18:40:56,724 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_4p_mps.pth (sq19_4p)
+2026-01-13 18:40:56,725 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_4p_mps.pth (sq19_4p)
+2026-01-13 18:40:56,725 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_4p_mps.pth (sq19_4p)
+2026-01-13 18:40:56,725 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_2p_20251214_010416.pth (hex_2p)
+2026-01-13 18:40:56,726 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_2p_20251214_010416.pth (hex_2p)
+2026-01-13 18:40:56,726 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_2p_20251214_010416.pth (hex_2p)
+2026-01-13 18:40:56,726 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_2p_20251214_010416.pth (hex_2p)
+2026-01-13 18:40:56,727 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,727 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,727 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,728 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_square8_4p.pth (square8_4p)
+2026-01-13 18:40:56,728 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,728 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,729 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,729 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hexagonal_4p.pth (hexagonal_4p)
+2026-01-13 18:40:56,729 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,730 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,730 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,730 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex8_3p.pth (hex8_3p)
+2026-01-13 18:40:56,731 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_2p_v2.1.pth (sq8_2p)
+2026-01-13 18:40:56,731 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_2p_v2.1.pth (sq8_2p)
+2026-01-13 18:40:56,731 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_2p_v2.1.pth (sq8_2p)
+2026-01-13 18:40:56,731 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_2p_v2.1.pth (sq8_2p)
+2026-01-13 18:40:56,732 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_2p_mps.pth (sq19_2p)
+2026-01-13 18:40:56,732 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_2p_mps.pth (sq19_2p)
+2026-01-13 18:40:56,732 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_2p_mps.pth (sq19_2p)
+2026-01-13 18:40:56,733 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_2p_mps.pth (sq19_2p)
+2026-01-13 18:40:56,733 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq19_3p_mps.pth (sq19_3p)
+2026-01-13 18:40:56,733 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq19_3p_mps.pth (sq19_3p)
+2026-01-13 18:40:56,734 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq19_3p_mps.pth (sq19_3p)
+2026-01-13 18:40:56,734 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq19_3p_mps.pth (sq19_3p)
+2026-01-13 18:40:56,734 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_4p_20251214_010658.1.pth (hex_4p)
+2026-01-13 18:40:56,734 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_4p_20251214_010658.1.pth (hex_4p)
+2026-01-13 18:40:56,735 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_4p_20251214_010658.1.pth (hex_4p)
+2026-01-13 18:40:56,735 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_4p_20251214_010658.1.pth (hex_4p)
+2026-01-13 18:40:56,735 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_sq8_2p_v2.pth (sq8_2p)
+2026-01-13 18:40:56,736 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_sq8_2p_v2.pth (sq8_2p)
+2026-01-13 18:40:56,736 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_sq8_2p_v2.pth (sq8_2p)
+2026-01-13 18:40:56,736 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_sq8_2p_v2.pth (sq8_2p)
+2026-01-13 18:40:56,736 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_4p_20251214_010658.2.pth (hex_4p)
+2026-01-13 18:40:56,737 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_4p_20251214_010658.2.pth (hex_4p)
+2026-01-13 18:40:56,737 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_4p_20251214_010658.2.pth (hex_4p)
+2026-01-13 18:40:56,737 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_4p_20251214_010658.2.pth (hex_4p)
+2026-01-13 18:40:56,738 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,738 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,739 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,739 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex8_2p.pth (hex8_2p)
+2026-01-13 18:40:56,739 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: ringrift_best_hex_4p.pth (hex_4p)
+2026-01-13 18:40:56,739 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: ringrift_best_hex_4p.pth (hex_4p)
+2026-01-13 18:40:56,740 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: ringrift_best_hex_4p.pth (hex_4p)
+2026-01-13 18:40:56,740 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: ringrift_best_hex_4p.pth (hex_4p)
+2026-01-13 18:40:56,740 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Startup scan complete: 107 models scanned, 416 queued for evaluation
+2026-01-13 18:40:57,182 - app.coordination.availability.provisioner - INFO - Provisioner: Attempting to provision 2 GPU node(s)
+2026-01-13 18:40:57,182 - app.coordination.providers - WARNING - Lambda provider requested but account is terminated - returning None
+2026-01-13 18:40:57,183 - app.coordination.availability.provisioner - WARNING - Failed to provision gh200_96gb from runpod: GPU type GPUType.GH200_96GB not supported on RunPod
+2026-01-13 18:41:02,200 - app.coordination.unified_replication_daemon - WARNING - [UnifiedReplicationDaemon] Triggering EMERGENCY SYNC: zero=0, single=237941, under=237941
+2026-01-13 18:41:07,237 - app.coordination.unified_replication_daemon - INFO - [UnifiedReplicationDaemon] Queuing 1000 critical games for emergency repair (skipped 4000 for next cycle)
+2026-01-13 18:41:19,280 - app.coordination.unified_replication_daemon - INFO - [UnifiedReplicationDaemon] Queued 0 games for repair
+2026-01-13 18:41:19,644 - app.coordination.disk_space_manager_daemon - INFO - [DiskSpaceManagerDaemon] Disk status: 95.0% used (45.9GB free)
+2026-01-13 18:41:19,644 - app.coordination.disk_space_manager_daemon - INFO - [DiskSpaceManagerDaemon] Starting cleanup (target: 50%)
+2026-01-13 18:41:19,657 - app.coordination.p2p_auto_deployer - INFO - ==================================================
+2026-01-13 18:41:19,657 - app.coordination.p2p_auto_deployer - INFO - P2P AUTO-DEPLOYER: Checking cluster coverage
+2026-01-13 18:41:19,657 - app.coordination.p2p_auto_deployer - INFO - ==================================================
+2026-01-13 18:41:19,657 - app.coordination.p2p_auto_deployer - INFO - Checking 20 nodes for P2P health
+2026-01-13 18:41:19,712 - app.coordination.progress_watchdog_daemon - INFO - Config hex8_4p recovered: velocity=1.88
+2026-01-13 18:41:21,092 - app.coordination.nnue_training_daemon - INFO - NNUETrainingDaemon: None_Nonep has 17822 new games (threshold: 5000), training needed
+2026-01-13 18:41:21,092 - app.coordination.nnue_training_daemon - INFO - NNUETrainingDaemon: hex8_2p has 16673 new games (threshold: 5000), training needed
+2026-01-13 18:41:21,092 - app.coordination.nnue_training_daemon - INFO - NNUETrainingDaemon: hex8_3p has 7249 new games (threshold: 5000), training needed
+2026-01-13 18:41:21,092 - app.coordination.nnue_training_daemon - INFO - NNUETrainingDaemon: Triggering NNUE training for None_Nonep
+2026-01-13 18:41:21,093 - app.coordination.nnue_training_daemon - INFO - NNUETrainingDaemon: Triggering NNUE training for hex8_2p
+2026-01-13 18:41:21,094 - app.coordination.elo_progress_daemon - INFO - [EloProgress] Taking Elo snapshots for all configs...
+2026-01-13 18:41:21,095 - app.coordination.elo_progress_daemon - INFO - [EloProgress] Snapshot complete: 0/12 configs recorded (total snapshots: 4)
+2026-01-13 18:41:21,095 - app.coordination.evaluation_daemon - WARNING - [EvaluationDaemon] Found 1 stuck evaluations
+2026-01-13 18:41:21,096 - app.coordination.evaluation_queue - INFO - [EvaluationQueue] Reset stuck request: 2b961880-19dd-497e-9775-fa0fd5399144
+2026-01-13 18:41:21,096 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Recovered stuck evaluation: models/canonical_square8_2p_retrained_20260112_150223.pth (attempt 1/3)
+2026-01-13 18:41:21,154 - app.coordination.resource_monitoring_coordinator - WARNING - [ResourceMonitoringCoordinator] Backpressure activated on ringrift-gh200-8: level=critical, reason=GPU 98%
+2026-01-13 18:41:21,159 - app.coordination.unified_distribution_daemon - INFO - MODEL_EVALUATION_BLOCKED: models/canonical_square19_4p_20251225_115114.pth has 0/5 nodes (reason: insufficient_distribution), prioritizing re-distribution
+2026-01-13 18:41:21,159 - app.coordination.unified_distribution_daemon - INFO - MODEL_EVALUATION_BLOCKED: models/canonical_square19_4p_20251225_115114.pth has 0/5 nodes (reason: insufficient_distribution), prioritizing re-distribution
+2026-01-13 18:41:21,159 - app.coordination.unified_distribution_daemon - INFO - MODEL_EVALUATION_BLOCKED: models/canonical_square19_4p_20251225_115114.pth has 0/5 nodes (reason: insufficient_distribution), prioritizing re-distribution
+2026-01-13 18:41:21,730 - app.coordination.sync_event_mixin - WARNING - [AutoSyncDaemon] DATA_STALE received for square8_2p: age=5.4h - triggering urgent sync
+2026-01-13 18:41:21,732 - app.coordination.selfplay_health_monitor - INFO - [SelfplayScheduler] Progress recovered for hex8_4p (velocity: 1.88 Elo/hour). Reset exploration boost.
+2026-01-13 18:41:21,734 - app.coordination.selfplay_health_monitor - INFO - [SelfplayScheduler] Progress recovered for hex8_4p (velocity: 1.88 Elo/hour). Reset exploration boost.
+2026-01-13 18:41:21,735 - app.coordination.event_normalization - WARNING - [EventTypeValidator] Unknown event type: 'NNUE_TRAINING_STARTED'. Did you mean: training_started, TRAINING_STARTED, promotion_started?
+2026-01-13 18:41:21,735 - app.coordination.event_router - WARNING - [EventRouter] Unknown event type: 'NNUE_TRAINING_STARTED'. Did you mean: training_started, TRAINING_STARTED, promotion_started?. Event will still be published but may not be received by subscribers.
+2026-01-13 18:41:21,736 - app.coordination.nnue_training_daemon - ERROR - NNUETrainingDaemon: Training error for None_Nonep: Invalid config_key format: None_Nonep
+2026-01-13 18:41:21,738 - app.coordination.event_normalization - WARNING - [EventTypeValidator] Unknown event type: 'NNUE_TRAINING_STARTED'. Did you mean: training_started, TRAINING_STARTED, promotion_started?
+2026-01-13 18:41:21,738 - app.coordination.event_router - WARNING - [EventRouter] Unknown event type: 'NNUE_TRAINING_STARTED'. Did you mean: training_started, TRAINING_STARTED, promotion_started?. Event will still be published but may not be received by subscribers.
+2026-01-13 18:41:21,757 - app.coordination.nnue_training_daemon - INFO - NNUETrainingDaemon: Dispatching training for hex8_2p to cluster
+2026-01-13 18:41:21,765 - app.coordination.event_normalization - WARNING - [EventTypeValidator] Unknown event type: 'comprehensive_consolidation_started'. Did you mean: CONSOLIDATION_STARTED, consolidation_started, comprehensive_evaluation_started?
+2026-01-13 18:41:21,766 - app.coordination.event_router - WARNING - [EventRouter] Unknown event type: 'comprehensive_consolidation_started'. Did you mean: CONSOLIDATION_STARTED, consolidation_started, comprehensive_evaluation_started?. Event will still be published but may not be received by subscribers.
+2026-01-13 18:41:21,770 - app.coordination.event_subscription_registry - INFO - [Bootstrap] DAEMON_STARTED: availability_recovery_engine
+2026-01-13 18:41:21,770 - app.coordination.daemon_lifecycle - INFO - Started daemon: voter_health_monitor
+2026-01-13 18:41:21,771 - app.coordination.data_cleanup_daemon - WARNING - Failed to assess selfplay_hex8_3p.db: no such table: games
+2026-01-13 18:41:21,832 - app.coordination.progress_watchdog_daemon - INFO - Config square8_4p recovered: velocity=1.52
+2026-01-13 18:41:21,835 - app.coordination.event_normalization - WARNING - [EventTypeValidator] Unknown event type: 'NNUE_TRAINING_COMPLETED'. Did you mean: TRAINING_COMPLETED, training_completed, TRAINING_ROLLBACK_COMPLETED?
+2026-01-13 18:41:21,835 - app.coordination.event_router - WARNING - [EventRouter] Unknown event type: 'NNUE_TRAINING_COMPLETED'. Did you mean: TRAINING_COMPLETED, training_completed, TRAINING_ROLLBACK_COMPLETED?. Event will still be published but may not be received by subscribers.
+2026-01-13 18:41:21,841 - app.coordination.parity_validation_daemon - INFO - [ParityValidationDaemon] Found 22 canonical databases
+2026-01-13 18:41:31,229 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=100.92.222.49, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-13 18:41:31,320 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=192.222.58.241, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-13 18:41:31,321 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.114.223, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-13 18:41:31,325 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.96.55, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-13 18:41:31,797 - app.core.ssh - WARNING - [SSHMetrics] Failure recorded: host=89.169.111.107, transport=tailscale, category=timeout, error=Command timed out after 10s
+2026-01-13 18:41:38,125 - app.coordination.parity_validation_daemon - INFO - [ParityValidationDaemon] Validation complete: 22 databases, 654 games validated, 654 passed, 0 failed
+2026-01-13 18:41:38,221 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Model models/canonical_square8_2p_retrained_20260112_150223.pth only on 0/5 nodes, waiting for distribution (timeout: 120.0s)
+2026-01-13 18:41:38,222 - app.coordination.unified_distribution_daemon - INFO - [DistributionVerification] Waiting for canonical_square8_2p_retrained_20260112_150223.pth to reach 5 nodes (timeout: 120.0s)
+2026-01-13 18:41:38,327 - app.coordination.reactive_dispatcher - INFO - [ReactiveDispatcher] Dispatching selfplay for backpressure_released (config=None, node=None)
+2026-01-13 18:41:38,336 - app.coordination.voter_health_daemon - INFO - VoterHealthMonitor: Loaded 3 voters from config
+2026-01-13 18:41:38,336 - app.coordination.handler_base - INFO - [VoterHealthMonitor] Started
+2026-01-13 18:41:38,336 - app.coordination.unified_health_manager - INFO - [UnifiedHealthManager] Daemon started: voter_health_monitor on Mac.localdomain
+2026-01-13 18:41:38,336 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:41:38,336 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:41:38,336 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:41:38,336 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:41:38,337 - app.coordination.pipeline_event_handler_mixin - INFO - [DataPipelineOrchestrator] Backpressure released: source=unknown
+2026-01-13 18:41:38,337 - app.coordination.health_check_orchestrator - INFO - [HealthCheckOrchestrator] Check complete in 5846575ms: 5 healthy, 4 degraded, 0 unhealthy, 2 offline
+2026-01-13 18:41:38,467 - app.coordination.s3_node_sync_daemon - INFO - S3 copy skipped (source not yet uploaded): nodes/Mac/models/ringrift_v2_sq8_2p_2xh100_20251228_143813.pth
+2026-01-13 18:41:38,485 - app.coordination.availability.node_monitor - WARNING - Node mac-studio unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node local-mac unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node macbook-pro-3 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node macbook-pro-4 unhealthy (1 consecutive failures): layer=p2p, error=Cannot connect to host 100.77.77.122:8770 ssl:default [Connect call failed ('100.77.77.122', 8770)]
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-1 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-2 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-3 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-4 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-5 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-training unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-7 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-8 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-9 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-10 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-11 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node vultr-a100-20gb unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,486 - app.coordination.availability.node_monitor - WARNING - Node nebius-backbone-1 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,487 - app.coordination.availability.node_monitor - WARNING - Node nebius-h100-1 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,487 - app.coordination.availability.node_monitor - WARNING - Node nebius-h100-3 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,487 - app.coordination.availability.node_monitor - WARNING - Node aws-proxy unhealthy (1 consecutive failures): layer=p2p, error=Cannot connect to host 3.147.65.95:8770 ssl:default [Connect call failed ('3.147.65.95', 8770)]
+2026-01-13 18:41:38,487 - app.coordination.availability.node_monitor - WARNING - Node hetzner-cpu1 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,487 - app.coordination.availability.node_monitor - WARNING - Node hetzner-cpu2 unhealthy (1 consecutive failures): layer=p2p, error=Cannot connect to host 100.67.131.72:8770 ssl:default [Connect call failed ('100.67.131.72', 8770)]
+2026-01-13 18:41:38,487 - app.coordination.availability.node_monitor - WARNING - Node hetzner-cpu3 unhealthy (1 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-13 18:41:38,488 - app.coordination.dual_backup_daemon - WARNING - [DualBackup] Backup failed for canonical_square8_4p.db to owc, retrying in 0s (attempt 1/3)
+2026-01-13 18:41:38,498 - app.coordination.dual_backup_daemon - WARNING - [DualBackup] Backup failed for canonical_square8_4p.db to owc, retrying in 65s (attempt 2/3)
+2026-01-13 18:41:38,501 - app.coordination.training_freshness - INFO - Training data for square8_2p is stale (age=5.4h), triggering sync
+2026-01-13 18:41:38,501 - app.coordination.training_freshness - INFO - Triggering unified sync for square8_2p
+2026-01-13 18:41:38,502 - app.coordination.training_data_manifest - INFO - Manifest is 42.2h old, refreshing...
+2026-01-13 18:41:38,509 - app.coordination.training_freshness - WARNING - Failed to check freshness for square8_2p: File is not a zip file
+2026-01-13 18:41:38,509 - app.coordination.training_freshness - INFO - Checking training data freshness for square8_3p
+2026-01-13 18:41:38,515 - app.coordination.training_freshness - WARNING - Failed to get game count from /Users/armand/Development/RingRift/ai-service/data/games/hetzner_square8_3p_extract.db: no such table: games
+2026-01-13 18:44:26,544 - app.coordination.selfplay_health_monitor - INFO - [SelfplayScheduler] Progress recovered for square8_4p (velocity: 1.52 Elo/hour). Reset exploration boost.
+2026-01-13 18:44:26,556 - app.coordination.selfplay_health_monitor - INFO - [SelfplayScheduler] Progress recovered for square8_4p (velocity: 1.52 Elo/hour). Reset exploration boost.
+2026-01-13 18:44:26,631 - app.coordination.resource_monitoring_coordinator - INFO - [ResourceMonitoringCoordinator] Backpressure released on ringrift-gh200-r1
+2026-01-13 18:44:26,631 - app.coordination.resource_monitoring_coordinator - INFO - [ResourceMonitoringCoordinator] Backpressure released on ringrift-gh200-10
+2026-01-13 18:44:26,633 - app.coordination.sync_router - WARNING - [SyncRouter] Global backpressure activated: queue_depth=0. Sync continues normally.
+2026-01-13 18:44:26,900 - app.coordination.sync_event_mixin - WARNING - [AutoSyncDaemon] DATA_STALE received for square8_3p: age=4.4h - triggering urgent sync
+2026-01-13 18:44:26,902 - app.coordination.data_cleanup_daemon - WARNING - Failed to assess hex8_4p_cluster.db: no such table: games
+2026-01-13 18:44:26,949 - app.coordination.tailscale_health_daemon - WARNING - Tailscale not installed on this node
+2026-01-13 18:44:27,212 - app.coordination.providers.runpod_provider - WARNING - RunPod API timeout: 
+2026-01-13 18:44:27,222 - app.coordination.providers.runpod_provider - ERROR - Failed to create RunPod pod: 
+2026-01-13 18:44:27,224 - app.coordination.providers.runpod_provider - WARNING - RunPod circuit breaker is open, skipping API call (failures=6)
+2026-01-13 18:44:27,224 - app.coordination.providers.runpod_provider - ERROR - Failed to create RunPod pod: RunPod API circuit is open
+2026-01-13 18:44:27,225 - app.coordination.providers.runpod_provider - WARNING - RunPod circuit breaker is open, skipping API call (failures=6)
+2026-01-13 18:44:27,225 - app.coordination.providers.runpod_provider - ERROR - Failed to create RunPod pod: RunPod API circuit is open
+2026-01-13 18:44:27,225 - app.coordination.providers.runpod_provider - WARNING - RunPod circuit breaker is open, skipping API call (failures=6)
+2026-01-13 18:44:27,225 - app.coordination.providers.runpod_provider - ERROR - Failed to create RunPod pod: RunPod API circuit is open
+2026-01-13 18:44:27,228 - app.coordination.node_availability.providers.lambda_checker - ERROR - Lambda Labs API request timed out
+2026-01-13 18:44:27,363 - app.coordination.disk_space_manager_daemon - WARNING - Sync error for data/games: 
+2026-01-13 18:44:27,385 - app.coordination.s3_push_daemon - INFO - [S3PushDaemon] Pushed canonical_square8_4p.db to s3://ringrift-models-20251214/consolidated/games/canonical_square8_4p.db (123.6 MB)
+2026-01-13 18:44:27,388 - app.distributed.gossip_sync - WARNING - Failed to sync with nebius-h100-3: Cannot connect to nebius-h100-3: 
+2026-01-13 18:44:27,403 - app.coordination.sync_push_daemon - WARNING - [SyncPushDaemon] No coordinator discovered - sync disabled
+2026-01-13 18:44:27,425 - app.coordination.sync_push_daemon - WARNING - [SyncPushDaemon] No coordinator URL - cannot push
+2026-01-13 18:44:27,448 - app.coordination.unified_distribution_daemon - WARNING - [DistributionVerification] Timeout: canonical_square8_2p_retrained_20260112_150223.pth only on 0/5 nodes
+2026-01-13 18:44:27,450 - app.coordination.evaluation_daemon - WARNING - [EvaluationDaemon] Model models/canonical_square8_2p_retrained_20260112_150223.pth distribution incomplete: 0/5 nodes
+2026-01-13 18:44:27,450 - app.coordination.evaluation_daemon - WARNING - [EvaluationDaemon] Skipping evaluation: models/canonical_square8_2p_retrained_20260112_150223.pth not available on sufficient nodes (0 nodes)
+2026-01-13 18:44:27,450 - app.coordination.evaluation_daemon - ERROR - [EvaluationDaemon] Max retries (3) exceeded for models/canonical_square8_2p_retrained_20260112_150223.pth: distribution_incomplete:0
+2026-01-13 18:44:27,451 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Re-queued retry #2 for models/canonical_square19_4p_20251225_115114.pth
+2026-01-13 18:44:27,454 - app.coordination.reactive_dispatcher - INFO - [ReactiveDispatcher] Stats: received=22, dispatched=0, deduplicated=7, dropped_backpressure=0, queue_size=11
+2026-01-13 18:44:27,455 - app.coordination.health_check_orchestrator - INFO - [HealthCheckOrchestrator] Starting health check cycle...
+2026-01-13 18:44:27,468 - app.coordination.unified_health_manager - INFO - [UnifiedHealthManager] Daemon started: voter_health_monitor on Mac.localdomain
+2026-01-13 18:44:27,513 - app.coordination.data_cleanup_daemon - WARNING - Failed to assess h100_jsonl_converted_hexagonal_2p.db: no such table: games
+/Users/armand/Development/RingRift/ai-service/app/coordination/dead_letter_queue.py:902: RuntimeWarning: coroutine 'EventBus.publish' was never awaited
+  bus.publish(event)
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+2026-01-13 18:44:27,659 - app.coordination.cluster_watchdog_daemon - WARNING - [ClusterWatchdog] No nodes discovered from providers
+2026-01-13 18:44:27,689 - app.coordination.unified_queue_populator - WARNING - [QueuePopulatorDaemon] Follower takeover: queue empty for 6025.6s (threshold: 30.0s), leader: None
+2026-01-13 18:44:28,164 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] Worker capacity limit: 100 -> 50 (capacity=50)
+2026-01-13 18:44:28,166 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_2p_1768351468165 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,167 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_3p_1768351468166 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,169 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_4p_1768351468168 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,170 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_2p_1768351468169 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,171 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_3p_1768351468171 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,172 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_4p_1768351468171 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,173 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hex8_2p_1768351468172 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,173 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hex8_3p_1768351468173 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,174 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hex8_4p_1768351468174 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,175 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hexagonal_2p_1768351468174 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,176 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hexagonal_3p_1768351468175 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,177 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hexagonal_4p_1768351468176 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,177 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_2p_1768351468177 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,178 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_3p_1768351468177 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,179 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_4p_1768351468178 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,180 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_2p_1768351468179 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,180 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_3p_1768351468180 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,181 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_4p_1768351468180 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,182 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hex8_2p_1768351468181 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,183 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hex8_3p_1768351468182 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,185 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hex8_4p_1768351468183 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,186 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hexagonal_2p_1768351468185 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,187 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hexagonal_3p_1768351468186 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,188 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_hexagonal_4p_1768351468188 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,189 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_2p_1768351468189 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,190 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_3p_1768351468189 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,191 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square8_4p_1768351468190 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,192 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_2p_1768351468191 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,192 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_3p_1768351468192 rejected. Wait for queue to drain or use force=True.
+2026-01-13 18:44:28,193 - app.coordination.unified_queue_populator - ERROR - Failed to add selfplay item: [BACKPRESSURE] Queue at hard limit (4080/4000). Work item selfplay_square19_4p_1768351468193 rejected. Wait for queue to drain or use force=True.
