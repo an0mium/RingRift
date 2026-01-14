@@ -96,6 +96,12 @@ PLAYER_COUNT_ALLOCATION_MULTIPLIER = {
     4: 4.0,  # 4x priority for 4p
 }
 
+# Jan 14, 2026: CRITICAL priority should bypass player multiplier
+# to ensure truly critical configs get max allocation regardless of player count.
+# Without this, CRITICAL 2p configs (like square8_2p) get 3x fewer jobs than
+# CRITICAL 3p configs due to 1.0 vs 3.0 player multiplier.
+CRITICAL_BYPASSES_PLAYER_MULTIPLIER = True
+
 # =============================================================================
 # Game Estimation Constants (December 2025)
 # =============================================================================
@@ -690,9 +696,16 @@ class PriorityCalculator:
         override_multiplier = PRIORITY_OVERRIDE_MULTIPLIERS.get(effective_override, 1.0)
         score *= override_multiplier
 
-        # Apply player count multiplier
+        # Apply player count multiplier (unless CRITICAL and bypass enabled)
         player_count = extract_player_count(inputs.config_key)
-        player_multiplier = PLAYER_COUNT_ALLOCATION_MULTIPLIER.get(player_count, 1.0)
+        is_critical = effective_override == 0  # CRITICAL priority level
+
+        if CRITICAL_BYPASSES_PLAYER_MULTIPLIER and is_critical:
+            # CRITICAL configs get max multiplier (4.0) regardless of player count
+            # This ensures 2p CRITICAL configs get equal allocation as 3p/4p CRITICAL
+            player_multiplier = 4.0
+        else:
+            player_multiplier = PLAYER_COUNT_ALLOCATION_MULTIPLIER.get(player_count, 1.0)
         score *= player_multiplier
 
         # Apply cascade priority boost
