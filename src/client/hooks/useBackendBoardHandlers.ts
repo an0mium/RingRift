@@ -207,10 +207,12 @@ export function useBackendBoardHandlers(
   const prevPhaseRef = useRef<string | null>(null);
   const pendingMovementRetryCount = useRef<number>(0);
 
+  // Extract stable dependency for the effect (avoids React error #310)
+  const currentPhase = gameState?.currentPhase;
+
   // Effect to handle pending movement after skip_placement
   // Includes retry logic for when validMoves might be stale after phase change
   useEffect(() => {
-    const currentPhase = gameState?.currentPhase;
     const prevPhase = prevPhaseRef.current;
     prevPhaseRef.current = currentPhase ?? null;
 
@@ -275,7 +277,7 @@ export function useBackendBoardHandlers(
       pendingMovementRef.current = null;
       pendingMovementRetryCount.current = 0;
     }
-  }, [gameState?.currentPhase, validMoves, submitMove, setSelected, setValidTargets]);
+  }, [currentPhase, validMoves, submitMove, setSelected, setValidTargets]);
 
   // Close the ring placement prompt
   const closeRingPlacementPrompt = useCallback(() => {

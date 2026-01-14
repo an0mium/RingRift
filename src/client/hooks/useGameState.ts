@@ -209,11 +209,14 @@ export function useBoardViewModel(options: ToBoardViewModelOptions = {}): BoardV
   const { colorVisionMode } = useAccessibility();
   const { selectedPosition, validTargets } = options;
 
-  return useMemo(() => {
-    if (!gameState?.board) return null;
+  // Extract stable dependency (avoids React error #310)
+  const board = gameState?.board;
 
-    return toBoardViewModel(gameState.board, { selectedPosition, validTargets, colorVisionMode });
-  }, [gameState?.board, selectedPosition, validTargets, colorVisionMode]);
+  return useMemo(() => {
+    if (!board) return null;
+
+    return toBoardViewModel(board, { selectedPosition, validTargets, colorVisionMode });
+  }, [board, selectedPosition, validTargets, colorVisionMode]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -234,10 +237,13 @@ export function useEventLogViewModel(options: UseEventLogViewModelOptions = {}):
   const { gameState, victoryState } = useGame();
   const { systemEvents = [], maxEntries = 40 } = options;
 
+  // Extract stable dependency (avoids React error #310)
+  const history = gameState?.history;
+
   return useMemo(() => {
-    const history = gameState?.history ?? [];
-    return toEventLogViewModel(history, systemEvents, victoryState, { maxEntries });
-  }, [gameState?.history, victoryState, systemEvents, maxEntries]);
+    const historyArray = history ?? [];
+    return toEventLogViewModel(historyArray, systemEvents, victoryState, { maxEntries });
+  }, [history, victoryState, systemEvents, maxEntries]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -293,8 +299,11 @@ export function useVictoryViewModel(
 export function useGamePhase() {
   const { gameState } = useGame();
 
+  // Extract stable dependency (avoids React error #310)
+  const currentPhase = gameState?.currentPhase;
+
   return useMemo(() => {
-    const phase = gameState?.currentPhase ?? null;
+    const phase = currentPhase ?? null;
 
     return {
       phase,
@@ -306,7 +315,7 @@ export function useGamePhase() {
       isTerritoryProcessingPhase: phase === 'territory_processing',
       isInProcessingPhase: phase === 'line_processing' || phase === 'territory_processing',
     };
-  }, [gameState?.currentPhase]);
+  }, [currentPhase]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -328,8 +337,11 @@ export function useGamePhase() {
 export function useGameStatus() {
   const { gameState, victoryState } = useGame();
 
+  // Extract stable dependency (avoids React error #310)
+  const gameStatus = gameState?.gameStatus;
+
   return useMemo(() => {
-    const status = gameState?.gameStatus ?? 'waiting';
+    const status = gameStatus ?? 'waiting';
 
     return {
       status,
@@ -341,5 +353,5 @@ export function useGameStatus() {
       hasVictory: !!victoryState,
       winner: victoryState?.winner,
     };
-  }, [gameState?.gameStatus, victoryState]);
+  }, [gameStatus, victoryState]);
 }
