@@ -35,7 +35,8 @@ class TestArchitectureFeedbackConfig:
         """Test default configuration values."""
         config = ArchitectureFeedbackConfig()
         assert config.min_allocation_per_arch == 0.10
-        assert config.weight_update_interval == 1800.0
+        # Jan 2026: Reduced from 1800.0 (30 min) to 600.0 (10 min) for responsive curriculum
+        assert config.weight_update_interval == 600.0
         assert config.weight_temperature == 0.5
         assert len(config.supported_architectures) == 7
 
