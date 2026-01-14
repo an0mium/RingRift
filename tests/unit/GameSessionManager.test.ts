@@ -40,6 +40,9 @@ jest.mock('../../src/server/services/MetricsService', () => ({
   getMetricsService: () => ({
     updateGameSessionStatusCurrent: jest.fn(),
     recordGameSessionStatusTransition: jest.fn(),
+    recordLockAcquisition: jest.fn(),
+    recordLockHoldDuration: jest.fn(),
+    recordLockContentionRetry: jest.fn(),
   }),
 }));
 
