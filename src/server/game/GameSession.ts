@@ -182,6 +182,9 @@ export class GameSession {
   private aiWatchdogHandle: NodeJS.Timeout | null = null;
   private lastAITurnCheck = 0;
 
+  // Mapping from playerId (UUID) to playerNumber for move replay
+  private playerIdToNumber: Map<string, number> = new Map();
+
   // Lock callback for protecting concurrent state modifications (provided by GameSessionManager)
   private readonly withLock: <T>(operation: () => Promise<T>) => Promise<T>;
 
@@ -246,9 +249,19 @@ export class GameSession {
 
     if (game.player1) {
       players.push(this.createPlayer(game.player1, 1, effectiveRingsPerPlayer, initialTimeMs));
+      this.playerIdToNumber.set(game.player1.id, 1);
     }
     if (game.player2) {
       players.push(this.createPlayer(game.player2, 2, effectiveRingsPerPlayer, initialTimeMs));
+      this.playerIdToNumber.set(game.player2.id, 2);
+    }
+    if (game.player3) {
+      players.push(this.createPlayer(game.player3, 3, effectiveRingsPerPlayer, initialTimeMs));
+      this.playerIdToNumber.set(game.player3.id, 3);
+    }
+    if (game.player4) {
+      players.push(this.createPlayer(game.player4, 4, effectiveRingsPerPlayer, initialTimeMs));
+      this.playerIdToNumber.set(game.player4.id, 4);
     }
 
     if (aiOpponents && aiOpponents.count > 0) {
@@ -543,9 +556,21 @@ export class GameSession {
       return;
     }
 
+    // Map playerId (UUID) to playerNumber using the mapping built during initialization
+    const playerNumber = this.playerIdToNumber.get(move.playerId);
+    if (playerNumber === undefined) {
+      logger.error('Failed to map playerId to playerNumber during move replay', {
+        gameId: this.gameId,
+        moveId: move.id,
+        playerId: move.playerId,
+        availablePlayerIds: Array.from(this.playerIdToNumber.keys()),
+      });
+      return;
+    }
+
     const gameMove: Omit<Move, 'id' | 'timestamp' | 'moveNumber'> = {
       type: move.moveType as MoveType,
-      player: parseInt(move.playerId),
+      player: playerNumber,
       ...(from ? { from } : {}),
       to,
       thinkTime: 0,
@@ -557,6 +582,7 @@ export class GameSession {
       logger.error('Failed to replay historical move', {
         gameId: this.gameId,
         moveId: move.id,
+        playerNumber,
         error: err instanceof Error ? err.message : String(err),
       });
     }
