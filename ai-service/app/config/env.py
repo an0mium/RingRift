@@ -53,8 +53,20 @@ class RingRiftEnv:
 
     @cached_property
     def node_id(self) -> str:
-        """Node identifier for this machine."""
-        return os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
+        """Node identifier for this machine.
+
+        Uses the Unified Node Identity System for canonical resolution.
+        Priority: RINGRIFT_NODE_ID env var > hostname match > Tailscale IP match
+
+        Falls back to hostname if resolution fails (for backward compatibility).
+        """
+        try:
+            from app.config.node_identity import get_node_id_safe
+
+            return get_node_id_safe()
+        except ImportError:
+            # Fallback if node_identity module not available
+            return os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
 
     @cached_property
     def orchestrator_id(self) -> str:

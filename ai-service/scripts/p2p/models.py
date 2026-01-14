@@ -81,6 +81,12 @@ class NodeInfo:
     # Dec 29, 2025: Track alternate IPs for the same node (Tailscale, public, etc.)
     # This enables peer deduplication - multiple IPs map to single canonical entry
     alternate_ips: set[str] = field(default_factory=set)
+    # Jan 13, 2026: Multi-address advertisement - all addresses this node is reachable at
+    # Nodes advertise these in heartbeats so peers can try alternate paths if primary fails
+    # Format: List of IPs/hostnames sorted by preference (first = primary)
+    addresses: list[str] = field(default_factory=list)
+    # Jan 13, 2026: Tailscale IP for direct VPN mesh connectivity
+    tailscale_ip: str = ""
     # External work detection - work running outside P2P orchestrator tracking
     cmaes_running: bool = False
     gauntlet_running: bool = False
@@ -436,6 +442,9 @@ class NodeInfo:
         d['role'] = self.role.value
         # Dec 29, 2025: Convert set to list for JSON serialization
         d['alternate_ips'] = list(self.alternate_ips) if self.alternate_ips else []
+        # Jan 13, 2026: Multi-address advertisement
+        d['addresses'] = list(self.addresses) if self.addresses else []
+        d['tailscale_ip'] = self.tailscale_ip or ""
         # Derived metrics (not persisted as dataclass fields).
         d["load_score"] = self.get_load_score()
         d["gpu_power_score"] = self.gpu_power_score()
@@ -530,6 +539,10 @@ class NodeInfo:
         # Dec 29, 2025: Handle alternate_ips (stored as list in JSON, convert to set)
         alt_ips = d.get('alternate_ips', [])
         d['alternate_ips'] = set(alt_ips) if isinstance(alt_ips, (list, set)) else set()
+        # Jan 13, 2026: Multi-address advertisement
+        addresses = d.get('addresses', [])
+        d['addresses'] = list(addresses) if isinstance(addresses, (list, tuple)) else []
+        d.setdefault('tailscale_ip', '')
         # External work detection fields
         d.setdefault('cmaes_running', False)
         d.setdefault('gauntlet_running', False)

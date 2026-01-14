@@ -6591,7 +6591,50 @@ class P2POrchestrator(
             if voter_id in counted_voters:
                 continue
 
-            # Check 4: IP:port extraction from peer_id (format: "IP:8770")
+            # Check 4: Multi-address matching (Jan 13, 2026)
+            # Peers now advertise ALL their addresses in heartbeats.
+            # Check if any of the peer's advertised addresses match voter IPs.
+            for peer_id, peer in self.peers.items():
+                if voter_id in counted_voters:
+                    break
+                if self._is_swim_peer_id(peer_id):
+                    continue
+
+                # Get peer's advertised addresses
+                peer_addresses: set[str] = set()
+                if isinstance(peer, dict):
+                    peer_addresses.update(peer.get("addresses", []))
+                    if peer.get("tailscale_ip"):
+                        peer_addresses.add(peer["tailscale_ip"])
+                    if peer.get("host"):
+                        peer_addresses.add(peer["host"])
+                elif hasattr(peer, "addresses"):
+                    peer_addresses.update(getattr(peer, "addresses", []) or [])
+                    if getattr(peer, "tailscale_ip", None):
+                        peer_addresses.add(peer.tailscale_ip)
+                    if getattr(peer, "host", None):
+                        peer_addresses.add(peer.host)
+
+                # Check for intersection with voter IPs
+                if peer_addresses & voter_ips:
+                    is_alive = (
+                        peer.is_alive()
+                        if hasattr(peer, "is_alive")
+                        else self._is_peer_alive(peer)
+                    )
+                    if is_alive:
+                        alive_count += 1
+                        counted_voters.add(voter_id)
+                        logger.debug(
+                            f"[VoterMultiAddr] Matched voter {voter_id} via multi-address: "
+                            f"peer={peer_id}, matching={peer_addresses & voter_ips}"
+                        )
+                        break
+
+            if voter_id in counted_voters:
+                continue
+
+            # Check 5: IP:port extraction from peer_id (format: "IP:8770")
             for peer_id, peer in self.peers.items():
                 if voter_id in counted_voters:
                     break
@@ -8206,7 +8249,66 @@ class P2POrchestrator(
         # Peers can try multiple IPs to reach us, improving mesh resilience
         info.alternate_ips = self._discover_all_ips(exclude_primary=info.host)
 
+        # Jan 13, 2026: Multi-address advertisement for voter counting fix
+        # Nodes advertise ALL addresses they're reachable at in heartbeats.
+        # This fixes voter quorum issues where voters are listed by config name
+        # but peers report via Tailscale/public IPs that don't match.
+        info.tailscale_ip = ts_ip or ""
+        info.addresses = self._collect_all_addresses(ts_ip, info.host)
+
         return info
+
+    def _collect_all_addresses(
+        self, tailscale_ip: str | None, primary_host: str
+    ) -> list[str]:
+        """Collect all addresses this node is reachable at.
+
+        Jan 13, 2026: For multi-address advertisement to fix voter counting.
+
+        Returns addresses in priority order:
+        1. Tailscale IP (100.x.x.x) - most reliable for P2P mesh
+        2. Primary host (advertise_host) - what we're currently advertising
+        3. SSH host from config - public/direct access
+        4. Local interface IP - same-network access
+
+        Args:
+            tailscale_ip: Tailscale VPN IP if available
+            primary_host: Current advertise_host
+
+        Returns:
+            List of addresses, deduplicated, in priority order
+        """
+        addresses: list[str] = []
+        seen: set[str] = set()
+
+        def add_if_new(addr: str | None) -> None:
+            if addr and addr not in seen and addr not in ("", "0.0.0.0", "127.0.0.1"):
+                addresses.append(addr)
+                seen.add(addr)
+
+        # Priority 1: Tailscale IP (best for mesh)
+        add_if_new(tailscale_ip)
+
+        # Priority 2: Current advertise host
+        add_if_new(primary_host)
+
+        # Priority 3: SSH host from config (may be public IP)
+        try:
+            from app.config.cluster_config import load_cluster_config
+            config = load_cluster_config()
+            nodes = getattr(config, "hosts_raw", {}) or {}
+            node_cfg = nodes.get(self.node_id, {})
+            if node_cfg:
+                add_if_new(node_cfg.get("ssh_host"))
+                add_if_new(node_cfg.get("tailscale_ip"))
+        except Exception:
+            pass
+
+        # Priority 4: Local interface IPs
+        for ip in self._discover_all_ips(exclude_primary=None):
+            add_if_new(ip)
+
+        return addresses
 
     # NOTE: _detect_gpu, _detect_memory, _get_local_ip, _get_tailscale_ip
     # delegated to ResourceDetectorMixin (Dec 28, 2025). ~75 LOC removed.
