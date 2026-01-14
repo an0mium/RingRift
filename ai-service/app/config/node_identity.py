@@ -300,18 +300,31 @@ def get_tailscale_ip() -> str | None:
     Returns:
         Tailscale IP (100.x.x.x) or None if not available
     """
+    # Try multiple paths - subprocess can't see shell aliases
+    tailscale_paths = [
+        "tailscale",  # If in PATH
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",  # macOS app
+        "/usr/bin/tailscale",  # Linux system
+        "/usr/local/bin/tailscale",  # Linux local
+    ]
+
+    for tailscale_cmd in tailscale_paths:
+        try:
+            result = subprocess.run(
+                [tailscale_cmd, "status", "--json"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode == 0:
+                break
+        except FileNotFoundError:
+            continue
+    else:
+        logger.debug("tailscale command not found in any known path")
+        return None
+
     try:
-        result = subprocess.run(
-            ["tailscale", "status", "--json"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-
-        if result.returncode != 0:
-            logger.debug(f"tailscale status failed: {result.stderr}")
-            return None
-
         status = json.loads(result.stdout)
         self_info = status.get("Self", {})
         ips = self_info.get("TailscaleIPs", [])
@@ -323,12 +336,6 @@ def get_tailscale_ip() -> str | None:
 
         return ips[0] if ips else None
 
-    except subprocess.TimeoutExpired:
-        logger.debug("tailscale status timed out")
-        return None
-    except FileNotFoundError:
-        logger.debug("tailscale command not found")
-        return None
     except (json.JSONDecodeError, KeyError) as e:
         logger.debug(f"Failed to parse tailscale status: {e}")
         return None

@@ -178,8 +178,10 @@ _HEALTH_LEVEL_VALUES = {
 
 
 # Load constants with fallbacks using base class helper
+# Jan 13, 2026: Changed VOTER_MIN_QUORUM from 3 to 2 for simplified 3-voter setup
+# With 3 voters, quorum=2 allows 1 failure (simple majority)
 _CONSTANTS = P2PMixinBase._load_config_constants({
-    "VOTER_MIN_QUORUM": 3,
+    "VOTER_MIN_QUORUM": 2,
     "CONSENSUS_MODE": "bully",
     "RAFT_ENABLED": False,
     # Jan 7, 2026: Increased from 30s to 60s to prevent split-brain during cluster startup

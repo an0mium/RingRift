@@ -370,11 +370,15 @@ def aggregate_database(
         status_col = 'game_status' if 'game_status' in games_columns else 'status'
         winner_col = 'winner' if 'winner' in games_columns else 'winner_id'
         moves_col = 'total_moves' if 'total_moves' in games_columns else 'move_count'
+        # Handle ended_at vs completed_at schema difference
+        ended_col = 'ended_at' if 'ended_at' in games_columns else (
+            'completed_at' if 'completed_at' in games_columns else 'created_at'
+        )
 
         query = f"""
             SELECT {game_id_col} as game_id, board_type, num_players,
                    {status_col} as status, {winner_col} as winner,
-                   created_at, ended_at, {moves_col} as move_count
+                   created_at, {ended_col} as ended_at, {moves_col} as move_count
             FROM games
             WHERE {status_col} IN ('completed', 'finished', 'abandoned')
         """

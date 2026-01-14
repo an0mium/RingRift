@@ -46,6 +46,15 @@ except ImportError:
     HAS_RATE_NEGOTIATION = False
     get_utilization_status = None
 
+# Optional ClusterManifest for aggregated game counts
+try:
+    from pathlib import Path
+    from app.distributed.cluster_manifest import ClusterManifest
+    HAS_CLUSTER_MANIFEST = True
+except ImportError:
+    HAS_CLUSTER_MANIFEST = False
+    ClusterManifest = None
+
 # Optional async timeout
 try:
     from async_timeout import timeout as async_timeout
@@ -380,16 +389,56 @@ class StatusHandlersMixin:
             })
 
     async def handle_refresh_game_counts(self, request: web.Request) -> web.Response:
-        """POST /game-counts/refresh - Trigger a refresh of game counts from peers/coordinator.
+        """POST /refresh_game_counts - Trigger a refresh of game counts.
 
         Session 17.48: Added to allow manual/periodic refresh of game counts
         on cluster nodes that don't have local canonical databases.
+
+        Jan 13, 2026: Fixed to use ClusterManifest for cluster-wide aggregated
+        counts instead of just local canonical DBs. This ensures the scheduler
+        makes decisions based on ALL data across the cluster, S3, and OWC.
 
         Returns:
             JSON with refresh status and new game count data
         """
         try:
-            # First try local canonical DBs
+            # Jan 13, 2026: First try ClusterManifest for aggregated cluster-wide counts
+            if HAS_CLUSTER_MANIFEST:
+                try:
+                    manifest_db = Path("data/cluster_manifest.db")
+                    if manifest_db.exists():
+                        def _get_manifest_counts():
+                            manifest = ClusterManifest(db_path=manifest_db)
+                            configs = [
+                                'hex8_2p','hex8_3p','hex8_4p',
+                                'hexagonal_2p','hexagonal_3p','hexagonal_4p',
+                                'square19_2p','square19_3p','square19_4p',
+                                'square8_2p','square8_3p','square8_4p'
+                            ]
+                            counts = {}
+                            for config in configs:
+                                sources = manifest.get_total_games_across_sources(config)
+                                total = sum(sources.values())
+                                if total > 0:
+                                    counts[config] = total
+                            return counts
+
+                        manifest_counts = await asyncio.to_thread(_get_manifest_counts)
+                        if manifest_counts:
+                            if self.selfplay_scheduler:
+                                self.selfplay_scheduler.update_p2p_game_counts(manifest_counts)
+                            logger.info(f"[P2P] Refreshed game counts from ClusterManifest: {len(manifest_counts)} configs")
+                            return web.json_response({
+                                "success": True,
+                                "source": "cluster_manifest",
+                                "game_counts": manifest_counts,
+                                "count": len(manifest_counts),
+                                "node_id": self.node_id,
+                            })
+                except Exception as e:
+                    logger.debug(f"[P2P] ClusterManifest lookup failed, falling back: {e}")
+
+            # Fall back to local canonical DBs
             local_counts = await asyncio.to_thread(self._seed_selfplay_scheduler_game_counts_sync)
 
             if local_counts:

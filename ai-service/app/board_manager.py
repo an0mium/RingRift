@@ -687,22 +687,31 @@ class BoardManager:
         while queue:
             current = queue.pop(0)
 
-            # For square boards, expand using Moore adjacency (8 directions).
-            # For hex boards, TS's getMooreNeighbors effectively contributes
-            # no additional neighbors; we mirror that by skipping expansion.
-            if board.type in (BoardType.HEXAGONAL, BoardType.HEX8):
+            # For square boards and hex8, expand using 2D Moore adjacency (8 directions).
+            # TS's getMooreNeighbors returns empty ONLY for 'hexagonal', NOT 'hex8'.
+            # For hex8, TS uses SQUARE_MOORE_DIRECTIONS (2D directions: x,y without z)
+            # then validates with isValidPositionOnBoard which computes z=-x-y.
+            # RR-PARITY-FIX-2025-01-13: hex8 must use 2D Moore like TS does.
+            if board.type == BoardType.HEXAGONAL:
                 neighbors: list[Position] = []
             else:
                 neighbors = []
-                directions = BoardManager._get_all_directions(board.type)
-                for direction in directions:
-                    neighbors.append(
-                        BoardManager._add_direction(
-                            current,
-                            direction,
-                            1,
-                        )
-                    )
+                # Use 2D Moore directions like TS's SQUARE_MOORE_DIRECTIONS
+                moore_2d_directions = [
+                    (1, 0), (1, 1), (0, 1), (-1, 1),
+                    (-1, 0), (-1, -1), (0, -1), (1, -1),
+                ]
+                for dx, dy in moore_2d_directions:
+                    # For hex8, compute z = -x-y to match TS isValidPositionOnBoard
+                    if board.type == BoardType.HEX8:
+                        nx, ny = current.x + dx, current.y + dy
+                        neighbors.append(Position(x=nx, y=ny, z=-nx - ny))
+                    else:
+                        neighbors.append(Position(
+                            x=current.x + dx,
+                            y=current.y + dy,
+                            z=None,
+                        ))
 
             for neighbor in neighbors:
                 n_key = neighbor.to_key()
