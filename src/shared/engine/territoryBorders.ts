@@ -181,10 +181,13 @@ function getMooreNeighbors(board: BoardState, position: Position): Position[] {
   }
 
   for (const dir of SQUARE_MOORE_DIRECTIONS) {
-    const neighbor: Position = {
-      x: position.x + dir.x,
-      y: position.y + dir.y,
-    };
+    const nx = position.x + dir.x;
+    const ny = position.y + dir.y;
+    // RR-PARITY-FIX-2026-01-13: For hex8 boards, compute z = -x-y to match
+    // marker storage keys. Markers on hex8 use 3D keys (e.g., "3,-4,1").
+    // Without z, positionToString returns 2D key ("3,-4") which fails lookup.
+    const neighbor: Position =
+      board.type === 'hex8' ? { x: nx, y: ny, z: -nx - ny } : { x: nx, y: ny };
     if (isValidPositionOnBoard(board, neighbor)) {
       neighbors.push(neighbor);
     }

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models import GamePhase, GameState, Move, MoveType
+from app.models import GamePhase, GameState, GameStatus, Move, MoveType
 from app.rules.legacy.move_type_aliases import convert_legacy_move_type
 
 
@@ -249,8 +249,15 @@ def _on_territory_processing_complete(
 
     - If the active player had **no actions at all this turn** and still controls
       stacks, enter FORCED_ELIMINATION.
-    - Otherwise, perform a full turn end via GameEngine._end_turn so that the
+    - Otherwise, check for victory conditions BEFORE rotating to the next player.
+      This is critical for LPS (last_player_standing) detection after
+      eliminate_rings_from_stack removes the last stack for a player.
+    - If no victory, perform a full turn end via GameEngine._end_turn so that the
       next player's FE/ANM gating is applied consistently.
+
+    RR-PARITY-FIX-2026-01-13: Added victory check before _end_turn to match TS
+    turnOrchestrator.ts:3320-3329 which calls toVictoryState() after territory
+    processing completes but before rotating to the next player.
     """
     from app.game_engine import GameEngine
 
@@ -260,6 +267,16 @@ def _on_territory_processing_complete(
 
     if not had_any_action and has_stacks:
         game_state.current_phase = GamePhase.FORCED_ELIMINATION
+        return
+
+    # RR-PARITY-FIX-2026-01-13: Check victory BEFORE rotating to the next player.
+    # This mirrors TS turnOrchestrator.ts:3320-3329 which calls toVictoryState()
+    # after territory processing completes. Without this check, Python would
+    # continue the game while TS declares game_over (e.g., hex8_4p divergence).
+    GameEngine._check_victory(game_state)
+
+    # If victory was detected, don't rotate to next player
+    if game_state.game_status != GameStatus.ACTIVE:
         return
 
     GameEngine._end_turn(game_state, trace_mode=trace_mode)

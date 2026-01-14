@@ -285,14 +285,21 @@ class BoardManager:
 
         regions: list[Territory] = []
 
-        # Identify active players (those with stacks on board)
+        # RR-PARITY-FIX-2026-01-13: Identify active players (those with ANY ring on board).
+        # Previously only counted controlling_player (top ring), but TS counts ALL ring
+        # owners in each stack. This caused territory disconnection divergence in 4p games
+        # where buried rings change the active player set.
+        # Mirrors TS territoryDetection.ts:48-58.
         active_players = set()
         for stack in board.stacks.values():
-            active_players.add(stack.controlling_player)
+            # Add ALL ring owners in the stack, not just controlling player
+            for ring_owner in stack.rings:
+                active_players.add(ring_owner)
 
-        # If there is only one or zero active players, there is no meaningful
-        # notion of disconnection.
-        if len(active_players) <= 1:
+        # RR-PARITY-FIX-2026-01-13: Exit only when NO active players.
+        # TS allows single-player disconnection (RegionColors = {} is a strict subset
+        # of any non-empty ActiveColors). Mirrors TS territoryDetection.ts:62-65.
+        if len(active_players) == 0:
             return []
 
         # Collect all marker colours present on the board
