@@ -235,8 +235,12 @@ api.interceptors.response.use(
 
 // Auth API
 export const authApi = {
-  async login(email: string, password: string): Promise<{ user: User; token: string }> {
-    const response = await api.post('/auth/login', { email, password });
+  async login(
+    email: string,
+    password: string,
+    rememberMe?: boolean
+  ): Promise<{ user: User; token: string }> {
+    const response = await api.post('/auth/login', { email, password, rememberMe });
     const { data } = response.data;
     return {
       user: data.user as User,

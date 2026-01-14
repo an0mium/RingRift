@@ -43,11 +43,21 @@ const router = Router();
 const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * Extended refresh token expiry in milliseconds (30 days).
+ * Used when the user selects "Remember me" during login.
+ */
+const REMEMBER_ME_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
  * Cookie options for secure refresh token handling.
  * In production: httpOnly, secure (HTTPS only), sameSite=strict
  * In development: httpOnly, sameSite=lax (allows localhost testing)
+ *
+ * @param expiryMs - Custom expiry in milliseconds (defaults to REFRESH_TOKEN_EXPIRY_MS)
  */
-const getRefreshTokenCookieOptions = (): {
+const getRefreshTokenCookieOptions = (
+  expiryMs: number = REFRESH_TOKEN_EXPIRY_MS
+): {
   httpOnly: boolean;
   secure: boolean;
   sameSite: 'strict' | 'lax' | 'none';
@@ -57,7 +67,7 @@ const getRefreshTokenCookieOptions = (): {
   httpOnly: true,
   secure: config.isProduction,
   sameSite: config.isProduction ? 'strict' : 'lax',
-  maxAge: REFRESH_TOKEN_EXPIRY_MS,
+  maxAge: expiryMs,
   path: '/api/auth', // Only send cookie to auth endpoints
 });
 
@@ -529,8 +539,11 @@ router.post(
 router.post(
   '/login',
   asyncHandler(async (req: Request, res: Response) => {
-    const { email, password } = LoginSchema.parse(req.body);
+    const { email, password, rememberMe } = LoginSchema.parse(req.body);
     const normalizedEmail = email.trim().toLowerCase();
+
+    // Determine token expiry based on rememberMe flag
+    const tokenExpiryMs = rememberMe ? REMEMBER_ME_EXPIRY_MS : REFRESH_TOKEN_EXPIRY_MS;
 
     if (await isEmailLockedOut(normalizedEmail, req.ip)) {
       throw createError(
@@ -654,7 +667,7 @@ router.post(
             token: hashedToken,
             userId: user.id,
             familyId,
-            expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
+            expiresAt: new Date(Date.now() + tokenExpiryMs),
           },
         });
       } else {
@@ -698,7 +711,7 @@ router.post(
     const { passwordHash: _, ...userWithoutPassword } = user;
 
     // Set refresh token as httpOnly cookie for security
-    res.cookie('refreshToken', refreshToken, getRefreshTokenCookieOptions());
+    res.cookie('refreshToken', refreshToken, getRefreshTokenCookieOptions(tokenExpiryMs));
 
     // Calculate token TTL in seconds from config for client token management
     const expiresIn = parseDurationToSeconds(config.auth.accessTokenExpiresIn);

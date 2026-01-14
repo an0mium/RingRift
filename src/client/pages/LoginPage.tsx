@@ -12,6 +12,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,7 +27,7 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      await login(email, password);
+      await login(email, password, rememberMe);
       // On successful login, redirect to the main app shell (home/lobby).
       navigate('/');
     } catch (error: unknown) {
@@ -103,6 +104,16 @@ export default function LoginPage() {
                   placeholder="••••••••"
                 />
               </div>
+
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-500 bg-slate-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-slate-900"
+                />
+                <span className="text-sm text-slate-300">Remember me for 30 days</span>
+              </label>
 
               {error && <InlineAlert variant="error">{error}</InlineAlert>}
 

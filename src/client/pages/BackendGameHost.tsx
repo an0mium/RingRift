@@ -881,237 +881,254 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       : null;
 
   return (
-    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
-      {/* Screen reader live region for game announcements */}
-      <ScreenReaderAnnouncer queue={announcementQueue} onAnnouncementSpoken={removeAnnouncement} />
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-3 space-y-2">
+        {/* Screen reader live region for game announcements */}
+        <ScreenReaderAnnouncer
+          queue={announcementQueue}
+          onAnnouncementSpoken={removeAnnouncement}
+        />
 
-      {reconnectionBanner}
+        {reconnectionBanner}
 
-      {/* Opponent disconnection banner - shown when opponents have disconnected but game continues */}
-      {disconnectedOpponents.length > 0 && !gameEndedByAbandonment && !victoryState && (
-        <StatusBanner
-          variant="warning"
-          icon={
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-          }
-          actions={<div className="animate-pulse h-2 w-2 rounded-full bg-amber-300" />}
-          className="mb-4"
-        >
-          {disconnectedOpponents.length === 1
-            ? `${disconnectedOpponents[0].username || 'A player'} has disconnected. Waiting for reconnection…`
-            : `${disconnectedOpponents.length} players have disconnected. Waiting for reconnection…`}
-        </StatusBanner>
-      )}
+        {/* Opponent disconnection banner - shown when opponents have disconnected but game continues */}
+        {disconnectedOpponents.length > 0 && !gameEndedByAbandonment && !victoryState && (
+          <StatusBanner
+            variant="warning"
+            icon={
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+            }
+            actions={<div className="animate-pulse h-2 w-2 rounded-full bg-amber-300" />}
+            className="mb-4"
+          >
+            {disconnectedOpponents.length === 1
+              ? `${disconnectedOpponents[0].username || 'A player'} has disconnected. Waiting for reconnection…`
+              : `${disconnectedOpponents.length} players have disconnected. Waiting for reconnection…`}
+          </StatusBanner>
+        )}
 
-      {/* Abandonment banner - shown when game ended due to reconnection timeout */}
-      {gameEndedByAbandonment && (
-        <StatusBanner
-          variant="error"
-          title="Game ended by abandonment"
-          actions={
-            <Button type="button" variant="secondary" size="sm" onClick={() => navigate('/lobby')}>
-              Lobby
-            </Button>
-          }
-          className="mb-4"
-        >
-          A player failed to reconnect within the allowed time.
-        </StatusBanner>
-      )}
+        {/* Abandonment banner - shown when game ended due to reconnection timeout */}
+        {gameEndedByAbandonment && (
+          <StatusBanner
+            variant="error"
+            title="Game ended by abandonment"
+            actions={
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate('/lobby')}
+              >
+                Lobby
+              </Button>
+            }
+            className="mb-4"
+          >
+            A player failed to reconnect within the allowed time.
+          </StatusBanner>
+        )}
 
-      {gameOverBannerText && (
-        <StatusBanner variant="success" className="mb-2">
-          {gameOverBannerText}
-        </StatusBanner>
-      )}
+        {gameOverBannerText && (
+          <StatusBanner variant="success" className="mb-2">
+            {gameOverBannerText}
+          </StatusBanner>
+        )}
 
-      {fatalGameError && (
-        <StatusBanner
-          variant="error"
-          title={fatalGameError.message}
-          actions={
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => setFatalGameError(null)}
-            >
-              Dismiss
-            </Button>
-          }
-        >
-          {process.env.NODE_ENV === 'development' && fatalGameError.technical ? (
-            <div className="text-xs font-mono text-red-200/90">
-              Technical: {fatalGameError.technical}
-            </div>
-          ) : null}
-        </StatusBanner>
-      )}
+        {fatalGameError && (
+          <StatusBanner
+            variant="error"
+            title={fatalGameError.message}
+            actions={
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setFatalGameError(null)}
+              >
+                Dismiss
+              </Button>
+            }
+          >
+            {process.env.NODE_ENV === 'development' && fatalGameError.technical ? (
+              <div className="text-xs font-mono text-red-200/90">
+                Technical: {fatalGameError.technical}
+              </div>
+            ) : null}
+          </StatusBanner>
+        )}
 
-      <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          {renderGameHeader(gameState)}
-          {!isPlayer && (
-            <span className="px-2 py-0.5 bg-purple-900/50 border border-purple-500/50 text-purple-200 text-xs rounded-full uppercase tracking-wider font-bold">
-              Spectating
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            {renderGameHeader(gameState)}
+            {!isPlayer && (
+              <span className="px-2 py-0.5 bg-purple-900/50 border border-purple-500/50 text-purple-200 text-xs rounded-full uppercase tracking-wider font-bold">
+                Spectating
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+            <span className="hidden sm:inline">Status: {gameState.gameStatus}</span>
+            <span className="hidden sm:inline">• Phase: {hudViewModel.phase.label}</span>
+            <span className="hidden lg:inline">
+              • Current:{' '}
+              {hudCurrentPlayer
+                ? hudCurrentPlayer.username || `P${hudCurrentPlayer.playerNumber}`
+                : '—'}
             </span>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
-          <span className="hidden sm:inline">Status: {gameState.gameStatus}</span>
-          <span className="hidden sm:inline">• Phase: {hudViewModel.phase.label}</span>
-          <span className="hidden lg:inline">
-            • Current:{' '}
-            {hudCurrentPlayer
-              ? hudCurrentPlayer.username || `P${hudCurrentPlayer.playerNumber}`
-              : '—'}
-          </span>
-          {!isPlayer && (
-            <button
-              type="button"
-              onClick={() => navigate('/lobby')}
-              className="px-3 py-1 rounded bg-slate-800 border border-slate-600 text-[11px] text-slate-100 hover:bg-slate-700 hover:border-slate-400 transition-colors"
-            >
-              Back to lobby
-            </button>
-          )}
-        </div>
-      </header>
+            {!isPlayer && (
+              <button
+                type="button"
+                onClick={() => navigate('/lobby')}
+                className="px-3 py-1 rounded bg-slate-800 border border-slate-600 text-[11px] text-slate-100 hover:bg-slate-700 hover:border-slate-400 transition-colors"
+              >
+                Back to lobby
+              </button>
+            )}
+          </div>
+        </header>
 
-      <VictoryModal
-        isOpen={!!victoryState && !isVictoryModalDismissed}
-        viewModel={victoryViewModel}
-        gameEndExplanation={gameEndExplanation}
-        onClose={dismissVictoryModal}
-        onReturnToLobby={() => navigate('/lobby')}
-        onRequestRematch={() => {
-          requestRematch();
-        }}
-        onAcceptRematch={(requestId) => {
-          acceptRematch(requestId);
-        }}
-        onDeclineRematch={(requestId) => {
-          declineRematch(requestId);
-        }}
-        rematchStatus={rematchStatus}
-        currentUserId={user?.id}
-      />
-
-      <main className="flex flex-col lg:flex-row lg:gap-8 gap-4">
-        {/* Board container - centers on mobile, takes available space on desktop */}
-        <BackendBoardSection
-          boardType={boardType}
-          board={board}
-          viewModel={backendBoardViewModel}
-          selectedPosition={selected || backendMustMoveFrom}
-          validTargets={validTargets}
-          isSpectator={!isPlayer}
-          pendingAnimation={pendingAnimation ?? undefined}
-          chainCapturePath={chainCapturePath}
-          shakingCellKey={shakingCellKey}
-          onCellClick={(pos) => handleBackendCellClick(pos, board)}
-          onCellDoubleClick={(pos) => handleBackendCellDoubleClick(pos, board)}
-          onCellContextMenu={(pos) => handleBackendCellContextMenu(pos, board)}
-          onAnimationComplete={clearAnimation}
-          onShowBoardControls={() => setShowBoardControls(true)}
+        <VictoryModal
+          isOpen={!!victoryState && !isVictoryModalDismissed}
+          viewModel={victoryViewModel}
+          gameEndExplanation={gameEndExplanation}
+          onClose={dismissVictoryModal}
+          onReturnToLobby={() => navigate('/lobby')}
+          onRequestRematch={() => {
+            requestRematch();
+          }}
+          onAcceptRematch={(requestId) => {
+            acceptRematch(requestId);
+          }}
+          onDeclineRematch={(requestId) => {
+            declineRematch(requestId);
+          }}
+          rematchStatus={rematchStatus}
+          currentUserId={user?.id}
         />
 
-        <BackendGameSidebar
-          hudViewModel={hudViewModel}
-          gameState={gameState}
-          boardType={boardType}
-          timeControl={gameState.timeControl}
-          isMobile={isMobile}
-          isPlayer={isPlayer}
-          isMyTurn={isMyTurn}
-          isConnectionActive={isConnectionActive}
-          rulesUxContext={rulesUxContext}
-          selectedPosition={selected}
-          selectedStackDetails={backendSelectedStackDetails}
-          boardInteractionMessage={boardInteractionMessage}
-          pendingChoice={pendingChoice}
-          pendingChoiceView={pendingChoiceView}
-          choiceDeadline={choiceDeadline}
-          reconciledDecisionTimeRemainingMs={reconciledDecisionTimeRemainingMs}
-          isDecisionServerCapped={decisionCountdown.isServerCapped}
-          decisionAutoResolved={decisionAutoResolved}
-          moveHistory={gameState.moveHistory}
-          currentMoveIndex={gameState.moveHistory.length - 1}
-          eventLogViewModel={toEventLogViewModel(
-            gameState.history,
-            showSystemEventsInLog ? eventLog : [],
-            victoryState,
-            { maxEntries: 40 }
-          )}
-          showSystemEventsInLog={showSystemEventsInLog}
-          isResigning={isResigning}
-          isResignConfirmOpen={isResignConfirmOpen}
-          showAdvancedSidebarPanels={showAdvancedSidebarPanels}
-          gameId={gameId}
-          hasVictoryState={!!victoryState}
-          evaluationHistory={evaluationHistory}
-          showSwapSidesPrompt={
-            isPlayer &&
-            isConnectionActive &&
-            gameState.gameStatus === 'active' &&
-            gameState.players.length === 2 &&
-            gameState.rulesOptions?.swapRuleEnabled === true &&
-            !!hudCurrentPlayer &&
-            hudCurrentPlayer.playerNumber === gameState.currentPlayer &&
-            hudCurrentPlayer.playerNumber === 2 &&
-            !gameState.moveHistory.some((m) => m.type === 'swap_sides') &&
-            gameState.moveHistory.some((m) => m.player === 1) &&
-            !gameState.moveHistory.some((m) => m.player === 2 && m.type !== 'swap_sides')
+        <main className="flex flex-col lg:flex-row lg:gap-2 gap-4">
+          {/* Board container - centers on mobile, takes available space on desktop */}
+          <BackendBoardSection
+            boardType={boardType}
+            board={board}
+            viewModel={backendBoardViewModel}
+            selectedPosition={selected || backendMustMoveFrom}
+            validTargets={validTargets}
+            isSpectator={!isPlayer}
+            pendingAnimation={pendingAnimation ?? undefined}
+            chainCapturePath={chainCapturePath}
+            shakingCellKey={shakingCellKey}
+            phaseLabel={hudViewModel.phase.label}
+            players={hudViewModel.players.map((p) => ({
+              playerNumber: p.playerNumber,
+              username: p.username,
+              type: p.aiInfo.isAI ? 'ai' : 'human',
+            }))}
+            currentPlayerNumber={gameState.currentPlayer}
+            onCellClick={(pos) => handleBackendCellClick(pos, board)}
+            onCellDoubleClick={(pos) => handleBackendCellDoubleClick(pos, board)}
+            onCellContextMenu={(pos) => handleBackendCellContextMenu(pos, board)}
+            onAnimationComplete={clearAnimation}
+            onShowBoardControls={() => setShowBoardControls(true)}
+          />
+
+          <BackendGameSidebar
+            hudViewModel={hudViewModel}
+            gameState={gameState}
+            boardType={boardType}
+            timeControl={gameState.timeControl}
+            isMobile={isMobile}
+            isPlayer={isPlayer}
+            isMyTurn={isMyTurn}
+            isConnectionActive={isConnectionActive}
+            rulesUxContext={rulesUxContext}
+            selectedPosition={selected}
+            selectedStackDetails={backendSelectedStackDetails}
+            boardInteractionMessage={boardInteractionMessage}
+            pendingChoice={pendingChoice}
+            pendingChoiceView={pendingChoiceView}
+            choiceDeadline={choiceDeadline}
+            reconciledDecisionTimeRemainingMs={reconciledDecisionTimeRemainingMs}
+            isDecisionServerCapped={decisionCountdown.isServerCapped}
+            decisionAutoResolved={decisionAutoResolved}
+            moveHistory={gameState.moveHistory}
+            currentMoveIndex={gameState.moveHistory.length - 1}
+            eventLogViewModel={toEventLogViewModel(
+              gameState.history,
+              showSystemEventsInLog ? eventLog : [],
+              victoryState,
+              { maxEntries: 40 }
+            )}
+            showSystemEventsInLog={showSystemEventsInLog}
+            isResigning={isResigning}
+            isResignConfirmOpen={isResignConfirmOpen}
+            showAdvancedSidebarPanels={showAdvancedSidebarPanels}
+            gameId={gameId}
+            hasVictoryState={!!victoryState}
+            evaluationHistory={evaluationHistory}
+            showSwapSidesPrompt={
+              isPlayer &&
+              isConnectionActive &&
+              gameState.gameStatus === 'active' &&
+              gameState.players.length === 2 &&
+              gameState.rulesOptions?.swapRuleEnabled === true &&
+              !!hudCurrentPlayer &&
+              hudCurrentPlayer.playerNumber === gameState.currentPlayer &&
+              hudCurrentPlayer.playerNumber === 2 &&
+              !gameState.moveHistory.some((m) => m.type === 'swap_sides') &&
+              gameState.moveHistory.some((m) => m.player === 1) &&
+              !gameState.moveHistory.some((m) => m.player === 2 && m.type !== 'swap_sides')
+            }
+            hudCurrentPlayer={hudCurrentPlayer}
+            chatMessages={chatMessages}
+            chatInput={chatInput}
+            onRespondToChoice={respondToChoice}
+            onResign={handleResign}
+            onResignConfirmOpenChange={setIsResignConfirmOpen}
+            onSwapSides={() => {
+              submitMove({
+                type: 'swap_sides',
+                to: { x: 0, y: 0 },
+              } as PartialMove);
+            }}
+            onToggleSystemEventsInLog={() => setShowSystemEventsInLog((prev) => !prev)}
+            onAdvancedPanelsToggle={(open) => setShowAdvancedSidebarPanels(open)}
+            onHistoryError={(err) => {
+              console.warn('Failed to load game history:', err.message);
+            }}
+            onChatInputChange={setChatInput}
+            onChatSubmit={handleChatSubmit}
+            onShowBoardControls={() => setShowBoardControls(true)}
+          />
+        </main>
+
+        <RingPlacementCountDialog
+          isOpen={!!ringPlacementCountPrompt}
+          maxCount={ringPlacementCountPrompt?.maxCount ?? 1}
+          defaultCount={
+            ringPlacementCountPrompt?.hasStack
+              ? 1
+              : Math.min(2, ringPlacementCountPrompt?.maxCount ?? 1)
           }
-          hudCurrentPlayer={hudCurrentPlayer}
-          chatMessages={chatMessages}
-          chatInput={chatInput}
-          onRespondToChoice={respondToChoice}
-          onResign={handleResign}
-          onResignConfirmOpenChange={setIsResignConfirmOpen}
-          onSwapSides={() => {
-            submitMove({
-              type: 'swap_sides',
-              to: { x: 0, y: 0 },
-            } as PartialMove);
-          }}
-          onToggleSystemEventsInLog={() => setShowSystemEventsInLog((prev) => !prev)}
-          onAdvancedPanelsToggle={(open) => setShowAdvancedSidebarPanels(open)}
-          onHistoryError={(err) => {
-            console.warn('Failed to load game history:', err.message);
-          }}
-          onChatInputChange={setChatInput}
-          onChatSubmit={handleChatSubmit}
-          onShowBoardControls={() => setShowBoardControls(true)}
+          isStackPlacement={ringPlacementCountPrompt?.hasStack ?? false}
+          onClose={closeRingPlacementPrompt}
+          onConfirm={handleConfirmRingPlacementCount}
         />
-      </main>
 
-      <RingPlacementCountDialog
-        isOpen={!!ringPlacementCountPrompt}
-        maxCount={ringPlacementCountPrompt?.maxCount ?? 1}
-        defaultCount={
-          ringPlacementCountPrompt?.hasStack
-            ? 1
-            : Math.min(2, ringPlacementCountPrompt?.maxCount ?? 1)
-        }
-        isStackPlacement={ringPlacementCountPrompt?.hasStack ?? false}
-        onClose={closeRingPlacementPrompt}
-        onConfirm={handleConfirmRingPlacementCount}
-      />
-
-      {showBoardControls && (
-        <BoardControlsOverlay
-          mode={isPlayer ? 'backend' : 'spectator'}
-          onClose={() => setShowBoardControls(false)}
-        />
-      )}
+        {showBoardControls && (
+          <BoardControlsOverlay
+            mode={isPlayer ? 'backend' : 'spectator'}
+            onClose={() => setShowBoardControls(false)}
+          />
+        )}
+      </div>
     </div>
   );
 };

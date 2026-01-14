@@ -286,7 +286,7 @@ export function MoveHistory({
   if (!moves || moves.length === 0) {
     return (
       <div
-        className={`p-3 border border-slate-700 rounded bg-slate-900/50 ${className}`}
+        className={`p-3 border border-slate-700 rounded-xl bg-slate-900/70 ${className}`}
         data-testid="move-history"
       >
         <h2 className="font-semibold mb-2 text-sm text-slate-200">Moves</h2>
@@ -299,7 +299,7 @@ export function MoveHistory({
 
   return (
     <div
-      className={`p-3 border border-slate-700 rounded bg-slate-900/50 ${className}`}
+      className={`p-3 border border-slate-700 rounded-xl bg-slate-900/70 ${className}`}
       data-testid="move-history"
     >
       <div className="flex items-center justify-between mb-2">

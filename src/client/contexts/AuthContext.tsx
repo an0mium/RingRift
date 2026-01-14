@@ -6,7 +6,7 @@ import { AUTH_UNAUTHORIZED_EVENT } from '../utils/authEvents';
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
   register: (
     email: string,
     username: string,
@@ -61,8 +61,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const { user: userData, token } = await authApi.login(email, password);
+  const login = async (email: string, password: string, rememberMe?: boolean) => {
+    const { user: userData, token } = await authApi.login(email, password, rememberMe);
     localStorage.setItem('token', token);
     setUser(userData);
   };

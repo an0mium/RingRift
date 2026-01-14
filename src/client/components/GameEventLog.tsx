@@ -103,7 +103,7 @@ export function GameEventLog(props: GameEventLogProps) {
 
   return (
     <div
-      className="p-3 border border-slate-700 rounded bg-slate-900/50 max-h-64 overflow-y-auto"
+      className="p-3 border border-slate-700 rounded-xl bg-slate-900/70 max-h-64 overflow-y-auto"
       data-testid="game-event-log"
       role="log"
       aria-live="polite"

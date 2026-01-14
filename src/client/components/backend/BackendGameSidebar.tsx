@@ -203,7 +203,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
   onShowBoardControls,
 }) => {
   return (
-    <aside className="w-full max-w-md mx-auto lg:mx-0 lg:w-[256px] flex-shrink-0 space-y-1.5 text-xs text-slate-100">
+    <aside className="w-full max-w-md mx-auto lg:mx-0 lg:w-[256px] flex-shrink-0 space-y-2 text-xs text-slate-100">
       {/* Primary HUD band – placed at the top of the sidebar so phase/turn/time
           are always visible alongside the board. On mobile, render the
           compact MobileGameHUD; on larger screens, use the full GameHUD. */}
@@ -234,7 +234,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
         />
       )}
 
-      <div className="p-2 border border-slate-700 rounded bg-slate-900/50">
+      <div className="p-3 border border-slate-700 rounded-xl bg-slate-900/70">
         <h2 className="font-semibold mb-1.5 text-sm">Selection</h2>
         {selectedPosition ? (
           <div className="space-y-1.5">
@@ -280,7 +280,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
 
       {/* Swap sides prompt for 2-player games with swap rule */}
       {showSwapSidesPrompt && (
-        <div className="mt-2 p-2 border border-amber-500/60 rounded bg-amber-900/40 text-xs">
+        <div className="mt-2 p-3 border border-amber-500/60 rounded-xl bg-amber-900/40 text-xs">
           <div className="flex items-center justify-between gap-2">
             <span className="font-semibold text-amber-100">
               Pie rule available: swap colours with Player 1.
@@ -300,7 +300,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
       )}
 
       {decisionAutoResolved && (
-        <div className="mt-1 text-[11px] text-amber-300">
+        <div className="mt-1 px-2 py-1 text-[11px] rounded-lg bg-emerald-900/30 border border-emerald-500/40 text-emerald-300">
           {describeDecisionAutoResolved(decisionAutoResolved)}
         </div>
       )}
@@ -319,7 +319,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
       <GameEventLog viewModel={eventLogViewModel} />
 
       <details
-        className="p-2 border border-slate-700 rounded bg-slate-900/50"
+        className="p-3 border border-slate-700 rounded-xl bg-slate-900/70"
         open={showAdvancedSidebarPanels}
         onToggle={(event) => {
           onAdvancedPanelsToggle(event.currentTarget.open);
@@ -351,7 +351,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
         )}
       </details>
 
-      <div className="p-2 border border-slate-700 rounded bg-slate-900/50 flex flex-col h-44">
+      <div className="p-3 border border-slate-700 rounded-xl bg-slate-900/70 flex flex-col h-44">
         <h2 className="font-semibold mb-1 text-xs">Chat</h2>
         <div className="flex-1 overflow-y-auto mb-1 space-y-0.5">
           {chatMessages.length === 0 ? (
