@@ -396,9 +396,15 @@ class NNUETrainingDaemon(HandlerBase):
         self._state.active_trainings[config_key] = time.time()
 
         # Emit training started event
+        # Jan 14, 2026: Use standard event type to avoid "Unknown event type" warnings
         safe_emit_event(
-            "NNUE_TRAINING_STARTED",
-            {"config_key": config_key, "game_count": game_count, "timestamp": time.time()},
+            "training_started",  # Standard event type from DataEventType
+            {
+                "config_key": config_key,
+                "game_count": game_count,
+                "timestamp": time.time(),
+                "training_type": "nnue",  # Distinguish from NN training
+            },
             context="nnue_training",
         )
 
@@ -498,8 +504,9 @@ class NNUETrainingDaemon(HandlerBase):
         })
 
         # Emit completion event
+        # Jan 14, 2026: Use standard event type to avoid "Unknown event type" warnings
         safe_emit_event(
-            "NNUE_TRAINING_COMPLETED",
+            "training_completed",  # Standard event type from DataEventType
             {
                 "config_key": config_key,
                 "success": success,
@@ -507,6 +514,7 @@ class NNUETrainingDaemon(HandlerBase):
                 "game_count": game_count,
                 "error": error_msg if not success else None,
                 "timestamp": time.time(),
+                "training_type": "nnue",  # Distinguish from NN training
             },
             context="nnue_training",
         )
