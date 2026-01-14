@@ -308,13 +308,31 @@ describe('useBackendBoardSelection', () => {
       expect(result.current.validTargets).toEqual([]);
     });
 
-    it('should not auto-highlight during movement phase', () => {
+    it('should auto-highlight during movement phase when mustMoveFrom is set', () => {
+      // When all valid moves originate from the same position, mustMoveFrom is set
+      // and valid landing targets should be auto-highlighted for better UX
       const gameState = createGameState({ currentPhase: 'movement' });
       const validMoves: Move[] = [createMove('move_stack', 1, { x: 0, y: 1 }, { x: 0, y: 0 })];
 
       const { result } = renderHook(() => useBackendBoardSelection(gameState, validMoves));
 
+      // Should auto-highlight the landing positions when mustMoveFrom is set
+      expect(result.current.validTargets).toEqual([{ x: 0, y: 1 }]);
+      expect(result.current.mustMoveFrom).toEqual({ x: 0, y: 0 });
+    });
+
+    it('should not auto-highlight during movement phase when moves have different origins', () => {
+      // When moves originate from different positions, no auto-highlighting
+      const gameState = createGameState({ currentPhase: 'movement' });
+      const validMoves: Move[] = [
+        createMove('move_stack', 1, { x: 0, y: 1 }, { x: 0, y: 0 }),
+        createMove('move_stack', 1, { x: 3, y: 3 }, { x: 2, y: 2 }),
+      ];
+
+      const { result } = renderHook(() => useBackendBoardSelection(gameState, validMoves));
+
       expect(result.current.validTargets).toEqual([]);
+      expect(result.current.mustMoveFrom).toBeUndefined();
     });
   });
 

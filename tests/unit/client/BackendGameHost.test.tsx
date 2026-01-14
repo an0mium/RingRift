@@ -407,8 +407,12 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     render(<BackendGameHost gameId="game-123" />);
 
-    // Click source stack cell then target cell
-    fireEvent.click(getSquareCell(source.x, source.y));
+    // When all valid moves originate from the same stack (mustMoveFrom), the source is
+    // auto-selected and valid targets are auto-highlighted. In this case, clicking
+    // the source would toggle the selection, so we only need to click the target.
+    //
+    // For scenarios where mustMoveFrom is NOT set (multiple stacks can move), we'd
+    // need to click source then target. This test covers the single-stack case.
     fireEvent.click(getSquareCell(target.x, target.y));
 
     expect(mockSubmitMove).toHaveBeenCalledTimes(1);

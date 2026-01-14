@@ -32,7 +32,16 @@ jest.mock('../../src/client/hooks/useFirstTimePlayer', () => ({
     shouldShowWelcome: false,
     markWelcomeSeen: jest.fn(),
     markGameCompleted: jest.fn(),
-    isFirstTimePlayer: false,
+    // isFirstTimePlayer: true ensures advanced options start hidden
+    isFirstTimePlayer: true,
+    state: {
+      seenTutorialPhases: [],
+      tutorialHintsEnabled: false,
+      hasCompletedFirstGame: false,
+      hasSeenWelcome: false,
+    },
+    markPhaseHintSeen: jest.fn(),
+    setTutorialHintsEnabled: jest.fn(),
   })),
 }));
 
@@ -55,7 +64,16 @@ describe('SandboxGameHost', () => {
       shouldShowWelcome: false,
       markWelcomeSeen: jest.fn(),
       markGameCompleted: jest.fn(),
-      isFirstTimePlayer: false,
+      // isFirstTimePlayer: true ensures advanced options start hidden
+      isFirstTimePlayer: true,
+      state: {
+        seenTutorialPhases: [],
+        tutorialHintsEnabled: false,
+        hasCompletedFirstGame: false,
+        hasSeenWelcome: false,
+      },
+      markPhaseHintSeen: jest.fn(),
+      setTutorialHintsEnabled: jest.fn(),
     } as any);
 
     mockedUseAuth.mockReturnValue({

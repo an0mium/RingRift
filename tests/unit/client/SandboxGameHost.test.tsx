@@ -183,6 +183,26 @@ jest.mock('../../../src/client/hooks/useSandboxInteractions', () => ({
   },
 }));
 
+jest.mock('../../../src/client/hooks/useFirstTimePlayer', () => ({
+  __esModule: true,
+  useFirstTimePlayer: () => ({
+    shouldShowWelcome: false,
+    markWelcomeSeen: jest.fn(),
+    markGameCompleted: jest.fn(),
+    // isFirstTimePlayer: true ensures advanced options start hidden
+    // so the "Show advanced options" button is visible
+    isFirstTimePlayer: true,
+    state: {
+      seenTutorialPhases: [],
+      tutorialHintsEnabled: false,
+      hasCompletedFirstGame: false,
+      hasSeenWelcome: false,
+    },
+    markPhaseHintSeen: jest.fn(),
+    setTutorialHintsEnabled: jest.fn(),
+  }),
+}));
+
 // Load the component under test only after all jest.mock() declarations above
 // have executed, so the module sees consistent mocked dependencies even when
 // Jest reuses a single Node process across multiple test files.
