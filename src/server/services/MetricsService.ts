@@ -292,6 +292,19 @@ export class MetricsService {
   /** Counter: Redis cache misses */
   private cacheMisses: Counter<string>;
 
+  // ===================
+  // Distributed Lock Metrics
+  // ===================
+
+  /** Counter: Lock acquisition attempts by outcome (acquired, contention, failed) */
+  private lockAcquisitionsTotal: Counter<'outcome'>;
+
+  /** Histogram: Lock hold duration in milliseconds */
+  private lockHoldDurationMs: Histogram<string>;
+
+  /** Counter: Lock contention retries (when initial acquire fails but eventually succeeds) */
+  private lockContentionRetries: Counter<string>;
+
   /**
    * Private constructor - use getInstance() instead.
    */
@@ -650,6 +663,27 @@ export class MetricsService {
     this.cacheMisses = new Counter({
       name: 'ringrift_cache_misses_total',
       help: 'Total Redis cache misses',
+    });
+
+    // ===================
+    // Distributed Lock Metrics
+    // ===================
+
+    this.lockAcquisitionsTotal = new Counter({
+      name: 'ringrift_lock_acquisitions_total',
+      help: 'Total distributed lock acquisition attempts by outcome',
+      labelNames: ['outcome'] as const,
+    });
+
+    this.lockHoldDurationMs = new Histogram({
+      name: 'ringrift_lock_hold_duration_ms',
+      help: 'Duration locks are held in milliseconds',
+      buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 15000],
+    });
+
+    this.lockContentionRetries = new Counter({
+      name: 'ringrift_lock_contention_retries_total',
+      help: 'Total lock contention retries (attempts beyond the first)',
     });
 
     this.initialized = true;
@@ -1306,6 +1340,33 @@ export class MetricsService {
    */
   public recordCacheMiss(): void {
     this.cacheMisses.inc();
+  }
+
+  // ===================
+  // Distributed Lock Metrics Helpers
+  // ===================
+
+  /**
+   * Record a lock acquisition attempt.
+   * @param outcome - 'acquired' for success on first try, 'contention' for success after retries, 'failed' for timeout
+   */
+  public recordLockAcquisition(outcome: 'acquired' | 'contention' | 'failed'): void {
+    this.lockAcquisitionsTotal.labels(outcome).inc();
+  }
+
+  /**
+   * Record how long a lock was held.
+   * @param durationMs - Duration in milliseconds
+   */
+  public recordLockHoldDuration(durationMs: number): void {
+    this.lockHoldDurationMs.observe(durationMs);
+  }
+
+  /**
+   * Record a lock contention retry (when acquire fails but retry is attempted).
+   */
+  public recordLockContentionRetry(): void {
+    this.lockContentionRetries.inc();
   }
 }
 

@@ -90,10 +90,12 @@ CONFIG_PRIORITY_OVERRIDES: dict[str, int] = {
 }
 
 # Player count allocation multipliers
+# Jan 14, 2026: Increased 4p from 4.0 to 8.0 to address severe game deficit
+# (hex8_4p: 873 vs 16K+, hexagonal_4p: 255, square19_4p: 416)
 PLAYER_COUNT_ALLOCATION_MULTIPLIER = {
     2: 1.0,  # Baseline
-    3: 3.0,  # 3x priority for 3p
-    4: 4.0,  # 4x priority for 4p
+    3: 4.0,  # 4x priority for 3p (increased from 3.0)
+    4: 8.0,  # 8x priority for 4p (increased from 4.0) - critical deficit
 }
 
 # Jan 14, 2026: CRITICAL priority should bypass player multiplier

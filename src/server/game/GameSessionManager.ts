@@ -205,6 +205,7 @@ export class GameSessionManager {
    */
   public async withGameLock<T>(gameId: string, operation: () => Promise<T>): Promise<T> {
     const cacheService = getCacheService();
+    const metrics = getMetricsService();
 
     // If Redis is not available, fall back to executing without a lock.
     // This degrades gracefully but reintroduces race condition risks.
@@ -223,10 +224,17 @@ export class GameSessionManager {
     for (let i = 0; i < maxRetries; i++) {
       const acquired = await cacheService.acquireLock(lockKey, ttlSeconds);
       if (acquired) {
+        // Record acquisition outcome: 'acquired' on first try, 'contention' if retries were needed
+        metrics.recordLockAcquisition(i === 0 ? 'acquired' : 'contention');
+
         const startTime = Date.now();
         try {
           const result = await operation();
           const elapsed = Date.now() - startTime;
+
+          // Record lock hold duration
+          metrics.recordLockHoldDuration(elapsed);
+
           // Warn if operation took more than 50% of TTL
           if (elapsed > ttlSeconds * 500) {
             logger.warn('Game lock operation took significant time', {
@@ -241,11 +249,16 @@ export class GameSessionManager {
         }
       }
 
+      // Record retry attempt (contention)
+      metrics.recordLockContentionRetry();
+
       // Wait before retrying with exponential backoff
       const backoffDelay = retryDelayMs * Math.min(2 ** i, 4);
       await new Promise((resolve) => setTimeout(resolve, backoffDelay));
     }
 
+    // Record failed acquisition
+    metrics.recordLockAcquisition('failed');
     throw new Error('Game is busy, please try again');
   }
 }

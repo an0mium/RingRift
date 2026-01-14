@@ -11,8 +11,12 @@ import { apiRequestLogger } from './middleware/requestLogger';
 import { securityMiddleware } from './middleware/securityHeaders';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { logger } from './utils/logger';
-import { connectDatabase, disconnectDatabase } from './database/connection';
+import { connectDatabase, disconnectDatabase, getDatabaseClient } from './database/connection';
 import { connectRedis, disconnectRedis } from './cache/redis';
+import {
+  createDataRetentionService,
+  type DataRetentionService,
+} from './services/DataRetentionService';
 import client from 'prom-client';
 import { config, enforceAppTopology } from './config';
 import { HealthCheckService, isServiceReady } from './services/HealthCheckService';
@@ -22,6 +26,60 @@ import { getServiceStatusManager } from './services/ServiceStatusManager';
 const app = express();
 const server = createServer(app);
 let metricsServer: ReturnType<typeof createServer> | null = null;
+let retentionService: DataRetentionService | null = null;
+let retentionTimerId: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Calculate milliseconds until next 3 AM UTC.
+ * Used to schedule daily data retention tasks.
+ */
+function msUntilNext3AmUtc(): number {
+  const now = new Date();
+  const next3Am = new Date(now);
+  next3Am.setUTCHours(3, 0, 0, 0);
+
+  // If it's already past 3 AM UTC today, schedule for tomorrow
+  if (now >= next3Am) {
+    next3Am.setUTCDate(next3Am.getUTCDate() + 1);
+  }
+
+  return next3Am.getTime() - now.getTime();
+}
+
+/**
+ * Schedule and run data retention tasks daily at 3 AM UTC.
+ * GDPR compliance requires automated cleanup of soft-deleted data.
+ */
+function scheduleDataRetentionTask(): void {
+  const runAndReschedule = async () => {
+    if (retentionService) {
+      try {
+        const report = await retentionService.runRetentionTasks();
+        logger.info('Scheduled data retention tasks completed', { report });
+      } catch (error) {
+        logger.error('Scheduled data retention tasks failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // Schedule next run at 3 AM UTC tomorrow
+    const msUntilNext = msUntilNext3AmUtc();
+    retentionTimerId = setTimeout(runAndReschedule, msUntilNext);
+    logger.debug('Next data retention run scheduled', {
+      msUntilNext,
+      nextRunAt: new Date(Date.now() + msUntilNext).toISOString(),
+    });
+  };
+
+  // Schedule first run
+  const msUntilFirst = msUntilNext3AmUtc();
+  retentionTimerId = setTimeout(runAndReschedule, msUntilFirst);
+  logger.info('Data retention scheduler initialized', {
+    firstRunAt: new Date(Date.now() + msUntilFirst).toISOString(),
+    retentionConfig: retentionService?.getConfig(),
+  });
+}
 
 // Trust proxy headers for accurate client IP detection behind nginx/Cloudflare.
 // This allows rate limiters and logging to use the real client IP from
@@ -272,6 +330,16 @@ async function startServer() {
       });
     }
 
+    // Initialize data retention service for GDPR compliance
+    // Runs daily at 3 AM UTC to clean up soft-deleted users, expired tokens, etc.
+    const prisma = getDatabaseClient();
+    if (prisma) {
+      retentionService = createDataRetentionService(prisma);
+      scheduleDataRetentionTask();
+    } else {
+      logger.warn('Data retention scheduler not started: database not connected');
+    }
+
     // Start server
     const PORT = config.server.port;
     const HOST = config.server.host;
@@ -358,7 +426,14 @@ async function gracefulShutdown(signal: string) {
       });
     }
 
-    // 2. Close Redis connection
+    // 2. Cancel scheduled data retention task
+    if (retentionTimerId) {
+      clearTimeout(retentionTimerId);
+      retentionTimerId = null;
+      logger.info('Data retention scheduler cancelled');
+    }
+
+    // 3. Close Redis connection
     try {
       await disconnectRedis();
       logger.info('Redis connection closed');
@@ -366,7 +441,7 @@ async function gracefulShutdown(signal: string) {
       logger.warn('Error closing Redis connection:', err);
     }
 
-    // 3. Close database connection
+    // 4. Close database connection
     try {
       await disconnectDatabase();
       logger.info('Database connection closed');

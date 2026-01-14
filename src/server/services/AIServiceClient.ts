@@ -19,7 +19,7 @@ import {
   CaptureDirectionChoice,
   BoardType,
 } from '../../shared/types/game';
-import { logger } from '../utils/logger';
+import { logger, getRequestContext } from '../utils/logger';
 import { aiMoveLatencyHistogram } from '../utils/rulesParityMetrics';
 import { getServiceStatusManager } from './ServiceStatusManager';
 import type { PositionEvaluationByPlayer } from '../../shared/types/websocket';
@@ -314,6 +314,17 @@ export class AIServiceClient {
       },
     });
 
+    // Add request interceptor to propagate correlation IDs from the incoming
+    // HTTP request context to the Python AI service for distributed tracing.
+    this.client.interceptors.request.use((requestConfig) => {
+      const context = getRequestContext();
+      if (context?.requestId) {
+        requestConfig.headers = requestConfig.headers || {};
+        requestConfig.headers['X-Request-Id'] = context.requestId;
+      }
+      return requestConfig;
+    });
+
     // Add response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
@@ -324,12 +335,16 @@ export class AIServiceClient {
         // can emit structured fallback metrics without depending on axios internals.
         (error as Error & { aiErrorType?: string }).aiErrorType = errorType;
 
+        // Include request ID from context for distributed tracing correlation
+        const context = getRequestContext();
+
         logger.error('AI Service error:', {
           type: errorType,
           message: error.message,
           response: error.response?.data,
           status: error.response?.status,
           code: error.code,
+          requestId: context?.requestId,
         });
         throw error;
       }

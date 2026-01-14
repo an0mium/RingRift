@@ -2097,13 +2097,38 @@ async def create_node_recovery() -> None:
 
 
 async def create_resource_optimizer() -> None:
-    """Create and run resource optimizer daemon (December 2025)."""
+    """Create and run resource optimizer daemon (December 2025).
+
+    ResourceOptimizer is a utility class without daemon lifecycle methods,
+    so we wrap it in a periodic loop that collects metrics and logs optimization
+    recommendations.
+
+    January 2026: Fixed - ResourceOptimizer has no start() method.
+    """
     try:
+        import asyncio
+
         from app.coordination.resource_optimizer import ResourceOptimizer
 
         optimizer = ResourceOptimizer()
-        await optimizer.start()
-        await _wait_for_daemon(optimizer)
+        logger.info("[ResourceOptimizer] Starting optimization loop")
+
+        # Run periodic optimization check (every 60 seconds)
+        while True:
+            try:
+                # Update cluster state and get recommendations
+                state = optimizer.get_cluster_state(max_age_seconds=120)
+                if state and state.total_nodes > 0:
+                    recommendation = optimizer.get_optimization_recommendation()
+                    if recommendation and recommendation.scale_action != "NONE":
+                        logger.info(
+                            f"[ResourceOptimizer] Recommendation: {recommendation.scale_action} "
+                            f"(CPU: {state.avg_cpu_util:.1f}%, GPU: {state.avg_gpu_util:.1f}%)"
+                        )
+            except Exception as e:
+                logger.debug(f"[ResourceOptimizer] Optimization check failed: {e}")
+
+            await asyncio.sleep(60)
     except ImportError as e:
         logger.error(f"ResourceOptimizer not available: {e}")
         raise

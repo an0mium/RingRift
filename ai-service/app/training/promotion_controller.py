@@ -496,6 +496,7 @@ class PromotionController:
         games_played = 0
         win_rate = None
         elo_improvement = None
+        harness_type: str | None = None  # Jan 2026: Initialize for multi-harness tracking
 
         if self.elo_service:
             try:
@@ -611,6 +612,7 @@ class PromotionController:
             else:
                 # Gate passed - include harness info in reason
                 reason = f"{reason} | Multi-harness: {', '.join(harnesses_tested)}"
+                harness_type = ", ".join(harnesses_tested) if harnesses_tested else None
 
         decision = PromotionDecision(
             model_id=model_id,

@@ -940,6 +940,9 @@ export const fallbackRateLimiter = (() => {
   const requests = new Map<string, { count: number; resetTime: number }>();
   const WINDOW_SIZE = getEnvNumber('RATE_LIMIT_FALLBACK_WINDOW_MS', 15 * 60 * 1000); // 15 minutes
   const MAX_REQUESTS = getEnvNumber('RATE_LIMIT_FALLBACK_MAX_REQUESTS', 100);
+  // Maximum number of IP entries to track to prevent memory exhaustion under attack.
+  // When exceeded, oldest entries are evicted even if still within the window.
+  const MAX_ENTRIES = getEnvNumber('RATE_LIMIT_FALLBACK_MAX_ENTRIES', 50000);
 
   return (req: Request, res: Response, next: NextFunction) => {
     const key = normalizeIpKey(req.ip);
@@ -951,6 +954,24 @@ export const fallbackRateLimiter = (() => {
       if (data.resetTime < windowStart) {
         requests.delete(ip);
       }
+    }
+
+    // Evict oldest entries if we've exceeded the maximum size to prevent
+    // memory exhaustion from IP enumeration or distributed attacks.
+    // Map maintains insertion order, so first entries are oldest.
+    if (requests.size > MAX_ENTRIES) {
+      const entriesToRemove = requests.size - MAX_ENTRIES;
+      let removed = 0;
+      for (const ip of requests.keys()) {
+        if (removed >= entriesToRemove) break;
+        requests.delete(ip);
+        removed++;
+      }
+      logger.warn('Fallback rate limiter evicted entries due to size limit', {
+        evicted: removed,
+        currentSize: requests.size,
+        maxEntries: MAX_ENTRIES,
+      });
     }
 
     const current = requests.get(key);

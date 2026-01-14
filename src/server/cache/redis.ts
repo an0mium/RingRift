@@ -103,7 +103,21 @@ export class CacheService {
       const value = await this.client.get(key);
       if (value) {
         getMetricsService().recordCacheHit();
-        return JSON.parse(value);
+        try {
+          return JSON.parse(value);
+        } catch (parseError) {
+          // Corrupted cache entry - log and delete it
+          logger.warn(`Corrupted cache value for key ${key}, deleting entry`, {
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+            valueLength: value.length,
+            valuePreview: value.substring(0, 100),
+          });
+          // Delete corrupted entry asynchronously (don't await to avoid blocking)
+          this.del(key).catch((delError) => {
+            logger.error(`Failed to delete corrupted cache key ${key}:`, delError);
+          });
+          return null;
+        }
       }
       getMetricsService().recordCacheMiss();
       return null;

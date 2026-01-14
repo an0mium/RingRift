@@ -629,6 +629,11 @@ class EnhancedEarlyStopping:
         """Backwards compatible counter property (returns loss_counter)."""
         return self.loss_counter
 
+    @counter.setter
+    def counter(self, value: int) -> None:
+        """Backwards compatible counter setter (sets loss_counter)."""
+        self.loss_counter = value
+
 
 # Backwards compatible alias
 EarlyStopping = EnhancedEarlyStopping
