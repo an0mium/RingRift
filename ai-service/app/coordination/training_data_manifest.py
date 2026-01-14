@@ -41,6 +41,7 @@ import os
 import re
 import shlex
 import subprocess
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -474,7 +475,7 @@ class TrainingDataManifest:
                         newest_time_str = metadata["newest_game_time"]
                         if newest_time_str:
                             return datetime.fromisoformat(newest_time_str)
-        except (OSError, ValueError, TypeError, KeyError) as e:
+        except (OSError, ValueError, TypeError, KeyError, zipfile.BadZipFile) as e:
             logger.debug(f"Failed to extract freshness from {npz_path}: {e}")
         return None
 

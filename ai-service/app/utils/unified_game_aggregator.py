@@ -450,7 +450,8 @@ class UnifiedGameAggregator:
             for search_path in search_paths:
                 # Find all .db files and query each
                 find_cmd = (
-                    f"ssh -i {ssh_key_path} -o ConnectTimeout=10 -o BatchMode=yes "
+                    f"ssh -i {ssh_key_path} -o ConnectTimeout=15 -o StrictHostKeyChecking=no "
+                    f"-o BatchMode=yes -o ServerAliveInterval=30 "
                     f"{OWC_USER}@{OWC_HOST} "
                     f"'find {search_path} -name \"*.db\" -type f 2>/dev/null'"
                 )
@@ -462,7 +463,7 @@ class UnifiedGameAggregator:
                     shell=True,
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    timeout=90,
                 )
 
                 if result.returncode != 0:
@@ -474,7 +475,8 @@ class UnifiedGameAggregator:
 
                     # Query this database
                     query_cmd = (
-                        f"ssh -i {ssh_key_path} -o ConnectTimeout=10 -o BatchMode=yes "
+                        f"ssh -i {ssh_key_path} -o ConnectTimeout=15 -o StrictHostKeyChecking=no "
+                        f"-o BatchMode=yes -o ServerAliveInterval=30 "
                         f"{OWC_USER}@{OWC_HOST} "
                         f"\"sqlite3 '{db_path}' \\\"{query}\\\" 2>/dev/null\""
                     )
@@ -485,7 +487,7 @@ class UnifiedGameAggregator:
                         shell=True,
                         capture_output=True,
                         text=True,
-                        timeout=30,
+                        timeout=90,
                     )
 
                     if query_result.returncode == 0:
