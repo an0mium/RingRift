@@ -47,7 +47,7 @@ import type {
 } from '../../shared/types/websocket';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
 import type { LocalAIRng } from '../../shared/engine';
-import { serializeGameState } from '../../shared/engine/contracts/serialization';
+import { serializeBoardState } from '../../shared/engine/contracts/serialization';
 import { SeededRNG } from '../../shared/utils/rng';
 import { GameSessionStatus, deriveGameSessionStatus } from '../../shared/stateMachines/gameSession';
 import {
@@ -973,15 +973,19 @@ export class GameSession {
             ? this.gameEngine.getValidMoves(updatedState.currentPlayer)
             : [];
 
-          // Serialize game state to convert Maps to plain objects for JSON transport.
-          // The client's hydrateBoardState() reconstructs Maps from the plain objects.
-          const serializedState = serializeGameState(updatedState);
+          // Serialize board Maps to plain objects for JSON transport while keeping
+          // all other GameState fields intact. The client's hydrateBoardState()
+          // reconstructs Maps from the plain objects.
+          const transportState = {
+            ...updatedState,
+            board: serializeBoardState(updatedState.board),
+          };
 
           const payload = {
             type: 'game_update' as const,
             data: {
               gameId: this.gameId,
-              gameState: serializedState as unknown as GameState,
+              gameState: transportState as unknown as GameState,
               validMoves,
               ...(decisionMeta && {
                 meta: {

@@ -179,7 +179,22 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Include cookies in requests (for refresh token httpOnly cookie)
+  withCredentials: true,
 });
+
+// Track refresh state to avoid concurrent refresh attempts
+let isRefreshing = false;
+let refreshSubscribers: Array<(token: string) => void> = [];
+
+function subscribeTokenRefresh(cb: (token: string) => void) {
+  refreshSubscribers.push(cb);
+}
+
+function onTokenRefreshed(token: string) {
+  refreshSubscribers.forEach((cb) => cb(token));
+  refreshSubscribers = [];
+}
 
 // Add auth token to requests
 api.interceptors.request.use((config) => {
@@ -190,14 +205,59 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors with automatic token refresh
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+    const url: string = originalRequest?.url || '';
+
+    // Don't try to refresh for auth endpoints (login, register, refresh itself)
+    const isAuthEndpoint = url.startsWith('/auth');
+
+    if (error.response?.status === 401 && !isAuthEndpoint && !originalRequest._retry) {
+      // Try to refresh the token
+      if (!isRefreshing) {
+        isRefreshing = true;
+        originalRequest._retry = true;
+
+        try {
+          // Call refresh endpoint - the httpOnly cookie is sent automatically
+          const response = await axios.post(
+            `${API_BASE_URL}/auth/refresh`,
+            {},
+            { withCredentials: true }
+          );
+
+          const newToken = response.data?.data?.accessToken;
+          if (newToken) {
+            localStorage.setItem('token', newToken);
+            onTokenRefreshed(newToken);
+            isRefreshing = false;
+
+            // Retry the original request with new token
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return api(originalRequest);
+          }
+        } catch (refreshError) {
+          isRefreshing = false;
+          refreshSubscribers = [];
+          // Refresh failed - proceed with 401 handling below
+        }
+      } else {
+        // Another request is already refreshing, queue this one
+        return new Promise((resolve) => {
+          subscribeTokenRefresh((token: string) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            resolve(api(originalRequest));
+          });
+        });
+      }
+    }
+
+    // If we get here with a 401, refresh failed or wasn't attempted
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
-
-      const url: string = error.config?.url || '';
 
       // For most 401s (profile, protected game APIs, etc.) we redirect back
       // to /login so that expired/invalid tokens bounce the user cleanly

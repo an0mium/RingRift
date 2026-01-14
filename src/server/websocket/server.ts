@@ -33,7 +33,7 @@ import {
 import { getChatPersistenceService } from '../services/ChatPersistenceService';
 import { getRematchService } from '../services/RematchService';
 import { MatchmakingService } from '../services/MatchmakingService';
-import { serializeGameState } from '../../shared/engine/contracts/serialization';
+import { serializeBoardState } from '../../shared/engine/contracts/serialization';
 
 /**
  * Extract only the keys from ServerToClientEvents that have defined (non-optional) handlers.
@@ -1227,13 +1227,19 @@ export class WebSocketServer {
       this.gameRooms.get(gameId)?.add(socket.id);
 
       // Send current game state with full RingRift state
-      // Serialize to convert Maps to plain objects for JSON transport.
-      // The client's hydrateBoardState() reconstructs Maps from plain objects.
+      // Serialize board Maps to plain objects for JSON transport while keeping
+      // all other GameState fields intact. The client's hydrateBoardState()
+      // reconstructs Maps from the plain objects.
+      const transportState = {
+        ...gameState,
+        board: serializeBoardState(gameState.board),
+      };
+
       socket.emit('game_state', {
         type: 'game_update' as const,
         data: {
           gameId,
-          gameState: serializeGameState(gameState) as unknown as GameState,
+          gameState: transportState as unknown as GameState,
           validMoves: isPlayer ? session.getValidMoves(gameState.currentPlayer) : [],
         },
         timestamp: new Date().toISOString(),
