@@ -181,6 +181,11 @@ export interface BoardViewProps {
    * This allows different hosts (sandbox vs backend) to have different board sizes.
    */
   scaleAdjustment?: number;
+  /**
+   * Optional pending ring placement indicator for click-to-increment feature.
+   * When provided, shows a badge with the pending count on the specified cell.
+   */
+  pendingRingPlacement?: { positionKey: string; count: number } | null;
 }
 
 // Tailwind-friendly, fixed color classes per player number to avoid
@@ -650,6 +655,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
   squareRankFromBottom = false,
   decisionHighlights: decisionHighlightsProp,
   scaleAdjustment = 1.0,
+  pendingRingPlacement,
 }) => {
   // Animation state tracking
   const [animations, setAnimations] = useState<AnimationState[]>([]);
@@ -2189,6 +2195,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
                 className={`pointer-events-none absolute inset-[2px] rounded-sm border-2 ${getPlayerColors(collapsedOwner).marker} border-opacity-90`}
               />
             )}
+
+            {/* Pending ring placement badge */}
+            {pendingRingPlacement?.positionKey === key && (
+              <div className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse shadow-lg z-20">
+                {pendingRingPlacement.count}
+              </div>
+            )}
           </button>
         );
       }
@@ -2652,6 +2665,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
               <span className="pointer-events-none absolute text-[8px] text-slate-500/50 font-mono">
                 {label}
               </span>
+            )}
+
+            {/* Pending ring placement badge */}
+            {pendingRingPlacement?.positionKey === key && (
+              <div className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse shadow-lg z-20">
+                {pendingRingPlacement.count}
+              </div>
             )}
           </button>
         );

@@ -86,6 +86,18 @@ export interface RingPlacementPrompt {
 }
 
 /**
+ * Pending ring placement state for click-to-increment feature.
+ * Each click on the same cell increments the count before submitting.
+ */
+export interface PendingRingPlacement {
+  position: Position;
+  positionKey: string;
+  currentCount: number;
+  maxCount: number;
+  placeMovesAtPos: Move[];
+}
+
+/**
  * Dependencies required by the board handlers hook.
  */
 export interface UseBackendBoardHandlersDeps {
@@ -140,6 +152,8 @@ export interface UseBackendBoardHandlersReturn {
   ringPlacementCountPrompt: RingPlacementPrompt | null;
   /** Current territory region prompt state (for disambiguation) */
   territoryRegionPrompt: TerritoryRegionPromptState | null;
+  /** Pending ring placement for click-to-increment feature */
+  pendingRingPlacement: PendingRingPlacement | null;
   /** Handle cell click */
   handleCellClick: (pos: Position, board: BoardState) => void;
   /** Handle cell double-click */
@@ -154,6 +168,10 @@ export interface UseBackendBoardHandlersReturn {
   handleConfirmTerritoryRegion: (option: TerritoryRegionOption) => void;
   /** Close the territory region prompt dialog */
   closeTerritoryRegionPrompt: () => void;
+  /** Confirm the pending ring placement */
+  confirmPendingRingPlacement: () => void;
+  /** Cancel the pending ring placement */
+  clearPendingRingPlacement: () => void;
 }
 
 /**
@@ -197,6 +215,12 @@ export function useBackendBoardHandlers(
   // Territory region prompt state (for disambiguation when multiple regions overlap)
   const [territoryRegionPrompt, setTerritoryRegionPrompt] =
     useState<TerritoryRegionPromptState | null>(null);
+
+  // Pending ring placement for click-to-increment feature
+  // Each click on the same cell increments the count before confirming
+  const [pendingRingPlacement, setPendingRingPlacement] = useState<PendingRingPlacement | null>(
+    null
+  );
 
   // Pending movement target for skip_placement + movement shortcut
   // When user clicks a valid landing during placement phase, we submit skip_placement
@@ -276,6 +300,41 @@ export function useBackendBoardHandlers(
       pendingMovementRetryCount.current = 0;
     }
   }, [gameState?.currentPhase, validMoves, submitMove, setSelected, setValidTargets]);
+
+  // Effect to clear pending ring placement when phase changes away from ring_placement
+  useEffect(() => {
+    if (gameState?.currentPhase !== 'ring_placement' && pendingRingPlacement) {
+      setPendingRingPlacement(null);
+    }
+  }, [gameState?.currentPhase, pendingRingPlacement]);
+
+  // Confirm the pending ring placement
+  const confirmPendingRingPlacement = useCallback(() => {
+    if (!pendingRingPlacement) return;
+
+    const chosen = pendingRingPlacement.placeMovesAtPos.find(
+      (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
+    );
+
+    if (chosen) {
+      submitMove({
+        type: 'place_ring',
+        to: chosen.to,
+        placementCount: chosen.placementCount,
+        placedOnStack: chosen.placedOnStack,
+      } as PartialMove);
+    }
+
+    setPendingRingPlacement(null);
+    setSelected(undefined);
+    setValidTargets([]);
+  }, [pendingRingPlacement, submitMove, setSelected, setValidTargets]);
+
+  // Cancel/clear the pending ring placement
+  const clearPendingRingPlacement = useCallback(() => {
+    setPendingRingPlacement(null);
+    setSelected(undefined);
+  }, [setSelected]);
 
   // Close the ring placement prompt
   const closeRingPlacementPrompt = useCallback(() => {
@@ -453,22 +512,79 @@ export function useBackendBoardHandlers(
             return;
           }
 
-          const preferred =
-            placeMovesAtPos.find((m) => (m.placementCount ?? 1) === 1) || placeMovesAtPos[0];
+          // Calculate max placeable rings at this position
+          const counts = placeMovesAtPos.map((m) => m.placementCount ?? 1);
+          const maxCount = Math.max(...counts);
 
-          submitMove({
-            type: 'place_ring',
-            to: preferred.to,
-            placementCount: preferred.placementCount,
-            placedOnStack: preferred.placedOnStack,
-          } as PartialMove);
+          // If max is 1, submit immediately (no click-to-increment)
+          if (maxCount <= 1) {
+            const chosen =
+              placeMovesAtPos.find((m) => (m.placementCount ?? 1) === 1) || placeMovesAtPos[0];
+            submitMove({
+              type: 'place_ring',
+              to: chosen.to,
+              placementCount: chosen.placementCount,
+              placedOnStack: chosen.placedOnStack,
+            } as PartialMove);
+            setSelected(undefined);
+            setValidTargets([]);
+            return;
+          }
 
-          setSelected(undefined);
-          setValidTargets([]);
+          // Click-to-increment logic for multi-ring placement
+          if (pendingRingPlacement && pendingRingPlacement.positionKey === posKey) {
+            // Same cell: increment count (wrap to 1 at max)
+            const newCount =
+              pendingRingPlacement.currentCount >= pendingRingPlacement.maxCount
+                ? 1
+                : pendingRingPlacement.currentCount + 1;
+            setPendingRingPlacement({
+              ...pendingRingPlacement,
+              currentCount: newCount,
+            });
+          } else {
+            // Different cell or no pending: if we have pending, submit it first
+            if (pendingRingPlacement) {
+              const chosen = pendingRingPlacement.placeMovesAtPos.find(
+                (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
+              );
+              if (chosen) {
+                submitMove({
+                  type: 'place_ring',
+                  to: chosen.to,
+                  placementCount: chosen.placementCount,
+                  placedOnStack: chosen.placedOnStack,
+                } as PartialMove);
+              }
+            }
+            // Create new pending for the clicked cell
+            setPendingRingPlacement({
+              position: pos,
+              positionKey: posKey,
+              currentCount: 1,
+              maxCount,
+              placeMovesAtPos,
+            });
+            setSelected(pos);
+          }
           return;
         }
 
-        // Clicking stacks in placement phase just selects them.
+        // Clicking stacks in placement phase: submit pending if exists, then select stack
+        if (pendingRingPlacement) {
+          const chosen = pendingRingPlacement.placeMovesAtPos.find(
+            (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
+          );
+          if (chosen) {
+            submitMove({
+              type: 'place_ring',
+              to: chosen.to,
+              placementCount: chosen.placementCount,
+              placedOnStack: chosen.placedOnStack,
+            } as PartialMove);
+          }
+          setPendingRingPlacement(null);
+        }
         setSelected(pos);
         setValidTargets([]);
         return;
@@ -721,10 +837,11 @@ export function useBackendBoardHandlers(
       requestRecoveryChoice,
       pendingChoice,
       onRespondToChoice,
+      pendingRingPlacement,
     ]
   );
 
-  // Handle double-click for 2-ring placement
+  // Handle double-click: confirm pending placement if exists, otherwise 2-ring placement
   const handleCellDoubleClick = useCallback(
     (pos: Position, board: BoardState) => {
       if (!gameState) return;
@@ -735,6 +852,25 @@ export function useBackendBoardHandlers(
         return;
       }
       if (gameState.currentPhase !== 'ring_placement') {
+        return;
+      }
+
+      // If there's a pending ring placement, confirm it on double-click
+      if (pendingRingPlacement) {
+        const chosen = pendingRingPlacement.placeMovesAtPos.find(
+          (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
+        );
+        if (chosen) {
+          submitMove({
+            type: 'place_ring',
+            to: chosen.to,
+            placementCount: chosen.placementCount,
+            placedOnStack: chosen.placedOnStack,
+          } as PartialMove);
+        }
+        setPendingRingPlacement(null);
+        setSelected(undefined);
+        setValidTargets([]);
         return;
       }
 
@@ -776,7 +912,16 @@ export function useBackendBoardHandlers(
       setSelected(undefined);
       setValidTargets([]);
     },
-    [gameState, validMoves, isPlayer, isConnectionActive, submitMove, setSelected, setValidTargets]
+    [
+      gameState,
+      validMoves,
+      isPlayer,
+      isConnectionActive,
+      submitMove,
+      setSelected,
+      setValidTargets,
+      pendingRingPlacement,
+    ]
   );
 
   // Handle context-menu for ring placement count selection
@@ -865,6 +1010,7 @@ export function useBackendBoardHandlers(
   return {
     ringPlacementCountPrompt,
     territoryRegionPrompt,
+    pendingRingPlacement,
     handleCellClick,
     handleCellDoubleClick,
     handleCellContextMenu,
@@ -872,6 +1018,8 @@ export function useBackendBoardHandlers(
     closeRingPlacementPrompt,
     handleConfirmTerritoryRegion,
     closeTerritoryRegionPrompt,
+    confirmPendingRingPlacement,
+    clearPendingRingPlacement,
   };
 }
 

@@ -624,6 +624,19 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         }
       }
 
+      // Pending ring placement keyboard shortcuts (Enter to confirm, Escape to cancel)
+      if (pendingRingPlacement) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          confirmPendingRingPlacement();
+          return;
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          clearPendingRingPlacement();
+          return;
+        }
+      }
+
       if (event.key === 'Escape' && showBoardControls) {
         event.preventDefault();
         setShowBoardControls(false);
@@ -634,7 +647,12 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showBoardControls]);
+  }, [
+    showBoardControls,
+    pendingRingPlacement,
+    confirmPendingRingPlacement,
+    clearPendingRingPlacement,
+  ]);
 
   // ================== Memoized values (must be before early returns) ==================
   // Game end explanation - builds explanation from victory state
@@ -806,6 +824,9 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     closeRingPlacementPrompt,
     handleConfirmTerritoryRegion,
     closeTerritoryRegionPrompt,
+    pendingRingPlacement,
+    confirmPendingRingPlacement,
+    clearPendingRingPlacement,
   } = boardHandlers;
 
   // Auto-advance through no-action phases (matching sandbox behavior)
@@ -1128,7 +1149,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-3 space-y-2">
+      <div className="container mx-auto px-2 sm:px-4 py-1 sm:py-2 space-y-1">
         {/* Screen reader live region for game announcements */}
         <ScreenReaderAnnouncer
           queue={announcementQueue}
@@ -1210,7 +1231,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           </StatusBanner>
         )}
 
-        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             {renderGameHeader(gameState)}
             {!isPlayer && (
@@ -1271,6 +1292,14 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             pendingAnimation={pendingAnimation ?? undefined}
             chainCapturePath={chainCapturePath}
             shakingCellKey={shakingCellKey}
+            pendingRingPlacement={
+              pendingRingPlacement
+                ? {
+                    positionKey: pendingRingPlacement.positionKey,
+                    count: pendingRingPlacement.currentCount,
+                  }
+                : null
+            }
             showMovementGrid={showMovementGrid}
             showCoordinateLabels={showCoordinateLabels}
             squareRankFromBottom={squareRankFromBottom}

@@ -26,6 +26,8 @@ export interface BackendBoardSectionProps {
   chainCapturePath: Position[] | undefined;
   /** Position key of cell currently shaking (invalid move feedback) */
   shakingCellKey: string | null;
+  /** Pending ring placement for click-to-increment UI */
+  pendingRingPlacement?: { positionKey: string; count: number } | null;
   /** Whether to show movement grid overlay */
   showMovementGrid?: boolean;
   /** Whether to show coordinate labels (A-H, 1-8 for square boards) */
@@ -97,6 +99,7 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
   pendingAnimation,
   chainCapturePath,
   shakingCellKey,
+  pendingRingPlacement,
   showMovementGrid = false,
   showCoordinateLabels = false,
   squareRankFromBottom = false,
@@ -125,8 +128,8 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
         <div className="p-2 sm:p-2.5 rounded-xl border border-slate-700 bg-slate-900/70 shadow-lg overflow-x-auto">
           <div className="flex flex-wrap items-center justify-between gap-1.5 sm:gap-2">
             <h1 className="text-sm sm:text-base font-bold text-white">
-              <span className="text-slate-400 font-medium">Game</span>
-              <span className="mx-2 text-slate-600">–</span>
+              <span className="text-[10px] sm:text-xs text-slate-400 font-medium">Game</span>
+              <span className="mx-1.5 text-slate-600">–</span>
               {boardDisplayLabel}
             </h1>
             <div className="flex items-center gap-3">
@@ -161,6 +164,7 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
           onAnimationComplete={onAnimationComplete}
           chainCapturePath={chainCapturePath}
           shakingCellKey={shakingCellKey}
+          pendingRingPlacement={pendingRingPlacement}
           showMovementGrid={showMovementGrid}
           showCoordinateLabels={showCoordinateLabels}
           squareRankFromBottom={squareRankFromBottom}
@@ -168,7 +172,7 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
           showTerritoryRegionOverlays={showTerritoryRegionOverlays}
           decisionHighlights={decisionHighlights}
           onShowKeyboardHelp={onShowBoardControls}
-          scaleAdjustment={boardType === 'square8' ? 0.9 : 1.0}
+          scaleAdjustment={boardType === 'square8' ? 0.8 : 1.0}
         />
 
         {/* Board info panel with status chips and player chips */}
