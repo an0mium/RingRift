@@ -1154,13 +1154,23 @@ class SelfplayScheduler(EventSubscriptionMixin):
     def _get_game_counts_per_config(self) -> dict[str, int]:
         """Get current game counts for each config.
 
-        Uses cached data from P2P manifest or local database discovery.
+        January 14, 2026: Updated to prefer unified counts which include all sources
+        (LOCAL, CLUSTER, S3, OWC external drive on mac-studio).
+
+        Priority order:
+        1. Unified counts (via UnifiedGameAggregator) - most complete
+        2. P2P manifest counts (cluster-wide view)
+        3. Local tracking (fallback)
 
         Returns:
             Dict mapping config_key -> game_count
         """
         try:
-            # First try to get counts from P2P manifest (cluster-wide view)
+            # First try unified counts (includes OWC, S3, all cluster nodes)
+            if hasattr(self, "_unified_game_counts") and self._unified_game_counts:
+                return dict(self._unified_game_counts)
+
+            # Fall back to P2P manifest (cluster-wide but no OWC/S3)
             if hasattr(self, "_p2p_game_counts") and self._p2p_game_counts:
                 return dict(self._p2p_game_counts)
 
@@ -1315,6 +1325,45 @@ class SelfplayScheduler(EventSubscriptionMixin):
             counts: Dict mapping config_key -> game_count
         """
         self._p2p_game_counts = dict(counts)
+
+    async def refresh_from_unified_aggregator(self) -> dict[str, int]:
+        """Refresh game counts from all sources (LOCAL, CLUSTER, S3, OWC).
+
+        January 14, 2026: Added to ensure selfplay allocation uses complete data
+        visibility across all storage locations including OWC external drive.
+
+        Returns:
+            Dict mapping config_key -> total_game_count across all sources
+        """
+        try:
+            from app.utils.unified_game_aggregator import get_unified_game_aggregator
+
+            aggregator = get_unified_game_aggregator()
+            counts = await aggregator.get_all_configs_counts()
+
+            # Extract totals from AggregatedGameCount objects
+            totals: dict[str, int] = {}
+            for config_key, agg_count in counts.items():
+                if hasattr(agg_count, "total_games"):
+                    totals[config_key] = agg_count.total_games
+                elif isinstance(agg_count, dict):
+                    totals[config_key] = agg_count.get("total_games", 0)
+                else:
+                    totals[config_key] = int(agg_count) if agg_count else 0
+
+            self._unified_game_counts = totals
+            logger.info(
+                f"[SelfplayScheduler] Unified aggregator refresh: "
+                f"{sum(totals.values()):,} total games across {len(totals)} configs"
+            )
+            return totals
+
+        except ImportError as e:
+            logger.debug(f"[SelfplayScheduler] UnifiedGameAggregator not available: {e}")
+            return {}
+        except Exception as e:
+            logger.warning(f"[SelfplayScheduler] Unified aggregator refresh failed: {e}")
+            return {}
 
     # =========================================================================
     # Memory-Aware Job Allocation (P1 - Sprint 6, Jan 2026)
@@ -1514,6 +1563,60 @@ class SelfplayScheduler(EventSubscriptionMixin):
             pass
 
         return 1500  # Default Elo for unknown configs
+
+    def should_use_mixed_opponents(self, config_key: str) -> bool:
+        """Determine if config should use mixed opponent training.
+
+        January 2026: Added to fix training feedback loop - weak configs benefit
+        from mixed opponents to break weak-vs-weak cycles. When models only play
+        against themselves, they can get stuck in local optima.
+
+        Mixed opponent training provides diverse signal from:
+        - Random opponents (exploration)
+        - Heuristic opponents (tactical patterns)
+        - MCTS opponents (strategic depth)
+        - Minimax opponents (game-theoretic optimal)
+        - Policy-only opponents (neural patterns)
+
+        Thresholds based on data poverty and Elo stagnation:
+        - Less than 5000 games (data poverty)
+        - Elo below 1200 (still learning fundamentals)
+        - 3p or 4p configs (benefit more from diverse opponents)
+
+        Args:
+            config_key: Config key (e.g., "hex8_4p")
+
+        Returns:
+            True if config should use mixed opponent training
+        """
+        game_counts = self._get_game_counts_per_config()
+        game_count = game_counts.get(config_key, 0)
+        current_elo = self.get_config_elo(config_key)
+
+        # Data poverty - config needs more diverse training signal
+        if game_count < 5000:
+            logger.debug(
+                f"[MixedOpponents] {config_key}: using mixed (data poverty: {game_count} games < 5000)"
+            )
+            return True
+
+        # Elo still low - model is learning fundamentals, needs diverse opponents
+        if current_elo < 1200:
+            logger.debug(
+                f"[MixedOpponents] {config_key}: using mixed (low Elo: {current_elo:.0f} < 1200)"
+            )
+            return True
+
+        # 3p and 4p configs benefit more from mixed opponents due to complexity
+        if config_key.endswith("_3p") or config_key.endswith("_4p"):
+            # Use mixed if not yet at high game count
+            if game_count < 10000:
+                logger.debug(
+                    f"[MixedOpponents] {config_key}: using mixed (multiplayer with {game_count} games)"
+                )
+                return True
+
+        return False
 
     def get_adaptive_selfplay_budget(self, config_key: str) -> int:
         """Get adaptive Gumbel budget based on game count and Elo.
@@ -3288,6 +3391,19 @@ class SelfplayScheduler(EventSubscriptionMixin):
         if selected:
             board_type = selected.get("board_type", "")
             engine_mode = selected.get("engine_mode", "")
+            num_players = selected.get("num_players", 0)
+            config_key = f"{board_type}_{num_players}p"
+
+            # January 2026: Check if config should use mixed opponent training
+            # Weak configs benefit from diverse opponents to break weak-vs-weak cycles
+            if self.should_use_mixed_opponents(config_key):
+                # Override engine mode to use MixedOpponentSelfplayRunner
+                # This provides diverse opponents (random, heuristic, mcts, minimax, etc.)
+                selected["engine_mode"] = "mixed-opponents"
+                logger.info(
+                    f"[MixedOpponents] {config_key}: forcing mixed opponent mode for diverse training"
+                )
+                return selected
 
             # Apply engine mix for any board type with "mixed" or "diverse" mode
             if engine_mode in ("mixed", "diverse"):

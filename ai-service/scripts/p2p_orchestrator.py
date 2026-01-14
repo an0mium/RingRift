@@ -30055,6 +30055,39 @@ print(json.dumps({{
             )
         )
 
+        # January 14, 2026: Unified game counts refresh loop
+        # This loop uses UnifiedGameAggregator to get counts from ALL sources:
+        # LOCAL, CLUSTER, S3, and OWC external drive on mac-studio.
+        # Runs less frequently (10 min) since it's more expensive than peer-only refresh.
+        async def _unified_game_counts_refresh():
+            """Refresh game counts from all sources including OWC and S3."""
+            refresh_interval = 600  # 10 minutes
+            # Wait for initial peer-based fetch to complete first
+            await asyncio.sleep(120)
+
+            while self.running:
+                try:
+                    if self.selfplay_scheduler:
+                        counts = await self.selfplay_scheduler.refresh_from_unified_aggregator()
+                        if counts:
+                            total = sum(counts.values())
+                            underserved = sum(1 for c in counts.values() if c < 5000)
+                            logger.info(
+                                f"[P2P] Unified refresh: {total:,} total games across all sources "
+                                f"({underserved} configs underserved)"
+                            )
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"[P2P] Unified game counts refresh failed: {e}")
+
+                await asyncio.sleep(refresh_interval)
+
+        tasks.append(
+            self._create_safe_task(
+                _unified_game_counts_refresh(),
+                "unified_game_counts_refresh"
+            )
+        )
+
         # Run forever
         # December 2025: Added return_exceptions=True to prevent task exceptions from crashing orchestrator
         try:
