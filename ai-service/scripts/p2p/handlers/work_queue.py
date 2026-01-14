@@ -506,15 +506,13 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
         Session 17.32 (Jan 5, 2026): Added capacity checks before claiming work
         to prevent OOM and improve cluster utilization.
+
+        Jan 13, 2026: Added autonomous queue fallback for split-brain resilience.
+        When not leader, tries local autonomous queue before returning 403.
+        This enables work claiming even during leader election failures.
         """
         try:
-            if not self.is_leader:
-                return self._not_leader_response()
-
-            wq = get_work_queue()
-            if wq is None:
-                return self._work_queue_unavailable()
-
+            # Parse request params first (needed for both leader and fallback paths)
             node_id = request.query.get("node_id", "")
             capabilities_str = request.query.get("capabilities", "")
             capabilities = (
@@ -524,28 +522,57 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             if not node_id:
                 return self.bad_request("node_id required")
 
-            # Session 17.32: Check node capacity before claiming work
-            # Determine the most demanding work type from capabilities
-            check_work_type = "selfplay"  # Default
-            if capabilities:
-                # Check against highest-requirement capability
-                for cap in ["training", "gauntlet", "evaluation", "selfplay"]:
-                    if cap in capabilities:
-                        check_work_type = cap
-                        break
+            # Strategy 1: Leader path - claim from centralized work queue
+            if self.is_leader:
+                wq = get_work_queue()
+                if wq is None:
+                    return self._work_queue_unavailable()
 
-            has_capacity, reason = self._check_node_capacity(node_id, check_work_type)
-            if not has_capacity:
-                return self._insufficient_capacity_response(reason)
+                # Session 17.32: Check node capacity before claiming work
+                # Determine the most demanding work type from capabilities
+                check_work_type = "selfplay"  # Default
+                if capabilities:
+                    # Check against highest-requirement capability
+                    for cap in ["training", "gauntlet", "evaluation", "selfplay"]:
+                        if cap in capabilities:
+                            check_work_type = cap
+                            break
 
-            item = wq.claim_work(node_id, capabilities)
-            if item is None:
-                return self.json_response({"status": "no_work_available"})
+                has_capacity, reason = self._check_node_capacity(node_id, check_work_type)
+                if not has_capacity:
+                    return self._insufficient_capacity_response(reason)
 
-            return self.json_response({
-                "status": "claimed",
-                "work": item.to_dict(),
-            })
+                item = wq.claim_work(node_id, capabilities)
+                if item is None:
+                    return self.json_response({"status": "no_work_available"})
+
+                return self.json_response({
+                    "status": "claimed",
+                    "work": item.to_dict(),
+                })
+
+            # Strategy 2: Non-leader fallback - try autonomous queue
+            # This enables work claiming during leader election failures
+            autonomous_loop = getattr(self, "_autonomous_queue_loop", None)
+            if autonomous_loop is None:
+                # Try to find it on the orchestrator
+                orchestrator = getattr(self, "_orchestrator", self)
+                autonomous_loop = getattr(orchestrator, "_autonomous_queue_loop", None)
+
+            if autonomous_loop and getattr(autonomous_loop, "is_activated", False):
+                local_item = await autonomous_loop.claim_local_work(node_id, capabilities)
+                if local_item:
+                    logger.info(
+                        f"[work_claim] Served {node_id} from autonomous queue (not leader)"
+                    )
+                    return self.json_response({
+                        "status": "claimed",
+                        "source": "autonomous_queue",
+                        "work": local_item,
+                    })
+
+            # Strategy 3: Return not-leader with hint for client-side forwarding
+            return self._not_leader_response()
         except Exception as e:
             logger.error(f"Error claiming work: {e}")
             return self.error_response(str(e), status=500)
