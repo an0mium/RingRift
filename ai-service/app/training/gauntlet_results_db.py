@@ -1,11 +1,10 @@
-"""Unified Gauntlet Results Database (December 2025).
+"""Unified Gauntlet Results Database (December 2025, Updated January 2026).
 
-Provides a single source of truth for all gauntlet evaluation results,
-consolidating the previously fragmented storage across:
-- unified_elo.db gauntlet_results table
-- baseline_gauntlet_results.json
-- aggregated_gauntlet_results.json
-- In-memory structures
+Provides a single source of truth for all gauntlet evaluation results.
+
+Jan 14, 2026: Storage consolidated into unified_elo.db (was gauntlet_results.db).
+This places gauntlet_matches and model_gauntlet_summary tables alongside
+existing gauntlet_runs, gauntlet_results, and elo_ratings tables.
 
 This module provides:
 - Persistent SQLite storage for all gauntlet results
@@ -50,7 +49,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Default database path
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "gauntlet_results.db"
+# Jan 14, 2026: Consolidated into unified_elo.db for single source of truth
+DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "unified_elo.db"
 
 
 @dataclass
