@@ -16,8 +16,8 @@ class TestParseArgs:
         assert args.data_path is None
         assert args.save_path is None
         assert args.epochs is None
-        # batch_size and learning_rate have sensible defaults now
-        assert args.batch_size == 256  # Default for GPU training
+        # batch_size defaults to None (auto-selected based on GPU memory)
+        assert args.batch_size is None
         assert args.learning_rate == 0.0005  # Default learning rate
         assert args.seed is None
         assert args.checkpoint_dir == "checkpoints"

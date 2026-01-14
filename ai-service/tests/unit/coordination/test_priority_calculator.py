@@ -78,17 +78,26 @@ class TestComputeVelocityFactor:
         result = compute_velocity_factor(0.0)
         assert result == 0.0
 
-    def test_max_velocity_returns_one(self):
-        """Velocity at or above max should return 1.0."""
-        result = compute_velocity_factor(100.0, max_velocity=100.0)
-        assert result == 1.0
-        result = compute_velocity_factor(150.0, max_velocity=100.0)
-        assert result == 1.0
+    def test_max_velocity_returns_high_value(self):
+        """Velocity at or above max should return value close to 1.0.
 
-    def test_linear_scaling(self):
-        """Test linear scaling of velocity."""
+        Sprint 17.4: Uses exponential saturation (1 - exp(-v/scale)) so
+        high velocities asymptote to 1.0 but don't reach it exactly.
+        """
+        result = compute_velocity_factor(100.0, max_velocity=100.0)
+        assert result > 0.9  # ~0.95 with current scale
+        result = compute_velocity_factor(150.0, max_velocity=100.0)
+        assert result > 0.95  # Even closer to 1.0
+
+    def test_exponential_scaling(self):
+        """Test exponential saturation scaling of velocity.
+
+        Sprint 17.4: Changed from linear to exponential for better
+        differentiation at lower velocities.
+        """
         result = compute_velocity_factor(50.0, max_velocity=100.0)
-        assert result == 0.5
+        # scale = 100/3 ≈ 33.3, so factor = 1 - exp(-50/33.3) ≈ 0.78
+        assert 0.75 < result < 0.85
 
 
 # =============================================================================
