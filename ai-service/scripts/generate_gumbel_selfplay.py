@@ -734,13 +734,15 @@ def run_selfplay(config: GumbelSelfplayConfig) -> list[GameResult]:
                     parity_failures += 1
                     logger.warning(f"Game {game_idx} failed parity: {result.parity_error}")
 
-            # Skip games that didn't complete (hit max_moves without winner)
+            # Jan 14, 2026: Save games even if they hit max_moves without winner.
+            # These games contain valid training data (MCTS policies, value estimates).
+            # Skipping them was causing 0 games to be saved on GH200 nodes.
             if result.winner is None and result.status != "completed":
                 logger.warning(
-                    f"Game {game_idx} did not complete: status={result.status}, "
-                    f"moves={result.num_moves}. Skipping."
+                    f"Game {game_idx} did not complete naturally: status={result.status}, "
+                    f"moves={result.num_moves}. Saving anyway (valid training data)."
                 )
-                continue
+                # Continue to save - don't skip
 
             # Save game
             save_game_to_jsonl(result, output_path)
@@ -756,7 +758,12 @@ def run_selfplay(config: GumbelSelfplayConfig) -> list[GameResult]:
                 )
 
         except Exception as e:
-            logger.error(f"Game {game_idx} failed: {e}")
+            # Jan 14, 2026: Improved error logging with traceback for debugging
+            import traceback
+            logger.error(
+                f"Game {game_idx} failed with {type(e).__name__}: {e}\n"
+                f"Traceback: {traceback.format_exc()}"
+            )
             continue
 
     # Summary
