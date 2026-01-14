@@ -211,3 +211,5 @@ scripts/convert_single.py
 
 # Test data directories (temporary test fixtures)
 test_data/
+nohup*.out
+ai-service/nohup*.out
