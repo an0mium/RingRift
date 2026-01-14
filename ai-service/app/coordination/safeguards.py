@@ -561,9 +561,9 @@ class Safeguards(SingletonMixin):
                 # Clear circuit breaker state
                 if hasattr(instance, "_circuit_breaker"):
                     try:
-                        instance._circuit_breaker.reset()
+                        instance._circuit_breaker.reset_all()
                     except AttributeError:
-                        pass  # Circuit breaker may not have reset method
+                        pass  # Circuit breaker may not have reset_all method
 
                 # Clear spawn rate trackers
                 if hasattr(instance, "_global_tracker"):
