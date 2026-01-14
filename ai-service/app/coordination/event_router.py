@@ -917,11 +917,21 @@ class UnifiedEventRouter:
                 raise
             except (NameError, AttributeError, TypeError) as e:
                 # Dec 29, 2025: Programming errors - log CRITICAL for visibility
+                # Jan 14, 2026: Add helpful suggestion for common .get() AttributeError
                 callback_name = getattr(callback, "__name__", str(callback))
-                logger.critical(
-                    f"[EventRouter] Handler bug in {callback_name} for "
-                    f"{event.event_type}: {type(e).__name__}: {e}"
-                )
+                error_str = str(e)
+                if isinstance(e, AttributeError) and "'get'" in error_str:
+                    # Common mistake: calling event.get() instead of get_event_payload(event).get()
+                    logger.critical(
+                        f"[EventRouter] Handler bug in {callback_name} for "
+                        f"{event.event_type}: {type(e).__name__}: {e}. "
+                        f"HINT: Use get_event_payload(event) to extract payload from RouterEvent"
+                    )
+                else:
+                    logger.critical(
+                        f"[EventRouter] Handler bug in {callback_name} for "
+                        f"{event.event_type}: {type(e).__name__}: {e}"
+                    )
                 # Still capture to DLQ for analysis with elevated severity
                 if HAS_DLQ and get_dead_letter_queue:
                     try:
@@ -1065,7 +1075,15 @@ class UnifiedEventRouter:
                 raise
             except Exception as e:  # noqa: BLE001 - only runtime errors reach here
                 callback_name = getattr(callback, "__name__", str(callback))
-                logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
+                error_str = str(e)
+                # Jan 14, 2026: Add helpful suggestion for common .get() AttributeError
+                if isinstance(e, AttributeError) and "'get'" in error_str:
+                    logger.error(
+                        f"[EventRouter] Callback error for {event.event_type}: {e}. "
+                        f"HINT: Use get_event_payload(event) to extract payload from RouterEvent"
+                    )
+                else:
+                    logger.error(f"[EventRouter] Callback error for {event.event_type}: {e}")
                 # Capture to DLQ for retry/analysis (December 2025)
                 if HAS_DLQ and get_dead_letter_queue:
                     try:

@@ -1206,18 +1206,21 @@ class DataPipelineOrchestrator(
         except ImportError:
             logger.debug(f"[{self.name}] Event router not available for local events")
 
-    async def _on_local_event(self, event: dict[str, Any]) -> None:
+    async def _on_local_event(self, event: Any) -> None:
         """Handle local events in degraded/local-only mode.
 
         Args:
-            event: Event data dict
+            event: Event data (RouterEvent or dict)
         """
-        event_type = event.get("type", "unknown")
+        # Jan 14, 2026: Handle both RouterEvent and dict types
+        from app.coordination.event_router import get_event_payload
+        payload = get_event_payload(event)
+        event_type = payload.get("type", "unknown")
         logger.debug(f"[{self.name}] Received local event: {event_type}")
 
         # Trigger local pipeline stages based on event type
         if event_type == "LOCAL_NPZ_CREATED":
-            config_key = event.get("config_key")
+            config_key = payload.get("config_key")
             if config_key:
                 logger.info(
                     f"[{self.name}] Local NPZ created for {config_key}, "
