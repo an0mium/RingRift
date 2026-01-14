@@ -3594,6 +3594,31 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"TournamentDataPipelineLoop: not available: {e}")
 
+            # CircuitBreakerDecayLoop - January 2026 (Session 17.x)
+            # Prevents circuits from being stuck OPEN indefinitely after transient failures.
+            # Decays old circuit breakers (operation, transport, node) with configurable TTL.
+            # Default: 1 hour TTL, checked every 5 minutes.
+            try:
+                from scripts.p2p.loops.maintenance_loops import (
+                    CircuitBreakerDecayLoop,
+                    CircuitBreakerDecayConfig,
+                )
+
+                cb_decay_config = CircuitBreakerDecayConfig(
+                    enabled=os.environ.get("RINGRIFT_CB_DECAY_ENABLED", "1").lower() in ("1", "true", "yes"),
+                    check_interval_seconds=float(os.environ.get("RINGRIFT_CB_DECAY_INTERVAL", "300")),
+                    ttl_seconds=float(os.environ.get("RINGRIFT_CB_DECAY_TTL", "3600")),
+                )
+
+                cb_decay_loop = CircuitBreakerDecayLoop(config=cb_decay_config)
+                manager.register(cb_decay_loop)
+                logger.info(
+                    f"[P2P] CircuitBreakerDecayLoop registered "
+                    f"(enabled={cb_decay_config.enabled}, ttl={cb_decay_config.ttl_seconds}s)"
+                )
+            except (ImportError, TypeError) as e:
+                logger.debug(f"CircuitBreakerDecayLoop: not available: {e}")
+
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
             return True
