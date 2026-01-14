@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from ..db.write_lock import DatabaseWriteLock
 from .selfplay_config import SelfplayConfig, EngineMode, ENGINE_MODE_ALIASES, parse_selfplay_args
+from .elo_recording import record_selfplay_match, EloRecordResult
 
 if TYPE_CHECKING:
     from ..models import BoardType, GameState, Move
@@ -1404,6 +1405,68 @@ class SelfplayRunner(ABC):
         except (AttributeError, RuntimeError, asyncio.TimeoutError, OSError) as e:
             logger.debug(f"[Ephemeral] Could not notify sync daemon: {e}")
 
+    def _record_match_elo(self, result: GameResult) -> EloRecordResult | None:
+        """Record match result to Elo tracking system.
+
+        Jan 14, 2026: CRITICAL FIX - This enables Elo tracking for selfplay games.
+        Previously, record_selfplay_match() was never called, so selfplay Elo
+        was not tracked, breaking the feedback loop that adjusts training based
+        on model strength.
+
+        Args:
+            result: Game result from run_game()
+
+        Returns:
+            EloRecordResult if successful, None if failed
+        """
+        try:
+            from ..ai.harness.harness_registry import HarnessType
+
+            # Map engine mode to harness type
+            engine_mode = self.config.engine_mode
+            if engine_mode == EngineMode.MIXED:
+                harness_type = HarnessType.MIXED
+            elif engine_mode == EngineMode.GUMBEL_MCTS:
+                harness_type = HarnessType.GUMBEL_MCTS
+            elif engine_mode == EngineMode.HEURISTIC:
+                harness_type = HarnessType.HEURISTIC
+            elif engine_mode == EngineMode.MCTS:
+                harness_type = HarnessType.MCTS
+            elif engine_mode == EngineMode.POLICY_ONLY:
+                harness_type = HarnessType.POLICY_ONLY
+            else:
+                # Default to GUMBEL_MCTS for other modes
+                harness_type = HarnessType.GUMBEL_MCTS
+
+            # Get model ID from config or use default
+            model_id = getattr(self.config, 'nn_model_id', None)
+            if not model_id:
+                # Use canonical model naming
+                model_id = f"canonical_{self.config.board_type}_{self.config.num_players}p"
+
+            # Record the match result
+            elo_result = record_selfplay_match(
+                model_id=model_id,
+                board_type=self.config.board_type,
+                num_players=self.config.num_players,
+                harness_type=harness_type,
+                winner_player=result.winner,
+                game_length=result.num_moves,
+                duration_sec=result.duration_ms / 1000.0,
+            )
+
+            if not elo_result.success:
+                logger.debug(f"[Elo] Failed to record match: {elo_result.error}")
+
+            return elo_result
+
+        except ImportError as e:
+            logger.debug(f"[Elo] Harness registry not available: {e}")
+            return None
+        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+            logger.debug(f"[Elo] Error recording match: {e}")
+            return None
+
     def _emit_orchestrator_event(self) -> None:
         """Emit SELFPLAY_COMPLETE event to trigger downstream pipeline stages.
 
@@ -1537,6 +1600,7 @@ class SelfplayRunner(ABC):
                     self.stats.record_game(result)
                     self._save_game_to_db(result)
                     self._emit_game_complete(result)
+                    self._record_match_elo(result)  # Jan 14, 2026: Track Elo for selfplay
 
                     # Progress logging
                     log_interval = getattr(self.config, 'log_interval', 10)

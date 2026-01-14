@@ -135,6 +135,7 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
         self._opponent_counts = {k: 0 for k in self.opponent_mix.keys()}
 
         # AI engines - initialized in setup()
+        self._player1_mcts = None  # Jan 14, 2026: Always use MCTS for player 1 move_probs
         self._random_ai = None
         self._heuristic_ais = {}
         self._mcts_ai = None
@@ -189,6 +190,22 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
 
         # Get model path for neural network-based opponents
         model_path = self._get_model_path()
+
+        # Jan 14, 2026: CRITICAL FIX - Always initialize MCTS for player 1
+        # This ensures we capture move_probs (policy targets) for ALL games, not just
+        # the 15% that use MCTS opponents. Player 1 uses Gumbel MCTS to generate
+        # high-quality policy targets, while opponents use the mixed strategy.
+        # This matches AlphaZero training where MCTS is always used for policy generation.
+        budget = self.config.simulation_budget or GUMBEL_BUDGET_QUALITY
+        self._player1_mcts = create_mcts(
+            board_type=board_type.value,
+            num_players=self.config.num_players,
+            player_number=1,  # Critical: player 1's perspective
+            mode="standard",
+            simulation_budget=budget,
+            device=self.config.device or "cuda",
+        )
+        logger.info(f"  Initialized Player 1 MCTS (budget={budget}) for move_probs generation")
 
         # Initialize random AI (if needed)
         if self.opponent_mix.get("random", 0) > 0:
@@ -390,21 +407,32 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
         while state.game_status != GameStatus.COMPLETED and len(moves) < max_moves:
             current_player = state.current_player
 
-            # Select move based on opponent type
-            move = self._get_move_for_opponent(opponent_type, state, current_player)
+            # Jan 14, 2026: CRITICAL FIX - Player 1 always uses MCTS for move_probs
+            # This ensures we capture high-quality policy targets for training.
+            # Opponents (players 2+) use the mixed strategy for diverse training signal.
+            move_probs = None
+            if current_player == 1:
+                # Player 1: Use dedicated MCTS to generate move and capture policy
+                try:
+                    move = self._player1_mcts.select_move(state)
+                    if move:
+                        # Extract visit distribution for policy training targets
+                        try:
+                            moves_list, probs_list = self._player1_mcts.get_visit_distribution()
+                            if moves_list and probs_list:
+                                move_probs = {str(m): float(p) for m, p in zip(moves_list, probs_list)}
+                        except (AttributeError, TypeError, ValueError) as e:
+                            logger.debug(f"Could not extract move_probs: {e}")
+                except Exception as e:
+                    logger.debug(f"Player 1 MCTS failed, falling back to heuristic: {e}")
+                    move = self._get_move_for_opponent("heuristic", state, current_player)
+            else:
+                # Opponents (players 2+): Use mixed strategy for diverse training
+                move = self._get_move_for_opponent(opponent_type, state, current_player)
+
             if not move:
                 break
 
-            # Jan 2026: Capture MCTS visit distribution for policy training
-            # Only MCTS opponent provides visit distributions
-            move_probs = None
-            if opponent_type == "mcts" and self._mcts_ai:
-                try:
-                    moves_list, probs_list = self._mcts_ai.get_visit_distribution()
-                    if moves_list and probs_list:
-                        move_probs = {str(m): float(p) for m, p in zip(moves_list, probs_list)}
-                except (AttributeError, TypeError, ValueError):
-                    pass
             move_probs_list.append(move_probs)
 
             state = self._engine.apply_move(state, move)
