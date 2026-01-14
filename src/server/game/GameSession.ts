@@ -369,18 +369,26 @@ export class GameSession {
 
     this.rulesFacade = new RulesBackendFacade(this.gameEngine, this.pythonRulesClient);
 
-    // Auto-start logic
-    if (game.status === 'waiting' && players.length >= (game.maxPlayers ?? 2)) {
+    // Auto-start logic - handle both waiting games AND active AI games that need initialization
+    // AI games are created with status 'active' (see game.ts), but still need startGame() and AI turn
+    const hasAIPlayers = players.some((p) => p.type === 'ai');
+    const needsInitialization =
+      game.status === 'waiting' || (game.status === 'active' && hasAIPlayers);
+
+    if (needsInitialization && players.length >= (game.maxPlayers ?? 2)) {
       const allReady = players.every((p) => p.isReady);
       if (allReady) {
         try {
-          await prisma.game.update({
-            where: { id: this.gameId },
-            data: {
-              status: 'active' as PrismaGameStatus,
-              startedAt: new Date(),
-            },
-          });
+          // Only update DB status if transitioning from waiting (AI games are already active)
+          if (game.status === 'waiting') {
+            await prisma.game.update({
+              where: { id: this.gameId },
+              data: {
+                status: 'active' as PrismaGameStatus,
+                startedAt: new Date(),
+              },
+            });
+          }
           this.gameEngine.startGame();
 
           // Trigger AI turn if the first player is AI

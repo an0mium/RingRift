@@ -24,14 +24,57 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
-import type { Position, GameState, Move, BoardState, PlayerChoice } from '../../shared/types/game';
+import type {
+  Position,
+  GameState,
+  Move,
+  BoardState,
+  PlayerChoice,
+  BoardType,
+} from '../../shared/types/game';
 import { positionToString, positionsEqual } from '../../shared/types/game';
+import {
+  enumerateSimpleMoveTargetsFromStack,
+  isValidPosition,
+  type MovementBoardView,
+} from '../../shared/engine';
 import type { PartialMove } from './useGameActions';
 import {
   analyzeInvalidMove as analyzeInvalid,
   type InvalidMoveReason,
 } from './useInvalidMoveFeedback';
 import type { TerritoryRegionOption } from '../components/TerritoryRegionChoiceDialog';
+
+/**
+ * Create a MovementBoardView adapter from a BoardState for computing valid landing positions.
+ * Used by skip_placement shortcut to validate targets before sending to server.
+ */
+function createMovementBoardView(board: BoardState): MovementBoardView {
+  const boardType = board.type as BoardType;
+  const size = board.size;
+
+  return {
+    isValidPosition: (pos: Position) => isValidPosition(pos, boardType, size),
+    isCollapsedSpace: (pos: Position) => board.collapsedSpaces.has(positionToString(pos)),
+    getStackAt: (pos: Position) => {
+      const key = positionToString(pos);
+      const stack = board.stacks.get(key);
+      if (!stack) {
+        return undefined;
+      }
+      return {
+        controllingPlayer: stack.controllingPlayer,
+        capHeight: stack.capHeight,
+        stackHeight: stack.stackHeight,
+      };
+    },
+    getMarkerOwner: (pos: Position) => {
+      const key = positionToString(pos);
+      const marker = board.markers.get(key);
+      return marker?.player;
+    },
+  };
+}
 
 /**
  * Ring placement prompt state for the context-menu dialog.
@@ -331,18 +374,18 @@ export function useBackendBoardHandlers(
             // Check if there's a skip_placement move available
             const skipPlacementMove = validMoves.find((m) => m.type === 'skip_placement');
 
-            // Check if clicked position would be a valid landing for movement
-            // We look for move_stack moves that exist in the movement phase
-            // Since we're in placement phase, we need to infer valid landings
-            // A position is a valid landing if it's empty or has a stack we could land on
-            const clickedStack = board.stacks.get(posKey);
-            const isEmptyOrValidLanding =
-              !clickedStack || clickedStack.controllingPlayer !== gameState.currentPlayer;
+            // Compute valid landing positions using the shared movement logic
+            // This validates direction, distance, and path clearance properly
+            const boardView = createMovementBoardView(board);
+            const validLandings = enumerateSimpleMoveTargetsFromStack(
+              board.type as BoardType,
+              selected,
+              gameState.currentPlayer,
+              boardView
+            );
+            const isValidLanding = validLandings.some((t) => positionsEqual(t.to, pos));
 
-            // Calculate if this would be a valid movement target based on distance/direction
-            // For now, we check if the position is on a valid movement line from selected
-            // This is a heuristic - the actual validation happens server-side after skip_placement
-            if (skipPlacementMove && isEmptyOrValidLanding && !hasStack) {
+            if (skipPlacementMove && isValidLanding) {
               // Store the pending movement and submit skip_placement
               pendingMovementRef.current = { from: selected, to: pos };
 
