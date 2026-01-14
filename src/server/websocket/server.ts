@@ -5,7 +5,7 @@ import { ZodError } from 'zod';
 import { getDatabaseClient } from '../database/connection';
 import { getRedisClient } from '../cache/redis';
 import { logger } from '../utils/logger';
-import { PlayerChoiceResponse } from '../../shared/types/game';
+import { PlayerChoiceResponse, GameState } from '../../shared/types/game';
 import { GameSessionManager } from '../game/GameSessionManager';
 import type { RulesResult } from '../game/RulesBackendFacade';
 import { config } from '../config';
@@ -33,6 +33,7 @@ import {
 import { getChatPersistenceService } from '../services/ChatPersistenceService';
 import { getRematchService } from '../services/RematchService';
 import { MatchmakingService } from '../services/MatchmakingService';
+import { serializeGameState } from '../../shared/engine/contracts/serialization';
 
 /**
  * Extract only the keys from ServerToClientEvents that have defined (non-optional) handlers.
@@ -1226,11 +1227,13 @@ export class WebSocketServer {
       this.gameRooms.get(gameId)?.add(socket.id);
 
       // Send current game state with full RingRift state
+      // Serialize to convert Maps to plain objects for JSON transport.
+      // The client's hydrateBoardState() reconstructs Maps from plain objects.
       socket.emit('game_state', {
-        type: 'game_update',
+        type: 'game_update' as const,
         data: {
           gameId,
-          gameState,
+          gameState: serializeGameState(gameState) as unknown as GameState,
           validMoves: isPlayer ? session.getValidMoves(gameState.currentPlayer) : [],
         },
         timestamp: new Date().toISOString(),
