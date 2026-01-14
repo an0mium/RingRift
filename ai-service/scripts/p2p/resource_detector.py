@@ -258,14 +258,18 @@ class ResourceDetector:
         except OSError:
             return "127.0.0.1"
 
-    def get_tailscale_ip(self, prefer_ipv6: bool = True) -> str:
+    def get_tailscale_ip(self, prefer_ipv6: bool = False) -> str:
         """Return this node's Tailscale IP address.
 
         Jan 2026: Added IPv6 support. Tailscale IPv6 (fd7a:115c:a1e0::*) bypasses
         NAT traversal issues and provides more reliable connectivity.
 
+        Jan 14, 2026: Changed default to prefer_ipv6=False. IPv4 (100.x.x.x) is
+        more widely compatible because many systems have issues resolving Tailscale
+        IPv6 addresses (fd7a:...) causing sync failures.
+
         Args:
-            prefer_ipv6: If True, return IPv6 when available. Default True.
+            prefer_ipv6: If True, return IPv6 when available. Default False.
 
         Returns:
             Tailscale IP if available, else empty string
@@ -274,7 +278,7 @@ class ResourceDetector:
         ipv4 = self.get_tailscale_ipv4()
         ipv6 = self.get_tailscale_ipv6()
 
-        # Return based on preference
+        # Return based on preference (Jan 14, 2026: default to IPv4 for compatibility)
         if prefer_ipv6 and ipv6:
             return ipv6
         return ipv4 or ipv6 or ""
