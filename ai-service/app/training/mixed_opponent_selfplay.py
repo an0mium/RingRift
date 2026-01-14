@@ -86,6 +86,38 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
     DEFAULT_MIX_2P = DEFAULT_MIX
     DEFAULT_MIX_MULTIPLAYER = DEFAULT_MIX
 
+    # Board-specific opponent mixes (Jan 14, 2026)
+    # Square8's heuristic AI is stronger than hex8's due to simpler board patterns.
+    # With 50% heuristic opponents, the NN trains against a ceiling it can never surpass.
+    # Solution: Reduce heuristic weight for square8, boost NN-based opponents.
+    BOARD_SPECIFIC_MIX: dict[str, dict[str, float]] = {
+        "square8": {
+            "random": 0.05,
+            "heuristic": 0.30,    # Reduced from 0.50 - heuristic too strong for square8
+            "mcts": 0.25,         # Increased from 0.15 - more NN training signal
+            "minimax": 0.05,
+            "maxn": 0.05,
+            "brs": 0.05,
+            "policy_only": 0.15,  # Increased from 0.10
+            "descent": 0.10,      # Increased from 0.05
+        },
+        # Other boards (hex8, square19, hexagonal) use DEFAULT_MIX
+        # Their heuristic AI is not as dominant relative to NN training
+    }
+
+    @classmethod
+    def get_opponent_mix_for_board(cls, board_type: str) -> dict[str, float]:
+        """Get board-specific opponent mix.
+
+        Args:
+            board_type: Board type string (e.g., 'square8', 'hex8')
+
+        Returns:
+            Opponent mix dict with probabilities for each opponent type.
+            Returns board-specific mix if available, otherwise DEFAULT_MIX.
+        """
+        return cls.BOARD_SPECIFIC_MIX.get(board_type, cls.DEFAULT_MIX).copy()
+
     # Opponent types and their player count restrictions
     # Dec 31, 2025: All search algorithms now support 2-4 players
     # - Minimax uses Paranoid algorithm for 3-4p (opponents form coalition)
@@ -114,9 +146,10 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
         config.engine_mode = EngineMode.MIXED
         super().__init__(config)
 
-        # Select default mix (unified for all player counts as of Dec 31, 2025)
+        # Select default mix based on board type (Jan 14, 2026)
+        # Square8 uses reduced heuristic (30% vs 50%) due to stronger heuristic AI
         if opponent_mix is None:
-            opponent_mix = self.DEFAULT_MIX.copy()
+            opponent_mix = self.get_opponent_mix_for_board(config.board_type)
 
         # Filter out opponents incompatible with this player count
         self.opponent_mix = self._filter_compatible_opponents(opponent_mix, config.num_players)

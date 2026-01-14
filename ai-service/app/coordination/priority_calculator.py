@@ -71,11 +71,12 @@ PRIORITY_OVERRIDE_MULTIPLIERS = {
 # Adding explicit CRITICAL overrides to ensure adequate selfplay allocation.
 # Jan 12, 2026: Added CRITICAL overrides for ALL configs with 0 games to bootstrap selfplay.
 # Jan 14, 2026: Added hex8_4p CRITICAL override - only 77-873 games vs 16K+ for hex8_2p.
+# Jan 14, 2026: Added hex8_3p CRITICAL, upgraded square19_3p HIGH→CRITICAL for slow 3p configs.
 CONFIG_PRIORITY_OVERRIDES: dict[str, int] = {
     # Large board configs (existing)
     "square19_4p": 0,   # CRITICAL - only 1,766 games
     "hexagonal_3p": 0,  # CRITICAL - only 1,936 games
-    "square19_3p": 1,   # HIGH - 2,123 games
+    "square19_3p": 0,   # CRITICAL - upgraded from HIGH, only 50 games/week
     "square8_4p": 1,    # HIGH - 4,321 games
     # Jan 12, 2026: Add CRITICAL priority for configs with 0 games
     "square8_2p": 0,    # CRITICAL - 0 games (bootstrap needed)
@@ -83,8 +84,9 @@ CONFIG_PRIORITY_OVERRIDES: dict[str, int] = {
     "square19_2p": 0,   # CRITICAL - 0 games (bootstrap needed)
     "hexagonal_2p": 0,  # CRITICAL - 0 games (bootstrap needed)
     "hexagonal_4p": 0,  # CRITICAL - 0 games (bootstrap needed)
-    # Jan 14, 2026: 4-player small board - severely underrepresented
+    # Jan 14, 2026: Small board configs with slow generation or Elo issues
     "hex8_4p": 0,       # CRITICAL - only 77-873 games (vs 16K+ for hex8_2p)
+    "hex8_3p": 0,       # CRITICAL - only 21 games/day, stalled at 1262 Elo
 }
 
 # Player count allocation multipliers

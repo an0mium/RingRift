@@ -68,36 +68,38 @@ class BoardHyperparams:
 # Jan 2026: Reduced epochs 100→20 and patience 30→7 based on overfitting analysis
 # Observation: Elo peaks at epoch 3-5, val loss continues to improve but generalization degrades
 BOARD_HYPERPARAMS: dict[str, BoardHyperparams] = {
-    # Square 8x8 - baseline, fast training
+    # Square 8x8 - tuned for faster learning (Jan 14, 2026)
+    # Square8 has simpler feature space than hex, can use higher LR and batch size
+    # Reduced regularization to allow model to fit more aggressively
     "square8_2p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0005,   # Increased from 0.0003 - simpler board allows faster learning
+        batch_size=128,         # Increased from 64 - more stable gradients
+        epochs=25,              # Increased from 20 - more training budget
         hidden_dim=512,
         num_hidden_layers=6,
-        weight_decay=0.0001,
-        label_smoothing=0.05,
+        weight_decay=0.00005,   # Reduced from 0.0001 - less regularization
+        label_smoothing=0.03,   # Reduced from 0.05 - sharper policy targets
         augmentation_factor=4,
     ),
     "square8_3p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0005,   # Increased from 0.0003
+        batch_size=128,         # Increased from 64
+        epochs=25,              # Increased from 20
         hidden_dim=512,
         num_hidden_layers=6,
-        weight_decay=0.0001,
+        weight_decay=0.00005,   # Reduced from 0.0001
         policy_weight=1.2,
-        label_smoothing=0.07,
+        label_smoothing=0.05,   # Reduced from 0.07
     ),
     "square8_4p": BoardHyperparams(
-        learning_rate=0.0003,
-        batch_size=64,
-        epochs=20,
+        learning_rate=0.0005,   # Increased from 0.0003
+        batch_size=128,         # Increased from 64
+        epochs=25,              # Increased from 20
         hidden_dim=512,
         num_hidden_layers=6,
-        weight_decay=0.0001,
+        weight_decay=0.00005,   # Reduced from 0.0001
         policy_weight=1.5,
-        label_smoothing=0.08,
+        label_smoothing=0.06,   # Reduced from 0.08
     ),
 
     # Square 19x19 - large state space
