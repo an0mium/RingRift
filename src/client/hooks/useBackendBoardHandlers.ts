@@ -77,6 +77,52 @@ function createMovementBoardView(board: BoardState): MovementBoardView {
 }
 
 /**
+ * Create a MovementBoardView adapter with a simulated stack at a given position.
+ * Used for computing valid landing positions during pending ring placement,
+ * where no actual stack exists yet on the board.
+ */
+function createMovementBoardViewWithSimulatedStack(
+  board: BoardState,
+  simulatedPos: Position,
+  simulatedPlayer: number,
+  simulatedStackHeight: number
+): MovementBoardView {
+  const boardType = board.type as BoardType;
+  const size = board.size;
+  const simulatedPosKey = positionToString(simulatedPos);
+
+  return {
+    isValidPosition: (pos: Position) => isValidPosition(pos, boardType, size),
+    isCollapsedSpace: (pos: Position) => board.collapsedSpaces.has(positionToString(pos)),
+    getStackAt: (pos: Position) => {
+      const key = positionToString(pos);
+      // Return simulated stack for the pending position
+      if (key === simulatedPosKey) {
+        return {
+          controllingPlayer: simulatedPlayer,
+          capHeight: simulatedStackHeight,
+          stackHeight: simulatedStackHeight,
+        };
+      }
+      const stack = board.stacks.get(key);
+      if (!stack) {
+        return undefined;
+      }
+      return {
+        controllingPlayer: stack.controllingPlayer,
+        capHeight: stack.capHeight,
+        stackHeight: stack.stackHeight,
+      };
+    },
+    getMarkerOwner: (pos: Position) => {
+      const key = positionToString(pos);
+      const marker = board.markers.get(key);
+      return marker?.player;
+    },
+  };
+}
+
+/**
  * Ring placement prompt state for the context-menu dialog.
  */
 export interface RingPlacementPrompt {
@@ -516,13 +562,18 @@ export function useBackendBoardHandlers(
             currentCount: newCount,
           });
           // Update valid landing positions based on new stack height
-          const boardView = createMovementBoardView(board);
+          // Use simulated board view since there's no actual stack at this empty position yet
+          const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
+            board,
+            pendingRingPlacement.position,
+            gameState.currentPlayer,
+            newCount
+          );
           const landings = enumerateSimpleMoveTargetsFromStack(
             board.type as BoardType,
             pendingRingPlacement.position,
             gameState.currentPlayer,
-            boardView,
-            newCount
+            simulatedBoardView
           );
           setValidTargets(landings.map((t) => t.to));
           return;
@@ -531,10 +582,16 @@ export function useBackendBoardHandlers(
         // Case 2: There's a pending placement at different position - check if this click is a valid landing
         if (pendingRingPlacement) {
           // Compute valid landing positions for the pending placement position
-          const boardView = createMovementBoardView(board);
-          const pendingPlaceMove = pendingRingPlacement.placeMovesAtPos.find(
-            (m) => (m.placementCount ?? 1) === pendingRingPlacement.currentCount
+          // Use simulated board view since there's no actual stack at the pending position yet
+          const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
+            board,
+            pendingRingPlacement.position,
+            gameState.currentPlayer,
+            pendingRingPlacement.currentCount
           );
+          // Use any placement move for the position (server moves don't include placementCount,
+          // they just indicate valid positions - we supply our own count)
+          const pendingPlaceMove = pendingRingPlacement.placeMovesAtPos[0];
 
           if (pendingPlaceMove) {
             // After placement, we'd need to move from pendingRingPlacement.position
@@ -543,8 +600,7 @@ export function useBackendBoardHandlers(
               board.type as BoardType,
               pendingRingPlacement.position,
               gameState.currentPlayer,
-              boardView,
-              pendingRingPlacement.currentCount // Stack height after placement
+              simulatedBoardView
             );
             const isValidLanding = validLandings.some((t) => positionsEqual(t.to, pos));
 
@@ -571,8 +627,13 @@ export function useBackendBoardHandlers(
           // Not a valid landing - check if we can start new placement here instead
           if (!hasStack && placeMovesAtPos.length > 0) {
             // Start new pending at this position, abandoning previous
-            const counts = placeMovesAtPos.map((m) => m.placementCount ?? 1);
-            const maxCount = Math.max(...counts);
+            // Server moves don't include placementCount, compute maxCount from game rules:
+            // Empty cell: min(3, ringsInHand)
+            const currentPlayer = gameState.players.find(
+              (p) => p.playerNumber === gameState.currentPlayer
+            );
+            const ringsInHand = currentPlayer?.ringsInHand ?? 0;
+            const maxCount = Math.min(3, ringsInHand);
             setPendingRingPlacement({
               position: pos,
               positionKey: posKey,
@@ -582,12 +643,18 @@ export function useBackendBoardHandlers(
             });
             setSelected(pos);
             // Show valid landings for this new position
+            // Use simulated board view since there's no actual stack yet
+            const newSimulatedBoardView = createMovementBoardViewWithSimulatedStack(
+              board,
+              pos,
+              gameState.currentPlayer,
+              1 // Initial placement of 1 ring
+            );
             const newLandings = enumerateSimpleMoveTargetsFromStack(
               board.type as BoardType,
               pos,
               gameState.currentPlayer,
-              boardView,
-              1 // Initial placement of 1 ring
+              newSimulatedBoardView
             );
             setValidTargets(newLandings.map((t) => t.to));
             return;
@@ -621,8 +688,13 @@ export function useBackendBoardHandlers(
             return;
           }
 
-          const counts = placeMovesAtPos.map((m) => m.placementCount ?? 1);
-          const maxCount = Math.max(...counts);
+          // Server moves don't include placementCount, compute maxCount from game rules:
+          // Empty cell: min(3, ringsInHand)
+          const currentPlayer = gameState.players.find(
+            (p) => p.playerNumber === gameState.currentPlayer
+          );
+          const ringsInHand = currentPlayer?.ringsInHand ?? 0;
+          const maxCount = Math.min(3, ringsInHand);
 
           // If only 1 ring can be placed, submit immediately (no accumulation possible)
           if (maxCount <= 1) {
@@ -648,13 +720,18 @@ export function useBackendBoardHandlers(
           });
           setSelected(pos);
           // Show valid landings from this position (with 1 ring initially)
-          const boardView = createMovementBoardView(board);
+          // Use simulated board view since there's no actual stack yet
+          const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
+            board,
+            pos,
+            gameState.currentPlayer,
+            1
+          );
           const landings = enumerateSimpleMoveTargetsFromStack(
             board.type as BoardType,
             pos,
             gameState.currentPlayer,
-            boardView,
-            1
+            simulatedBoardView
           );
           setValidTargets(landings.map((t) => t.to));
           return;

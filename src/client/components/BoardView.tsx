@@ -185,7 +185,7 @@ export interface BoardViewProps {
    * Optional pending ring placement indicator for click-to-increment feature.
    * When provided, shows a badge with the pending count on the specified cell.
    */
-  pendingRingPlacement?: { positionKey: string; count: number } | null;
+  pendingRingPlacement?: { positionKey: string; count: number; playerNumber: number } | null;
 }
 
 // Tailwind-friendly, fixed color classes per player number to avoid
@@ -2196,10 +2196,28 @@ export const BoardView: React.FC<BoardViewProps> = ({
               />
             )}
 
-            {/* Pending ring placement badge */}
-            {pendingRingPlacement?.positionKey === key && (
-              <div className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse shadow-lg z-20">
-                {pendingRingPlacement.count}
+            {/* Pending ring placement - show visual rings with pulsing opacity */}
+            {pendingRingPlacement?.positionKey === key && !cellVM?.stack && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                <div className="flex flex-col items-center -space-y-[1px] animate-pulse opacity-80">
+                  {Array.from({ length: pendingRingPlacement.count }).map((_, i) => {
+                    const { ring, ringBorder } = getPlayerColors(pendingRingPlacement.playerNumber);
+                    const isSquare8 = boardType === 'square8';
+                    const isHex = boardType === 'hexagonal' || boardType === 'hex8';
+                    const ringSizeClasses = isSquare8
+                      ? 'w-5 sm:w-6 md:w-8 h-[4px] sm:h-[5px] md:h-[6px]'
+                      : isHex
+                        ? 'w-5 md:w-6 h-[3px] md:h-[4px]'
+                        : 'w-5 sm:w-6 md:w-7 h-[4px] sm:h-[4px] md:h-[5px]';
+                    return (
+                      <div
+                        key={i}
+                        className={`${ringSizeClasses} rounded-full border-[4px] ${ring} ${ringBorder} ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900 shadow-md shadow-slate-900/70`}
+                        style={{ zIndex: pendingRingPlacement.count - i }}
+                      />
+                    );
+                  })}
+                </div>
               </div>
             )}
           </button>
@@ -2667,10 +2685,28 @@ export const BoardView: React.FC<BoardViewProps> = ({
               </span>
             )}
 
-            {/* Pending ring placement badge */}
-            {pendingRingPlacement?.positionKey === key && (
-              <div className="absolute -top-1 -right-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center animate-pulse shadow-lg z-20">
-                {pendingRingPlacement.count}
+            {/* Pending ring placement - show visual rings with pulsing opacity */}
+            {pendingRingPlacement?.positionKey === key && !cellVM?.stack && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+                <div className="flex flex-col items-center -space-y-[1px] animate-pulse opacity-80">
+                  {Array.from({ length: pendingRingPlacement.count }).map((_, i) => {
+                    const { ring, ringBorder } = getPlayerColors(pendingRingPlacement.playerNumber);
+                    const isSquare8 = boardType === 'square8';
+                    const isHex = boardType === 'hexagonal' || boardType === 'hex8';
+                    const ringSizeClasses = isSquare8
+                      ? 'w-5 sm:w-6 md:w-8 h-[4px] sm:h-[5px] md:h-[6px]'
+                      : isHex
+                        ? 'w-5 md:w-6 h-[3px] md:h-[4px]'
+                        : 'w-5 sm:w-6 md:w-7 h-[4px] sm:h-[4px] md:h-[5px]';
+                    return (
+                      <div
+                        key={i}
+                        className={`${ringSizeClasses} rounded-full border-[4px] ${ring} ${ringBorder} ring-[0.5px] ring-offset-[0.5px] ring-offset-slate-900 shadow-md shadow-slate-900/70`}
+                        style={{ zIndex: pendingRingPlacement.count - i }}
+                      />
+                    );
+                  })}
+                </div>
               </div>
             )}
           </button>
