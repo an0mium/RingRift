@@ -29,6 +29,7 @@ from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.contracts import CoordinatorStatus
 from app.coordination.coordinator_persistence import StatePersistenceMixin
 from app.coordination.event_emission_helpers import safe_emit_event
+from app.coordination.event_router import get_event_payload
 
 logger = logging.getLogger(__name__)
 
@@ -437,10 +438,12 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         January 4, 2026: Sets _quorum_lost flag to enable dynamic 60s recovery
         cooldown instead of normal 5 minute cooldown.
         """
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
         logger.critical(
             f"QUORUM LOST - initiating emergency recovery "
-            f"(online_voters={event.get('online_voters', '?')}, "
-            f"quorum={event.get('quorum_size', '?')})"
+            f"(online_voters={payload.get('online_voters', '?')}, "
+            f"quorum={payload.get('quorum_size', '?')})"
         )
 
         # January 4, 2026: Enable aggressive recovery cooldown during quorum loss
@@ -457,8 +460,8 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
             "quorum_recovery_started",
             {
                 "trigger": "quorum_lost_event",
-                "online_voters": event.get("online_voters", 0),
-                "quorum_size": event.get("quorum_size", 4),
+                "online_voters": payload.get("online_voters", 0),
+                "quorum_size": payload.get("quorum_size", 4),
                 "source": "P2PRecoveryDaemon",
             },
             context="P2PRecovery",
@@ -470,8 +473,10 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         Dec 30, 2025: Called when voter count is exactly at quorum threshold.
         Proactively attempts to reconnect offline voters before quorum is lost.
         """
-        online_voters = event.get("online_voters", 0)
-        offline_voters = event.get("offline_voters", [])
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        online_voters = payload.get("online_voters", 0)
+        offline_voters = payload.get("offline_voters", [])
         logger.warning(
             f"Quorum at risk - {online_voters} voters online, "
             f"{len(offline_voters)} offline. Boosting reconnection priority."
@@ -485,8 +490,10 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
 
         Dec 30, 2025: Logs voter offline event and checks if this impacts quorum.
         """
-        voter_id = event.get("voter_id", "unknown")
-        reason = event.get("reason", "unknown")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        voter_id = payload.get("voter_id", "unknown")
+        reason = payload.get("reason", "unknown")
         logger.warning(f"Voter {voter_id} went offline: {reason}")
 
     async def _emit_voter_state_changes(self, current_online_voters: set[str]) -> None:
@@ -552,9 +559,11 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         2. Attempt automated P2P orchestrator restart
         3. Emit alert event for external monitoring (PagerDuty, etc.)
         """
-        reason = event.get("reason", "unknown")
-        escalation_level = event.get("escalation_level", 0)
-        consecutive_failures = event.get("consecutive_failures", 0)
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        reason = payload.get("reason", "unknown")
+        escalation_level = payload.get("escalation_level", 0)
+        consecutive_failures = payload.get("consecutive_failures", 0)
 
         logger.critical(
             f"P2P_RECOVERY_NEEDED received - partition healing exhausted. "
@@ -616,8 +625,10 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         wait 5s for gossip to propagate and verify healthy_ratio >= 0.95 to
         confirm the partition fix actually converged across the cluster.
         """
-        nodes_healed = event.get("nodes_healed", 0)
-        duration_seconds = event.get("duration_seconds", 0)
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        nodes_healed = payload.get("nodes_healed", 0)
+        duration_seconds = payload.get("duration_seconds", 0)
 
         logger.info(
             f"[P2PRecovery] Partition healed reported: "
@@ -662,8 +673,10 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         attempts with quorum lost, skip normal escalation and restart immediately.
         This prevents 30+ minute delays from tier-based escalation during quorum loss.
         """
-        reason = event.get("reason", "unknown")
-        escalation_level = event.get("escalation_level", 0)
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        reason = payload.get("reason", "unknown")
+        escalation_level = payload.get("escalation_level", 0)
 
         self._healing_in_progress = False
         self._healing_started_time = None  # Session 9: Clear healing timeout
@@ -714,12 +727,14 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
         For P2P-related daemons (P2P_*, AUTO_SYNC, etc.), critical failures
         may trigger P2P restart to restore cluster connectivity.
         """
-        daemon_name = event.get("daemon_name", "unknown")
-        category = event.get("category", "transient")
-        recommended_action = event.get("recommended_action", "monitor")
-        consecutive_failures = event.get("consecutive_failures", 0)
-        needs_intervention = event.get("needs_intervention", False)
-        hostname = event.get("hostname", "unknown")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        daemon_name = payload.get("daemon_name", "unknown")
+        category = payload.get("category", "transient")
+        recommended_action = payload.get("recommended_action", "monitor")
+        consecutive_failures = payload.get("consecutive_failures", 0)
+        needs_intervention = payload.get("needs_intervention", False)
+        hostname = payload.get("hostname", "unknown")
 
         # Categorize response based on failure severity
         if category == "critical":
