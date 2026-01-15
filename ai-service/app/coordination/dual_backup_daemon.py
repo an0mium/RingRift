@@ -47,6 +47,7 @@ from typing import Any
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.protocols import CoordinatorStatus
 from app.coordination.event_emission_helpers import safe_emit_event
+from app.coordination.event_router import get_event_payload
 from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
@@ -520,14 +521,17 @@ class DualBackupDaemon(HandlerBase):
             "NPZ_EXPORT_COMPLETE": self._on_data_changed,
         }
 
-    async def _on_data_changed(self, event: dict[str, Any]) -> None:
+    async def _on_data_changed(self, event: Any) -> None:
         """Handle data change events - backup the changed file."""
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+
         # Extract file path from event
         file_path_str = (
-            event.get("canonical_db_path")
-            or event.get("model_path")
-            or event.get("npz_path")
-            or event.get("output_path")
+            payload.get("canonical_db_path")
+            or payload.get("model_path")
+            or payload.get("npz_path")
+            or payload.get("output_path")
         )
 
         if not file_path_str:

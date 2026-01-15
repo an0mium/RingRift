@@ -32,6 +32,7 @@ from typing import Any, Optional
 
 from app.coordination.contracts import HealthCheckResult
 from app.coordination.event_emission_helpers import safe_emit_event
+from app.coordination.event_router import get_event_payload
 from app.coordination.handler_base import HandlerBase
 
 logger = logging.getLogger(__name__)
@@ -186,9 +187,11 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
     # Event Handlers
     # =========================================================================
 
-    async def _on_tailscale_disconnected(self, event: dict[str, Any]) -> None:
+    async def _on_tailscale_disconnected(self, event: Any) -> None:
         """Handle Tailscale disconnection event."""
-        node_name = event.get("node_name") or event.get("hostname")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        node_name = payload.get("node_name") or payload.get("hostname")
         if not node_name:
             logger.warning("TAILSCALE_DISCONNECTED event missing node_name")
             return
@@ -201,7 +204,7 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
         state.consecutive_failures += 1
 
         # Check if local TailscaleHealthDaemon should handle this
-        if event.get("local_daemon_handling"):
+        if payload.get("local_daemon_handling"):
             logger.debug(f"Local daemon handling recovery for {node_name}")
             return
 
@@ -210,9 +213,11 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
             self._pending_recoveries.add(node_name)
             asyncio.create_task(self._attempt_ssh_recovery(node_name))
 
-    async def _on_tailscale_recovered(self, event: dict[str, Any]) -> None:
+    async def _on_tailscale_recovered(self, event: Any) -> None:
         """Handle Tailscale recovery event."""
-        node_name = event.get("node_name") or event.get("hostname")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        node_name = payload.get("node_name") or payload.get("hostname")
         if not node_name:
             return
 
@@ -224,9 +229,11 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
         state.last_seen = time.time()
         self._pending_recoveries.discard(node_name)
 
-    async def _on_tailscale_recovery_failed(self, event: dict[str, Any]) -> None:
+    async def _on_tailscale_recovery_failed(self, event: Any) -> None:
         """Handle Tailscale recovery failure event."""
-        node_name = event.get("node_name") or event.get("hostname")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        node_name = payload.get("node_name") or payload.get("hostname")
         if not node_name:
             return
 
@@ -240,9 +247,11 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
         if state.recovery_attempts >= self._config.escalation_threshold:
             await self._escalate_recovery(node_name, state)
 
-    async def _on_p2p_node_dead(self, event: dict[str, Any]) -> None:
+    async def _on_p2p_node_dead(self, event: Any) -> None:
         """Handle P2P node dead event."""
-        node_name = event.get("node_id") or event.get("peer_id")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        node_name = payload.get("node_id") or payload.get("peer_id")
         if not node_name:
             return
 
@@ -252,9 +261,11 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
         state.p2p_connected = False
         state.consecutive_failures += 1
 
-    async def _on_host_offline(self, event: dict[str, Any]) -> None:
+    async def _on_host_offline(self, event: Any) -> None:
         """Handle host offline event."""
-        node_name = event.get("node_id") or event.get("hostname")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        node_name = payload.get("node_id") or payload.get("hostname")
         if not node_name:
             return
 
@@ -269,9 +280,11 @@ class ConnectivityRecoveryCoordinator(HandlerBase):
         if node_name not in self._pending_recoveries:
             self._pending_recoveries.add(node_name)
 
-    async def _on_host_online(self, event: dict[str, Any]) -> None:
+    async def _on_host_online(self, event: Any) -> None:
         """Handle host online event."""
-        node_name = event.get("node_id") or event.get("hostname")
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        node_name = payload.get("node_id") or payload.get("hostname")
         if not node_name:
             return
 

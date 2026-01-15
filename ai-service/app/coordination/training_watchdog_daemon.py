@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any
 
 from app.coordination.event_emission_helpers import safe_emit_event
+from app.coordination.event_router import get_event_payload
 from app.coordination.handler_base import HandlerBase, HealthCheckResult
 from app.coordination.protocols import CoordinatorStatus
 
@@ -361,29 +362,35 @@ class TrainingWatchdogDaemon(HandlerBase):
             "training_completed": self._on_training_completed,
         }
 
-    async def _on_training_heartbeat(self, event: dict[str, Any]) -> None:
+    async def _on_training_heartbeat(self, event: Any) -> None:
         """Handle TRAINING_HEARTBEAT event."""
-        config_key = event.get("config_key", "")
-        pid = event.get("pid", 0)
-        node_id = event.get("node_id", self._node_id)
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        config_key = payload.get("config_key", "")
+        pid = payload.get("pid", 0)
+        node_id = payload.get("node_id", self._node_id)
 
         if config_key and pid:
             # Run in thread to avoid blocking event loop
             await asyncio.to_thread(self.heartbeat, config_key, pid, node_id)
 
-    async def _on_training_lock_acquired(self, event: dict[str, Any]) -> None:
+    async def _on_training_lock_acquired(self, event: Any) -> None:
         """Handle TRAINING_LOCK_ACQUIRED event - register process."""
-        config_key = event.get("config_key", "")
-        pid = event.get("pid", os.getpid())
-        node_id = event.get("node_id", self._node_id)
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        config_key = payload.get("config_key", "")
+        pid = payload.get("pid", os.getpid())
+        node_id = payload.get("node_id", self._node_id)
 
         if config_key:
             await asyncio.to_thread(self.register_training_process, config_key, pid, node_id)
 
-    async def _on_training_completed(self, event: dict[str, Any]) -> None:
+    async def _on_training_completed(self, event: Any) -> None:
         """Handle TRAINING_COMPLETED event - mark as completed."""
-        config_key = event.get("config_key", "")
-        node_id = event.get("node_id", self._node_id)
+        # Extract payload from RouterEvent or dict (Jan 2026 fix)
+        payload = get_event_payload(event)
+        config_key = payload.get("config_key", "")
+        node_id = payload.get("node_id", self._node_id)
 
         if config_key:
             await asyncio.to_thread(self.mark_completed, config_key, node_id)
