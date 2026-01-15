@@ -81,19 +81,19 @@ describe('GameSession AI turn integration with orchestrator adapter', () => {
     }
   });
 
-  // TODO: Investigate why AI fallback fails with no valid moves
-  // The test setup may have issues with game initialization for AI opponents
-  it.skip('completes multiple AI turns under orchestrator without stalls and keeps state consistent', async () => {
+  it('completes multiple AI turns under orchestrator without stalls and keeps state consistent', async () => {
     const timeControl: TimeControl = {
       type: 'rapid',
       initialTime: 600,
       increment: 0,
     };
 
+    // Setup a 2-player game: 1 human + 1 AI opponent
+    // This ensures proper game initialization with valid move generation
     const dbGame = {
       id: gameId,
       boardType: 'square8' as const,
-      maxPlayers: 1,
+      maxPlayers: 2,
       timeControl: {
         type: timeControl.type,
         initialTime: timeControl.initialTime,
@@ -110,11 +110,11 @@ describe('GameSession AI turn integration with orchestrator adapter', () => {
         },
       },
       rngSeed: 9876,
-      player1Id: null as string | null,
+      player1Id: 'human-player-1',
       player2Id: null as string | null,
       player3Id: null as string | null,
       player4Id: null as string | null,
-      player1: null as any,
+      player1: { id: 'human-player-1', username: 'Human Player' },
       player2: null as any,
       player3: null as any,
       player4: null as any,

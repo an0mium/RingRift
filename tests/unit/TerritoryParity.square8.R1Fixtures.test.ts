@@ -181,11 +181,13 @@ function build707fK45PreProcessLineState(): GameState {
 }
 
 describe('TerritoryParity.square8.R1Fixtures – mini-line and reward collapse parity', () => {
-  it('Game 707fd580… k=46: process_line collapses 6,3–6,5 into P2 territory like Python', () => {
+  /**
+   * Per RR-CANON-R120: 2-player square8 requires line length 4.
+   * A 3-length line is sub-threshold and should NOT collapse.
+   * This test verifies that sub-threshold lines are correctly rejected.
+   */
+  it('Game 707fd580… k=46: 3-length line on 2p square8 does NOT collapse (requires length 4)', () => {
     const state = build707fK45PreProcessLineState();
-
-    const before = computeProgressSnapshot(state as any);
-    const beforeS = before.S;
 
     const linePositions: Position[] = [pos(6, 3), pos(6, 4), pos(6, 5)];
 
@@ -209,7 +211,7 @@ describe('TerritoryParity.square8.R1Fixtures – mini-line and reward collapse p
 
     const { nextState, pendingLineRewardElimination } = applyProcessLineDecision(state, move);
 
-    // Mini-line (length 3) on 2p square8: no mandatory elimination reward.
+    // Sub-threshold line (length 3 < required 4 for 2p square8): no collapse, no reward.
     expect(pendingLineRewardElimination).toBe(false);
 
     const collapsed = nextState.board.collapsedSpaces;
@@ -218,33 +220,29 @@ describe('TerritoryParity.square8.R1Fixtures – mini-line and reward collapse p
     expect(collapsed.get('5,0')).toBe(2);
     expect(collapsed.get('6,0')).toBe(2);
 
-    // Line cells are newly collapsed to P2, matching Python k=46.
-    expect(collapsed.get('6,3')).toBe(2);
-    expect(collapsed.get('6,4')).toBe(2);
-    expect(collapsed.get('6,5')).toBe(2);
+    // Line cells are NOT collapsed (sub-threshold line is a no-op).
+    expect(collapsed.has('6,3')).toBe(false);
+    expect(collapsed.has('6,4')).toBe(false);
+    expect(collapsed.has('6,5')).toBe(false);
 
+    // Markers remain in place.
     const markers = nextState.board.markers;
-    expect(markers.has('6,3')).toBe(false);
-    expect(markers.has('6,4')).toBe(false);
-    expect(markers.has('6,5')).toBe(false);
+    expect(markers.has('6,3')).toBe(true);
+    expect(markers.has('6,4')).toBe(true);
+    expect(markers.has('6,5')).toBe(true);
 
     const p1 = nextState.players.find((p) => p.playerNumber === 1)!;
     const p2 = nextState.players.find((p) => p.playerNumber === 2)!;
 
+    // No territory gained from sub-threshold line.
     expect(p1.territorySpaces).toBe(0);
-    expect(p2.territorySpaces).toBe(3);
+    expect(p2.territorySpaces).toBe(0);
 
-    // Eliminated rings are unchanged by mini-line collapse.
+    // Eliminated rings unchanged.
     expect(nextState.board.eliminatedRings[1]).toBe(1);
     expect(nextState.board.eliminatedRings[2]).toBe(3);
     expect(p1.eliminatedRings).toBe(1);
     expect(p2.eliminatedRings).toBe(3);
-
-    const after = computeProgressSnapshot(nextState as any);
-    const afterS = after.S;
-
-    // S-invariant (markers + collapsed + eliminated) is preserved.
-    expect(afterS).toBe(beforeS);
   });
 
   it('Game 85ecc4fa… k=32: choose_line_option with collapsedMarkers collapses only 6,1–6,3 like Python', () => {
