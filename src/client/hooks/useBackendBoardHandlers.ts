@@ -605,6 +605,11 @@ export function useBackendBoardHandlers(
       }
 
       // Handle pending player choice (region_order, ring_elimination, line_reward_option)
+      console.log('[handleCellClick] pendingChoice check:', {
+        hasPendingChoice: !!pendingChoice,
+        pendingChoiceType: pendingChoice?.type,
+        hasOnRespondToChoice: !!onRespondToChoice,
+      });
       if (pendingChoice && onRespondToChoice) {
         // Handle region_order choice (territory region selection)
         if (pendingChoice.type === 'region_order') {
@@ -705,13 +710,31 @@ export function useBackendBoardHandlers(
         // Handle ring_elimination choice
         if (pendingChoice.type === 'ring_elimination') {
           const options = (pendingChoice.options ?? []) as Array<{ stackPosition: Position }>;
-          const matching = options.find((opt) => positionsEqual(opt.stackPosition, pos));
+          console.log('[ring_elimination] Handler triggered:', {
+            clickedPos: positionToString(pos),
+            optionsCount: options.length,
+            options: options.map((opt) => ({
+              stackPosition: opt.stackPosition ? positionToString(opt.stackPosition) : 'undefined',
+              raw: opt.stackPosition,
+            })),
+          });
+          const matching = options.find((opt) => {
+            const match = opt.stackPosition && positionsEqual(opt.stackPosition, pos);
+            console.log('[ring_elimination] Comparing:', {
+              optPos: opt.stackPosition ? positionToString(opt.stackPosition) : 'undefined',
+              clickPos: positionToString(pos),
+              match,
+            });
+            return match;
+          });
           if (matching) {
+            console.log('[ring_elimination] Found match, responding to choice');
             onRespondToChoice(pendingChoice, matching);
             return;
           }
           // If valid options exist, block fall-through (must click a valid target)
           if (options.length > 0) {
+            console.log('[ring_elimination] No match found, blocking fall-through');
             return;
           }
         }
