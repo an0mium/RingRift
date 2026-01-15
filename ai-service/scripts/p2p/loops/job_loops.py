@@ -29,6 +29,9 @@ from typing import Any, Callable, Coroutine
 
 from .base import BaseLoop
 
+# January 2026: Centralized work queue cleanup thresholds
+from app.config.coordination_defaults import WorkQueueCleanupDefaults
+
 # Lazy import for event emission (avoid circular imports)
 _emit_event = None
 
@@ -1602,9 +1605,9 @@ class WorkQueueMaintenanceConfig:
     maintenance_interval_seconds: float = 300.0  # 5 minutes
     cleanup_age_seconds: float = 86400.0  # 24 hours
     initial_delay_seconds: float = 60.0
-    # Orphan cleanup thresholds (Dec 2025)
-    max_pending_age_hours: float = 24.0  # Remove stale pending items
-    max_claimed_age_hours: float = 2.0  # Reset claimed items without heartbeat
+    # Orphan cleanup thresholds (Jan 2026: centralized in WorkQueueCleanupDefaults)
+    max_pending_age_hours: float = WorkQueueCleanupDefaults.MAX_PENDING_AGE_HOURS
+    max_claimed_age_hours: float = WorkQueueCleanupDefaults.MAX_CLAIMED_AGE_HOURS
     # Jan 2026: Work queue stall detection for 48h autonomous operation
     stall_threshold_seconds: float = float(
         os.environ.get("RINGRIFT_WORK_QUEUE_STALL_THRESHOLD", "300")
@@ -1709,12 +1712,12 @@ class WorkQueueMaintenanceLoop(BaseLoop):
                 max_pending_age_hours=self.config.max_pending_age_hours,
                 max_claimed_age_hours=self.config.max_claimed_age_hours,
             )
-            handled = stale_stats.get("pending_removed", 0) + stale_stats.get("claimed_reset", 0)
+            handled = stale_stats.get("removed_stale_pending", 0) + stale_stats.get("reset_stale_claimed", 0)
             if handled:
                 self._stale_items_handled += handled
                 logger.info(
-                    f"[WorkQueueMaintenance] Stale items: {stale_stats.get('pending_removed', 0)} removed, "
-                    f"{stale_stats.get('claimed_reset', 0)} reset to pending"
+                    f"[WorkQueueMaintenance] Stale items: {stale_stats.get('removed_stale_pending', 0)} removed, "
+                    f"{stale_stats.get('reset_stale_claimed', 0)} reset to pending"
                 )
 
         # Jan 2026: Work queue stall detection for 48h autonomous operation

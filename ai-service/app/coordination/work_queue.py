@@ -54,6 +54,7 @@ from app.utils.retry import RetryConfig  # noqa: E402
 from app.utils.disk_utils import is_enospc_error, handle_enospc_error
 from app.coordination.event_utils import parse_config_key
 from app.config.thresholds import SQLITE_CONNECT_TIMEOUT, SQLITE_SHORT_TIMEOUT
+from app.config.coordination_defaults import WorkQueueCleanupDefaults
 
 # Jan 2, 2026: Strategy pattern for Raft/SQLite backends
 from app.coordination.work_queue_backends import (
@@ -2001,8 +2002,8 @@ class WorkQueue:
 
     def cleanup_stale_items(
         self,
-        max_pending_age_hours: float = 24.0,
-        max_claimed_age_hours: float = 1.0,
+        max_pending_age_hours: float = WorkQueueCleanupDefaults.MAX_PENDING_AGE_HOURS,
+        max_claimed_age_hours: float = WorkQueueCleanupDefaults.MAX_CLAIMED_AGE_HOURS,
     ) -> dict[str, int]:
         """Remove stale items that were never executed (December 2025).
 

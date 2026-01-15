@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Configuration (December 27, 2025: Centralized in coordination_defaults.py)
 # ============================================
 
-from app.config.coordination_defaults import JobReaperDefaults
+from app.config.coordination_defaults import JobReaperDefaults, WorkQueueCleanupDefaults
 
 CHECK_INTERVAL = JobReaperDefaults.CHECK_INTERVAL
 DEFAULT_JOB_TIMEOUT = JobReaperDefaults.DEFAULT_JOB_TIMEOUT
@@ -603,11 +603,12 @@ class JobReaperDaemon:
                 await self._reassign_failed_work()
 
                 # December 29, 2025: Clean up orphaned work items (stale pending + claimed)
-                # Jobs claimed >24h without progress are likely from crashed nodes
+                # Jobs claimed >2h without progress are likely from crashed nodes
+                # January 2026: Use centralized WorkQueueCleanupDefaults
                 try:
                     cleanup_result = self.work_queue.cleanup_stale_items(
-                        max_pending_age_hours=24.0,  # Remove pending items older than 24h
-                        max_claimed_age_hours=4.0,   # Reset claimed items older than 4h
+                        max_pending_age_hours=WorkQueueCleanupDefaults.MAX_PENDING_AGE_HOURS,
+                        max_claimed_age_hours=WorkQueueCleanupDefaults.MAX_CLAIMED_AGE_HOURS,
                     )
                     if cleanup_result.get("removed_stale_pending", 0) > 0:
                         logger.info(

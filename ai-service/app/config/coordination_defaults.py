@@ -2358,6 +2358,41 @@ class WorkQueueMonitorDefaults:
 
 
 # =============================================================================
+# Work Queue Cleanup Defaults (January 15, 2026)
+# =============================================================================
+
+@dataclass(frozen=True)
+class WorkQueueCleanupDefaults:
+    """Default values for work queue stale item cleanup.
+
+    SINGLE SOURCE OF TRUTH for cleanup thresholds used by:
+    - scripts/p2p/loops/job_loops.py (WorkQueueMaintenanceLoop)
+    - app/coordination/maintenance_daemon.py (MaintenanceDaemon)
+    - app/coordination/job_reaper.py (JobReaper)
+    - app/coordination/work_queue.py (cleanup_stale_items)
+
+    January 2026: Standardized to 2 hours for CLAIMED (was inconsistent 1-4h).
+    """
+    # Max age for PENDING items before removal (hours)
+    # Items stuck in PENDING for this long are likely invalid configs
+    MAX_PENDING_AGE_HOURS: float = _env_float(
+        "RINGRIFT_QUEUE_MAX_PENDING_AGE_HOURS", 24.0
+    )
+
+    # Max age for CLAIMED items before reset to PENDING (hours)
+    # Items claimed but not started within this window are orphaned
+    # Standardized to 2 hours (was 1-4h depending on caller)
+    MAX_CLAIMED_AGE_HOURS: float = _env_float(
+        "RINGRIFT_QUEUE_MAX_CLAIMED_AGE_HOURS", 2.0
+    )
+
+    # Cleanup check interval (seconds)
+    CLEANUP_INTERVAL_SECONDS: float = _env_float(
+        "RINGRIFT_QUEUE_CLEANUP_INTERVAL", 300.0  # 5 minutes
+    )
+
+
+# =============================================================================
 # Ephemeral Guard Defaults (December 27, 2025)
 # =============================================================================
 

@@ -49,6 +49,7 @@ __all__ = [
 from app.coordination.daemon_stats import CleanupDaemonStats
 from app.coordination.event_utils import parse_config_key
 from app.config.thresholds import SQLITE_CONNECT_TIMEOUT
+from app.config.coordination_defaults import WorkQueueCleanupDefaults
 
 # January 2026: Import HandlerBase for standardized daemon patterns
 from app.coordination.handler_base import HandlerBase
@@ -89,10 +90,10 @@ class MaintenanceConfig:
     dlq_cleanup_interval_hours: float = 168.0  # Weekly
     dlq_retention_days: int = 7
 
-    # Work queue cleanup (December 2025)
+    # Work queue cleanup (Jan 2026: centralized in WorkQueueCleanupDefaults)
     queue_cleanup_interval_hours: float = 1.0  # Hourly
-    queue_stale_pending_hours: float = 24.0  # Remove PENDING items older than this
-    queue_stale_claimed_hours: float = 1.0  # Reset CLAIMED items older than this
+    queue_stale_pending_hours: float = WorkQueueCleanupDefaults.MAX_PENDING_AGE_HOURS
+    queue_stale_claimed_hours: float = WorkQueueCleanupDefaults.MAX_CLAIMED_AGE_HOURS
     queue_cleanup_enabled: bool = True
 
     # Orphan file detection (December 2025)
