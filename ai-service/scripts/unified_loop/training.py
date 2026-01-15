@@ -353,6 +353,14 @@ except ImportError:
     HAS_DATA_MANIFEST = False
     DataManifest = None
 
+# Automated post-training promotion (2026-01)
+try:
+    from app.training.auto_promotion import evaluate_and_promote
+    HAS_AUTO_PROMOTION = True
+except ImportError:
+    HAS_AUTO_PROMOTION = False
+    evaluate_and_promote = None
+
 
 class TrainingScheduler:
     """Schedules and manages training runs with cluster-wide coordination."""
@@ -1095,12 +1103,82 @@ class TrainingScheduler:
                         "remote": True,
                     }
                 ))
+
+                # Run auto-promotion if enabled
+                if HAS_AUTO_PROMOTION and getattr(self.config, 'auto_promote', False):
+                    await self._run_auto_promotion(
+                        model_path=model_output,
+                        board_type=board_type,
+                        num_players=num_players,
+                        config_key=config_key,
+                    )
+
                 return True
             else:
                 print(f"[Training] Remote training failed on {result.worker}: {result.error}")
                 return False
         except Exception as e:
             print(f"[Training] Remote training dispatch error: {e}")
+            return False
+
+    async def _run_auto_promotion(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        config_key: str,
+    ) -> bool:
+        """Run automated promotion evaluation after training.
+
+        Args:
+            model_path: Path to the trained model
+            board_type: Board type (e.g., "hex8")
+            num_players: Number of players (2, 3, or 4)
+            config_key: Configuration key (e.g., "hex8_2p")
+
+        Returns:
+            True if promotion succeeded, False otherwise
+        """
+        if not HAS_AUTO_PROMOTION or evaluate_and_promote is None:
+            print(f"[AutoPromotion] Auto-promotion not available for {config_key}")
+            return False
+
+        games = getattr(self.config, 'auto_promote_games', 30)
+        sync_to_cluster = getattr(self.config, 'auto_promote_sync', True)
+
+        print(f"[AutoPromotion] Starting evaluation for {config_key} ({games} games per opponent)")
+
+        try:
+            result = await evaluate_and_promote(
+                model_path=model_path,
+                board_type=board_type,
+                num_players=num_players,
+                games=games,
+                sync_to_cluster=sync_to_cluster,
+            )
+
+            if result.approved:
+                print(f"[AutoPromotion] Model PROMOTED for {config_key}: {result.reason}")
+                # Emit promotion event
+                await self.event_bus.publish(DataEvent(
+                    event_type=DataEventType.MODEL_PROMOTED,
+                    payload={
+                        "config": config_key,
+                        "model_path": model_path,
+                        "promoted_path": result.promoted_path,
+                        "reason": result.reason,
+                        "criterion_met": result.decision.criterion_met.value if result.decision.criterion_met else None,
+                        "estimated_elo": result.eval_results.estimated_elo if result.eval_results else None,
+                        "auto_promoted": True,
+                    }
+                ))
+                return True
+            else:
+                print(f"[AutoPromotion] Model NOT promoted for {config_key}: {result.reason}")
+                return False
+
+        except Exception as e:
+            print(f"[AutoPromotion] Error evaluating {config_key}: {e}")
             return False
 
     def _acquire_training_lock(self, config_key: str | None = None) -> bool:

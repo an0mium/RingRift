@@ -528,6 +528,26 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
              'Requires bootstrap_coordination() to be called. Also respects COORDINATOR_AUTO_TRIGGER_PIPELINE env var.'
     )
 
+    # Auto-promotion after training (January 2026)
+    parser.add_argument(
+        '--auto-promote', action='store_true',
+        help='Automatically run gauntlet evaluation and promote if criteria met. '
+             'Uses OR logic: promote if (Elo >= heuristic) OR (meets win rate floors with significance). '
+             'Games per opponent controlled by --auto-promote-games.'
+    )
+    parser.add_argument(
+        '--auto-promote-games', type=int, default=30,
+        help='Number of games per opponent for auto-promotion gauntlet (default: 30)'
+    )
+    parser.add_argument(
+        '--auto-promote-sync', action='store_true', default=True,
+        help='Sync promoted model to cluster (default: True). Use --no-auto-promote-sync to disable.'
+    )
+    parser.add_argument(
+        '--no-auto-promote-sync', action='store_true',
+        help='Disable syncing promoted model to cluster'
+    )
+
     # Training data freshness check (2025-12)
     # MANDATORY by default to prevent stale data training (Phase 1.5)
     # This prevents 95% of stale data training incidents by failing early
@@ -1241,6 +1261,10 @@ def main() -> None:
         # Dec 27 2025: Enabled by default for ML acceleration (+5-10 Elo)
         enable_outcome_weighted_policy=getattr(args, 'enable_outcome_weighted_policy', True),
         outcome_weight_scale=getattr(args, 'outcome_weight_scale', 0.5),
+        # Auto-promotion after training (January 2026)
+        auto_promote=getattr(args, 'auto_promote', False),
+        auto_promote_games=getattr(args, 'auto_promote_games', 30),
+        auto_promote_sync=getattr(args, 'auto_promote_sync', True) and not getattr(args, 'no_auto_promote_sync', False),
     )
 
 

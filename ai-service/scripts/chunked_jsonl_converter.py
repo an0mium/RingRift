@@ -91,8 +91,10 @@ def detect_board_type(path: Path) -> tuple[str, int]:
     """
     path_str = str(path).lower()
 
-    # Detect board type
-    if "hex" in path_str:
+    # Detect board type - check more specific patterns first
+    if "hex8" in path_str:
+        board_type = "hex8"
+    elif "hexagonal" in path_str or ("hex" in path_str and "hex8" not in path_str):
         board_type = "hexagonal"
     elif "square19" in path_str or "sq19" in path_str:
         board_type = "square19"
@@ -439,7 +441,7 @@ def main():
     parser.add_argument(
         "--board-type",
         type=str,
-        choices=["square8", "square19", "hexagonal"],
+        choices=["square8", "square19", "hex8", "hexagonal"],
         help="Filter to specific board type",
     )
     parser.add_argument(

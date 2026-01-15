@@ -623,6 +623,9 @@ class TrainingControlHandlersMixin:
                 "--adaptive-accumulation",  # Dynamic gradient accumulation
                 # Phase 5: Production Optimization (selective)
                 "--dynamic-loss-scaling",  # Adaptive FP16 loss scaling
+                # Phase 6: Auto-Promotion (Jan 2026)
+                "--auto-promote",  # Run gauntlet and promote if criteria met
+                "--auto-promote-games", "30",  # Quick evaluation (30 games per opponent)
             ]
             # Add hex symmetry augmentation for hex boards (12x effective data)
             if board_type in ('hex8', 'hexagonal', 'hex'):

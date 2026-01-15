@@ -1104,6 +1104,36 @@ NPZ_COMBINATION_MIN_QUALITY = 0.2
 # December 30, 2025: Added for centralized threshold reference
 AUTO_PROMOTION_MIN_QUALITY = 0.5
 
+# =============================================================================
+# Auto-Promotion Criteria (January 2026)
+# =============================================================================
+# Configuration for automated post-training model promotion.
+# Uses OR logic: promote if (Elo parity) OR (win rate floors with significance)
+
+# Minimum games for evaluation
+AUTO_PROMOTE_MIN_GAMES = 30  # Quick evaluation
+AUTO_PROMOTE_MIN_GAMES_PRODUCTION = 100  # Production promotion
+
+# Wilson confidence level for statistical significance
+AUTO_PROMOTE_WILSON_CONFIDENCE = 0.95
+
+# Win rate floors by player count (Wilson CI lower bound must exceed these)
+AUTO_PROMOTE_WIN_RATE_FLOORS: dict[int, dict[str, float]] = {
+    2: {"random": 0.70, "heuristic": 0.50},
+    3: {"random": 0.50, "heuristic": 0.40},
+    4: {"random": 0.40, "heuristic": 0.35},
+}
+
+# Minimum absolute Elo to prevent promoting very weak models
+AUTO_PROMOTE_MIN_ELO: dict[int, float] = {
+    2: 1400,
+    3: 1350,
+    4: 1300,
+}
+
+# Enable cluster sync after promotion (default: True)
+AUTO_PROMOTE_SYNC_TO_CLUSTER = True
+
 # Overfit detection threshold (train-val gap)
 OVERFIT_THRESHOLD = 0.15
 

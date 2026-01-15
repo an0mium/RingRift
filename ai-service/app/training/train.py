@@ -995,6 +995,11 @@ def train_model(
     enable_quality_weighting: bool = True,
     quality_weight_blend: float = 0.5,
     quality_ranking_weight: float = 0.1,
+    # Auto-promotion after training (January 2026)
+    # Runs gauntlet evaluation and promotes if criteria met (Elo parity OR win rate floors)
+    auto_promote: bool = False,
+    auto_promote_games: int = 30,
+    auto_promote_sync: bool = True,
 ) -> dict[str, Any]:
     """
     Train the RingRift neural network model.
@@ -6328,6 +6333,45 @@ def train_model(
         # Clean up distributed process group
         if distributed:
             cleanup_distributed()
+
+    # ==========================================================================
+    # Auto-Promotion Hook (January 2026)
+    # ==========================================================================
+    # If auto-promote is enabled and training completed successfully,
+    # run gauntlet evaluation and promote if criteria met.
+    if auto_promote and _training_completed_normally:
+        logger.info("[AutoPromotion] Starting automated promotion evaluation...")
+        try:
+            import asyncio
+            from app.training.auto_promotion import evaluate_and_promote
+
+            async def _run_auto_promote():
+                result = await evaluate_and_promote(
+                    model_path=save_path,
+                    board_type=config.board_type.value if hasattr(config.board_type, 'value') else str(config.board_type),
+                    num_players=num_players,
+                    games=auto_promote_games,
+                    sync_to_cluster=auto_promote_sync,
+                )
+                return result
+
+            # Run async promotion in event loop
+            try:
+                loop = asyncio.get_running_loop()
+                promotion_result = asyncio.ensure_future(_run_auto_promote())
+            except RuntimeError:
+                # No running loop - create one
+                promotion_result = asyncio.run(_run_auto_promote())
+
+            if hasattr(promotion_result, 'approved') and promotion_result.approved:
+                logger.info(f"[AutoPromotion] Model promoted: {promotion_result.reason}")
+            elif hasattr(promotion_result, 'reason'):
+                logger.info(f"[AutoPromotion] Promotion rejected: {promotion_result.reason}")
+
+        except ImportError as e:
+            logger.warning(f"[AutoPromotion] Auto-promotion module not available: {e}")
+        except (RuntimeError, ConnectionError, TimeoutError, OSError) as e:
+            logger.warning(f"[AutoPromotion] Auto-promotion failed: {e}")
 
     # Return structured training result for downstream analysis
     return {

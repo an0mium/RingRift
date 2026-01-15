@@ -445,6 +445,13 @@ class TrainingConfig:
     gradient_clip_max_norm: float = 1.0  # Max norm for fixed clipping
     # Graceful shutdown
     enable_graceful_shutdown: bool = True  # Emergency checkpoints on SIGTERM
+    # =========================================================================
+    # Automated Post-Training Promotion (2026-01)
+    # =========================================================================
+    # Auto-promote runs gauntlet evaluation after training and promotes if criteria met
+    auto_promote: bool = False  # Enable auto-promotion after training
+    auto_promote_games: int = 30  # Games per opponent for quick evaluation
+    auto_promote_sync: bool = True  # Sync promoted models to cluster
 
     def __post_init__(self):
         """Validate TrainingConfig fields after initialization."""

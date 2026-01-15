@@ -390,6 +390,15 @@ export function useBackendBoardHandlers(
   const prevPhaseRef = useRef<string | null>(null);
   const pendingMovementRetryCount = useRef<number>(0);
 
+  // Refs for pendingChoice and onRespondToChoice to avoid stale closure issues
+  // The handleCellClick callback can capture stale values; refs always have current values
+  const pendingChoiceRef = useRef(pendingChoice);
+  const onRespondToChoiceRef = useRef(onRespondToChoice);
+  useEffect(() => {
+    pendingChoiceRef.current = pendingChoice;
+    onRespondToChoiceRef.current = onRespondToChoice;
+  }, [pendingChoice, onRespondToChoice]);
+
   // Effect to handle pending movement after skip_placement
   // Includes retry logic for when validMoves might be stale after phase change
   useEffect(() => {
@@ -577,15 +586,18 @@ export function useBackendBoardHandlers(
   // Handle confirming territory region selection from dialog
   const handleConfirmTerritoryRegion = useCallback(
     (selectedOption: TerritoryRegionOption) => {
-      if (!pendingChoice || pendingChoice.type !== 'region_order' || !onRespondToChoice) {
+      // Use refs to get current values (avoid stale closure)
+      const choice = pendingChoiceRef.current;
+      const respond = onRespondToChoiceRef.current;
+      if (!choice || choice.type !== 'region_order' || !respond) {
         setTerritoryRegionPrompt(null);
         return;
       }
 
-      onRespondToChoice(pendingChoice, selectedOption);
+      respond(choice, selectedOption);
       setTerritoryRegionPrompt(null);
     },
-    [pendingChoice, onRespondToChoice]
+    [] // No deps needed - uses refs
   );
 
   // Handle cell click
@@ -605,15 +617,18 @@ export function useBackendBoardHandlers(
       }
 
       // Handle pending player choice (region_order, ring_elimination, line_reward_option)
-      console.log('[handleCellClick] pendingChoice check:', {
-        hasPendingChoice: !!pendingChoice,
-        pendingChoiceType: pendingChoice?.type,
-        hasOnRespondToChoice: !!onRespondToChoice,
+      // Use refs to avoid stale closure issues - the callback may have captured old values
+      const currentPendingChoice = pendingChoiceRef.current;
+      const currentRespondToChoice = onRespondToChoiceRef.current;
+      console.log('[handleCellClick] pendingChoice check (using ref):', {
+        hasPendingChoice: !!currentPendingChoice,
+        pendingChoiceType: currentPendingChoice?.type,
+        hasOnRespondToChoice: !!currentRespondToChoice,
       });
-      if (pendingChoice && onRespondToChoice) {
+      if (currentPendingChoice && currentRespondToChoice) {
         // Handle region_order choice (territory region selection)
-        if (pendingChoice.type === 'region_order') {
-          const options = (pendingChoice.options ?? []) as TerritoryRegionOption[];
+        if (currentPendingChoice.type === 'region_order') {
+          const options = (currentPendingChoice.options ?? []) as TerritoryRegionOption[];
           if (options.length === 0) {
             // No options - let other handlers try
           } else {
@@ -626,7 +641,7 @@ export function useBackendBoardHandlers(
 
               if (matchingBySpaces.length === 1) {
                 // Single match - respond directly
-                onRespondToChoice(pendingChoice, matchingBySpaces[0]);
+                currentRespondToChoice(currentPendingChoice, matchingBySpaces[0]);
                 return;
               } else if (matchingBySpaces.length > 1) {
                 // Multiple regions overlap - show disambiguation dialog
@@ -657,7 +672,7 @@ export function useBackendBoardHandlers(
               );
 
               if (matchingByRegion.length === 1) {
-                onRespondToChoice(pendingChoice, matchingByRegion[0]);
+                currentRespondToChoice(currentPendingChoice, matchingByRegion[0]);
                 return;
               } else if (matchingByRegion.length > 1) {
                 // Multiple regions overlap at this cell - show disambiguation dialog
@@ -689,7 +704,7 @@ export function useBackendBoardHandlers(
               });
 
               if (matchedOption) {
-                onRespondToChoice(pendingChoice, matchedOption);
+                currentRespondToChoice(currentPendingChoice, matchedOption);
                 return;
               }
             }
@@ -699,7 +714,7 @@ export function useBackendBoardHandlers(
               positionsEqual(opt.representativePosition, pos)
             );
             if (matchingByRepresentative) {
-              onRespondToChoice(pendingChoice, matchingByRepresentative);
+              currentRespondToChoice(currentPendingChoice, matchingByRepresentative);
               return;
             }
 
@@ -708,8 +723,10 @@ export function useBackendBoardHandlers(
         }
 
         // Handle ring_elimination choice
-        if (pendingChoice.type === 'ring_elimination') {
-          const options = (pendingChoice.options ?? []) as Array<{ stackPosition: Position }>;
+        if (currentPendingChoice.type === 'ring_elimination') {
+          const options = (currentPendingChoice.options ?? []) as Array<{
+            stackPosition: Position;
+          }>;
           console.log('[ring_elimination] Handler triggered:', {
             clickedPos: positionToString(pos),
             optionsCount: options.length,
@@ -729,7 +746,7 @@ export function useBackendBoardHandlers(
           });
           if (matching) {
             console.log('[ring_elimination] Found match, responding to choice');
-            onRespondToChoice(pendingChoice, matching);
+            currentRespondToChoice(currentPendingChoice, matching);
             return;
           }
           // If valid options exist, block fall-through (must click a valid target)
@@ -741,16 +758,16 @@ export function useBackendBoardHandlers(
 
         // Handle line_reward_option choice with segments
         if (
-          pendingChoice.type === 'line_reward_option' &&
-          pendingChoice.segments &&
-          pendingChoice.segments.length > 0
+          currentPendingChoice.type === 'line_reward_option' &&
+          currentPendingChoice.segments &&
+          currentPendingChoice.segments.length > 0
         ) {
-          const segments = pendingChoice.segments;
+          const segments = currentPendingChoice.segments;
           const clickedSegment = segments.find((segment) =>
             segment.positions.some((p) => positionsEqual(p, pos))
           );
           if (clickedSegment) {
-            onRespondToChoice(pendingChoice, { optionId: clickedSegment.optionId });
+            currentRespondToChoice(currentPendingChoice, { optionId: clickedSegment.optionId });
             return;
           }
           // Click was not on a highlighted segment - don't block other handlers
