@@ -237,7 +237,7 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
   hasVictoryState,
   evaluationHistory,
   showSwapSidesPrompt,
-  hudCurrentPlayer,
+  hudCurrentPlayer: _hudCurrentPlayer,
   chatMessages,
   chatInput,
   onRespondToChoice,

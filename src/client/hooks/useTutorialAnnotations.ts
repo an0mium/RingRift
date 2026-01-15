@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import type { GameState, Move, Position } from '../../shared/types/game';
-import { positionToString, positionsAreEqual } from '../../shared/types/game';
+import { positionToString } from '../../shared/types/game';
 
 export interface MoveAnnotation {
   /** Position of the annotation on the board */
@@ -129,7 +129,7 @@ function generateMovementAnnotation(
   targetCell: ReturnType<Map<string, unknown>['get']>,
   from: Position,
   board: GameState['board'],
-  gameState: GameState
+  _gameState: GameState
 ): MoveAnnotation {
   const fromCell = board.grid.get(positionToString(from)) as { stack?: unknown[] } | undefined;
   const stackHeight = fromCell?.stack?.length ?? 1;
@@ -161,7 +161,7 @@ function generateCaptureAnnotation(
   _targetCell: ReturnType<Map<string, unknown>['get']>,
   from: Position,
   board: GameState['board'],
-  gameState: GameState
+  _gameState: GameState
 ): MoveAnnotation {
   // Find the captured stack position (midpoint between from and to)
   const capturedPos = {

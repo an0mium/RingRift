@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState, useRef } from 'react';
+import { Suspense, lazy, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuth } from './contexts/AuthContext';
@@ -62,7 +62,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   // Track whether user was authenticated when component mounted.
   // This prevents redirect loops and handles the transition gracefully.
   const wasAuthenticatedRef = useRef(!!user);
-  const [shouldRender, setShouldRender] = useState(!!user);
 
   useEffect(() => {
     if (!user) {
@@ -77,7 +76,6 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       return () => clearTimeout(timer);
     } else {
       wasAuthenticatedRef.current = true;
-      setShouldRender(true);
     }
   }, [user, navigate, location.pathname]);
 

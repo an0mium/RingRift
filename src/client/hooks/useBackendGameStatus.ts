@@ -20,7 +20,7 @@
  * @see docs/rules/SSOT_BANNER_GUIDE.md
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { gameApi } from '../services/api';
 import type { GameState, GameResult } from '../../shared/types/game';

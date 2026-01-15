@@ -150,21 +150,6 @@ function computeValidLandingsWithCaptures(
 ): Position[] {
   const boardType = board.type as BoardType;
 
-  // DEBUG: Log board state
-  console.log('[computeValidLandingsWithCaptures] Input:', {
-    fromPos: positionToString(fromPos),
-    playerNumber,
-    simulatedStackHeight,
-    boardType,
-    stackCount: board.stacks.size,
-    stacks: Array.from(board.stacks.entries()).map(([key, s]) => ({
-      pos: key,
-      player: s.controllingPlayer,
-      height: s.stackHeight,
-      capHeight: s.capHeight,
-    })),
-  });
-
   // Create simulated board view for this pending placement
   const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
     board,
@@ -173,22 +158,12 @@ function computeValidLandingsWithCaptures(
     simulatedStackHeight
   );
 
-  // DEBUG: Verify simulated stack
-  const attackerCheck = simulatedBoardView.getStackAt(fromPos);
-  console.log('[computeValidLandingsWithCaptures] Attacker check:', attackerCheck);
-
   // Get simple movement targets
   const simpleLandings = enumerateSimpleMoveTargetsFromStack(
     boardType,
     fromPos,
     playerNumber,
     simulatedBoardView
-  );
-
-  console.log(
-    '[computeValidLandingsWithCaptures] Simple landings:',
-    simpleLandings.length,
-    simpleLandings.map((l) => positionToString(l.to))
   );
 
   // Get capture landing targets using the same simulated view
@@ -199,16 +174,6 @@ function computeValidLandingsWithCaptures(
     playerNumber,
     simulatedBoardView as CaptureBoardAdapters,
     0 // moveNumber not used for enumeration
-  );
-
-  console.log(
-    '[computeValidLandingsWithCaptures] Capture moves:',
-    captureMoves.length,
-    captureMoves.map((c) => ({
-      from: positionToString(c.from),
-      target: c.captureTarget ? positionToString(c.captureTarget) : 'none',
-      to: positionToString(c.to),
-    }))
   );
 
   // Combine both sets of landing positions, deduplicating
@@ -231,7 +196,6 @@ function computeValidLandingsWithCaptures(
     }
   }
 
-  console.log('[computeValidLandingsWithCaptures] Final result:', allLandings.length);
   return allLandings;
 }
 
@@ -396,11 +360,6 @@ export function useBackendBoardHandlers(
   const pendingChoiceRef = useRef(pendingChoice);
   const onRespondToChoiceRef = useRef(onRespondToChoice);
   useLayoutEffect(() => {
-    console.log('[useBackendBoardHandlers] Updating pendingChoiceRef:', {
-      oldValue: pendingChoiceRef.current?.type,
-      newValue: pendingChoice?.type,
-      hasOnRespondToChoice: !!onRespondToChoice,
-    });
     pendingChoiceRef.current = pendingChoice;
     onRespondToChoiceRef.current = onRespondToChoice;
   }, [pendingChoice, onRespondToChoice]);
@@ -409,7 +368,7 @@ export function useBackendBoardHandlers(
   // Includes retry logic for when validMoves might be stale after phase change
   useEffect(() => {
     const currentPhase = gameState?.currentPhase;
-    const prevPhase = prevPhaseRef.current;
+    const _prevPhase = prevPhaseRef.current;
     prevPhaseRef.current = currentPhase ?? null;
 
     // Clear stale pending movements (older than 10 seconds, forgiving of slow networks)
@@ -437,25 +396,6 @@ export function useBackendBoardHandlers(
 
     const pending = pendingMovementRef.current!;
 
-    // DEBUG: Log pending movement search
-    console.log('[PendingMovement] Searching for move:', {
-      pendingFrom: positionToString(pending.from),
-      pendingTo: positionToString(pending.to),
-      validMovesCount: validMoves.length,
-      moveStackMoves: validMoves
-        .filter((m) => m.type === 'move_stack')
-        .map((m) => ({
-          from: m.from ? positionToString(m.from) : 'none',
-          to: m.to ? positionToString(m.to) : 'none',
-        })),
-      captureMoves: validMoves
-        .filter((m) => m.type === 'overtaking_capture')
-        .map((m) => ({
-          from: m.from ? positionToString(m.from) : 'none',
-          to: m.to ? positionToString(m.to) : 'none',
-        })),
-    });
-
     // Find the matching move_stack or overtaking_capture move
     // (capture targets use overtaking_capture type, not move_stack)
     const pendingMove = validMoves.find(
@@ -471,12 +411,6 @@ export function useBackendBoardHandlers(
       // Success! Submit the move and clear pending state
       // For capture moves, include captureTarget from the server's move
       const captureTarget = extractCaptureTarget(pendingMove);
-      console.log('[PendingMovement] Found matching move, submitting:', {
-        type: pendingMove.type,
-        from: pendingMove.from ? positionToString(pendingMove.from) : 'none',
-        to: pendingMove.to ? positionToString(pendingMove.to) : 'none',
-        captureTarget: captureTarget ? positionToString(captureTarget) : 'none',
-      });
       pendingMovementRef.current = null;
       pendingMovementRetryCount.current = 0;
       submitMove({
@@ -491,10 +425,6 @@ export function useBackendBoardHandlers(
       // Move not found in validMoves - this may be because validMoves is stale
       // Schedule a retry after a brief delay to allow state to settle
       pendingMovementRetryCount.current += 1;
-      console.log(
-        '[PendingMovement] Move not found, scheduling retry',
-        pendingMovementRetryCount.current
-      );
       // The effect will re-run when validMoves updates
     } else {
       // Max retries reached, clear the pending movement
@@ -541,10 +471,6 @@ export function useBackendBoardHandlers(
             }
           }
         }
-        console.log(`[${phase}] Auto-selecting capture source:`, {
-          from: positionToString(from),
-          validLandings: landings.map(positionToString),
-        });
         setSelected(from);
         setValidTargets(landings);
       }
@@ -626,11 +552,6 @@ export function useBackendBoardHandlers(
       // Use refs to avoid stale closure issues - the callback may have captured old values
       const currentPendingChoice = pendingChoiceRef.current;
       const currentRespondToChoice = onRespondToChoiceRef.current;
-      console.log('[handleCellClick] pendingChoice check (using ref):', {
-        hasPendingChoice: !!currentPendingChoice,
-        pendingChoiceType: currentPendingChoice?.type,
-        hasOnRespondToChoice: !!currentRespondToChoice,
-      });
       if (currentPendingChoice && currentRespondToChoice) {
         // Handle region_order choice (territory region selection)
         if (currentPendingChoice.type === 'region_order') {
@@ -733,31 +654,15 @@ export function useBackendBoardHandlers(
           const options = (currentPendingChoice.options ?? []) as Array<{
             stackPosition: Position;
           }>;
-          console.log('[ring_elimination] Handler triggered:', {
-            clickedPos: positionToString(pos),
-            optionsCount: options.length,
-            options: options.map((opt) => ({
-              stackPosition: opt.stackPosition ? positionToString(opt.stackPosition) : 'undefined',
-              raw: opt.stackPosition,
-            })),
-          });
-          const matching = options.find((opt) => {
-            const match = opt.stackPosition && positionsEqual(opt.stackPosition, pos);
-            console.log('[ring_elimination] Comparing:', {
-              optPos: opt.stackPosition ? positionToString(opt.stackPosition) : 'undefined',
-              clickPos: positionToString(pos),
-              match,
-            });
-            return match;
-          });
+          const matching = options.find(
+            (opt) => opt.stackPosition && positionsEqual(opt.stackPosition, pos)
+          );
           if (matching) {
-            console.log('[ring_elimination] Found match, responding to choice');
             currentRespondToChoice(currentPendingChoice, matching);
             return;
           }
           // If valid options exist, block fall-through (must click a valid target)
           if (options.length > 0) {
-            console.log('[ring_elimination] No match found, blocking fall-through');
             return;
           }
         }
@@ -876,15 +781,6 @@ export function useBackendBoardHandlers(
 
             if (isValidLanding) {
               // Submit placement, store pending movement for after phase transition
-              console.log(
-                '[PlacementWithTarget] Submitting placement + storing pending movement:',
-                {
-                  placementTo: positionToString(pendingPlaceMove.to),
-                  placementCount: pendingRingPlacement.currentCount,
-                  pendingMovementFrom: positionToString(pendingRingPlacement.position),
-                  pendingMovementTo: positionToString(pos),
-                }
-              );
               pendingMovementRef.current = {
                 from: pendingRingPlacement.position,
                 to: pos,
@@ -1085,11 +981,6 @@ export function useBackendBoardHandlers(
         if (captureMoves.length > 0) {
           const captureMove = captureMoves[0];
           const captureTarget = extractCaptureTarget(captureMove);
-          console.log('[Capture] Direct landing click, submitting capture:', {
-            from: captureMove.from ? positionToString(captureMove.from) : 'none',
-            to: captureMove.to ? positionToString(captureMove.to) : 'none',
-            captureTarget: captureTarget ? positionToString(captureTarget) : 'none',
-          });
           submitMove({
             type: captureMove.type,
             from: captureMove.from,
