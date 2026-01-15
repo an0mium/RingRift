@@ -376,6 +376,9 @@ def infer_config_from_checkpoint(
                 config.board_type = BoardType.SQUARE19
         if "num_players" in meta_config:
             config.num_players = meta_config["num_players"]
+        # Use metadata policy_size if available (most reliable source)
+        if "policy_size" in meta_config and meta_config["policy_size"] > 0:
+            config.policy_size = meta_config["policy_size"]
 
     # Infer from conv1 shape: [out_channels, total_in_channels, H, W]
     if "conv1.weight" in state_dict:
@@ -414,25 +417,35 @@ def infer_config_from_checkpoint(
     if max_block_idx >= 0:
         config.num_res_blocks = max_block_idx + 1
 
-    # Infer policy size from policy head
-    for key in ["policy_fc2.weight", "policy_fc.weight", "policy_fc1.weight"]:
-        if key in state_dict:
-            config.policy_size = state_dict[key].shape[0]
-            break
+    # Infer policy size from policy head (only if not set from metadata)
+    if config.policy_size == 4672:  # Still default
+        for key in ["policy_fc2.weight", "policy_fc.weight", "policy_fc1.weight"]:
+            if key in state_dict:
+                config.policy_size = state_dict[key].shape[0]
+                break
 
     # V4/spatial policy heads: infer policy_size from max index in idx tensors
-    # These models use placement_idx/movement_idx to scatter logits into policy output
-    # Note: special actions are computed at special_base = placement_span + movement_span
-    # which is AFTER the last movement index, so we need +2 (for the special action slot)
-    if config.policy_size == 4672:  # Still default, try spatial heads
+    # These models use placement_idx/movement_idx/etc to scatter logits into policy output
+    # Note: special actions are computed at special_base which is AFTER territory indices
+    # so we need to check ALL idx tensors and add padding for special actions
+    if config.policy_size == 4672:  # Still default (metadata and FC didn't set it)
         max_policy_idx = -1
-        for idx_key in ["placement_idx", "movement_idx"]:
+        # Check ALL index tensors used in spatial policy heads
+        idx_keys = [
+            "placement_idx",
+            "movement_idx",
+            "line_form_idx",
+            "territory_claim_idx",
+            "territory_choice_idx",  # This has the highest indices for square19
+        ]
+        for idx_key in idx_keys:
             if idx_key in state_dict:
                 idx_tensor = state_dict[idx_key]
                 max_policy_idx = max(max_policy_idx, int(idx_tensor.max().item()))
         if max_policy_idx > 0:
-            # +2: one for 0-indexing, one for special action at the end
-            config.policy_size = max_policy_idx + 2
+            # +570 padding for special actions (line_choice, extra_special)
+            # Board-default policy sizes already include this padding
+            config.policy_size = max_policy_idx + 570
 
     # Infer board type from policy size
     if config.policy_size in POLICY_SIZE_TO_BOARD:

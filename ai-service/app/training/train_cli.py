@@ -446,10 +446,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help='Number of players for multi-player mode'
     )
 
-    # Data augmentation
+    # Data augmentation - Jan 15, 2026: Auto-detect by default for hex boards
     parser.add_argument(
-        '--augment-hex-symmetry', action='store_true',
-        help='Apply hex symmetry augmentation during training'
+        '--augment-hex-symmetry', type=str, default='auto', nargs='?', const='always',
+        choices=['auto', 'always', 'never'],
+        help='Apply hex symmetry augmentation (D6 group, 6x data). '
+             'auto=enable for hex boards (default), always=force on, never=disable'
     )
     parser.add_argument(
         # Dec 29 2025: Added quality-based weighting options (+20-40 Elo improvement)
@@ -636,10 +638,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help='Scale for outcome weighting (0=no effect, 1=full). Default: 0.5'
     )
 
-    # Regularization (2025-12)
+    # Regularization - Jan 15, 2026: Increased to 0.12 based on hyperparameter tuning
     parser.add_argument(
-        '--dropout', type=float, default=0.08,
-        help='Dropout rate (default: 0.08)'
+        '--dropout', type=float, default=0.12,
+        help='Dropout rate (default: 0.12 - forces robust feature learning)'
     )
 
     # CMA-ES Heuristic Optimization (offline, expert use only)
@@ -1205,6 +1207,19 @@ def main() -> None:
             "Use --memory-tier to override if needed."
         )
 
+    # Jan 15, 2026: Convert tri-state augment-hex-symmetry to boolean
+    # auto = enable for hex boards, always = force on, never = disable
+    augment_hex = args.augment_hex_symmetry
+    if augment_hex == 'auto':
+        augment_hex = config.board_type in (BoardType.HEX8, BoardType.HEXAGONAL)
+        if augment_hex:
+            logger.info(f"[TrainCLI] Auto-enabled hex symmetry augmentation for {config.board_type}")
+    elif augment_hex == 'always':
+        augment_hex = True
+        logger.info("[TrainCLI] Hex symmetry augmentation forced ON")
+    else:  # 'never'
+        augment_hex = False
+
     # Run CNN training
     train_model(
         config=config,
@@ -1222,7 +1237,7 @@ def main() -> None:
         init_weights_path=getattr(args, 'init_weights', None),
         init_weights_strict=getattr(args, 'init_weights_strict', False),
         freeze_policy=getattr(args, 'freeze_policy', False),
-        augment_hex_symmetry=args.augment_hex_symmetry,
+        augment_hex_symmetry=augment_hex,
         distributed=args.distributed,
         local_rank=args.local_rank,
         scale_lr=args.scale_lr,
