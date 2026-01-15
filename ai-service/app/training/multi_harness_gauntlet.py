@@ -457,7 +457,6 @@ class MultiHarnessGauntlet:
             "random": BaselineOpponent.RANDOM,
             "heuristic": BaselineOpponent.HEURISTIC,
             "heuristic_strong": BaselineOpponent.HEURISTIC_STRONG,
-            "weak_heuristic": BaselineOpponent.WEAK_HEURISTIC,
             "mcts_light": BaselineOpponent.MCTS_LIGHT,
             "mcts_medium": BaselineOpponent.MCTS_MEDIUM,
             "mcts_strong": BaselineOpponent.MCTS_STRONG,
