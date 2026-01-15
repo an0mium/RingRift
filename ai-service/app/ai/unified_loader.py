@@ -224,11 +224,13 @@ class InferredModelConfig:
     is_lite_variant: bool = False
     hidden_dim: int = 256
     input_channels: int = 14  # BASE input channels (not total)
+    total_in_channels: int = 56  # TOTAL input channels (base * (history+1))
     global_features: int = 20
     hex_radius: int = 4
     policy_intermediate: int = 384  # Inferred from policy_fc1
     value_intermediate: int = 128  # Inferred from value_fc1
     history_length: int = 3  # Inferred from total_in_channels / base_channels
+    num_heuristics: int = 21  # V5-heavy: 21 (fast) or 49 (full)
 
 
 @dataclass
@@ -380,6 +382,7 @@ def infer_config_from_checkpoint(
         conv1_shape = state_dict["conv1.weight"].shape
         config.num_filters = conv1_shape[0]
         total_in_channels = conv1_shape[1]
+        config.total_in_channels = total_in_channels  # Store for V5-heavy models
 
         # Infer base input_channels and history_length from total
         # Common combinations: 14*(3+1)=56, 12*(2+1)=36, 14*(2+1)=42
@@ -476,6 +479,14 @@ def infer_config_from_checkpoint(
         and config.policy_intermediate <= 200
         and config.value_intermediate <= 80
     )
+
+    # V5-heavy: infer num_heuristics from heuristic_encoder weight shape
+    # heuristic_encoder.encoder.0.weight has shape [hidden_dim, num_heuristics]
+    # Fast mode: 21 features, Full mode: 49 features
+    if "heuristic_encoder.encoder.0.weight" in state_dict:
+        heuristic_weight = state_dict["heuristic_encoder.encoder.0.weight"]
+        config.num_heuristics = heuristic_weight.shape[1]
+        logger.debug(f"Inferred num_heuristics={config.num_heuristics} from heuristic_encoder")
 
     return config
 
@@ -968,11 +979,13 @@ class UnifiedModelLoader:
             from app.ai.neural_net.v5_heavy import HexNeuralNet_v5_Heavy
 
             hex_board_size = 2 * config.hex_radius + 1
+            # V5-heavy expects total_in_channels (already multiplied by history+1)
             return HexNeuralNet_v5_Heavy(
                 board_size=hex_board_size,
                 hex_radius=config.hex_radius,
-                in_channels=config.input_channels,
+                in_channels=config.total_in_channels,
                 global_features=config.global_features,
+                num_heuristics=config.num_heuristics,
                 num_filters=config.num_filters,
                 num_players=config.num_players,
                 policy_size=config.policy_size,
@@ -981,10 +994,12 @@ class UnifiedModelLoader:
         elif architecture == ModelArchitecture.CNN_V5_HEAVY:
             from app.ai.neural_net.v5_heavy import RingRiftCNN_v5_Heavy
 
+            # V5-heavy expects total_in_channels (already multiplied by history+1)
             return RingRiftCNN_v5_Heavy(
                 board_size=board_size,
-                in_channels=config.input_channels,
+                in_channels=config.total_in_channels,
                 global_features=config.global_features,
+                num_heuristics=config.num_heuristics,
                 num_filters=config.num_filters,
                 num_players=config.num_players,
                 policy_size=config.policy_size,

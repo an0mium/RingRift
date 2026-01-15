@@ -556,6 +556,20 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
              'Useful for training large models (e.g., hexagonal) on memory-constrained GPUs.'
     )
 
+    # Mixed precision training (January 2026)
+    parser.add_argument(
+        '--mixed-precision', action='store_true',
+        help='Enable mixed precision training (AMP) to reduce GPU memory usage. '
+             'Can reduce memory by ~40-50%% with minimal accuracy impact. '
+             'Recommended for large models (v3, v5-heavy) on memory-constrained GPUs.'
+    )
+    parser.add_argument(
+        '--amp-dtype', type=str, default='bfloat16',
+        choices=['bfloat16', 'float16'],
+        help='Data type for mixed precision training (default: bfloat16). '
+             'bfloat16 is more stable, float16 may be faster on older GPUs.'
+    )
+
     # Training data freshness check (2025-12)
     # MANDATORY by default to prevent stale data training (Phase 1.5)
     # This prevents 95% of stale data training incidents by failing early
@@ -1275,6 +1289,9 @@ def main() -> None:
         auto_promote_sync=getattr(args, 'auto_promote_sync', True) and not getattr(args, 'no_auto_promote_sync', False),
         # Gradient checkpointing (January 2026)
         gradient_checkpointing=getattr(args, 'gradient_checkpointing', False),
+        # Mixed precision training (January 2026)
+        mixed_precision=getattr(args, 'mixed_precision', False),
+        amp_dtype=getattr(args, 'amp_dtype', 'bfloat16'),
     )
 
 

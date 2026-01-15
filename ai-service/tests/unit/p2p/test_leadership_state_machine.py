@@ -32,7 +32,8 @@ class TestQuorumHealth:
         """QuorumHealth starts with zero failures."""
         qh = QuorumHealth()
         assert qh.consecutive_failures == 0
-        assert qh.failure_threshold == 5
+        # Session 17.34: Reduced from 5 to 3 for faster failover (~30s)
+        assert qh.failure_threshold == 3
         assert qh.voters_seen_last_check == 0
 
     def test_record_failure_increments_count(self):

@@ -53,11 +53,35 @@ except ImportError:
 
 # Jan 2026: Use centralized timeout from LoopTimeouts
 # Jan 10, 2026: Reduced from 5.0 to 2.0 to fix lock contention on 40+ node clusters
+# Jan 15, 2026: Made adaptive via environment variable for large clusters
 try:
     from scripts.p2p.loops.loop_constants import LoopTimeouts
-    _GOSSIP_LOCK_TIMEOUT = LoopTimeouts.GOSSIP_LOCK
+    _GOSSIP_LOCK_TIMEOUT_BASE = LoopTimeouts.GOSSIP_LOCK
 except ImportError:
-    _GOSSIP_LOCK_TIMEOUT = 2.0  # Fallback (reduced from 5.0)
+    _GOSSIP_LOCK_TIMEOUT_BASE = 2.0  # Fallback (reduced from 5.0)
+
+# Allow override via environment variable for large clusters
+_GOSSIP_LOCK_TIMEOUT = float(
+    os.environ.get("RINGRIFT_GOSSIP_LOCK_TIMEOUT", str(_GOSSIP_LOCK_TIMEOUT_BASE))
+)
+
+
+def get_adaptive_gossip_lock_timeout(num_peers: int = 0) -> float:
+    """Get gossip lock timeout adapted for cluster size.
+
+    For large clusters (40+ nodes), lock contention increases and needs
+    longer timeout to prevent thundering herd of timeout errors.
+
+    Formula: base_timeout + (num_peers / 20) * 0.5
+    - 20 peers: 2.5s
+    - 40 peers: 3.0s
+    - 60 peers: 3.5s
+    - 100 peers: 4.5s
+
+    Capped at 6.0s to prevent excessive blocking.
+    """
+    adaptive_timeout = _GOSSIP_LOCK_TIMEOUT + (num_peers / 20) * 0.5
+    return min(adaptive_timeout, 6.0)
 
 # Jan 2026: NonBlockingAsyncLockWrapper for async-safe lock acquisition
 try:

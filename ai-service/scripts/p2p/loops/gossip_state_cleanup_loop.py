@@ -64,9 +64,10 @@ class GossipStateCleanupConfig:
 
     # TTL for gossip peer states (seconds) - peers not in active peer list
     # January 8, 2026: Reduced from 3600s to 180s for faster stale peer cleanup
+    # January 15, 2026: Reduced to 60s for faster partition detection and recovery
     gossip_state_ttl_seconds: float = field(
         default_factory=lambda: float(
-            os.environ.get("RINGRIFT_GOSSIP_STATE_TTL", "180")  # 3 minutes
+            os.environ.get("RINGRIFT_GOSSIP_STATE_TTL", "60")  # 1 minute
         )
     )
 

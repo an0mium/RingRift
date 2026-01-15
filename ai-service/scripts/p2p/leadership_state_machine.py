@@ -32,6 +32,8 @@ Usage:
 from __future__ import annotations
 
 import logging
+import os
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -231,10 +233,16 @@ class LeadershipStateMachine:
         self._epoch_leader_claims: dict[int, tuple[str, float]] = {}
         # Grace period: how long to consider claims at same epoch as conflict
         # Jan 5, 2026: Reduced from 30s to 15s for faster stale leader detection
-        self._claim_grace_period = 15.0  # 15 seconds
+        # Jan 15, 2026: Reduced to 5s for faster split-brain convergence
+        self._claim_grace_period = float(
+            os.environ.get("RINGRIFT_EPOCH_CLAIM_GRACE_PERIOD", "5.0")
+        )
 
         # Unified quorum tracking
         self.quorum_health = QuorumHealth()
+
+        # Jan 15, 2026: Thread-safe epoch access to prevent torn reads/writes
+        self._epoch_lock = threading.RLock()
 
         # Broadcast callback - set by orchestrator
         # Signature: async def callback(new_state: str, epoch: int, reason: TransitionReason) -> None
@@ -338,7 +346,9 @@ class LeadershipStateMachine:
         # STEPPING_DOWN requires special handling: broadcast BEFORE mutation
         if new_state == LeaderState.STEPPING_DOWN:
             # Increment epoch to invalidate any stale leader claims in gossip
-            self._epoch += 1
+            # Jan 15, 2026: Protected with lock to prevent torn writes
+            with self._epoch_lock:
+                self._epoch += 1
 
             # Set invalidation window to reject stale gossip
             self._invalidation_until = time.time() + 60.0
@@ -505,6 +515,16 @@ class LeadershipStateMachine:
         old_epochs = [e for e in self._epoch_leader_claims if e < min_keep_epoch]
         for old_epoch in old_epochs:
             del self._epoch_leader_claims[old_epoch]
+
+        # Jan 15, 2026: Hard limit with FIFO eviction to prevent unbounded growth
+        # On long-running clusters with high epoch churn
+        max_entries = 100
+        if len(self._epoch_leader_claims) > max_entries:
+            # Sort by epoch (ascending) and remove oldest
+            sorted_epochs = sorted(self._epoch_leader_claims.keys())
+            excess = len(self._epoch_leader_claims) - max_entries
+            for old_epoch in sorted_epochs[:excess]:
+                del self._epoch_leader_claims[old_epoch]
 
         logger.debug(f"Accepted leader {leader_id} at epoch {epoch}")
 
