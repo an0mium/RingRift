@@ -1739,10 +1739,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
     const files = generateFileLabels(size, skipI);
     const ranks = generateRankLabels(size, squareRankFromBottom ?? false);
     // RR-FIX-2026-01-14: Adjusted offsets to bring coordinates closer to board
-    // Bottom and right labels now have minimal gaps for tight layout
+    // All labels now have minimal gaps for tight, uniform layout
     const topOffset = effectiveBoardType === 'square19' ? 24 : 18;
     const bottomOffset = effectiveBoardType === 'square19' ? 16 : 4;
-    const leftOffset = effectiveBoardType === 'square19' ? 24 : 20;
+    const leftOffset = effectiveBoardType === 'square19' ? 18 : 6;
     const rightOffset = effectiveBoardType === 'square19' ? 16 : 4;
     const labelClass =
       'pointer-events-none absolute text-[10px] md:text-[11px] font-semibold tracking-wide text-slate-400 uppercase';
