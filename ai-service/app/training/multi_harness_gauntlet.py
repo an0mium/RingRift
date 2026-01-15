@@ -501,9 +501,8 @@ class MultiHarnessGauntlet:
                 num_players=num_players,
                 opponents=baselines,
                 games_per_opponent=config.games_per_baseline,
-                ai_type=ai_type,
+                model_type=ai_type.value if ai_type else "cnn",  # Convert AIType to string
                 parallel_games=config.parallel_games,
-                timeout=config.timeout_seconds,
                 game_count=game_count,  # Dec 30: Graduated thresholds
                 harness_type=harness.value,  # Jan 9, 2026: Composite participant ID
                 save_games_for_training=save_games,  # Jan 9, 2026: Save full training data
