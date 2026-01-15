@@ -44,7 +44,7 @@ const PHASE_HINTS: Partial<Record<GamePhase, Omit<TutorialHint, 'phase' | 'topic
   movement: {
     title: 'Move Your Stacks',
     message:
-      'Click your stack, then a highlighted destination. Move in a straight line at least as many spaces as your stack is tall (height 2 = move 2+ spaces). Stacks and territory block your path, but you can land on markers (this eliminates your top ring).',
+      'Click your stack, then a highlighted destination. Move in a straight line in any available direction at least as many spaces as your stack is tall (height 2 = move 2+ spaces). Collapsed territory blocks your path, and rings or stacks cannot be landed on and can only be jumped over and overtaken (capturing the top ring), but you can land on markers (this eliminates your top ring) or any empty space. Any markers you travel over will flip to your color, or if they are of your color they will be turned into a collapsed space claimed by you.',
     icon: '↗️',
   },
   capture: {
