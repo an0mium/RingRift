@@ -768,8 +768,11 @@ export class SandboxOrchestratorAdapter {
     }
 
     // RR-FIX-2026-01-12: Fingerprint-based cache to avoid redundant computation.
-    // Key includes phase, player, and move count to detect state changes.
-    const cacheKey = `${state.currentPhase}-${state.currentPlayer}-${state.moveHistory.length}-${state.gameStatus}`;
+    // Key includes phase, player, move count, and ringsInHand to detect state changes.
+    // RR-FIX-2026-01-14: Added ringsInHand to key since it affects skip_placement eligibility.
+    const currentPlayerObj = state.players.find((p) => p.playerNumber === state.currentPlayer);
+    const ringsInHand = currentPlayerObj?.ringsInHand ?? 0;
+    const cacheKey = `${state.currentPhase}-${state.currentPlayer}-${state.moveHistory.length}-${state.gameStatus}-${ringsInHand}`;
     if (this.cachedValidMovesKey === cacheKey && this.cachedValidMoves !== null) {
       return this.cachedValidMoves;
     }
