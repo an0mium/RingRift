@@ -270,6 +270,9 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
   onToggleTerritoryOverlays,
   isRingEliminationChoice = false,
 }) => {
+  // Derive region_order choice state from pendingChoice
+  const isRegionOrderChoice = pendingChoice?.type === 'region_order';
+
   return (
     <aside className="w-full max-w-md mx-auto lg:mx-0 lg:w-[256px] flex-shrink-0 space-y-2 text-xs text-slate-100">
       {/* Primary HUD band – placed at the top of the sidebar so phase/turn/time
@@ -306,7 +309,17 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
         <div className="p-3 border-2 border-amber-400 rounded-2xl bg-amber-900/60 text-xs animate-pulse shadow-lg shadow-amber-500/30">
           <div className="font-semibold text-amber-200 mb-1">⚠️ Self-Elimination Required</div>
           <p className="text-amber-100/90">
-            Your ring formed a line – select one of your stacks to eliminate.
+            Click one of the highlighted stacks on the board to eliminate.
+          </p>
+        </div>
+      )}
+
+      {/* Territory region order alert - direct board selection */}
+      {isRegionOrderChoice && (
+        <div className="p-3 border-2 border-emerald-400 rounded-2xl bg-emerald-900/60 text-xs animate-pulse shadow-lg shadow-emerald-500/30">
+          <div className="font-semibold text-emerald-200 mb-1">Territory Order Choice</div>
+          <p className="text-emerald-100/90">
+            Click on one of the highlighted territory regions on the board to process first.
           </p>
         </div>
       )}
@@ -344,11 +357,14 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
       {isPlayer && (
         <ChoiceDialog
           choice={
-            // Hide generic dialog when showing LineRewardPanel
+            // Hide generic dialog for choices that are handled by direct board clicks
+            // (like sandbox does) - ring_elimination, region_order, and line_reward_option with segments
             pendingChoice &&
-            pendingChoice.type === 'line_reward_option' &&
-            pendingChoice.segments &&
-            pendingChoice.segments.length > 0
+            (pendingChoice.type === 'ring_elimination' ||
+              pendingChoice.type === 'region_order' ||
+              (pendingChoice.type === 'line_reward_option' &&
+                pendingChoice.segments &&
+                pendingChoice.segments.length > 0))
               ? null
               : pendingChoice
           }

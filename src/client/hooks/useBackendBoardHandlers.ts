@@ -22,7 +22,7 @@
  * @see docs/rules/SSOT_BANNER_GUIDE.md
  */
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import type {
   Position,
@@ -392,9 +392,15 @@ export function useBackendBoardHandlers(
 
   // Refs for pendingChoice and onRespondToChoice to avoid stale closure issues
   // The handleCellClick callback can capture stale values; refs always have current values
+  // Use useLayoutEffect to ensure refs are updated synchronously before any user interaction
   const pendingChoiceRef = useRef(pendingChoice);
   const onRespondToChoiceRef = useRef(onRespondToChoice);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    console.log('[useBackendBoardHandlers] Updating pendingChoiceRef:', {
+      oldValue: pendingChoiceRef.current?.type,
+      newValue: pendingChoice?.type,
+      hasOnRespondToChoice: !!onRespondToChoice,
+    });
     pendingChoiceRef.current = pendingChoice;
     onRespondToChoiceRef.current = onRespondToChoice;
   }, [pendingChoice, onRespondToChoice]);

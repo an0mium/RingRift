@@ -1000,6 +1000,10 @@ def train_model(
     auto_promote: bool = False,
     auto_promote_games: int = 30,
     auto_promote_sync: bool = True,
+    # Gradient checkpointing (January 2026)
+    # Trades compute for memory - recomputes activations during backward pass
+    # Enables training large models (e.g., hexagonal) on memory-constrained GPUs
+    gradient_checkpointing: bool = False,
 ) -> dict[str, Any]:
     """
     Train the RingRift neural network model.
@@ -2783,6 +2787,18 @@ def train_model(
     with contextlib.suppress(Exception):
         model.feature_version = config_feature_version
     model.to(device)
+
+    # Enable gradient checkpointing for memory-efficient training (January 2026)
+    # Trades ~20-30% compute overhead for ~40-60% memory savings
+    if gradient_checkpointing:
+        try:
+            from app.training.gradient_checkpointing import GradientCheckpointing
+            gc_manager = GradientCheckpointing(model)
+            gc_manager.enable()
+            if not distributed or is_main_process():
+                logger.info("[GradientCheckpointing] Enabled - trading compute for memory")
+        except ImportError as e:
+            logger.warning(f"[GradientCheckpointing] Failed to enable: {e}")
 
     # Validate value head dimension after model creation (December 2025)
     # This catches mismatches early before any training starts

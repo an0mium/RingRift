@@ -548,6 +548,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help='Disable syncing promoted model to cluster'
     )
 
+    # Gradient checkpointing (January 2026)
+    parser.add_argument(
+        '--gradient-checkpointing', action='store_true',
+        help='Enable gradient checkpointing to reduce GPU memory usage. '
+             'Trades ~20-30%% compute overhead for ~40-60%% memory savings. '
+             'Useful for training large models (e.g., hexagonal) on memory-constrained GPUs.'
+    )
+
     # Training data freshness check (2025-12)
     # MANDATORY by default to prevent stale data training (Phase 1.5)
     # This prevents 95% of stale data training incidents by failing early
@@ -1265,6 +1273,8 @@ def main() -> None:
         auto_promote=getattr(args, 'auto_promote', False),
         auto_promote_games=getattr(args, 'auto_promote_games', 30),
         auto_promote_sync=getattr(args, 'auto_promote_sync', True) and not getattr(args, 'no_auto_promote_sync', False),
+        # Gradient checkpointing (January 2026)
+        gradient_checkpointing=getattr(args, 'gradient_checkpointing', False),
     )
 
 

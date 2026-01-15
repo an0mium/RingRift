@@ -4578,3 +4578,8 @@ rsync(50964): warning: child 50967 exited with status 23
 2026-01-14 22:48:53,551 - app.coordination.cluster_watchdog_daemon - INFO - [ClusterWatchdogDaemon] Host online: 100.126.21.102
 2026-01-14 22:48:53,551 - app.coordination.unified_health_manager - INFO - [UnifiedHealthManager] Host online: hetzner-cpu3
 2026-01-14 22:48:53,553 - app.coordination.event_router - ERROR - [EventRouter] Async callback failed: 'RouterEvent' object has no attribute 'get'
+2026-01-14 22:51:10,309 - app.coordination.work_queue - INFO -  Added work training_hex8_3p_1768452670290: training (priority: 100)
+2026-01-14 22:53:04,257 - app.coordination.work_queue - INFO -  Added work training_hex8_4p_1768452784244: training (priority: 100)
+2026-01-14 22:55:18,356 - app.coordination.work_queue - INFO -  Added work training_hexagonal_2p_1768452918338: training (priority: 100)
+2026-01-14 22:57:40,953 - app.coordination.work_queue - INFO -  Added work training_hexagonal_3p_1768453060899: training (priority: 100)
+2026-01-14 23:00:52,731 - app.coordination.work_queue - INFO -  Added work training_hexagonal_4p_1768453252697: training (priority: 100)
