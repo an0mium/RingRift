@@ -98,9 +98,11 @@ describe('GameEventLog snapshot', () => {
     expect(html).toContain('#3');
     expect(html).toContain('choose_territory_option');
     expect(html).toContain('#2');
-    expect(html).toContain('capture from (3, 3) over (3, 4) to (3, 5) x2');
+    // With squareRankFromBottom (default for square8): d5 = (3,3), d4 = (3,4), d3 = (3,5)
+    expect(html).toContain('capture from d5 over d4 to d3 x2');
     expect(html).toContain('#1');
-    expect(html).toContain('placed 2 rings at (0, 0)');
+    // With squareRankFromBottom: a8 = (0,0)
+    expect(html).toContain('placed 2 rings at a8');
     expect(html).toContain('System events');
     expect(html).toContain('Connection restored');
   });

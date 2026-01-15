@@ -489,7 +489,9 @@ describe('GameConnection - Message Submission', () => {
   });
 
   describe('respondToChoice', () => {
-    it('should emit player_move_by_id for line_order choice with moveId', async () => {
+    it('should emit player_choice_response for line_order choice with moveId', async () => {
+      // RR-FIX-2026-01-15: respondToChoice now always uses player_choice_response
+      // instead of player_move_by_id to avoid lock contention.
       await connection.connect('game-1');
 
       const connectHandler = eventListeners.get('connect');
@@ -510,9 +512,11 @@ describe('GameConnection - Message Submission', () => {
 
       connection.respondToChoice(choice, { moveId: 'move-123' });
 
-      expect(mockEmit).toHaveBeenCalledWith('player_move_by_id', {
-        gameId: 'game-1',
-        moveId: 'move-123',
+      expect(mockEmit).toHaveBeenCalledWith('player_choice_response', {
+        choiceId: 'choice-1',
+        playerNumber: 1,
+        choiceType: 'line_order',
+        selectedOption: { moveId: 'move-123' },
       });
     });
 

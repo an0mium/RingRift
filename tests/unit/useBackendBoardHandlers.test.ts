@@ -62,8 +62,8 @@ const createGameState = (overrides: Partial<GameState> = {}): GameState =>
     currentPlayer: 1,
     currentPhase: 'movement',
     players: [
-      { playerNumber: 1, type: 'human' as const },
-      { playerNumber: 2, type: 'human' as const },
+      { playerNumber: 1, type: 'human' as const, ringsInHand: 18, ringsOnBoard: 0 },
+      { playerNumber: 2, type: 'human' as const, ringsInHand: 18, ringsOnBoard: 0 },
     ],
     board: {
       stacks: new Map(),
@@ -197,9 +197,16 @@ describe('useBackendBoardHandlers', () => {
   });
 
   describe('Ring placement phase handling', () => {
-    it('should submit place_ring move on empty cell click', () => {
+    it('should submit place_ring move immediately when only 1 ring can be placed', () => {
+      // When ringsInHand is 1, maxCount is 1, so immediate submission is triggered
       const submitMove = jest.fn();
-      const gameState = createGameState({ currentPhase: 'ring_placement' });
+      const gameState = createGameState({
+        currentPhase: 'ring_placement',
+        players: [
+          { playerNumber: 1, type: 'human' as const, ringsInHand: 1, ringsOnBoard: 17 },
+          { playerNumber: 2, type: 'human' as const, ringsInHand: 18, ringsOnBoard: 0 },
+        ],
+      });
       const validMoves = [
         createMove('place_ring', 1, { x: 3, y: 4 }, undefined, { placementCount: 1 }),
       ];
@@ -217,6 +224,32 @@ describe('useBackendBoardHandlers', () => {
           to: { x: 3, y: 4 },
         })
       );
+    });
+
+    it('should enter pending state on empty cell click when multiple rings can be placed', () => {
+      // When ringsInHand > 1, clicks enter pending state for click-to-accumulate
+      const submitMove = jest.fn();
+      const setSelected = jest.fn();
+      const setValidTargets = jest.fn();
+      const gameState = createGameState({ currentPhase: 'ring_placement' });
+      const validMoves = [
+        createMove('place_ring', 1, { x: 3, y: 4 }, undefined, { placementCount: 1 }),
+      ];
+      const deps = createDeps({ gameState, validMoves, submitMove, setSelected, setValidTargets });
+      const { result } = renderHook(() => useBackendBoardHandlers(deps));
+      const board = createBoardState(); // No stacks
+
+      act(() => {
+        result.current.handleCellClick({ x: 3, y: 4 }, board);
+      });
+
+      // Should NOT submit immediately - enters pending state instead
+      expect(submitMove).not.toHaveBeenCalled();
+      // Should have pending ring placement state
+      expect(result.current.pendingRingPlacement).toBeDefined();
+      expect(result.current.pendingRingPlacement?.position).toEqual({ x: 3, y: 4 });
+      expect(result.current.pendingRingPlacement?.currentCount).toBe(1);
+      expect(result.current.pendingRingPlacement?.maxCount).toBe(3);
     });
 
     it('should trigger invalid move feedback when no valid moves at position', () => {
