@@ -4583,3 +4583,252 @@ rsync(50964): warning: child 50967 exited with status 23
 2026-01-14 22:55:18,356 - app.coordination.work_queue - INFO -  Added work training_hexagonal_2p_1768452918338: training (priority: 100)
 2026-01-14 22:57:40,953 - app.coordination.work_queue - INFO -  Added work training_hexagonal_3p_1768453060899: training (priority: 100)
 2026-01-14 23:00:52,731 - app.coordination.work_queue - INFO -  Added work training_hexagonal_4p_1768453252697: training (priority: 100)
+2026-01-14 23:06:35,035 - app.coordination.work_queue - INFO -  Added work training_square8_2p_1768453594924: training (priority: 100)
+2026-01-14 23:12:08,641 - app.coordination.work_queue - INFO -  Added work training_square8_3p_1768453928618: training (priority: 100)
+2026-01-14 23:18:19,677 - app.coordination.work_queue - INFO -  Added work training_square8_4p_1768454299529: training (priority: 100)
+2026-01-14 23:18:19,691 - app.coordination.work_queue - INFO -  Added work tournament_square8_2p_1768454299683: tournament (priority: 80)
+2026-01-14 23:18:19,707 - app.coordination.work_queue - INFO -  Added work tournament_square8_3p_1768454299691: tournament (priority: 80)
+2026-01-14 23:18:19,719 - app.coordination.work_queue - INFO -  Added work tournament_square8_4p_1768454299708: tournament (priority: 80)
+2026-01-14 23:18:19,733 - app.coordination.work_queue - INFO -  Added work tournament_square19_2p_1768454299719: tournament (priority: 80)
+2026-01-14 23:18:19,755 - app.coordination.work_queue - INFO -  Added work tournament_square19_3p_1768454299734: tournament (priority: 80)
+2026-01-14 23:18:19,756 - app.coordination.unified_queue_populator - INFO - Populated queue with 50 items (selfplay=30, training=15, tournament=5, sweeps=0, exploration=0)
+2026-01-14 23:18:22,157 - app.coordination.unified_queue_populator - INFO - [QueuePopulator] HEALTH: queue_depth=10, backpressure=none, bp_duration=0.0s, drain_rate=0.00/min, partition_detected=True, circuit_state=closed, backoff_until=0.0, consecutive_hard_hits=0
+2026-01-14 23:18:22,157 - app.coordination.unified_queue_populator - INFO - [QueuePopulatorDaemon] Follower takeover added 50 items
+2026-01-14 23:18:22,168 - app.coordination.node_availability.state_checker - WARNING - tailscale checker disabled: Tailscale not installed
+2026-01-14 23:18:22,176 - app.coordination.sync_event_mixin - WARNING - [AutoSyncDaemon] DATA_STALE received for hex8_2p: age=6.9h - triggering urgent sync
+2026-01-14 23:18:22,177 - app.coordination.gauntlet_feedback_controller - INFO - [GauntletFeedbackController] Evaluation for square19_4p: ELO=526, vs_random=0.0%, vs_heuristic=30.0%, games=20
+2026-01-14 23:18:22,177 - app.coordination.gauntlet_feedback_controller - INFO - [GauntletFeedbackController] Weak performance for square19_4p (0.0% vs random)
+2026-01-14 23:18:22,178 - app.coordination.gauntlet_feedback_controller - INFO - [GauntletFeedbackController] Triggered 5000 extra selfplay games for square19_4p
+2026-01-14 23:18:22,402 - app.coordination.data_cleanup_daemon - WARNING - Failed to assess jsonl_converted_square8_3p.db: no such column: termination_reason
+2026-01-14 23:18:22,404 - app.coordination.cluster_watchdog_daemon - INFO - [ClusterWatchdog] Activating vultr-ringrift-a100-20gb-2 with square8_3p selfplay
+2026-01-14 23:18:22,405 - app.coordination.s3_push_daemon - WARNING - [S3PushDaemon] Push canonical_hexagonal_3p.db failed after 5 attempts: upload failed: data/games/canonical_hexagonal_3p.db to s3://ringrift-models-20251214/consolidated/games/canonical_hexagonal_3p.db Connection was closed before we received a valid response from endpoin
+2026-01-14 23:18:22,407 - app.coordination.dual_backup_daemon - WARNING - [DualBackup] Backup failed for canonical_hexagonal_3p.db to s3, retrying in 0s (attempt 1/3)
+2026-01-14 23:18:22,474 - app.coordination.unified_backup_daemon - WARNING - [UnifiedBackup] S3 push failed: upload failed: data/games/tournament_square8_3p.db to s3://ringrift-models-20251214/consolidated/games/selfplay/tournament_square8_3p.db Connection was closed before we received a valid response from 
+2026-01-14 23:18:22,601 - app.coordination.unified_distribution_daemon - WARNING - [DistributionVerification] Timeout: checkpoint_early_stop_epoch_25.pth only on 0/5 nodes
+2026-01-14 23:18:22,602 - app.coordination.evaluation_daemon - WARNING - [EvaluationDaemon] Model checkpoints/checkpoint_early_stop_epoch_25.pth distribution incomplete: 0/5 nodes
+2026-01-14 23:18:22,602 - app.coordination.evaluation_daemon - WARNING - [EvaluationDaemon] Skipping evaluation: checkpoints/checkpoint_early_stop_epoch_25.pth not available on sufficient nodes (0 nodes)
+2026-01-14 23:18:22,602 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued retry #1 for checkpoints/checkpoint_early_stop_epoch_25.pth in 57s (reason: distribution_incomplete:0)
+2026-01-14 23:18:22,602 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Re-queued retry #2 for models/canonical_hexagonal_4p.pth
+2026-01-14 23:18:23,549 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Running periodic unevaluated model scan (interval=5min)
+2026-01-14 23:18:23,549 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Starting scan for unevaluated canonical models...
+2026-01-14 23:18:23,558 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-14 23:18:23,559 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-14 23:18:23,559 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-14 23:18:23,560 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_4p.pth (hexagonal_4p)
+2026-01-14 23:18:23,560 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_3p.pth (square8_3p)
+2026-01-14 23:18:23,561 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_3p.pth (square8_3p)
+2026-01-14 23:18:23,562 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_3p.pth (square8_3p)
+2026-01-14 23:18:23,562 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_3p.pth (square8_3p)
+2026-01-14 23:18:23,563 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_3p.pth (hex8_3p)
+2026-01-14 23:18:23,563 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_3p.pth (hex8_3p)
+2026-01-14 23:18:23,564 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_3p.pth (hex8_3p)
+2026-01-14 23:18:23,565 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_3p.pth (hex8_3p)
+2026-01-14 23:18:23,566 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_3p.pth (square19_3p)
+2026-01-14 23:18:23,567 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_3p.pth (square19_3p)
+2026-01-14 23:18:23,567 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_3p.pth (square19_3p)
+2026-01-14 23:18:23,568 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_3p.pth (square19_3p)
+2026-01-14 23:18:23,569 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-14 23:18:23,569 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-14 23:18:23,570 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-14 23:18:23,571 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_3p.pth (hexagonal_3p)
+2026-01-14 23:18:23,571 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-14 23:18:23,572 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-14 23:18:23,573 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-14 23:18:23,575 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_3p_v2.pth (hex8_3p)
+2026-01-14 23:18:23,575 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-14 23:18:23,576 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-14 23:18:23,576 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-14 23:18:23,576 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hexagonal_2p.pth (hexagonal_2p)
+2026-01-14 23:18:23,577 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-14 23:18:23,577 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-14 23:18:23,578 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-14 23:18:23,578 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_4p_v2.pth (square8_4p)
+2026-01-14 23:18:23,579 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square19_2p.pth (square19_2p)
+2026-01-14 23:18:23,579 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square19_2p.pth (square19_2p)
+2026-01-14 23:18:23,580 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square19_2p.pth (square19_2p)
+2026-01-14 23:18:23,580 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square19_2p.pth (square19_2p)
+2026-01-14 23:18:23,581 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_hex8_2p.pth (hex8_2p)
+2026-01-14 23:18:23,581 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_hex8_2p.pth (hex8_2p)
+2026-01-14 23:18:23,582 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_hex8_2p.pth (hex8_2p)
+2026-01-14 23:18:23,583 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_hex8_2p.pth (hex8_2p)
+2026-01-14 23:18:23,584 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_2p.pth (square8_2p)
+2026-01-14 23:18:23,584 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_2p.pth (square8_2p)
+2026-01-14 23:18:23,585 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_2p.pth (square8_2p)
+2026-01-14 23:18:23,585 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_2p.pth (square8_2p)
+2026-01-14 23:18:23,586 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gumbel_mcts: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-14 23:18:23,587 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for gpu_gumbel: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-14 23:18:23,587 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for policy_only: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-14 23:18:23,588 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Queued for descent: canonical_square8_3p_v2.pth (square8_3p)
+2026-01-14 23:18:23,588 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Startup scan complete: 15 models scanned, 48 queued for evaluation
+2026-01-14 23:18:23,591 - app.coordination.health_check_orchestrator - INFO - [HealthCheckOrchestrator] Starting health check cycle...
+2026-01-14 23:18:53,054 - app.coordination.unified_replication_daemon - WARNING - [UnifiedReplicationDaemon] Triggering EMERGENCY SYNC: zero=0, single=237960, under=237960
+2026-01-14 23:19:12,276 - app.coordination.unified_replication_daemon - INFO - [UnifiedReplicationDaemon] Queuing 1000 critical games for emergency repair (skipped 4000 for next cycle)
+2026-01-14 23:19:54,278 - app.coordination.unified_replication_daemon - INFO - [UnifiedReplicationDaemon] Queued 0 games for repair
+2026-01-14 23:20:12,842 - app.coordination.unified_replication_daemon - WARNING - [UnifiedReplicationDaemon] Triggering EMERGENCY SYNC: zero=0, single=237960, under=237960
+2026-01-14 23:20:32,021 - app.coordination.unified_replication_daemon - INFO - [UnifiedReplicationDaemon] Queuing 1000 critical games for emergency repair (skipped 4000 for next cycle)
+2026-01-14 23:21:09,826 - app.coordination.unified_replication_daemon - INFO - [UnifiedReplicationDaemon] Queued 0 games for repair
+2026-01-14 23:21:10,312 - app.coordination.disk_space_manager_daemon - INFO - [DiskSpaceManagerDaemon] Disk status: 92.7% used (67.9GB free)
+2026-01-14 23:21:10,312 - app.coordination.disk_space_manager_daemon - INFO - [DiskSpaceManagerDaemon] Starting cleanup (target: 50%)
+2026-01-14 23:21:10,912 - app.coordination.node_availability.providers.vast_checker - ERROR - OS error querying Vast.ai: [Errno 2] No such file or directory: 'vastai'
+2026-01-14 23:21:10,998 - app.coordination.node_availability.providers.vast_checker - ERROR - OS error querying Vast.ai: [Errno 2] No such file or directory: 'vastai'
+2026-01-14 23:21:11,000 - app.coordination.node_availability.providers.vast_checker - WARNING - API error during termination check: OS error: [Errno 2] No such file or directory: 'vastai'
+2026-01-14 23:21:11,024 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square19_4p_1768366885359 (age: 24.3h)
+2026-01-14 23:21:11,025 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_2p_1768366885366 (age: 24.3h)
+2026-01-14 23:21:11,025 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_2p_1768366688829 (age: 24.4h)
+2026-01-14 23:21:11,025 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_3p_1768366688835 (age: 24.4h)
+2026-01-14 23:21:11,025 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_4p_1768366688840 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_2p_1768366688846 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_3p_1768366688851 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_2p_1768366703968 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_3p_1768366703974 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_4p_1768366703978 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_2p_1768366703983 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_3p_1768366703988 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_4p_1768366703993 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hex8_2p_1768366704000 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hex8_3p_1768366704007 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hex8_4p_1768366704012 (age: 24.4h)
+2026-01-14 23:21:11,026 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hexagonal_2p_1768366704018 (age: 24.4h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hexagonal_3p_1768366704022 (age: 24.4h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hexagonal_4p_1768366704027 (age: 24.4h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_2p_1768366704031 (age: 24.4h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_3p_1768366885373 (age: 24.3h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_4p_1768366885380 (age: 24.3h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_2p_1768366885387 (age: 24.3h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_3p_1768366885393 (age: 24.3h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_4p_1768366885400 (age: 24.3h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_2p_1768366885407 (age: 24.3h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_4p_1768367532540 (age: 24.1h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_2p_1768367532555 (age: 24.1h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_3p_1768367532563 (age: 24.1h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_4p_1768367532570 (age: 24.1h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_2p_1768367532587 (age: 24.1h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_3p_1768367532594 (age: 24.1h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square19_4p_1768367532601 (age: 24.1h)
+2026-01-14 23:21:11,027 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hex8_2p_1768367532608 (age: 24.1h)
+2026-01-14 23:21:11,028 - app.coordination.adaptive_resource_manager - ERROR - Error getting disk usage for /home/ubuntu/ringrift/ai-service/data: [Errno 2] No such file or directory: '/home/ubuntu/ringrift/ai-service/data'
+2026-01-14 23:21:11,028 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hex8_3p_1768367532623 (age: 24.1h)
+2026-01-14 23:21:11,028 - app.coordination.adaptive_resource_manager - ERROR - Error getting memory usage: [Errno 2] No such file or directory: '/proc/meminfo'
+2026-01-14 23:21:11,028 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hex8_4p_1768367532632 (age: 24.1h)
+2026-01-14 23:21:11,028 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hexagonal_2p_1768367532638 (age: 24.1h)
+2026-01-14 23:21:11,028 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hexagonal_3p_1768367532645 (age: 24.1h)
+2026-01-14 23:21:11,029 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_hexagonal_4p_1768367532662 (age: 24.1h)
+2026-01-14 23:21:11,029 - app.coordination.work_queue - WARNING - Removing stale PENDING item: tournament_square8_2p_1768367532673 (age: 24.1h)
+2026-01-14 23:21:11,029 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_2p_1768367607700 (age: 24.1h)
+2026-01-14 23:21:11,029 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_3p_1768367607775 (age: 24.1h)
+2026-01-14 23:21:11,029 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_4p_1768367607803 (age: 24.1h)
+2026-01-14 23:21:11,160 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square19_2p_1768367607835 (age: 24.1h)
+2026-01-14 23:21:11,160 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square19_3p_1768367607864 (age: 24.1h)
+2026-01-14 23:21:11,160 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square19_4p_1768367607896 (age: 24.1h)
+2026-01-14 23:21:11,160 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_2p_1768367607919 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_3p_1768367607943 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_4p_1768367607967 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_2p_1768367607998 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_3p_1768367608035 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_4p_1768367608067 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_2p_1768367608097 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_3p_1768367608113 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_4p_1768367608144 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square19_2p_1768367608167 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square19_3p_1768367608176 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square19_4p_1768367608193 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_2p_1768367608203 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_3p_1768367608211 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hex8_4p_1768367608225 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_2p_1768367608241 (age: 24.1h)
+2026-01-14 23:21:11,161 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_3p_1768367608247 (age: 24.1h)
+2026-01-14 23:21:11,162 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_hexagonal_4p_1768367608253 (age: 24.1h)
+2026-01-14 23:21:11,162 - app.coordination.work_queue - WARNING - Removing stale PENDING item: selfplay_square8_2p_1768367608268 (age: 24.1h)
+2026-01-14 23:21:11,631 - app.coordination.work_queue - INFO - Stale item cleanup: removed 65 pending, reset 0 claimed
+2026-01-14 23:21:11,631 - app.coordination.maintenance_daemon - INFO - [Maintenance] Queue cleanup: removed 65 stale pending, reset 0 stale claimed
+2026-01-14 23:21:12,054 - app.coordination.event_router - CRITICAL - [EventRouter] Handler bug in _on_data_changed for TRAINING_COMPLETED: AttributeError: 'RouterEvent' object has no attribute 'get'. HINT: Use get_event_payload(event) to extract payload from RouterEvent
+2026-01-14 23:21:12,060 - app.coordination.dead_letter_queue - WARNING - [DLQ] Captured failed event TRAINING_COMPLETED from _on_data_changed: BUG: AttributeError: 'RouterEvent' object has no attribute 'get'
+2026-01-14 23:21:12,061 - app.coordination.s3_node_sync_daemon - INFO - Training completed for hex8_3p, triggering S3 push
+2026-01-14 23:21:12,062 - app.coordination.elo_progress_daemon - INFO - [EloProgress] Taking Elo snapshots for all configs...
+2026-01-14 23:21:12,074 - app.coordination.elo_progress_tracker - INFO - [EloProgress] Recorded hex8_4p: ringrift_best_hex8_4p @ 1502.0 Elo
+2026-01-14 23:21:12,086 - app.coordination.elo_progress_daemon - INFO - [EloProgress] Snapshot complete: 1/12 configs recorded (total snapshots: 6)
+2026-01-14 23:21:12,092 - app.models.discovery - INFO - Discovered 12 canonical models in /Users/armand/Development/RingRift/ai-service/models
+2026-01-14 23:21:12,093 - app.models.discovery - INFO - Discovered 12 tournament models in /Users/armand/Development/RingRift/ai-service/models
+2026-01-14 23:21:12,093 - app.coordination.tournament_daemon - INFO - Found 12 models with stale evaluations
+2026-01-14 23:21:12,104 - app.coordination.data_pipeline_orchestrator - INFO - [DataPipelineOrchestrator] Stage transition: npz_export -> idle (iteration 0)
+2026-01-14 23:21:12,105 - app.coordination.unified_health_manager - INFO - [UnifiedHealthManager] Daemon stopped: disk_space_manager on MacBook-Pro-5.local (normal)
+2026-01-14 23:21:13,129 - app.coordination.p2p_recovery_daemon - CRITICAL - VOTER QUORUM LOST: 0/7 voters online (need 4 for quorum)
+2026-01-14 23:21:13,129 - app.coordination.p2p_recovery_daemon - INFO - Triggering proactive quorum recovery (consecutive at-risk checks: 3)
+2026-01-14 23:21:13,132 - app.coordination.unified_distribution_daemon - INFO - MODEL_EVALUATION_BLOCKED: checkpoints/checkpoint_early_stop_epoch_25.pth has 0/5 nodes (reason: insufficient_distribution), prioritizing re-distribution
+2026-01-14 23:21:13,132 - app.coordination.unified_distribution_daemon - INFO - MODEL_EVALUATION_BLOCKED: checkpoints/checkpoint_early_stop_epoch_25.pth has 0/5 nodes (reason: insufficient_distribution), prioritizing re-distribution
+2026-01-14 23:21:13,138 - app.coordination.event_subscription_registry - INFO - [Bootstrap] DAEMON_STARTED: owc_import
+2026-01-14 23:21:13,290 - app.coordination.sync_event_mixin - WARNING - [AutoSyncDaemon] DATA_STALE received for hex8_2p: age=6.9h - triggering urgent sync
+2026-01-14 23:21:13,669 - app.coordination.event_normalization - WARNING - [EventTypeValidator] Unknown event type: 'comprehensive_consolidation_started'. Did you mean: CONSOLIDATION_STARTED, consolidation_started, COMPREHENSIVE_EVALUATION_STARTED?
+2026-01-14 23:21:13,670 - app.coordination.event_router - WARNING - [EventRouter] Unknown event type: 'comprehensive_consolidation_started'. Did you mean: CONSOLIDATION_STARTED, consolidation_started, COMPREHENSIVE_EVALUATION_STARTED?. Event will still be published but may not be received by subscribers.
+2026-01-14 23:21:13,682 - app.coordination.sync_base - WARNING - Sync to lambda-gh200-training timed out via tailscale
+2026-01-14 23:21:13,693 - app.coordination.cluster_status_monitor - WARNING - [ClusterMonitor] Node lambda-gh200-1 stalled: game count 89334 unchanged for 3 consecutive checks
+2026-01-14 23:21:13,694 - app.coordination.cluster_status_monitor - WARNING - [ClusterMonitor] Node lambda-gh200-5 stalled: game count 55052 unchanged for 3 consecutive checks
+2026-01-14 23:21:13,695 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-14 23:21:13,729 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-14 23:21:13,731 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-14 23:21:13,756 - app.coordination.curriculum_integration - INFO - [MomentumToCurriculumBridge] QUORUM_RECOVERY_STARTED: severity=QUORUM_LOST, source=unknown, reason=quorum_recovery
+2026-01-14 23:21:13,956 - app.coordination.cluster_watchdog_daemon - INFO - [ClusterWatchdog] Spawn result for vultr-ringrift-a100-20gb-2: rc=0
+2026-01-14 23:21:13,976 - app.coordination.cluster_watchdog_daemon - INFO - [ClusterWatchdog] Cycle complete: discovered=2, reachable=2, idle=1, activated=1, failed=0, duration=3294.5s
+2026-01-14 23:21:14,086 - app.coordination.s3_push_daemon - WARNING - [S3PushDaemon] Push canonical_hexagonal_3p.db failed (attempt 1/5): upload failed: data/games/canonical_hexagonal_3p.db to s3://ringrift-models-20251214/consolidated/ga. Retrying in 0.0s
+2026-01-14 23:21:15,005 - app.coordination.cluster_status_monitor - INFO - Loaded 22 hosts via cluster_config
+2026-01-14 23:21:15,793 - app.integration.p2p_integration - ERROR - P2P API request failed: GET /api/cluster/status: Connection timeout to host http://127.0.0.1:8770/api/cluster/status
+2026-01-14 23:21:15,875 - app.coordination.evaluation_daemon - INFO - [EvaluationDaemon] Model models/canonical_hexagonal_4p.pth only on 0/5 nodes, waiting for distribution (timeout: 120.0s)
+2026-01-14 23:21:15,875 - app.coordination.unified_distribution_daemon - INFO - [DistributionVerification] Waiting for canonical_hexagonal_4p.pth to reach 5 nodes (timeout: 120.0s)
+2026-01-14 23:21:15,881 - app.coordination.tailscale_health_daemon - WARNING - Tailscale not installed on this node
+2026-01-14 23:21:18,598 - app.coordination.event_subscription_registry - INFO - [Bootstrap] DAEMON_STOPPED: disk_space_manager
+2026-01-14 23:21:18,600 - app.coordination.daemon_lifecycle - INFO - Started daemon: disk_space_manager
+2026-01-14 23:21:18,602 - app.coordination.event_subscription_registry - INFO - [Bootstrap] DAEMON_STARTED: disk_space_manager
+2026-01-14 23:21:18,603 - app.coordination.daemon_lifecycle - INFO - Started daemon: coordinator_disk_manager
+2026-01-14 23:21:18,610 - app.coordination.parity_validation_daemon - INFO - [ParityValidationDaemon] Found 16 canonical databases
+2026-01-14 23:22:57,805 - app.coordination.parity_validation_daemon - INFO - [ParityValidationDaemon] Validation complete: 16 databases, 1200 games validated, 1200 passed, 0 failed
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node mac-studio unhealthy (2 consecutive failures): layer=p2p, error=Cannot connect to host 100.107.168.125:8770 ssl:default [Invalid argument]
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node local-mac unhealthy (2 consecutive failures): layer=p2p, error=Cannot connect to host 100.69.164.58:8770 ssl:default [Connect call failed ('100.69.164.58', 8770)]
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node macbook-pro-3 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node macbook-pro-4 unhealthy (2 consecutive failures): layer=p2p, error=Cannot connect to host 100.77.77.122:8770 ssl:default [Connect call failed ('100.77.77.122', 8770)]
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-1 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-2 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-3 unhealthy (2 consecutive failures): layer=p2p, error=Cannot connect to host 100.69.101.108:8770 ssl:default [Invalid argument]
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-4 unhealthy (2 consecutive failures): layer=p2p, error=Cannot connect to host 100.77.186.124:8770 ssl:default [Invalid argument]
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-5 unhealthy (2 consecutive failures): layer=p2p, error=Cannot connect to host 100.83.177.16:8770 ssl:default [Connect call failed ('100.83.177.16', 8770)]
+2026-01-14 23:22:57,809 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-training unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-8 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-9 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-10 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node lambda-gh200-11 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node vultr-a100-20gb unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node nebius-backbone-1 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node nebius-h100-1 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,810 - app.coordination.availability.node_monitor - WARNING - Node nebius-h100-3 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,811 - app.coordination.availability.node_monitor - WARNING - Node aws-proxy unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,811 - app.coordination.availability.node_monitor - WARNING - Node hetzner-cpu1 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,812 - app.coordination.availability.node_monitor - WARNING - Node hetzner-cpu2 unhealthy (2 consecutive failures): layer=p2p, error=P2P timeout
+2026-01-14 23:22:57,813 - app.coordination.availability.node_monitor - WARNING - Node hetzner-cpu3 unhealthy (2 consecutive failures): layer=p2p, error=Cannot connect to host 100.126.21.102:8770 ssl:default [Connect call failed ('100.126.21.102', 8770)]
+2026-01-14 23:22:57,814 - app.coordination.sync_base - WARNING - Sync to lambda-gh200-8 timed out via tailscale
+2026-01-14 23:22:57,931 - app.coordination.database_sync_manager - WARNING - [elo] HTTP sync to macbook-pro-3 failed: . Retry 3/4 in 1.8s
+2026-01-14 23:22:57,936 - app.integration.model_lifecycle - ERROR - Failed to get cluster status: Cannot connect to host 127.0.0.1:8770 ssl:default [Connect call failed ('127.0.0.1', 8770)]
+2026-01-14 23:22:58,384 - app.coordination.event_subscription_registry - INFO - [Bootstrap] DAEMON_STARTED: parity_validation
+2026-01-14 23:22:58,438 - app.coordination.handler_base - INFO - [DiskSpaceManagerDaemon] Started
+2026-01-14 23:22:58,439 - app.coordination.handler_base - INFO - [CoordinatorDiskManager] Started
+2026-01-14 23:22:58,440 - app.coordination.unified_health_manager - INFO - [UnifiedHealthManager] Daemon started: coordinator_disk_manager on MacBook-Pro-5.local
+2026-01-14 23:22:58,441 - app.coordination.unified_health_manager - WARNING - [UnifiedHealthManager] CLUSTER STALL DETECTED: Nodes: ['lambda-gh200-1', 'lambda-gh200-5'], Stall duration: 0s
+/Users/armand/Development/RingRift/ai-service/app/coordination/unified_health_manager.py:1373: RuntimeWarning: coroutine 'UnifiedEventRouter.publish' was never awaited
+  router.emit(DataEventType.NODE_UNHEALTHY, {
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+2026-01-14 23:22:58,708 - app.coordination.data_cleanup_daemon - WARNING - Failed to assess work_queue.db: no such table: games
+2026-01-14 23:22:58,710 - app.coordination.sync_event_mixin - WARNING - [AutoSyncDaemon] DATA_STALE received for hex8_2p: age=6.9h - triggering urgent sync
+2026-01-14 23:22:58,711 - app.coordination.gauntlet_feedback_controller - INFO - [GauntletFeedbackController] Emitted HYPERPARAMETER_UPDATED: epoch_multiplier 1.0 -> 1.5 for square19_4p
+2026-01-14 23:22:58,783 - app.coordination.disk_space_manager_daemon - INFO - [DiskSpaceManagerDaemon] Disk status: 92.7% used (67.9GB free)
+2026-01-14 23:22:58,784 - app.coordination.disk_space_manager_daemon - INFO - [DiskSpaceManagerDaemon] Starting cleanup (target: 50%)
+2026-01-14 23:22:58,785 - app.coordination.disk_space_manager_daemon - INFO - [CoordinatorDiskManager] Disk status: 92.7% used (67.9GB free)
+2026-01-14 23:22:58,785 - app.coordination.disk_space_manager_daemon - INFO - [CoordinatorDiskManager] Syncing data to mac-studio before cleanup
+2026-01-14 23:22:59,082 - app.coordination.s3_push_daemon - WARNING - [S3PushDaemon] Push canonical_hexagonal_3p.db failed (attempt 2/5): upload failed: data/games/canonical_hexagonal_3p.db to s3://ringrift-models-20251214/consolidated/ga. Retrying in 1.7s
+2026-01-14 23:22:59,214 - app.coordination.memory_pressure_controller - INFO - [MemoryPressure] Tier change: CAUTION -> WARNING (RAM: 77.2%)
+2026-01-14 23:22:59,215 - app.coordination.memory_pressure_controller - WARNING - [MemoryPressure] WARNING: RAM at 77.2% - Throttling operations
+2026-01-14 23:22:59,215 - app.coordination.memory_pressure_controller - INFO - [MemoryPressure] Action taken: pause_selfplay
+2026-01-14 23:22:59,990 - app.coordination.tournament_daemon - INFO - Running scheduled cross-NN tournament
+2026-01-14 23:22:59,991 - app.coordination.tournament_daemon - INFO - Running cross-NN version tournament
+2026-01-14 23:22:59,992 - app.coordination.tournament_daemon - WARNING - Cross-NN tournament dependencies not available: cannot import name 'UnifiedNeuralNetFactory' from 'app.ai.neural_net' (/Users/armand/Development/RingRift/ai-service/app/ai/neural_net/__init__.py)
+2026-01-14 23:22:59,992 - app.coordination.tournament_daemon - INFO - Cross-NN tournament completed: 0 games
+2026-01-14 23:22:59,992 - app.coordination.tournament_daemon - WARNING - Cross-NN tournament failed: cannot import name 'UnifiedNeuralNetFactory' from 'app.ai.neural_net' (/Users/armand/Development/RingRift/ai-service/app/ai/neural_net/__init__.py)
+2026-01-14 23:23:04,971 - app.coordination.sync_base - WARNING - Sync to lambda-gh200-4 timed out via ssh
+2026-01-14 23:23:04,973 - app.coordination.sync_base - WARNING - Sync to lambda-gh200-3 timed out via ssh
