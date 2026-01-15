@@ -441,7 +441,7 @@ class MultiHarnessGauntlet:
             HarnessType.POLICY_ONLY: AIType.POLICY_ONLY,
             HarnessType.GUMBEL_MCTS: AIType.GUMBEL_MCTS,
             HarnessType.GPU_GUMBEL: AIType.GUMBEL_MCTS,  # GPU batch uses same AI type
-            HarnessType.DESCENT: AIType.NN_DESCENT,
+            HarnessType.DESCENT: AIType.DESCENT,
             HarnessType.MINIMAX: AIType.NNUE_MINIMAX,
             HarnessType.MAXN: AIType.MAXN,
             HarnessType.BRS: AIType.BRS,
