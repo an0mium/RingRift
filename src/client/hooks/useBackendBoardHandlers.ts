@@ -411,6 +411,25 @@ export function useBackendBoardHandlers(
 
     const pending = pendingMovementRef.current!;
 
+    // DEBUG: Log pending movement search
+    console.log('[PendingMovement] Searching for move:', {
+      pendingFrom: positionToString(pending.from),
+      pendingTo: positionToString(pending.to),
+      validMovesCount: validMoves.length,
+      moveStackMoves: validMoves
+        .filter((m) => m.type === 'move_stack')
+        .map((m) => ({
+          from: m.from ? positionToString(m.from) : 'none',
+          to: m.to ? positionToString(m.to) : 'none',
+        })),
+      captureMoves: validMoves
+        .filter((m) => m.type === 'overtaking_capture')
+        .map((m) => ({
+          from: m.from ? positionToString(m.from) : 'none',
+          to: m.to ? positionToString(m.to) : 'none',
+        })),
+    });
+
     // Find the matching move_stack or overtaking_capture move
     // (capture targets use overtaking_capture type, not move_stack)
     const pendingMove = validMoves.find(
@@ -424,6 +443,11 @@ export function useBackendBoardHandlers(
 
     if (pendingMove) {
       // Success! Submit the move and clear pending state
+      console.log('[PendingMovement] Found matching move, submitting:', {
+        type: pendingMove.type,
+        from: pendingMove.from ? positionToString(pendingMove.from) : 'none',
+        to: pendingMove.to ? positionToString(pendingMove.to) : 'none',
+      });
       pendingMovementRef.current = null;
       pendingMovementRetryCount.current = 0;
       submitMove({
@@ -695,6 +719,15 @@ export function useBackendBoardHandlers(
 
             if (isValidLanding) {
               // Submit placement, store pending movement for after phase transition
+              console.log(
+                '[PlacementWithTarget] Submitting placement + storing pending movement:',
+                {
+                  placementTo: positionToString(pendingPlaceMove.to),
+                  placementCount: pendingRingPlacement.currentCount,
+                  pendingMovementFrom: positionToString(pendingRingPlacement.position),
+                  pendingMovementTo: positionToString(pos),
+                }
+              );
               pendingMovementRef.current = {
                 from: pendingRingPlacement.position,
                 to: pos,
