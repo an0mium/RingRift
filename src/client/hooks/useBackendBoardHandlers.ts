@@ -35,8 +35,10 @@ import type {
 import { positionToString, positionsEqual } from '../../shared/types/game';
 import {
   enumerateSimpleMoveTargetsFromStack,
+  enumerateCaptureMoves,
   isValidPosition,
   type MovementBoardView,
+  type CaptureBoardAdapters,
 } from '../../shared/engine';
 import type { PartialMove } from './useGameActions';
 import {
@@ -120,6 +122,106 @@ function createMovementBoardViewWithSimulatedStack(
       return marker?.player;
     },
   };
+}
+
+/**
+ * Compute all valid landing positions from a simulated stack, including both
+ * simple movement targets and capture landing positions.
+ *
+ * Per RR-CANON rules, direct capture is allowed immediately after placement -
+ * the player doesn't need to make a simple move first.
+ */
+function computeValidLandingsWithCaptures(
+  board: BoardState,
+  fromPos: Position,
+  playerNumber: number,
+  simulatedStackHeight: number
+): Position[] {
+  const boardType = board.type as BoardType;
+
+  // DEBUG: Log board state
+  console.log('[computeValidLandingsWithCaptures] Input:', {
+    fromPos: positionToString(fromPos),
+    playerNumber,
+    simulatedStackHeight,
+    boardType,
+    stackCount: board.stacks.size,
+    stacks: Array.from(board.stacks.entries()).map(([key, s]) => ({
+      pos: key,
+      player: s.controllingPlayer,
+      height: s.stackHeight,
+      capHeight: s.capHeight,
+    })),
+  });
+
+  // Create simulated board view for this pending placement
+  const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
+    board,
+    fromPos,
+    playerNumber,
+    simulatedStackHeight
+  );
+
+  // DEBUG: Verify simulated stack
+  const attackerCheck = simulatedBoardView.getStackAt(fromPos);
+  console.log('[computeValidLandingsWithCaptures] Attacker check:', attackerCheck);
+
+  // Get simple movement targets
+  const simpleLandings = enumerateSimpleMoveTargetsFromStack(
+    boardType,
+    fromPos,
+    playerNumber,
+    simulatedBoardView
+  );
+
+  console.log(
+    '[computeValidLandingsWithCaptures] Simple landings:',
+    simpleLandings.length,
+    simpleLandings.map((l) => positionToString(l.to))
+  );
+
+  // Get capture landing targets using the same simulated view
+  // (CaptureBoardAdapters is compatible with MovementBoardView)
+  const captureMoves = enumerateCaptureMoves(
+    boardType,
+    fromPos,
+    playerNumber,
+    simulatedBoardView as CaptureBoardAdapters,
+    0 // moveNumber not used for enumeration
+  );
+
+  console.log(
+    '[computeValidLandingsWithCaptures] Capture moves:',
+    captureMoves.length,
+    captureMoves.map((c) => ({
+      from: positionToString(c.from),
+      target: c.captureTarget ? positionToString(c.captureTarget) : 'none',
+      to: positionToString(c.to),
+    }))
+  );
+
+  // Combine both sets of landing positions, deduplicating
+  const landingSet = new Set<string>();
+  const allLandings: Position[] = [];
+
+  for (const landing of simpleLandings) {
+    const key = positionToString(landing.to);
+    if (!landingSet.has(key)) {
+      landingSet.add(key);
+      allLandings.push(landing.to);
+    }
+  }
+
+  for (const capture of captureMoves) {
+    const key = positionToString(capture.to);
+    if (!landingSet.has(key)) {
+      landingSet.add(key);
+      allLandings.push(capture.to);
+    }
+  }
+
+  console.log('[computeValidLandingsWithCaptures] Final result:', allLandings.length);
+  return allLandings;
 }
 
 /**
@@ -562,47 +664,33 @@ export function useBackendBoardHandlers(
             currentCount: newCount,
           });
           // Update valid landing positions based on new stack height
-          // Use simulated board view since there's no actual stack at this empty position yet
-          const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
+          // Includes both simple movement and capture targets
+          const landings = computeValidLandingsWithCaptures(
             board,
             pendingRingPlacement.position,
             gameState.currentPlayer,
             newCount
           );
-          const landings = enumerateSimpleMoveTargetsFromStack(
-            board.type as BoardType,
-            pendingRingPlacement.position,
-            gameState.currentPlayer,
-            simulatedBoardView
-          );
-          setValidTargets(landings.map((t) => t.to));
+          setValidTargets(landings);
           return;
         }
 
         // Case 2: There's a pending placement at different position - check if this click is a valid landing
         if (pendingRingPlacement) {
-          // Compute valid landing positions for the pending placement position
-          // Use simulated board view since there's no actual stack at the pending position yet
-          const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
-            board,
-            pendingRingPlacement.position,
-            gameState.currentPlayer,
-            pendingRingPlacement.currentCount
-          );
           // Use any placement move for the position (server moves don't include placementCount,
           // they just indicate valid positions - we supply our own count)
           const pendingPlaceMove = pendingRingPlacement.placeMovesAtPos[0];
 
           if (pendingPlaceMove) {
             // After placement, we'd need to move from pendingRingPlacement.position
-            // Check if clicked position is a valid landing
-            const validLandings = enumerateSimpleMoveTargetsFromStack(
-              board.type as BoardType,
+            // Check if clicked position is a valid landing (movement or capture)
+            const validLandings = computeValidLandingsWithCaptures(
+              board,
               pendingRingPlacement.position,
               gameState.currentPlayer,
-              simulatedBoardView
+              pendingRingPlacement.currentCount
             );
-            const isValidLanding = validLandings.some((t) => positionsEqual(t.to, pos));
+            const isValidLanding = validLandings.some((landing) => positionsEqual(landing, pos));
 
             if (isValidLanding) {
               // Submit placement, store pending movement for after phase transition
@@ -642,21 +730,14 @@ export function useBackendBoardHandlers(
               placeMovesAtPos,
             });
             setSelected(pos);
-            // Show valid landings for this new position
-            // Use simulated board view since there's no actual stack yet
-            const newSimulatedBoardView = createMovementBoardViewWithSimulatedStack(
+            // Show valid landings for this new position (movement + capture)
+            const newLandings = computeValidLandingsWithCaptures(
               board,
               pos,
               gameState.currentPlayer,
               1 // Initial placement of 1 ring
             );
-            const newLandings = enumerateSimpleMoveTargetsFromStack(
-              board.type as BoardType,
-              pos,
-              gameState.currentPlayer,
-              newSimulatedBoardView
-            );
-            setValidTargets(newLandings.map((t) => t.to));
+            setValidTargets(newLandings);
             return;
           }
 
@@ -719,21 +800,9 @@ export function useBackendBoardHandlers(
             placeMovesAtPos,
           });
           setSelected(pos);
-          // Show valid landings from this position (with 1 ring initially)
-          // Use simulated board view since there's no actual stack yet
-          const simulatedBoardView = createMovementBoardViewWithSimulatedStack(
-            board,
-            pos,
-            gameState.currentPlayer,
-            1
-          );
-          const landings = enumerateSimpleMoveTargetsFromStack(
-            board.type as BoardType,
-            pos,
-            gameState.currentPlayer,
-            simulatedBoardView
-          );
-          setValidTargets(landings.map((t) => t.to));
+          // Show valid landings from this position (movement + capture, with 1 ring initially)
+          const landings = computeValidLandingsWithCaptures(board, pos, gameState.currentPlayer, 1);
+          setValidTargets(landings);
           return;
         }
 
