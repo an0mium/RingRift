@@ -2858,6 +2858,67 @@ def train_model(
             if not distributed or is_main_process():
                 logger.info(f"[AutoInitWeights] No canonical model found at {canonical_path}, training from scratch")
 
+    # January 2026: FAIL-FAST architecture validation for init_weights
+    # Prevents training with incompatible init_weights and dataset
+    if init_weights_path is not None and os.path.exists(init_weights_path):
+        try:
+            from app.ai.neural_net.architecture_registry import (
+                get_encoder_version_from_checkpoint,
+                get_model_version_from_checkpoint,
+            )
+            init_encoder_version = get_encoder_version_from_checkpoint(init_weights_path)
+            init_model_version = get_model_version_from_checkpoint(init_weights_path)
+
+            # Determine what encoder version the training data expects
+            data_encoder = None
+            if hex_in_channels == 40:
+                data_encoder = "v2"
+            elif hex_in_channels == 64:
+                data_encoder = "v3"
+            elif hex_in_channels == 56:
+                data_encoder = "v3"  # V5-heavy compatible with v3
+
+            # Check encoder compatibility
+            if init_encoder_version and data_encoder and init_encoder_version != data_encoder:
+                error_msg = (
+                    f"\n{'='*70}\n"
+                    f"ENCODER MISMATCH DETECTED (FAIL-FAST)\n"
+                    f"{'='*70}\n\n"
+                    f"Init weights: {init_weights_path}\n"
+                    f"  - Encoder: {init_encoder_version} ({40 if init_encoder_version == 'v2' else 64} channels)\n\n"
+                    f"Training data: {data_path_str}\n"
+                    f"  - Encoder: {data_encoder} ({hex_in_channels} channels)\n\n"
+                    f"PROBLEM: Cannot train {data_encoder} data with {init_encoder_version} model weights.\n\n"
+                    f"SOLUTIONS:\n"
+                    f"  1. Re-export training data with --encoder-version {init_encoder_version}\n"
+                    f"  2. Use a different init_weights file matching {data_encoder}\n"
+                    f"  3. Train from scratch without --init-weights\n"
+                    f"{'='*70}"
+                )
+                if not distributed or is_main_process():
+                    logger.error(error_msg)
+                raise ValueError(f"Encoder mismatch: init_weights={init_encoder_version}, data={data_encoder}")
+
+            # Check model version and auto-adapt if needed
+            if init_model_version:
+                if model_version != init_model_version:
+                    if not distributed or is_main_process():
+                        logger.warning(
+                            f"[ArchValidation] Model version mismatch detected!\n"
+                            f"  Init weights uses: {init_model_version}\n"
+                            f"  Training configured for: {model_version}\n"
+                            f"  Auto-adapting to use: {init_model_version}"
+                        )
+                    # Auto-adapt to match init_weights architecture
+                    model_version = init_model_version
+                else:
+                    if not distributed or is_main_process():
+                        logger.info(f"[ArchValidation] Architecture validated: encoder={init_encoder_version}, model={init_model_version}")
+        except ImportError:
+            pass  # architecture_registry not available, skip validation
+        except FileNotFoundError:
+            pass  # init_weights file doesn't exist yet, will be caught later
+
     # Load initial weights for transfer learning (before save_path check)
     # This allows starting from a pre-trained model (e.g., 2p->4p transfer)
     # If save_path exists, it will override these weights (resume takes priority)

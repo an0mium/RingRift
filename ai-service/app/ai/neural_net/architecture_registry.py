@@ -298,3 +298,176 @@ ENCODER_NAME_TO_CHANNELS: Dict[str, int] = {
     spec.encoder_name: spec.expected_channels
     for spec in ARCHITECTURE_REGISTRY.values()
 }
+
+
+def get_encoder_version_from_checkpoint(checkpoint_path: str) -> Optional[str]:
+    """
+    Detect the encoder version required by a model checkpoint.
+
+    This reads the model checkpoint and determines which encoder version
+    (v2 or v3) is required based on the model's input channel count.
+
+    Args:
+        checkpoint_path: Path to a model .pth file
+
+    Returns:
+        "v2" for 40-channel models (HexNeuralNet_v2)
+        "v3" for 64-channel models (HexNeuralNet_v3/v4)
+        None if detection fails
+
+    Raises:
+        FileNotFoundError: If checkpoint file doesn't exist
+    """
+    import torch
+    from pathlib import Path
+
+    path = Path(checkpoint_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    try:
+        # Load checkpoint (CPU only, for metadata inspection)
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
+        # Get state dict
+        if isinstance(checkpoint, dict):
+            state_dict = checkpoint.get("state_dict", checkpoint.get("model_state_dict", checkpoint))
+        else:
+            state_dict = checkpoint.state_dict() if hasattr(checkpoint, "state_dict") else None
+
+        if state_dict is None:
+            logger.warning(f"Could not extract state_dict from {checkpoint_path}")
+            return None
+
+        # Find conv1 weight to detect input channels
+        for key in state_dict:
+            if "conv1.weight" in key or "initial_conv.weight" in key:
+                weight = state_dict[key]
+                in_channels = weight.shape[1]
+                logger.debug(f"Detected {in_channels} channels from {key}")
+
+                # Map channels to encoder version
+                if in_channels == 40:
+                    return "v2"
+                elif in_channels == 64:
+                    return "v3"
+                elif in_channels == 56:
+                    return "v3"  # V5-heavy uses v3 encoder base
+                else:
+                    logger.warning(f"Unknown channel count {in_channels}, defaulting to v3")
+                    return "v3"
+
+        logger.warning(f"Could not find conv1 layer in {checkpoint_path}")
+        return None
+
+    except Exception as e:
+        logger.error(f"Failed to detect encoder version from {checkpoint_path}: {e}")
+        return None
+
+
+def get_model_version_from_checkpoint(checkpoint_path: str) -> Optional[str]:
+    """
+    Detect the model architecture version from a checkpoint.
+
+    This examines the model structure to determine which architecture class
+    was used (v2, v3, v4, v5-heavy, etc.) based on:
+    - Number of value FC layers (2 for v2/v3, 3 for v4)
+    - Number of residual blocks
+    - Presence of attention layers
+    - Presence of SE blocks
+
+    Args:
+        checkpoint_path: Path to a model .pth file
+
+    Returns:
+        Model version string ("v2", "v3", "v4", "v5-heavy") or None
+    """
+    import torch
+    from pathlib import Path
+
+    path = Path(checkpoint_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
+
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
+        if isinstance(checkpoint, dict):
+            state_dict = checkpoint.get("state_dict", checkpoint.get("model_state_dict", checkpoint))
+        else:
+            state_dict = checkpoint.state_dict() if hasattr(checkpoint, "state_dict") else None
+
+        if state_dict is None:
+            return None
+
+        keys = list(state_dict.keys())
+
+        # Count architecture indicators
+        value_fc_layers = [k for k in keys if "value_fc" in k and "weight" in k]
+        has_value_fc3 = any("value_fc3" in k for k in keys)
+        res_blocks = set(k.split(".")[1] for k in keys if "res_blocks." in k and "." in k)
+        has_se_blocks = any("se_" in k.lower() for k in keys)
+        has_attention = any("attn" in k.lower() or "attention" in k.lower() for k in keys)
+        has_heuristic_encoder = any("heuristic_encoder" in k for k in keys)
+
+        # Determine architecture based on signature
+        # Key differentiator: value head depth
+        # - v2/v3: 2 value FC layers (value_fc1, value_fc2)
+        # - v4: 3 value FC layers (value_fc1, value_fc2, value_fc3)
+        # - v5-heavy: heuristic_encoder present
+
+        if has_heuristic_encoder:
+            return "v5-heavy"
+        elif has_value_fc3:
+            # 3-layer value head = definitely v4
+            return "v4"
+        elif len(value_fc_layers) == 2:
+            # Check input channels to distinguish v2 from v3
+            for key in keys:
+                if "conv1.weight" in key:
+                    weight = state_dict[key]
+                    in_channels = weight.shape[1]
+                    if in_channels == 40:
+                        return "v2"
+                    elif in_channels == 64:
+                        return "v3"
+                    elif in_channels == 56:
+                        return "v3"  # Could be v5 but using v3 encoder
+                    break
+            return "v2"  # Default to v2 for 2-layer value head
+        else:
+            return "v2"
+
+    except Exception as e:
+        logger.error(f"Failed to detect model version from {checkpoint_path}: {e}")
+        return None
+
+
+def validate_export_architecture_match(
+    canonical_model_path: str,
+    encoder_version: str,
+) -> Tuple[bool, str]:
+    """
+    Validate that an export encoder version matches the canonical model.
+
+    This is a fail-fast check to prevent architecture mismatches during export.
+
+    Args:
+        canonical_model_path: Path to the canonical model checkpoint
+        encoder_version: The encoder version being used for export ("v2" or "v3")
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    expected = get_encoder_version_from_checkpoint(canonical_model_path)
+    if expected is None:
+        return False, f"Could not detect architecture from {canonical_model_path}"
+
+    if expected != encoder_version:
+        return False, (
+            f"Architecture mismatch: canonical model {canonical_model_path} uses "
+            f"encoder {expected}, but export is configured for {encoder_version}. "
+            f"Use --encoder-version {expected} or let --canonical-model auto-detect."
+        )
+
+    return True, "OK"

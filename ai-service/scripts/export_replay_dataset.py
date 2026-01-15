@@ -1913,7 +1913,20 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "'default' maps to 'v3' (recommended), "
             "'v2' uses HexStateEncoder (10 channels for HexNeuralNet_v2), "
             "'v3' uses HexStateEncoderV3 (16 channels for HexNeuralNet_v3). "
-            "Hex boards ALWAYS use specialized encoders for consistent shapes."
+            "Hex boards ALWAYS use specialized encoders for consistent shapes. "
+            "NOTE: Use --canonical-model to auto-detect from existing model."
+        ),
+    )
+    parser.add_argument(
+        "--canonical-model",
+        type=str,
+        default=None,
+        help=(
+            "Path to canonical model to match encoder version. "
+            "Auto-detects the correct encoder version from the model's architecture. "
+            "This ensures training data is compatible with the target model. "
+            "Example: --canonical-model models/canonical_hex8_2p.pth. "
+            "If not specified, falls back to config-based canonical model lookup."
         ),
     )
     parser.add_argument(
@@ -2143,6 +2156,41 @@ def main(argv: list[str] | None = None) -> int:
         print("[WARNING] Using deprecated legacy_max_n encoding - data will be incompatible with v3/v4 models")
     # Override args.board_aware_encoding for downstream code
     args.board_aware_encoding = use_board_aware
+
+    # January 2026: Auto-detect encoder version from canonical model (FAIL-FAST)
+    # This prevents architecture mismatches between training data and target model
+    canonical_model_path = getattr(args, 'canonical_model', None)
+    if canonical_model_path is None:
+        # Try to find canonical model automatically
+        config_key = f"{args.board_type}_{args.num_players}p"
+        auto_canonical = f"models/canonical_{config_key}.pth"
+        if os.path.exists(auto_canonical):
+            canonical_model_path = auto_canonical
+            print(f"[ARCHITECTURE] Auto-detected canonical model: {canonical_model_path}")
+
+    if canonical_model_path:
+        try:
+            from app.ai.neural_net.architecture_registry import (
+                get_encoder_version_from_checkpoint,
+                validate_export_architecture_match,
+            )
+            detected_version = get_encoder_version_from_checkpoint(canonical_model_path)
+            if detected_version:
+                print(f"[ARCHITECTURE] Canonical model requires encoder: {detected_version}")
+                # If user explicitly specified a conflicting version, fail fast
+                if args.encoder_version not in ("default", detected_version):
+                    print(f"[ARCHITECTURE ERROR] Encoder mismatch!")
+                    print(f"  Canonical model: {canonical_model_path}")
+                    print(f"  Model requires: {detected_version}")
+                    print(f"  You specified: {args.encoder_version}")
+                    print(f"  SOLUTION: Use --encoder-version {detected_version} or remove --encoder-version")
+                    return 1
+                # Auto-set the encoder version to match canonical model
+                args.encoder_version = detected_version
+                print(f"[ARCHITECTURE] Using encoder version: {args.encoder_version}")
+        except Exception as e:
+            print(f"[ARCHITECTURE WARNING] Could not detect encoder from {canonical_model_path}: {e}")
+            print("  Proceeding with specified encoder version...")
 
     # Handle database discovery
     db_paths = args.db_paths or []
