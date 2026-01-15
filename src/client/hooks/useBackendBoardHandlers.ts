@@ -889,10 +889,16 @@ export function useBackendBoardHandlers(
 
         if (chainMoves.length > 0) {
           const chainMove = chainMoves[0];
+          // Include captureTarget for capture moves
+          const captureTarget =
+            'captureTarget' in chainMove
+              ? (chainMove as { captureTarget?: Position }).captureTarget
+              : undefined;
           submitMove({
             type: chainMove.type,
             from: chainMove.from,
             to: chainMove.to,
+            captureTarget,
           } as PartialMove);
           // Don't clear selection - let the auto-selection effect handle the next capture
           return;
@@ -1064,10 +1070,16 @@ export function useBackendBoardHandlers(
         );
 
         if (matching) {
+          // Include captureTarget for capture moves
+          const captureTarget =
+            'captureTarget' in matching
+              ? (matching as { captureTarget?: Position }).captureTarget
+              : undefined;
           submitMove({
             type: matching.type,
             from: matching.from,
             to: matching.to,
+            captureTarget,
           } as PartialMove);
 
           setSelected(undefined);
