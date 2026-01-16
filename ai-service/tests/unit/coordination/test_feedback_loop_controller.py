@@ -518,7 +518,12 @@ class TestFeedbackLoopEventHandlers:
         assert controller.get_state("") is None
 
     def test_on_regression_detected_increases_failures(self):
-        """Test _on_regression_detected increments consecutive_failures."""
+        """Test _on_regression_detected syncs consecutive_failures from event payload.
+
+        Note: Jan 2026 - The design is to sync with RegressionDetector's
+        consecutive_count from the event, not increment locally. This ensures
+        single source of truth for regression tracking.
+        """
         controller = get_feedback_loop_controller()
 
         # Pre-create state
@@ -531,6 +536,7 @@ class TestFeedbackLoopEventHandlers:
             "current_elo": 1450.0,
             "expected_elo": 1500.0,
             "model_path": "models/test.pth",
+            "consecutive_count": 3,  # RegressionDetector's count (synced, not incremented)
         }
 
         controller._on_regression_detected(event)

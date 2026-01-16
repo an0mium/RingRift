@@ -24,6 +24,7 @@ from app.coordination.feedback.elo_velocity_mixin import EloVelocityAdaptationMi
 from app.coordination.feedback.training_curriculum_mixin import TrainingCurriculumFeedbackMixin
 from app.coordination.feedback.loss_monitoring_mixin import LossMonitoringMixin
 from app.coordination.feedback.evaluation_feedback_mixin import EvaluationFeedbackMixin
+from app.coordination.feedback.regression_handling_mixin import RegressionHandlingMixin
 
 __all__ = [
     "FeedbackClusterHealthMixin",
@@ -33,4 +34,5 @@ __all__ = [
     "TrainingCurriculumFeedbackMixin",
     "LossMonitoringMixin",
     "EvaluationFeedbackMixin",
+    "RegressionHandlingMixin",
 ]
