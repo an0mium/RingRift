@@ -12231,6 +12231,7 @@ class P2POrchestrator(
             logger.error(f"[heartbeat] Unexpected error from {request.remote}: {type(e).__name__}: {e}")
             return web.json_response({"error": "internal_error", "type": type(e).__name__}, status=500)
 
+    @with_request_timeout(30.0)
     async def handle_status(self, request: web.Request) -> web.Response:
         """Return cluster status.
 
@@ -12245,6 +12246,10 @@ class P2POrchestrator(
         Jan 12, 2026: Changed to non-blocking self_info update - schedules background
         refresh and returns immediately with cached data. This prevents 15s+ timeouts
         on macOS where resource detection is slow.
+
+        Jan 16, 2026: Added @with_request_timeout(30.0) decorator to prevent overall
+        handler timeout. Individual metric timeouts are 2s, but other operations
+        (voter health, partition status, etc.) can hang without protection.
         """
         # Jan 12, 2026: Non-blocking mode - schedule background refresh, use cached data
         try:
@@ -12351,7 +12356,7 @@ class P2POrchestrator(
         # Previous sequential approach took up to 24 seconds (10 calls × 2s timeout each).
         # Parallel approach takes at most 2 seconds (max of all timeouts).
         p2p_sync_metrics = getattr(self, "_p2p_sync_metrics", {})
-        _STATUS_TIMEOUT = 2.0  # seconds for each blocking call
+        _STATUS_TIMEOUT = 5.0  # seconds for each blocking call (Jan 16, 2026: increased from 2.0)
 
         # Define all metric gathering tasks
         async def _safe_metric(name: str, func: callable) -> tuple[str, dict]:
@@ -12404,7 +12409,16 @@ class P2POrchestrator(
         data_dedup = metrics_dict.get("data_dedup", {"error": "not_collected"})
 
         # Phase 5: SWIM/Raft protocol status (Dec 26, 2025)
-        swim_raft_status = self._get_swim_raft_status()
+        # Jan 16, 2026: Added timeout protection
+        try:
+            swim_raft_status = await asyncio.wait_for(
+                asyncio.to_thread(self._get_swim_raft_status),
+                timeout=_STATUS_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            swim_raft_status = {"error": "timeout"}
+        except Exception as e:  # noqa: BLE001
+            swim_raft_status = {"error": str(e)}
 
         # Jan 3, 2026: Transport latency stats for diagnosing slow transports
         transport_latency: dict = {}
@@ -12427,18 +12441,30 @@ class P2POrchestrator(
         })
 
         # Phase 2.4 (Dec 29, 2025): Partition status for cluster monitoring
+        # Jan 16, 2026: Added timeout protection
         try:
-            partition_status = self.get_partition_status()
+            partition_status = await asyncio.wait_for(
+                asyncio.to_thread(self.get_partition_status),
+                timeout=_STATUS_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            partition_status = {"error": "timeout"}
         except Exception as e:  # noqa: BLE001
             partition_status = {"error": str(e)}
 
         # Phase 4 (Dec 2025): Background loop status from LoopManager
+        # Jan 16, 2026: Added timeout protection
         try:
             loop_manager = self._get_loop_manager()
             if loop_manager is not None:
-                background_loops = loop_manager.get_all_status()
+                background_loops = await asyncio.wait_for(
+                    asyncio.to_thread(loop_manager.get_all_status),
+                    timeout=_STATUS_TIMEOUT
+                )
             else:
                 background_loops = {"error": "LoopManager not initialized"}
+        except asyncio.TimeoutError:
+            background_loops = {"error": "timeout"}
         except Exception as e:  # noqa: BLE001
             background_loops = {"error": str(e)}
 
@@ -12474,6 +12500,17 @@ class P2POrchestrator(
                 cluster_selfplay_jobs += int(peer_data.get("selfplay_jobs", 0) or 0)
                 cluster_training_jobs += int(peer_data.get("training_jobs", 0) or 0)
 
+        # Jan 16, 2026: Pre-compute voter_health with timeout protection
+        try:
+            voter_health = await asyncio.wait_for(
+                asyncio.to_thread(self._check_voter_health),
+                timeout=_STATUS_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            voter_health = {"error": "timeout"}
+        except Exception as e:  # noqa: BLE001
+            voter_health = {"error": str(e)}
+
         return web.json_response({
             "node_id": self.node_id,
             "role": self.role.value,
@@ -12493,7 +12530,8 @@ class P2POrchestrator(
             "voters_alive": voters_alive,
             "voter_quorum_ok": self._has_voter_quorum(),
             # Jan 2, 2026: Detailed voter health for monitoring
-            "voter_health": self._check_voter_health(),
+            # Jan 16, 2026: Now pre-computed with timeout protection
+            "voter_health": voter_health,
             "self": self.self_info.to_dict(),
             "peers": peers,
             "all_peers": all_peers,  # Jan 5, 2026: All peers regardless of alive status for job dispatch
@@ -29532,6 +29570,7 @@ print(json.dumps({{
             app.router.add_post('/refresh_manifest', self.handle_refresh_manifest)
             app.router.add_get('/data-inventory', self.handle_data_inventory)  # Dec 30, 2025: Quick game counts
             app.router.add_post('/data/cluster_manifest_broadcast', self.handle_cluster_manifest_broadcast)  # Jan 2026: Leader broadcast
+            app.router.add_get('/data/request_manifest', self.handle_request_manifest)  # Jan 16, 2026: On-demand cluster manifest query
 
             # Model inventory routes (January 2026 - Comprehensive Model Evaluation Pipeline)
             # Used by ClusterModelEnumerator to discover models across the cluster
