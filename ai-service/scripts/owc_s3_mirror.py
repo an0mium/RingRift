@@ -150,6 +150,21 @@ class OWCMirrorConfig:
             include_patterns=["*.pth", "*.pt"],
             description="All model checkpoints (~330GB)",
         ),
+        SyncDirectory(
+            local_path="trained_models",
+            s3_prefix="owc/trained_models",
+            tier=2,
+            include_patterns=["*.pth", "*.pt"],
+            description="Production trained models (~299GB)",
+        ),
+        SyncDirectory(
+            local_path="games",
+            s3_prefix="owc/games",
+            tier=2,
+            include_patterns=["*.db"],
+            exclude_patterns=["*-shm", "*-wal", "*-journal"],
+            description="Local game databases (~324GB)",
+        ),
 
         # Tier 3: Archival (large, infrequently accessed)
         SyncDirectory(
@@ -181,6 +196,14 @@ class OWCMirrorConfig:
             include_patterns=["*.db", "*.npz", "*.pth"],
             exclude_patterns=["*-shm", "*-wal", "*-journal", "*.log", "*.tmp"],
             description="Full cluster backup (~2.9TB)",
+        ),
+        SyncDirectory(
+            local_path="selfplay_repository",
+            s3_prefix="owc/selfplay_repository",
+            tier=3,
+            include_patterns=["*.db", "*.npz", "*.pth"],
+            exclude_patterns=["*-shm", "*-wal", "*-journal", "*.log", "*.tmp"],
+            description="Raw selfplay repository (~3.3TB)",
         ),
     ])
 
