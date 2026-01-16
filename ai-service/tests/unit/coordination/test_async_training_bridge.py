@@ -182,7 +182,7 @@ class TestAsyncTrainingBridge:
                 mock_get_job.return_value = mock_job
 
                 with patch(
-                    "app.coordination.async_training_bridge.emit_training_complete",
+                    "app.coordination.async_training_bridge.safe_emit_event_async",
                     new_callable=AsyncMock,
                 ) as mock_emit:
                     await bridge.complete_training(
@@ -194,9 +194,12 @@ class TestAsyncTrainingBridge:
                     )
 
                     mock_emit.assert_called_once()
-                    call_kwargs = mock_emit.call_args.kwargs
-                    assert call_kwargs["job_id"] == "square8_2p_12345_678"
-                    assert call_kwargs["success"] is True
+                    # safe_emit_event_async is called with (event_type, payload, context=...)
+                    call_args = mock_emit.call_args
+                    assert call_args[0][0] == "TRAINING_COMPLETE"
+                    payload = call_args[0][1]
+                    assert payload["job_id"] == "square8_2p_12345_678"
+                    assert payload["success"] is True
 
     @pytest.mark.asyncio
     async def test_complete_training_no_event_when_disabled(self, bridge, mock_coordinator, mock_job):
@@ -208,7 +211,7 @@ class TestAsyncTrainingBridge:
                 mock_get_job.return_value = mock_job
 
                 with patch(
-                    "app.coordination.async_training_bridge.emit_training_complete",
+                    "app.coordination.async_training_bridge.safe_emit_event_async",
                     new_callable=AsyncMock,
                 ) as mock_emit:
                     await bridge.complete_training("test_job", status="completed")
