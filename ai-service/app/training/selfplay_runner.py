@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..db.write_lock import DatabaseWriteLock
+from ..errors import InvalidGameError
 from .selfplay_config import SelfplayConfig, EngineMode, ENGINE_MODE_ALIASES, parse_selfplay_args
 from .elo_recording import record_selfplay_match, EloRecordResult
 
@@ -1612,7 +1613,7 @@ class SelfplayRunner(ABC):
                             f"{self.stats.games_per_second:.2f} g/s{throttle_info}"
                         )
 
-                except (RuntimeError, ValueError, TypeError, KeyError, AttributeError, OSError, sqlite3.Error) as e:
+                except (RuntimeError, ValueError, TypeError, KeyError, AttributeError, OSError, sqlite3.Error, InvalidGameError) as e:
                     logger.warning(f"Game {game_idx} failed: {e}")
                     self.stats.games_failed += 1
 
