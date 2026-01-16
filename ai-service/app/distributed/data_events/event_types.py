@@ -374,6 +374,7 @@ class DataEventType(Enum):
 
     # Cluster status events
     CLUSTER_STATUS_CHANGED = "cluster_status_changed"
+    CLUSTER_VISIBILITY_DEGRADED = "cluster_visibility_degraded"  # Jan 2026: Cluster manifest unavailable, using local-only counts
     CLUSTER_STALL_DETECTED = "cluster_stall_detected"  # Dec 2025: Node(s) stuck with no game progress
     NODE_UNHEALTHY = "node_unhealthy"
     NODE_RECOVERED = "node_recovered"

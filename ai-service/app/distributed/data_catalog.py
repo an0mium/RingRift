@@ -1507,6 +1507,32 @@ class UnifiedDataRegistry:
             return -1
         return time.time() - self._cluster_manifest_received_at
 
+    def is_cluster_data_available(self) -> tuple[bool, str]:
+        """Check if cluster-wide data is available for progress measurement.
+
+        Jan 2026: Added to ensure cluster-wide progress measurement.
+        Use this to verify that game counts reflect the entire cluster,
+        not just local data on the coordinator.
+
+        Returns:
+            (is_available, reason) tuple where:
+            - is_available: True if cluster data is fresh and available
+            - reason: Human-readable status message
+        """
+        manifest = self.get_cluster_manifest()
+        if manifest is None:
+            return False, "No cluster manifest received from P2P leader"
+
+        age = self.get_manifest_age_seconds()
+        if age > 600:  # 10 minutes - manifest is stale
+            return False, f"Manifest too old ({age:.0f}s, max 600s)"
+
+        total_nodes = getattr(manifest, "total_nodes", 0)
+        if total_nodes < 2:
+            return False, f"Only {total_nodes} node(s) in manifest (need >=2 for cluster)"
+
+        return True, f"Manifest has {total_nodes} nodes, {age:.0f}s old"
+
 
 # Singleton registry instance
 _registry_instance: UnifiedDataRegistry | None = None

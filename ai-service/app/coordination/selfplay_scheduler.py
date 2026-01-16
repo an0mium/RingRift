@@ -1429,6 +1429,7 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
         for each config to prevent duplicate game generation.
 
         Uses TTL caching to avoid repeated lookups during priority calculation.
+        Logs source breakdown for visibility and emits events on fallback.
 
         Returns:
             Dict mapping config_key to cluster-wide total game count
@@ -1446,23 +1447,56 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
             registry = get_data_registry()
             status = registry.get_cluster_status()
 
-            # Update cache with total game counts
-            self._cluster_game_counts = {
-                config_key: config_data.get("total", 0)
-                for config_key, config_data in status.items()
-            }
-            self._cluster_game_counts_last_update = now
+            if status and sum(c.get("total", 0) for c in status.values()) > 0:
+                # Update cache with total game counts
+                self._cluster_game_counts = {
+                    config_key: config_data.get("total", 0)
+                    for config_key, config_data in status.items()
+                }
+                self._cluster_game_counts_last_update = now
 
-            logger.debug(
-                f"[SelfplayScheduler] Refreshed cluster game counts: "
-                f"{sum(self._cluster_game_counts.values()):,} total games "
-                f"across {len(self._cluster_game_counts)} configs"
-            )
+                # Log source breakdown for visibility (Jan 2026 - cluster-wide measurement)
+                local_total = sum(c.get("local", 0) for c in status.values())
+                cluster_total = sum(c.get("cluster", 0) for c in status.values())
+                owc_total = sum(c.get("owc", 0) for c in status.values())
+                total = sum(self._cluster_game_counts.values())
 
-        except ImportError:
-            logger.debug("[SelfplayScheduler] DataRegistry not available for cluster counts")
+                logger.info(
+                    f"[SelfplayScheduler] Using CLUSTER-WIDE counts: "
+                    f"local={local_total:,}, cluster={cluster_total:,}, owc={owc_total:,}, "
+                    f"total={total:,} games across {len(self._cluster_game_counts)} configs"
+                )
+                return self._cluster_game_counts
+
+            # Registry returned empty - fall through to fallback
+            logger.warning("[SelfplayScheduler] Cluster registry returned empty counts")
+
+        except ImportError as e:
+            logger.warning(f"[SelfplayScheduler] DataRegistry not available: {e}")
         except (RuntimeError, ConnectionError, TimeoutError, OSError) as e:
-            logger.debug(f"[SelfplayScheduler] Error getting cluster counts: {e}")
+            logger.warning(f"[SelfplayScheduler] Error getting cluster counts: {e}")
+
+        # Fallback to local-only counts with explicit warning
+        logger.warning(
+            "[SelfplayScheduler] FALLBACK to LOCAL-ONLY game counts! "
+            "Cluster data unavailable - progress measurement may be incomplete."
+        )
+
+        # Emit event for monitoring (Jan 2026 - cluster visibility)
+        try:
+            from app.distributed.data_events.event_types import DataEventType
+            from app.coordination.event_router import emit_event
+
+            emit_event(
+                DataEventType.CLUSTER_VISIBILITY_DEGRADED,
+                {
+                    "reason": "cluster_manifest_unavailable",
+                    "node_id": getattr(self, "_node_id", "unknown"),
+                    "cached_count": sum(self._cluster_game_counts.values()),
+                },
+            )
+        except Exception:
+            pass  # Don't fail on event emission
 
         return self._cluster_game_counts
 

@@ -225,6 +225,41 @@ emit_event(DataEventType.TRAINING_COMPLETED, {"config_key": "hex8_2p", "model_pa
 
 ## Common Patterns
 
+### Checking Game Progress (Cluster-Wide)
+
+**ALWAYS use cluster-wide counts** - the coordinator has minimal local data.
+
+```bash
+# Correct - cluster-wide view (Local + Cluster + OWC + S3)
+python scripts/cluster_data_status.py
+
+# Correct - specific config
+python scripts/cluster_data_status.py --config hex8_2p
+
+# Correct - programmatic access
+python3 -c "
+from app.distributed.data_catalog import get_data_registry
+registry = get_data_registry()
+status = registry.get_cluster_status()
+for config, counts in sorted(status.items()):
+    print(f'{config}: total={counts[\"total\"]:,} (local={counts[\"local\"]}, cluster={counts[\"cluster\"]}, owc={counts[\"owc\"]})')
+"
+
+# Check if cluster data is available
+python3 -c "
+from app.distributed.data_catalog import get_data_registry
+avail, reason = get_data_registry().is_cluster_data_available()
+print(f'Cluster data available: {avail} ({reason})')
+"
+```
+
+**WRONG** - Local-only queries miss cluster/OWC/S3 data:
+
+```bash
+# DON'T DO THIS - only shows coordinator's local games
+python3 -c "import sqlite3; conn = sqlite3.connect('data/games/canonical_hex8_2p.db'); ..."
+```
+
 ### Singleton
 
 ```python
