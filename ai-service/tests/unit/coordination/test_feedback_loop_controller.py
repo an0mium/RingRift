@@ -571,8 +571,12 @@ class TestFeedbackLoopEventHandlers:
         assert state.consecutive_successes == 5  # Not reset
         assert state.consecutive_failures == 1
 
-    def test_on_selfplay_complete_updates_state(self):
-        """Test _on_selfplay_complete updates state correctly."""
+    @pytest.mark.asyncio
+    async def test_on_selfplay_complete_updates_state(self):
+        """Test _on_selfplay_complete updates state correctly.
+
+        Sprint 17.9: Now async after extraction to SelfplayFeedbackMixin.
+        """
         controller = get_feedback_loop_controller()
 
         event = MagicMock()
@@ -583,9 +587,12 @@ class TestFeedbackLoopEventHandlers:
             "engine_mode": "gumbel-mcts",  # Uses "engine_mode" not "engine"
         }
 
-        # Mock _assess_selfplay_quality to avoid database access
-        with patch.object(controller, '_assess_selfplay_quality', return_value=0.75):
-            controller._on_selfplay_complete(event)
+        # Mock _assess_selfplay_quality_async to avoid database access
+        async def mock_quality(*args, **kwargs):
+            return 0.75
+
+        with patch.object(controller, '_assess_selfplay_quality_async', side_effect=mock_quality):
+            await controller._on_selfplay_complete(event)
 
         state = controller.get_state("hex8_2p")
         assert state is not None

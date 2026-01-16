@@ -13,6 +13,8 @@ Mixins:
 - TrainingCurriculumFeedbackMixin: Training -> curriculum feedback and Elo recording
 - LossMonitoringMixin: Loss anomaly detection and trend monitoring
 - EvaluationFeedbackMixin: Evaluation triggering, gauntlet handling, retry logic
+- RegressionHandlingMixin: Regression detection response and curriculum rollback
+- SelfplayFeedbackMixin: Selfplay completion, rate changes, quality assessment
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from app.coordination.feedback.training_curriculum_mixin import TrainingCurricul
 from app.coordination.feedback.loss_monitoring_mixin import LossMonitoringMixin
 from app.coordination.feedback.evaluation_feedback_mixin import EvaluationFeedbackMixin
 from app.coordination.feedback.regression_handling_mixin import RegressionHandlingMixin
+from app.coordination.feedback.selfplay_feedback_mixin import SelfplayFeedbackMixin
 
 __all__ = [
     "FeedbackClusterHealthMixin",
@@ -35,4 +38,5 @@ __all__ = [
     "LossMonitoringMixin",
     "EvaluationFeedbackMixin",
     "RegressionHandlingMixin",
+    "SelfplayFeedbackMixin",
 ]
