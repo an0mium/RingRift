@@ -198,6 +198,8 @@ CREATE TABLE IF NOT EXISTS game_moves (
     move_probs TEXT,
     -- v11 additions: rich search statistics for auxiliary training
     search_stats_json TEXT,
+    -- v18 additions: pre-computed heuristic features for v5 training
+    heuristic_features BLOB,
     PRIMARY KEY (game_id, move_number),
     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
 );
