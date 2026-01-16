@@ -1615,30 +1615,47 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
         return result
 
     async def _get_game_counts(self) -> dict[str, int]:
-        """Get game counts per config from local databases.
+        """Get game counts per config - cluster-aware with fallback to local.
 
-        December 2025: Used for data deficit prioritization.
-        Configs with fewer games get higher priority to reach 100K target.
+        January 2026: Made cluster-aware. Coordinator nodes don't have local
+        canonical databases, so we must use cluster-wide aggregation first.
+
+        Priority order:
+        1. UnifiedDataRegistry (cluster manifest + local + OWC + S3)
+        2. Local GameDiscovery (last resort fallback)
 
         Returns:
             Dict mapping config_key to game count
         """
         result: dict[str, int] = {}
 
+        # Try 1: Cluster-wide counts from UnifiedDataRegistry
         try:
-            from app.utils.game_discovery import get_game_counts_summary
-
-            # get_game_counts_summary returns {config_key: count}
-            result = get_game_counts_summary()
-            logger.debug(
-                f"[SelfplayScheduler] Game counts: "
-                f"{sum(result.values()):,} total across {len(result)} configs"
-            )
-
-        except ImportError:
-            logger.debug("[SelfplayScheduler] game_discovery not available")
+            cluster_counts = self._get_cluster_game_counts()
+            if cluster_counts and sum(cluster_counts.values()) > 0:
+                result = dict(cluster_counts)
+                logger.debug(
+                    f"[SelfplayScheduler] Using cluster game counts: "
+                    f"{sum(result.values()):,} total across {len(result)} configs"
+                )
         except Exception as e:
-            logger.warning(f"[SelfplayScheduler] Error getting game counts (using defaults): {e}")
+            logger.debug(f"[SelfplayScheduler] Cluster counts unavailable: {e}")
+
+        # Try 2: Local-only fallback (for nodes without cluster connectivity)
+        if not result or sum(result.values()) == 0:
+            try:
+                from app.utils.game_discovery import get_game_counts_summary
+
+                result = get_game_counts_summary()
+                if sum(result.values()) > 0:
+                    logger.debug(
+                        f"[SelfplayScheduler] Falling back to local counts: "
+                        f"{sum(result.values()):,} total across {len(result)} configs"
+                    )
+            except ImportError:
+                logger.debug("[SelfplayScheduler] game_discovery not available")
+            except Exception as e:
+                logger.warning(f"[SelfplayScheduler] Error getting local game counts: {e}")
 
         # Ensure all configs have a count (0 if not found)
         for config_key in ALL_CONFIGS:

@@ -868,6 +868,35 @@ def get_game_counts_summary(root_path: Path | str | None = None) -> dict[str, in
     return GameDiscovery(root_path).count_games_by_config().by_config
 
 
+def get_game_counts_cluster_aware(root_path: Path | str | None = None) -> dict[str, int]:
+    """Get game counts with cluster awareness.
+
+    January 2026: Use this for health checks and status reporting on coordinator
+    nodes that don't have local canonical databases.
+
+    Tries UnifiedDataRegistry first (aggregates cluster + local + OWC + S3),
+    falls back to local GameDiscovery if cluster data unavailable.
+
+    Returns:
+        Dict mapping config_key (e.g., 'hex8_2p') to total game count
+    """
+    # Try cluster-wide counts first
+    try:
+        from app.distributed.data_catalog import get_data_registry
+
+        registry = get_data_registry()
+        status = registry.get_cluster_status()
+        if status and sum(v.get("total", 0) for v in status.values()) > 0:
+            return {k: v.get("total", 0) for k, v in status.items()}
+    except (ImportError, RuntimeError) as e:
+        logger.debug(f"[get_game_counts_cluster_aware] Cluster registry unavailable: {e}")
+    except Exception as e:
+        logger.debug(f"[get_game_counts_cluster_aware] Error getting cluster counts: {e}")
+
+    # Fall back to local discovery
+    return get_game_counts_summary(root_path)
+
+
 # JSONL convenience functions (December 2025)
 def find_all_jsonl_files(root_path: Path | str | None = None) -> list[JsonlFileInfo]:
     """Find all JSONL game files in the ai-service directory."""

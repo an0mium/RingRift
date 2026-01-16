@@ -360,17 +360,34 @@ class StatusHandlersMixin:
         })
 
     async def handle_game_counts(self, request: web.Request) -> web.Response:
-        """GET /game-counts - Return game counts from canonical databases for P2P seeding.
+        """GET /game-counts - Return game counts with cluster awareness.
 
-        Session 17.41: Enables cluster nodes to fetch game counts from the coordinator,
-        which has the canonical databases. This fixes bootstrap priority for underserved
-        configs on nodes that don't have local canonical DBs.
+        Session 17.41: Enables cluster nodes to fetch game counts from the coordinator.
+        January 2026: Made cluster-aware using get_game_counts_cluster_aware() which
+        aggregates data from cluster manifest, local DBs, OWC, and S3.
 
         Returns:
             JSON with config_key -> game_count mapping
         """
         try:
-            # Get game counts from local canonical databases (sync operation)
+            # Try cluster-aware counts first (Jan 2026)
+            try:
+                from app.utils.game_discovery import get_game_counts_cluster_aware
+
+                game_counts = await asyncio.to_thread(get_game_counts_cluster_aware)
+                if game_counts and sum(game_counts.values()) > 0:
+                    return web.json_response({
+                        "game_counts": game_counts,
+                        "node_id": self.node_id,
+                        "source": "cluster_aware",
+                        "count": len(game_counts),
+                    })
+            except ImportError:
+                logger.debug("[P2P] get_game_counts_cluster_aware not available, falling back")
+            except Exception as e:
+                logger.debug(f"[P2P] Cluster-aware counts unavailable: {e}")
+
+            # Fall back to local canonical databases
             game_counts = await asyncio.to_thread(self._seed_selfplay_scheduler_game_counts_sync)
 
             return web.json_response({
