@@ -51,6 +51,7 @@ from app.coordination.feedback.quality_feedback import QualityFeedbackMixin
 from app.coordination.feedback.elo_velocity_mixin import EloVelocityAdaptationMixin
 from app.coordination.feedback.training_curriculum_mixin import TrainingCurriculumFeedbackMixin
 from app.coordination.feedback.loss_monitoring_mixin import LossMonitoringMixin
+from app.coordination.feedback.evaluation_feedback_mixin import EvaluationFeedbackMixin
 from app.coordination.handler_base import HandlerBase
 from app.coordination.protocols import HealthCheckResult
 
@@ -286,7 +287,7 @@ class AdaptiveTrainingSignal:
         }
 
 
-class FeedbackLoopController(LossMonitoringMixin, TrainingCurriculumFeedbackMixin, EloVelocityAdaptationMixin, QualityFeedbackMixin, ExplorationBoostMixin, FeedbackClusterHealthMixin, HandlerBase):
+class FeedbackLoopController(EvaluationFeedbackMixin, LossMonitoringMixin, TrainingCurriculumFeedbackMixin, EloVelocityAdaptationMixin, QualityFeedbackMixin, ExplorationBoostMixin, FeedbackClusterHealthMixin, HandlerBase):
     """Central controller orchestrating all feedback signals.
 
     Subscribes to:
@@ -1829,66 +1830,8 @@ class FeedbackLoopController(LossMonitoringMixin, TrainingCurriculumFeedbackMixi
         except (AttributeError, TypeError, KeyError, RuntimeError) as e:
             logger.error(f"[FeedbackLoopController] Error handling regression detected: {e}")
 
-    def _retry_evaluation(self, config_key: str, model_path: str, attempt: int) -> None:
-        """Retry evaluation with modified parameters.
-
-        P10-LOOP-2 (Dec 2025): Secondary retry logic for failed evaluations.
-        Modifies parameters based on attempt number:
-        - Attempt 1: Increase num_games by 50%
-        - Attempt 2: Add delay and increase games by 100%
-        - Attempt 3: Maximum games, longer delay
-        """
-        try:
-            # Parse config key using canonical utility
-            parsed = parse_config_key(config_key)
-            if not parsed:
-                logger.debug(f"[FeedbackLoopController] Invalid config_key format: {config_key}")
-                return
-            board_type = parsed.board_type
-            num_players = parsed.num_players
-
-            # Adjust parameters based on attempt
-            base_games = 100
-            delay = 0.0
-            if attempt == 1:
-                num_games = int(base_games * 1.5)  # 150 games
-                delay = 2.0
-            elif attempt == 2:
-                num_games = int(base_games * 2.0)  # 200 games
-                delay = 5.0
-            else:
-                num_games = int(base_games * 2.5)  # 250 games
-                delay = 10.0
-
-            async def _do_retry():
-                import asyncio
-                if delay > 0:
-                    await asyncio.sleep(delay)
-
-                from app.coordination.pipeline_actions import trigger_evaluation
-
-                logger.info(
-                    f"[FeedbackLoopController] Retrying evaluation for {config_key}: "
-                    f"num_games={num_games}, delay={delay}s"
-                )
-
-                result = await trigger_evaluation(
-                    model_path=model_path,
-                    board_type=board_type,
-                    num_players=num_players,
-                    num_games=num_games,
-                    max_retries=2,  # Reduced retries for secondary attempt
-                )
-
-                if result.success:
-                    logger.info(f"[FeedbackLoopController] Secondary eval succeeded for {config_key}")
-                else:
-                    logger.warning(f"[FeedbackLoopController] Secondary eval failed for {config_key}")
-
-            _safe_create_task(_do_retry(), f"retry_evaluation:{config_key}")
-
-        except (AttributeError, TypeError, RuntimeError, asyncio.CancelledError) as e:
-            logger.error(f"[FeedbackLoopController] Error setting up evaluation retry: {e}")
+    # NOTE: _retry_evaluation is now provided by EvaluationFeedbackMixin
+    # (Sprint 17.9 Phase 4 decomposition)
 
     def _on_promotion_complete(self, event: Any) -> None:
         """Handle promotion completion.
@@ -2091,218 +2034,8 @@ class FeedbackLoopController(LossMonitoringMixin, TrainingCurriculumFeedbackMixi
     # - _emit_quality_degraded(config_key, quality_score, threshold, previous_score)
     # See: app/coordination/feedback/quality_feedback.py
 
-    def _trigger_evaluation(self, config_key: str, model_path: str) -> None:
-        """Trigger multi-harness gauntlet evaluation automatically after training.
-
-        December 2025: Wires TRAINING_COMPLETED → auto-gauntlet evaluation.
-        This closes the training feedback loop by automatically evaluating
-        newly trained models against baselines under ALL compatible harnesses.
-
-        The gauntlet results determine whether the model should be promoted
-        to production or if more training is needed. Multi-harness evaluation
-        enables finding the best (model, harness) combination for deployment.
-        """
-        logger.info(f"[FeedbackLoopController] Triggering multi-harness evaluation for {config_key}")
-
-        try:
-            # Parse config_key using canonical utility
-            parsed = parse_config_key(config_key)
-            if not parsed:
-                logger.warning(f"[FeedbackLoopController] Invalid config_key format: {config_key}")
-                return
-            board_type = parsed.board_type
-            num_players = parsed.num_players
-
-            # Launch multi-harness gauntlet evaluation asynchronously
-            async def run_multi_harness_gauntlet():
-                """Run multi-harness gauntlet evaluation for the trained model.
-
-                December 2025: Evaluates model under ALL compatible harnesses
-                (e.g., policy_only, mcts, gumbel_mcts, descent for NN models).
-                Registers all harness results in Elo system and uses the best
-                harness for promotion decisions.
-
-                Falls back to single-harness evaluation if multi-harness unavailable.
-                """
-                try:
-                    from app.training.multi_harness_gauntlet import (
-                        MultiHarnessGauntlet,
-                        register_multi_harness_results,
-                    )
-
-                    # January 3, 2026 (Session 8): Wait for model distribution before evaluation
-                    # This prevents wasting 45-60s evaluating with stale baseline models
-                    # on cluster nodes that haven't received the new model yet.
-                    try:
-                        from app.coordination.unified_distribution_daemon import (
-                            wait_for_model_availability,
-                        )
-                        from app.config.coordination_defaults import DistributionDefaults
-
-                        # Wait for model to be distributed to at least MIN_NODES_FOR_PROMOTION nodes
-                        # with a reasonable timeout (default 180s for distribution + buffer)
-                        distribution_timeout = getattr(
-                            DistributionDefaults, "DISTRIBUTION_TIMEOUT_SECONDS", 180.0
-                        )
-                        success, node_count = await wait_for_model_availability(
-                            model_path=model_path,
-                            min_nodes=getattr(DistributionDefaults, "MIN_NODES_FOR_PROMOTION", 3),
-                            timeout=distribution_timeout,
-                        )
-
-                        if success:
-                            logger.info(
-                                f"[FeedbackLoopController] Model {config_key} distributed to "
-                                f"{node_count} nodes, proceeding with evaluation"
-                            )
-                        else:
-                            logger.warning(
-                                f"[FeedbackLoopController] Model {config_key} only on {node_count} nodes "
-                                f"after {distribution_timeout}s, proceeding anyway"
-                            )
-                    except ImportError:
-                        logger.debug(
-                            "[FeedbackLoopController] Distribution verification not available, "
-                            "proceeding with evaluation"
-                        )
-
-                    gauntlet = MultiHarnessGauntlet(default_games_per_baseline=30)
-                    result = await gauntlet.evaluate_model(
-                        model_path=model_path,
-                        board_type=board_type,
-                        num_players=num_players,
-                    )
-
-                    # Register all harness results in Elo system
-                    participant_ids = register_multi_harness_results(result)
-                    logger.info(
-                        f"[FeedbackLoopController] Multi-harness evaluation complete for {config_key}: "
-                        f"best={result.best_harness} Elo={result.best_elo:.0f}, "
-                        f"harnesses={list(result.harness_results.keys())}"
-                    )
-
-                    # Use best harness result for promotion decision
-                    if result.best_elo > 0 and result.harness_results:
-                        best_rating = result.harness_results.get(result.best_harness)
-                        if best_rating:
-                            win_rate = getattr(best_rating, "win_rate", 0.0)
-                            elo_delta = result.best_elo - 1000  # Delta from baseline
-                            if win_rate >= 0.55:  # Minimum threshold for promotion consideration
-                                self._consider_promotion(
-                                    config_key,
-                                    model_path,
-                                    win_rate,
-                                    elo_delta,
-                                )
-
-                except ImportError as e:
-                    # Fall back to single-harness evaluation if multi-harness unavailable
-                    logger.debug(
-                        f"[FeedbackLoopController] MultiHarnessGauntlet not available, "
-                        f"falling back to single-harness: {e}"
-                    )
-                    await self._run_single_harness_gauntlet(
-                        config_key, model_path, board_type, num_players
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[FeedbackLoopController] Multi-harness evaluation failed for {config_key}: {e}"
-                    )
-
-            _safe_create_task(run_multi_harness_gauntlet(), f"run_multi_harness_gauntlet({config_key})")
-
-        except ImportError as e:
-            logger.debug(f"[FeedbackLoopController] trigger_evaluation not available: {e}")
-
-    async def _run_single_harness_gauntlet(
-        self, config_key: str, model_path: str, board_type: str, num_players: int
-    ) -> None:
-        """Run single-harness gauntlet as fallback when MultiHarnessGauntlet unavailable.
-
-        This is the legacy evaluation path using pipeline_actions.trigger_evaluation.
-        Used when the multi-harness gauntlet is not available (e.g., missing dependencies).
-
-        Args:
-            config_key: Configuration key (e.g., "hex8_2p")
-            model_path: Path to model checkpoint
-            board_type: Board type string
-            num_players: Number of players
-        """
-        try:
-            from app.coordination.pipeline_actions import trigger_evaluation
-
-            result = await trigger_evaluation(
-                model_path=model_path,
-                board_type=board_type,
-                num_players=num_players,
-                num_games=50,  # Standard gauntlet size
-            )
-            if result.success:
-                logger.info(
-                    f"[FeedbackLoopController] Single-harness gauntlet passed for {config_key}: "
-                    f"eligible={result.metadata.get('promotion_eligible')}"
-                )
-                if result.metadata.get("promotion_eligible"):
-                    self._consider_promotion(
-                        config_key,
-                        model_path,
-                        result.metadata.get("win_rates", {}).get("heuristic", 0) / 100,
-                        result.metadata.get("elo_delta", 0),
-                    )
-            else:
-                logger.warning(
-                    f"[FeedbackLoopController] Single-harness gauntlet failed for {config_key}: "
-                    f"{result.error or 'unknown error'}"
-                )
-        except ImportError:
-            logger.debug("[FeedbackLoopController] trigger_evaluation not available for fallback")
-        except Exception as e:
-            logger.error(f"[FeedbackLoopController] Single-harness fallback failed: {e}")
-
-    def _trigger_gauntlet_all_baselines(self, config_key: str) -> None:
-        """Trigger gauntlet evaluation against all baselines after regression.
-
-        January 3, 2026 (Sprint 12 P1): When a major regression is detected,
-        we trigger a comprehensive gauntlet evaluation against ALL baseline
-        opponents (random, heuristic, and any other canonical models) to
-        reassess the model's true strength.
-
-        This helps detect if the regression was a fluke or if the model
-        genuinely needs more training. Fresh Elo data guides curriculum
-        and training decisions.
-        """
-        logger.info(
-            f"[FeedbackLoopController] Triggering all-baseline gauntlet for {config_key} "
-            f"(post-regression reassessment)"
-        )
-
-        try:
-            parsed = parse_config_key(config_key)
-            if not parsed:
-                logger.warning(f"[FeedbackLoopController] Invalid config_key format: {config_key}")
-                return
-            board_type = parsed.board_type
-            num_players = parsed.num_players
-
-            # Find the current canonical model for this config
-            try:
-                from app.models.discovery import get_canonical_model_path
-
-                model_path = get_canonical_model_path(board_type, num_players)
-                if not model_path:
-                    logger.debug(
-                        f"[FeedbackLoopController] No canonical model found for {config_key}"
-                    )
-                    return
-            except ImportError:
-                logger.debug("[FeedbackLoopController] Model discovery not available")
-                return
-
-            # Use _trigger_evaluation which handles multi-harness gauntlet
-            self._trigger_evaluation(config_key, str(model_path))
-
-        except (AttributeError, TypeError, ValueError) as e:
-            logger.debug(f"[FeedbackLoopController] Failed to trigger gauntlet: {e}")
+    # NOTE: _trigger_evaluation, _run_single_harness_gauntlet, _trigger_gauntlet_all_baselines
+    # are now provided by EvaluationFeedbackMixin (Sprint 17.9 Phase 4 decomposition, ~210 LOC extracted)
 
     def _record_training_in_curriculum(self, config_key: str) -> None:
         """Record training completion in curriculum."""

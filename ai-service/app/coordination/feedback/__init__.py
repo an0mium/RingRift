@@ -12,6 +12,7 @@ Mixins:
 - EloVelocityAdaptationMixin: Elo velocity tracking and adaptive training signals
 - TrainingCurriculumFeedbackMixin: Training -> curriculum feedback and Elo recording
 - LossMonitoringMixin: Loss anomaly detection and trend monitoring
+- EvaluationFeedbackMixin: Evaluation triggering, gauntlet handling, retry logic
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from app.coordination.feedback.quality_feedback import QualityFeedbackMixin
 from app.coordination.feedback.elo_velocity_mixin import EloVelocityAdaptationMixin
 from app.coordination.feedback.training_curriculum_mixin import TrainingCurriculumFeedbackMixin
 from app.coordination.feedback.loss_monitoring_mixin import LossMonitoringMixin
+from app.coordination.feedback.evaluation_feedback_mixin import EvaluationFeedbackMixin
 
 __all__ = [
     "FeedbackClusterHealthMixin",
@@ -30,4 +32,5 @@ __all__ = [
     "EloVelocityAdaptationMixin",
     "TrainingCurriculumFeedbackMixin",
     "LossMonitoringMixin",
+    "EvaluationFeedbackMixin",
 ]
