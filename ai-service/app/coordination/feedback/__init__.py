@@ -7,12 +7,15 @@ the main FeedbackLoopController (4,200 LOC) into smaller, testable modules.
 
 Mixins:
 - FeedbackClusterHealthMixin: Cluster health and capacity event handlers
+- ExplorationBoostMixin: Exploration boost logic (anomaly, stall, decay)
 """
 
 from __future__ import annotations
 
 from app.coordination.feedback.cluster_health_mixin import FeedbackClusterHealthMixin
+from app.coordination.feedback.exploration_boost import ExplorationBoostMixin
 
 __all__ = [
     "FeedbackClusterHealthMixin",
+    "ExplorationBoostMixin",
 ]
