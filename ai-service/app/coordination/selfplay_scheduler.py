@@ -2913,11 +2913,7 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
     ) -> None:
         """Emit SELFPLAY_ALLOCATION_UPDATED event.
 
-        December 2025: Notifies downstream consumers (IdleResourceDaemon, feedback
-        loops) when selfplay allocation has changed. This enables:
-        - IdleResourceDaemon to know which configs are prioritized
-        - Feedback loops to track allocation changes from their signals
-        - Monitoring to track allocation patterns over time
+        Jan 2026: Delegated to selfplay.allocation_events module.
 
         Args:
             allocation: Dict of config_key -> {node_id: games} for batch allocations
@@ -2925,47 +2921,15 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
             trigger: What caused this allocation (e.g., "allocate_batch", "exploration_boost")
             config_key: Specific config that changed (for single-config updates)
         """
-        try:
-            from app.coordination.event_router import DataEventType, get_event_bus
+        from app.coordination.selfplay.allocation_events import emit_allocation_updated
 
-            bus = get_event_bus()
-            if bus is None:
-                return
-
-            # Build allocation summary
-            if allocation:
-                configs_allocated = list(allocation.keys())
-                nodes_involved = set()
-                for node_games in allocation.values():
-                    nodes_involved.update(node_games.keys())
-            else:
-                configs_allocated = [config_key] if config_key else []
-                nodes_involved = set()
-
-            payload = {
-                "trigger": trigger,
-                "total_games": total_games,
-                "configs": configs_allocated,
-                "node_count": len(nodes_involved),
-                "timestamp": time.time(),
-            }
-
-            # Include exploration boosts for tracking feedback loop efficacy
-            if config_key and config_key in self._config_priorities:
-                priority = self._config_priorities[config_key]
-                payload["exploration_boost"] = priority.exploration_boost
-                payload["curriculum_weight"] = priority.curriculum_weight
-
-            bus.emit(DataEventType.SELFPLAY_ALLOCATION_UPDATED, payload)
-            logger.debug(
-                f"[SelfplayScheduler] Emitted SELFPLAY_ALLOCATION_UPDATED: "
-                f"trigger={trigger}, games={total_games}, configs={len(configs_allocated)}"
-            )
-
-        except ImportError:
-            pass  # Event system not available
-        except Exception as e:
-            logger.debug(f"[SelfplayScheduler] Failed to emit allocation update: {e}")
+        emit_allocation_updated(
+            allocation=allocation,
+            total_games=total_games,
+            trigger=trigger,
+            config_key=config_key,
+            config_priorities=self._config_priorities,
+        )
 
     def _emit_starvation_alert(
         self,
@@ -2975,41 +2939,20 @@ class SelfplayScheduler(SelfplayVelocityMixin, SelfplayQualitySignalMixin, Selfp
     ) -> None:
         """Emit DATA_STARVATION_CRITICAL event to trigger priority dispatch.
 
-        Jan 5, 2026: Added for automatic starvation response. When ULTRA starvation
-        is detected (<20 games), this event enables QueuePopulatorLoop to auto-submit
-        priority selfplay jobs without manual intervention.
+        Jan 2026: Delegated to selfplay.allocation_events module.
 
         Args:
             config_key: Config with starvation (e.g., "square19_3p")
             game_count: Current game count for this config
             tier: Starvation tier ("ULTRA", "EMERGENCY", "CRITICAL")
         """
-        try:
-            from app.coordination.event_router import DataEventType, get_event_bus
+        from app.coordination.selfplay.allocation_events import emit_starvation_alert
 
-            bus = get_event_bus()
-            if bus is None:
-                return
-
-            payload = {
-                "config_key": config_key,
-                "game_count": game_count,
-                "tier": tier,
-                "threshold": DATA_STARVATION_ULTRA_THRESHOLD,
-                "multiplier": DATA_STARVATION_ULTRA_MULTIPLIER,
-                "timestamp": time.time(),
-            }
-
-            bus.emit(DataEventType.DATA_STARVATION_CRITICAL, payload)
-            logger.info(
-                f"[SelfplayScheduler] Emitted DATA_STARVATION_CRITICAL: "
-                f"{config_key} ({tier} tier, {game_count} games)"
-            )
-
-        except ImportError:
-            pass  # Event system not available
-        except Exception as e:
-            logger.debug(f"[SelfplayScheduler] Failed to emit starvation alert: {e}")
+        emit_starvation_alert(
+            config_key=config_key,
+            game_count=game_count,
+            tier=tier,
+        )
 
     # =========================================================================
     # Idle Node Work Injection (Jan 5, 2026 - Sprint 17.30)

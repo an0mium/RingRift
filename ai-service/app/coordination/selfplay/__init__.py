@@ -68,6 +68,13 @@ from app.coordination.selfplay.priority_boosts import (
     get_architecture_boosts,
 )
 
+# January 2026: Allocation event emission helpers
+from app.coordination.selfplay.allocation_events import (
+    emit_allocation_updated,
+    emit_starvation_alert,
+    emit_idle_node_work_injected,
+)
+
 # Lazy import for SelfplayScheduler to avoid circular imports
 # When quality_signal_handler.py imports from this package, the scheduler
 # hasn't been fully loaded yet
@@ -128,4 +135,8 @@ __all__ = [
     "get_improvement_boosts",
     "get_momentum_multipliers",
     "get_architecture_boosts",
+    # Allocation events (Jan 2026)
+    "emit_allocation_updated",
+    "emit_starvation_alert",
+    "emit_idle_node_work_injected",
 ]
