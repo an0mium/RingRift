@@ -164,6 +164,55 @@ def api_stats():
     return jsonify(stats)
 
 
+@app.route("/api/progress")
+def api_progress():
+    """Get Elo progress report for demonstrating iterative improvement.
+
+    January 16, 2026: Added for progress dashboard.
+
+    Query parameters:
+        config: Optional config filter (e.g., "hex8_2p")
+        days: Lookback period in days (default: 30)
+
+    Returns JSON with:
+        - configs: Per-config progress data
+        - overall: Summary stats
+        - generated_at: Timestamp
+    """
+    config_filter = request.args.get("config")
+    try:
+        days = float(request.args.get("days", "30"))
+    except ValueError:
+        days = 30.0
+
+    try:
+        # Import and use progress report module
+        from scripts.elo_progress_report import get_full_report
+        from dataclasses import asdict
+
+        report = get_full_report(days=days, config_filter=config_filter)
+
+        # Convert to JSON-serializable dict
+        data = {
+            "configs": {k: asdict(v) for k, v in report.configs.items()},
+            "overall": asdict(report.overall),
+            "generated_at": report.generated_at,
+        }
+
+        return jsonify(data)
+
+    except ImportError as e:
+        return jsonify({
+            "error": "progress_report_unavailable",
+            "detail": str(e),
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "error": "internal_error",
+            "detail": str(e),
+        }), 500
+
+
 @app.route("/api/promotions")
 def api_promotions():
     """Get recent model promotions."""
