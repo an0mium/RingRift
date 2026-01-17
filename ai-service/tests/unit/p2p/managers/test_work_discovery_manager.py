@@ -874,6 +874,75 @@ class TestSelfplayEnabledCheck:
                 assert result is True
 
 
+class TestSelfplayDisabledOverride:
+    """Tests for set_selfplay_disabled_override function (January 2026).
+
+    Tests the runtime override for --training-only nodes that should
+    not receive selfplay jobs.
+    """
+
+    def test_set_selfplay_disabled_override_disables_selfplay(self):
+        """Test that override disables selfplay."""
+        from scripts.p2p.managers.work_discovery_manager import (
+            set_selfplay_disabled_override,
+        )
+        import scripts.p2p.managers.work_discovery_manager as module
+
+        # Set override to disable selfplay
+        set_selfplay_disabled_override(disabled=True)
+
+        # Cache should be set
+        assert module._selfplay_enabled_checked is True
+        assert module._selfplay_enabled is False
+
+        # Function should return False
+        assert _is_selfplay_enabled_for_node() is False
+
+    def test_set_selfplay_disabled_override_enables_selfplay(self):
+        """Test that override can enable selfplay."""
+        from scripts.p2p.managers.work_discovery_manager import (
+            set_selfplay_disabled_override,
+        )
+        import scripts.p2p.managers.work_discovery_manager as module
+
+        # Set override to enable selfplay
+        set_selfplay_disabled_override(disabled=False)
+
+        # Cache should be set
+        assert module._selfplay_enabled_checked is True
+        assert module._selfplay_enabled is True
+
+        # Function should return True
+        assert _is_selfplay_enabled_for_node() is True
+
+    def test_override_takes_precedence_over_config(self):
+        """Test that override takes precedence over YAML config."""
+        from scripts.p2p.managers.work_discovery_manager import (
+            set_selfplay_disabled_override,
+        )
+        import scripts.p2p.managers.work_discovery_manager as module
+
+        # First, simulate config saying selfplay is enabled
+        module._selfplay_enabled_checked = True
+        module._selfplay_enabled = True
+        assert _is_selfplay_enabled_for_node() is True
+
+        # Now override to disable
+        set_selfplay_disabled_override(disabled=True)
+        assert _is_selfplay_enabled_for_node() is False
+
+    def test_override_logs_info_message(self):
+        """Test that override logs an info message."""
+        from scripts.p2p.managers.work_discovery_manager import (
+            set_selfplay_disabled_override,
+        )
+
+        with patch("scripts.p2p.managers.work_discovery_manager.logger") as mock_logger:
+            set_selfplay_disabled_override(disabled=True)
+            mock_logger.info.assert_called_once()
+            assert "selfplay_enabled=False" in mock_logger.info.call_args[0][0]
+
+
 # ============================================================================
 # Edge Cases
 # ============================================================================

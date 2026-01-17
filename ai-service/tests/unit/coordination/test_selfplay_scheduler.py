@@ -297,3 +297,115 @@ class TestSelfplaySchedulerIntegration:
         assert large1.is_large_board
         assert large2.is_large_board
         assert not small.is_large_board
+
+
+class TestTrainingOnlyNodes:
+    """Tests for training-only node feature (January 2026).
+
+    Tests the ability to exclude nodes with selfplay_enabled=False from
+    receiving selfplay jobs, preventing OOM from training + selfplay conflicts.
+    """
+
+    def setup_method(self):
+        """Reset singleton before each test."""
+        reset_selfplay_scheduler()
+
+    def test_is_selfplay_enabled_returns_true_by_default(self):
+        """Test that _is_selfplay_enabled returns True for unknown nodes."""
+        scheduler = get_selfplay_scheduler()
+        # Unknown node should default to True (allow selfplay)
+        assert scheduler._is_selfplay_enabled("unknown-node-xyz") is True
+
+    def test_is_selfplay_enabled_with_mock_cluster_config(self):
+        """Test _is_selfplay_enabled respects cluster config."""
+        from app.config.cluster_config import ClusterNode
+
+        mock_nodes = {
+            "training-only-node": MagicMock(selfplay_enabled=False),
+            "normal-node": MagicMock(selfplay_enabled=True),
+        }
+
+        scheduler = get_selfplay_scheduler()
+        with patch(
+            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            return_value=mock_nodes,
+        ):
+            assert scheduler._is_selfplay_enabled("training-only-node") is False
+            assert scheduler._is_selfplay_enabled("normal-node") is True
+            # Unknown node still defaults to True
+            assert scheduler._is_selfplay_enabled("other-node") is True
+
+    def test_is_selfplay_enabled_handles_exception_gracefully(self):
+        """Test that config errors default to allowing selfplay."""
+        scheduler = get_selfplay_scheduler()
+        with patch(
+            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            side_effect=Exception("Config error"),
+        ):
+            # Should return True (allow selfplay) on error
+            assert scheduler._is_selfplay_enabled("any-node") is True
+
+    def test_training_only_filtering_logic(self):
+        """Test that training-only nodes are correctly identified for exclusion.
+
+        This tests the _is_selfplay_enabled check that feeds into allocation.
+        """
+        scheduler = get_selfplay_scheduler()
+
+        mock_cluster_nodes = {
+            "gpu-node-1": MagicMock(selfplay_enabled=True),
+            "training-node-1": MagicMock(selfplay_enabled=False),
+            "training-node-2": MagicMock(selfplay_enabled=False),
+            "gpu-node-2": MagicMock(selfplay_enabled=True),
+        }
+
+        with patch(
+            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            return_value=mock_cluster_nodes,
+        ):
+            # Check selfplay enabled status for each node
+            assert scheduler._is_selfplay_enabled("gpu-node-1") is True
+            assert scheduler._is_selfplay_enabled("training-node-1") is False
+            assert scheduler._is_selfplay_enabled("training-node-2") is False
+            assert scheduler._is_selfplay_enabled("gpu-node-2") is True
+
+            # Count how many would be excluded
+            excluded = sum(
+                1 for node_id in mock_cluster_nodes
+                if not scheduler._is_selfplay_enabled(node_id)
+            )
+            assert excluded == 2
+
+    def test_training_only_nodes_set_construction(self):
+        """Test that training_only_nodes set is built correctly."""
+        scheduler = get_selfplay_scheduler()
+
+        # Mock node capabilities with 3 nodes
+        from app.coordination.node_allocator import NodeCapability
+
+        scheduler._node_capabilities = {
+            "node-a": NodeCapability(node_id="node-a", gpu_type="A100", gpu_memory_gb=80),
+            "node-b": NodeCapability(node_id="node-b", gpu_type="GH200", gpu_memory_gb=96),
+            "node-c": NodeCapability(node_id="node-c", gpu_type="RTX4090", gpu_memory_gb=24),
+        }
+
+        mock_cluster_nodes = {
+            "node-a": MagicMock(selfplay_enabled=True),
+            "node-b": MagicMock(selfplay_enabled=False),  # Training-only
+            "node-c": MagicMock(selfplay_enabled=False),  # Training-only
+        }
+
+        with patch(
+            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            return_value=mock_cluster_nodes,
+        ):
+            # Build the set manually to verify
+            training_only = set()
+            for node_id in scheduler._node_capabilities.keys():
+                if not scheduler._is_selfplay_enabled(node_id):
+                    training_only.add(node_id)
+
+            assert len(training_only) == 2
+            assert "node-b" in training_only
+            assert "node-c" in training_only
+            assert "node-a" not in training_only
