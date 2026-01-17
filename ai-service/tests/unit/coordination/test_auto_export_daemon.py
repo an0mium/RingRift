@@ -204,7 +204,8 @@ class TestAutoExportDaemon:
         assert config.min_games_threshold == 50
         # Reduced from 300s → 60s (Dec 2025) to minimize training data lag
         assert config.export_cooldown_seconds == 60
-        assert config.max_concurrent_exports == 2
+        # Increased from 2 → 4 (Jan 2026) for better parallelism
+        assert config.max_concurrent_exports == 4
         assert config.use_incremental_export is True
         assert config.require_completed_games is True
         assert config.min_moves == 10
