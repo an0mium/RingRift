@@ -308,7 +308,10 @@
     <script>
         // Configuration
         const TARGET_ELO = 2000;
-        const API_BASE = window.location.port === '8080' ? '' : 'http://localhost:8770';
+        // Detect environment and set API base accordingly
+        const isProduction = window.location.hostname.includes('ringrift.ai');
+        const isLocalDashboard = window.location.port === '8080';
+        const API_BASE = isProduction ? '/ai-dashboard/api' : (isLocalDashboard ? '' : 'http://localhost:8770');
 
         let progressChart = null;
         let currentDays = 7;

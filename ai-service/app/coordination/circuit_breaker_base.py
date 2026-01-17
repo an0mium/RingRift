@@ -1272,8 +1272,9 @@ class OperationCircuitBreaker(CircuitBreakerBase):
                             "timestamp": time.time(),
                         },
                     )
-        except (ImportError, RuntimeError, TypeError, AttributeError):
-            pass  # Graceful fallback if event system unavailable
+        except (ImportError, RuntimeError, TypeError, AttributeError) as e:
+            # Jan 16, 2026: Log event emission failures instead of silently ignoring
+            logger.debug(f"[CircuitBreaker] Failed to emit state change event: {type(e).__name__}: {e}")
 
     def _emit_escalation_event(
         self, target: str, old_tier: int, new_tier: int, consecutive_opens: int
@@ -1300,8 +1301,9 @@ class OperationCircuitBreaker(CircuitBreakerBase):
                         "timestamp": time.time(),
                     },
                 )
-        except (ImportError, RuntimeError, TypeError, AttributeError):
-            pass
+        except (ImportError, RuntimeError, TypeError, AttributeError) as e:
+            # Jan 16, 2026: Log event emission failures instead of silently ignoring
+            logger.debug(f"[CircuitBreaker] Failed to emit escalation event: {type(e).__name__}: {e}")
 
 
 # =============================================================================

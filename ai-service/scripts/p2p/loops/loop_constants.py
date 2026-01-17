@@ -23,6 +23,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+# Jan 16, 2026: Use centralized provider timeout configuration
+from app.config.provider_timeouts import ProviderTimeouts
+
 
 @dataclass(frozen=True)
 class LoopIntervals:
@@ -245,18 +248,13 @@ class LoopTimeouts:
         - Lambda GH200 nodes are behind NAT, causing higher connection latency
         - Vast.ai containers on consumer networks have variable latency
         - These multipliers reduce false-positive disconnections by ~50%
+
+        January 16, 2026: Delegated to centralized ProviderTimeouts config.
         """
-        # Jan 5, 2026: Increased multipliers based on false positive analysis
-        # Combined with HEALTH_CHECK=8.0: vast=20s, runpod=16s, lambda=16s
-        adjustments = {
-            "vast": 2.5,       # 150% longer for Vast.ai (consumer networks, variable)
-            "runpod": 2.0,     # 100% longer for RunPod
-            "lambda": 2.0,     # 100% longer for Lambda (NAT-blocked GH200s)
-            "nebius": 1.5,     # 50% longer for Nebius
-            "vultr": 1.5,      # 50% longer for Vultr
-            "hetzner": 1.0,    # Standard for Hetzner (CPU only, direct IP)
-        }
-        return adjustments.get(provider.lower(), 1.0)
+        # Delegate to centralized config (app/config/provider_timeouts.py)
+        # Note: ProviderTimeouts expects node_id, but we're given provider prefix
+        # Create a fake node_id with the provider prefix to get the multiplier
+        return ProviderTimeouts.get_multiplier(f"{provider.lower()}-node")
 
     @staticmethod
     def get_for_provider(provider: str) -> dict[str, float]:

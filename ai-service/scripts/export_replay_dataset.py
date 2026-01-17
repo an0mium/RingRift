@@ -800,6 +800,19 @@ def export_replay_dataset_multi(
         db_samples = 0
         db_dedup = 0
 
+        # Get total game count for progress tracking (January 2026)
+        try:
+            db_total_games = db.get_game_count(
+                board_type=board_type,
+                num_players=num_players,
+            )
+        except Exception:
+            db_total_games = 0  # Fallback if count fails
+        progress_interval = max(100, db_total_games // 20) if db_total_games > 0 else 100  # Report ~20 times or every 100 games
+        import time as _time_module
+        _progress_start = _time_module.time()
+        _last_progress_time = _progress_start
+
         for meta, initial_state, moves, game_move_probs in db.iterate_games_with_probs(**query_filters):
             game_id = meta.get("game_id")
 
@@ -1263,6 +1276,18 @@ def export_replay_dataset_multi(
                 db_games += 1
                 db_samples += samples_added
 
+                # Progress logging (January 2026)
+                if db_total_games > 0 and db_games % progress_interval == 0:
+                    _current_time = _time_module.time()
+                    _elapsed = _current_time - _progress_start
+                    _pct = (db_games / db_total_games) * 100
+                    _rate = db_games / _elapsed if _elapsed > 0 else 0
+                    _remaining = (db_total_games - db_games) / _rate if _rate > 0 else 0
+                    print(f"    Progress: {db_games:,}/{db_total_games:,} games ({_pct:.1f}%), "
+                          f"{db_samples:,} samples, {_rate:.1f} games/s, ~{_remaining:.0f}s remaining",
+                          flush=True)
+                    _last_progress_time = _current_time
+
                 # Track newest game timestamp for freshness metadata
                 # Prefer completed_at over created_at since we want when game ended
                 game_time = meta.get("completed_at") or meta.get("created_at")
@@ -1275,7 +1300,8 @@ def export_replay_dataset_multi(
             if max_games is not None and games_processed >= max_games:
                 break
 
-        print(f"    -> {db_games} games, {db_samples} samples, {db_dedup} deduplicated")
+        _db_elapsed = _time_module.time() - _progress_start
+        print(f"    -> {db_games} games, {db_samples} samples, {db_dedup} deduplicated ({_db_elapsed:.1f}s)")
 
         if max_games is not None and games_processed >= max_games:
             print(f"  Reached max_games limit ({max_games})")

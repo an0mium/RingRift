@@ -60,67 +60,31 @@ from urllib.parse import urlparse
 
 from .base import BaseLoop
 
+# Jan 16, 2026: Use centralized provider timeout configuration
+from app.config.provider_timeouts import ProviderTimeouts
+
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
 # Provider-Specific Timeouts (Phase 7.2 - Jan 5, 2026)
 # =============================================================================
+# Jan 16, 2026: Now delegated to centralized ProviderTimeouts config.
+# These aliases are kept for backward compatibility with existing callers.
 
-# Provider probe timeout multipliers based on network characteristics.
-# Problem: 20s fixed timeout causes 22-30% false positives for slow providers.
-# Solution: Provider-aware timeouts reduce false positives to <5%.
-PROVIDER_PROBE_TIMEOUTS: dict[str, float] = {
-    "lambda": 25.0,    # NAT relay adds latency (relay_primary/secondary hops)
-    "vast": 35.0,      # Consumer networks, high variance under load
-    "runpod": 30.0,    # Container networking overhead
-    "nebius": 20.0,    # Stable cloud infrastructure
-    "hetzner": 20.0,   # Stable bare metal, no vGPU overhead
-    "vultr": 25.0,     # vGPU overhead and shared infrastructure
-    "local": 15.0,     # Local nodes (mac-studio, local-mac)
-}
+# Backward-compatible aliases using centralized config
+PROVIDER_PROBE_TIMEOUTS: dict[str, float] = ProviderTimeouts.PROBE_TIMEOUTS
 
 # Default timeout for unknown providers (conservative)
-DEFAULT_PROVIDER_TIMEOUT: float = 25.0
+DEFAULT_PROVIDER_TIMEOUT: float = ProviderTimeouts.DEFAULT_PROBE_TIMEOUT
 
 
 def _extract_provider_from_node_id(node_id: str) -> str:
     """Extract provider name from node_id prefix.
 
-    Node IDs follow pattern: {provider}-{identifier}
-    Examples:
-        lambda-gh200-1 -> lambda
-        vast-29031159 -> vast
-        runpod-h100 -> runpod
-        nebius-backbone-1 -> nebius
-        hetzner-cpu1 -> hetzner
-        vultr-a100-20gb -> vultr
-        mac-studio -> local
-        local-mac -> local
-
-    Args:
-        node_id: Node identifier string
-
-    Returns:
-        Provider name in lowercase
+    Jan 16, 2026: Delegated to centralized ProviderTimeouts.extract_provider().
     """
-    if not node_id:
-        return "unknown"
-
-    node_lower = node_id.lower()
-
-    # Check for known provider prefixes
-    for provider in PROVIDER_PROBE_TIMEOUTS:
-        if node_lower.startswith(provider):
-            return provider
-
-    # Special cases for local nodes
-    if "mac-studio" in node_lower or "mac_studio" in node_lower:
-        return "local"
-    if "local" in node_lower:
-        return "local"
-
-    return "unknown"
+    return ProviderTimeouts.extract_provider(node_id)
 
 
 def get_provider_probe_timeout(node_id: str, base_timeout: float = 20.0) -> float:
@@ -132,15 +96,16 @@ def get_provider_probe_timeout(node_id: str, base_timeout: float = 20.0) -> floa
     - Lambda GH200: NAT-blocked, relay adds ~5s latency
     - Nebius/Hetzner: Stable cloud/bare metal with consistent <20s responses
 
+    Jan 16, 2026: Delegated to centralized ProviderTimeouts.get_probe_timeout().
+
     Args:
         node_id: Node identifier to look up provider for
-        base_timeout: Base timeout to use if provider not found
+        base_timeout: Base timeout to use if provider not found (ignored - uses centralized config)
 
     Returns:
         Provider-appropriate probe timeout in seconds
     """
-    provider = _extract_provider_from_node_id(node_id)
-    return PROVIDER_PROBE_TIMEOUTS.get(provider, DEFAULT_PROVIDER_TIMEOUT)
+    return ProviderTimeouts.get_probe_timeout(node_id)
 
 
 def check_tcp_connectivity(address: str, timeout: float = 2.0) -> bool:

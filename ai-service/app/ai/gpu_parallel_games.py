@@ -544,7 +544,8 @@ class ParallelGameRunner:
 
         # Store commonly accessed attributes directly for performance
         self.batch_size = batch_size
-        self.board_size = board_size
+        # Handle board_size if passed as tuple (e.g., (8, 8) instead of 8)
+        self.board_size = board_size[0] if isinstance(board_size, tuple) else board_size
         self.num_players = num_players
         self.swap_enabled = swap_enabled
         self.board_type = board_type
@@ -588,7 +589,7 @@ class ParallelGameRunner:
         # Pre-allocate state buffer
         self.state = BatchGameState.create_batch(
             batch_size=batch_size,
-            board_size=board_size,
+            board_size=self.board_size,  # Use validated board_size (int, not tuple)
             num_players=num_players,
             device=self.device,
             rings_per_player=rings_per_player,

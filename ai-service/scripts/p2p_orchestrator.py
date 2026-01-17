@@ -12588,6 +12588,58 @@ class P2POrchestrator(
             "data_summary": self._get_data_summary_cached(),
         })
 
+    @with_request_timeout(10.0)
+    async def handle_progress(self, request: web.Request) -> web.Response:
+        """GET /progress - Return Elo progress report for demonstrating iterative improvement.
+
+        January 16, 2026: Added to provide visibility into NN strength improvement.
+
+        Query parameters:
+            config: Optional config filter (e.g., "hex8_2p")
+            days: Lookback period in days (default: 30)
+
+        Returns JSON with:
+            - configs: Per-config progress data (starting_elo, current_elo, delta, iterations)
+            - overall: Summary stats (total_iterations, configs_improving, avg_elo_gain)
+            - generated_at: Timestamp
+        """
+        config_filter = request.query.get("config")
+        try:
+            days = float(request.query.get("days", "30"))
+        except ValueError:
+            days = 30.0
+
+        try:
+            # Import progress report logic
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent))
+            from scripts.elo_progress_report import get_full_report
+            from dataclasses import asdict
+
+            report = get_full_report(days=days, config_filter=config_filter)
+
+            # Convert to JSON-serializable dict
+            data = {
+                "configs": {k: asdict(v) for k, v in report.configs.items()},
+                "overall": asdict(report.overall),
+                "generated_at": report.generated_at,
+            }
+
+            return web.json_response(data)
+
+        except ImportError as e:
+            logger.warning(f"[handle_progress] Import error: {e}")
+            return web.json_response({
+                "error": "progress_report_unavailable",
+                "detail": str(e),
+            }, status=500)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[handle_progress] Error generating progress report: {e}")
+            return web.json_response({
+                "error": "internal_error",
+                "detail": str(e),
+            }, status=500)
+
     # -------------------------------------------------------------------------
     # Peer Health Handlers - EXTRACTED to scripts/p2p/handlers/status.py
     # January 2026 - P2P Modularization Phase 6a
@@ -29461,6 +29513,7 @@ print(json.dumps({{
         if not _routes_registered:
             app.router.add_post('/heartbeat', self.handle_heartbeat)
             app.router.add_get('/status', self.handle_status)
+            app.router.add_get('/progress', self.handle_progress)  # Jan 16, 2026: Elo progress endpoint
             app.router.add_get('/external_work', self.handle_external_work)
             # Jan 3, 2026: Sprint 10+ P2P hardening - peer health scoring endpoint
             app.router.add_get('/peer-health', self.handle_peer_health)

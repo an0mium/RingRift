@@ -33,6 +33,9 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
+# Jan 16, 2026: Use centralized provider timeout configuration
+from app.config.provider_timeouts import ProviderTimeouts
+
 logger = logging.getLogger(__name__)
 
 # Pool configuration
@@ -55,57 +58,22 @@ DEFAULT_HEALTH_CHECK_INTERVAL = 60.0  # 1 minute
 # Solution: Apply provider-specific multipliers to align with peer_recovery_loop.py
 # and ssh_transport.py timeout behavior for consistent network operations.
 #
-PROVIDER_TIMEOUT_MULTIPLIERS: dict[str, float] = {
-    "vast": 2.0,       # 60s - consumer networks, high variance under load
-    "lambda": 1.5,     # 45s - NAT relay adds latency (relay_primary/secondary hops)
-    "runpod": 1.5,     # 45s - container networking overhead
-    "nebius": 1.0,     # 30s - stable cloud infrastructure
-    "hetzner": 1.0,    # 30s - stable bare metal, no vGPU overhead
-    "vultr": 1.2,      # 36s - vGPU overhead and shared infrastructure
-    "local": 0.5,      # 15s - local nodes (mac-studio, local-mac)
-}
+# Jan 16, 2026: Now delegated to centralized ProviderTimeouts config.
+# These aliases are kept for backward compatibility with existing callers.
+
+# Backward-compatible alias using centralized config
+PROVIDER_TIMEOUT_MULTIPLIERS: dict[str, float] = ProviderTimeouts.MULTIPLIERS
 
 # Default multiplier for unknown providers (conservative)
-DEFAULT_PROVIDER_MULTIPLIER: float = 1.2
+DEFAULT_PROVIDER_MULTIPLIER: float = ProviderTimeouts.DEFAULT_MULTIPLIER
 
 
 def _extract_provider_from_peer_id(peer_id: str) -> str:
     """Extract provider name from peer_id prefix.
 
-    Peer IDs follow pattern: {provider}-{identifier}
-    Examples:
-        lambda-gh200-1 -> lambda
-        vast-29031159 -> vast
-        runpod-h100 -> runpod
-        nebius-backbone-1 -> nebius
-        hetzner-cpu1 -> hetzner
-        vultr-a100-20gb -> vultr
-        mac-studio -> local
-        local-mac -> local
-
-    Args:
-        peer_id: Peer identifier string
-
-    Returns:
-        Provider name in lowercase
+    Jan 16, 2026: Delegated to centralized ProviderTimeouts.extract_provider().
     """
-    if not peer_id:
-        return "unknown"
-
-    peer_lower = peer_id.lower()
-
-    # Check for known provider prefixes
-    for provider in PROVIDER_TIMEOUT_MULTIPLIERS:
-        if peer_lower.startswith(provider):
-            return provider
-
-    # Special cases for local nodes
-    if "mac-studio" in peer_lower or "mac_studio" in peer_lower:
-        return "local"
-    if "local" in peer_lower:
-        return "local"
-
-    return "unknown"
+    return ProviderTimeouts.extract_provider(peer_id)
 
 
 def get_provider_connection_timeout(
@@ -117,6 +85,8 @@ def get_provider_connection_timeout(
     multipliers used in SSH transport and peer recovery for consistent
     behavior across all P2P operations.
 
+    Jan 16, 2026: Delegated to centralized ProviderTimeouts.get_timeout().
+
     Args:
         peer_id: Peer identifier to look up provider for
         base_timeout: Base timeout to multiply (default: DEFAULT_CONNECTION_TIMEOUT)
@@ -124,9 +94,7 @@ def get_provider_connection_timeout(
     Returns:
         Provider-appropriate connection timeout in seconds
     """
-    provider = _extract_provider_from_peer_id(peer_id)
-    multiplier = PROVIDER_TIMEOUT_MULTIPLIERS.get(provider, DEFAULT_PROVIDER_MULTIPLIER)
-    return base_timeout * multiplier
+    return ProviderTimeouts.get_timeout(peer_id, base_timeout)
 
 
 @dataclass

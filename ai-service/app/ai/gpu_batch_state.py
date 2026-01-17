@@ -210,6 +210,10 @@ class BatchGameState:
         if device is None:
             device = get_device()
 
+        # Handle board_size if passed as tuple (e.g., (8, 8) instead of 8)
+        if isinstance(board_size, tuple):
+            board_size = board_size[0]  # Use first dimension
+
         # Determine starting rings based on board type or size
         if rings_per_player is None:
             if board_type == "hexagonal":
