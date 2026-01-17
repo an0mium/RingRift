@@ -36,8 +36,10 @@ from typing import Any, AsyncIterator
 logger = logging.getLogger(__name__)
 
 # Pool configuration
-DEFAULT_MAX_CONNECTIONS_PER_PEER = 3
-DEFAULT_MAX_TOTAL_CONNECTIONS = 100
+# Jan 16, 2026: Increased from 3/100 to 8/250 to reduce connection exhaustion
+# on 40+ node clusters during high-activity periods (model sync, gauntlet runs)
+DEFAULT_MAX_CONNECTIONS_PER_PEER = 8
+DEFAULT_MAX_TOTAL_CONNECTIONS = 250
 DEFAULT_CONNECTION_TIMEOUT = 30.0  # seconds (base timeout, multiplied by provider factor)
 DEFAULT_IDLE_TIMEOUT = 300.0  # 5 minutes
 DEFAULT_HEALTH_CHECK_INTERVAL = 60.0  # 1 minute

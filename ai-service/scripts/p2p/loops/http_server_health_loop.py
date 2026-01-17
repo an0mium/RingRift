@@ -68,7 +68,7 @@ class HttpServerHealthConfig:
     """
 
     probe_interval_seconds: float = 10.0
-    probe_timeout_seconds: float = 5.0
+    probe_timeout_seconds: float = 10.0  # Jan 16, 2026: Increased from 5.0 to reduce false restarts
     failure_threshold: int = 4  # Reduced from 6: faster detection (40s vs 60s)
     recovery_attempts: int = 2
     recovery_delay_seconds: float = 5.0

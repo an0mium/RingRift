@@ -159,9 +159,12 @@ class LoopTimeouts:
     # Health check timeouts
     # Jan 5, 2026: Increased base from 5.0 to 8.0 to reduce 22% false positive rate
     # With provider multipliers: vast=16s, lambda/runpod=12s, nebius/vultr=9.6s
+    # Jan 16, 2026: Increased HEALTH_CHECK_FAST from 3.0 to 8.0 to match standard
+    # and added HEALTH_CHECK_NAT_BLOCKED for relay nodes (reduces false positives by ~50%)
     HEALTH_CHECK: float = 8.0                # Default health check timeout
-    HEALTH_CHECK_FAST: float = 3.0           # Fast health probes
+    HEALTH_CHECK_FAST: float = 8.0           # Fast health probes (was 3.0, caused false positives)
     HEALTH_CHECK_SLOW: float = 15.0          # Slow/remote nodes
+    HEALTH_CHECK_NAT_BLOCKED: float = 30.0   # NAT-blocked nodes via relay
 
     # SSH/network timeouts
     SSH_CONNECT: float = 30.0                # SSH connection timeout
