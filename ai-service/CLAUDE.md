@@ -51,6 +51,113 @@ curl -s http://localhost:8770/status | python3 -c 'import sys,json; d=json.load(
 python scripts/update_all_nodes.py --safe-mode --restart-p2p
 ```
 
+## Verifying NN Strength Improvement
+
+The master loop demonstrates iterative neural network improvement through Elo rating progression. Use these tools to verify that training produces stronger models over time.
+
+### Progress Report CLI
+
+```bash
+# Show Elo progress for all 12 configs
+python scripts/elo_progress_report.py
+
+# Filter to specific config
+python scripts/elo_progress_report.py --config hex8_2p
+
+# JSON output for scripting
+python scripts/elo_progress_report.py --format json
+
+# Custom lookback period (default: 30 days)
+python scripts/elo_progress_report.py --days 7
+```
+
+**Sample output:**
+
+```
+ELO PROGRESS REPORT - Demonstrating Iterative NN Strength Improvement
+Generated: 2026-01-16 | Target: 2000.0 Elo
+
+Config           Start  Current    Delta  Iters   Progress Status
+---------------------------------------------------------------------------
+hex8_2p           1355     1409      +54      9      40.9% IMPROVING
+hex8_3p           1590     1610      +20     22      61.0% IMPROVING
+...
+SUMMARY                     1235       +4     87
+
+Configs improving: 4/12
+Avg Elo gain per iteration: +6.0
+```
+
+### Progress Endpoint
+
+Query the P2P leader for Elo progress:
+
+```bash
+# Get progress for all configs
+curl http://localhost:8770/progress | jq '.'
+
+# Filter to specific config
+curl "http://localhost:8770/progress?config=hex8_2p" | jq '.'
+```
+
+### Key Metrics
+
+| Metric             | Description                    | Target   |
+| ------------------ | ------------------------------ | -------- |
+| `current_elo`      | Best model's Elo rating        | 2000+    |
+| `delta`            | Improvement from starting Elo  | Positive |
+| `iterations`       | Training generations completed | Growing  |
+| `progress_percent` | Progress toward 2000 Elo       | 100%     |
+
+### Web Dashboard
+
+**Local Development:**
+
+```bash
+python scripts/dashboard_server.py --port 8080
+```
+
+Then open http://localhost:8080/progress_dashboard.html
+
+**Production Deployment (ringrift.ai):**
+
+1. Copy ai-service to production server
+2. Install dependencies:
+   ```bash
+   pip install flask flask-cors
+   ```
+3. Start with PM2:
+   ```bash
+   cd /home/ubuntu/ringrift/ai-service
+   pm2 start ecosystem.dashboard.config.js
+   ```
+4. Reload nginx (config already includes `/ai-dashboard/` proxy):
+   ```bash
+   sudo nginx -t && sudo nginx -s reload
+   ```
+5. Access at: https://ringrift.ai/ai-dashboard/progress_dashboard.html
+
+**Available dashboards on ringrift.ai:**
+
+- `/ai-dashboard/progress_dashboard.html` - Elo progress and training iterations
+- `/ai-dashboard/elo_dashboard.html` - Detailed Elo ratings
+- `/ai-dashboard/model_dashboard.html` - Model performance overview
+- `/ai-dashboard/work_queue_dashboard.html` - Work queue status
+- `/ai-dashboard/training_dashboard.html` - Training metrics
+
+The dashboard shows:
+
+- Summary stats (total iterations, configs improving, average Elo)
+- Config cards with current Elo, delta, and progress bar
+- Elo progression chart over time (7/14/30/90 days)
+
+### Tracking Infrastructure
+
+- **`data/elo_progress.db`**: Elo snapshots over time
+- **`data/generation_tracking.db`**: Training iteration history
+- **`EloProgressTracker`**: Records snapshots on EVALUATION_COMPLETED
+- **`GenerationTracker`**: Tracks model lineage and training data
+
 ## Cluster Infrastructure
 
 ~41 nodes, ~1.5TB GPU memory across providers:
