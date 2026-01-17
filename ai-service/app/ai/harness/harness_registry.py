@@ -237,6 +237,7 @@ def create_harness(
     depth: int = 3,
     model_type: ModelType | None = None,
     extra: dict[str, Any] | None = None,
+    validate_model_config: bool = False,
 ) -> AIHarness:
     """Create a harness instance.
 
@@ -255,12 +256,16 @@ def create_harness(
         depth: Search depth (for minimax-style search).
         model_type: Explicit model type (auto-detected from path if None).
         extra: Additional harness-specific options.
+        validate_model_config: If True, validate that model_path matches
+            board_type and num_players. Raises ValueError on mismatch.
+            January 2026: Added to prevent model-config mismatches.
 
     Returns:
         Configured AIHarness instance.
 
     Raises:
-        ValueError: If model type is incompatible with harness.
+        ValueError: If model type is incompatible with harness, or if
+            validate_model_config=True and model doesn't match config.
     """
     # Determine model type
     if model_type is None:
@@ -281,6 +286,10 @@ def create_harness(
         raise ValueError(
             f"Harness {harness_type.value} does not support NNUE"
         )
+
+    # January 2026: Validate model matches config (defense in depth)
+    if validate_model_config and model_path and board_type:
+        _validate_model_config(str(model_path), board_type, num_players)
 
     # Create config
     config = HarnessConfig(
@@ -304,6 +313,44 @@ def create_harness(
         raise ValueError(f"No implementation for harness type: {harness_type}")
 
     return harness_class(config)
+
+
+def _validate_model_config(
+    model_path: str,
+    board_type: BoardType,
+    num_players: int,
+) -> None:
+    """Validate that model path matches board_type and num_players.
+
+    January 2026: Added as defense in depth to catch model-config mismatches
+    before they can corrupt Elo tracking.
+
+    Args:
+        model_path: Path to model file
+        board_type: Expected board type
+        num_players: Expected number of players
+
+    Raises:
+        ValueError: If model doesn't match expected config
+    """
+    try:
+        from app.training.model_config_contract import validate_model_path_for_config
+
+        board_type_str = board_type.value if hasattr(board_type, "value") else str(board_type)
+        is_valid, violations = validate_model_path_for_config(
+            model_path,
+            expected_board_type=board_type_str,
+            expected_num_players=num_players,
+            check_architecture=False,  # Fast path-based validation only
+        )
+
+        if not is_valid and violations:
+            raise ValueError(
+                f"Model-config mismatch in harness creation: {violations[0]}"
+            )
+    except ImportError:
+        # Validation module not available - skip validation
+        pass
 
 
 def _generate_model_id(

@@ -321,3 +321,128 @@ def get_canonical_model_name(board_type: BoardType, num_players: int) -> str:
         Canonical filename like "canonical_hex8_3p.pth"
     """
     return f"canonical_{board_type.value}_{num_players}p.pth"
+
+
+def validate_model_path_for_config(
+    model_path: str,
+    expected_board_type: str,
+    expected_num_players: int,
+    check_architecture: bool = False,
+) -> tuple[bool, list[str]]:
+    """Validate model file path is appropriate for given config.
+
+    This function performs fast, filename-based validation to catch
+    model-config mismatches without loading the model weights.
+
+    January 2026: Added as part of model-config validation system to prevent
+    Elo tracking corruption from model-config mismatches.
+
+    Args:
+        model_path: Path to model file
+        expected_board_type: Expected board type (e.g., "hex8", "square8")
+        expected_num_players: Expected number of players (2, 3, or 4)
+        check_architecture: If True, load model and verify value head outputs.
+            This is slower but catches architecture mismatches.
+
+    Returns:
+        Tuple of (is_valid, list_of_violations)
+
+    Example:
+        >>> is_valid, violations = validate_model_path_for_config(
+        ...     "models/canonical_hex8_2p.pth",
+        ...     expected_board_type="hex8",
+        ...     expected_num_players=2,
+        ... )
+        >>> assert is_valid and not violations
+    """
+    from app.training.validated_model_ref import (
+        ValidatedModelRef,
+        ModelConfigError as RefError,
+    )
+
+    violations: list[str] = []
+
+    # Try to extract config from path
+    try:
+        ref = ValidatedModelRef.from_path(model_path)
+        detected_config = ref.config_key
+        expected_config = f"{expected_board_type}_{expected_num_players}p"
+
+        if detected_config != expected_config:
+            violations.append(
+                f"Path config mismatch: model path '{model_path}' appears to be for "
+                f"'{detected_config}' but expected '{expected_config}'"
+            )
+    except RefError:
+        # Cannot extract config from path - this is not necessarily a violation
+        # (model might be in a non-standard location)
+        logger.debug(
+            f"[validate_model_path] Cannot extract config from path: {model_path}"
+        )
+
+    # Optional: Load model and check architecture
+    if check_architecture and not violations:
+        try:
+            import torch
+            from pathlib import Path
+
+            if not Path(model_path).exists():
+                violations.append(f"Model file does not exist: {model_path}")
+            else:
+                # Load checkpoint
+                checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+
+                # Get model state dict
+                if isinstance(checkpoint, dict):
+                    state_dict = checkpoint.get("model_state_dict", checkpoint.get("state_dict", checkpoint))
+                else:
+                    state_dict = checkpoint
+
+                # Check value head output dimension
+                # Look for value_fc2 or value_fc3 (final layer)
+                value_output_dim = None
+                for key in ["value_fc3.weight", "value_fc2.weight"]:
+                    if key in state_dict:
+                        value_output_dim = state_dict[key].shape[0]
+                        break
+
+                if value_output_dim is not None and value_output_dim != expected_num_players:
+                    violations.append(
+                        f"Architecture mismatch: value head has {value_output_dim} outputs "
+                        f"but config expects {expected_num_players} players"
+                    )
+
+        except (OSError, RuntimeError, KeyError, AttributeError) as e:
+            violations.append(f"Failed to load model for architecture check: {e}")
+
+    return len(violations) == 0, violations
+
+
+def validate_model_matches_config_key(
+    model_path: str,
+    config_key: str,
+    check_architecture: bool = False,
+) -> tuple[bool, list[str]]:
+    """Validate model path matches a config key.
+
+    Convenience wrapper around validate_model_path_for_config that accepts
+    a config_key string instead of separate board_type and num_players.
+
+    Args:
+        model_path: Path to model file
+        config_key: Config key like "hex8_2p"
+        check_architecture: If True, load model and verify value head outputs
+
+    Returns:
+        Tuple of (is_valid, list_of_violations)
+    """
+    from app.training.validated_model_ref import parse_config_key
+
+    parsed = parse_config_key(config_key)
+    if parsed is None:
+        return False, [f"Invalid config key format: {config_key}"]
+
+    board_type, num_players = parsed
+    return validate_model_path_for_config(
+        model_path, board_type, num_players, check_architecture
+    )
