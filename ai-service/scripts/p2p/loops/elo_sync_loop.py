@@ -153,10 +153,14 @@ class EloSyncLoop(BaseLoop):
             return
 
         try:
+            # Sync unified_elo.db (existing)
             success = await manager.sync_with_cluster()
             if success and hasattr(manager, "state"):
                 match_count = getattr(manager.state, "local_match_count", 0)
-                logger.info(f"[{self.name}] Sync completed: {match_count} matches")
+                logger.info(f"[{self.name}] Elo sync completed: {match_count} matches")
+
+            # Sync elo_progress.db (Jan 2026: cluster-wide progress tracking)
+            await self._sync_elo_progress()
         except Exception as e:
             logger.warning(f"[{self.name}] Sync error: {e}")
             raise  # Trigger backoff
@@ -377,3 +381,86 @@ class EloSyncLoop(BaseLoop):
             logger.info(f"[{self.name}] Elo push completed: {successful}/{total} nodes updated")
         except Exception as e:
             logger.warning(f"[{self.name}] Elo push failed: {e}")
+
+    async def _sync_elo_progress(self) -> None:
+        """Sync elo_progress.db from coordinator for cluster-wide progress tracking.
+
+        Jan 2026: Added to ensure all nodes have Elo progress data for dashboards.
+        The elo_progress.db contains Elo snapshots over time, enabling training
+        improvement visualization across the cluster.
+
+        Non-coordinator nodes pull from the coordinator (source of truth).
+        The coordinator generates elo_progress.db via EloProgressTracker.
+        """
+        import os
+        import tempfile
+        from pathlib import Path
+
+        # Only non-coordinator nodes need to pull
+        is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() == "true"
+        if is_coordinator:
+            logger.debug(f"[{self.name}] Skipping elo_progress sync - this is coordinator")
+            return
+
+        # Get coordinator URL from manager or environment
+        coordinator_url = self._get_coordinator_url()
+        if not coordinator_url:
+            logger.debug(f"[{self.name}] No coordinator URL available for elo_progress sync")
+            return
+
+        try:
+            import aiohttp
+
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+                url = f"{coordinator_url}/elo/progress/db"
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        content = await resp.read()
+                        if content:
+                            # Atomic write to prevent corruption
+                            local_path = Path("data/elo_progress.db")
+                            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+                            with tempfile.NamedTemporaryFile(
+                                dir=local_path.parent, delete=False, suffix=".db"
+                            ) as tmp:
+                                tmp.write(content)
+                                tmp_path = Path(tmp.name)
+
+                            tmp_path.rename(local_path)
+                            logger.info(
+                                f"[{self.name}] Synced elo_progress.db ({len(content)} bytes) "
+                                f"from coordinator"
+                            )
+                    elif resp.status == 404:
+                        logger.debug(f"[{self.name}] elo_progress.db not found on coordinator")
+                    else:
+                        logger.warning(
+                            f"[{self.name}] Failed to sync elo_progress.db: HTTP {resp.status}"
+                        )
+        except ImportError:
+            logger.debug(f"[{self.name}] aiohttp not available for elo_progress sync")
+        except Exception as e:
+            logger.warning(f"[{self.name}] elo_progress sync error: {e}")
+
+    def _get_coordinator_url(self) -> str | None:
+        """Get the coordinator's P2P URL for database pulls.
+
+        Returns the Tailscale IP + port for the cluster coordinator,
+        or None if not available.
+        """
+        import os
+
+        # Try environment variable first
+        coordinator_url = os.environ.get("RINGRIFT_COORDINATOR_URL")
+        if coordinator_url:
+            return coordinator_url
+
+        # Try to get from manager state if available
+        manager = self._get_elo_sync_manager()
+        if manager and hasattr(manager, "coordinator_url"):
+            return getattr(manager, "coordinator_url", None)
+
+        # Hardcoded fallback for mac-studio coordinator
+        # TODO: Make this configurable via distributed_hosts.yaml
+        return "http://100.107.168.125:8770"

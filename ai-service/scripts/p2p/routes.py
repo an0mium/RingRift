@@ -358,6 +358,7 @@ ELO_ROUTES = [
     Route("GET", "/elo/sync/status", "handle_elo_sync_status"),
     Route("POST", "/elo/sync/trigger", "handle_elo_sync_trigger"),
     Route("GET", "/elo/sync/db", "handle_elo_sync_download"),
+    Route("GET", "/elo/progress/db", "handle_elo_progress_download"),
     Route("POST", "/elo/sync/upload", "handle_elo_sync_upload"),
 ]
 

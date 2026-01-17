@@ -124,6 +124,35 @@ class EloSyncHandlersMixin(BaseP2PHandler):
             return self.error_response(str(e), status=500)
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
+    async def handle_elo_progress_download(self, request: web.Request) -> web.Response:
+        """GET /elo/progress/db - Download elo_progress.db for cluster sync.
+
+        This database contains Elo progress snapshots over time, used by the
+        dashboard to show training improvement trends.
+        """
+        try:
+            ai_root = Path(self.ringrift_path) / "ai-service"
+            db_path = ai_root / "data" / "elo_progress.db"
+
+            if not db_path.exists():
+                return self.error_response("elo_progress.db not found", status=404)
+
+            # Read and return the database file
+            with open(db_path, 'rb') as f:
+                data = f.read()
+
+            return web.Response(
+                body=data,
+                content_type='application/octet-stream',
+                headers={
+                    'Content-Disposition': 'attachment; filename="elo_progress.db"',
+                    'Content-Length': str(len(data))
+                }
+            )
+        except Exception as e:
+            return self.error_response(str(e), status=500)
+
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_elo_sync_upload(self, request: web.Request) -> web.Response:
         """POST /elo/sync/upload - Upload/merge unified_elo.db from another node.
 
