@@ -31,6 +31,17 @@
             color: #888;
             font-size: 1rem;
         }
+        .nav-links {
+            margin-top: 10px;
+        }
+        .nav-links a {
+            color: #00d4ff;
+            text-decoration: none;
+            margin: 0 15px;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
@@ -149,6 +160,12 @@
             Model Performance & Training Metrics
             <button class="refresh-btn" onclick="refreshData()">Refresh</button>
         </p>
+        <div class="nav-links">
+            <a href="/progress_dashboard.html">Training Progress</a>
+            <a href="/elo_dashboard.html">Elo Dashboard</a>
+            <a href="/work_queue_dashboard.html">Work Queue</a>
+            <a href="/training_dashboard.html">Training</a>
+        </div>
     </div>
 
     <div class="stat-grid">
