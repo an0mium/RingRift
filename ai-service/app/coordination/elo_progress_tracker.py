@@ -146,6 +146,14 @@ class EloProgressTracker:
             logger.debug(f"[EloProgress] Skipping event with no model_id or elo: {config_key}")
             return
 
+        # January 2026: Validate model_id is appropriate for config_key
+        if not self._validate_model_for_config(model_id, config_key):
+            logger.warning(
+                f"[EloProgress] Skipping invalid model-config: model_id='{model_id}' "
+                f"does not match config_key='{config_key}'"
+            )
+            return
+
         # Record the snapshot with win rate breakdown
         self.record_snapshot(
             config_key=config_key,
@@ -160,6 +168,119 @@ class EloProgressTracker:
             f"[EloProgress] Recorded from event: {config_key} @ {elo:.1f} Elo "
             f"(vs_random={vs_random_rate}, vs_heuristic={vs_heuristic_rate})"
         )
+
+    def _validate_model_for_config(self, model_id: str, config_key: str) -> bool:
+        """Validate model_id is appropriate for config_key.
+
+        January 2026: Added to prevent model-config mismatches that corrupt Elo tracking.
+        This catches the bug where config_key was mistakenly passed as model_id.
+
+        Rules:
+        1. If model_id looks like a config key (e.g., "hex8_2p"), log ERROR and reject
+        2. If model_id is a model path, extract config and verify it matches
+        3. Baseline names ("heuristic", "random") are allowed through
+
+        Args:
+            model_id: The model identifier from the event
+            config_key: The expected configuration key
+
+        Returns:
+            True if valid, False if mismatch detected
+        """
+        model_id = str(model_id).strip()
+
+        # Empty model_id - allow for backward compat but log debug
+        if not model_id:
+            logger.debug(f"[EloProgress] Empty model_id for {config_key}, allowing")
+            return True
+
+        # Detect config-as-model_id bug: if model_id matches config pattern
+        if self._looks_like_config_key(model_id):
+            logger.error(
+                f"[EloProgress] BUG DETECTED: config_key '{model_id}' used as model_id! "
+                f"Expected a model path, got config key. This corrupts Elo tracking."
+            )
+            return False
+
+        # Allow baseline names through
+        baseline_names = {"heuristic", "random", "mcts", "policy_only", "nnue"}
+        if model_id.lower() in baseline_names:
+            return True
+
+        # Validate model path matches config
+        if self._is_model_path(model_id):
+            detected_config = self._extract_config_from_path(model_id)
+            if detected_config and detected_config != config_key:
+                logger.warning(
+                    f"[EloProgress] Model-config mismatch: model '{model_id}' "
+                    f"appears to be for '{detected_config}', not '{config_key}'"
+                )
+                return False
+
+        return True
+
+    def _looks_like_config_key(self, value: str) -> bool:
+        """Check if a value looks like a config key rather than a model path.
+
+        Config keys have format: {board_type}_{num_players}p
+        Examples: hex8_2p, square8_4p, hexagonal_3p
+
+        Args:
+            value: String to check
+
+        Returns:
+            True if it looks like a config key
+        """
+        import re
+        # Match patterns like hex8_2p, square8_4p, hexagonal_3p, square19_2p
+        config_pattern = r"^(hex8|hexagonal|square8|square19)_[234]p$"
+        return bool(re.match(config_pattern, value))
+
+    def _is_model_path(self, value: str) -> bool:
+        """Check if a value looks like a model file path.
+
+        Args:
+            value: String to check
+
+        Returns:
+            True if it looks like a model path
+        """
+        # Check for path separators or .pth extension
+        return "/" in value or "\\" in value or value.endswith(".pth")
+
+    def _extract_config_from_path(self, model_path: str) -> str | None:
+        """Extract config key from a model file path.
+
+        Handles patterns like:
+        - models/canonical_hex8_2p.pth -> hex8_2p
+        - /path/to/ringrift_best_square8_4p.pth -> square8_4p
+        - models/hex8_2p/checkpoint_epoch10.pth -> hex8_2p
+
+        Args:
+            model_path: Path to model file
+
+        Returns:
+            Config key if found, None otherwise
+        """
+        import re
+        from pathlib import Path as P
+
+        # Get filename without extension
+        filename = P(model_path).stem
+
+        # Try to extract config from filename patterns
+        # Pattern 1: canonical_{board}_{n}p or ringrift_best_{board}_{n}p
+        match = re.search(r"(hex8|hexagonal|square8|square19)_([234])p", filename)
+        if match:
+            return f"{match.group(1)}_{match.group(2)}p"
+
+        # Pattern 2: Check parent directory name
+        parent = P(model_path).parent.name
+        match = re.search(r"(hex8|hexagonal|square8|square19)_([234])p", parent)
+        if match:
+            return f"{match.group(1)}_{match.group(2)}p"
+
+        return None
 
     @classmethod
     def get_instance(cls) -> EloProgressTracker:

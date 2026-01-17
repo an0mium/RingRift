@@ -357,6 +357,7 @@ async def emit_evaluation_completed_safe(
     elo: float,
     games: int,
     win_rate: float,
+    model_path: str = "",
     source: str = "",
     beats_current_best: bool = False,
     vs_random_rate: float | None = None,
@@ -369,6 +370,9 @@ async def emit_evaluation_completed_safe(
         elo: Elo rating estimate
         games: Number of games played
         win_rate: Win rate (0.0-1.0)
+        model_path: Path to the model file (e.g., "models/canonical_hex8_2p.pth").
+            This is used as model_id in the event payload. If empty, falls back to
+            config for backward compatibility.
         source: Source component name
         beats_current_best: True if model beat current champion in head-to-head.
             Used by AutoPromotionDaemon for two-tier relative promotion.
@@ -377,18 +381,27 @@ async def emit_evaluation_completed_safe(
 
     Returns:
         True if emitted successfully, False otherwise.
+
+    Note:
+        January 2026: Fixed bug where config was used as model_id. Now uses
+        model_path if provided, ensuring Elo tracking records actual model paths
+        instead of config keys.
     """
     if not _HAS_EVENT_BUS or _emit_evaluation_completed is None:
         logger.debug(f"Event bus unavailable, skipping EVALUATION_COMPLETED: {config}")
         return False
 
     try:
+        # Use model_path if provided, else fall back to config for backward compat
+        effective_model_id = model_path if model_path else config
+
         # Build extra payload for promotion daemon
         # Note: config_key is required by AutoPromotionDaemon (checks config_key or config)
         extra_payload: dict[str, Any] = {
             "source": source,
             "config_key": config,  # For AutoPromotionDaemon
             "beats_current_best": beats_current_best,
+            "model_path": model_path,  # Pass explicit model path for tracking
         }
         if vs_random_rate is not None:
             extra_payload["vs_random_rate"] = vs_random_rate
@@ -396,7 +409,7 @@ async def emit_evaluation_completed_safe(
             extra_payload["vs_heuristic_rate"] = vs_heuristic_rate
 
         await _emit_evaluation_completed(
-            model_id=config,  # Also used as model_id for backward compat
+            model_id=effective_model_id,  # Fixed: use model_path, not config
             elo=elo,
             win_rate=win_rate,
             games_played=games,

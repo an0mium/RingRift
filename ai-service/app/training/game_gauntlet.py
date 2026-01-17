@@ -1351,6 +1351,7 @@ def _emit_gauntlet_result_event(
     elo: float,
     win_rate: float,
     games: int,
+    model_path: str = "",
     vs_random_rate: float | None = None,
     vs_heuristic_rate: float | None = None,
 ) -> None:
@@ -1364,6 +1365,7 @@ def _emit_gauntlet_result_event(
         elo: Estimated Elo rating
         win_rate: Overall win rate (0.0-1.0)
         games: Total games played
+        model_path: Path to the evaluated model (Jan 2026: for proper Elo tracking)
         vs_random_rate: Win rate vs RANDOM baseline (0.0-1.0)
         vs_heuristic_rate: Win rate vs HEURISTIC baseline (0.0-1.0)
     """
@@ -1381,6 +1383,7 @@ def _emit_gauntlet_result_event(
                     elo=elo,
                     games=games,
                     win_rate=win_rate,
+                    model_path=model_path,  # Jan 2026: Pass model path for Elo tracking
                     source="game_gauntlet",
                     beats_current_best=False,  # Gauntlet is vs baselines, not champion
                     vs_random_rate=vs_random_rate,
@@ -1400,6 +1403,7 @@ def _emit_gauntlet_result_event(
                         elo=elo,
                         games=games,
                         win_rate=win_rate,
+                        model_path=model_path,  # Jan 2026: Pass model path for Elo tracking
                         source="game_gauntlet",
                         beats_current_best=False,  # Gauntlet is vs baselines, not champion
                         vs_random_rate=vs_random_rate,
@@ -2216,11 +2220,14 @@ def run_baseline_gauntlet(
     vs_random_rate = random_stats.get("win_rate") if random_stats else None
     vs_heuristic_rate = heuristic_stats.get("win_rate") if heuristic_stats else None
 
+    # Jan 2026: Pass model_path to prevent config-as-model_id bug in Elo tracking
+    model_path_str = str(model_path) if model_path else ""
     _emit_gauntlet_result_event(
         config_key=f"{board_type_str}_{num_players}p",
         elo=result.estimated_elo,
         win_rate=result.win_rate,
         games=result.total_games,
+        model_path=model_path_str,
         vs_random_rate=vs_random_rate,
         vs_heuristic_rate=vs_heuristic_rate,
     )
