@@ -673,6 +673,34 @@ class PeerRecoveryLoop(BaseLoop):
                             },
                         )
 
+                    # Jan 16, 2026: Also attempt full recovery (auto-unretire)
+                    # This allows TCP-reachable peers to be recovered immediately
+                    # instead of waiting for the next HTTP probe cycle.
+                    try:
+                        recovered = await self._recover_peer(peer)
+                        if recovered:
+                            logger.info(
+                                f"[PeerRecovery] Auto-unretired TCP-reachable peer: {node_id}"
+                            )
+                            if self._emit_event and self.config.emit_events:
+                                self._emit_event(
+                                    "NODE_RECOVERED",
+                                    {
+                                        "node_id": node_id,
+                                        "address": address,
+                                        "recovery_method": "tcp_auto_unretire",
+                                        "timestamp": now,
+                                    },
+                                )
+                    except Exception as e:
+                        # Recovery may fail if HTTP isn't ready yet (port listening but
+                        # server still starting). That's OK - the backoff reset means
+                        # we'll HTTP-probe on the next cycle.
+                        logger.debug(
+                            f"[PeerRecovery] Auto-unretire after TCP failed for {node_id}: "
+                            f"{type(e).__name__}: {e}"
+                        )
+
             except Exception as e:
                 logger.debug(
                     f"[PeerRecovery] TCP check error for {node_id}: {e}"

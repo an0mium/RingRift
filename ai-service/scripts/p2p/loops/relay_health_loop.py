@@ -319,6 +319,9 @@ class RelayHealthLoop(BaseLoop):
     ) -> None:
         """Check if any NAT-blocked peers need relay failover.
 
+        Jan 16, 2026: Now uses chain-aware rotation to follow configured
+        relay chain order (primary -> secondary -> tertiary -> quaternary).
+
         Args:
             nat_blocked_peers: Dict of {peer_id: primary_relay_id}
         """
@@ -331,23 +334,28 @@ class RelayHealthLoop(BaseLoop):
 
             status = self._relay_health[primary_relay]
             if status.consecutive_failures >= self.config.consecutive_failures_for_failover:
-                # Find a healthy alternative relay
-                alternative = self._find_healthy_alternative_relay(primary_relay)
+                # Use chain-aware rotation (Jan 16, 2026)
+                alternative = await self._rotate_relay_chain(peer_id, primary_relay)
                 if alternative:
                     success = await self._trigger_relay_failover(
                         peer_id, primary_relay, alternative
                     )
                     if success:
                         self._failovers_triggered += 1
+                        # Get chain position for the new relay
+                        chain = self._get_peer_relay_chain(peer_id)
+                        new_position = chain.index(alternative) if alternative in chain else -1
                         self._emit_relay_event("RELAY_FAILOVER", primary_relay, {
                             "peer_id": peer_id,
                             "old_relay": primary_relay,
                             "new_relay": alternative,
+                            "new_relay_chain_position": new_position,
                             "failures_before_failover": status.consecutive_failures,
+                            "rotation_method": "chain_aware",
                         })
                         logger.info(
-                            f"[RelayHealth] Triggered failover for {peer_id}: "
-                            f"{primary_relay} -> {alternative}"
+                            f"[RelayHealth] Triggered chain failover for {peer_id}: "
+                            f"{primary_relay} -> {alternative} (chain position {new_position})"
                         )
 
     def _find_healthy_alternative_relay(self, exclude_relay: str) -> str | None:
@@ -373,6 +381,95 @@ class RelayHealthLoop(BaseLoop):
                 return relay_id
 
         return None
+
+    def _get_peer_relay_chain(self, peer_id: str) -> list[str | None]:
+        """Get the configured relay chain for a peer.
+
+        Jan 16, 2026: Returns the ordered relay chain from distributed_hosts.yaml.
+
+        Args:
+            peer_id: The peer node ID
+
+        Returns:
+            List of relay node IDs [primary, secondary, tertiary, quaternary],
+            with None for unconfigured relays.
+        """
+        node_info = self._get_node_info(peer_id)
+        if not node_info:
+            return []
+
+        return [
+            node_info.get("relay_primary"),
+            node_info.get("relay_secondary"),
+            node_info.get("relay_tertiary"),
+            node_info.get("relay_quaternary"),
+        ]
+
+    async def _rotate_relay_chain(
+        self, peer_id: str, failed_relay: str
+    ) -> str | None:
+        """Rotate to the next healthy relay in the configured chain.
+
+        Jan 16, 2026: Chain-aware relay rotation for faster failover.
+
+        Follows the configured chain order:
+        relay_primary -> relay_secondary -> relay_tertiary -> relay_quaternary
+
+        Args:
+            peer_id: The peer that needs a new relay
+            failed_relay: The relay that failed
+
+        Returns:
+            The next healthy relay ID, or None if no healthy relays remain
+        """
+        chain = self._get_peer_relay_chain(peer_id)
+        if not chain:
+            logger.debug(f"[RelayHealth] No relay chain configured for {peer_id}")
+            return self._find_healthy_alternative_relay(failed_relay)
+
+        # Find current position in chain
+        try:
+            current_idx = chain.index(failed_relay) if failed_relay in chain else -1
+        except ValueError:
+            current_idx = -1
+
+        # Try relays after the failed one first (chain order)
+        for i in range(current_idx + 1, len(chain)):
+            candidate = chain[i]
+            if not candidate:
+                continue
+
+            # Check if this relay is healthy
+            if candidate in self._relay_health:
+                status = self._relay_health[candidate]
+                if status.healthy and status.consecutive_failures == 0:
+                    logger.info(
+                        f"[RelayHealth] Chain rotation for {peer_id}: "
+                        f"{failed_relay} -> {candidate} (position {i})"
+                    )
+                    return candidate
+
+        # Try relays before the failed one (wrap around)
+        for i in range(0, current_idx):
+            candidate = chain[i]
+            if not candidate or candidate == failed_relay:
+                continue
+
+            if candidate in self._relay_health:
+                status = self._relay_health[candidate]
+                if status.healthy and status.consecutive_failures == 0:
+                    logger.info(
+                        f"[RelayHealth] Chain rotation (wrap) for {peer_id}: "
+                        f"{failed_relay} -> {candidate} (position {i})"
+                    )
+                    return candidate
+
+        # Last resort: any healthy relay not in chain
+        logger.warning(
+            f"[RelayHealth] No healthy relays in chain for {peer_id}, "
+            f"falling back to any healthy relay"
+        )
+        return self._find_healthy_alternative_relay(failed_relay)
 
     def _emit_relay_event(
         self, event_name: str, relay_id: str, payload: dict[str, Any]
