@@ -56,6 +56,7 @@ def atomic_write(path: Path, content: bytes) -> None:
     """Atomically write content to a file using temp file + rename pattern.
 
     This prevents corruption if the write is interrupted.
+    Sets file permissions to 644 for readability by web server.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -65,6 +66,8 @@ def atomic_write(path: Path, content: bytes) -> None:
         tmp.write(content)
         tmp_path = Path(tmp.name)
 
+    # Set readable permissions before rename (tempfile creates 600 by default)
+    tmp_path.chmod(0o644)
     tmp_path.rename(path)
 
 
