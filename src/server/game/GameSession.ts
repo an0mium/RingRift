@@ -330,6 +330,22 @@ export class GameSession {
       getTargetForPlayer,
       30_000
     );
+
+    // RR-FIX-2026-01-18: Broadcast intermediate game state before showing choice UI.
+    // This ensures the board updates visually (e.g., piece moved) while the player
+    // is deciding (e.g., which territory to claim).
+    this.wsHandler.onBeforeChoice = async (choice) => {
+      if (this.gameEngine) {
+        logger.info('Broadcasting intermediate state before choice', {
+          gameId: this.gameId,
+          choiceType: choice.type,
+          playerNumber: choice.playerNumber,
+        });
+        // Pass a minimal RulesResult with no gameResult to trigger the state broadcast path
+        await this.broadcastUpdate({ success: true });
+      }
+    };
+
     const aiHandler = new AIInteractionHandler(this.sessionCancellationSource.token);
     const delegatingHandler = new DelegatingInteractionHandler(
       this.wsHandler,

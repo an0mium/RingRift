@@ -39,6 +39,13 @@ export class WebSocketInteractionHandler implements PlayerInteractionHandler {
    */
   private readonly lastChoiceStatuses = new Map<string, ChoiceStatus>();
 
+  /**
+   * Optional callback invoked just before emitting player_choice_required.
+   * This allows the session to broadcast an intermediate game state so that
+   * the UI shows the board update while the player is deciding.
+   */
+  public onBeforeChoice?: (choice: PlayerChoice) => Promise<void>;
+
   constructor(
     private readonly io: SocketIOServer,
     private readonly gameId: string,
@@ -70,6 +77,13 @@ export class WebSocketInteractionHandler implements PlayerInteractionHandler {
     }
 
     const timeoutMs = choice.timeoutMs ?? this.defaultTimeoutMs;
+
+    // RR-FIX-2026-01-18: Call onBeforeChoice callback to broadcast intermediate
+    // game state before showing the choice UI. This ensures the client sees the
+    // board update (e.g., piece moved) while they're deciding (e.g., territory claim).
+    if (this.onBeforeChoice) {
+      await this.onBeforeChoice(choice);
+    }
 
     logger.info('WebSocketInteractionHandler: emitting player_choice_required', {
       gameId: choice.gameId,
