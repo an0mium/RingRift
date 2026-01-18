@@ -147,6 +147,64 @@ function KeyboardShortcutsSection({ mode }: { mode: BoardControlsOverlayMode }) 
   );
 }
 
+function BackendTouchSection({
+  hasTouchControlsPanel,
+}: {
+  hasTouchControlsPanel?: boolean | undefined;
+}) {
+  return (
+    <section
+      aria-label="Backend touch controls"
+      data-testid="board-controls-backend-touch-section"
+      className="space-y-2"
+    >
+      <h3 className={sectionTitleClass}>Online game touch controls</h3>
+      <ul className={listClass}>
+        <li>
+          <span className="font-semibold">Single tap</span> a cell to select it and see valid move
+          destinations highlighted in green.
+        </li>
+        <li>
+          <span className="font-semibold">Long-press</span> a cell for advanced options during ring
+          placement (open ring count dialog on supported phases).
+        </li>
+        <li>
+          Tap a <span className="text-emerald-300 font-semibold">highlighted</span> destination to
+          submit your move. The game automatically advances through phases.
+        </li>
+        <li>
+          During <span className="font-semibold">capture decisions</span>, highlighted cells show
+          valid landing positions. Tap one to choose your capture direction.
+        </li>
+      </ul>
+
+      {hasTouchControlsPanel && (
+        <div className="mt-3 space-y-1">
+          <h4 className="text-xs font-semibold text-slate-100">Touch controls panel</h4>
+          <ul className={listClass}>
+            <li>
+              <span className="font-semibold">Clear selection</span> – reset current selection and
+              hide move highlights.
+            </li>
+            <li>
+              <span className="font-semibold">Skip actions</span> – when available, skip optional
+              phases like capture, territory processing, or recovery.
+            </li>
+            <li>
+              <span className="font-semibold">Show valid targets</span> – toggle green overlays on
+              legal destinations for the selected stack.
+            </li>
+            <li>
+              <span className="font-semibold">Show movement grid</span> – toggle movement graph
+              overlay showing board geometry.
+            </li>
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function SandboxTouchSection({
   hasTouchControlsPanel,
 }: {
@@ -275,6 +333,9 @@ export const BoardControlsOverlay: React.FC<BoardControlsOverlayProps> = ({
           </div>
 
           <div className="space-y-4">
+            {mode === 'backend' && (
+              <BackendTouchSection hasTouchControlsPanel={hasTouchControlsPanel} />
+            )}
             {mode === 'sandbox' && (
               <SandboxTouchSection hasTouchControlsPanel={hasTouchControlsPanel} />
             )}

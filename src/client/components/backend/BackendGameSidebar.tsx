@@ -9,6 +9,7 @@ import { GameHistoryPanel } from '../GameHistoryPanel';
 import { EvaluationPanel } from '../EvaluationPanel';
 import { AIThinkTimeProgress } from '../AIThinkTimeProgress';
 import { ResignButton } from '../ResignButton';
+import { BackendTouchControlsPanel } from './BackendTouchControlsPanel';
 import { Button } from '../ui/Button';
 import { formatPosition } from '../../../shared/engine/notation';
 import { describeDecisionAutoResolved } from '../../hooks/useBackendDiagnosticsLog';
@@ -62,6 +63,16 @@ export interface BackendGameSidebarProps {
   } | null;
   /** Board interaction disabled message */
   boardInteractionMessage: string | null;
+  /** Valid move targets for touch controls */
+  validTargets: Position[];
+  /** Whether capture direction selection is pending */
+  isCaptureDirectionPending: boolean;
+  /** Current phase label for touch controls */
+  phaseLabel: string;
+  /** Optional phase hint text */
+  phaseHint?: string;
+  /** Handler to clear current selection */
+  onClearSelection: () => void;
 
   // Decision/Choice state
   /** Pending player choice */
@@ -172,6 +183,10 @@ export interface BackendGameSidebarProps {
   showMovementGrid?: boolean;
   /** Handler to toggle movement grid */
   onToggleMovementGrid?: () => void;
+  /** Whether valid targets overlay is shown */
+  showValidTargets?: boolean;
+  /** Handler to toggle valid targets overlay */
+  onToggleValidTargets?: (next: boolean) => void;
 
   // Board display settings
   /** Whether coordinate labels are shown */
@@ -220,6 +235,11 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
   selectedPosition,
   selectedStackDetails,
   boardInteractionMessage,
+  validTargets,
+  isCaptureDirectionPending,
+  phaseLabel,
+  phaseHint,
+  onClearSelection,
   pendingChoice,
   pendingChoiceView,
   choiceDeadline,
@@ -262,6 +282,8 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
   aiPlayerName,
   showMovementGrid,
   onToggleMovementGrid,
+  showValidTargets,
+  onToggleValidTargets,
   showCoordinateLabels,
   onToggleCoordinateLabels,
   showLineOverlays,
@@ -326,16 +348,19 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
 
       {/* Phase Guide - educational panel showing current phase info */}
       {hudViewModel?.phase && (
-        <div className="p-3 rounded-2xl border border-slate-700 bg-slate-900/70">
-          <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-slate-400">Current Phase:</span>
-            <span className="font-medium text-white">{hudViewModel.phase.label}</span>
+        <div className="p-3 rounded-2xl border border-slate-700 bg-slate-900/70 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-slate-500">Phase</span>
+            <span className="font-semibold text-white">{hudViewModel.phase.label}</span>
           </div>
           {hudViewModel.phase.description && (
             <p className="text-slate-300 text-[11px] leading-relaxed">
               {hudViewModel.phase.description}
             </p>
           )}
+          <p className="text-[10px] text-slate-500 pt-0.5">
+            Complete each phase requirement to advance your turn.
+          </p>
         </div>
       )}
 
@@ -405,7 +430,14 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
       </div>
 
       {/* Move History - compact notation display */}
-      <MoveHistory moves={moveHistory} boardType={boardType} currentMoveIndex={currentMoveIndex} />
+      <MoveHistory
+        moves={moveHistory}
+        boardType={boardType}
+        currentMoveIndex={currentMoveIndex}
+        notationOptions={{
+          squareRankFromBottom: boardType === 'square8' || boardType === 'square19',
+        }}
+      />
 
       {/* Skip action buttons - visible when skip is available but not the only option */}
       {isPlayer && isMyTurn && (canSkipCapture || canSkipTerritory || canSkipRecovery) && (
@@ -604,6 +636,41 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
           </div>
         )}
       </details>
+
+      {/* Touch Controls Panel - shown on mobile or when advanced panels are open */}
+      {(isMobile || showAdvancedSidebarPanels) && (
+        <BackendTouchControlsPanel
+          selectedPosition={selectedPosition}
+          selectedStackDetails={selectedStackDetails}
+          validTargets={validTargets}
+          isCaptureDirectionPending={isCaptureDirectionPending}
+          phaseLabel={phaseLabel}
+          phaseHint={phaseHint}
+          isSpectator={!isPlayer}
+          isMyTurn={isMyTurn}
+          canSkipCapture={canSkipCapture}
+          canSkipTerritoryProcessing={canSkipTerritory}
+          canSkipRecovery={canSkipRecovery}
+          onSkipCapture={onSkipCapture}
+          onSkipTerritoryProcessing={onSkipTerritory}
+          onSkipRecovery={onSkipRecovery}
+          onClearSelection={onClearSelection}
+          showMovementGrid={showMovementGrid ?? false}
+          onToggleMovementGrid={(next) => {
+            if (onToggleMovementGrid) onToggleMovementGrid();
+          }}
+          showValidTargets={showValidTargets ?? true}
+          onToggleValidTargets={(next) => {
+            if (onToggleValidTargets) onToggleValidTargets(next);
+          }}
+          showLineOverlays={showLineOverlays}
+          onToggleLineOverlays={onToggleLineOverlays ? (next) => onToggleLineOverlays() : undefined}
+          showTerritoryOverlays={showTerritoryRegionOverlays}
+          onToggleTerritoryOverlays={
+            onToggleTerritoryOverlays ? (next) => onToggleTerritoryOverlays() : undefined
+          }
+        />
+      )}
 
       <div className="p-3 border border-slate-700 rounded-xl bg-slate-900/70 flex flex-col h-44">
         <h2 className="font-semibold mb-1 text-xs">Chat</h2>

@@ -8,3 +8,7 @@
 
 export { BackendBoardSection, type BackendBoardSectionProps } from './BackendBoardSection';
 export { BackendGameSidebar, type BackendGameSidebarProps } from './BackendGameSidebar';
+export {
+  BackendTouchControlsPanel,
+  type BackendTouchControlsPanelProps,
+} from './BackendTouchControlsPanel';

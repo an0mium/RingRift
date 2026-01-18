@@ -306,6 +306,32 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     setShowMovementGrid((prev) => !prev);
   }, []);
 
+  // Valid targets overlay: highlights valid move destinations
+  const backendValidTargetsStorageKey = 'ringrift_backend_show_valid_targets';
+  const [showValidTargets, setShowValidTargets] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true; // Default on
+    try {
+      const stored = localStorage.getItem(backendValidTargetsStorageKey);
+      // Default to true if not set (essential for gameplay)
+      return stored === null ? true : stored === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(backendValidTargetsStorageKey, showValidTargets ? 'true' : 'false');
+    } catch {
+      // Storage might be disabled; ignore.
+    }
+  }, [backendValidTargetsStorageKey, showValidTargets]);
+
+  const handleToggleValidTargets = useCallback((next: boolean) => {
+    setShowValidTargets(next);
+  }, []);
+
   // Coordinate labels: toggleable with localStorage persistence
   const backendCoordLabelsStorageKey = 'ringrift_backend_show_coord_labels';
   const [showCoordinateLabels, setShowCoordinateLabels] = useState<boolean>(() => {
@@ -1031,6 +1057,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   // Decision phase status indicators - matching sandbox host behavior
   const isRingEliminationChoice = pendingChoice?.type === 'ring_elimination';
   const isRegionOrderChoice = pendingChoice?.type === 'region_order';
+  const isCaptureDirectionPending = decisionHighlights?.choiceKind === 'capture_direction';
   const isChainCaptureContinuationStep = !!(
     gameState &&
     gameState.gameStatus === 'active' &&
@@ -1302,7 +1329,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             board={board}
             viewModel={backendBoardViewModel}
             selectedPosition={selected || backendMustMoveFrom}
-            validTargets={validTargets}
+            validTargets={showValidTargets ? validTargets : []}
             isSpectator={!isPlayer}
             pendingAnimation={pendingAnimation ?? undefined}
             chainCapturePath={chainCapturePath}
@@ -1337,6 +1364,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             onCellClick={(pos) => handleBackendCellClick(pos, board)}
             onCellDoubleClick={(pos) => handleBackendCellDoubleClick(pos, board)}
             onCellContextMenu={(pos) => handleBackendCellContextMenu(pos, board)}
+            onCellLongPress={(pos) => handleBackendCellContextMenu(pos, board)}
             onAnimationComplete={clearAnimation}
             onShowBoardControls={() => setShowBoardControls(true)}
           />
@@ -1354,6 +1382,11 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             selectedPosition={selected}
             selectedStackDetails={backendSelectedStackDetails}
             boardInteractionMessage={boardInteractionMessage}
+            validTargets={validTargets}
+            isCaptureDirectionPending={isCaptureDirectionPending}
+            phaseLabel={hudViewModel.phase.label}
+            phaseHint={undefined}
+            onClearSelection={() => setSelected(undefined)}
             pendingChoice={pendingChoice}
             pendingChoiceView={pendingChoiceView}
             choiceDeadline={choiceDeadline}
@@ -1420,6 +1453,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             aiPlayerName={aiPlayerInfo?.name}
             showMovementGrid={showMovementGrid}
             onToggleMovementGrid={handleToggleMovementGrid}
+            showValidTargets={showValidTargets}
+            onToggleValidTargets={handleToggleValidTargets}
             showCoordinateLabels={showCoordinateLabels}
             onToggleCoordinateLabels={handleToggleCoordinateLabels}
             showLineOverlays={showLineOverlays}
@@ -1460,6 +1495,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         {showBoardControls && (
           <BoardControlsOverlay
             mode={isPlayer ? 'backend' : 'spectator'}
+            hasTouchControlsPanel
             onClose={() => setShowBoardControls(false)}
           />
         )}

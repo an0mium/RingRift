@@ -100,6 +100,8 @@ export interface SandboxBoardSectionProps {
   onCellClick: (pos: Position) => void;
   onCellDoubleClick: (pos: Position) => void;
   onCellContextMenu: (pos: Position) => void;
+  /** Long-press handler for touch devices (typically same as context menu) */
+  onCellLongPress?: (pos: Position) => void;
   onAnimationComplete: () => void;
   onReplayAnimationComplete: () => void;
   onShowBoardControls: () => void;
@@ -153,6 +155,7 @@ export const SandboxBoardSection: React.FC<SandboxBoardSectionProps> = ({
   onCellClick,
   onCellDoubleClick,
   onCellContextMenu,
+  onCellLongPress,
   onAnimationComplete,
   onReplayAnimationComplete,
   onShowBoardControls,
@@ -305,6 +308,7 @@ export const SandboxBoardSection: React.FC<SandboxBoardSectionProps> = ({
           onCellClick={isInReplayMode ? undefined : onCellClick}
           onCellDoubleClick={isInReplayMode ? undefined : onCellDoubleClick}
           onCellContextMenu={isInReplayMode ? undefined : onCellContextMenu}
+          onCellLongPress={isInReplayMode ? undefined : onCellLongPress}
           onShowKeyboardHelp={onShowBoardControls}
           showMovementGrid={overlays.showMovementGrid}
           showCoordinateLabels={boardState.type === 'square8' || boardState.type === 'square19'}

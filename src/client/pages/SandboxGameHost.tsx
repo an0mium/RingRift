@@ -2172,6 +2172,7 @@ export const SandboxGameHost: React.FC = () => {
               onCellClick={handleSandboxCellClick}
               onCellDoubleClick={handleSandboxCellDoubleClick}
               onCellContextMenu={handleSandboxCellContextMenu}
+              onCellLongPress={handleSandboxCellContextMenu}
               onAnimationComplete={clearAnimation}
               onReplayAnimationComplete={() => setReplayAnimation(null)}
               onShowBoardControls={() => setShowBoardControls(true)}

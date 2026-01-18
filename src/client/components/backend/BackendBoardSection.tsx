@@ -69,6 +69,8 @@ export interface BackendBoardSectionProps {
   onCellClick: (pos: Position) => void;
   onCellDoubleClick: (pos: Position) => void;
   onCellContextMenu: (pos: Position) => void;
+  /** Long-press handler for touch devices (typically same as context menu) */
+  onCellLongPress?: (pos: Position) => void;
   onAnimationComplete: () => void;
   onShowBoardControls: () => void;
 }
@@ -117,6 +119,7 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
   onCellClick,
   onCellDoubleClick,
   onCellContextMenu,
+  onCellLongPress,
   onAnimationComplete,
   onShowBoardControls,
 }) => {
@@ -160,6 +163,7 @@ export const BackendBoardSection: React.FC<BackendBoardSectionProps> = ({
             onCellClick={onCellClick}
             onCellDoubleClick={onCellDoubleClick}
             onCellContextMenu={onCellContextMenu}
+            onCellLongPress={onCellLongPress}
             isSpectator={isSpectator}
             pendingAnimation={pendingAnimation}
             onAnimationComplete={onAnimationComplete}
