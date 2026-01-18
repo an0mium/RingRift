@@ -561,7 +561,20 @@ async def store_game(request: StoreGameRequest):
 
         # Prepare metadata
         metadata = request.metadata or {}
-        metadata.setdefault("source", "sandbox")
+
+        # Detect human players from player metadata (Jan 2026: for training data)
+        players_info = metadata.get("players", [])
+        has_human = any(
+            p.get("playerType") == "human" or p.get("type") == "human"
+            for p in players_info
+        )
+
+        # Set appropriate source and engine_mode based on player types
+        if has_human:
+            metadata.setdefault("source", "human")
+            metadata.setdefault("engine_mode", "human")
+        else:
+            metadata.setdefault("source", "sandbox")
 
         # Validate game quality before storing
         from app.db.unified_recording import RecordingQualityGate
@@ -583,7 +596,8 @@ async def store_game(request: StoreGameRequest):
             metadata=metadata,
         )
 
-        logger.info(f"Stored game {game_id} with {len(moves)} moves from sandbox")
+        source_type = metadata.get("source", "sandbox")
+        logger.info(f"Stored game {game_id} with {len(moves)} moves (source={source_type})")
 
         return StoreGameResponse(
             gameId=game_id,

@@ -875,6 +875,10 @@ class RecordSource:
     TOURNAMENT = "tournament"
     TRAINING = "training"
     MANUAL = "manual"
+    # Human gameplay sources (Jan 2026: for training data from user play)
+    HUMAN = "human"           # Human vs AI games
+    SANDBOX = "sandbox"       # Sandbox games (may include AI vs AI)
+    LOBBY = "lobby"           # Lobby/matchmaking games
 
 
 # -----------------------------------------------------------------------------

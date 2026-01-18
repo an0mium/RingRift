@@ -44,6 +44,10 @@ HIGH_QUALITY_MODES = frozenset({
     'improved_mcts',
     'nn_descent',
     'nnue_guided',
+    # Human gameplay is high quality (Jan 2026)
+    'human',
+    'sandbox_human',  # Sandbox with human player
+    'lobby_human',    # Lobby game with human player
 })
 
 # Engine modes considered medium quality (some neural guidance)

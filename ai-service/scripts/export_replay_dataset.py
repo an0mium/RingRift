@@ -588,6 +588,7 @@ def export_replay_dataset_multi(
     encoder_version: str = "default",
     require_moves: bool = True,
     min_quality: float | None = None,  # December 2025: Quality filtering
+    min_elo: float | None = None,  # January 2026: Elo-gated training (filter by generator Elo)
     include_heuristics: bool = False,  # December 2025: Extract heuristic features for v5
     full_heuristics: bool = False,  # December 2025: Use full 49-feature extraction
     # Source filtering (December 2025 - Phase 5 Unified NN/NNUE training)
@@ -652,6 +653,7 @@ def export_replay_dataset_multi(
     engine_modes_list: list[str] = []  # For source-based sample weighting (Gumbel 3x weight)
     move_types_list: list[str] = []  # For chain-aware sample weighting
     opponent_elo_list: list[float] = []  # For ELO-weighted training (December 2025)
+    generator_elo_list: list[float] = []  # For quality-weighted sampling by generator strength (January 2026)
     opponent_types_list: list[str] = []  # For opponent diversity tracking (December 2025)
     quality_score_list: list[float] = []  # For quality-weighted training (December 2025)
     heuristics_list: list[np.ndarray] = []  # For v5 heavy training (December 2025)
@@ -728,6 +730,8 @@ def export_replay_dataset_multi(
         filter_desc.append("excluding recovery games")
     if min_quality is not None:
         filter_desc.append(f"min quality score {min_quality:.2f}")
+    if min_elo is not None:
+        filter_desc.append(f"min generator Elo {min_elo:.0f}")
     if quality_tier is not None and quality_tier != "bootstrap":
         filter_desc.append(f"quality tier: {quality_tier}")
     if filter_desc:
@@ -913,6 +917,35 @@ def export_replay_dataset_multi(
                 game_quality_score = quality.quality_score
                 # Quality filtering: skip games below threshold
                 if min_quality is not None and game_quality_score < min_quality:
+                    games_skipped += 1
+                    continue
+
+            # Extract generator model Elo (January 2026 - quality-weighted sampling)
+            # This is used both for Elo gating (filtering) and sample weighting.
+            # Games from stronger models provide higher quality training data.
+            # Try metadata_json first (new games), then legacy model_elo field
+            game_generator_elo: float = 1500.0  # Default to baseline Elo
+            metadata_json_raw = meta.get("metadata_json")
+            if metadata_json_raw:
+                try:
+                    metadata_dict = json.loads(metadata_json_raw) if isinstance(metadata_json_raw, str) else metadata_json_raw
+                    if metadata_dict.get("model_elo") is not None:
+                        game_generator_elo = float(metadata_dict.get("model_elo"))
+                except (json.JSONDecodeError, TypeError, AttributeError, ValueError):
+                    pass
+            if game_generator_elo == 1500.0 and meta.get("model_elo") is not None:
+                try:
+                    game_generator_elo = float(meta.get("model_elo"))
+                except (TypeError, ValueError):
+                    pass
+
+            # Elo gating (January 2026 - iterative strength improvement)
+            # Filter games by the generating model's Elo rating. Games from weaker
+            # models produce lower quality training data. Only train on data from
+            # sufficiently strong models to ensure iterative improvement.
+            if min_elo is not None:
+                # Skip games from weak models (below min_elo threshold)
+                if game_generator_elo < min_elo:
                     games_skipped += 1
                     continue
 
@@ -1260,6 +1293,7 @@ def export_replay_dataset_multi(
                 engine_modes_list.append(engine_mode)
                 move_types_list.append(move_type_str)
                 opponent_elo_list.append(opponent_elo)
+                generator_elo_list.append(game_generator_elo)
                 opponent_types_list.append(opponent_type)
                 quality_score_list.append(game_quality_score)
                 timestamps_list.append(game_timestamp)
@@ -1327,6 +1361,7 @@ def export_replay_dataset_multi(
     engine_modes_arr = np.array(engine_modes_list, dtype=object)  # For source-based sample weighting
     move_types_arr = np.array(move_types_list, dtype=object)  # For chain-aware sample weighting
     opponent_elo_arr = np.array(opponent_elo_list, dtype=np.float32)  # For ELO-weighted training
+    generator_elo_arr = np.array(generator_elo_list, dtype=np.float32)  # For quality-weighted sampling (Jan 2026)
     opponent_types_arr = np.array(opponent_types_list, dtype=object)  # For opponent diversity tracking
     quality_score_arr = np.array(quality_score_list, dtype=np.float32)  # For quality-weighted training
 
@@ -1426,6 +1461,7 @@ def export_replay_dataset_multi(
         "engine_modes": engine_modes_arr,  # For source-based sample weighting (Gumbel 3x weight)
         "move_types": move_types_arr,  # For chain-aware sample weighting
         "opponent_elo": opponent_elo_arr,  # For ELO-weighted training (December 2025)
+        "generator_elo": generator_elo_arr,  # For quality-weighted sampling by generator strength (January 2026)
         "quality_score": quality_score_arr,  # For quality-weighted training (December 2025)
         "opponent_types": opponent_types_arr,  # For opponent diversity tracking (December 2025)
     }
@@ -1609,6 +1645,7 @@ def export_replay_dataset(
     encoder_version: str = "default",
     require_moves: bool = True,
     min_quality: float | None = None,
+    min_elo: float | None = None,  # January 2026: Elo-gated training
     fail_on_orphans: bool = True,
     quality_tier: str | None = None,  # January 2026: Quality tier filtering
 ) -> None:
@@ -1641,6 +1678,7 @@ def export_replay_dataset(
         require_moves=require_moves,
         encoder_version=encoder_version,
         min_quality=min_quality,
+        min_elo=min_elo,
         fail_on_orphans=fail_on_orphans,
         quality_tier=quality_tier,
     )
@@ -1851,6 +1889,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Maximum move count to include a game (filters out abnormally long games).",
+    )
+    parser.add_argument(
+        "--min-elo",
+        type=float,
+        default=None,
+        help=(
+            "Minimum generator model Elo to include a game. Games from weaker models are "
+            "filtered out. This implements Elo-gated training for quality-focused improvement. "
+            "Default: None (include all games). Recommended: 1050 for iterative improvement."
+        ),
     )
     parser.add_argument(
         "--max-move-index",
@@ -2090,6 +2138,16 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Tournament games feature strong opponents and varied playstyles. "
             "Use for training robust models that generalize well. "
             "December 2025: Part of unified NN/NNUE training pipeline."
+        ),
+    )
+    parser.add_argument(
+        "--include-human",
+        action="store_true",
+        help=(
+            "Include games with human players from sandbox/lobby play. "
+            "Human games are weighted 3x in training (HIGH_QUALITY tier). "
+            "Use this to leverage human gameplay for NN improvement. "
+            "January 2026: Part of human gameplay training pipeline."
         ),
     )
     parser.add_argument(
@@ -2356,7 +2414,7 @@ def main(argv: list[str] | None = None) -> int:
     exclude_sources: set[str] | None = None
 
     # Build include set from convenience flags and --sources
-    if args.include_gauntlet or args.include_tournaments or args.sources:
+    if args.include_gauntlet or args.include_tournaments or args.include_human or args.sources:
         include_sources = set()
         include_sources.add("selfplay")  # Always include selfplay by default
         if args.include_gauntlet:
@@ -2365,6 +2423,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.include_tournaments:
             include_sources.add("tournament")
             print("[SOURCE FILTER] Including tournament games")
+        if args.include_human:
+            include_sources.add("human")
+            include_sources.add("sandbox")  # Sandbox may contain human games too
+            print("[SOURCE FILTER] Including human gameplay (weighted 3x in training)")
         if args.sources:
             for source in args.sources.split(","):
                 source = source.strip().lower()
@@ -2483,6 +2545,7 @@ def main(argv: list[str] | None = None) -> int:
         encoder_version=args.encoder_version,
         require_moves=not args.no_require_moves,
         min_quality=args.min_quality,
+        min_elo=args.min_elo,
         include_heuristics=args.include_heuristics,
         full_heuristics=args.full_heuristics,
         # Source filtering (December 2025 - Phase 5 Unified NN/NNUE training)
