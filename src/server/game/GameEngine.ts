@@ -564,6 +564,8 @@ export class GameEngine {
               type: 'ring_elimination',
               eliminationContext,
               prompt,
+              // RR-FIX-2026-01-18: Pass intermediate state for UI broadcast
+              ...(decision.intermediateState && { intermediateState: decision.intermediateState }),
               options: eliminationMoves.map((move) => {
                 const pos = move.to as Position;
                 const stack = this.boardManager.getStack(pos, this.gameState.board);
