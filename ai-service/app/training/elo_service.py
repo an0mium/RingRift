@@ -774,6 +774,44 @@ class EloService:
                 int(is_deployable),
             ))
 
+    def _ensure_participant_exists(
+        self,
+        participant_id: str,
+        ai_type: str = "neural_net",
+        model_path: str | None = None,
+    ) -> None:
+        """Ensure participant exists in participants table before adding Elo ratings.
+
+        January 17, 2026: Added to fix issue where new models got Elo ratings
+        but weren't registered as participants, causing them to be invisible
+        in get_leaderboard() which uses a JOIN with the participants table.
+
+        This method uses INSERT OR IGNORE to avoid overwriting existing participant
+        data while ensuring new participants are properly registered.
+
+        Args:
+            participant_id: Unique participant identifier
+            ai_type: Type of AI (default: "neural_net")
+            model_path: Optional path to model file
+        """
+        # Skip baseline participants (handled separately)
+        if any(x in participant_id.lower() for x in ["random", "heuristic", "dummy", "baseline", "none:"]):
+            return
+
+        with self._transaction() as conn:
+            conn.execute("""
+                INSERT OR IGNORE INTO participants
+                (participant_id, participant_type, ai_type, use_neural_net, model_path,
+                 created_at, last_seen, is_deployable)
+                VALUES (?, 'AI', ?, 1, ?, ?, ?, 1)
+            """, (
+                participant_id,
+                ai_type,
+                model_path or f"models/{participant_id}.pth",
+                time.time(),
+                time.time(),
+            ))
+
     # =========================================================================
     # Model Identity Tracking (January 2026)
     # Track model files by SHA256 hash for deduplication and alias resolution
@@ -1425,6 +1463,9 @@ class EloService:
             )
 
         # Create initial rating
+        # January 17, 2026: Ensure participant is registered so it appears in leaderboard
+        self._ensure_participant_exists(participant_id)
+
         with self._transaction() as conn:
             conn.execute("""
                 INSERT OR IGNORE INTO elo_ratings
@@ -1685,6 +1726,10 @@ class EloService:
                 metadata["harness_type"] = harness_type
             if is_multi_harness:
                 metadata["is_multi_harness"] = is_multi_harness
+
+        # January 17, 2026: Ensure participants are registered so they appear in leaderboard
+        self._ensure_participant_exists(participant_a)
+        self._ensure_participant_exists(participant_b)
 
         # December 30, 2025 - P5.2: Route to Raft backend for cluster-wide consistency
         if self._backend == EloBackendType.RAFT:
