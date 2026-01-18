@@ -2495,6 +2495,25 @@ export class GameEngine {
 
     // When a placement has occurred this turn, restrict movement/capture
     // options so that only the placed/updated stack may move.
+    // RR-DEBUG-2026-01-18: Log mustMoveFromStackKey filtering for capture phase debugging
+    if (this.gameState.currentPhase === 'capture') {
+      logger.info('GameEngine.getValidMoves capture phase', {
+        mustMoveFromStackKey: this.mustMoveFromStackKey,
+        movesBeforeFilter: moves.filter(
+          (m) =>
+            m.type === 'overtaking_capture' ||
+            m.type === 'continue_capture_segment' ||
+            m.type === 'move_stack'
+        ).length,
+        captureMovesFromKeys: [
+          ...new Set(
+            moves
+              .filter((m) => m.type === 'overtaking_capture' && m.from)
+              .map((m) => positionToString(m.from!))
+          ),
+        ],
+      });
+    }
     if (
       this.mustMoveFromStackKey &&
       (this.gameState.currentPhase === 'movement' || this.gameState.currentPhase === 'capture')
