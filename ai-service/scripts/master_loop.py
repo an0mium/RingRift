@@ -1582,7 +1582,9 @@ class MasterLoopController:
             intensive_daemons = {
                 DaemonType.IDLE_RESOURCE,           # spawns selfplay
                 DaemonType.TRAINING_NODE_WATCHER,   # monitors training
-                DaemonType.AUTO_EXPORT,             # exports training data (CPU-bound)
+                # Jan 19, 2026: Removed AUTO_EXPORT from intensive list.
+                # AUTO_EXPORT is I/O-bound (not CPU), and coordinator needs it to export
+                # consolidated game data for training. Without it, NPZ files become stale.
                 # Jan 10, 2026: TRAINING_TRIGGER moved to coordinator - dispatches training
                 # to cluster nodes via P2P, doesn't run training locally.
                 DaemonType.NNUE_TRAINING,           # dispatches NNUE training to cluster
