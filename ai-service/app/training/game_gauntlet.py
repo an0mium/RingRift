@@ -155,8 +155,14 @@ HeuristicAI: Any = None
 RandomAI: Any = None
 PolicyOnlyAI: Any = None
 UniversalAI: Any = None
+GumbelMCTSAI: Any = None  # Jan 2026: Added for search-enabled gauntlet evaluation
 create_initial_state: Any = None
 DefaultRulesEngine: Any = None
+
+# Jan 2026: Light search budget for gauntlet evaluation
+# This aligns evaluation with training (both use MCTS) while keeping evaluation fast
+# Training uses 800 sims, gauntlet uses 32 for speed but still gets search benefit
+GAUNTLET_SEARCH_BUDGET = 32
 
 
 def _ensure_game_modules():
@@ -166,13 +172,14 @@ def _ensure_game_modules():
         return
 
     global BoardType, AIType, AIConfig, GameStatus
-    global HeuristicAI, RandomAI, PolicyOnlyAI, UniversalAI
+    global HeuristicAI, RandomAI, PolicyOnlyAI, UniversalAI, GumbelMCTSAI
     global create_initial_state, DefaultRulesEngine
 
     from app.ai.heuristic_ai import HeuristicAI
     from app.ai.policy_only_ai import PolicyOnlyAI
     from app.ai.random_ai import RandomAI
     from app.ai.universal_ai import UniversalAI
+    from app.ai.gumbel_mcts_ai import GumbelMCTSAI  # Jan 2026: Search-enabled AI
     from app.models import AIConfig, AIType, BoardType, GameStatus
     from app.rules.default_engine import DefaultRulesEngine
     from app.training.initial_state import create_initial_state
@@ -1054,6 +1061,8 @@ def create_neural_ai(
     game_seed: int | None = None,
     num_players: int = 2,
     model_type: str = "cnn",
+    use_search: bool = False,
+    search_budget: int | None = None,
 ) -> Any:
     """Create a neural network AI instance.
 
@@ -1066,9 +1075,14 @@ def create_neural_ai(
         temperature: Policy temperature for move selection
         game_seed: Optional seed for RNG variation per game
         model_type: Type of model - "cnn" (default), "gnn", or "hybrid"
+        use_search: If True, use GumbelMCTSAI with MCTS search instead of PolicyOnlyAI.
+            This aligns gauntlet evaluation with training (which uses MCTS).
+            Jan 2026: Critical fix for training/evaluation mismatch.
+        search_budget: Number of MCTS simulations when use_search=True.
+            Defaults to GAUNTLET_SEARCH_BUDGET (32) for fast evaluation.
 
     Returns:
-        AI instance (PolicyOnlyAI for CNN, GNNAI for GNN/hybrid)
+        AI instance (GumbelMCTSAI if use_search=True, else PolicyOnlyAI/UniversalAI)
     """
     _ensure_game_modules()
 
@@ -1136,6 +1150,32 @@ def create_neural_ai(
                             break
 
             if path_obj.exists():
+                # Jan 2026: When use_search=True, use GumbelMCTSAI with MCTS search
+                # This aligns gauntlet evaluation with training (both use MCTS)
+                if use_search:
+                    budget = search_budget if search_budget is not None else GAUNTLET_SEARCH_BUDGET
+                    model_id = str(path_obj)
+                    if model_id.startswith("models/"):
+                        model_id = model_id[7:]
+                    if model_id.endswith(".pth"):
+                        model_id = model_id[:-4]
+
+                    config = AIConfig(
+                        ai_type=AIType.GUMBEL_MCTS,
+                        board_type=board_type,
+                        difficulty=8,
+                        use_neural_net=True,
+                        nn_model_id=model_id,
+                        gumbel_simulation_budget=budget,
+                        gumbel_num_sampled_actions=8,  # Light sampling for evaluation
+                        policy_temperature=temperature,
+                        rngSeed=ai_rng_seed,
+                    )
+                    logger.info(
+                        f"[gauntlet] Creating GumbelMCTSAI with {budget} sims for player {player}"
+                    )
+                    return GumbelMCTSAI(player, config, board_type=board_type)
+
                 return UniversalAI.from_checkpoint(
                     str(path_obj),
                     player_number=player,
@@ -1146,13 +1186,32 @@ def create_neural_ai(
         except (RuntimeError, ValueError, FileNotFoundError, KeyError, OSError) as e:
             logger.warning(f"UniversalAI.from_checkpoint failed: {e}, falling back to PolicyOnlyAI")
 
-        # Fallback to legacy loading via PolicyOnlyAI
+        # Fallback to legacy loading via PolicyOnlyAI (or GumbelMCTSAI if use_search)
         model_id = str(model_path)
         if not path_obj.is_absolute():
             if model_id.startswith("models/"):
                 model_id = model_id[7:]
             if model_id.endswith(".pth"):
                 model_id = model_id[:-4]
+
+        # Jan 2026: Use GumbelMCTSAI when use_search=True
+        if use_search:
+            budget = search_budget if search_budget is not None else GAUNTLET_SEARCH_BUDGET
+            config = AIConfig(
+                ai_type=AIType.GUMBEL_MCTS,
+                board_type=board_type,
+                difficulty=8,
+                use_neural_net=True,
+                nn_model_id=model_id,
+                gumbel_simulation_budget=budget,
+                gumbel_num_sampled_actions=8,
+                policy_temperature=temperature,
+                rngSeed=ai_rng_seed,
+            )
+            logger.info(
+                f"[gauntlet] Creating GumbelMCTSAI (fallback) with {budget} sims for player {player}"
+            )
+            return GumbelMCTSAI(player, config, board_type=board_type)
 
         config = AIConfig(
             ai_type=AIType.POLICY_ONLY,
@@ -1431,11 +1490,14 @@ def _play_single_gauntlet_game(
     model_getter: Callable[[], Any] | None,
     model_type: str,
     recording_config: Any | None = None,  # Jan 2026: Add recording support for parallel games
+    use_search: bool = True,  # Jan 2026: Enable MCTS search to align with training
 ) -> dict[str, Any]:
     """Play a single gauntlet game (for parallel execution).
 
     Args:
         recording_config: Optional RecordingConfig for saving game data (Jan 2026).
+        use_search: If True, candidate uses GumbelMCTSAI with MCTS search.
+            Default True to align gauntlet evaluation with training (Jan 2026).
 
     Returns:
         Dict with: game_num, candidate_won, winner, move_count, victory_reason, error
@@ -1452,6 +1514,7 @@ def _play_single_gauntlet_game(
             game_seed=game_seed,
             num_players=num_players,
             model_type=model_type,
+            use_search=use_search,
         )
 
         # Create baseline AIs for all other players
@@ -1514,6 +1577,7 @@ def _evaluate_single_opponent(
     recording_config: Any | None = None,
     harness_type: str = "",  # Jan 2026: Harness type for composite Elo tracking
     _from_parallel_context: bool = False,  # Jan 2026: Prevents nested ThreadPool deadlock
+    use_search: bool = True,  # Jan 2026: Enable MCTS search to align with training
 ) -> dict[str, Any]:
     """Evaluate a model against a single baseline opponent.
 
@@ -1578,6 +1642,7 @@ def _evaluate_single_opponent(
                         model_getter,
                         model_type,
                         recording_config,  # Jan 2026: Pass recording_config for game saving
+                        use_search,  # Jan 2026: Pass use_search for MCTS alignment
                     ): g
                     for g in batch_games
                 }
@@ -1683,6 +1748,7 @@ def _evaluate_single_opponent(
                 game_seed=game_seed,
                 num_players=num_players,
                 model_type=model_type,
+                use_search=use_search,  # Jan 2026: Use MCTS search to align with training
             )
 
             # Create baseline AIs for all other players
@@ -1913,6 +1979,7 @@ def run_baseline_gauntlet(
     confidence_weighted_games: bool = False,
     harness_type: str = "",  # Dec 29: Harness type for unified evaluation
     game_count: int | None = None,  # Dec 30: Training game count for graduated thresholds
+    use_search: bool = True,  # Jan 2026: Use MCTS search for candidate model
 ) -> GauntletResult:
     """Run a gauntlet evaluation against baseline opponents.
 
@@ -2086,6 +2153,7 @@ def run_baseline_gauntlet(
                     recording_config,
                     harness_type,  # Jan 2026: Pass harness type for Elo tracking
                     True,  # _from_parallel_context: prevents nested ThreadPool deadlock
+                    use_search,  # Jan 2026: Use MCTS search for candidate model
                 ): baseline
                 for baseline in opponents
             }
@@ -2127,6 +2195,8 @@ def run_baseline_gauntlet(
                 parallel_games,
                 recording_config,
                 harness_type,  # Jan 2026: Pass harness type for Elo tracking
+                False,  # _from_parallel_context
+                use_search,  # Jan 2026: Use MCTS search for candidate model
             )
             opponent_eval_results.append(eval_result)
 
