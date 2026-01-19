@@ -197,7 +197,10 @@ class SelfplayRunner(ABC):
         """Check if node is under selfplay process limit.
 
         December 29, 2025: Prevents runaway process spawning that causes OOM.
-        Set RINGRIFT_RUNAWAY_SELFPLAY_PROCESS_THRESHOLD to configure limit (default: 128).
+        Set RINGRIFT_RUNAWAY_SELFPLAY_PROCESS_THRESHOLD to configure limit.
+
+        January 19, 2026: Lower default for Vast.ai nodes (32 vs 128) since they
+        lack P2P supervision and accumulate zombies more easily.
 
         Returns:
             True if under limit, False if at/over limit.
@@ -206,7 +209,21 @@ class SelfplayRunner(ABC):
             import psutil
             from ..config.env import env
 
-            threshold = env.runaway_selfplay_process_threshold
+            # Detect Vast.ai nodes - use lower threshold (32 vs 128)
+            is_vast = (
+                os.environ.get("RINGRIFT_VAST_NODE")
+                or "vast" in env.node_id.lower()
+                or "ssh" in os.environ.get("SSH_CONNECTION", "").lower()
+            )
+            default_threshold = 32 if is_vast else 128
+
+            # Environment variable overrides default
+            threshold = int(
+                os.environ.get(
+                    "RINGRIFT_RUNAWAY_SELFPLAY_PROCESS_THRESHOLD",
+                    str(default_threshold),
+                )
+            )
             # Count Python processes that look like selfplay
             selfplay_count = 0
             for proc in psutil.process_iter(["pid", "name", "cmdline"]):
