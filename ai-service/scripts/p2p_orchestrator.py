@@ -522,6 +522,118 @@ def db_connection(db_path: str | Path, timeout: float = 30.0) -> Generator[sqlit
                 conn.close()
 
 
+# =============================================================================
+# Async subprocess helper - Jan 19, 2026
+# Prevents blocking the event loop during subprocess operations
+# =============================================================================
+
+async def async_subprocess_run(
+    cmd: list[str],
+    cwd: str | Path | None = None,
+    timeout: float = 30.0,
+    capture_output: bool = True,
+    text: bool = True,
+    env: dict | None = None,
+) -> subprocess.CompletedProcess:
+    """Run subprocess in thread pool to avoid blocking the event loop.
+
+    This is a drop-in replacement for subprocess.run() in async contexts.
+    Wraps the blocking subprocess.run() call in asyncio.to_thread().
+
+    Args:
+        cmd: Command and arguments to run
+        cwd: Working directory for the command
+        timeout: Timeout in seconds (default 30)
+        capture_output: Capture stdout/stderr (default True)
+        text: Return text instead of bytes (default True)
+        env: Environment variables (default None = inherit)
+
+    Returns:
+        CompletedProcess with returncode, stdout, stderr
+
+    Example:
+        result = await async_subprocess_run(["git", "status"], cwd="/path")
+        if result.returncode == 0:
+            print(result.stdout)
+    """
+    def _run():
+        return subprocess.run(
+            cmd,
+            cwd=cwd,
+            timeout=timeout,
+            capture_output=capture_output,
+            text=text,
+            env=env,
+        )
+
+    return await asyncio.to_thread(_run)
+
+
+async def async_db_query(
+    db_path: str | Path,
+    query: str,
+    params: tuple = (),
+    timeout: float = 30.0,
+    fetch_all: bool = True,
+) -> list | None:
+    """Run SQLite query in thread pool to avoid blocking the event loop.
+
+    Args:
+        db_path: Path to SQLite database
+        query: SQL query to execute
+        params: Query parameters (default empty)
+        timeout: Connection timeout in seconds (default 30)
+        fetch_all: If True, return all rows; if False, return one row
+
+    Returns:
+        Query results or None on error
+    """
+    def _query():
+        with db_connection(db_path, timeout=timeout) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            if fetch_all:
+                return cursor.fetchall()
+            return cursor.fetchone()
+
+    try:
+        return await asyncio.to_thread(_query)
+    except Exception as e:
+        logger.warning(f"[async_db_query] Query failed on {db_path}: {e}")
+        return None
+
+
+async def async_db_execute(
+    db_path: str | Path,
+    query: str,
+    params: tuple = (),
+    timeout: float = 30.0,
+) -> bool:
+    """Execute SQLite write query in thread pool.
+
+    Args:
+        db_path: Path to SQLite database
+        query: SQL query to execute (INSERT, UPDATE, DELETE)
+        params: Query parameters (default empty)
+        timeout: Connection timeout in seconds (default 30)
+
+    Returns:
+        True if successful, False on error
+    """
+    def _execute():
+        with db_connection(db_path, timeout=timeout) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            conn.commit()
+            return True
+
+    try:
+        return await asyncio.to_thread(_execute)
+    except Exception as e:
+        logger.warning(f"[async_db_execute] Execute failed on {db_path}: {e}")
+        return False
+
+
 # Centralized ramdrive utilities for auto-detection
 # Shared database integrity utilities
 from app.db.integrity import (
@@ -3927,13 +4039,19 @@ class P2POrchestrator(
             env["PYTHONPATH"] = self._get_ai_service_path()
 
             log_file = Path(f"/tmp/auto_export_{db_path.stem}.log")
-            subprocess.Popen(
-                cmd,
-                stdout=open(log_file, "w"),
-                stderr=subprocess.STDOUT,
-                env=env,
-                cwd=self._get_ai_service_path(),
-            )
+
+            # Jan 19, 2026: Run subprocess in thread pool to avoid blocking event loop
+            def _start_export_process():
+                with open(log_file, "w") as log_fh:
+                    subprocess.Popen(
+                        cmd,
+                        stdout=log_fh,
+                        stderr=subprocess.STDOUT,
+                        env=env,
+                        cwd=self._get_ai_service_path(),
+                    )
+
+            await asyncio.to_thread(_start_export_process)
             logger.info(f"[DataManagement] Started export job for {db_path.name}")
             return True
 
@@ -11882,16 +12000,17 @@ class P2POrchestrator(
             traceback.print_exc()
 
     # ============================================
-    # Git Auto-Update Methods
+    # Git Auto-Update Methods (async - Jan 19, 2026)
+    # All git operations run in thread pool to avoid blocking event loop
     # ============================================
 
-    def _get_local_git_commit(self) -> str | None:
-        """Get the current local git commit hash."""
+    async def _get_local_git_commit(self) -> str | None:
+        """Get the current local git commit hash (async)."""
         try:
-            result = subprocess.run(
+            result = await async_subprocess_run(
                 self._git_cmd("rev-parse", "HEAD"),
                 cwd=self.ringrift_path,
-                capture_output=True, text=True, timeout=10
+                timeout=10
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -11899,13 +12018,13 @@ class P2POrchestrator(
             logger.error(f"Failed to get local git commit: {e}")
         return None
 
-    def _get_local_git_branch(self) -> str | None:
-        """Get the current local git branch name."""
+    async def _get_local_git_branch(self) -> str | None:
+        """Get the current local git branch name (async)."""
         try:
-            result = subprocess.run(
+            result = await async_subprocess_run(
                 self._git_cmd("rev-parse", "--abbrev-ref", "HEAD"),
                 cwd=self.ringrift_path,
-                capture_output=True, text=True, timeout=10
+                timeout=10
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -11913,24 +12032,24 @@ class P2POrchestrator(
             logger.error(f"Failed to get local git branch: {e}")
         return None
 
-    def _get_remote_git_commit(self) -> str | None:
-        """Fetch and get the remote branch's latest commit hash."""
+    async def _get_remote_git_commit(self) -> str | None:
+        """Fetch and get the remote branch's latest commit hash (async)."""
         try:
             # First fetch to update remote refs
-            fetch_result = subprocess.run(
+            fetch_result = await async_subprocess_run(
                 self._git_cmd("fetch", GIT_REMOTE_NAME, GIT_BRANCH_NAME),
                 cwd=self.ringrift_path,
-                capture_output=True, text=True, timeout=60
+                timeout=60
             )
             if fetch_result.returncode != 0:
                 logger.info(f"Git fetch failed: {fetch_result.stderr}")
                 return None
 
             # Get remote branch commit
-            result = subprocess.run(
+            result = await async_subprocess_run(
                 self._git_cmd("rev-parse", f"{GIT_REMOTE_NAME}/{GIT_BRANCH_NAME}"),
                 cwd=self.ringrift_path,
-                capture_output=True, text=True, timeout=10
+                timeout=10
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -11938,13 +12057,16 @@ class P2POrchestrator(
             logger.error(f"Failed to get remote git commit: {e}")
         return None
 
-    def _check_for_updates(self) -> tuple[bool, str | None, str | None]:
-        """Check if there are updates available from GitHub.
+    async def _check_for_updates(self) -> tuple[bool, str | None, str | None]:
+        """Check if there are updates available from GitHub (async).
 
         Returns: (has_updates, local_commit, remote_commit)
         """
-        local_commit = self._get_local_git_commit()
-        remote_commit = self._get_remote_git_commit()
+        # Run both git queries in parallel
+        local_commit, remote_commit = await asyncio.gather(
+            self._get_local_git_commit(),
+            self._get_remote_git_commit(),
+        )
 
         if not local_commit or not remote_commit:
             return False, local_commit, remote_commit
@@ -11952,13 +12074,13 @@ class P2POrchestrator(
         has_updates = local_commit != remote_commit
         return has_updates, local_commit, remote_commit
 
-    def _get_commits_behind(self, local_commit: str, remote_commit: str) -> int:
-        """Get the number of commits the local branch is behind remote."""
+    async def _get_commits_behind(self, local_commit: str, remote_commit: str) -> int:
+        """Get the number of commits the local branch is behind remote (async)."""
         try:
-            result = subprocess.run(
+            result = await async_subprocess_run(
                 self._git_cmd("rev-list", "--count", f"{local_commit}..{remote_commit}"),
                 cwd=self.ringrift_path,
-                capture_output=True, text=True, timeout=10
+                timeout=10
             )
             if result.returncode == 0:
                 return int(result.stdout.strip())
@@ -11966,8 +12088,8 @@ class P2POrchestrator(
             logger.error(f"Failed to count commits behind: {e}")
         return 0
 
-    def _check_local_changes(self) -> bool:
-        """Check if there are uncommitted local changes.
+    async def _check_local_changes(self) -> bool:
+        """Check if there are uncommitted local changes (async).
 
         Notes:
         - Ignore untracked files by default. Cluster nodes often accumulate local
@@ -11976,10 +12098,10 @@ class P2POrchestrator(
           local hotfixes.
         """
         try:
-            result = subprocess.run(
+            result = await async_subprocess_run(
                 self._git_cmd("status", "--porcelain", "--untracked-files=no"),
                 cwd=self.ringrift_path,
-                capture_output=True, text=True, timeout=10
+                timeout=10
             )
             if result.returncode == 0:
                 # If there's output, there are uncommitted changes
@@ -12028,12 +12150,12 @@ class P2POrchestrator(
         return stopped
 
     async def _perform_git_update(self) -> tuple[bool, str]:
-        """Perform git pull to update the codebase.
+        """Perform git pull to update the codebase (async).
 
         Returns: (success, message)
         """
-        # Check for local changes
-        if self._check_local_changes():
+        # Check for local changes (async)
+        if await self._check_local_changes():
             return False, "Local changes detected. Cannot auto-update. Please commit or stash changes."
 
         # Stop jobs if configured
@@ -12043,11 +12165,11 @@ class P2POrchestrator(
                 logger.info(f"Stopped {stopped} jobs before update")
 
         try:
-            # Perform git pull
-            result = subprocess.run(
+            # Perform git pull (async - Jan 19, 2026)
+            result = await async_subprocess_run(
                 self._git_cmd("pull", GIT_REMOTE_NAME, GIT_BRANCH_NAME),
                 cwd=self.ringrift_path,
-                capture_output=True, text=True, timeout=120
+                timeout=120
             )
 
             if result.returncode != 0:
@@ -12096,11 +12218,11 @@ class P2POrchestrator(
                 if not self.running:
                     break
 
-                # Check for updates (Jan 2026: use asyncio.to_thread to avoid blocking)
-                has_updates, local_commit, remote_commit = await asyncio.to_thread(self._check_for_updates)
+                # Check for updates (Jan 19, 2026: methods are now async)
+                has_updates, local_commit, remote_commit = await self._check_for_updates()
 
                 if has_updates and local_commit and remote_commit:
-                    commits_behind = await asyncio.to_thread(self._get_commits_behind, local_commit, remote_commit)
+                    commits_behind = await self._get_commits_behind(local_commit, remote_commit)
                     logger.info(f"Update available: {commits_behind} commits behind")
                     logger.info(f"Local:  {local_commit[:8]}")
                     logger.info(f"Remote: {remote_commit[:8]}")
@@ -12458,7 +12580,16 @@ class P2POrchestrator(
             except Exception as e:  # noqa: BLE001
                 return name, {"error": str(e)}
 
-        # Run all metric gathering calls in PARALLEL
+        # Jan 19, 2026: Run ALL metric gathering calls in PARALLEL
+        # Previously some metrics (swim_raft, partition, background_loops, voter_health)
+        # were awaited sequentially after this gather, adding up to 20s latency.
+        # Now everything runs in parallel for <5s total latency.
+        def _get_loop_manager_status():
+            loop_manager = self._get_loop_manager()
+            if loop_manager is not None:
+                return loop_manager.get_all_status()
+            return {"error": "LoopManager not initialized"}
+
         metric_tasks = [
             _safe_metric("gossip_metrics", self._get_gossip_metrics_summary),
             _safe_metric("distributed_training", self._get_distributed_training_summary),
@@ -12469,6 +12600,11 @@ class P2POrchestrator(
             _safe_metric("sync_intervals", self._get_sync_interval_summary),
             _safe_metric("tournament_scheduling", self._get_distributed_tournament_summary),
             _safe_metric("data_dedup", self._get_dedup_summary),
+            # Jan 19, 2026: Added these to parallel gather (were sequential before)
+            _safe_metric("swim_raft", self._get_swim_raft_status),
+            _safe_metric("partition", self.get_partition_status),
+            _safe_metric("background_loops", _get_loop_manager_status),
+            _safe_metric("voter_health", self._check_voter_health),
         ]
 
         # Gather all results in parallel
@@ -12492,18 +12628,11 @@ class P2POrchestrator(
         sync_intervals = metrics_dict.get("sync_intervals", {"error": "not_collected"})
         tournament_scheduling = metrics_dict.get("tournament_scheduling", {"error": "not_collected"})
         data_dedup = metrics_dict.get("data_dedup", {"error": "not_collected"})
-
-        # Phase 5: SWIM/Raft protocol status (Dec 26, 2025)
-        # Jan 16, 2026: Added timeout protection
-        try:
-            swim_raft_status = await asyncio.wait_for(
-                asyncio.to_thread(self._get_swim_raft_status),
-                timeout=_STATUS_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            swim_raft_status = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            swim_raft_status = {"error": str(e)}
+        # Jan 19, 2026: These were previously sequential - now parallel
+        swim_raft_status = metrics_dict.get("swim_raft", {"error": "not_collected"})
+        partition_status = metrics_dict.get("partition", {"error": "not_collected"})
+        background_loops = metrics_dict.get("background_loops", {"error": "not_collected"})
+        voter_health = metrics_dict.get("voter_health", {"error": "not_collected"})
 
         # Jan 3, 2026: Transport latency stats for diagnosing slow transports
         transport_latency: dict = {}
@@ -12525,33 +12654,7 @@ class P2POrchestrator(
             "timestamp": 0,
         })
 
-        # Phase 2.4 (Dec 29, 2025): Partition status for cluster monitoring
-        # Jan 16, 2026: Added timeout protection
-        try:
-            partition_status = await asyncio.wait_for(
-                asyncio.to_thread(self.get_partition_status),
-                timeout=_STATUS_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            partition_status = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            partition_status = {"error": str(e)}
-
-        # Phase 4 (Dec 2025): Background loop status from LoopManager
-        # Jan 16, 2026: Added timeout protection
-        try:
-            loop_manager = self._get_loop_manager()
-            if loop_manager is not None:
-                background_loops = await asyncio.wait_for(
-                    asyncio.to_thread(loop_manager.get_all_status),
-                    timeout=_STATUS_TIMEOUT
-                )
-            else:
-                background_loops = {"error": "LoopManager not initialized"}
-        except asyncio.TimeoutError:
-            background_loops = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            background_loops = {"error": str(e)}
+        # Jan 19, 2026: partition_status and background_loops now computed in parallel gather above
 
         # Jan 1, 2026: Work queue status for monitoring (Phase 4B fix)
         work_queue_size = 0
@@ -12585,16 +12688,7 @@ class P2POrchestrator(
                 cluster_selfplay_jobs += int(peer_data.get("selfplay_jobs", 0) or 0)
                 cluster_training_jobs += int(peer_data.get("training_jobs", 0) or 0)
 
-        # Jan 16, 2026: Pre-compute voter_health with timeout protection
-        try:
-            voter_health = await asyncio.wait_for(
-                asyncio.to_thread(self._check_voter_health),
-                timeout=_STATUS_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            voter_health = {"error": "timeout"}
-        except Exception as e:  # noqa: BLE001
-            voter_health = {"error": str(e)}
+        # Jan 19, 2026: voter_health now computed in parallel gather above
 
         return web.json_response({
             "node_id": self.node_id,
