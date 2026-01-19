@@ -137,7 +137,7 @@ async def _run_online_learning(
         import torch
 
         from app.ai.ebmo_online_learner import EBMOOnlineLearner, EBMOOnlineConfig
-        from app.rules import GameEngine
+        from app.game_engine import GameEngine
         from app.board_manager import get_board_for_config
 
         # Determine device
