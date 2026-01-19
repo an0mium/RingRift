@@ -1,5 +1,7 @@
 import { io, Socket } from 'socket.io-client';
+import axios from 'axios';
 import { getSocketBaseUrl } from '../utils/socketBaseUrl';
+import { getApiBaseUrl } from './api';
 import type {
   GameStateUpdateMessage,
   GameOverMessage,
@@ -56,6 +58,28 @@ export class SocketGameConnection implements GameConnection {
     }
   }
 
+  /**
+   * Attempt to refresh the access token using the refresh token cookie.
+   * Returns true if successful, false otherwise.
+   */
+  private async tryRefreshToken(): Promise<boolean> {
+    try {
+      const response = await axios.post(
+        `${getApiBaseUrl()}/auth/refresh`,
+        {},
+        { withCredentials: true }
+      );
+      const newToken = response.data?.data?.accessToken;
+      if (newToken) {
+        localStorage.setItem('token', newToken);
+        return true;
+      }
+    } catch {
+      // Refresh failed - token may be expired or invalid
+    }
+    return false;
+  }
+
   async connect(targetGameId: string): Promise<void> {
     // If already connected to this game, do nothing.
     if (this._gameId === targetGameId && this.socket) {
@@ -90,13 +114,34 @@ export class SocketGameConnection implements GameConnection {
       emitJoinGame();
     });
 
-    socket.on('connect_error', (err: Error) => {
+    socket.on('connect_error', async (err: Error) => {
+      // RR-FIX-2026-01-19: When socket connection fails due to authentication,
+      // attempt to refresh the token. The next reconnect_attempt will pick up
+      // the fresh token from localStorage.
+      const isAuthError =
+        err.message.includes('Authentication') ||
+        err.message.includes('ACCESS_DENIED') ||
+        err.message.includes('token');
+      if (isAuthError) {
+        await this.tryRefreshToken();
+      }
+
       this.handlers.onError(err);
       this.setStatus('disconnected');
     });
 
     socket.on('reconnect_attempt', () => {
       this.setStatus('reconnecting');
+
+      // RR-FIX-2026-01-19: Update socket auth with fresh token before reconnecting.
+      // The original token may have expired during the connection, so we need to
+      // use the latest token from localStorage (which may have been refreshed by
+      // the HTTP API interceptor). Without this, reconnection fails with
+      // "Authentication failed" if the original token expired.
+      const freshToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      if (freshToken && socket.auth) {
+        (socket.auth as { token?: string }).token = freshToken;
+      }
     });
 
     socket.on('reconnect', () => {

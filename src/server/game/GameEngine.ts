@@ -402,8 +402,13 @@ export class GameEngine {
   /**
    * Create a TurnEngineAdapter instance wired to this GameEngine's state.
    * This is used when orchestrator delegation is enabled.
+   *
+   * @param onDecisionResolved - Optional callback invoked when a decision is resolved,
+   *   receiving the chosen move. Used to track decision moves for history recording.
    */
-  private createAdapterForCurrentGame(): TurnEngineAdapter {
+  private createAdapterForCurrentGame(
+    onDecisionResolved?: (chosenMove: Move) => void
+  ): TurnEngineAdapter {
     // StateAccessor implementation that reads/writes this.gameState
     const stateAccessor: StateAccessor = {
       getGameState: () => this.gameState,
@@ -773,11 +778,21 @@ export class GameEngine {
       },
     };
 
-    // EventEmitter for adapter events (currently no-op, can be wired to
-    // WebSocket notifications in future)
+    // EventEmitter for adapter events - captures decision_resolved events
+    // so that decision moves can be recorded in move history.
     const eventEmitter: AdapterEventEmitter = {
-      emit: (_event: string, _payload?: unknown) => {
-        // No-op for now. Future: emit to WebSocket spectators
+      emit: (event: string, payload?: unknown) => {
+        // RR-FIX-2026-01-18: Capture decision-resolved moves for history recording.
+        // When territory or elimination decisions are resolved, the orchestrator emits
+        // a decision_resolved event with the chosen move. We need to track these so
+        // they can be added to moveHistory (otherwise they're processed internally
+        // by the orchestrator but never recorded).
+        if (event === 'game:processing_event' && payload) {
+          const procEvent = payload as { type?: string; payload?: { chosenMove?: Move } };
+          if (procEvent.type === 'decision_resolved' && procEvent.payload?.chosenMove) {
+            onDecisionResolved?.(procEvent.payload.chosenMove);
+          }
+        }
       },
     };
 
@@ -816,8 +831,16 @@ export class GameEngine {
       moveNumber: this.gameState.moveHistory.length + 1,
     };
 
+    // RR-FIX-2026-01-18: Collect decision-resolved moves (e.g., territory claims,
+    // ring eliminations) so they can be added to moveHistory. Without this, these
+    // moves are processed by the orchestrator but never recorded.
+    const decisionMoves: Move[] = [];
+    const onDecisionResolved = (chosenMove: Move) => {
+      decisionMoves.push(chosenMove);
+    };
+
     // Create the adapter and process the move
-    const adapter = this.createAdapterForCurrentGame();
+    const adapter = this.createAdapterForCurrentGame(onDecisionResolved);
 
     try {
       const result = await adapter.processMove(fullMove);
@@ -860,6 +883,28 @@ export class GameEngine {
 
       // Record structured history entry
       this.appendHistoryEntry(beforeStateForHistory, fullMove);
+
+      // RR-FIX-2026-01-18: Add decision-resolved moves to history.
+      // These are territory claims, ring eliminations, etc. that were resolved
+      // during orchestrator processing. Each gets its own moveNumber.
+      for (const decisionMove of decisionMoves) {
+        const moveWithNumber: Move = {
+          ...decisionMove,
+          moveNumber: this.gameState.moveHistory.length + 1,
+          timestamp: decisionMove.timestamp ?? new Date(),
+        };
+        this.gameState.moveHistory.push(moveWithNumber);
+
+        debugLog(
+          flagEnabled('RINGRIFT_TRACE_DEBUG'),
+          '[GameEngine.processMoveViaAdapter] recorded decision move to history',
+          {
+            moveType: moveWithNumber.type,
+            player: moveWithNumber.player,
+            moveNumber: moveWithNumber.moveNumber,
+          }
+        );
+      }
 
       // Check for game end - victoryResult is set if game is over
       if (result.victoryResult) {

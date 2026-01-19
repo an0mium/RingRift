@@ -155,7 +155,7 @@ export interface UserGamesResponse {
  *   For browser builds, this is injected into the client bundle via `process.env.VITE_API_URL`
  *   in [`vite.config.ts`](vite.config.ts:29).
  */
-function getApiBaseUrl(): string {
+export function getApiBaseUrl(): string {
   const explicit = readEnv('VITE_API_URL');
   if (explicit && typeof explicit === 'string') {
     return explicit.replace(/\/$/, '');
