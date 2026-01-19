@@ -59,8 +59,13 @@ ATTR_OTHER_ADDRESS = 0x802C
 
 
 class NATType(str, Enum):
-    """NAT types in order of connectivity difficulty."""
+    """NAT types in order of connectivity difficulty.
 
+    Jan 19, 2026: Extended with P2PD-detected types for finer-grained
+    transport selection, especially for CGNAT (Vast.ai) scenarios.
+    """
+
+    # Standard NAT types (original)
     OPEN = "open"  # No NAT, direct connectivity
     FULL_CONE = "full_cone"  # Any external can reach after outbound
     RESTRICTED_CONE = "restricted_cone"  # Only replied-to hosts
@@ -68,6 +73,34 @@ class NATType(str, Enum):
     SYMMETRIC = "symmetric"  # Different mapping per destination
     BLOCKED = "blocked"  # No UDP connectivity
     UNKNOWN = "unknown"  # Detection failed
+
+    # P2PD extended types (Jan 19, 2026)
+    CGNAT = "cgnat"  # Carrier-grade NAT (common on Vast.ai)
+    DOUBLE_NAT = "double_nat"  # Two NAT layers (home + ISP)
+    SYMMETRIC_UDP_FIREWALL = "symmetric_udp_firewall"  # Symmetric + firewall
+    ENDPOINT_INDEPENDENT = "endpoint_independent"  # P2PD terminology
+    ADDRESS_DEPENDENT = "address_dependent"  # P2PD terminology
+    ADDRESS_AND_PORT_DEPENDENT = "address_and_port_dependent"  # P2PD terminology
+
+    @classmethod
+    def requires_hole_punching(cls, nat_type: "NATType") -> bool:
+        """Check if NAT type requires UDP hole punching."""
+        return nat_type in (
+            cls.SYMMETRIC,
+            cls.CGNAT,
+            cls.DOUBLE_NAT,
+            cls.SYMMETRIC_UDP_FIREWALL,
+            cls.ADDRESS_AND_PORT_DEPENDENT,
+        )
+
+    @classmethod
+    def supports_direct_connection(cls, nat_type: "NATType") -> bool:
+        """Check if NAT type supports direct connections."""
+        return nat_type in (
+            cls.OPEN,
+            cls.FULL_CONE,
+            cls.ENDPOINT_INDEPENDENT,
+        )
 
 
 @dataclass
@@ -99,13 +132,18 @@ class STUNResponse:
 
 class NATDetector:
     """
-    Detects NAT type using STUN protocol.
+    Detects NAT type using STUN protocol and optionally P2PD.
 
     Uses multiple STUN servers and tests to determine:
     1. If we have any external connectivity
     2. What our external IP:port mapping is
     3. Whether the mapping changes per destination (symmetric)
     4. How restrictive our NAT is (cone type)
+
+    With P2PD integration (Jan 19, 2026):
+    - 35 NAT type detection vs standard 6
+    - Better CGNAT detection for Vast.ai nodes
+    - Automatic transport strategy selection
     """
 
     def __init__(
@@ -126,6 +164,7 @@ class NATDetector:
         self._bind_port = bind_port
         self._socket: socket.socket | None = None
         self._transaction_id: bytes = b""
+        self._p2pd_available: bool | None = None  # Lazy check
 
     async def detect(self) -> NATDetectionResult:
         """Detect NAT type using STUN probing.
@@ -210,6 +249,156 @@ class NATDetector:
             if self._socket:
                 self._socket.close()
                 self._socket = None
+
+    async def detect_with_p2pd(self) -> NATDetectionResult:
+        """Detect NAT type using P2PD's enhanced 35-type detection.
+
+        P2PD provides more accurate NAT detection than standard STUN,
+        especially for:
+        - CGNAT (carrier-grade NAT) common on Vast.ai
+        - Double NAT scenarios
+        - Symmetric NAT with UDP firewall
+
+        Falls back to standard STUN detection if P2PD is unavailable.
+
+        Returns:
+            NATDetectionResult with detected NAT type and external address
+        """
+        start_time = time.time()
+
+        # Check if P2PD is available
+        if self._p2pd_available is None:
+            try:
+                from p2pd import P2PD  # noqa: F401
+
+                self._p2pd_available = True
+            except ImportError:
+                self._p2pd_available = False
+                logger.debug("P2PD not installed, using standard STUN detection")
+
+        if not self._p2pd_available:
+            return await self.detect()
+
+        try:
+            from p2pd import P2PD
+
+            # Initialize P2PD and detect NAT
+            p2pd_instance = await P2PD()
+            nat_info = await p2pd_instance.detect_nat()
+
+            if nat_info is None:
+                logger.warning("P2PD NAT detection returned None, falling back to STUN")
+                return await self.detect()
+
+            # Map P2PD NAT type to our enum
+            nat_type = self._map_p2pd_nat_type(nat_info)
+
+            # Extract external address
+            external_ip = getattr(nat_info, "external_ip", None)
+            external_port = getattr(nat_info, "external_port", None)
+
+            detection_time = time.time() - start_time
+
+            logger.info(
+                f"P2PD NAT detection: type={nat_type.value}, "
+                f"external={external_ip}:{external_port}, "
+                f"time={detection_time:.2f}s"
+            )
+
+            return NATDetectionResult(
+                nat_type=nat_type,
+                external_ip=external_ip,
+                external_port=external_port,
+                detection_time=detection_time,
+                stun_server_used="p2pd",
+                raw_results={
+                    "p2pd_nat_type": str(getattr(nat_info, "nat_type", "unknown")),
+                    "p2pd_raw": nat_info.__dict__ if hasattr(nat_info, "__dict__") else {},
+                },
+            )
+
+        except ImportError:
+            self._p2pd_available = False
+            logger.debug("P2PD import failed, using STUN detection")
+            return await self.detect()
+        except Exception as e:
+            logger.warning(f"P2PD NAT detection failed: {e}, falling back to STUN")
+            return await self.detect()
+
+    def _map_p2pd_nat_type(self, nat_info: Any) -> NATType:
+        """Map P2PD NAT detection result to our NATType enum.
+
+        P2PD uses more granular NAT classification. This method maps
+        their types to our extended enum.
+
+        Args:
+            nat_info: P2PD NAT detection result object
+
+        Returns:
+            NATType enum value
+        """
+        # Get the NAT type string from P2PD
+        p2pd_type = str(getattr(nat_info, "nat_type", "")).lower()
+
+        # Check for CGNAT indicators
+        external_ip = getattr(nat_info, "external_ip", "")
+        if external_ip and self._is_cgnat_ip(external_ip):
+            return NATType.CGNAT
+
+        # Map P2PD types to our enum
+        type_mapping = {
+            # Standard types
+            "open": NATType.OPEN,
+            "open internet": NATType.OPEN,
+            "full cone": NATType.FULL_CONE,
+            "full_cone": NATType.FULL_CONE,
+            "fullcone": NATType.FULL_CONE,
+            "restricted cone": NATType.RESTRICTED_CONE,
+            "restricted_cone": NATType.RESTRICTED_CONE,
+            "port restricted cone": NATType.PORT_RESTRICTED,
+            "port_restricted": NATType.PORT_RESTRICTED,
+            "symmetric": NATType.SYMMETRIC,
+            "symmetric nat": NATType.SYMMETRIC,
+            "blocked": NATType.BLOCKED,
+            "udp blocked": NATType.BLOCKED,
+            # P2PD extended types
+            "endpoint independent": NATType.ENDPOINT_INDEPENDENT,
+            "endpoint_independent": NATType.ENDPOINT_INDEPENDENT,
+            "address dependent": NATType.ADDRESS_DEPENDENT,
+            "address_dependent": NATType.ADDRESS_DEPENDENT,
+            "address and port dependent": NATType.ADDRESS_AND_PORT_DEPENDENT,
+            "address_and_port_dependent": NATType.ADDRESS_AND_PORT_DEPENDENT,
+            # Special cases
+            "symmetric udp firewall": NATType.SYMMETRIC_UDP_FIREWALL,
+            "symmetric_udp_firewall": NATType.SYMMETRIC_UDP_FIREWALL,
+            "double nat": NATType.DOUBLE_NAT,
+            "double_nat": NATType.DOUBLE_NAT,
+            "cgnat": NATType.CGNAT,
+            "carrier grade nat": NATType.CGNAT,
+        }
+
+        return type_mapping.get(p2pd_type, NATType.UNKNOWN)
+
+    def _is_cgnat_ip(self, ip: str) -> bool:
+        """Check if IP is in CGNAT range (100.64.0.0/10).
+
+        CGNAT uses the 100.64.0.0 - 100.127.255.255 range (RFC 6598).
+        This is common on Vast.ai and other cloud providers.
+
+        Args:
+            ip: IP address string
+
+        Returns:
+            True if IP is in CGNAT range
+        """
+        try:
+            parts = [int(p) for p in ip.split(".")]
+            # CGNAT range: 100.64.0.0/10 (100.64.0.0 - 100.127.255.255)
+            if parts[0] == 100 and 64 <= parts[1] <= 127:
+                return True
+            return False
+        except (ValueError, IndexError):
+            return False
 
     async def _stun_request(
         self, server: tuple[str, int]
@@ -435,6 +624,121 @@ def get_cached_nat_type() -> NATType:
 
 def clear_nat_cache() -> None:
     """Clear the NAT detection cache."""
-    global _cached_result, _cache_time
+    global _cached_result, _cache_time, _p2pd_cached_result, _p2pd_cache_time
     _cached_result = None
     _cache_time = 0.0
+    _p2pd_cached_result = None
+    _p2pd_cache_time = 0.0
+
+
+# P2PD-enhanced cache (separate from STUN cache)
+_p2pd_cached_result: NATDetectionResult | None = None
+_p2pd_cache_time: float = 0.0
+
+
+async def detect_nat_type_enhanced(
+    force_refresh: bool = False,
+    prefer_p2pd: bool = True,
+) -> NATDetectionResult:
+    """Detect NAT type using P2PD if available, falling back to STUN.
+
+    This is the recommended function for NAT detection as it provides:
+    - 35 NAT type detection (vs 6 with standard STUN)
+    - Better CGNAT detection for Vast.ai nodes
+    - Automatic fallback to STUN if P2PD unavailable
+
+    Args:
+        force_refresh: Force re-detection even if cached
+        prefer_p2pd: If True, try P2PD first (default: True)
+
+    Returns:
+        NATDetectionResult with NAT type and external address
+    """
+    global _p2pd_cached_result, _p2pd_cache_time
+
+    # Check cache
+    if not force_refresh and _p2pd_cached_result:
+        if time.time() - _p2pd_cache_time < _cache_ttl:
+            return _p2pd_cached_result
+
+    detector = NATDetector()
+
+    if prefer_p2pd:
+        result = await detector.detect_with_p2pd()
+    else:
+        result = await detector.detect()
+
+    # Update cache
+    _p2pd_cached_result = result
+    _p2pd_cache_time = time.time()
+
+    return result
+
+
+def is_nat_traversal_difficult(nat_type: NATType) -> bool:
+    """Check if NAT type makes direct connectivity difficult.
+
+    Use this to decide whether to prioritize P2PD transport
+    over direct HTTP or Tailscale.
+
+    Args:
+        nat_type: The detected NAT type
+
+    Returns:
+        True if NAT type requires hole punching or relay
+    """
+    difficult_types = {
+        NATType.SYMMETRIC,
+        NATType.CGNAT,
+        NATType.DOUBLE_NAT,
+        NATType.SYMMETRIC_UDP_FIREWALL,
+        NATType.ADDRESS_AND_PORT_DEPENDENT,
+        NATType.BLOCKED,
+    }
+    return nat_type in difficult_types
+
+
+def get_recommended_transport_order(nat_type: NATType) -> list[str]:
+    """Get recommended transport order based on NAT type.
+
+    This helps the transport cascade optimize for the NAT environment.
+
+    Args:
+        nat_type: The detected NAT type
+
+    Returns:
+        List of transport names in recommended order
+    """
+    if nat_type == NATType.OPEN:
+        # Open NAT: direct HTTP is fastest
+        return ["http_direct", "tailscale", "p2pd_udp", "ssh_tunnel", "relay"]
+
+    elif nat_type in (NATType.FULL_CONE, NATType.ENDPOINT_INDEPENDENT):
+        # Easy NAT: most transports work
+        return ["http_direct", "tailscale", "p2pd_udp", "ssh_tunnel", "relay"]
+
+    elif nat_type in (NATType.RESTRICTED_CONE, NATType.ADDRESS_DEPENDENT):
+        # Moderate NAT: P2PD helps
+        return ["tailscale", "p2pd_udp", "http_direct", "ssh_tunnel", "relay"]
+
+    elif nat_type in (NATType.PORT_RESTRICTED,):
+        # Harder NAT: P2PD more important
+        return ["tailscale", "p2pd_udp", "ssh_tunnel", "relay", "http_direct"]
+
+    elif nat_type in (
+        NATType.SYMMETRIC,
+        NATType.CGNAT,
+        NATType.DOUBLE_NAT,
+        NATType.SYMMETRIC_UDP_FIREWALL,
+        NATType.ADDRESS_AND_PORT_DEPENDENT,
+    ):
+        # Difficult NAT: P2PD is primary, skip unreliable transports
+        return ["p2pd_udp", "ssh_tunnel", "relay"]
+
+    elif nat_type == NATType.BLOCKED:
+        # No UDP: only tunneled/relay work
+        return ["ssh_tunnel", "relay"]
+
+    else:
+        # Unknown: try everything
+        return ["http_direct", "tailscale", "p2pd_udp", "ssh_tunnel", "relay"]

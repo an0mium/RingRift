@@ -50,6 +50,33 @@ except ImportError:
         pass
 
 
+# =============================================================================
+# NAT-Aware Transport Selection (January 19, 2026)
+# =============================================================================
+# Import NAT detection for adaptive transport ordering
+try:
+    from scripts.p2p.nat_detection import (
+        NATType,
+        get_cached_nat_type,
+        get_recommended_transport_order,
+        is_nat_traversal_difficult,
+    )
+
+    HAS_NAT_DETECTION = True
+except ImportError:
+    HAS_NAT_DETECTION = False
+    NATType = None  # type: ignore
+
+    def get_cached_nat_type():
+        return None
+
+    def get_recommended_transport_order(nat_type):
+        return []
+
+    def is_nat_traversal_difficult(nat_type):
+        return False
+
+
 class TransportTier(Enum):
     """Transport tiers ordered by preference (fastest/cheapest first)."""
 
@@ -680,6 +707,10 @@ class TransportCascade:
         # Sort by health (success rate, then latency)
         sorted_transports = self._sort_by_health(eligible, target)
 
+        # Jan 19, 2026: Apply NAT-aware ordering for CGNAT bypass
+        # This prioritizes P2PD hole punching when behind difficult NAT
+        sorted_transports = self._apply_nat_aware_ordering(sorted_transports)
+
         # Jan 5, 2026: Staggered probe takes priority over parallel probe
         if staggered_probe:
             return await self._cascade_staggered(
@@ -1094,6 +1125,62 @@ class TransportCascade:
             )
 
         return sorted(transports, key=health_score)
+
+    def _apply_nat_aware_ordering(
+        self, transports: list[BaseTransport]
+    ) -> list[BaseTransport]:
+        """Reorder transports based on local NAT type.
+
+        Jan 19, 2026: Added for CGNAT bypass optimization. When we detect
+        that our node is behind CGNAT (common on Vast.ai), we prioritize
+        P2PD UDP hole punching over transports that won't work well.
+
+        Args:
+            transports: List of transports sorted by tier/health
+
+        Returns:
+            Reordered list optimized for local NAT environment
+        """
+        if not HAS_NAT_DETECTION:
+            return transports
+
+        # Get cached NAT type (won't block - returns UNKNOWN if not cached)
+        nat_type = get_cached_nat_type()
+        if nat_type is None:
+            return transports
+
+        # Get recommended transport order for this NAT type
+        recommended_order = get_recommended_transport_order(nat_type)
+        if not recommended_order:
+            return transports
+
+        # Build name-to-transport mapping
+        transport_by_name = {t.name: t for t in transports}
+
+        # Reorder based on NAT-aware recommendations
+        result = []
+
+        # First, add transports in recommended order (if they exist)
+        for name in recommended_order:
+            if name in transport_by_name:
+                result.append(transport_by_name.pop(name))
+
+        # Then add remaining transports in their original order
+        for t in transports:
+            if t.name in transport_by_name:
+                result.append(t)
+
+        # Log if NAT-aware reordering changed anything
+        if is_nat_traversal_difficult(nat_type):
+            original_names = [t.name for t in transports[:3]]
+            new_names = [t.name for t in result[:3]]
+            if original_names != new_names:
+                logger.debug(
+                    f"NAT-aware reorder for {nat_type.value}: "
+                    f"{original_names} -> {new_names}"
+                )
+
+        return result
 
     def _record_success(self, target: str, transport_name: str, latency_ms: float) -> None:
         """Record successful transport attempt."""

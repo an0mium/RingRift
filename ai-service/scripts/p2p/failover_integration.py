@@ -128,6 +128,10 @@ class FailoverIntegrationMixin(P2PMixinBase):
             tailscale = TailscaleHTTPTransport(port=getattr(self, "port", 8770))
             self._transport_cascade.register_transport(tailscale)
 
+            # Register Tier 1.5: P2PD UDP hole punching (for CGNAT nodes like Vast.ai)
+            # Jan 19, 2026: Added for NAT traversal when Tailscale unavailable
+            self._init_p2pd_transport()
+
             # Register Tier 3: SSH Tunnel
             ssh = SSHTunnelTransport()
             self._transport_cascade.register_transport(ssh)
@@ -174,6 +178,42 @@ class FailoverIntegrationMixin(P2PMixinBase):
             self._log_debug(f"Transport cascade not available: {e}")
         except Exception as e:
             self._log_error(f"Transport cascade init failed: {e}")
+
+    def _init_p2pd_transport(self) -> None:
+        """Initialize P2PD UDP hole punching transport for CGNAT bypass.
+
+        Jan 19, 2026: Added for Vast.ai CGNAT scenarios where Tailscale
+        is unavailable and direct HTTP fails due to NAT.
+
+        P2PD provides:
+        - 35-type NAT detection (vs 6 with standard STUN)
+        - UDP/TCP hole punching through CGNAT
+        - Automatic port forwarding/pinhole
+        - TURN fallback as last resort
+        """
+        if not self._transport_cascade:
+            return
+
+        # Check if P2PD transport is enabled
+        p2pd_enabled = os.environ.get("RINGRIFT_P2PD_ENABLED", "true").lower() == "true"
+        if not p2pd_enabled:
+            self._log_debug("P2PD transport disabled via RINGRIFT_P2PD_ENABLED=false")
+            return
+
+        try:
+            from scripts.p2p.transports.p2pd_transport import P2PDUDPTransport
+
+            # Initialize with current node ID for connection tracking
+            node_id = getattr(self, "node_id", None)
+            p2pd = P2PDUDPTransport(node_id=node_id)
+
+            self._transport_cascade.register_transport(p2pd)
+            self._log_info("P2PD UDP transport registered for CGNAT bypass")
+
+        except ImportError:
+            self._log_debug("P2PD not installed (pip install p2pd), UDP hole punching unavailable")
+        except Exception as e:
+            self._log_warning(f"P2PD transport init failed: {e}")
 
     def _init_notification_transports(self) -> None:
         """Initialize notification transports (Slack, Telegram, etc.)."""

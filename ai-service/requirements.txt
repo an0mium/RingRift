@@ -103,6 +103,11 @@ swim-p2p>=1.2.0
 # Provides automatic leader election with sub-second failover, distributed locks
 pysyncobj>=0.3.14
 
+# P2PD - NAT traversal library for UDP/TCP hole punching
+# Provides 35-type NAT detection, automatic port forwarding, STUN/TURN support
+# Used for Vast.ai CGNAT bypass to improve P2P connectivity
+p2pd>=0.2.0
+
 # OpenTelemetry for distributed tracing (per Section 4.3)
 opentelemetry-api==1.29.0
 opentelemetry-sdk==1.29.0
