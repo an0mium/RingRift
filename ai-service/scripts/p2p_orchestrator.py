@@ -9363,6 +9363,16 @@ class P2POrchestrator(
         except (OSError, subprocess.SubprocessError) as e:
             return (-1, "", str(e))
 
+    async def _run_subprocess_async(self, cmd: list, timeout: int = 10) -> tuple[int, str, str]:
+        """Run subprocess asynchronously via thread pool.
+
+        Jan 2026: Added for Phase 1 multi-core parallelization.
+        Uses asyncio.to_thread() to avoid blocking the event loop.
+
+        Returns: (return_code, stdout, stderr)
+        """
+        return await asyncio.to_thread(self._run_subprocess_sync, cmd, timeout)
+
     def _count_local_jobs(self) -> tuple[int, int]:
         """Count running selfplay and training jobs on this node."""
         def _pid_alive(pid: int) -> bool:
@@ -10840,15 +10850,14 @@ class P2POrchestrator(
                 with self.peers_lock:
                     current_peers = {p.node_id for p in self.peers.values()}
 
-                # Get Tailscale peers
+                # Get Tailscale peers (Jan 2026: use async helper to avoid blocking event loop)
                 try:
-                    result = subprocess.run(
-                        ["tailscale", "status", "--json"],
-                        capture_output=True, text=True, timeout=10
+                    returncode, stdout, stderr = await self._run_subprocess_async(
+                        ["tailscale", "status", "--json"], timeout=10
                     )
-                    if result.returncode != 0:
+                    if returncode != 0:
                         continue
-                    ts_data = json.loads(result.stdout)
+                    ts_data = json.loads(stdout)
                 except Exception as e:  # noqa: BLE001
                     logger.debug(f"Tailscale status failed: {e}")
                     continue
@@ -10910,22 +10919,22 @@ class P2POrchestrator(
 
         Phase 30: Called when bootstrap from seeds fails. Discovers peers
         via `tailscale status --json` and attempts to connect.
+
+        Jan 2026: Uses async subprocess to avoid blocking event loop.
         """
         import json
-        import subprocess
 
         logger.info("Running one-shot Tailscale peer discovery...")
 
         try:
-            result = subprocess.run(
-                ["tailscale", "status", "--json"],
-                capture_output=True, text=True, timeout=10
+            returncode, stdout, stderr = await self._run_subprocess_async(
+                ["tailscale", "status", "--json"], timeout=10
             )
-            if result.returncode != 0:
-                logger.warning(f"Tailscale status failed: {result.stderr}")
+            if returncode != 0:
+                logger.warning(f"Tailscale status failed: {stderr}")
                 return
 
-            ts_data = json.loads(result.stdout)
+            ts_data = json.loads(stdout)
             peers = ts_data.get("Peer", {})
 
             # Get current peer node_ids
@@ -10999,25 +11008,25 @@ class P2POrchestrator(
         peers during initial bootstrap, especially when nodes start asynchronously.
         This method performs a targeted reconnection sweep.
 
+        Jan 2026: Uses async subprocess to avoid blocking event loop.
+
         Returns:
             Number of peers successfully reconnected.
         """
         import json
-        import subprocess
 
         logger.info("[NetworkHealth] Running Tailscale-to-P2P reconnection sweep...")
 
         try:
-            # Get Tailscale status
-            result = subprocess.run(
-                ["tailscale", "status", "--json"],
-                capture_output=True, text=True, timeout=10
+            # Get Tailscale status (Jan 2026: use async helper to avoid blocking)
+            returncode, stdout, stderr = await self._run_subprocess_async(
+                ["tailscale", "status", "--json"], timeout=10
             )
-            if result.returncode != 0:
-                logger.warning(f"Tailscale status failed: {result.stderr}")
+            if returncode != 0:
+                logger.warning(f"Tailscale status failed: {stderr}")
                 return 0
 
-            ts_data = json.loads(result.stdout)
+            ts_data = json.loads(stdout)
             ts_peers = ts_data.get("Peer", {})
 
             # Build map of Tailscale IPs to online status
@@ -11494,12 +11503,17 @@ class P2POrchestrator(
             env = os.environ.copy()
             env["PYTHONPATH"] = str(Path(self._get_ai_service_path()))
 
-            try:
-                logger.info(f"Converting {game_count} {config_key} JSONL games to NPZ...")
-                result = subprocess.run(
+            # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
+            # This can take up to 600 seconds - must not block
+            def _run_conversion():
+                return subprocess.run(
                     cmd, capture_output=True, text=True, timeout=600, env=env,
                     cwd=str(Path(self._get_ai_service_path()))
                 )
+
+            try:
+                logger.info(f"Converting {game_count} {config_key} JSONL games to NPZ...")
+                result = await asyncio.to_thread(_run_conversion)
                 if result.returncode == 0 and output_npz.exists():
                     logger.info(f"Created {output_npz.name} from JSONL")
                     conversions_done += 1
@@ -11809,6 +11823,7 @@ class P2POrchestrator(
                     continue
 
                 # Get remote training data size via SSH
+                # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
                 try:
                     ssh_user = getattr(host_config, 'ssh_user', 'ubuntu')
                     remote_path = getattr(host_config, 'ringrift_path', '/home/ubuntu/ringrift')
@@ -11821,8 +11836,8 @@ class P2POrchestrator(
                         f"{ssh_user}@{ssh_host}",
                         f"du -sb {remote_path}/ai-service/data/training/*.npz 2>/dev/null | awk '{{sum+=$1}}END{{print sum}}'"
                     ]
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                    remote_size = int(result.stdout.strip() or 0)
+                    returncode, stdout, _stderr = await self._run_subprocess_async(cmd, timeout=30)
+                    remote_size = int(stdout.strip() or 0) if returncode == 0 else 0
                     remote_mb = remote_size / (1024 * 1024)
 
                     # Sync if remote has significantly more data (>20MB more)
@@ -11837,15 +11852,15 @@ class P2POrchestrator(
                             str(local_training_dir) + "/"
                         ]
 
-                        sync_result = subprocess.run(
-                            rsync_cmd, capture_output=True, text=True, timeout=300
+                        sync_returncode, _sync_stdout, sync_stderr = await self._run_subprocess_async(
+                            rsync_cmd, timeout=300
                         )
 
-                        if sync_result.returncode == 0:
+                        if sync_returncode == 0:
                             synced_from.append(host_name)
                             logger.info(f"Successfully synced training data from {host_name}")
                         else:
-                            logger.error(f"Failed to sync from {host_name}: {sync_result.stderr[:200]}")
+                            logger.error(f"Failed to sync from {host_name}: {sync_stderr[:200]}")
 
                 except subprocess.TimeoutExpired:
                     logger.info(f"Timeout checking training data on {host_name}")
@@ -12064,7 +12079,10 @@ class P2POrchestrator(
         os.execv(sys.executable, [sys.executable, str(script_path), *args])
 
     async def _git_update_loop(self):
-        """Background loop to periodically check for and apply updates."""
+        """Background loop to periodically check for and apply updates.
+
+        Jan 2026: Uses asyncio.to_thread() for git operations to avoid blocking.
+        """
         if not AUTO_UPDATE_ENABLED:
             logger.info("Auto-update disabled")
             return
@@ -12078,11 +12096,11 @@ class P2POrchestrator(
                 if not self.running:
                     break
 
-                # Check for updates
-                has_updates, local_commit, remote_commit = self._check_for_updates()
+                # Check for updates (Jan 2026: use asyncio.to_thread to avoid blocking)
+                has_updates, local_commit, remote_commit = await asyncio.to_thread(self._check_for_updates)
 
                 if has_updates and local_commit and remote_commit:
-                    commits_behind = self._get_commits_behind(local_commit, remote_commit)
+                    commits_behind = await asyncio.to_thread(self._get_commits_behind, local_commit, remote_commit)
                     logger.info(f"Update available: {commits_behind} commits behind")
                     logger.info(f"Local:  {local_commit[:8]}")
                     logger.info(f"Remote: {remote_commit[:8]}")
@@ -27699,6 +27717,8 @@ print(json.dumps({{
 
         Used when disk/memory pressure is high: we want the node to recover and
         avoid OOM/disk-full scenarios, even if it means reducing throughput.
+
+        Jan 2026: Uses asyncio.to_thread() for blocking calls to avoid event loop stalls.
         """
         try:
             target = max(0, int(target_selfplay_jobs))
@@ -27707,8 +27727,9 @@ print(json.dumps({{
 
         # First, get an overall count using the same mechanism used for cluster
         # reporting (includes untracked processes).
+        # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
         try:
-            selfplay_before, _training_before = self._count_local_jobs()
+            selfplay_before, _training_before = await asyncio.to_thread(self._count_local_jobs)
         except (AttributeError):
             selfplay_before = 0
 
@@ -27717,7 +27738,7 @@ print(json.dumps({{
         if target <= 0:
             await self._restart_local_stuck_jobs()
             try:
-                selfplay_after, _training_after = self._count_local_jobs()
+                selfplay_after, _training_after = await asyncio.to_thread(self._count_local_jobs)
             except (AttributeError):
                 selfplay_after = 0
             return {
@@ -27762,8 +27783,9 @@ print(json.dumps({{
 
         # If job tracking was lost, we may still have a large number of
         # untracked selfplay processes. Best-effort kill enough to hit target.
+        # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
         try:
-            selfplay_mid, _training_mid = self._count_local_jobs()
+            selfplay_mid, _training_mid = await asyncio.to_thread(self._count_local_jobs)
         except (AttributeError):
             selfplay_mid = max(0, int(selfplay_before) - stopped)
 
@@ -27774,6 +27796,7 @@ print(json.dumps({{
                 if shutil.which("pgrep"):
                     pids: list[int] = []
                     # December 2025: Added selfplay.py - unified entry point
+                    # Jan 2026: Use async subprocess helper to avoid blocking event loop
                     for pattern in (
                         "selfplay.py",
                         "run_self_play_soak.py",
@@ -27781,14 +27804,11 @@ print(json.dumps({{
                         "run_hybrid_selfplay.py",
                         "run_random_selfplay.py",
                     ):
-                        out = subprocess.run(
-                            ["pgrep", "-f", pattern],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
+                        returncode, stdout, _stderr = await self._run_subprocess_async(
+                            ["pgrep", "-f", pattern], timeout=5
                         )
-                        if out.returncode == 0 and out.stdout.strip():
-                            for token in out.stdout.strip().split():
+                        if returncode == 0 and stdout.strip():
+                            for token in stdout.strip().split():
                                 try:
                                     pids.append(int(token))
                                 except (ValueError, AttributeError):
@@ -27813,8 +27833,9 @@ print(json.dumps({{
         if stopped:
             self._save_state()
 
+        # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
         try:
-            selfplay_after, _training_after = self._count_local_jobs()
+            selfplay_after, _training_after = await asyncio.to_thread(self._count_local_jobs)
         except (AttributeError):
             selfplay_after = max(0, int(selfplay_before) - stopped)
 
