@@ -451,6 +451,7 @@ LOOP_MANAGEMENT_ROUTES = [
     Route("POST", "/loops/restart/{name}", "handle_loop_restart"),
     Route("POST", "/loops/restart_stopped", "handle_restart_stopped_loops"),
     Route("GET", "/loops/status", "handle_loops_status"),
+    Route("GET", "/status/parallelism", "handle_parallelism_status"),  # Jan 2026: Phase 5 parallelization metrics
 ]
 
 # ===========================================================================
