@@ -25,7 +25,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { ChoiceDialog } from '../components/ChoiceDialog';
-import { VictoryModal } from '../components/VictoryModal';
+import { VictoryModal, type TrainingSubmissionState } from '../components/VictoryModal';
+import { getReplayService } from '../services/ReplayService';
+import type { TrainingMoveRecord } from '../types/replay';
 import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
 import { ScenarioPickerModal } from '../components/ScenarioPickerModal';
 import { SelfPlayBrowser } from '../components/SelfPlayBrowser';
@@ -201,6 +203,14 @@ export const SandboxGameHost: React.FC = () => {
 
   // Local-only diagnostics / UX state
   const [isSandboxVictoryModalDismissed, setIsSandboxVictoryModalDismissed] = useState(false);
+
+  // Training submission state (January 2026 - Human game training)
+  const [trainingSubmissionState, setTrainingSubmissionState] = useState<TrainingSubmissionState>({
+    isAvailable: false,
+    isSubmitting: false,
+    wasSubmitted: false,
+    error: null,
+  });
 
   // Game view once configured (local sandbox) - needed early for clock hook
   const sandboxGameStateForClock: GameState | null = sandboxEngine
@@ -982,6 +992,111 @@ export const SandboxGameHost: React.FC = () => {
       prevVictoryRef.current = false;
     }
   }, [sandboxVictoryResult, markGameCompleted, lastLoadedScenario]);
+
+  // Update training submission availability when victory occurs (January 2026)
+  useEffect(() => {
+    if (!sandboxVictoryResult || !sandboxGameState) {
+      setTrainingSubmissionState((prev) => ({
+        ...prev,
+        isAvailable: false,
+        wasSubmitted: false,
+        error: null,
+      }));
+      return;
+    }
+
+    // Check if this was a human vs AI game where human won
+    const players = sandboxGameState.players;
+    const humanPlayers = players.filter((p) => p.type === 'human');
+    const aiPlayers = players.filter((p) => p.type === 'ai');
+    const isHumanVsAI = humanPlayers.length > 0 && aiPlayers.length > 0;
+
+    if (!isHumanVsAI) {
+      setTrainingSubmissionState((prev) => ({ ...prev, isAvailable: false }));
+      return;
+    }
+
+    // Check if human won (player 1 is typically human in sandbox)
+    const humanPlayer = humanPlayers[0];
+    const humanWon = sandboxVictoryResult.winner === humanPlayer?.playerNumber;
+
+    // Training only accepts human wins and needs move history
+    const hasMoveHistory = sandboxGameState.moveHistory && sandboxGameState.moveHistory.length > 0;
+
+    setTrainingSubmissionState((prev) => ({
+      ...prev,
+      isAvailable: humanWon && hasMoveHistory,
+      wasSubmitted: false,
+      error: null,
+    }));
+  }, [sandboxVictoryResult, sandboxGameState]);
+
+  // Callback to submit game for training (January 2026)
+  const handleSubmitForTraining = useCallback(async () => {
+    if (!sandboxGameState || !sandboxVictoryResult) return;
+
+    const players = sandboxGameState.players;
+    const humanPlayers = players.filter((p) => p.type === 'human');
+    const aiPlayers = players.filter((p) => p.type === 'ai');
+    const humanPlayer = humanPlayers[0];
+    const aiPlayer = aiPlayers[0];
+
+    if (!humanPlayer || !aiPlayer) return;
+
+    setTrainingSubmissionState((prev) => ({
+      ...prev,
+      isSubmitting: true,
+      error: null,
+    }));
+
+    try {
+      const replayService = getReplayService();
+
+      // Convert moves to training format
+      const trainingMoves: TrainingMoveRecord[] = sandboxGameState.moveHistory.map((move) => ({
+        type: move.type,
+        player: move.player,
+        from: move.from ? { x: move.from.x, y: move.from.y } : undefined,
+        to: move.to ? { x: move.to.x, y: move.to.y } : undefined,
+        captureTarget: move.captureTarget
+          ? { x: move.captureTarget.x, y: move.captureTarget.y }
+          : undefined,
+      }));
+
+      const result = await replayService.submitForTraining({
+        board_type: sandboxGameState.boardType,
+        num_players: players.length,
+        moves: trainingMoves,
+        winner: sandboxVictoryResult.winner ?? humanPlayer.playerNumber,
+        human_player: humanPlayer.playerNumber,
+        human_won: true,
+        ai_difficulty: aiPlayer.aiDifficulty,
+      });
+
+      if (result.success) {
+        setTrainingSubmissionState((prev) => ({
+          ...prev,
+          isSubmitting: false,
+          wasSubmitted: true,
+          error: null,
+        }));
+        toast.success('Game submitted for AI training!');
+      } else {
+        setTrainingSubmissionState((prev) => ({
+          ...prev,
+          isSubmitting: false,
+          error: result.message || 'Submission failed',
+        }));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      setTrainingSubmissionState((prev) => ({
+        ...prev,
+        isSubmitting: false,
+        error: message,
+      }));
+    }
+  }, [sandboxGameState, sandboxVictoryResult]);
 
   // Get historical state when viewing history (for fixture/scenario playback)
   const historyState: GameState | null =
@@ -2047,6 +2162,9 @@ export const SandboxGameHost: React.FC = () => {
             }}
             onReturnToLobby={lifecycleActions.resetToSetup}
             onRematch={lifecycleActions.rematch}
+            // January 2026 - Human game training
+            onSubmitForTraining={handleSubmitForTraining}
+            trainingSubmission={trainingSubmissionState}
           />
         )}
 

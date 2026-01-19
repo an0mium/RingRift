@@ -2425,6 +2425,7 @@ def main(argv: list[str] | None = None) -> int:
             print("[SOURCE FILTER] Including tournament games")
         if args.include_human:
             include_sources.add("human")
+            include_sources.add("human_vs_ai")  # January 2026: human vs AI games from web client
             include_sources.add("sandbox")  # Sandbox may contain human games too
             print("[SOURCE FILTER] Including human gameplay (weighted 3x in training)")
         if args.sources:

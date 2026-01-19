@@ -254,6 +254,39 @@ export interface CaptureDirectionChoiceResponsePayload {
   difficulty: number;
 }
 
+// Online learning types (January 2026)
+export interface OnlineLearningMoveRecord {
+  from_pos: { x: number; y: number } | null;
+  to_pos: { x: number; y: number } | null;
+  move_type: string;
+}
+
+export interface OnlineLearningRequest {
+  board_type: string;
+  num_players: number;
+  moves: OnlineLearningMoveRecord[];
+  winner: number;
+  human_player: number;
+  human_won: boolean;
+  ai_difficulty?: number;
+}
+
+export interface OnlineLearningMetrics {
+  total_loss: number;
+  td_loss: number;
+  outcome_loss: number;
+  num_transitions: number;
+  games_in_buffer: number;
+  model_updated: boolean;
+  shadow_model_path: string | null;
+}
+
+export interface OnlineLearningResponse {
+  success: boolean;
+  metrics: OnlineLearningMetrics | null;
+  message: string;
+}
+
 export interface AIServiceRequestOptions {
   /** Optional cooperative cancellation token for this request. */
   token?: CancellationToken;
@@ -1197,6 +1230,80 @@ export class AIServiceClient {
       return response.data;
     } catch (error) {
       logger.error('Failed to get model versions', { error });
+      return null;
+    }
+  }
+
+  /**
+   * Trigger online learning from a completed game.
+   *
+   * January 2026: Human game training enhancement.
+   * When a human wins against AI, this triggers immediate learning
+   * on a shadow model. The shadow model is periodically validated
+   * and merged into the canonical model if it shows improvement.
+   *
+   * @param boardType - Board type (e.g., 'hex8', 'square8')
+   * @param numPlayers - Number of players (2-4)
+   * @param moves - List of moves from the game
+   * @param winner - Player number who won (1-indexed)
+   * @param humanPlayer - Which player number was human
+   * @returns Learning metrics or null if learning was skipped/failed
+   */
+  async learnFromGame(
+    boardType: BoardType,
+    numPlayers: number,
+    moves: Move[],
+    winner: number,
+    humanPlayer: number
+  ): Promise<OnlineLearningResponse | null> {
+    const humanWon = winner === humanPlayer;
+
+    // Only trigger learning for human wins (highest quality signal)
+    if (!humanWon) {
+      logger.debug('Skipping online learning: human did not win', {
+        boardType,
+        numPlayers,
+        winner,
+        humanPlayer,
+      });
+      return null;
+    }
+
+    try {
+      const request: OnlineLearningRequest = {
+        board_type: boardType,
+        num_players: numPlayers,
+        moves: moves.map((m) => ({
+          from_pos: m.from ? { x: m.from.x, y: m.from.y } : null,
+          to_pos: m.to ? { x: m.to.x, y: m.to.y } : null,
+          move_type: m.type,
+        })),
+        winner,
+        human_player: humanPlayer,
+        human_won: humanWon,
+      };
+
+      const response = await this.client.post<OnlineLearningResponse>(
+        '/api/online-learning/learn_from_game',
+        request
+      );
+
+      logger.info('Online learning completed', {
+        boardType,
+        numPlayers,
+        success: response.data.success,
+        totalLoss: response.data.metrics?.total_loss,
+        transitions: response.data.metrics?.num_transitions,
+      });
+
+      return response.data;
+    } catch (error) {
+      // Non-fatal: online learning failures should not affect game completion
+      logger.warn('Online learning request failed', {
+        boardType,
+        numPlayers,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
       return null;
     }
   }

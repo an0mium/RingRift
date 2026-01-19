@@ -151,6 +151,50 @@ export interface StoreGameResponse {
 }
 
 // =============================================================================
+// Training Submission Types (January 2026 - Human Game Training)
+// =============================================================================
+
+/**
+ * Request format for submitting a sandbox game for AI training.
+ * Used when a human wins against an AI to update the shadow model.
+ */
+export interface TrainingSubmissionRequest {
+  board_type: string;
+  num_players: number;
+  moves: TrainingMoveRecord[];
+  winner: number;
+  human_player: number;
+  human_won: boolean;
+  ai_difficulty?: number;
+}
+
+/**
+ * Move record format for training submission.
+ */
+export interface TrainingMoveRecord {
+  type: string;
+  player: number;
+  from?: { x: number; y: number };
+  to?: { x: number; y: number };
+  captureTarget?: { x: number; y: number };
+}
+
+/**
+ * Response from the training submission endpoint.
+ */
+export interface TrainingSubmissionResponse {
+  success: boolean;
+  message?: string;
+  metrics?: {
+    total_loss?: number;
+    td_loss?: number;
+    outcome_loss?: number;
+    num_transitions?: number;
+    shadow_model_path?: string;
+  };
+}
+
+// =============================================================================
 // Query Parameters
 // =============================================================================
 

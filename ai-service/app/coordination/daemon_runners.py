@@ -3364,6 +3364,24 @@ async def create_node_data_agent() -> None:
     await asyncio.sleep(float("inf"))
 
 
+async def create_online_merge() -> None:
+    """Create and run online model merge daemon.
+
+    January 2026: Part of human game training pipeline.
+    Validates shadow models that have received online learning updates
+    and merges them into canonical models if they show improvement.
+    """
+    try:
+        from app.coordination.online_merge_daemon import get_online_merge_daemon
+
+        daemon = get_online_merge_daemon()
+        await daemon.start()
+        await daemon.wait_until_stopped()
+    except ImportError as e:
+        logger.error(f"OnlineMergeDaemon not available: {e}")
+        raise
+
+
 # =============================================================================
 # Runner Registry
 # =============================================================================
@@ -3504,6 +3522,8 @@ def _build_runner_registry() -> dict[str, Callable[[], Coroutine[None, None, Non
         DaemonType.S3_IMPORT.name: create_s3_import,
         DaemonType.UNIFIED_DATA_CATALOG.name: create_unified_data_catalog,
         DaemonType.NODE_DATA_AGENT.name: create_node_data_agent,
+        # Online model merge daemon (January 2026)
+        DaemonType.ONLINE_MERGE.name: create_online_merge,
     }
 
 

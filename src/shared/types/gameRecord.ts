@@ -53,6 +53,7 @@ export type GameOutcome =
 /** Where the game record originated. */
 export type RecordSource =
   | 'online_game'
+  | 'human_vs_ai'
   | 'self_play'
   | 'cmaes_optimization'
   | 'tournament'
@@ -151,6 +152,13 @@ export interface GameRecordMetadata {
   generation?: number; // For evolutionary algorithms
   candidateId?: number;
   tags: string[];
+
+  // Human vs AI training metadata (January 2026)
+  humanPlayer?: number; // Player number of human (1-indexed)
+  aiDifficulty?: number; // AI difficulty level (1-10)
+  aiType?: string; // AI type (e.g., 'neural', 'mcts')
+  humanWon?: boolean; // Whether human won this game
+  eligibleForTraining?: boolean; // Whether game should be used for training
 }
 
 // ────────────────────────────────────────────────────────────────────────────

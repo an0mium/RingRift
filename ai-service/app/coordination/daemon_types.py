@@ -500,6 +500,15 @@ class DaemonType(Enum):
     # =========================================================================
     OWC_SYNC_MANAGER = "owc_sync_manager"
 
+    # =========================================================================
+    # Online Model Merge Daemon (January 2026)
+    # =========================================================================
+    # Validates and merges shadow models (from online learning) into canonical.
+    # Part of human game training pipeline - learns from human wins against AI.
+    # Runs mini-gauntlet before merge to ensure shadow model improves quality.
+    # =========================================================================
+    ONLINE_MERGE = "online_merge"
+
 
 class DaemonState(Enum):
     """State of a daemon."""

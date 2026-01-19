@@ -36,12 +36,16 @@ from fastapi import FastAPI
 from app.routes.replay import router as replay_router
 from app.routes.cluster import router as cluster_router
 from app.routes.training import router as training_router
+from app.routes.human_games import router as human_games_router
+from app.routes.online_learning import router as online_learning_router
 
 __all__ = [
     "include_all_routes",
     "replay_router",
     "cluster_router",
     "training_router",
+    "human_games_router",
+    "online_learning_router",
 ]
 
 
@@ -62,6 +66,12 @@ def include_all_routes(app: FastAPI) -> None:
 
     # Training status routes (added Dec 2025 - Phase 15)
     app.include_router(training_router, prefix="/api", tags=["training"])
+
+    # Human vs AI game export routes (added Jan 2026)
+    app.include_router(human_games_router, prefix="/api", tags=["human-games"])
+
+    # Online learning routes (added Jan 2026)
+    app.include_router(online_learning_router, prefix="/api", tags=["online-learning"])
 
     # Note: AI and admin routes are still in main.py
     # They should be extracted as separate routers following

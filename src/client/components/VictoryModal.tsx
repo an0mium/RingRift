@@ -45,6 +45,20 @@ export interface RematchStatus {
   status?: 'pending' | 'accepted' | 'declined' | 'expired';
 }
 
+/**
+ * State for the training submission feature.
+ */
+export interface TrainingSubmissionState {
+  /** Whether training submission is available for this game */
+  isAvailable: boolean;
+  /** Whether submission is in progress */
+  isSubmitting: boolean;
+  /** Whether submission was successful */
+  wasSubmitted: boolean;
+  /** Error message if submission failed */
+  error?: string | null;
+}
+
 interface VictoryModalProps {
   isOpen: boolean;
   gameResult?: GameResult | null;
@@ -82,6 +96,16 @@ interface VictoryModalProps {
    * labels (is_sandbox).
    */
   isSandbox?: boolean;
+  /**
+   * Called when user wants to submit their winning game for AI training.
+   * Only shown when human wins against AI in sandbox mode.
+   * January 2026 - Human game training enhancement.
+   */
+  onSubmitForTraining?: () => Promise<void>;
+  /**
+   * Current state of training submission (managed by parent component).
+   */
+  trainingSubmission?: TrainingSubmissionState;
 }
 
 /**
@@ -567,6 +591,82 @@ function RematchSection({
 }
 
 /**
+ * Training submission section component (January 2026).
+ * Allows users to submit their winning games against AI for training.
+ */
+function TrainingSubmissionSection({
+  onSubmit,
+  state,
+}: {
+  onSubmit: () => Promise<void>;
+  state: TrainingSubmissionState;
+}) {
+  // Already submitted successfully
+  if (state.wasSubmitted) {
+    return (
+      <div className="bg-green-900/30 border border-green-600/50 rounded-lg px-4 py-3 text-center">
+        <div className="flex items-center justify-center gap-2 text-green-400">
+          <span className="text-lg">&#10003;</span>
+          <span className="font-medium">Thanks for contributing!</span>
+        </div>
+        <p className="text-sm text-green-300/80 mt-1">
+          Your game has been submitted to help improve the AI.
+        </p>
+      </div>
+    );
+  }
+
+  // Submission error
+  if (state.error) {
+    return (
+      <div className="bg-red-900/30 border border-red-600/50 rounded-lg px-4 py-3 text-center">
+        <div className="flex items-center justify-center gap-2 text-red-400">
+          <span className="text-lg">&#x2717;</span>
+          <span className="font-medium">Submission failed</span>
+        </div>
+        <p className="text-sm text-red-300/80 mt-1">{state.error}</p>
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={state.isSubmitting}
+          className="mt-2 px-3 py-1 text-sm bg-red-800/50 hover:bg-red-800/70 rounded text-red-200"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  // Show submission button
+  return (
+    <div className="bg-blue-900/20 border border-blue-600/30 rounded-lg px-4 py-3 text-center">
+      <p className="text-sm text-blue-200/80 mb-2">
+        Your win can help improve the AI. Submit this game for training?
+      </p>
+      <button
+        type="button"
+        onClick={onSubmit}
+        disabled={state.isSubmitting}
+        className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+          state.isSubmitting
+            ? 'bg-blue-800/50 text-blue-300/50 cursor-not-allowed'
+            : 'bg-blue-600 hover:bg-blue-500 text-white'
+        }`}
+      >
+        {state.isSubmitting ? (
+          <span className="flex items-center gap-2">
+            <span className="animate-spin">&#8987;</span>
+            Submitting...
+          </span>
+        ) : (
+          'Submit for Training'
+        )}
+      </button>
+    </div>
+  );
+}
+
+/**
  * Victory Modal Component
  */
 export function VictoryModal({
@@ -585,6 +685,8 @@ export function VictoryModal({
   rematchStatus,
   currentUserId,
   isSandbox,
+  onSubmitForTraining,
+  trainingSubmission,
 }: VictoryModalProps) {
   const overlaySessionIdRef = useRef<string | null>(null);
   const weirdStateImpressionLoggedRef = useRef<string | null>(null);
@@ -908,6 +1010,18 @@ export function VictoryModal({
                 onRequestRematch={onRequestRematch}
                 onAcceptRematch={onAcceptRematch}
                 onDeclineRematch={onDeclineRematch}
+              />
+            </div>
+          )}
+
+          {/* Training submission section (January 2026) - for human wins against AI in sandbox */}
+          {onSubmitForTraining && trainingSubmission?.isAvailable && (
+            <div
+              className={`${!effectiveReducedMotion ? 'buttons-animate' : ''} relative z-10`.trim()}
+            >
+              <TrainingSubmissionSection
+                onSubmit={onSubmitForTraining}
+                state={trainingSubmission}
               />
             </div>
           )}

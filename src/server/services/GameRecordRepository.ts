@@ -118,6 +118,14 @@ export class GameRecordRepository {
       ...(metadata.sourceId !== undefined && { sourceId: metadata.sourceId }),
       ...(metadata.generation !== undefined && { generation: metadata.generation }),
       ...(metadata.candidateId !== undefined && { candidateId: metadata.candidateId }),
+      // Human vs AI training metadata (January 2026)
+      ...(metadata.humanPlayer !== undefined && { humanPlayer: metadata.humanPlayer }),
+      ...(metadata.aiDifficulty !== undefined && { aiDifficulty: metadata.aiDifficulty }),
+      ...(metadata.aiType !== undefined && { aiType: metadata.aiType }),
+      ...(metadata.humanWon !== undefined && { humanWon: metadata.humanWon }),
+      ...(metadata.eligibleForTraining !== undefined && {
+        eligibleForTraining: metadata.eligibleForTraining,
+      }),
     };
 
     // Use type assertion to work around Prisma client not yet having

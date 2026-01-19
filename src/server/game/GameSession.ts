@@ -1066,10 +1066,70 @@ export class GameSession {
     try {
       const outcome = this.mapGameResultToOutcome(gameResult);
       const finalScore = this.computeFinalScore(state);
-      await gameRecordRepository.saveGameRecord(this.gameId, state, outcome, finalScore, {
-        source: 'online_game',
+
+      // Detect human vs AI game for training metadata (January 2026)
+      const humanPlayers = state.players.filter((p) => p.type === 'human');
+      const aiPlayers = state.players.filter((p) => p.type === 'ai');
+      const isHumanVsAI = humanPlayers.length > 0 && aiPlayers.length > 0;
+
+      // Build metadata with optional training fields
+      const metadata: Parameters<typeof gameRecordRepository.saveGameRecord>[4] = {
+        source: isHumanVsAI ? 'human_vs_ai' : 'online_game',
         tags: state.isRated ? ['rated'] : ['unrated'],
-      });
+      };
+
+      // Add training metadata for human vs AI games
+      if (isHumanVsAI) {
+        const humanPlayer = humanPlayers[0]; // Primary human player
+        const aiPlayer = aiPlayers[0]; // Primary AI opponent
+        const humanWon = winnerPlayerNumber === humanPlayer.playerNumber;
+
+        metadata.humanPlayer = humanPlayer.playerNumber;
+        metadata.aiDifficulty = aiPlayer.aiDifficulty ?? aiPlayer.aiProfile?.difficulty ?? 5;
+        if (aiPlayer.aiProfile?.aiType) {
+          metadata.aiType = aiPlayer.aiProfile.aiType;
+        }
+        metadata.humanWon = humanWon;
+        metadata.eligibleForTraining = true;
+
+        logger.info('Human vs AI game completed', {
+          gameId: this.gameId,
+          humanPlayer: humanPlayer.playerNumber,
+          aiDifficulty: metadata.aiDifficulty,
+          humanWon,
+        });
+
+        // January 2026: Trigger online learning if human wins
+        // This updates a shadow model, which is periodically validated and merged
+        if (humanWon && state.moveHistory && state.moveHistory.length > 0) {
+          try {
+            const aiClient = getAIServiceClient();
+            const learningResult = await aiClient.learnFromGame(
+              state.boardType,
+              state.players.length,
+              state.moveHistory,
+              winnerPlayerNumber as number,
+              humanPlayer.playerNumber
+            );
+
+            if (learningResult?.success) {
+              logger.info('Online learning triggered from human win', {
+                gameId: this.gameId,
+                totalLoss: learningResult.metrics?.total_loss,
+                transitions: learningResult.metrics?.num_transitions,
+              });
+            }
+          } catch (learningErr) {
+            // Non-fatal: learning failures should not affect game completion
+            logger.warn('Online learning failed', {
+              gameId: this.gameId,
+              error: learningErr instanceof Error ? learningErr.message : String(learningErr),
+            });
+          }
+        }
+      }
+
+      await gameRecordRepository.saveGameRecord(this.gameId, state, outcome, finalScore, metadata);
     } catch (err) {
       // Non-fatal: GameRecord storage failures should not affect game completion.
       logger.warn('Failed to save canonical GameRecord', {

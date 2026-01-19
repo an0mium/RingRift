@@ -212,3 +212,115 @@ def compute_elo_weights(
     raw_weights = 1.0 / (1.0 + np.exp(-elo_diff / elo_scale))
     weights = min_weight + raw_weights * (max_weight - min_weight)
     return weights / weights.mean()
+
+
+def compute_generator_elo_weights(
+    generator_elos: np.ndarray,
+    baseline_elo: float = 1000.0,
+    elo_scale: float = 200.0,
+    min_weight: float = 0.3,
+    max_weight: float = 3.0,
+) -> np.ndarray:
+    """Compute sample weights based on generator model Elo.
+
+    January 2026 - Elo-gated training enhancement.
+
+    Samples from stronger generating models get higher weight, because they
+    represent higher quality play. This implements the quality-weighted
+    sampling strategy for iterative strength improvement.
+
+    Formula: weight = sigmoid((elo - baseline) / scale)
+    Default params give:
+        - 800 Elo generator: weight ~0.5x
+        - 1000 Elo generator: weight ~1.0x
+        - 1200 Elo generator: weight ~2.7x
+        - 1500 Elo generator: weight ~2.9x
+
+    Args:
+        generator_elos: Generator model Elo for each sample (numpy array)
+        baseline_elo: Center point for sigmoid (default: 1000)
+        elo_scale: Steepness of sigmoid (lower = steeper, default: 200)
+        min_weight: Minimum weight for weakest generators (default: 0.3)
+        max_weight: Maximum weight for strongest generators (default: 3.0)
+
+    Returns:
+        Normalized sample weights (numpy array, mean=1.0)
+    """
+    # Sigmoid transformation: higher Elo → higher weight
+    elo_diff = generator_elos - baseline_elo
+    raw_weights = 1.0 / (1.0 + np.exp(-elo_diff / elo_scale))
+
+    # Scale to [min_weight, max_weight]
+    weights = min_weight + raw_weights * (max_weight - min_weight)
+
+    # Normalize to mean=1.0 for use with WeightedRandomSampler
+    return weights / weights.mean()
+
+
+def compute_human_game_weights(
+    human_won: np.ndarray,
+    ai_difficulty: np.ndarray,
+    game_lengths: np.ndarray,
+    ai_elo: np.ndarray | None = None,
+    win_multiplier: float = 3.0,
+    min_weight: float = 0.5,
+    max_weight: float = 6.0,
+) -> np.ndarray:
+    """Compute sample weights for human vs AI games.
+
+    January 2026 - Human game training enhancement.
+
+    Human wins against AI expose blind spots and provide high-quality
+    training signal. This function weights samples to prioritize:
+    1. Human wins (3x base weight by default)
+    2. Games against stronger AI (higher difficulty = higher weight)
+    3. Longer games (more learning signal)
+
+    Formula:
+        base = 1.0 (loss) or win_multiplier (win)
+        difficulty_mult = 1.0 + (difficulty / 10)  # 1.1 to 2.0
+        elo_mult = 1.0 + max(0, (ai_elo - 1200) / 400)  # 1.0 to ~2.5
+        length_mult = min(2.0, 1.0 + game_length / 50)  # 1.0 to 2.0
+        weight = base * difficulty_mult * elo_mult * length_mult
+
+    Example weights:
+        - Human loss vs easy AI (diff=3, 20 moves): ~1.3
+        - Human win vs easy AI (diff=3, 20 moves): ~3.9
+        - Human win vs hard AI (diff=8, 40 moves): ~10.8
+        - Human win vs very hard AI (diff=10, 60 moves, 1600 Elo): ~18.0
+
+    Args:
+        human_won: Boolean array indicating human wins
+        ai_difficulty: AI difficulty level for each game (1-10)
+        game_lengths: Number of moves in each game
+        ai_elo: Optional AI Elo ratings (uses difficulty if not provided)
+        win_multiplier: Weight multiplier for human wins (default: 3.0)
+        min_weight: Minimum weight (default: 0.5)
+        max_weight: Maximum weight (default: 6.0)
+
+    Returns:
+        Normalized sample weights (numpy array, mean=1.0)
+    """
+    # Base weight: higher for human wins
+    base_weights = np.where(human_won, win_multiplier, 1.0)
+
+    # Difficulty scaling: harder AI = more valuable game
+    difficulty_mult = 1.0 + (ai_difficulty / 10.0)  # 1.1 to 2.0
+
+    # Elo scaling (if provided): stronger AI = more valuable game
+    if ai_elo is not None:
+        elo_mult = 1.0 + np.maximum(0, (ai_elo - 1200) / 400)  # 1.0 to ~2.5
+    else:
+        elo_mult = np.ones_like(base_weights)
+
+    # Length bonus: longer games have more training signal
+    length_mult = np.minimum(2.0, 1.0 + game_lengths / 50)  # 1.0 to 2.0
+
+    # Combine all multipliers
+    weights = base_weights * difficulty_mult * elo_mult * length_mult
+
+    # Clamp to [min_weight, max_weight]
+    weights = np.clip(weights, min_weight, max_weight)
+
+    # Normalize to mean=1.0
+    return weights / weights.mean()
