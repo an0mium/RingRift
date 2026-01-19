@@ -30406,6 +30406,18 @@ print(json.dumps({{
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"LoopExecutors shutdown failed: {e}")
 
+            # Jan 2026: Shutdown threaded loop runners (Phase 3)
+            try:
+                from scripts.p2p.threaded_loop_runner import ThreadedLoopRegistry
+                results = await ThreadedLoopRegistry.stop_all(timeout=15.0)
+                stopped = sum(1 for ok in results.values() if ok)
+                if results:
+                    logger.info(f"ThreadedLoopRegistry: stopped {stopped}/{len(results)} runners")
+            except ImportError:
+                pass  # Module not available
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"ThreadedLoopRegistry shutdown failed: {e}")
+
             try:
                 await asyncio.wait_for(runner.cleanup(), timeout=30)
             except asyncio.TimeoutError:
