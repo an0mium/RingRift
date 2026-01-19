@@ -89,7 +89,7 @@ from .models import (
     RingEliminationChoiceRequest,
     RingEliminationChoiceResponse,
 )
-from .routes import replay_router
+from .routes import include_all_routes
 from .rules.default_engine import DefaultRulesEngine
 
 # Configure logging
@@ -365,8 +365,8 @@ from app.utils.error_utils import sanitize_error_detail
 AI_OPERATION_TIMEOUT = float(os.getenv("RINGRIFT_AI_TIMEOUT", "30.0"))
 
 
-# Mount replay router for game database access
-app.include_router(replay_router)
+# Mount all modular routers (replay, cluster, training, human-games, online-learning)
+include_all_routes(app)
 
 # AI instances cache
 @dataclass
