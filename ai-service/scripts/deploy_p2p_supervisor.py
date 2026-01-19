@@ -30,28 +30,99 @@ import yaml
 KEEPALIVE_SCRIPT = '''#!/bin/bash
 # RingRift P2P Keepalive Script
 # Ensures P2P orchestrator is always running
+# Jan 2026: Fixed race condition with flock-based locking
 
 NODE_ID="{node_id}"
 RINGRIFT_PATH="{ringrift_path}"
 P2P_PORT=8770
 P2P_SEEDS="{seed_peers}"
 LOGFILE="$RINGRIFT_PATH/logs/p2p_keepalive.log"
+PIDFILE="$RINGRIFT_PATH/logs/p2p.pid"
+LOCKFILE="$RINGRIFT_PATH/logs/p2p_keepalive.lock"
+STARTUP_GRACE=30  # Seconds to wait for P2P to start before considering it failed
 
 # Ensure log directory exists
 mkdir -p "$RINGRIFT_PATH/logs"
 
-# Check if P2P is running
-if curl -s --connect-timeout 5 http://localhost:$P2P_PORT/health > /dev/null 2>&1; then
-    # Already running
+# Use flock for mutual exclusion - prevents multiple cron jobs from racing
+exec 200>"$LOCKFILE"
+if ! flock -n 200; then
+    # Another instance is already running, exit silently
     exit 0
 fi
 
-# Log restart
-echo "[$(date)] P2P not running, starting..." >> "$LOGFILE"
+# Check if P2P is responding to health checks
+check_health() {{
+    curl -s --connect-timeout 5 http://localhost:$P2P_PORT/health > /dev/null 2>&1
+}}
 
-# Kill any zombie process
-pkill -9 -f "p2p_orchestrator.py" 2>/dev/null || true
-sleep 1
+# Check if P2P process is running via PID file
+check_pid() {{
+    if [ -f "$PIDFILE" ]; then
+        pid=$(cat "$PIDFILE" 2>/dev/null)
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}}
+
+# If health check passes, we're good
+if check_health; then
+    exit 0
+fi
+
+# Health check failed - check if process is starting up
+if check_pid; then
+    pid=$(cat "$PIDFILE")
+    # Check how long the process has been running
+    if [ -f "/proc/$pid/stat" ]; then
+        # Linux: check process start time
+        start_time=$(stat -c %Y /proc/$pid 2>/dev/null || echo 0)
+        now=$(date +%s)
+        age=$((now - start_time))
+        if [ $age -lt $STARTUP_GRACE ]; then
+            echo "[$(date)] P2P process $pid starting up (age: ${{age}}s), waiting..." >> "$LOGFILE"
+            exit 0
+        fi
+    elif [ "$(uname)" = "Darwin" ]; then
+        # macOS: use ps to get elapsed time
+        elapsed=$(ps -p "$pid" -o etime= 2>/dev/null | tr -d ' ')
+        if [ -n "$elapsed" ]; then
+            # Parse elapsed time (formats: SS, MM:SS, HH:MM:SS, D-HH:MM:SS)
+            if ! echo "$elapsed" | grep -q ':'; then
+                # Just seconds
+                secs=$elapsed
+            elif ! echo "$elapsed" | grep -q '-'; then
+                # MM:SS or HH:MM:SS
+                secs=$(echo "$elapsed" | awk -F: '{{if(NF==2) print $1*60+$2; else print $1*3600+$2*60+$3}}')
+            else
+                # Already running for days, definitely not starting up
+                secs=99999
+            fi
+            if [ "$secs" -lt $STARTUP_GRACE ]; then
+                echo "[$(date)] P2P process $pid starting up (age: ${{secs}}s), waiting..." >> "$LOGFILE"
+                exit 0
+            fi
+        fi
+    fi
+    # Process exists but health check failed after grace period - kill it
+    echo "[$(date)] P2P process $pid unhealthy after grace period, killing..." >> "$LOGFILE"
+    kill -15 "$pid" 2>/dev/null
+    sleep 2
+    kill -9 "$pid" 2>/dev/null || true
+fi
+
+# No healthy process running - clean up any orphans and start fresh
+echo "[$(date)] P2P not running or unhealthy, starting..." >> "$LOGFILE"
+
+# Kill any zombie/orphan processes (use SIGTERM first, then SIGKILL)
+pgrep -f "p2p_orchestrator.py.*--node-id.*$NODE_ID" | while read -r pid; do
+    echo "[$(date)] Killing orphan P2P process $pid" >> "$LOGFILE"
+    kill -15 "$pid" 2>/dev/null
+done
+sleep 2
+pkill -9 -f "p2p_orchestrator.py.*--node-id.*$NODE_ID" 2>/dev/null || true
 
 # Find Python
 if [ -f "$RINGRIFT_PATH/venv/bin/python" ]; then
@@ -70,7 +141,19 @@ nohup $PYTHON scripts/p2p_orchestrator.py \\
     --ringrift-path "${{RINGRIFT_PATH%/ai-service}}" \\
     >> "$RINGRIFT_PATH/logs/p2p.log" 2>&1 &
 
-echo "[$(date)] P2P started with PID $!" >> "$LOGFILE"
+P2P_PID=$!
+echo "$P2P_PID" > "$PIDFILE"
+echo "[$(date)] P2P started with PID $P2P_PID" >> "$LOGFILE"
+
+# Wait a moment and verify it's still running
+sleep 3
+if kill -0 "$P2P_PID" 2>/dev/null; then
+    echo "[$(date)] P2P process $P2P_PID confirmed running" >> "$LOGFILE"
+else
+    echo "[$(date)] WARNING: P2P process $P2P_PID died immediately after start" >> "$LOGFILE"
+    # Check the log for errors
+    tail -20 "$RINGRIFT_PATH/logs/p2p.log" >> "$LOGFILE" 2>/dev/null
+fi
 '''
 
 
