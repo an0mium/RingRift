@@ -778,7 +778,7 @@ function getAIDifficultyInfo(difficulty: number): {
   bgColor: string;
 } {
   // Keep this categorisation broadly aligned with the canonical ladder:
-  // 1 → Random, 2 → Heuristic, 3–4 → Minimax, 5–8 → MCTS, 9–10 → Descent.
+  // 1 → Random, 2 → Heuristic, 3–4 → Minimax, 5–6 → Descent, 7–8 → MCTS, 9–10 → Gumbel MCTS.
   if (difficulty === 1) {
     return {
       label: 'Beginner · Random',
@@ -800,18 +800,32 @@ function getAIDifficultyInfo(difficulty: number): {
       bgColor: 'bg-blue-900/40',
     };
   }
-  if (difficulty >= 5 && difficulty <= 8) {
+  if (difficulty >= 5 && difficulty <= 6) {
+    return {
+      label: 'Tough · Descent',
+      color: 'text-yellow-300',
+      bgColor: 'bg-yellow-900/40',
+    };
+  }
+  if (difficulty >= 7 && difficulty <= 8) {
     return {
       label: 'Expert · MCTS',
       color: 'text-purple-300',
       bgColor: 'bg-purple-900/40',
     };
   }
-  // 9–10
+  if (difficulty === 9) {
+    return {
+      label: 'Master · Gumbel MCTS',
+      color: 'text-red-300',
+      bgColor: 'bg-red-900/40',
+    };
+  }
+  // 10
   return {
-    label: 'Grandmaster · Descent',
-    color: 'text-red-300',
-    bgColor: 'bg-red-900/40',
+    label: 'Grandmaster · Gumbel MCTS',
+    color: 'text-red-400',
+    bgColor: 'bg-red-900/50',
   };
 }
 
@@ -830,6 +844,8 @@ function getAITypeLabel(aiType?: string): string {
       return 'MCTS';
     case 'descent':
       return 'Descent';
+    case 'gumbel_mcts':
+      return 'Gumbel MCTS';
     default:
       return 'AI';
   }

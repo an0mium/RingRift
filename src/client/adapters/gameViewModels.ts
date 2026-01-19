@@ -619,19 +619,27 @@ function getAIDifficultyInfo(difficulty: number): {
   color: string;
   bgColor: string;
 } {
+  // Aligned with canonical ladder from difficultyUx.ts:
+  // 1 → Random, 2 → Heuristic, 3–4 → Minimax, 5–6 → Descent, 7–8 → MCTS, 9–10 → Gumbel MCTS.
   if (difficulty === 1) {
     return { label: 'Beginner · Random', color: 'text-green-300', bgColor: 'bg-green-900/40' };
   }
   if (difficulty === 2) {
     return { label: 'Easy · Heuristic', color: 'text-emerald-300', bgColor: 'bg-emerald-900/40' };
   }
-  if (difficulty >= 3 && difficulty <= 6) {
+  if (difficulty >= 3 && difficulty <= 4) {
     return { label: 'Advanced · Minimax', color: 'text-blue-300', bgColor: 'bg-blue-900/40' };
+  }
+  if (difficulty >= 5 && difficulty <= 6) {
+    return { label: 'Tough · Descent', color: 'text-yellow-300', bgColor: 'bg-yellow-900/40' };
   }
   if (difficulty === 7 || difficulty === 8) {
     return { label: 'Expert · MCTS', color: 'text-purple-300', bgColor: 'bg-purple-900/40' };
   }
-  return { label: 'Grandmaster · Descent', color: 'text-red-300', bgColor: 'bg-red-900/40' };
+  if (difficulty === 9) {
+    return { label: 'Master · Gumbel MCTS', color: 'text-red-300', bgColor: 'bg-red-900/40' };
+  }
+  return { label: 'Grandmaster · Gumbel MCTS', color: 'text-red-400', bgColor: 'bg-red-900/50' };
 }
 
 function getAITypeLabel(aiType?: string): string {
@@ -646,6 +654,8 @@ function getAITypeLabel(aiType?: string): string {
       return 'MCTS';
     case 'descent':
       return 'Descent';
+    case 'gumbel_mcts':
+      return 'Gumbel MCTS';
     default:
       return 'AI';
   }
