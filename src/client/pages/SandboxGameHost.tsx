@@ -2215,11 +2215,14 @@ export const SandboxGameHost: React.FC = () => {
               onSelect={(optionId) => {
                 const resolver = sandboxChoiceResolverRef.current;
                 if (resolver) {
+                  // When using segments, optionId is a move ID that maps to one of the canonical options
                   resolver({
                     choiceId: sandboxPendingChoice.id,
                     playerNumber: sandboxPendingChoice.playerNumber,
                     choiceType: sandboxPendingChoice.type,
-                    selectedOption: { optionId },
+                    selectedOption: optionId as
+                      | 'option_1_collapse_all_and_eliminate'
+                      | 'option_2_min_collapse_no_elimination',
                   } as PlayerChoiceResponseFor<PlayerChoice>);
                   sandboxChoiceResolverRef.current = null;
                 }

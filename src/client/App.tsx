@@ -74,9 +74,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
         });
       }, 0);
       return () => clearTimeout(timer);
-    } else {
-      wasAuthenticatedRef.current = true;
     }
+    wasAuthenticatedRef.current = true;
+    return; // Explicit return for TypeScript
   }, [user, navigate, location.pathname]);
 
   // If user just became null, render nothing for one frame to allow

@@ -757,7 +757,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     }
 
     const engineView: GameEndEngineView = {
-      gameId,
+      gameId: gameId ?? undefined,
       boardType: gameState.boardType,
       numPlayers: gameState.players.length,
       winnerPlayerId,
@@ -889,8 +889,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
   const canSkipRecovery = useMemo(() => {
     if (!Array.isArray(validMoves) || validMoves.length <= 1) return false;
-    // Recovery skip can be available during movement phase when recovery slide is an option
-    if (currentPhase !== 'movement' && currentPhase !== 'recovery') return false;
+    // Recovery skip is available during movement phase when recovery slide is an option
+    if (currentPhase !== 'movement') return false;
     const hasSkip = validMoves.some((m) => m.type === 'skip_recovery');
     const hasOther = validMoves.some((m) => m.type !== 'skip_recovery');
     return hasSkip && hasOther;
@@ -1067,8 +1067,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     validMoves.some((m) => m.type === 'overtaking_capture' || m.type === 'continue_capture_segment')
   );
 
-  // Board display subtitle - shows turn and game status
-  const boardDisplaySubtitle = `Turn ${gameState.turnNumber} • ${
+  // Board display subtitle - shows move count and game status
+  const boardDisplaySubtitle = `Move ${gameState.moveHistory.length} • ${
     gameState.gameStatus === 'active' ? 'Active' : gameState.gameStatus
   }`;
 

@@ -101,8 +101,8 @@ export interface GameLifecycleDeps {
   setLastLoadedScenario: (scenario: LoadedScenario | null) => void;
   /** Set victory modal dismissed state */
   setIsSandboxVictoryModalDismissed: (dismissed: boolean) => void;
-  /** Set sandbox mode (beginner/developer) */
-  setSandboxMode: (mode: 'beginner' | 'developer') => void;
+  /** Set sandbox mode (beginner/debug) */
+  setSandboxMode: (mode: 'beginner' | 'debug') => void;
 }
 
 /**

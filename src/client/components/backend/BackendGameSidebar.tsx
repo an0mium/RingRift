@@ -373,7 +373,13 @@ export const BackendGameSidebar: React.FC<BackendGameSidebarProps> = ({
           <LineRewardPanel
             choice={pendingChoice}
             onSelect={(optionId) => {
-              onRespondToChoice(pendingChoice, { optionId });
+              // When using segments, optionId is a move ID that maps to one of the canonical options
+              onRespondToChoice(
+                pendingChoice,
+                optionId as
+                  | 'option_1_collapse_all_and_eliminate'
+                  | 'option_2_min_collapse_no_elimination'
+              );
             }}
           />
         )}

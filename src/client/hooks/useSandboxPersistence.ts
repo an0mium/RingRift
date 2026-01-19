@@ -186,7 +186,7 @@ export function useSandboxPersistence(options: SandboxPersistenceOptions): Sandb
         if (result.success) {
           gameSavedRef.current = true;
           setGameSaveStatus('saved');
-          toast.success(`Game saved (${result.totalMoves} moves)`);
+          toast.success(`Game saved (${result.totalMoves ?? 0} moves)`);
         } else {
           // Server not configured or unavailable - use local fallback
           // This is expected in production when RINGRIFT_AI_SERVICE_URL is not set

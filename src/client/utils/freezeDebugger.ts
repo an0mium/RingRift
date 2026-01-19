@@ -67,7 +67,8 @@ class FreezeDebuggerClass {
     // Auto-enable in development
     if (typeof window !== 'undefined') {
       // Expose globally for console access
-      (window as unknown as { __FREEZE_DEBUGGER__: FreezeDebugger }).__FREEZE_DEBUGGER__ = this;
+      (window as unknown as { __FREEZE_DEBUGGER__: FreezeDebuggerClass }).__FREEZE_DEBUGGER__ =
+        this;
 
       // Try to open IndexedDB
       this.initIndexedDB();

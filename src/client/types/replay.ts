@@ -56,6 +56,10 @@ export interface ReplayGameListResponse {
   games: ReplayGameMetadata[];
   total: number;
   hasMore: boolean;
+  /** Current page number (1-indexed) */
+  page?: number;
+  /** Number of items per page */
+  pageSize?: number;
 }
 
 // =============================================================================
@@ -124,11 +128,16 @@ export interface ReplayChoicesResponse {
 
 export interface ReplayStatsResponse {
   totalGames: number;
-  gamesByBoardType: Record<string, number>;
-  gamesByStatus: Record<string, number>;
-  gamesByTermination: Record<string, number>;
   totalMoves: number;
-  schemaVersion: number;
+  /** Games grouped by board type */
+  gamesByBoardType?: Record<string, number>;
+  /** Alias for gamesByBoardType (backward compatibility) */
+  boardTypes?: Record<string, number>;
+  gamesByStatus?: Record<string, number>;
+  gamesByTermination?: Record<string, number>;
+  /** Games grouped by player count */
+  playerCounts?: Record<string, number>;
+  schemaVersion?: number;
 }
 
 // =============================================================================
@@ -145,9 +154,13 @@ export interface StoreGameRequest {
 }
 
 export interface StoreGameResponse {
-  gameId: string;
-  totalMoves: number;
+  /** Game ID (present on success) */
+  gameId?: string;
+  /** Total moves stored (present on success) */
+  totalMoves?: number;
   success: boolean;
+  /** Error message when success is false */
+  message?: string;
 }
 
 // =============================================================================

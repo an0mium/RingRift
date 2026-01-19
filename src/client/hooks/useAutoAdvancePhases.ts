@@ -12,7 +12,8 @@
  */
 
 import { useEffect, useRef } from 'react';
-import type { GameState, Move, Position } from '../../shared/types/game';
+import type { GameState, Move } from '../../shared/types/game';
+import type { PartialMove } from './useGameActions';
 
 /**
  * Move types that should be auto-submitted when they're the only valid option.
@@ -26,23 +27,6 @@ const NO_ACTION_MOVE_TYPES = [
   'skip_capture',
   'skip_recovery',
 ] as const;
-
-/**
- * PartialMove type for move submission (matches useGameActions signature).
- */
-export interface PartialMove {
-  type: string;
-  from?: Position;
-  to?: Position;
-  placementCount?: number;
-  placedOnStack?: boolean;
-  captureDirection?: string;
-  regionId?: string;
-  segmentId?: string;
-  lineId?: string;
-  eliminationCount?: number;
-  targetPlayer?: number;
-}
 
 /**
  * Hook that automatically submits no-action moves when they're the only option.
@@ -103,13 +87,13 @@ export function useAutoAdvancePhases(
       submittedRef.current = phaseKey;
 
       // Convert Move to PartialMove for submission
+      // Include required fields (type, player, to) and copy optional fields
       const partialMove: PartialMove = {
         type: onlyMove.type,
+        player: onlyMove.player,
+        to: onlyMove.to,
+        from: onlyMove.from,
       };
-
-      // Copy optional fields if present
-      if (onlyMove.from) partialMove.from = onlyMove.from;
-      if (onlyMove.to) partialMove.to = onlyMove.to;
 
       submitMove(partialMove);
     }, 150);

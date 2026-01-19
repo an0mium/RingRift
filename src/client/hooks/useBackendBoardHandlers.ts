@@ -597,9 +597,7 @@ export function useBackendBoardHandlers(
 
         // Handle ring_elimination choice
         if (currentPendingChoice.type === 'ring_elimination') {
-          const options = (currentPendingChoice.options ?? []) as Array<{
-            stackPosition: Position;
-          }>;
+          const options = currentPendingChoice.options ?? [];
           const matching = options.find(
             (opt) => opt.stackPosition && positionsEqual(opt.stackPosition, pos)
           );
@@ -624,7 +622,13 @@ export function useBackendBoardHandlers(
             segment.positions.some((p) => positionsEqual(p, pos))
           );
           if (clickedSegment) {
-            currentRespondToChoice(currentPendingChoice, { optionId: clickedSegment.optionId });
+            // When using segments, optionId is a move ID that maps to one of the canonical options
+            currentRespondToChoice(
+              currentPendingChoice,
+              clickedSegment.optionId as
+                | 'option_1_collapse_all_and_eliminate'
+                | 'option_2_min_collapse_no_elimination'
+            );
             return;
           }
           // Click was not on a highlighted segment - don't block other handlers
@@ -969,9 +973,11 @@ export function useBackendBoardHandlers(
           const elimMove = elimMoves[0];
           submitMove({
             type: elimMove.type,
+            player: elimMove.player,
             to: elimMove.to,
-            eliminationCount: elimMove.eliminationCount,
-            targetPlayer: elimMove.targetPlayer,
+            eliminationContext: elimMove.eliminationContext,
+            eliminatedRings: elimMove.eliminatedRings,
+            eliminationFromStack: elimMove.eliminationFromStack,
           } as PartialMove);
           setSelected(undefined);
           setValidTargets([]);

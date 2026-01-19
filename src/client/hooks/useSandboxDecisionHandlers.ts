@@ -348,7 +348,7 @@ export function useSandboxDecisionHandlers({
         sandboxPendingChoice.segments.length > 0
       ) {
         const currentChoice = sandboxPendingChoice;
-        const segments = currentChoice.segments;
+        const segments = currentChoice.segments!;
 
         // Find the segment containing the clicked position
         const clickedSegment = segments.find((segment) =>
@@ -358,11 +358,14 @@ export function useSandboxDecisionHandlers({
         if (clickedSegment) {
           const resolver = choiceResolverRef.current;
           if (resolver) {
+            // When using segments, optionId is a move ID that maps to one of the canonical options
             resolver({
               choiceId: currentChoice.id,
               playerNumber: currentChoice.playerNumber,
               choiceType: currentChoice.type,
-              selectedOption: { optionId: clickedSegment.optionId },
+              selectedOption: clickedSegment.optionId as
+                | 'option_1_collapse_all_and_eliminate'
+                | 'option_2_min_collapse_no_elimination',
             } as PlayerChoiceResponseFor<PlayerChoice>);
           }
           choiceResolverRef.current = null;
