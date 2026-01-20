@@ -17,7 +17,18 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, TypeAlias
+import sys
+from typing import Any
+
+# TypeAlias was added in Python 3.10; use typing_extensions for 3.9 compat
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+else:
+    try:
+        from typing_extensions import TypeAlias
+    except ImportError:
+        # Fallback: just use a simple alias without TypeAlias annotation
+        TypeAlias = type
 
 from app.coordination.event_utils import make_config_key as _make_config_key
 
