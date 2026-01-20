@@ -152,26 +152,43 @@ enum MoveType {
   // Ring placement phase
   place_ring
   skip_placement
-  
+  no_placement_action    // Forced no-op when no legal placement (RR-CANON-R075)
+
   // Movement phase
-  move_ring        // Legacy alias for move_stack
+  move_ring              // Legacy alias for move_stack
   move_stack
   build_stack
-  
+  no_movement_action     // Forced no-op when no legal movement (RR-CANON-R075)
+  skip_capture           // Decline optional capture after movement (RR-CANON-R070)
+
   // Capture moves
   overtaking_capture
   continue_capture_segment
-  
+
   // Line processing decisions
   process_line
-  choose_line_reward
-  
+  choose_line_reward     // Legacy alias
+  choose_line_option     // Canonical name for line reward decision
+  no_line_action         // Forced no-op when no lines to process (RR-CANON-R075)
+
   // Territory processing decisions
   process_territory_region
+  choose_territory_option
+  skip_territory_processing  // Voluntary skip of territory processing
+  no_territory_action        // Forced no-op when no regions to process (RR-CANON-R075)
   eliminate_rings_from_stack
 
   // Recovery action (RR-CANON-R110–R115)
   recovery_slide
+  skip_recovery          // Decline recovery this turn (RR-CANON-R115)
+
+  // Forced elimination (RR-CANON-R100, RR-CANON-R204)
+  forced_elimination
+
+  // Game meta-moves
+  swap_sides             // Pie rule / swap colours in 2-player games
+  resign                 // Player forfeits
+  timeout                // Player ran out of time
 
   // Legacy / experimental (kept for backward compatibility)
   line_formation
