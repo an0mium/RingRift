@@ -55,11 +55,6 @@ export class ClockManager {
    * @param player - Player info including time remaining
    */
   startTimer(player: PlayerTimeInfo): void {
-    // Don't start timers for AI players (they don't use real time)
-    if (player.isAI) {
-      return;
-    }
-
     // Don't start timers in test/disabled mode
     if (this.isDisabled) {
       return;
