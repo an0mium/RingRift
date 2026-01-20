@@ -5302,6 +5302,64 @@ class P2POrchestrator(
             "self_recognition_ok": leader_id_is_self == is_leader_call,  # Quick health check
         }
 
+    def _recover_leadership_desync(self) -> bool:
+        """Auto-recover from leadership state desynchronization.
+
+        Jan 20, 2026: Added to fix the root cause of cluster instability where
+        nodes get stuck in inconsistent states (candidate claiming to be leader,
+        or leader_id set but role not matching).
+
+        Recovery actions:
+        1. gossip_desync (leader_id=self but role!=LEADER):
+           → Accept leadership since other nodes already see us as leader
+        2. role_desync (role=LEADER but leader_id!=self):
+           → Step down since another node is the recognized leader
+
+        Returns:
+            True if recovery action was taken, False if state was consistent.
+        """
+        leader_id_is_self = (self.leader_id == self.node_id)
+        role_is_leader = self.role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER)
+
+        # Case 1: gossip_desync - leader_id=self but role!=LEADER
+        # Other nodes see us as leader, but we don't recognize it
+        if leader_id_is_self and not role_is_leader:
+            logger.warning(
+                f"[LeadershipRecovery] Fixing gossip_desync: leader_id={self.leader_id}, "
+                f"role={self.role} -> LEADER"
+            )
+            self.role = NodeRole.LEADER
+            # Update state machine if available
+            if hasattr(self, "_leadership_sm") and self._leadership_sm:
+                try:
+                    from scripts.p2p.leadership_state_machine import LeaderState
+                    # Direct state update (bypassing normal transition) for recovery
+                    self._leadership_sm._state = LeaderState.LEADER
+                    self._leadership_sm._leader_id = self.node_id
+                except Exception as e:
+                    logger.warning(f"[LeadershipRecovery] Failed to update state machine: {e}")
+            return True
+
+        # Case 2: role_desync - role=LEADER but leader_id!=self
+        # We think we're leader, but leader_id points elsewhere
+        if role_is_leader and not leader_id_is_self:
+            logger.warning(
+                f"[LeadershipRecovery] Fixing role_desync: role={self.role}, "
+                f"leader_id={self.leader_id} -> FOLLOWER"
+            )
+            self.role = NodeRole.FOLLOWER
+            # Update state machine if available
+            if hasattr(self, "_leadership_sm") and self._leadership_sm:
+                try:
+                    from scripts.p2p.leadership_state_machine import LeaderState
+                    self._leadership_sm._state = LeaderState.FOLLOWER
+                    self._leadership_sm._leader_id = self.leader_id
+                except Exception as e:
+                    logger.warning(f"[LeadershipRecovery] Failed to update state machine: {e}")
+            return True
+
+        return False  # State was consistent
+
     def _get_config_version(self) -> dict:
         """Get config file version info for drift detection.
 
@@ -20340,6 +20398,14 @@ print(json.dumps({{
 
         while self.running:
             try:
+                # Jan 20, 2026: Check for and fix leadership state desync every heartbeat
+                # This recovers from gossip race conditions where leader_id/role diverge
+                try:
+                    if self._recover_leadership_desync():
+                        logger.info("[HeartbeatLoop] Recovered from leadership desync")
+                except Exception as e:
+                    logger.debug(f"[HeartbeatLoop] Desync check failed: {e}")
+
                 # Send to known peers from config
                 for peer_addr in self.known_peers:
                     try:

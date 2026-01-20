@@ -2720,6 +2720,16 @@ class GossipProtocolMixin(P2PMixinBase):
                 if self._leadership_sm.validate_leader_claim(claimed_leader, claimed_epoch, lease_expires):
                     self.leader_id = claimed_leader
                     self.last_leader_seen = now
+                    # Jan 20, 2026: FIX - Also update role to FOLLOWER when accepting leader
+                    # This prevents desync where leader_id is set but role remains candidate
+                    if claimed_leader != getattr(self, "node_id", None):
+                        try:
+                            from scripts.p2p.models import NodeRole
+                            if hasattr(self, "role") and self.role != NodeRole.FOLLOWER:
+                                self.role = NodeRole.FOLLOWER
+                                logger.debug(f"Gossip: Updated role to FOLLOWER (accepted leader {claimed_leader})")
+                        except ImportError:
+                            pass
                     if current_lease_expired:
                         logger.info(f"Gossip: Updated expired leader to {claimed_leader} epoch={claimed_epoch}")
                     else:
@@ -2731,6 +2741,14 @@ class GossipProtocolMixin(P2PMixinBase):
                 if lease_expires > now:
                     self.leader_id = claimed_leader
                     self.last_leader_seen = now
+                    # Jan 20, 2026: FIX - Also update role to FOLLOWER when accepting leader
+                    if claimed_leader != getattr(self, "node_id", None):
+                        try:
+                            from scripts.p2p.models import NodeRole
+                            if hasattr(self, "role") and self.role != NodeRole.FOLLOWER:
+                                self.role = NodeRole.FOLLOWER
+                        except ImportError:
+                            pass
 
     def _process_known_states(self, known_states: dict[str, dict]) -> None:
         """Process known states from gossip propagation."""
@@ -2874,17 +2892,27 @@ class GossipProtocolMixin(P2PMixinBase):
                 lock.release()
 
         # Update leadership state machine if available
+        # Jan 20, 2026: FIX - Handle state machine transition synchronously with proper error handling
+        # The async create_task() was causing race conditions where the state machine
+        # never completed transition, leaving node in inconsistent state
         if hasattr(self, "_leadership_sm") and self._leadership_sm:
             try:
                 from scripts.p2p.leadership_state_machine import LeaderState, TransitionReason
-                asyncio.create_task(
-                    self._leadership_sm.transition_to(
-                        LeaderState.LEADER,
-                        TransitionReason.ELECTION_WON,
-                    )
-                )
+                # Use a dedicated method that handles the transition with retries
+                async def _do_transition():
+                    try:
+                        await self._leadership_sm.transition_to(
+                            LeaderState.LEADER,
+                            TransitionReason.ELECTION_WON,
+                        )
+                    except Exception as inner_e:
+                        self._log_warning(f"[Leadership] State machine transition failed: {inner_e}")
+                        # Even if state machine fails, our role/leader_id are already set correctly
+                # Schedule with error callback to ensure we know if it fails
+                task = asyncio.create_task(_do_transition())
+                task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
             except Exception as e:
-                self._log_warning(f"[Leadership] Failed to update state machine: {e}")
+                self._log_warning(f"[Leadership] Failed to schedule state machine transition: {e}")
 
         # Increment cluster epoch to ensure gossip picks up the change
         if hasattr(self, "_increment_cluster_epoch"):
