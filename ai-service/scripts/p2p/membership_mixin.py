@@ -64,7 +64,7 @@ except ImportError:
         "SWIM_SUSPICION_TIMEOUT": 6.0,
         "SWIM_PING_INTERVAL": 1.0,
         "SWIM_INDIRECT_PING_COUNT": 7,
-        "MEMBERSHIP_MODE": "hybrid",  # Changed from "http" to "hybrid"
+        "MEMBERSHIP_MODE": "http",  # Jan 20, 2026: Changed back to "http" - hybrid causes timeout conflicts
         "PEER_TIMEOUT": 90,  # Jan 19, 2026: Increased from 60 to reduce false disconnections for NAT-blocked nodes
     })
     SWIM_ENABLED = _CONSTANTS["SWIM_ENABLED"]
