@@ -916,6 +916,7 @@ export function VictoryModal({
         onClose={onClose}
         labelledBy="victory-title"
         describedBy="victory-description"
+        closeOnBackdropClick={false}
         backdropClassName={`bg-black/70 backdrop-blur-sm ${
           effectiveReducedMotion ? '' : 'modal-backdrop-animate'
         }`.trim()}
