@@ -1056,6 +1056,61 @@ export class GameEngine {
   }
 
   /**
+   * Returns internal state needed for crash recovery.
+   * This includes decision-phase state that cannot be reconstructed
+   * from move history alone.
+   */
+  public getInternalStateForPersistence(): {
+    hasPlacedThisTurn: boolean;
+    mustMoveFromStackKey: string | undefined;
+    chainCaptureState: TsChainCaptureState | undefined;
+    pendingTerritorySelfElimination: boolean;
+    pendingLineRewardElimination: boolean;
+    swapSidesApplied: boolean;
+  } {
+    return {
+      hasPlacedThisTurn: this.hasPlacedThisTurn,
+      mustMoveFromStackKey: this.mustMoveFromStackKey,
+      chainCaptureState: this.chainCaptureState,
+      pendingTerritorySelfElimination: this.pendingTerritorySelfElimination,
+      pendingLineRewardElimination: this.pendingLineRewardElimination,
+      swapSidesApplied: this._swapSidesApplied,
+    };
+  }
+
+  /**
+   * Restore internal state from a saved snapshot.
+   * Used after move replay during session recovery.
+   */
+  public restoreInternalStateFromSnapshot(snapshot: {
+    hasPlacedThisTurn?: boolean;
+    mustMoveFromStackKey?: string;
+    chainCaptureState?: TsChainCaptureState;
+    pendingTerritorySelfElimination?: boolean;
+    pendingLineRewardElimination?: boolean;
+    swapSidesApplied?: boolean;
+  }): void {
+    if (snapshot.hasPlacedThisTurn !== undefined) {
+      this.hasPlacedThisTurn = snapshot.hasPlacedThisTurn;
+    }
+    if (snapshot.mustMoveFromStackKey !== undefined) {
+      this.mustMoveFromStackKey = snapshot.mustMoveFromStackKey;
+    }
+    if (snapshot.chainCaptureState !== undefined) {
+      this.chainCaptureState = snapshot.chainCaptureState;
+    }
+    if (snapshot.pendingTerritorySelfElimination !== undefined) {
+      this.pendingTerritorySelfElimination = snapshot.pendingTerritorySelfElimination;
+    }
+    if (snapshot.pendingLineRewardElimination !== undefined) {
+      this.pendingLineRewardElimination = snapshot.pendingLineRewardElimination;
+    }
+    if (snapshot.swapSidesApplied !== undefined) {
+      this._swapSidesApplied = snapshot.swapSidesApplied;
+    }
+  }
+
+  /**
    * Helper to ensure that a PlayerInteractionManager is available when
    * attempting to perform any player-facing choice. This keeps the core
    * engine decoupled from transport/UI while still enforcing that choices

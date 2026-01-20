@@ -521,6 +521,61 @@ export class GamePersistenceService {
   }
 
   /**
+   * Update game state snapshot including internal engine state for crash recovery.
+   * This is called after each move to persist state that cannot be reconstructed
+   * from move history alone (e.g., decision phase internal flags).
+   *
+   * This is an async, non-blocking operation. Failures are logged but do not
+   * affect gameplay.
+   */
+  static async updateGameStateWithInternal(
+    gameId: string,
+    gameState: GameState,
+    internalState: {
+      hasPlacedThisTurn?: boolean | undefined;
+      mustMoveFromStackKey?: string | undefined;
+      chainCaptureState?: unknown;
+      pendingTerritorySelfElimination?: boolean | undefined;
+      pendingLineRewardElimination?: boolean | undefined;
+      swapSidesApplied?: boolean | undefined;
+    }
+  ): Promise<void> {
+    const prisma = getDatabaseClient();
+    if (!prisma) {
+      return;
+    }
+
+    try {
+      // Serialize with internal state included
+      const serializable = {
+        ...gameState,
+        board: {
+          ...gameState.board,
+          stacks: Array.from(gameState.board.stacks.entries()),
+          markers: Array.from(gameState.board.markers.entries()),
+          collapsedSpaces: Array.from(gameState.board.collapsedSpaces.entries()),
+          territories: Array.from(gameState.board.territories.entries()),
+        },
+        // Include internal state for crash recovery
+        _internalState: internalState,
+      };
+
+      await prisma.game.update({
+        where: { id: gameId },
+        data: {
+          gameState: JSON.stringify(serializable),
+          updatedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      logger.error('Failed to update game state with internal state', {
+        gameId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
    * Get recent games for a user
    */
   static async getUserGames(userId: string, limit = 10): Promise<GameSummary[]> {

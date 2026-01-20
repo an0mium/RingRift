@@ -102,6 +102,18 @@ interface PlayerMoveData {
 }
 
 /**
+ * Shape of internal engine state persisted for crash recovery.
+ */
+interface PersistedInternalState {
+  hasPlacedThisTurn?: boolean;
+  mustMoveFromStackKey?: string;
+  chainCaptureState?: unknown; // Type is opaque for persistence (validated at restore time)
+  pendingTerritorySelfElimination?: boolean;
+  pendingLineRewardElimination?: boolean;
+  swapSidesApplied?: boolean;
+}
+
+/**
  * Deserialized structure of the game.gameState JSON field.
  * This represents configuration stored at game creation time.
  */
@@ -115,6 +127,8 @@ interface PersistedGameStateSnapshot {
   };
   rulesOptions?: GameState['rulesOptions'];
   fixture?: DecisionPhaseFixtureMetadata;
+  /** Internal engine state for crash recovery */
+  _internalState?: PersistedInternalState;
 }
 
 /**
@@ -429,6 +443,28 @@ export class GameSession {
     // Replay moves
     for (const move of game.moves) {
       this.replayMove(move);
+    }
+
+    // Restore internal engine state from saved snapshot (crash recovery).
+    // This ensures decision-phase flags like hasPlacedThisTurn and mustMoveFromStackKey
+    // are correctly restored after a server restart.
+    const savedInternalState = gameStateSnapshot._internalState;
+    if (savedInternalState) {
+      // Cast chainCaptureState from unknown when passing to engine (it validates internally)
+      this.gameEngine.restoreInternalStateFromSnapshot({
+        ...savedInternalState,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        chainCaptureState: savedInternalState.chainCaptureState as any,
+      });
+      logger.info('Restored internal engine state from snapshot', {
+        gameId: this.gameId,
+        hasPlacedThisTurn: savedInternalState.hasPlacedThisTurn,
+        mustMoveFromStackKey: savedInternalState.mustMoveFromStackKey,
+        hasChainCaptureState: !!savedInternalState.chainCaptureState,
+        pendingTerritorySelfElimination: savedInternalState.pendingTerritorySelfElimination,
+        pendingLineRewardElimination: savedInternalState.pendingLineRewardElimination,
+        swapSidesApplied: savedInternalState.swapSidesApplied,
+      });
     }
 
     // In non-production environments, apply any configured decision-phase
@@ -929,7 +965,11 @@ export class GameSession {
 
     await this.persistMove(userId, result);
     await this.broadcastUpdate(result);
-    await this.maybePerformAITurn();
+
+    // Skip AI turn if game is over - prevents unnecessary processing after victory
+    if (!result.gameResult) {
+      await this.maybePerformAITurn();
+    }
 
     return result;
   }
@@ -967,7 +1007,11 @@ export class GameSession {
 
     await this.persistMove(userId, result);
     await this.broadcastUpdate(result);
-    await this.maybePerformAITurn();
+
+    // Skip AI turn if game is over - prevents unnecessary processing after victory
+    if (!result.gameResult) {
+      await this.maybePerformAITurn();
+    }
   }
 
   /**
@@ -1032,6 +1076,21 @@ export class GameSession {
         playerId,
         moveNumber: lastMove.moveNumber,
         move: lastMove,
+      });
+
+      // Persist full GameState snapshot for crash recovery (async, non-blocking).
+      // This includes internal engine state that cannot be reconstructed from
+      // move history alone (e.g., decision phase flags, chain capture state).
+      const internalState = this.gameEngine.getInternalStateForPersistence();
+      GamePersistenceService.updateGameStateWithInternal(
+        this.gameId,
+        updatedState,
+        internalState
+      ).catch((err) => {
+        logger.warn('Failed to persist game state snapshot', {
+          gameId: this.gameId,
+          error: err instanceof Error ? err.message : String(err),
+        });
       });
     }
 
