@@ -39,6 +39,7 @@ export interface PlayerTimeInfo {
  */
 export class ClockManager {
   private timers: Map<number, TimerHandle> = new Map();
+  private turnStartTimes: Map<number, number> = new Map(); // Track when each player's turn started
   private config: ClockManagerConfig;
   private isDisabled: boolean;
 
@@ -72,6 +73,7 @@ export class ClockManager {
     }, player.timeRemaining);
 
     this.timers.set(player.playerNumber, timer);
+    this.turnStartTimes.set(player.playerNumber, Date.now());
   }
 
   /**
@@ -85,6 +87,21 @@ export class ClockManager {
       clearTimeout(timer);
       this.timers.delete(playerNumber);
     }
+    this.turnStartTimes.delete(playerNumber);
+  }
+
+  /**
+   * Stop the timer and return the elapsed time in milliseconds.
+   * Returns 0 if the timer was not running or in disabled mode.
+   *
+   * @param playerNumber - The player whose timer to stop
+   * @returns Elapsed time in milliseconds
+   */
+  stopTimerAndGetElapsed(playerNumber: number): number {
+    const startTime = this.turnStartTimes.get(playerNumber);
+    const elapsed = startTime ? Date.now() - startTime : 0;
+    this.stopTimer(playerNumber);
+    return elapsed;
   }
 
   /**
@@ -96,6 +113,7 @@ export class ClockManager {
       clearTimeout(timer);
     }
     this.timers.clear();
+    this.turnStartTimes.clear();
   }
 
   /**

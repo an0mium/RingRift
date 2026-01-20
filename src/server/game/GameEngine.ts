@@ -908,8 +908,14 @@ export class GameEngine {
 
       // Check for game end - victoryResult is set if game is over
       if (result.victoryResult) {
-        // Start next player's timer (no-op since game is over, but maintain consistency)
-        this.startPlayerTimer(this.gameState.currentPlayer);
+        // Game is over - update the player who made the final move's time (for accurate final state)
+        // but don't start any new timers
+        const elapsed = this.clockManager.stopTimerAndGetElapsed(fullMove.player);
+        const player = this.gameState.players.find((p) => p.playerNumber === fullMove.player);
+        if (player && elapsed > 0) {
+          const incrementMs = (this.gameState.timeControl?.increment ?? 0) * 1000;
+          player.timeRemaining = Math.max(0, player.timeRemaining - elapsed + incrementMs);
+        }
 
         return {
           success: true,
@@ -967,8 +973,8 @@ export class GameEngine {
           // Set phase to chain_capture so getValidMoves returns continue_capture_segment moves
           this.gameState.currentPhase = 'chain_capture';
 
-          // Start player's timer for the chain capture decision
-          this.startPlayerTimer(this.gameState.currentPlayer);
+          // Player's timer continues running - don't restart it for chain captures.
+          // Increment is only applied after the full turn completes.
 
           return {
             success: true,
@@ -980,8 +986,9 @@ export class GameEngine {
         }
       }
 
-      // Start next player's timer
-      this.startPlayerTimer(this.gameState.currentPlayer);
+      // Transition timer: stop previous player's timer (updating their time with increment),
+      // then start the next player's timer
+      this.transitionPlayerTimer(fullMove.player, this.gameState.currentPlayer);
 
       return {
         success: true,
@@ -2079,8 +2086,24 @@ export class GameEngine {
     });
   }
 
-  private stopPlayerTimer(playerNumber: number): void {
-    this.clockManager.stopTimer(playerNumber);
+  /**
+   * Stop the current player's timer, update their remaining time (with increment),
+   * and start the next player's timer.
+   */
+  private transitionPlayerTimer(fromPlayer: number, toPlayer: number): void {
+    // Stop the current player's timer and get elapsed time
+    const elapsed = this.clockManager.stopTimerAndGetElapsed(fromPlayer);
+
+    // Update the player's remaining time
+    const player = this.gameState.players.find((p) => p.playerNumber === fromPlayer);
+    if (player && elapsed > 0) {
+      // Deduct elapsed time and add increment (convert increment from seconds to ms)
+      const incrementMs = (this.gameState.timeControl?.increment ?? 0) * 1000;
+      player.timeRemaining = Math.max(0, player.timeRemaining - elapsed + incrementMs);
+    }
+
+    // Start the next player's timer
+    this.startPlayerTimer(toPlayer);
   }
 
   private endGame(
@@ -2179,8 +2202,14 @@ export class GameEngine {
     if (this.gameState.gameStatus === 'active') {
       this.gameState.gameStatus = 'paused';
 
-      // Stop current player's timer
-      this.stopPlayerTimer(this.gameState.currentPlayer);
+      // Stop current player's timer and update their remaining time
+      const currentPlayer = this.gameState.currentPlayer;
+      const elapsed = this.clockManager.stopTimerAndGetElapsed(currentPlayer);
+      const player = this.gameState.players.find((p) => p.playerNumber === currentPlayer);
+      if (player && elapsed > 0) {
+        // Deduct elapsed time (no increment on pause - that's only for completing a move)
+        player.timeRemaining = Math.max(0, player.timeRemaining - elapsed);
+      }
 
       return true;
     }
