@@ -22,6 +22,27 @@
 set -euo pipefail
 
 # =============================================================================
+# CRITICAL: Protocol Configuration (Jan 20, 2026)
+# =============================================================================
+
+# MEMBERSHIP_MODE - Force HTTP-only to prevent SWIM/HTTP timeout conflicts
+# SWIM uses 30s timeout, HTTP uses 120s - hybrid mode causes conflicting peer states
+export RINGRIFT_MEMBERSHIP_MODE="${RINGRIFT_MEMBERSHIP_MODE:-http}"
+
+# Gossip lock timeout - increased for 40+ node clusters to prevent lock contention
+export RINGRIFT_GOSSIP_LOCK_TIMEOUT="${RINGRIFT_GOSSIP_LOCK_TIMEOUT:-4.0}"
+
+# Relay settings - reduced polling to prevent relay saturation with 11+ NAT nodes
+export RINGRIFT_P2P_RELAY_HEARTBEAT_INTERVAL="${RINGRIFT_P2P_RELAY_HEARTBEAT_INTERVAL:-20}"
+export RINGRIFT_P2P_RELAY_COMMAND_MAX_BATCH="${RINGRIFT_P2P_RELAY_COMMAND_MAX_BATCH:-32}"
+
+# Connection pool - reduced idle timeout to prevent exhaustion
+export RINGRIFT_P2P_CONNECTION_IDLE_TIMEOUT="${RINGRIFT_P2P_CONNECTION_IDLE_TIMEOUT:-120}"
+
+# Min connected peers - increased for 40-node clusters (20% of cluster)
+export RINGRIFT_P2P_MIN_CONNECTED_PEERS="${RINGRIFT_P2P_MIN_CONNECTED_PEERS:-8}"
+
+# =============================================================================
 # Timeout Configuration (conservative for multi-cloud)
 # =============================================================================
 
@@ -120,6 +141,14 @@ export RINGRIFT_CB_DECAY_TTL="${RINGRIFT_CB_DECAY_TTL:-3600}"
 echo "=================================================================="
 echo "Starting P2P Orchestrator with Stability Configuration"
 echo "=================================================================="
+echo ""
+echo "Critical Settings (Jan 20, 2026):"
+echo "  Membership mode:        ${RINGRIFT_MEMBERSHIP_MODE}"
+echo "  Gossip lock timeout:    ${RINGRIFT_GOSSIP_LOCK_TIMEOUT}s"
+echo "  Relay heartbeat:        ${RINGRIFT_P2P_RELAY_HEARTBEAT_INTERVAL}s"
+echo "  Relay batch size:       ${RINGRIFT_P2P_RELAY_COMMAND_MAX_BATCH}"
+echo "  Connection idle:        ${RINGRIFT_P2P_CONNECTION_IDLE_TIMEOUT}s"
+echo "  Min connected peers:    ${RINGRIFT_P2P_MIN_CONNECTED_PEERS}"
 echo ""
 echo "Timeouts:"
 echo "  Heartbeat interval:     ${RINGRIFT_P2P_HEARTBEAT_INTERVAL}s"

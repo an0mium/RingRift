@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import weakref
 from contextlib import asynccontextmanager
@@ -41,10 +42,12 @@ logger = logging.getLogger(__name__)
 # Pool configuration
 # Jan 16, 2026: Increased from 3/100 to 8/250 to reduce connection exhaustion
 # on 40+ node clusters during high-activity periods (model sync, gauntlet runs)
+# Jan 20, 2026: Made idle timeout configurable, reduced default from 300s to 120s
+# to prevent connection pool exhaustion (40 nodes × 8 conn = 320 > pool limit 250)
 DEFAULT_MAX_CONNECTIONS_PER_PEER = 8
 DEFAULT_MAX_TOTAL_CONNECTIONS = 250
 DEFAULT_CONNECTION_TIMEOUT = 30.0  # seconds (base timeout, multiplied by provider factor)
-DEFAULT_IDLE_TIMEOUT = 300.0  # 5 minutes
+DEFAULT_IDLE_TIMEOUT = float(os.environ.get("RINGRIFT_P2P_CONNECTION_IDLE_TIMEOUT", "120.0"))
 DEFAULT_HEALTH_CHECK_INTERVAL = 60.0  # 1 minute
 
 # =============================================================================

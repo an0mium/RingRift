@@ -505,10 +505,11 @@ PEER_REPUTATION_ALPHA = float(os.environ.get("RINGRIFT_P2P_PEER_REPUTATION_ALPHA
 # ============================================
 
 # Dec 2025: Made configurable for cluster tuning
+# Jan 2026: Increased relay intervals to reduce relay saturation with 11+ NAT-blocked nodes
 NAT_INBOUND_HEARTBEAT_STALE_SECONDS = int(os.environ.get("RINGRIFT_P2P_NAT_STALE_SECONDS", "180") or 180)
-RELAY_HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_RELAY_HEARTBEAT_INTERVAL", "15") or 15)
+RELAY_HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_RELAY_HEARTBEAT_INTERVAL", "20") or 20)
 RELAY_COMMAND_TTL_SECONDS = 1800
-RELAY_COMMAND_MAX_BATCH = 16
+RELAY_COMMAND_MAX_BATCH = int(os.environ.get("RINGRIFT_P2P_RELAY_COMMAND_MAX_BATCH", "32") or 32)
 RELAY_COMMAND_MAX_ATTEMPTS = 3
 RELAY_MAX_PENDING_START_JOBS = 4
 
@@ -606,7 +607,8 @@ ISOLATED_BOOTSTRAP_INTERVAL = int(os.environ.get("RINGRIFT_P2P_ISOLATED_BOOTSTRA
 
 # Minimum connected peers to not be considered isolated
 # Dec 30, 2025: Increased from 2 to 5 to prevent gossip partitioning at low peer counts
-MIN_CONNECTED_PEERS = int(os.environ.get("RINGRIFT_P2P_MIN_CONNECTED_PEERS", "5") or 5)
+# Jan 20, 2026: Increased from 5 to 8 for 40-node clusters (20% of typical cluster size)
+MIN_CONNECTED_PEERS = int(os.environ.get("RINGRIFT_P2P_MIN_CONNECTED_PEERS", "8") or 8)
 
 # ============================================
 # Cluster Epochs
