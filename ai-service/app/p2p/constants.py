@@ -823,6 +823,9 @@ def _is_likely_nat_blocked(node_id: str) -> bool:
     Jan 2, 2026: Lambda GH200 and RunPod nodes are typically NAT-blocked
     and require relay mode for connectivity.
 
+    Jan 20, 2026: Profiled Lambda nodes - only some are truly NAT-blocked.
+    Nodes that can receive inbound connections should NOT be marked as blocked.
+
     Args:
         node_id: Node identifier
 
@@ -832,12 +835,34 @@ def _is_likely_nat_blocked(node_id: str) -> bool:
     if not node_id:
         return False
     node_lower = node_id.lower()
-    # Lambda GH200 nodes are NAT-blocked (except training nodes with static IPs)
-    if node_lower.startswith("lambda-gh200"):
+
+    # Lambda nodes that CAN receive inbound connections (verified Jan 20, 2026)
+    # These should NOT be marked as NAT-blocked
+    lambda_direct_nodes = {
+        "lambda-gh200-3",
+        "lambda-gh200-4",
+        "lambda-gh200-8",
+        "lambda-gh200-9",
+        "lambda-gh200-10",
+    }
+    if node_lower in lambda_direct_nodes:
+        return False
+
+    # Lambda GH200 nodes that ARE NAT-blocked (verified Jan 20, 2026)
+    lambda_nat_blocked = {
+        "lambda-gh200-1",
+        "lambda-gh200-2",
+        "lambda-gh200-5",
+        "lambda-gh200-11",
+        "lambda-gh200-training",
+    }
+    if node_lower in lambda_nat_blocked:
         return True
+
     # RunPod nodes are typically NAT-blocked
     if node_lower.startswith("runpod-"):
         return True
+
     return False
 
 # ============================================
