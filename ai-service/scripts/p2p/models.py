@@ -27,6 +27,7 @@ from .constants import (
     RETRY_DEAD_NODE_INTERVAL,
     RETRY_RETIRED_NODE_INTERVAL,
     SUSPECT_TIMEOUT,
+    get_cpu_adaptive_timeout,  # Jan 20, 2026: CPU-adaptive timeouts for busy nodes
 )
 from .types import JobType, NodeHealthState, NodeRole
 
@@ -120,15 +121,29 @@ class NodeInfo:
         Dec 2025: Added SUSPECT state for grace period handling.
         This reduces false-positive failures from transient network issues.
 
+        Jan 20, 2026: Integrated CPU-adaptive timeouts. Nodes under high CPU load
+        (selfplay, training) respond slowly to heartbeats. Using the peer's reported
+        cpu_percent, we extend the timeout proportionally:
+        - base_timeout if CPU < 80%
+        - base_timeout * 1.5 if CPU >= 80%
+        - base_timeout * 2.0 if CPU >= 95%
+        This prevents marking busy nodes as dead due to slow heartbeat responses.
+
         Returns:
-            NodeHealthState.ALIVE if heartbeat within SUSPECT_TIMEOUT (30s)
-            NodeHealthState.SUSPECT if heartbeat between SUSPECT_TIMEOUT and PEER_TIMEOUT
-            NodeHealthState.DEAD if no heartbeat for PEER_TIMEOUT (60s+)
+            NodeHealthState.ALIVE if heartbeat within SUSPECT_TIMEOUT
+            NodeHealthState.SUSPECT if heartbeat between SUSPECT_TIMEOUT and adaptive timeout
+            NodeHealthState.DEAD if no heartbeat for adaptive PEER_TIMEOUT
         """
         elapsed = time.time() - self.last_heartbeat
+
+        # Jan 20, 2026: Use CPU-adaptive timeout based on peer's reported CPU load
+        # If peer reports high CPU, give it more time before marking dead
+        cpu_load = self.cpu_percent / 100.0 if self.cpu_percent > 0 else None
+        adaptive_timeout = get_cpu_adaptive_timeout(PEER_TIMEOUT, cpu_load)
+
         if elapsed < SUSPECT_TIMEOUT:
             return NodeHealthState.ALIVE
-        elif elapsed < PEER_TIMEOUT:
+        elif elapsed < adaptive_timeout:
             return NodeHealthState.SUSPECT
         return NodeHealthState.DEAD
 

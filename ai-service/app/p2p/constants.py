@@ -172,9 +172,12 @@ def get_cpu_adaptive_timeout(base_timeout: int | None = None, cpu_load: float | 
 # Jan 19, 2026: Rate limiting for peer death detection.
 # When 5+ nodes are CPU-saturated, all nodes would mark all of them dead
 # simultaneously, causing gossip storms and further instability.
-# Limit how many peers can be retired per check cycle.
+# Jan 20, 2026: DISABLED - rate limiting caused 8-minute inconsistent windows where
+# peers were "dead" but not "retired", confusing gossip state. With single-stage
+# timeout (dead = retired immediately), rate limiting is no longer needed.
+# Set to high value to effectively disable while preserving the code path.
 PEER_DEATH_RATE_LIMIT = int(
-    os.environ.get("RINGRIFT_P2P_PEER_DEATH_RATE_LIMIT", "2") or 2
+    os.environ.get("RINGRIFT_P2P_PEER_DEATH_RATE_LIMIT", "100") or 100
 )
 
 
@@ -472,8 +475,11 @@ GOSSIP_MAX_PEER_ENDPOINTS = int(
 # Jan 5, 2026: Increased from 900 (15 min) to 1800 (30 min) for rolling restart tolerance.
 # Jan 12, 2026: Reduced from 1800 (30 min) to 600 (10 min) to prevent dead node accumulation.
 # 80% of cluster nodes were offline because dead nodes weren't being retired fast enough.
-# Use RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS=1800 for slower detection if needed.
-PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "600") or 600)
+# Jan 20, 2026: Merged dead/retired into single-stage timeout by setting this equal to PEER_TIMEOUT.
+# CRITICAL FIX: Two-stage death (120s dead, 600s retired) caused 8-minute windows where peers
+# were marked "dead" but still counted in quorum calculations by some nodes, causing split-brain.
+# Now dead = retired immediately (120s), eliminating the inconsistent window.
+PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "120") or 120)
 # Renamed from RETRY_RETIRED_NODE_INTERVAL to PEER_RECOVERY_RETRY_INTERVAL for clarity
 PEER_RECOVERY_RETRY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "120") or 120)
 # Backward compat alias (deprecated - use PEER_RECOVERY_RETRY_INTERVAL)
@@ -723,7 +729,12 @@ def get_swim_timeouts_for_node(nat_blocked: bool = False, force_relay: bool = Fa
 
 # December 29, 2025: Changed default from "http" to "hybrid" for faster failure detection
 # Hybrid mode uses SWIM when available with HTTP fallback for compatibility
-MEMBERSHIP_MODE = os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "hybrid")
+# Jan 20, 2026: Changed back to "http" to resolve timeout conflicts.
+# CRITICAL FIX: SWIM uses 30s timeout vs HTTP's 120s timeout. When both are active,
+# SWIM marks peers dead at 30s while HTTP still considers them alive, causing
+# conflicting gossip states and peer count fluctuations (11-20 instead of stable 20+).
+# HTTP-only mode ensures consistent timeout behavior across all nodes.
+MEMBERSHIP_MODE = os.environ.get("RINGRIFT_MEMBERSHIP_MODE", "http")
 CONSENSUS_MODE = os.environ.get("RINGRIFT_CONSENSUS_MODE", "bully")
 
 # ============================================
