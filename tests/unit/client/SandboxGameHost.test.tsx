@@ -44,15 +44,47 @@ let mockGameSyncSubscribeCallback: ((state: MockSyncState) => void) | null = nul
 
 // Capture the most recent BoardView props so tests can assert that
 // SandboxGameHost wires chainCapturePath and decision highlights as expected.
+// NOTE: Using a lightweight mock instead of requireActual to avoid OOM issues.
+// The real BoardView has many hooks (animations, touch gestures, keyboard nav)
+// that cause memory to accumulate across test runs.
 let lastBoardViewProps: any = null;
 jest.mock('../../../src/client/components/BoardView', () => {
-  const actual = jest.requireActual('../../../src/client/components/BoardView');
+  const React = require('react');
   return {
     __esModule: true,
-    ...actual,
     BoardView: jest.fn((props: any) => {
       lastBoardViewProps = props;
-      return actual.BoardView(props);
+      // Return a lightweight mock that renders clickable cells for interaction tests
+      const { board, boardType } = props;
+      const cells: React.ReactNode[] = [];
+      const size = board?.size ?? 8;
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const key = `${x},${y}`;
+          const decisionHighlight = props.decisionHighlights?.cells?.get?.(key);
+          cells.push(
+            React.createElement('button', {
+              key,
+              'data-x': x,
+              'data-y': y,
+              'data-testid': `cell-${x}-${y}`,
+              'data-decision-highlight': decisionHighlight?.type,
+              className: decisionHighlight?.type === 'primary' ? 'decision-pulse-capture' : '',
+              onClick: () => props.onCellClick?.({ x, y }),
+              onDoubleClick: () => props.onCellDoubleClick?.({ x, y }),
+              onContextMenu: (e: any) => {
+                e.preventDefault();
+                props.onCellContextMenu?.({ x, y });
+              },
+            })
+          );
+        }
+      }
+      return React.createElement(
+        'div',
+        { 'data-testid': 'board-view', 'data-board-type': boardType },
+        cells
+      );
     }),
   };
 });
@@ -152,6 +184,135 @@ jest.mock('../../../src/client/components/ReplayPanel', () => ({
   },
 }));
 
+// Mock heavy sandbox components to reduce memory usage
+jest.mock('../../../src/client/components/sandbox', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    SandboxBoardSection: (props: any) =>
+      React.createElement('div', { 'data-testid': 'sandbox-board-section' }, props.children),
+    SandboxGameSidebar: (props: any) =>
+      React.createElement('div', { 'data-testid': 'sandbox-game-sidebar' }),
+  };
+});
+
+jest.mock('../../../src/client/components/VictoryModal', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    VictoryModal: (props: any) =>
+      props.isOpen
+        ? React.createElement(
+            'div',
+            { 'data-testid': 'victory-modal' },
+            React.createElement('button', { onClick: props.onReturnToLobby }, 'Return to Lobby'),
+            props.saveStatus && React.createElement('span', null, props.saveStatus)
+          )
+        : null,
+  };
+});
+
+jest.mock('../../../src/client/components/ChoiceDialog', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    ChoiceDialog: (props: any) =>
+      props.choice
+        ? React.createElement(
+            'div',
+            { 'data-testid': 'choice-dialog' },
+            props.choice.options?.map?.((opt: any, i: number) =>
+              React.createElement(
+                'button',
+                {
+                  key: i,
+                  onClick: () =>
+                    props.onSelectOption?.({
+                      choiceId: props.choice.id,
+                      playerNumber: props.choice.playerNumber,
+                      choiceType: props.choice.type,
+                      selectedOption: typeof opt === 'string' ? opt : opt?.id,
+                    }),
+                },
+                typeof opt === 'string'
+                  ? opt === 'option_1_collapse_all_and_eliminate'
+                    ? 'Full Collapse + Elimination Bonus'
+                    : opt === 'option_2_min_collapse_no_elimination'
+                      ? 'Minimum Collapse'
+                      : opt
+                  : opt?.label || opt?.id
+              )
+            )
+          )
+        : null,
+  };
+});
+
+jest.mock('../../../src/client/components/BoardControlsOverlay', () => {
+  const React = require('react');
+  return {
+    __esModule: true,
+    BoardControlsOverlay: () => null,
+  };
+});
+
+jest.mock('../../../src/client/components/SelfPlayBrowser', () => ({
+  __esModule: true,
+  SelfPlayBrowser: () => null,
+}));
+
+jest.mock('../../../src/client/components/SaveStateDialog', () => ({
+  __esModule: true,
+  SaveStateDialog: () => null,
+}));
+
+jest.mock('../../../src/client/components/RingPlacementCountDialog', () => ({
+  __esModule: true,
+  RingPlacementCountDialog: () => null,
+}));
+
+jest.mock('../../../src/client/components/RecoveryLineChoiceDialog', () => ({
+  __esModule: true,
+  RecoveryLineChoiceDialog: () => null,
+}));
+
+jest.mock('../../../src/client/components/TerritoryRegionChoiceDialog', () => ({
+  __esModule: true,
+  TerritoryRegionChoiceDialog: () => null,
+}));
+
+jest.mock('../../../src/client/components/LineRewardPanel', () => ({
+  __esModule: true,
+  LineRewardPanel: () => null,
+}));
+
+jest.mock('../../../src/client/components/OnboardingModal', () => ({
+  __esModule: true,
+  OnboardingModal: () => null,
+}));
+
+jest.mock('../../../src/client/components/tutorial/TutorialHintBanner', () => ({
+  __esModule: true,
+  TutorialHintBanner: () => null,
+}));
+
+jest.mock('../../../src/client/components/TeachingOverlay', () => ({
+  __esModule: true,
+  TeachingOverlay: () => null,
+}));
+
+jest.mock('../../../src/client/components/AIServiceStatusBanner', () => ({
+  __esModule: true,
+  AIServiceStatusBanner: () => null,
+}));
+
+jest.mock('../../../src/client/components/ScreenReaderAnnouncer', () => ({
+  __esModule: true,
+  ScreenReaderAnnouncer: () => null,
+  useGameAnnouncements: () => ({ announce: jest.fn() }),
+  useGameStateAnnouncements: () => {},
+}));
+
 jest.mock('../../../src/client/hooks/useSandboxInteractions', () => ({
   __esModule: true,
   useSandboxInteractions: (options: any) => {
@@ -201,6 +362,190 @@ jest.mock('../../../src/client/hooks/useFirstTimePlayer', () => ({
     markPhaseHintSeen: jest.fn(),
     setTutorialHintsEnabled: jest.fn(),
   }),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mock heavy hooks to prevent memory accumulation and async operations
+// ─────────────────────────────────────────────────────────────────────────────
+
+jest.mock('../../../src/client/hooks/useSandboxPersistence', () => ({
+  __esModule: true,
+  useSandboxPersistence: () => ({
+    saveStatus: 'idle',
+    pendingLocalGames: 0,
+    syncState: { status: 'idle', pendingCount: 0 },
+    handleTriggerSync: jest.fn(),
+    handleSaveGame: jest.fn().mockResolvedValue({ success: true }),
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxEvaluation', () => ({
+  __esModule: true,
+  useSandboxEvaluation: () => ({
+    showEvaluation: false,
+    evaluation: null,
+    isEvaluating: false,
+    toggleEvaluation: jest.fn(),
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxScenarios', () => ({
+  __esModule: true,
+  useSandboxScenarios: () => ({
+    loadedScenario: null,
+    loadScenario: jest.fn(),
+    clearScenario: jest.fn(),
+    isLoadingScenario: false,
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxClock', () => ({
+  __esModule: true,
+  useSandboxClock: () => ({
+    clockP1: 300000,
+    clockP2: 300000,
+    clockP3: 300000,
+    clockP4: 300000,
+    activePlayer: null,
+    isLowTime: false,
+    isPaused: true,
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxAITracking', () => ({
+  __esModule: true,
+  useSandboxAITracking: () => ({
+    state: {
+      isAiThinking: false,
+      aiThinkingPlayer: null,
+      aiMoveError: null,
+      aiThinkingStartedAt: null,
+      aiLadderHealth: null,
+      aiLadderHealthError: null,
+      aiLadderHealthLoading: false,
+    },
+    actions: {
+      clearAiError: jest.fn(),
+      refreshLadderHealth: jest.fn(),
+      copyLadderHealth: jest.fn(),
+    },
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxDiagnostics', () => ({
+  __esModule: true,
+  useSandboxDiagnostics: () => ({
+    state: {
+      showDiagnostics: false,
+      lpsTrackingState: null,
+    },
+    actions: {
+      toggleDiagnostics: jest.fn(),
+    },
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useBoardViewProps', () => ({
+  __esModule: true,
+  useBoardOverlays: () => ({
+    overlays: {
+      showMovementGrid: false,
+      showValidTargets: true,
+      showCoordinateLabels: false,
+      squareRankFromBottom: false,
+      showLineOverlays: false,
+      showTerritoryOverlays: false,
+    },
+    setShowMovementGrid: jest.fn(),
+    setShowValidTargets: jest.fn(),
+    setShowCoordinateLabels: jest.fn(),
+    setSquareRankFromBottom: jest.fn(),
+    setShowLineOverlays: jest.fn(),
+    setShowTerritoryOverlays: jest.fn(),
+    resetOverlays: jest.fn(),
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxBoardSelection', () => ({
+  __esModule: true,
+  useSandboxBoardSelection: () => [
+    { selectedCell: null, highlightedCells: [] },
+    { setSelectedCell: jest.fn(), setHighlightedCells: jest.fn(), clearSelection: jest.fn() },
+  ],
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxGameLifecycle', () => ({
+  __esModule: true,
+  useSandboxGameLifecycle: () => ({
+    actions: {
+      startLocalGame: jest.fn(),
+      startGame: jest.fn(),
+      applyQuickStartPreset: jest.fn(),
+      resetToSetup: jest.fn(),
+      rematch: jest.fn(),
+    },
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useSandboxAIServiceStatus', () => ({
+  __esModule: true,
+  useSandboxAIServiceStatus: () => ({
+    state: {
+      status: 'connected',
+      message: null,
+      isServiceConfigured: true,
+    },
+    actions: {
+      retryConnection: jest.fn(),
+      dismissMessage: jest.fn(),
+    },
+  }),
+}));
+
+jest.mock('../../../src/client/contexts/AccessibilityContext', () => ({
+  __esModule: true,
+  useAccessibility: () => ({
+    colorVisionMode: 'normal',
+    effectiveReducedMotion: false,
+    highContrastMode: false,
+    setColorVisionMode: jest.fn(),
+    setReducedMotion: jest.fn(),
+    setHighContrastMode: jest.fn(),
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useMoveAnimation', () => ({
+  __esModule: true,
+  useAutoMoveAnimation: () => ({
+    animationData: null,
+    isAnimating: false,
+    triggerAnimation: jest.fn(),
+    clearAnimation: jest.fn(),
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useGameSoundEffects', () => ({
+  __esModule: true,
+  useGameSoundEffects: () => {},
+}));
+
+jest.mock('../../../src/client/hooks/useTutorialHints', () => ({
+  __esModule: true,
+  useTutorialHints: () => ({
+    currentHint: null,
+    dismissHint: jest.fn(),
+    isHintsEnabled: false,
+  }),
+}));
+
+jest.mock('../../../src/client/hooks/useKeyboardNavigation', () => ({
+  __esModule: true,
+  useGlobalGameShortcuts: () => {},
+}));
+
+jest.mock('../../../src/client/contexts/SoundContext', () => ({
+  __esModule: true,
+  useSoundOptional: () => null,
 }));
 
 // Load the component under test only after all jest.mock() declarations above
@@ -380,19 +725,48 @@ function getSquareCell(x: number, y: number): HTMLButtonElement {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // TODO(2026-01-20): This test suite has a severe memory leak causing OOM even with 8GB heap.
-// The tests pass individually but accumulate memory across runs, hitting ~4GB and crashing.
-// Skipped until the leak can be investigated - likely an issue with React component cleanup,
-// mock accumulation, or async timers not being properly cleared between tests.
+// INVESTIGATION SUMMARY:
+// 1. Replaced BoardView requireActual with lightweight mock - reduced memory but not enough
+// 2. Added mocks for 20+ hooks (useSandboxPersistence, useSandboxEvaluation, etc.)
+// 3. Added mocks for 15+ heavy components (VictoryModal, ChoiceDialog, etc.)
+// 4. Added explicit afterEach cleanup for module-level variables
+// 5. Tests still consume ~7GB+ memory even with all these mocks
+//
+// ROOT CAUSE: The SandboxGameHost component is ~2500 LOC and imports many heavy
+// dependencies. Even with aggressive mocking, the component and its children
+// create React state and closures that accumulate across 25 tests.
+//
+// RECOMMENDED FIX (requires 4-8 hours):
+// - Split this test file into 5+ smaller files (1 per test section)
+// - Each small file has its own Jest worker with fresh memory
+// - Or: Refactor SandboxGameHost into smaller sub-components that can be tested independently
+//
 // See: jest --detectOpenHandles --testPathPattern="SandboxGameHost.test"
 describe.skip('SandboxGameHost (React host behaviour)', () => {
   // Silence expected console noise from sandbox fallback/error paths so
   // test output remains focused on assertions.
-  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  let consoleErrorSpy: jest.SpyInstance;
+  let consoleWarnSpy: jest.SpyInstance;
+
+  beforeAll(() => {
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
 
   afterAll(() => {
     consoleErrorSpy.mockRestore();
     consoleWarnSpy.mockRestore();
+  });
+
+  afterEach(() => {
+    // Explicit cleanup to prevent memory accumulation across tests.
+    // The global RTL cleanup in setup.ts handles React unmounting,
+    // but we also need to clear module-level references.
+    lastBoardViewProps = null;
+    replayPanelProps = null;
+    scenarioPickerProps = null;
+    mockSandboxValue = null;
+    mockGameSyncSubscribeCallback = null;
   });
 
   beforeEach(() => {
