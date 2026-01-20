@@ -16,7 +16,7 @@ const BOARD_OPTIONS: { value: BoardType; label: string; subtitle: string }[] = [
   { value: 'square8', label: 'Sq 8×8', subtitle: 'Compact' },
   { value: 'hex8', label: 'Hex 8', subtitle: 'Small hex' },
   { value: 'square19', label: 'Sq 19×19', subtitle: 'Classic' },
-  { value: 'hexagonal', label: 'Full Hex', subtitle: 'Large hex' },
+  { value: 'hexagonal', label: 'Hex 24', subtitle: 'Full Hex' },
 ];
 
 function DifficultyCard({
