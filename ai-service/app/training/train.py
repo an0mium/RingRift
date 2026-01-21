@@ -2769,12 +2769,16 @@ def train_model(
         large_variant = variant_map.get(model_version, "large")
         # Use detected heuristic count from NPZ, or default to full features (49)
         large_num_heuristics = detected_num_heuristics if detected_num_heuristics else 49
+        # Calculate in_channels based on history_length (14 base channels × (history + 1) frames)
+        v5_large_in_channels = 14 * (config.history_length + 1)  # 14 × 4 = 56 for history_length=3
         model = create_v5_heavy_large(
             board_type=config.board_type.name.lower(),
             num_players=large_num_players,
             variant=large_variant,
             num_heuristics=large_num_heuristics,
             dropout=dropout,
+            in_channels=v5_large_in_channels,
+            history_length=config.history_length,
         )
         if not distributed or is_main_process():
             param_count = sum(p.numel() for p in model.parameters())
