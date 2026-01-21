@@ -252,7 +252,7 @@ class NNUEMCTSAdapter:
             np.ndarray of policy logits (batch, policy_size)
         """
         from app.ai.neural_net import get_policy_size_for_board
-        from app.rules.game_engine import GameEngine
+        from app.game_engine import GameEngine
 
         policy_size = get_policy_size_for_board(self.board_type)
         batch_size = len(states)
@@ -338,7 +338,7 @@ class NNUEMCTSAdapter:
         Returns:
             Dictionary mapping moves to logits
         """
-        from app.rules.game_engine import GameEngine
+        from app.game_engine import GameEngine
 
         values, policies = self.evaluate_batch([game_state])
         parent_value = values[0] if values else 0.0
@@ -450,7 +450,7 @@ class NNUEWithPolicyAdapter:
         """
         from app.ai.nnue import extract_features_from_gamestate
         from app.ai.neural_net import get_policy_size_for_board
-        from app.rules.game_engine import GameEngine
+        from app.game_engine import GameEngine
 
         if not states:
             return [], np.array([])
@@ -547,7 +547,7 @@ class NNUEWithPolicyAdapter:
 
     def get_policy_logits(self, game_state: GameState) -> dict[Move, float]:
         """Get policy logits for all legal moves."""
-        from app.rules.game_engine import GameEngine
+        from app.game_engine import GameEngine
 
         _, policies = self.evaluate_batch([game_state])
         legal_moves = GameEngine.get_legal_moves(game_state)

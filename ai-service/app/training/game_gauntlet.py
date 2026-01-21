@@ -2638,8 +2638,8 @@ def run_model_vs_model(
     _ensure_game_modules()
 
     from app.ai.mcts_ai import MCTSAI
-    from app.rules.game_state import GameState
-    from app.rules.game_engine import GameEngine
+    from app.models import GameState
+    from app.game_engine import GameEngine
 
     # Load models
     if verbose:
