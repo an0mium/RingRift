@@ -33,11 +33,9 @@ export default function LoginPage() {
     } catch (error: unknown) {
       const errorCode = extractErrorCode(error);
 
-      // If the backend reports invalid credentials for this email, assume this may
-      // be a new user and send them directly to the registration flow, carrying
-      // the email along so it can be pre-filled.
-      if (errorCode === 'INVALID_CREDENTIALS') {
-        navigate('/register', { state: { email } });
+      // Show appropriate error message based on error code
+      if (errorCode === 'AUTH_INVALID_CREDENTIALS' || errorCode === 'INVALID_CREDENTIALS') {
+        setError('Invalid email or password. Please try again or register for a new account.');
         return;
       }
 
