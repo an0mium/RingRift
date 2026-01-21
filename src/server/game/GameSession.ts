@@ -420,7 +420,7 @@ export class GameSession {
     // Python AI service, which both treat this seed as the canonical RNG root.
     const rngSeed = typeof game.rngSeed === 'number' ? game.rngSeed : undefined;
 
-    // Create game engine
+    // Create game engine with timeout callback to handle clock expiration
     this.gameEngine = new GameEngine(
       this.gameId,
       game.boardType as keyof typeof BOARD_CONFIGS,
@@ -431,7 +431,17 @@ export class GameSession {
       // Use the persisted per-game RNG seed when available so backend
       // GameState.rngSeed matches the database and AI service expectations.
       rngSeed,
-      rulesOptions
+      rulesOptions,
+      false, // replayMode
+      // onTimeout callback - handles clock expiration by ending game and notifying clients
+      (result) => {
+        if (result.gameResult) {
+          const updatedState = this.gameEngine.getGameState();
+          // Fire-and-forget async operations - timeout callback must be synchronous
+          // but we need to persist and broadcast the result
+          void this.handleTimeoutResult(updatedState, result);
+        }
+      }
     );
 
     // Decide which engine path to use for this session based on
@@ -1208,6 +1218,37 @@ export class GameSession {
     } catch (err) {
       // Non-fatal: GameRecord storage failures should not affect game completion.
       logger.warn('Failed to save canonical GameRecord', {
+        gameId: this.gameId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Handle clock timeout result from GameEngine.
+   * This is called when a player's clock expires - we need to persist
+   * the game result and broadcast to all connected clients.
+   */
+  private async handleTimeoutResult(
+    state: GameState,
+    result: { success: boolean; gameResult?: GameResult }
+  ): Promise<void> {
+    if (!result.gameResult) {
+      logger.warn('Timeout result missing gameResult', { gameId: this.gameId });
+      return;
+    }
+
+    logger.info('Player timed out - ending game', {
+      gameId: this.gameId,
+      winner: result.gameResult.winner,
+      reason: result.gameResult.reason,
+    });
+
+    try {
+      await this.finishGameWithResult(state, result.gameResult);
+      await this.broadcastUpdate(result as RulesResult);
+    } catch (err) {
+      logger.error('Failed to handle timeout result', {
         gameId: this.gameId,
         error: err instanceof Error ? err.message : String(err),
       });

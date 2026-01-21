@@ -197,6 +197,12 @@ export class GameEngine {
    */
   private readonly replayMode: boolean;
 
+  /**
+   * Optional callback invoked when a player's clock expires.
+   * GameSession uses this to broadcast the game end result to clients.
+   */
+  private onTimeoutCallback?: (result: { success: boolean; gameResult?: GameResult }) => void;
+
   constructor(
     gameId: string,
     boardType: BoardType,
@@ -206,16 +212,26 @@ export class GameEngine {
     interactionManager?: PlayerInteractionManager,
     rngSeed?: number,
     rulesOptions?: GameState['rulesOptions'],
-    replayMode: boolean = false
+    replayMode: boolean = false,
+    onTimeout?: (result: { success: boolean; gameResult?: GameResult }) => void
   ) {
     this.replayMode = replayMode;
+    if (onTimeout) {
+      this.onTimeoutCallback = onTimeout;
+    }
     this.boardManager = new BoardManager(boardType);
     this.ruleEngine = new RuleEngine(this.boardManager, boardType);
     this.interactionManager = interactionManager;
 
     // Initialize clock manager with forfeit callback
     this.clockManager = new ClockManager({
-      onTimeout: (playerNumber) => this.forfeitGame(playerNumber.toString()),
+      onTimeout: (playerNumber) => {
+        const result = this.forfeitGame(playerNumber.toString());
+        // Notify GameSession so it can broadcast the game end to clients
+        if (this.onTimeoutCallback) {
+          this.onTimeoutCallback(result);
+        }
+      },
     });
 
     const boardConfig = BOARD_CONFIGS[boardType];
