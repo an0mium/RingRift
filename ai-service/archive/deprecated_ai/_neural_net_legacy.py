@@ -4323,10 +4323,11 @@ class NeuralNetAI(BaseAI):
 
         # Initialize encoder for v5-heavy (uses v2 encoder with 10 base channels)
         from app.training.encoding import HexStateEncoder
-        self.encoder = HexStateEncoder(
+        self._hex_encoder = HexStateEncoder(
             board_size=self.board_size,
             feature_version=2,
         )
+        self.encoder = self._hex_encoder  # Also set encoder for compatibility
         self.history_length = 3
         self.feature_version = 2
 
@@ -4453,10 +4454,11 @@ class NeuralNetAI(BaseAI):
             # Fallback to v2 encoder if V3 not available
             from app.training.encoding import HexStateEncoder as HexStateEncoderV3
             logger.warning("HexStateEncoderV3 not found, using V2 encoder")
-        self.encoder = HexStateEncoderV3(
+        self._hex_encoder = HexStateEncoderV3(
             board_size=board_size,
             feature_version=2,
         )
+        self.encoder = self._hex_encoder  # Also set encoder for compatibility
         self.history_length = 3
         self.feature_version = 2
 
@@ -4583,10 +4585,11 @@ class NeuralNetAI(BaseAI):
             # Fallback to v2 encoder if V3 not available
             from app.training.encoding import HexStateEncoder as HexStateEncoderV3
             logger.warning("HexStateEncoderV3 not found, using V2 encoder")
-        self.encoder = HexStateEncoderV3(
+        self._hex_encoder = HexStateEncoderV3(
             board_size=board_size,
             feature_version=2,
         )
+        self.encoder = self._hex_encoder  # Also set encoder for compatibility
         self.history_length = 3
         self.feature_version = 2
 
