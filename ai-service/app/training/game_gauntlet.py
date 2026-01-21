@@ -71,7 +71,6 @@ def _create_gauntlet_recording_config(
             num_players=num_players,
             db_path=db_path,
             source=source,
-            enabled=True,
         )
     except ImportError:
         return None
