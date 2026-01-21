@@ -453,11 +453,46 @@
                 progressChart.destroy();
             }
 
-            // Create datasets for each config
+            // Collect all unique dates from real historical data
+            const allDates = new Set();
+            Object.values(configs).forEach(cfg => {
+                if (cfg.history) {
+                    cfg.history.forEach(point => allDates.add(point.timestamp));
+                }
+            });
+
+            // Sort dates chronologically
+            const sortedDates = Array.from(allDates).sort();
+
+            // If no real historical data, show a message instead of fake data
+            if (sortedDates.length === 0) {
+                // No historical data available - show placeholder
+                const chartContainer = document.querySelector('.chart-container');
+                chartContainer.innerHTML = `
+                    <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #888;">
+                        <div style="text-align: center;">
+                            <p style="font-size: 1.2rem; margin-bottom: 10px;">No Historical Data Available</p>
+                            <p style="font-size: 0.9rem;">Historical tracking started January 11, 2026.<br>
+                            Data will appear here as models are evaluated.</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            // Create datasets for each config using REAL historical data
             const datasets = Object.entries(configs).map(([key, cfg]) => {
-                // Simulate historical data points based on start and end elo
-                // In production, this would come from actual historical data
-                const points = generateHistoricalPoints(cfg.starting_elo, cfg.current_elo, currentDays, cfg.iterations);
+                // Build a map of date -> elo from actual history
+                const eloByDate = {};
+                if (cfg.history) {
+                    cfg.history.forEach(point => {
+                        // Keep the latest value for each date (in case of multiple snapshots per day)
+                        eloByDate[point.timestamp] = point.elo;
+                    });
+                }
+
+                // Map sorted dates to elo values (null for missing dates)
+                const points = sortedDates.map(date => eloByDate[date] || null);
 
                 return {
                     label: key,
@@ -468,13 +503,14 @@
                     tension: 0.3,
                     pointRadius: 2,
                     pointHoverRadius: 5,
+                    spanGaps: true,  // Connect points across null gaps
                 };
             });
 
-            // Add target line
+            // Add target line (same length as actual data)
             const targetLine = {
                 label: 'Target (2000)',
-                data: Array(currentDays + 1).fill(TARGET_ELO),
+                data: Array(sortedDates.length).fill(TARGET_ELO),
                 borderColor: '#ff6b6b',
                 borderDash: [5, 5],
                 borderWidth: 1,
@@ -482,10 +518,16 @@
                 fill: false,
             };
 
+            // Format dates for display (MMM DD format)
+            const dateLabels = sortedDates.map(dateStr => {
+                const date = new Date(dateStr + 'T00:00:00');
+                return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            });
+
             progressChart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: generateDateLabels(currentDays),
+                    labels: dateLabels,  // Use actual dates from data
                     datasets: [...datasets, targetLine],
                 },
                 options: {
@@ -528,37 +570,10 @@
             });
         }
 
-        // Generate historical data points (simplified - in production would use actual history)
-        function generateHistoricalPoints(startElo, endElo, days, iterations) {
-            const points = [];
-            const eloPerDay = (endElo - startElo) / days;
-
-            for (let i = 0; i <= days; i++) {
-                // Add some noise to make it look realistic
-                const noise = (Math.random() - 0.5) * 20;
-                const elo = startElo + (eloPerDay * i) + noise;
-                points.push(Math.round(elo));
-            }
-
-            // Ensure last point is actual current elo
-            points[points.length - 1] = endElo;
-
-            return points;
-        }
-
-        // Generate date labels
-        function generateDateLabels(days) {
-            const labels = [];
-            const now = new Date();
-
-            for (let i = days; i >= 0; i--) {
-                const date = new Date(now);
-                date.setDate(date.getDate() - i);
-                labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-            }
-
-            return labels;
-        }
+        // NOTE: Previously had generateHistoricalPoints() and generateDateLabels() functions
+        // that fabricated fake data. These were removed January 21, 2026 because fabricating
+        // data that appears to be real research results is misleading and unethical.
+        // The chart now uses actual historical data from the elo_progress.db database.
 
         // Time period button handlers
         document.querySelectorAll('.time-buttons button').forEach(btn => {

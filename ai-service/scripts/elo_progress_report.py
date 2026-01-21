@@ -46,6 +46,13 @@ ALL_CONFIGS = [
 
 
 @dataclass
+class HistoricalDataPoint:
+    """A single historical data point for charting."""
+    timestamp: str  # ISO format date string
+    elo: float
+
+
+@dataclass
 class ConfigProgress:
     """Progress data for a single configuration."""
     config_key: str
@@ -60,6 +67,9 @@ class ConfigProgress:
     vs_heuristic_rate: float | None
     games_played: int
     last_updated: str | None
+    # January 21, 2026: Added real historical data points for charting
+    # Previously the dashboard fabricated fake data which was misleading
+    history: list[HistoricalDataPoint] | None = None
 
 
 @dataclass
@@ -135,6 +145,15 @@ def get_config_progress(config_key: str, days: float = 30.0) -> ConfigProgress:
     elif latest:
         last_updated = datetime.fromtimestamp(latest.timestamp).strftime("%Y-%m-%d %H:%M")
 
+    # January 21, 2026: Extract real historical data points from snapshots
+    # This replaces the previous fabricated/synthesized data in the dashboard
+    history: list[HistoricalDataPoint] = []
+    for snapshot in elo_report.snapshots:
+        history.append(HistoricalDataPoint(
+            timestamp=datetime.fromtimestamp(snapshot.timestamp).strftime("%Y-%m-%d"),
+            elo=snapshot.best_elo,
+        ))
+
     return ConfigProgress(
         config_key=config_key,
         starting_elo=starting_elo,
@@ -148,6 +167,7 @@ def get_config_progress(config_key: str, days: float = 30.0) -> ConfigProgress:
         vs_heuristic_rate=latest.vs_heuristic_win_rate if latest else None,
         games_played=latest.games_played if latest else 0,
         last_updated=last_updated,
+        history=history if history else None,
     )
 
 

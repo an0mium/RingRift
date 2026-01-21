@@ -3144,6 +3144,9 @@ class NeuralNetAI(BaseAI):
         self.loaded_checkpoint_signature: tuple[int, int] | None = None
         # Hex encoder for hex boards (initialized lazily in _ensure_model_initialized)
         self._hex_encoder: Any | None = None
+        # Jan 2026: Track FP16 autocast failures to avoid retrying
+        # Once a model fails FP16, we skip autocast for all subsequent evaluations
+        self._fp16_failed: bool = False
 
         # Device detection
         import os
@@ -5479,6 +5482,10 @@ class NeuralNetAI(BaseAI):
         else:
             use_autocast = getattr(device, "type", "") == "cuda"
 
+        # Jan 2026: Skip autocast if this model has previously failed FP16
+        if self._fp16_failed:
+            use_autocast = False
+
         with torch.no_grad():
             assert self.model is not None
             # Jan 2026: Add FP32 fallback for models with extreme weights (V4)
@@ -5487,11 +5494,12 @@ class NeuralNetAI(BaseAI):
                 try:
                     with torch.amp.autocast('cuda'):
                         out = self.model(tensor_input, globals_input)
-                except RuntimeError as e:
-                    # FP16 overflow - fall back to FP32
-                    if "Half" in str(e) or "overflow" in str(e):
-                        logger.warning(f"FP16 autocast failed ({e}), using FP32")
-                        use_autocast = False
+                except (RuntimeError, ValueError) as e:
+                    # FP16 overflow - fall back to FP32 and remember for future calls
+                    error_str = str(e).lower()
+                    if "half" in error_str or "overflow" in error_str or "fp16" in error_str:
+                        logger.warning(f"FP16 autocast failed ({e}), disabling for this model")
+                        self._fp16_failed = True
                         out = self.model(tensor_input.float(), globals_input.float())
                     else:
                         raise
