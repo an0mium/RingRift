@@ -2218,6 +2218,7 @@ def train_model(
     # HexNeuralNet_v3, v4, v5 use 64 input channels (16 base × 4 frames)
     # v3 uses spatial policy heads (default), v3-flat uses flat policy heads (fallback)
     use_hex_v5 = bool(use_hex_model and model_version in ('v5', 'v5-gnn', 'v5-heavy'))
+    use_hex_v5_large = bool(use_hex_model and model_version in ('v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'))
     use_hex_v4 = bool(use_hex_model and model_version == 'v4')
     use_hex_v3 = bool(use_hex_model and model_version in ('v3', 'v3-flat'))
 
@@ -2403,8 +2404,10 @@ def train_model(
         _validate_architecture_data_compatibility()
 
     if not distributed or is_main_process():
-        if use_hex_model:
-            if use_hex_v5:
+        if use_hex_model or use_hex_v5_large:
+            if use_hex_v5_large:
+                hex_model_name = "HexNeuralNet_v5_Heavy (large)"
+            elif use_hex_v5:
                 hex_model_name = "HexNeuralNet_v5_Heavy"
             elif use_hex_v4:
                 hex_model_name = "HexNeuralNet_v4"
@@ -2612,6 +2615,30 @@ def train_model(
                 hex_radius=hex_radius,
                 policy_size=policy_size,
                 num_players=hex_num_players,
+            )
+    elif use_hex_v5_large:
+        # HexNeuralNet_v5_Heavy with large scaling for hexagonal boards (January 2026)
+        # Uses same factory as square boards - create_v5_heavy_large handles hex detection
+        from app.ai.neural_net.v5_heavy_large import create_v5_heavy_large
+        # Map version to variant
+        hex_variant_map = {"v5-heavy-xl": "xl", "v6-xl": "xl"}
+        hex_large_variant = hex_variant_map.get(model_version, "large")
+        # Use detected heuristic count from NPZ, or default to full features (49)
+        hex_large_num_heuristics = detected_num_heuristics if detected_num_heuristics else 49
+        model = create_v5_heavy_large(
+            board_type=config.board_type.name.lower(),
+            num_players=hex_num_players,
+            variant=hex_large_variant,
+            num_heuristics=hex_large_num_heuristics,
+            dropout=dropout,
+        )
+        if not distributed or is_main_process():
+            param_count = sum(p.numel() for p in model.parameters())
+            display_name = f"V5-Heavy-{hex_large_variant.upper()}"
+            logger.info(
+                f"Initializing {display_name} (hex) model for {config.board_type.name}: "
+                f"{param_count:,} parameters, num_players={hex_num_players}, "
+                f"heuristics={hex_large_num_heuristics}"
             )
     elif use_hex_model:
         # HexNeuralNet_v2 for hexagonal boards with multi-player support
