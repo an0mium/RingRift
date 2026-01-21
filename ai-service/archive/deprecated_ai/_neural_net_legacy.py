@@ -4129,22 +4129,25 @@ class NeuralNetAI(BaseAI):
                 else:
                     spatial = 8  # Default
 
+                # Get global_features from model if available, else use default
+                _global_features = getattr(self.model, "global_features", 3)
+
                 # Warmup with representative batch sizes (1 and 64)
                 # to pre-compile kernels for both single and batch inference
                 dummy_x = torch.zeros(1, in_channels_override, spatial, spatial, device=self.device)
-                dummy_g = torch.zeros(1, global_features or 3, device=self.device)
+                dummy_g = torch.zeros(1, _global_features, device=self.device)
                 self.model.eval()
                 with torch.no_grad():
                     _ = self.model(dummy_x, dummy_g)
                     # Also warmup with larger batch for batched MCTS
                     dummy_x_batch = torch.zeros(64, in_channels_override, spatial, spatial, device=self.device)
-                    dummy_g_batch = torch.zeros(64, global_features or 3, device=self.device)
+                    dummy_g_batch = torch.zeros(64, _global_features, device=self.device)
                     _ = self.model(dummy_x_batch, dummy_g_batch)
                 if self.device.type == "cuda":
                     torch.cuda.synchronize()
-                logger.debug("Completed torch.compile warmup passes")
+                logger.info("Completed torch.compile warmup passes")
             except Exception as e:
-                logger.debug(f"Warmup skipped: {e}")
+                logger.warning(f"Warmup skipped: {e}")
 
         # Record the expected history length on the cached model so future
         # NeuralNetAI wrappers that reuse it keep encoder/channel alignment.
