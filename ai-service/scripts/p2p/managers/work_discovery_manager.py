@@ -145,6 +145,85 @@ def set_selfplay_disabled_override(disabled: bool = True) -> None:
     )
 
 
+# Training enabled check - added Jan 21, 2026
+_training_enabled_checked: bool = False
+_training_enabled: bool | None = None
+
+
+def _is_training_enabled_for_node() -> bool:
+    """Check if training is enabled for this node via YAML config.
+
+    This prevents coordinator nodes (mac-studio, local-mac) from running
+    training locally. Training should only run on GPU cluster nodes.
+
+    Jan 21, 2026: Added to prevent local Mac from running training jobs.
+    """
+    global _training_enabled_checked, _training_enabled
+
+    if _training_enabled_checked:
+        return _training_enabled if _training_enabled is not None else True
+
+    _training_enabled_checked = True
+
+    try:
+        hostname = socket.gethostname()
+        hostname_lower = hostname.lower().replace("-", "").replace("_", "")
+
+        # Try to find cluster config
+        config_paths = [
+            Path(__file__).parent.parent.parent.parent / "config" / "distributed_hosts.yaml",
+            Path.cwd() / "config" / "distributed_hosts.yaml",
+            Path("/Users/armand/Development/RingRift/ai-service/config/distributed_hosts.yaml"),
+        ]
+
+        cluster_config = None
+        for config_path in config_paths:
+            if config_path.exists():
+                try:
+                    with open(config_path) as f:
+                        cluster_config = yaml.safe_load(f)
+                    break
+                except (OSError, IOError, yaml.YAMLError):
+                    continue
+
+        if not cluster_config:
+            return True
+
+        # YAML uses "hosts" key
+        hosts = cluster_config.get("hosts", {})
+        if hosts:
+            for config_name, cfg in hosts.items():
+                if not isinstance(cfg, dict):
+                    continue
+                config_name_lower = config_name.lower().replace("-", "").replace("_", "")
+
+                # Direct hostname match
+                if hostname_lower in config_name_lower or config_name_lower in hostname_lower:
+                    _training_enabled = cfg.get("training_enabled", True)
+                    if not _training_enabled:
+                        logger.info(
+                            f"[WorkDiscovery] Node {hostname} matched config {config_name}, "
+                            "training_enabled=false - skipping training work"
+                        )
+                    return _training_enabled
+
+                # MacBook hostname maps to mac-studio or local-mac config
+                if "macbook" in hostname_lower and config_name_lower in ("macstudio", "localmac"):
+                    _training_enabled = cfg.get("training_enabled", True)
+                    if not _training_enabled:
+                        logger.info(
+                            f"[WorkDiscovery] MacBook {hostname} matched {config_name} config, "
+                            "training_enabled=false - skipping training work"
+                        )
+                    return _training_enabled
+
+        return True
+
+    except Exception as e:
+        logger.debug(f"[WorkDiscovery] Error checking training_enabled config: {e}")
+        return True
+
+
 class DiscoveryChannel(Enum):
     """Work discovery channels in priority order."""
 

@@ -964,6 +964,7 @@ from scripts.p2p.managers.voter_config_manager import (
 )
 from scripts.p2p.managers.work_discovery_manager import (
     _is_selfplay_enabled_for_node,
+    _is_training_enabled_for_node,
     set_selfplay_disabled_override,
 )
 from scripts.p2p.metrics_manager import MetricsManager
@@ -3806,7 +3807,7 @@ class P2POrchestrator(
                     ComprehensiveEvaluationConfig,
                 )
                 comp_eval_loop = ComprehensiveEvaluationLoop(
-                    get_role=lambda: self._role,
+                    get_role=lambda: self.role,
                     get_orchestrator=lambda: self,
                     config=ComprehensiveEvaluationConfig(
                         interval=6 * 3600,  # Every 6 hours
@@ -3831,7 +3832,7 @@ class P2POrchestrator(
                     TournamentDataPipelineConfig,
                 )
                 tournament_pipeline = TournamentDataPipelineLoop(
-                    get_role=lambda: self._role,
+                    get_role=lambda: self.role,
                     config=TournamentDataPipelineConfig(
                         interval=3600,  # Every hour
                         min_games_for_export=100,
@@ -17616,6 +17617,14 @@ print(json.dumps(result))
 
         try:
             if work_type == "training":
+                # Jan 21, 2026: Check if this node should run training
+                # Prevents coordinator (mac-studio) from running training locally
+                if not _is_training_enabled_for_node():
+                    logger.info(
+                        f"Skipping training work {work_id}: training_enabled=false for this node"
+                    )
+                    return True  # Return True to indicate "handled" (just skipped)
+
                 # Start training job - January 2026: Fixed to actually execute training
                 # Previously this was a NO-OP that just logged and returned True
                 board_type = config.get("board_type", "square8")
@@ -17623,11 +17632,17 @@ print(json.dumps(result))
                 epochs = config.get("epochs", 20)  # Jan 2026: Reduced from 50 to prevent overfitting
                 batch_size = config.get("batch_size", 256)
                 learning_rate = config.get("learning_rate", 1e-3)
-                model_version = config.get("model_version", "v5")
+                # Jan 21, 2026: Default to v2 (most canonical models are v2)
+                # v5/v5-heavy should only be used when explicitly requested
+                model_version = config.get("model_version", "v2")
 
                 # Build config key and model filename
                 config_key = f"{board_type}_{num_players}p"
-                model_filename = f"canonical_{config_key}_{model_version}.pth"
+                # Only add version suffix for non-v2 versions (v2 models have no suffix)
+                if model_version and model_version != "v2":
+                    model_filename = f"canonical_{config_key}_{model_version}.pth"
+                else:
+                    model_filename = f"canonical_{config_key}.pth"
 
                 # Build training command
                 cmd = [
@@ -17704,7 +17719,8 @@ print(json.dumps(result))
                 num_games = config.get("num_games", 500)
                 engine_mode = config.get("engine_mode", "mixed")
                 engine_extra_args = config.get("engine_extra_args")  # December 2025: for budget override
-                selfplay_model_version = config.get("model_version", "v5")  # Jan 5, 2026: Architecture selection
+                # Jan 21, 2026: Default to v2 (most canonical models are v2)
+                selfplay_model_version = config.get("model_version", "v2")
 
                 # Delegate to JobManager (Phase 2B refactoring, Dec 2025)
                 asyncio.create_task(self.job_manager.run_gpu_selfplay_job(

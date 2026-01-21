@@ -630,7 +630,8 @@ class JobManager(EventSubscriptionMixin):
 
             # Construct the selfplay request
             # Session 17.22: Include model_version for architecture selection feedback loop
-            effective_version = model_version or "v5"
+            # Jan 21, 2026: Default to v2 (most canonical models are v2)
+            effective_version = model_version or "v2"
             model_path = self._get_model_path_for_version(
                 board_type, num_players, effective_version
             )
@@ -797,11 +798,12 @@ class JobManager(EventSubscriptionMixin):
         self,
         board_type: str,
         num_players: int,
-        model_version: str = "v5",
+        model_version: str = "v2",
     ) -> str | None:
         """Get the model path for a specific architecture version.
 
         Session 17.22: Added for architecture selection feedback loop.
+        Jan 21, 2026: Changed default from v5 to v2 (most canonical models are v2).
         This allows selfplay to use different architecture versions based
         on their Elo performance (tracked by ArchitectureTracker).
 
@@ -823,8 +825,10 @@ class JobManager(EventSubscriptionMixin):
         models_dir = os.path.join(self._get_ai_service_path(), "models")
         config_key = f"{board_type}_{num_players}p"
 
-        # Try version-specific model first: canonical_hex8_2p_v2.pth
-        if model_version and model_version != "v5":
+        # Jan 21, 2026: Fixed version lookup logic
+        # v2 models have no suffix (canonical_hex8_2p.pth)
+        # Other versions have suffix (canonical_hex8_2p_v5-heavy.pth)
+        if model_version and model_version not in ("v2", "default", ""):
             versioned_name = f"canonical_{board_type}_{num_players}p_{model_version}.pth"
             versioned_path = os.path.join(models_dir, versioned_name)
             if os.path.exists(versioned_path):
@@ -832,8 +836,9 @@ class JobManager(EventSubscriptionMixin):
                     f"Using versioned model for {config_key}: {versioned_name}"
                 )
                 return versioned_path
+            # If versioned model doesn't exist, fall back to default
 
-        # Fall back to default: canonical_hex8_2p.pth
+        # Default: canonical_hex8_2p.pth (v2 architecture)
         default_name = f"canonical_{board_type}_{num_players}p.pth"
         default_path = os.path.join(models_dir, default_name)
 

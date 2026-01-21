@@ -265,9 +265,14 @@ class ClusterHealingLoop(BaseLoop):
                 return self._hosts_cache or {}
 
             hosts = {}
-            for host_data in config.get("hosts", []):
-                name = host_data.get("name", "")
-                if not name:
+            # Jan 2026: hosts is a dict {name: {props}}, not a list
+            hosts_config = config.get("hosts", {})
+            if not isinstance(hosts_config, dict):
+                logger.warning(f"[ClusterHealing] hosts is {type(hosts_config).__name__}, expected dict")
+                return self._hosts_cache or {}
+
+            for name, host_data in hosts_config.items():
+                if not name or not isinstance(host_data, dict):
                     continue
 
                 # Skip disabled hosts

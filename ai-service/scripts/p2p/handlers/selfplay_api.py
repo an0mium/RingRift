@@ -198,7 +198,8 @@ class SelfplayHandlersMixin:
             num_games = data.get("num_games", 500)
             engine_mode = data.get("engine_mode", "gumbel-mcts")  # GPU-accelerated MCTS
             engine_extra_args = data.get("engine_extra_args")  # December 2025: for budget override
-            model_version = data.get("model_version", "v5")  # Jan 5, 2026: Architecture selection
+            # Jan 21, 2026: Default to v2 (most canonical models are v2)
+            model_version = data.get("model_version", "v2")
             data.get("auto_scaled", False)
 
             job_id = f"selfplay-{self.node_id}-{int(time.time())}"
