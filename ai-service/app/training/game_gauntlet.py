@@ -1584,6 +1584,7 @@ def _evaluate_single_opponent(
     harness_type: str = "",  # Jan 2026: Harness type for composite Elo tracking
     _from_parallel_context: bool = False,  # Jan 2026: Prevents nested ThreadPool deadlock
     use_search: bool = True,  # Jan 2026: Enable MCTS search to align with training
+    model_version: str | None = None,  # Jan 2026: Architecture version for non-v2 models
 ) -> dict[str, Any]:
     """Evaluate a model against a single baseline opponent.
 
@@ -2163,6 +2164,7 @@ def run_baseline_gauntlet(
                     harness_type,  # Jan 2026: Pass harness type for Elo tracking
                     True,  # _from_parallel_context: prevents nested ThreadPool deadlock
                     use_search,  # Jan 2026: Use MCTS search for candidate model
+                    model_version,  # Jan 2026: Architecture version for non-v2 models
                 ): baseline
                 for baseline in opponents
             }
@@ -2206,6 +2208,7 @@ def run_baseline_gauntlet(
                 harness_type,  # Jan 2026: Pass harness type for Elo tracking
                 False,  # _from_parallel_context
                 use_search,  # Jan 2026: Use MCTS search for candidate model
+                model_version,  # Jan 2026: Architecture version for non-v2 models
             )
             opponent_eval_results.append(eval_result)
 
