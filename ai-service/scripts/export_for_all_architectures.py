@@ -66,7 +66,6 @@ def run_export(
     architecture: str,
     output_dir: str,
     use_discovery: bool = True,
-    min_games: int = 100,
     max_samples: int | None = None,
     verbose: bool = False,
 ) -> tuple[bool, str]:
@@ -95,18 +94,12 @@ def run_export(
     if use_discovery:
         cmd.append("--use-discovery")
 
-    if min_games:
-        cmd.extend(["--min-games", str(min_games)])
-
     if max_samples:
         cmd.extend(["--max-samples", str(max_samples)])
 
     # V5-heavy needs full heuristics
     if arch_spec.get("full_heuristics"):
         cmd.append("--full-heuristics")
-
-    # Skip freshness check for manual exports
-    cmd.append("--allow-stale-data")
 
     if verbose:
         print(f"[{architecture}] Running: {' '.join(cmd)}")
@@ -208,12 +201,6 @@ def main():
         help="Output directory for NPZ files",
     )
     parser.add_argument(
-        "--min-games",
-        type=int,
-        default=100,
-        help="Minimum number of games required",
-    )
-    parser.add_argument(
         "--max-samples",
         type=int,
         help="Maximum samples per export",
@@ -268,7 +255,6 @@ def main():
             architecture=arch,
             output_dir=args.output_dir,
             use_discovery=not args.no_discovery,
-            min_games=args.min_games,
             max_samples=args.max_samples,
             verbose=args.verbose,
         )
