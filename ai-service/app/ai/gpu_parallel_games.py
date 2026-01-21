@@ -752,10 +752,17 @@ class ParallelGameRunner:
             self.policy_model.eval()
 
             # Enable FP16 inference for faster GPU execution if CUDA available
+            # Jan 2026: Added proper FP32 fallback for models with extreme weights (e.g., V4)
             if self.device.type == "cuda" and torch.cuda.is_available():
                 try:
                     self.policy_model = self.policy_model.half()
                     logger.info("ParallelGameRunner: Enabled FP16 inference for policy model")
+                except RuntimeError as e:
+                    # FP16 overflow - model weights exceed Half precision range
+                    if "Half" in str(e) or "overflow" in str(e):
+                        logger.warning(f"ParallelGameRunner: FP16 conversion failed ({e}), using FP32")
+                    else:
+                        raise
                 except Exception as e:
                     logger.debug(f"FP16 inference not available: {e}")
 
@@ -807,12 +814,15 @@ class ParallelGameRunner:
             self.policy_model.load_state_dict(new_state_dict)
             self.policy_model.eval()
 
-            # Re-enable FP16 if on CUDA
+            # Re-enable FP16 if on CUDA (with FP32 fallback for models with extreme weights)
             if self.device.type == "cuda" and torch.cuda.is_available():
                 try:
                     self.policy_model = self.policy_model.half()
-                except RuntimeError:
-                    pass
+                except RuntimeError as e:
+                    # FP16 overflow - keep model in FP32
+                    if "Half" in str(e) or "overflow" in str(e):
+                        logger.debug(f"Hot-reload: FP16 failed ({e}), using FP32")
+                    # Other errors silently ignored (fallback to FP32)
 
             logger.info(f"ParallelGameRunner: Hot-reloaded policy model from {model_path}")
             return True

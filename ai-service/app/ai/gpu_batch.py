@@ -774,11 +774,21 @@ class GPUBatchEvaluator:
             return self._evaluate_chunked(features, globals_t)
 
         # Run inference with optional mixed precision
-        if self.use_mixed_precision:
-            with torch.amp.autocast('cuda'):
+        # Jan 2026: Added FP32 fallback for models with extreme weights (e.g., V4)
+        try:
+            if self.use_mixed_precision:
+                with torch.amp.autocast('cuda'):
+                    values, policies = self._forward(features, globals_t)
+            else:
                 values, policies = self._forward(features, globals_t)
-        else:
-            values, policies = self._forward(features, globals_t)
+        except RuntimeError as e:
+            # FP16 overflow - fall back to FP32
+            if "Half" in str(e) or "overflow" in str(e):
+                logger.warning(f"[GPUBatchEvaluator] FP16 failed ({e}), falling back to FP32")
+                self.use_mixed_precision = False
+                values, policies = self._forward(features.float(), globals_t.float() if globals_t is not None else None)
+            else:
+                raise
 
         # Convert back to numpy
         values_np = values.cpu().numpy()
@@ -851,11 +861,20 @@ class GPUBatchEvaluator:
             chunk_features = features[i:end_idx]
             chunk_globals = globals_t[i:end_idx] if globals_t is not None else None
 
-            if self.use_mixed_precision:
-                with torch.amp.autocast('cuda'):
+            # Jan 2026: Added FP32 fallback for chunked evaluation
+            try:
+                if self.use_mixed_precision:
+                    with torch.amp.autocast('cuda'):
+                        values, policies = self._forward(chunk_features, chunk_globals)
+                else:
                     values, policies = self._forward(chunk_features, chunk_globals)
-            else:
-                values, policies = self._forward(chunk_features, chunk_globals)
+            except RuntimeError as e:
+                if "Half" in str(e) or "overflow" in str(e):
+                    logger.warning(f"[GPUBatchEvaluator] Chunked FP16 failed, using FP32")
+                    self.use_mixed_precision = False
+                    values, policies = self._forward(chunk_features.float(), chunk_globals.float() if chunk_globals is not None else None)
+                else:
+                    raise
 
             all_values.append(values.cpu().numpy())
             all_policies.append(policies.cpu().numpy())

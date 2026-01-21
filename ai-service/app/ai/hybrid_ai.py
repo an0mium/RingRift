@@ -154,7 +154,8 @@ class HybridAI(BaseAI):
 
         if encoder_version == "v3":
             from app.training.encoding import HexStateEncoderV3
-            encoder = HexStateEncoderV3(board_size=self.board_size)
+            # Jan 2026: V3 requires feature_version=2 for 16 base channels
+            encoder = HexStateEncoderV3(board_size=self.board_size, feature_version=2)
         else:
             from app.training.encoding import HexStateEncoder
             encoder = HexStateEncoder(board_size=self.board_size)

@@ -227,9 +227,20 @@ def get_encoder_for_model(model: "nn.Module") -> Optional[Any]:
         return None
 
     try:
-        # Instantiate with default parameters (board_size and num_players
-        # will be set when encode() is called)
-        return encoder_class()
+        # Instantiate with correct parameters based on channel count
+        # Jan 2026: V3/V4 models (64 channels) require feature_version=2
+        # to produce 16 base channels × 4 frames = 64 total channels.
+        # Without this, feature_version defaults to 1 (10 base channels),
+        # causing encoder/model channel mismatch and all-loss gauntlet results.
+        if channels == 64:
+            # V3/V4 requires feature_version=2
+            return encoder_class(feature_version=2)
+        elif channels == 56:
+            # V5-heavy also uses feature_version=2
+            return encoder_class(feature_version=2)
+        else:
+            # V2 and other versions use default parameters
+            return encoder_class()
     except Exception as e:
         logger.error(f"Failed to instantiate encoder: {e}")
         return None
