@@ -5481,9 +5481,20 @@ class NeuralNetAI(BaseAI):
 
         with torch.no_grad():
             assert self.model is not None
+            # Jan 2026: Add FP32 fallback for models with extreme weights (V4)
+            # that overflow FP16 range (±65504) during autocast
             if use_autocast:
-                with torch.amp.autocast('cuda'):
-                    out = self.model(tensor_input, globals_input)
+                try:
+                    with torch.amp.autocast('cuda'):
+                        out = self.model(tensor_input, globals_input)
+                except RuntimeError as e:
+                    # FP16 overflow - fall back to FP32
+                    if "Half" in str(e) or "overflow" in str(e):
+                        logger.warning(f"FP16 autocast failed ({e}), using FP32")
+                        use_autocast = False
+                        out = self.model(tensor_input.float(), globals_input.float())
+                    else:
+                        raise
             else:
                 out = self.model(tensor_input, globals_input)
             # V3 models return (values, policy_logits, rank_dist). Keep the
