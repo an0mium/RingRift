@@ -345,8 +345,24 @@ class ClusterHealingLoop(BaseLoop):
         current_peers = self._get_current_peers()
         now = time.time()
 
+        # CRITICAL: Get local node_id to skip self-healing
+        # Jan 21, 2026: This is ROOT CAUSE #1 of cluster instability - the healing
+        # loop was restarting the local P2P process, killing the orchestrator itself.
+        try:
+            from app.config.env import get_node_id
+            local_node_id = get_node_id()
+        except Exception:
+            # Fallback: try to get from environment
+            import socket
+            local_node_id = os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
+
         missing = []
         for name, host in hosts.items():
+            # CRITICAL: Never heal the local node - it IS the orchestrator
+            if name == local_node_id:
+                logger.debug(f"[ClusterHealing] Skipping {name}: is local orchestrator")
+                continue
+
             if name in current_peers:
                 continue
 
@@ -501,6 +517,18 @@ echo "P2P restarted"
 
     async def _heal_node(self, host: HostInfo, bootstrap_peers: list[str]) -> bool:
         """Attempt to heal a single node."""
+        # CRITICAL: Double-check we're not healing ourselves
+        try:
+            from app.config.env import get_node_id
+            local_node_id = get_node_id()
+        except Exception:
+            import socket
+            local_node_id = os.environ.get("RINGRIFT_NODE_ID", socket.gethostname())
+
+        if host.name == local_node_id:
+            logger.warning(f"[ClusterHealing] BLOCKED self-healing attempt for {host.name}")
+            return False
+
         self._stats_heal_attempts += 1
         logger.info(f"[ClusterHealing] Attempting to heal {host.name}")
 

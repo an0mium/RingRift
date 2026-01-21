@@ -24220,7 +24220,9 @@ print(json.dumps({{
                         return
             else:
                 # Fallback to static cooldown if manager not available
-                DEAD_PEER_COOLDOWN_SECONDS = 3600  # 1 hour
+                # Jan 21, 2026: Reduced from 3600s (1 hour) to 300s (5 minutes)
+                # The 1-hour cooldown was causing severe node exclusion after brief blips
+                DEAD_PEER_COOLDOWN_SECONDS = 300  # 5 minutes (down from 1 hour)
                 if node_id in self._dead_peer_timestamps:
                     dead_time = self._dead_peer_timestamps[node_id]
                     if time.time() - dead_time < DEAD_PEER_COOLDOWN_SECONDS:
