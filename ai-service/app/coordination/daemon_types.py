@@ -167,6 +167,10 @@ class DaemonType(Enum):
     # OWC has 1000s of trained models that have never been evaluated
     OWC_MODEL_IMPORT = "owc_model_import"
 
+    # Production game import (January 2026)
+    # Imports human vs AI games from ringrift.ai production server
+    PRODUCTION_GAME_IMPORT = "production_game_import"
+
     # Unevaluated model scanner (Sprint 13 Session 4 - Jan 3, 2026)
     # Scans all model sources (local, OWC, cluster, registry) for models without Elo ratings
     # Queues them for evaluation with curriculum-aware priority
@@ -1041,6 +1045,8 @@ DAEMON_DEPENDENCIES: dict[DaemonType, set[DaemonType]] = {
     # OWC import daemon (December 29, 2025) - imports from OWC external drive
     # December 30, 2025: Removed DATA_PIPELINE - not needed for file import
     DaemonType.OWC_IMPORT: {DaemonType.EVENT_ROUTER},
+    # Production game import (January 2026) - imports human vs AI games from ringrift.ai
+    DaemonType.PRODUCTION_GAME_IMPORT: {DaemonType.EVENT_ROUTER},
     DaemonType.NODE_RECOVERY: {DaemonType.EVENT_ROUTER, DaemonType.NODE_HEALTH_MONITOR},
 
     # Replication daemons
