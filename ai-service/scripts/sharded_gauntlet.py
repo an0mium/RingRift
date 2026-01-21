@@ -127,12 +127,16 @@ def run_shard(
         # Create model AI
         model_ai = create_model_ai(model_path, bt, model_player + 1, use_mcts)
 
-        # Create opponent AIs
-        opponent_config = AIConfig(difficulty=5)
+        # Create opponent AIs with per-game seeding to ensure randomness
+        # BUG FIX (Jan 2026): Without explicit seeds, RandomAI uses fixed per-player
+        # seeds, causing identical games. Use game_num to vary seeds.
         opponent_ais = {}
         for p in range(1, num_players + 1):
             if p == model_player + 1:
                 continue
+            # Per-game seed: combines game number and player number for unique randomness
+            per_game_seed = game_num * 10000 + p * 1000 + shard_index * 100
+            opponent_config = AIConfig(difficulty=5, rng_seed=per_game_seed)
             if opponent_type == "random":
                 opponent_ais[p] = RandomAI(player_number=p, config=opponent_config)
             elif opponent_type == "heuristic":

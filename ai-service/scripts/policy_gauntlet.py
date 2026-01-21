@@ -110,12 +110,16 @@ def run_gauntlet(
         # Create model AI (policy-only for speed) - needs correct player number
         model_ai = create_policy_ai(model_path, bt, model_player + 1)
 
-        # Create opponent AIs for all other players
-        opponent_config = AIConfig(difficulty=5)
+        # Create opponent AIs for all other players with per-game seeding
+        # BUG FIX (Jan 2026): Without explicit seeds, RandomAI uses fixed per-player
+        # seeds, causing identical games. Use game index to vary seeds.
         opponent_ais = {}
         for p in range(1, num_players + 1):
             if p == model_player + 1:
                 continue  # This is the model player
+            # Per-game seed: combines game index and player number for unique randomness
+            per_game_seed = i * 10000 + p * 1000
+            opponent_config = AIConfig(difficulty=5, rng_seed=per_game_seed)
             if opponent_type == "random":
                 opponent_ais[p] = RandomAI(player_number=p, config=opponent_config)
             elif opponent_type == "heuristic":
