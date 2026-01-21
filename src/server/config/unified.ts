@@ -244,6 +244,17 @@ const ConfigSchema = z.object({
     rulesTimeoutMs: z.number().int().positive(),
     maxConcurrent: z.number().int().positive(),
   }),
+  email: z.object({
+    provider: z.enum(['ses', 'smtp', 'mock']),
+    from: z.string().optional(),
+    ses: z
+      .object({
+        region: z.string().min(1),
+        accessKeyId: z.string().min(1),
+        secretAccessKey: z.string().min(1),
+      })
+      .optional(),
+  }),
   logging: z.object({
     level: z.string().min(1),
     format: LogFormatSchema,
@@ -363,6 +374,18 @@ const preliminaryConfig = {
     requestTimeoutMs: env.AI_SERVICE_REQUEST_TIMEOUT_MS,
     rulesTimeoutMs: env.AI_RULES_REQUEST_TIMEOUT_MS,
     maxConcurrent: env.AI_MAX_CONCURRENT_REQUESTS,
+  },
+  email: {
+    provider: env.EMAIL_PROVIDER || 'mock',
+    from: env.EMAIL_FROM || env.SMTP_FROM,
+    ses:
+      env.AWS_SES_REGION && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY
+        ? {
+            region: env.AWS_SES_REGION,
+            accessKeyId: env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+          }
+        : undefined,
   },
   logging: {
     level: env.LOG_LEVEL,

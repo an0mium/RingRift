@@ -530,6 +530,23 @@ export const EnvSchema = z.object({
   // EMAIL (OPTIONAL)
   // ===================================================================
 
+  /** Email provider to use (ses or smtp) */
+  EMAIL_PROVIDER: z.enum(['ses', 'smtp', 'mock']).optional(),
+
+  /** Email sender address */
+  EMAIL_FROM: z.string().optional(),
+
+  // --- AWS SES Configuration ---
+  /** AWS SES region */
+  AWS_SES_REGION: z.string().optional(),
+
+  /** AWS access key ID for SES */
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+
+  /** AWS secret access key for SES */
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+
+  // --- SMTP Configuration (legacy) ---
   /** SMTP server host */
   SMTP_HOST: z.string().optional(),
 
@@ -548,7 +565,7 @@ export const EnvSchema = z.object({
     .optional()
     .transform((val) => val === 'true' || val === '1'),
 
-  /** Email sender address */
+  /** Email sender address (deprecated, use EMAIL_FROM) */
   SMTP_FROM: z.string().optional(),
 });
 
