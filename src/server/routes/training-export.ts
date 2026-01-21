@@ -15,7 +15,7 @@
 import { Router, Request, Response } from 'express';
 import { BoardType } from '@prisma/client';
 import { GameRecordRepository, GameRecordFilter } from '../services/GameRecordRepository';
-import { logger } from '../utils/logger';
+import { httpLogger } from '../utils/logger';
 
 const router = Router();
 const repo = new GameRecordRepository();
@@ -123,12 +123,19 @@ router.get('/human-games', async (req: Request, res: Response) => {
     // Human vs AI games have AI opponents (not all human players)
     const filter: GameRecordFilter = {
       limit,
-      fromDate,
-      boardType,
-      numPlayers,
       // Note: We filter for games with AI players in the repository query
       // by checking if any player slot is null (AI player)
     };
+    // Only add optional properties if they have values (exactOptionalPropertyTypes)
+    if (fromDate) {
+      filter.fromDate = fromDate;
+    }
+    if (boardType) {
+      filter.boardType = boardType;
+    }
+    if (numPlayers) {
+      filter.numPlayers = numPlayers;
+    }
 
     // Get total count for header
     const totalCount = await repo.countHumanVsAiGames(filter);
@@ -165,7 +172,7 @@ router.get('/human-games', async (req: Request, res: Response) => {
       // The coordinator will parse the last timestamp from the records
     }
 
-    logger.info('Training export completed', {
+    httpLogger.info(req, 'Training export completed', {
       event: 'training_export',
       gameCount,
       totalCount,
@@ -178,7 +185,7 @@ router.get('/human-games', async (req: Request, res: Response) => {
     res.end();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    logger.error(null, 'Training export failed', { error: message });
+    httpLogger.error(req, 'Training export failed', { error: message });
 
     // Only send error response if headers haven't been sent
     if (!res.headersSent) {
@@ -247,7 +254,7 @@ router.get('/stats', async (req: Request, res: Response) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    logger.error(null, 'Training stats failed', { error: message });
+    httpLogger.error(req, 'Training stats failed', { error: message });
     res.status(500).json({ error: 'Stats retrieval failed', message });
   }
 });

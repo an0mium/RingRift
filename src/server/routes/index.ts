@@ -11,6 +11,7 @@ import selfplayRoutes from './selfplay';
 import internalRoutes from './internal';
 import rulesUxTelemetryRoutes from './rulesUxTelemetry';
 import difficultyCalibrationTelemetryRoutes from './difficultyCalibrationTelemetry';
+import trainingExportRoutes from './training-export';
 import { authenticate } from '../middleware/auth';
 import { clientErrorsRateLimiter } from '../middleware/rateLimiter';
 import { httpLogger } from '../utils/logger';
@@ -78,6 +79,7 @@ export const setupRoutes = (wsServer: WebSocketServer): Router => {
   router.use('/auth', authRoutes);
   router.use('/selfplay', selfplayRoutes); // Read-only access to recorded self-play games
   router.use('/internal', internalRoutes);
+  router.use('/training-export', trainingExportRoutes); // Export human vs AI games for training
   router.use('/telemetry', rulesUxTelemetryRoutes);
   router.use('/telemetry', difficultyCalibrationTelemetryRoutes);
   router.use('/games', sandboxHelperRoutes);

@@ -490,6 +490,169 @@ export class GameRecordRepository {
       source: metadata.source ?? 'online_game',
     };
   }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // Human vs AI Game Export (January 2026)
+  // Used by training cluster to import valuable human game data
+  // ────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Build a where clause for human vs AI games.
+   * Human vs AI = at least one player slot is null (AI) and at least one is not null (human)
+   */
+  private buildHumanVsAiWhereClause(filter: GameRecordFilter = {}): Prisma.GameWhereInput {
+    const where: Prisma.GameWhereInput = {
+      // Game must be completed
+      status: 'completed',
+      outcome: { not: null },
+      finalState: { not: Prisma.JsonNull },
+      // At least one human player (non-null player slot)
+      OR: [
+        { player1Id: { not: null } },
+        { player2Id: { not: null } },
+        { player3Id: { not: null } },
+        { player4Id: { not: null } },
+      ],
+      // At least one AI player (null player slot for an active position)
+      // This is approximated by checking that not all slots are filled
+      AND: [
+        {
+          OR: [{ player1Id: null }, { player2Id: null }, { player3Id: null }, { player4Id: null }],
+        },
+      ],
+    };
+
+    // Apply optional filters
+    if (filter.boardType) {
+      where.boardType = filter.boardType;
+    }
+    if (filter.numPlayers) {
+      where.maxPlayers = filter.numPlayers;
+    }
+    if (filter.fromDate) {
+      where.endedAt = { ...(where.endedAt as object), gte: filter.fromDate };
+    }
+    if (filter.toDate) {
+      where.endedAt = { ...(where.endedAt as object), lte: filter.toDate };
+    }
+
+    return where;
+  }
+
+  /**
+   * Count human vs AI games matching the filter.
+   */
+  async countHumanVsAiGames(filter: GameRecordFilter = {}): Promise<number> {
+    const db = this.getDb();
+    const where = this.buildHumanVsAiWhereClause(filter);
+    return db.game.count({ where });
+  }
+
+  /**
+   * Export human vs AI games as a JSONL async generator.
+   * Each yielded line is a JSON string representing a complete game record.
+   */
+  async *exportHumanVsAiGamesAsJsonl(
+    filter: GameRecordFilter = {}
+  ): AsyncGenerator<string, void, unknown> {
+    const db = this.getDb();
+    const where = this.buildHumanVsAiWhereClause(filter);
+    const limit = filter.limit ?? 500;
+
+    const games = await db.game.findMany({
+      where,
+      orderBy: { endedAt: 'asc' },
+      take: limit,
+      include: {
+        moves: {
+          orderBy: { moveNumber: 'asc' },
+          include: { player: { select: { username: true } } },
+        },
+        player1: { select: { username: true, rating: true } },
+        player2: { select: { username: true, rating: true } },
+        player3: { select: { username: true, rating: true } },
+        player4: { select: { username: true, rating: true } },
+        winner: { select: { username: true } },
+      },
+    });
+
+    for (const game of games) {
+      if (!isCompletedGameRecord(game)) {
+        continue;
+      }
+
+      try {
+        const record = this.gameToGameRecord(game as GameWithRelations);
+        if (record) {
+          yield gameRecordToJsonlLine(record);
+        }
+      } catch (error) {
+        logger.warn(`[GameRecordRepository] Failed to convert game ${game.id} to record: ${error}`);
+      }
+    }
+  }
+
+  /**
+   * Get statistics about human vs AI games.
+   */
+  async getHumanVsAiStats(fromDate?: Date): Promise<{
+    totalGames: number;
+    humanWins: number;
+    aiWins: number;
+    draws: number;
+    byBoardType: Record<string, number>;
+    latestGameAt: Date | null;
+  }> {
+    const db = this.getDb();
+    const filter: GameRecordFilter = fromDate ? { fromDate } : {};
+    const where = this.buildHumanVsAiWhereClause(filter);
+
+    // Get total count
+    const totalGames = await db.game.count({ where });
+
+    // Get counts by outcome
+    // Human wins = winner is not null (a human player won)
+    const humanWins = await db.game.count({
+      where: { ...where, winnerId: { not: null } },
+    });
+
+    // AI wins = game completed but winner is null (AI won)
+    const aiWins = await db.game.count({
+      where: { ...where, winnerId: null, outcome: 'elimination' },
+    });
+
+    // Draws
+    const draws = await db.game.count({
+      where: { ...where, outcome: 'draw' },
+    });
+
+    // Get counts by board type
+    const boardTypeCounts = await db.game.groupBy({
+      by: ['boardType'],
+      where,
+      _count: true,
+    });
+    const byBoardType: Record<string, number> = {};
+    for (const item of boardTypeCounts) {
+      byBoardType[item.boardType] = item._count;
+    }
+
+    // Get latest game timestamp
+    const latestGame = await db.game.findFirst({
+      where,
+      orderBy: { endedAt: 'desc' },
+      select: { endedAt: true },
+    });
+
+    return {
+      totalGames,
+      humanWins,
+      aiWins,
+      draws,
+      byBoardType,
+      latestGameAt: latestGame?.endedAt ?? null,
+    };
+  }
 }
 
 // Singleton export
