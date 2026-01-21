@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Quick gauntlet evaluation for a model.
 
+DEPRECATED: This single-node gauntlet is slow. For distributed evaluation, use:
+    python scripts/sharded_gauntlet.py --help
+    ./scripts/launch_distributed_gauntlet.sh <config> <model_path>
+
 Usage:
     python scripts/quick_gauntlet.py --model models/hex8_2p_iter1.pth
     python scripts/quick_gauntlet.py --model models/canonical_hex8_2p.pth --games 30
@@ -10,9 +14,23 @@ Usage:
 import argparse
 import logging
 import sys
+import warnings
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Deprecation warning
+_DEPRECATION_WARNING = """
+================================================================================
+⚠️  DEPRECATED: This single-node gauntlet is SLOW (~9 hours for MCTS games)
+
+For faster distributed evaluation, use:
+    python scripts/sharded_gauntlet.py --help
+    ./scripts/launch_distributed_gauntlet.sh <config> <model_path>
+
+The sharded gauntlet splits games across multiple nodes for 4-10x speedup.
+================================================================================
+"""
 
 # Add the project root to the path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -84,11 +102,35 @@ Examples:
         action="store_true",
         help="Enable parallel opponent evaluation (may cause issues on some systems)",
     )
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip deprecation confirmation prompt",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+
+    # Show deprecation warning and require confirmation
+    print(_DEPRECATION_WARNING)
+    warnings.warn(
+        "quick_gauntlet.py is deprecated. Use sharded_gauntlet.py for distributed evaluation.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
+    # Require explicit confirmation unless --yes flag is passed
+    if not getattr(args, 'yes', False):
+        try:
+            response = input("Type 'yes proceed' to continue with single-node gauntlet: ").strip().lower()
+            if response != 'yes proceed':
+                print("Aborted. Use sharded_gauntlet.py for faster distributed evaluation.")
+                sys.exit(0)
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(0)
 
     # Validate model path exists - NO SILENT FALLBACK
     model_path = Path(args.model)
