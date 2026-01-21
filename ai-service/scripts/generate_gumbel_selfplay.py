@@ -278,6 +278,12 @@ def create_gumbel_ai(
     if config.nn_model_id:
         ai_config.nn_model_id = config.nn_model_id
 
+    # Jan 21, 2026: Critical fix - pass model_version to AIConfig so the correct
+    # architecture class is used when loading the neural network. Without this,
+    # v5 models are loaded with v2 architecture causing silent fallback to heuristics.
+    if config.model_version:
+        ai_config.nn_model_version = config.model_version
+
     return GumbelMCTSAI(player, ai_config, board_type)
 
 
