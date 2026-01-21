@@ -4096,6 +4096,7 @@ class NeuralNetAI(BaseAI):
 
         # Apply torch.compile() optimization for faster inference on CUDA
         # This provides 2-3x speedup for batch inference
+        _was_compiled = False
         try:
             from .gpu_batch import compile_model
             dev_type = self.device.type if isinstance(self.device, torch.device) else str(self.device)
@@ -4105,10 +4106,45 @@ class NeuralNetAI(BaseAI):
                     device=torch.device(self.device) if isinstance(self.device, str) else self.device,
                     mode="default",  # Use default mode to avoid CUDA graph issues with dynamic shapes
                 )
+                _was_compiled = hasattr(self.model, "_compiled") and self.model._compiled
         except ImportError:
             pass  # gpu_batch not available, skip compilation
         except Exception as e:
             logger.debug(f"torch.compile() skipped: {e}")
+
+        # Warmup compiled model to pay JIT compilation cost upfront
+        # This prevents the first inference from taking 20+ seconds
+        if _was_compiled and in_channels_override is not None:
+            try:
+                # Create dummy input with appropriate shape for warmup
+                # Board spatial sizes: hex8=9, hexagonal=25, square8=8, square19=19
+                if board_type == BoardType.HEX8:
+                    spatial = 9
+                elif board_type == BoardType.HEXAGONAL:
+                    spatial = 25
+                elif board_type == BoardType.SQUARE8:
+                    spatial = 8
+                elif board_type == BoardType.SQUARE19:
+                    spatial = 19
+                else:
+                    spatial = 8  # Default
+
+                # Warmup with representative batch sizes (1 and 64)
+                # to pre-compile kernels for both single and batch inference
+                dummy_x = torch.zeros(1, in_channels_override, spatial, spatial, device=self.device)
+                dummy_g = torch.zeros(1, global_features or 3, device=self.device)
+                self.model.eval()
+                with torch.no_grad():
+                    _ = self.model(dummy_x, dummy_g)
+                    # Also warmup with larger batch for batched MCTS
+                    dummy_x_batch = torch.zeros(64, in_channels_override, spatial, spatial, device=self.device)
+                    dummy_g_batch = torch.zeros(64, global_features or 3, device=self.device)
+                    _ = self.model(dummy_x_batch, dummy_g_batch)
+                if self.device.type == "cuda":
+                    torch.cuda.synchronize()
+                logger.debug("Completed torch.compile warmup passes")
+            except Exception as e:
+                logger.debug(f"Warmup skipped: {e}")
 
         # Record the expected history length on the cached model so future
         # NeuralNetAI wrappers that reuse it keep encoder/channel alignment.
