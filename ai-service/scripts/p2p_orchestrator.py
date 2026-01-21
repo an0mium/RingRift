@@ -31317,6 +31317,203 @@ def _release_singleton_lock() -> None:
         _P2P_LOCK = None
 
 
+# =============================================================================
+# PORT-FIRST CHECK (January 21, 2026 - Phase 1)
+# =============================================================================
+# This provides fast-fail duplicate detection BEFORE zombie detection or lock
+# acquisition. If a healthy P2P is already running, exit immediately.
+
+def _check_port_available_and_responsive(port: int = 8770, timeout: float = 3.0) -> tuple[bool, str]:
+    """Check if port is available or if existing P2P is healthy.
+
+    January 21, 2026: Added as Phase 1 of duplicate process prevention.
+    This is the FIRST check at startup, before zombie detection or lock acquisition.
+    Provides fast-fail when a healthy P2P is already running.
+
+    Args:
+        port: The P2P HTTP port to check (default 8770)
+        timeout: HTTP health check timeout in seconds
+
+    Returns:
+        (should_continue, reason) tuple:
+        - (True, "port_free") - Port is free, proceed with startup
+        - (True, "port_check_failed") - Couldn't determine, proceed cautiously
+        - (False, "healthy_p2p_running") - Another healthy P2P is running, exit
+    """
+    import socket
+    import urllib.request
+    import urllib.error
+
+    # Step 1: Try to bind to port (instant availability check)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("0.0.0.0", port))
+        sock.close()
+        return (True, "port_free")
+    except OSError:
+        pass  # Port in use, check if healthy
+
+    # Step 2: Check if existing process on port is responsive
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/health",
+            headers={"User-Agent": "p2p-startup-check"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                return (False, "healthy_p2p_running")
+    except urllib.error.URLError as e:
+        # Connection refused means port not actually listening
+        if "Connection refused" in str(e):
+            return (True, "port_check_failed")
+        # Timeout or other error - proceed cautiously
+        return (True, "port_check_failed")
+    except Exception:
+        # Unexpected error - proceed cautiously
+        return (True, "port_check_failed")
+
+    # Should not reach here, but proceed if we do
+    return (True, "port_check_failed")
+
+
+# =============================================================================
+# SUPERVISOR COORDINATION (January 21, 2026 - Phase 2)
+# =============================================================================
+# This section prevents conflicts between manual P2P starts and master_loop
+# automated recovery by creating a coordination file that tracks which
+# management path is in control.
+
+SUPERVISOR_FILE_PATH = Path(__file__).parent.parent / "data" / "coordination" / "p2p_supervisor.json"
+
+
+def _read_supervisor_file() -> dict | None:
+    """Read the supervisor coordination file."""
+    try:
+        if SUPERVISOR_FILE_PATH.exists():
+            content = SUPERVISOR_FILE_PATH.read_text()
+            return json.loads(content)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.debug(f"[P2P] Could not read supervisor file: {e}")
+    return None
+
+
+def _write_supervisor_file(managed_by: str, pid: int, force: bool = False) -> bool:
+    """Write the supervisor coordination file."""
+    from datetime import datetime
+
+    if not force:
+        existing = _read_supervisor_file()
+        if existing and existing.get("managed_by") not in ("none", None):
+            existing_pid = existing.get("pid")
+            if existing_pid and _is_process_running_check(existing_pid):
+                return False
+
+    try:
+        SUPERVISOR_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        state = {
+            "managed_by": managed_by,
+            "pid": pid,
+            "started_at": datetime.utcnow().isoformat() + "Z",
+            "last_health_check": datetime.utcnow().isoformat() + "Z",
+        }
+        SUPERVISOR_FILE_PATH.write_text(json.dumps(state, indent=2))
+        logger.info(f"[P2P] Claimed supervisor role: {managed_by} (PID {pid})")
+        return True
+    except OSError as e:
+        logger.warning(f"[P2P] Failed to write supervisor file: {e}")
+        return False
+
+
+def _is_process_running_check(pid: int) -> bool:
+    """Check if a process with the given PID is running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+
+
+def _claim_supervisor_role(mode: str = "manual", force: bool = False) -> tuple[bool, str]:
+    """Claim P2P management role."""
+    existing = _read_supervisor_file()
+
+    if existing is None or existing.get("managed_by") in ("none", None):
+        if _write_supervisor_file(mode, os.getpid(), force=True):
+            return (True, "claimed")
+        return (False, "write_failed")
+
+    existing_manager = existing.get("managed_by")
+    existing_pid = existing.get("pid")
+
+    if existing_pid and not _is_process_running_check(existing_pid):
+        logger.info(f"[P2P] Previous manager (PID {existing_pid}) is dead, taking over")
+        if _write_supervisor_file(mode, os.getpid(), force=True):
+            return (True, "claimed")
+        return (False, "write_failed")
+
+    if existing_pid == os.getpid():
+        return (True, "already_manager")
+
+    if existing_manager == "master_loop" and mode == "manual":
+        if not force:
+            return (False, "master_loop_managing")
+        logger.warning("[P2P] Forcing takeover from master_loop")
+
+    if force:
+        if _write_supervisor_file(mode, os.getpid(), force=True):
+            return (True, "claimed")
+        return (False, "write_failed")
+
+    return (False, "other_manager")
+
+
+def _release_supervisor_role() -> None:
+    """Release P2P management role on shutdown."""
+    try:
+        existing = _read_supervisor_file()
+        if existing and existing.get("pid") == os.getpid():
+            _write_supervisor_file("none", 0, force=True)
+            logger.info("[P2P] Released supervisor role")
+    except Exception as e:
+        logger.debug(f"[P2P] Could not release supervisor role: {e}")
+
+
+def should_master_loop_manage_p2p() -> tuple[bool, str]:
+    """Check if master_loop should manage P2P or defer to manual management."""
+    from datetime import datetime, timedelta
+
+    existing = _read_supervisor_file()
+
+    if existing is None:
+        return (True, "no_manager")
+
+    managed_by = existing.get("managed_by")
+    if managed_by in ("none", None):
+        return (True, "no_manager")
+
+    existing_pid = existing.get("pid")
+
+    if existing_pid and not _is_process_running_check(existing_pid):
+        return (True, "manager_dead")
+
+    if managed_by == "manual":
+        started_at_str = existing.get("started_at", "")
+        try:
+            started_at = datetime.fromisoformat(started_at_str.rstrip("Z"))
+            age = datetime.utcnow() - started_at
+            if age < timedelta(hours=1):
+                return (False, "manual_manager")
+            return (True, "manual_expired")
+        except (ValueError, TypeError):
+            return (False, "manual_manager")
+
+    if managed_by == "master_loop":
+        return (True, "master_loop_manager")
+
+    return (False, "manager_healthy")
+
+
 def _check_and_kill_zombie_p2p(port: int = 8770, timeout: float = 5.0) -> bool:
     """Check for zombie P2P process and kill it if found.
 
@@ -31413,6 +31610,38 @@ def main():
     kill_duplicates = "--kill-duplicates" in sys.argv
     force_takeover = "--force-takeover" in sys.argv
     skip_zombie_check = "--no-zombie-check" in sys.argv
+    skip_port_check = "--skip-port-check" in sys.argv
+    ignore_supervisor = "--ignore-supervisor" in sys.argv
+    force_supervisor = "--force-supervisor" in sys.argv
+    is_master_loop = "--managed-by-master-loop" in sys.argv
+
+    # ==========================================================================
+    # PORT-FIRST CHECK (January 21, 2026)
+    # ==========================================================================
+    # Check if port is available or if a healthy P2P is already running.
+    # This provides fast-fail before zombie detection or lock acquisition.
+    if not skip_port_check:
+        can_start, reason = _check_port_available_and_responsive(DEFAULT_PORT)
+        if not can_start:
+            print(f"[P2P] Exiting: {reason} - another healthy P2P is already running on port {DEFAULT_PORT}")
+            sys.exit(0)
+        elif reason == "port_free":
+            print("[P2P] Port is free, proceeding with startup")
+
+    # ==========================================================================
+    # SUPERVISOR COORDINATION (January 21, 2026)
+    # ==========================================================================
+    # Check if another manager (master_loop or manual) is controlling P2P.
+    if not ignore_supervisor:
+        management_mode = "master_loop" if is_master_loop else "manual"
+        claimed, claim_reason = _claim_supervisor_role(mode=management_mode, force=force_supervisor)
+        if not claimed:
+            if claim_reason == "master_loop_managing":
+                print("[P2P] Exiting: master_loop.py is managing P2P. Use --force-supervisor to override.")
+            else:
+                print(f"[P2P] Exiting: Another manager is active ({claim_reason}). Use --force-supervisor to override.")
+            sys.exit(0)
+        print(f"[P2P] Claimed supervisor role: {management_mode}")
 
     # ==========================================================================
     # ZOMBIE DETECTION (January 2026)
@@ -31462,6 +31691,14 @@ def main():
                         help="Force acquire lock even if held by another process (use when PID was recycled after crash)")
     parser.add_argument("--no-zombie-check", action="store_true",
                         help="Skip automatic zombie P2P detection (zombies are processes bound to port but not responding)")
+    parser.add_argument("--skip-port-check", action="store_true",
+                        help="Skip the port availability check at startup (Jan 21, 2026)")
+    parser.add_argument("--ignore-supervisor", action="store_true",
+                        help="Skip supervisor coordination file check (Jan 21, 2026)")
+    parser.add_argument("--force-supervisor", action="store_true",
+                        help="Force takeover of supervisor role even if another manager is active")
+    parser.add_argument("--managed-by-master-loop", action="store_true",
+                        help="Internal flag: indicates P2P was started by master_loop.py")
     parser.add_argument("--training-only", action="store_true",
                         help="Run as training-only node (no selfplay dispatch). Prevents OOM from training + selfplay conflicts.")
 
@@ -31592,6 +31829,9 @@ def main():
 
             # December 2025: Release singleton lock on shutdown
             _release_singleton_lock()
+
+            # January 2026: Release supervisor role on shutdown
+            _release_supervisor_role()
 
 
 if __name__ == "__main__":

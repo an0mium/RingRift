@@ -2181,6 +2181,7 @@ class MasterLoopController:
         """Cluster-wide P2P recovery - check and restart P2P on remote nodes.
 
         December 31, 2025: Added for 48-hour autonomous operation.
+        January 21, 2026: Added supervisor coordination check.
 
         This complements the local P2P_RECOVERY daemon by scanning all P2P-enabled
         cluster nodes via SSH and restarting P2P on any that aren't responding.
@@ -2191,6 +2192,18 @@ class MasterLoopController:
         Recovery is parallel with a semaphore to avoid overwhelming SSH connections.
         """
         try:
+            # January 21, 2026: Check if we should defer to manual management
+            try:
+                from scripts.p2p_orchestrator import should_master_loop_manage_p2p
+                should_manage, reason = should_master_loop_manage_p2p()
+                if not should_manage:
+                    logger.info(f"[MasterLoop] Deferring P2P recovery to manual management: {reason}")
+                    return
+            except ImportError:
+                pass  # p2p_orchestrator not available, proceed with recovery
+            except Exception as e:
+                logger.debug(f"[MasterLoop] Could not check supervisor file: {e}")
+
             # Import the recovery module
             from scripts.recover_p2p_cluster import (
                 load_p2p_nodes,

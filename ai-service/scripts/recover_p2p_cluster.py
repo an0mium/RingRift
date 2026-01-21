@@ -201,11 +201,13 @@ async def restart_p2p_on_node(node: NodeInfo, dry_run: bool = False) -> bool:
     if node.tailscale_ip:
         advertise_host_arg = f"--advertise-host {node.tailscale_ip} "
 
+    # January 21, 2026: Add --managed-by-master-loop flag to indicate automated recovery
     restart_cmd = (
         f"pkill -SIGTERM -f 'python.*p2p_orchestrator' 2>/dev/null; "
         f"sleep 2; "
         f"cd {node.ringrift_path} && "
         f"nohup python scripts/p2p_orchestrator.py --node-id {node.name} "
+        f"--managed-by-master-loop "
         f"{advertise_host_arg}"
         f"> logs/p2p.log 2>&1 &"
     )
