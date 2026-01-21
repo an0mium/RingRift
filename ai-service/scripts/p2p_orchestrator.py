@@ -27178,6 +27178,11 @@ print(json.dumps({{
             await self._reduce_local_selfplay_jobs(0, reason="memory_critical")
             # Jan 10, 2026: Clear gossip caches to free memory
             self._emergency_memory_cleanup()
+            # Jan 21, 2026: Backoff after emergency cleanup to avoid tight loop
+            # When memory is truly critical, spinning at 100% CPU makes it worse.
+            # Sleep for 60s to give the system time to reclaim memory.
+            logger.info("LOCAL: Sleeping 60s after memory emergency to avoid tight loop")
+            await asyncio.sleep(60)
         elif node.memory_percent >= MEMORY_WARNING_THRESHOLD:
             current = int(getattr(node, "selfplay_jobs", 0) or 0)
             target = max(1, current // 2)
