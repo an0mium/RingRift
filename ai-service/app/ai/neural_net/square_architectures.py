@@ -378,18 +378,23 @@ class RingRiftCNN_v3(nn.Module):
     """
     V3 architecture with spatial policy heads for square boards.
 
-    This architecture improves on V2 by using spatially-structured policy heads
-    that preserve the geometric relationship between positions and actions,
-    rather than collapsing everything through global average pooling.
+    ⚠️  WARNING: SPATIAL POLICY HEADS CAUSE LOSS EXPLOSION  ⚠️
 
-    Key improvements over V2:
+    This architecture has a critical training bug that causes ~42 policy loss
+    (expected ~2-5) and 40% win rate vs random opponents. The issue is that
+    -1e9 masking of invalid cells creates log_softmax numerical instability.
+
+    USE RingRiftCNN_v3_Flat INSTEAD for training. This class is preserved for:
+    - Debugging and analysis of the spatial head issue
+    - Loading existing V3 spatial checkpoints for inference
+
+    Original design intent (not working as intended):
     - Spatial placement head: Conv1×1 → [B, 3, H, W] for (cell, ring_count) logits
     - Spatial movement head: Conv1×1 → [B, 8*max_dist, H, W] for movement logits
     - Spatial line formation head: Conv1×1 → [B, 4, H, W] for line directions
     - Spatial territory claim head: Conv1×1 → [B, 1, H, W] for territory claims
     - Spatial territory choice head: Conv1×1 → [B, 32, H, W] for territory choice
     - Small FC for special actions (skip_placement, swap_sides, line_choice)
-    - Preserves spatial locality during policy computation
 
     Architecture Version:
         v3.1.0 - Spatial policy heads, SE backbone, MPS compatible, rank distribution output.
@@ -1323,22 +1328,28 @@ class RingRiftCNN_v4(nn.Module):
 
 class RingRiftCNN_v3_Flat(nn.Module):
     """
-    V3 backbone with flat policy heads for training compatibility.
+    V3 backbone with flat policy heads - DEFAULT V3 ARCHITECTURE (Jan 2026).
+
+    This is now the default when using --model-version v3 because the spatial
+    variant (RingRiftCNN_v3) has a critical training bug causing ~42 policy
+    loss and 40% win rate vs random opponents.
 
     Why this class exists:
-    V3's spatial policy heads initialize invalid policy positions to -1e4, but when
-    log_softmax is applied to vectors with many -1e4 entries, numerical issues arise:
+    V3's spatial policy heads mask invalid cells with -1e9, but when log_softmax
+    is applied to vectors with many -1e9 entries, numerical instability arises:
     - The softmax denominator is dominated by ~90% masked entries
-    - Valid actions get attenuated log-probabilities
-    - KL divergence loss can become unstable
+    - Valid actions get log-prob ≈ -25
+    - KL loss = 800 valid actions × 25 = 20,000+ loss per sample
 
     This class combines:
     - V3's SE backbone for global pattern recognition (12 SE residual blocks)
     - V3's rank distribution head for multi-player value prediction
     - V2-style flat policy heads (global avg pool → FC → policy_size)
 
-    The flat policy approach avoids scatter operations entirely, producing more
-    stable training dynamics while retaining V3's backbone improvements.
+    CLI usage:
+    - --model-version v3        → Uses this class (flat, stable)
+    - --model-version v3-flat   → Uses this class (alias for v3)
+    - --model-version v3-spatial → Uses RingRiftCNN_v3 (broken, for debugging)
 
     Architecture Version:
         v3.1.0-flat - V3 backbone with flat policy heads, rank distribution output.

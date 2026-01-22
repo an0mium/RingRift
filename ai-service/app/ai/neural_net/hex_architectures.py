@@ -360,22 +360,27 @@ class HexNeuralNet_v3(nn.Module):
     """
     V3 architecture with spatial policy heads for hexagonal boards.
 
-    This architecture improves on V2 by using spatially-structured policy heads
-    that preserve the geometric relationship between positions and actions,
-    rather than collapsing everything through global average pooling.
+    ⚠️  WARNING: SPATIAL POLICY HEADS CAUSE LOSS EXPLOSION  ⚠️
 
-    Key improvements over V2:
+    This architecture has a critical training bug that causes ~42 policy loss
+    (expected ~2-5) and 40% win rate vs random opponents. The issue is that
+    -1e9 masking of invalid cells creates log_softmax numerical instability.
+
+    USE HexNeuralNet_v3_Flat INSTEAD for training. This class is preserved for:
+    - Debugging and analysis of the spatial head issue
+    - Loading existing V3 spatial checkpoints for inference
+
+    Root cause:
+    When invalid hex cells are masked to -1e9 and scattered into the flat policy
+    vector, the ~90,000 masked entries dominate the softmax denominator, causing:
+    - Valid actions to get log-prob ≈ -25
+    - KL loss = 800 valid actions × 25 = 20,000+ loss per sample
+
+    Original design intent (not working as intended):
     - Spatial placement head: Conv1×1 → [B, 3, H, W] for (cell, ring_count) logits
     - Spatial movement head: Conv1×1 → [B, 144, H, W] for (cell, dir, dist) logits
     - Small FC for special actions (skip_placement only)
     - Logits are scattered into canonical P_HEX=91,876 flat policy vector
-    - Preserves spatial locality during policy computation
-
-    Why spatial heads are better:
-    1. No spatial information loss - each cell produces its own policy logits
-    2. Better gradient flow - actions at position (x,y) directly update features at (x,y)
-    3. Reduced parameter count - Conv1×1 vs large FC layer
-    4. Natural hex masking - invalid cells produce masked logits
 
     Policy Layout (P_HEX = 91,876):
         Placements:  [0, 1874]     = 25×25×3 = 1,875 (cell × ring_count)
@@ -877,11 +882,15 @@ class HexNeuralNet_v3_Lite(nn.Module):
 
 class HexNeuralNet_v3_Flat(nn.Module):
     """
-    V3 backbone with flat policy heads for training compatibility.
+    V3 backbone with flat policy heads - DEFAULT V3 ARCHITECTURE (Jan 2026).
 
     This architecture combines the SE backbone improvements from V3 with the
     flat policy head design from V2, avoiding the spatial policy head issues
     that cause loss explosion during training.
+
+    This is now the default when using --model-version v3 because the spatial
+    variant (HexNeuralNet_v3) has a critical training bug causing ~42 policy
+    loss and 40% win rate vs random opponents.
 
     Why this class exists:
     V3's spatial policy heads mask invalid hex cells to -1e9, but when these
@@ -902,13 +911,10 @@ class HexNeuralNet_v3_Flat(nn.Module):
     - Compatible with standard training pipeline
     - No spatial action structure preserved (tradeoff for trainability)
 
-    When to use:
-    - Training new V3-like models
-    - Any situation where V3 shows extreme loss values
-
-    When NOT to use:
-    - If you have a working V3 spatial training pipeline
-    - If spatial action locality is critical for your use case
+    CLI usage:
+    - --model-version v3        → Uses this class (flat, stable)
+    - --model-version v3-flat   → Uses this class (alias for v3)
+    - --model-version v3-spatial → Uses HexNeuralNet_v3 (broken, for debugging)
 
     Architecture Version:
         v3.1.0 - V3 backbone with flat policy heads for training compatibility.

@@ -2587,14 +2587,20 @@ def train_model(
             num_players=hex_num_players,
         )
     elif use_hex_v3:
-        # HexNeuralNet_v3 for hexagonal boards (spatial policy heads, Dec 2025)
-        # Spatial policy heads are now the default - stable with masked_log_softmax fix.
-        # Use --model-version v3-flat for flat policy heads (debugging/comparison).
-        if model_version == 'v3-flat':
-            # V3_Flat: V3 backbone with flat policy heads (fallback)
-            model = HexNeuralNet_v3_Flat(
+        # HexNeuralNet_v3 for hexagonal boards (Jan 2026)
+        # NOTE: Spatial policy heads cause loss explosion (~42 policy loss) due to
+        # -1e9 masking creating log_softmax numerical instability. Use flat by default.
+        # See hex_architectures.py lines 878-917 for detailed explanation.
+        if model_version == 'v3-spatial':
+            # V3 with spatial policy heads (BROKEN - use for debugging only)
+            # Known issue: Masks invalid cells with -1e9, causing log_softmax instability
+            logger.warning(
+                "Using V3 spatial policy heads (v3-spatial). This is known to cause "
+                "loss explosion (~42 policy loss). Use --model-version v3 for flat heads."
+            )
+            model = HexNeuralNet_v3(
                 in_channels=hex_in_channels,
-                global_features=20,  # V3 encoder provides 20 global features
+                global_features=20,
                 num_res_blocks=effective_blocks,
                 num_filters=effective_filters,
                 board_size=board_size,
@@ -2603,12 +2609,10 @@ def train_model(
                 num_players=hex_num_players,
             )
         else:
-            # V3 with spatial policy heads (default) - position-aware learning
-            # Benefits: 91× fewer params, position-aware gradients, weight sharing
-            # Stable with masked_log_softmax (Dec 2025 fix)
-            model = HexNeuralNet_v3(
+            # V3 with flat policy heads (default, stable)
+            model = HexNeuralNet_v3_Flat(
                 in_channels=hex_in_channels,
-                global_features=20,
+                global_features=20,  # V3 encoder provides 20 global features
                 num_res_blocks=effective_blocks,
                 num_filters=effective_filters,
                 board_size=board_size,
@@ -2654,12 +2658,15 @@ def train_model(
             policy_size=policy_size,
             num_players=hex_num_players,
         )
-    elif model_version == 'v3':
-        # V3 with spatial policy heads (default) - position-aware learning
-        # Benefits: 91× fewer params, position-aware gradients, weight sharing
-        # Stable with masked_log_softmax (Dec 2025 fix)
-        # Use --model-version v3-flat for flat policy heads (debugging/comparison)
+    elif model_version == 'v3-spatial':
+        # V3 with spatial policy heads (BROKEN - use for debugging only)
+        # Known issue: Masks invalid cells with -1e9, causing log_softmax instability
+        # Results in ~42 policy loss and 40% win rate vs random
         v3_num_players = MAX_PLAYERS if multi_player else num_players
+        logger.warning(
+            "Using V3 spatial policy heads (v3-spatial). This is known to cause "
+            "loss explosion (~42 policy loss). Use --model-version v3 for flat heads."
+        )
         model = RingRiftCNN_v3(
             board_size=board_size,
             in_channels=14,  # 14 spatial feature channels per frame
@@ -2676,9 +2683,11 @@ def train_model(
                 f"policy_size={policy_size}, num_players={v3_num_players}, "
                 f"blocks={effective_blocks}, filters={effective_filters}"
             )
-    elif model_version == 'v3-flat':
-        # V3 with flat policy heads (fallback)
-        # Use for debugging, comparison, or if spatial training has issues
+    elif model_version in ('v3', 'v3-flat'):
+        # V3 with flat policy heads (default, stable)
+        # NOTE: Spatial policy heads cause loss explosion (~42 policy loss) due to
+        # -1e9 masking creating log_softmax numerical instability.
+        # Use --model-version v3-spatial for the broken spatial variant.
         v3_num_players = MAX_PLAYERS if multi_player else num_players
         model = RingRiftCNN_v3_Flat(
             board_size=board_size,
