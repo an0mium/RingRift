@@ -2202,6 +2202,15 @@ class P2POrchestrator(
         # After we invalidate a leader, ignore gossip leader claims for this window
         self._leader_invalidation_until: float = 0.0  # timestamp until which we ignore gossip leader claims
         self.last_local_training_fallback: float = 0.0  # When we last triggered local training fallback
+
+        # Jan 22, 2026: Cached jittered timeout to ensure consistent death detection across cycle.
+        # Problem: get_jittered_peer_timeout() called at two locations with different jitter each time,
+        # causing desynchronized death detection (Node A: 108s, Node B: 132s for same peer).
+        # Solution: Cache the jittered timeout for 30 seconds, ensuring all death checks in same
+        # cycle use the same timeout value across all locations.
+        self._jittered_timeout_cache: float | None = None
+        self._jittered_timeout_time: float = 0.0
+
         # Dec 30, 2025: Track when we last received work from the leader
         # If leader exists but isn't dispatching work, nodes can self-assign after timeout
         self.last_work_from_leader: float = time.time()  # When we last got work from leader
@@ -4037,7 +4046,7 @@ class P2POrchestrator(
                     get_retired_peers=_get_retired_peers_for_recovery,
                     probe_peer=_probe_peer_for_recovery,
                     recover_peer=_recover_peer_for_recovery,
-                    emit_event=self._emit_event_for_loop,
+                    emit_event=self._safe_emit_p2p_event,
                     get_circuit_state=_get_circuit_state_for_recovery,
                     reset_circuit=_reset_circuit_for_recovery,
                     get_total_peer_count=_get_total_peer_count_for_recovery,
@@ -15244,6 +15253,28 @@ print(json.dumps(result))
                 base_timeout = int(base_timeout * 1.25)
 
             return base_timeout
+
+    def _get_cached_jittered_timeout(self) -> float:
+        """Get jittered peer timeout, cached for 30 seconds.
+
+        Jan 22, 2026: Fix for double jitter application causing desynchronized death detection.
+
+        Problem: get_jittered_peer_timeout() was called at two locations (partition detection
+        and peer reconnection) with different jitter each time. This caused nodes to mark
+        the same peer dead at different times (±10% variance = 24s difference for 120s timeout).
+
+        Solution: Cache the jittered timeout for 30 seconds. All death detection checks
+        within the same 30s window use the same jittered value, ensuring consistent
+        death detection across the codebase.
+
+        Returns:
+            Jittered peer timeout in seconds (PEER_TIMEOUT ± 10%)
+        """
+        now = time.time()
+        if self._jittered_timeout_cache is None or (now - self._jittered_timeout_time) > 30:
+            self._jittered_timeout_cache = get_jittered_peer_timeout(PEER_TIMEOUT)
+            self._jittered_timeout_time = now
+        return self._jittered_timeout_cache
 
     async def _monitor_training_process(self, job_id: str, proc, output_path: str):
         """Monitor training subprocess and report completion to leader."""
