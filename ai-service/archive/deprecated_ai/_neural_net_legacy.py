@@ -3106,7 +3106,17 @@ class NeuralNetAI(BaseAI):
         or CPU). The :attr:`game_history` buffer accumulates per‑game
         feature history keyed by ``GameState.id`` and is truncated to
         ``history_length + 1`` frames per game to bound memory usage.
+
+    FP16 Failure Tracking:
+        Models like V4 have extreme weight values that overflow FP16 range.
+        We track which model paths have failed FP16 at the class level so
+        that subsequent instances of the same model skip FP16 automatically.
     """
+
+    # Jan 2026: Class-level cache for models that have failed FP16
+    # Key: model path (resolved), Value: True if FP16 failed
+    # This persists across instances so gauntlet doesn't retry FP16 every game
+    _fp16_failed_models: dict[str, bool] = {}
 
     def __init__(
         self,
@@ -3527,6 +3537,12 @@ class NeuralNetAI(BaseAI):
 
         self.loaded_checkpoint_path = effective_model_path
         self.loaded_checkpoint_signature = checkpoint_signature
+
+        # Jan 2026: Check class-level FP16 failure cache for this model path
+        # This prevents retrying FP16 for every new instance of the same model
+        if effective_model_path in NeuralNetAI._fp16_failed_models:
+            self._fp16_failed = True
+            logger.debug(f"Model {effective_model_path} marked as FP16-incompatible from cache")
 
         # Build cache key including the resolved checkpoint path and board_type.
         cache_key = (
@@ -5531,6 +5547,10 @@ class NeuralNetAI(BaseAI):
                     if "half" in error_str or "overflow" in error_str or "fp16" in error_str:
                         logger.warning(f"FP16 autocast failed ({e}), disabling for this model")
                         self._fp16_failed = True
+                        # Jan 2026: Also add to class-level cache so future instances skip FP16
+                        if self.loaded_checkpoint_path:
+                            NeuralNetAI._fp16_failed_models[self.loaded_checkpoint_path] = True
+                            logger.info(f"Added {self.loaded_checkpoint_path} to FP16 failure cache")
                         out = self.model(tensor_input.float(), globals_input.float())
                     else:
                         raise
