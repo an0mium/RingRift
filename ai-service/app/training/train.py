@@ -4718,15 +4718,26 @@ def train_model(
 
                 # Apply label smoothing to policy targets if configured
                 # smoothed = (1 - eps) * target + eps * uniform
+                # IMPORTANT: For V3/V4 spatial policy heads, only smooth over positions
+                # where the original target > 0. This prevents adding probability mass
+                # to invalid hex corners (indices 0-11 for hex8) that the model
+                # correctly assigns -1e9 logits to via scatter initialization.
                 if config.policy_label_smoothing > 0 and torch.any(policy_valid_mask):
                     eps = config.policy_label_smoothing
-                    policy_size = policy_targets.size(1)
-                    uniform = 1.0 / policy_size
                     policy_targets = policy_targets.clone()
-                    policy_targets[policy_valid_mask] = (
-                        (1 - eps) * policy_targets[policy_valid_mask]
-                        + eps * uniform
-                    )
+
+                    # Create mask of valid action positions (non-zero in original targets)
+                    action_mask = policy_targets > 0  # [B, policy_size]
+
+                    # Count valid actions per sample for proper uniform distribution
+                    num_valid_per_sample = action_mask.float().sum(dim=1, keepdim=True).clamp(min=1)
+
+                    # Create per-sample uniform distribution over valid actions only
+                    # For positions where target=0, uniform stays 0 (preserves zeros)
+                    uniform_over_valid = action_mask.float() / num_valid_per_sample
+
+                    # Apply smoothing: (1-eps)*target + eps*uniform_over_valid
+                    policy_targets = (1 - eps) * policy_targets + eps * uniform_over_valid
 
                 # Gradient accumulation: only zero grad at start of accumulation window
                 # Dynamic batch scheduling: calculate accumulation steps from batch scheduler
