@@ -40,8 +40,9 @@ import yaml
 
 from app.config.ports import SWIM_PORT
 
-# Dec 2025: Import tuned SWIM timeouts from constants.py
+# Jan 22, 2026: Import tuned SWIM timeouts from constants.py (canonical source)
 # These values are calibrated for high-latency cross-cloud networks (P99 RTT ~2.6s)
+# Fallback values must match constants.py defaults to avoid timeout disagreement
 try:
     from app.p2p.constants import (
         SWIM_FAILURE_TIMEOUT,
@@ -50,9 +51,9 @@ try:
         SWIM_INDIRECT_PING_COUNT,
     )
 except ImportError:
-    # Fallback to tuned defaults if constants not available
-    SWIM_FAILURE_TIMEOUT = 10.0
-    SWIM_SUSPICION_TIMEOUT = 6.0
+    # Fallback to match constants.py defaults (30s/20s for cross-cloud latency)
+    SWIM_FAILURE_TIMEOUT = 30.0
+    SWIM_SUSPICION_TIMEOUT = 20.0
     SWIM_PING_INTERVAL = 1.0
     SWIM_INDIRECT_PING_COUNT = 7
 

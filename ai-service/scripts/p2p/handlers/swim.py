@@ -38,22 +38,31 @@ try:
 except ImportError:
     SWIM_AVAILABLE = False
 
-# Import constants with fallbacks
+# Jan 22, 2026: Import SWIM timeouts from canonical source (app.p2p.constants)
+# Previously imported from scripts.p2p.constants which didn't have these,
+# causing fallback to 5.0/3.0s instead of canonical 30s/20s values.
+try:
+    from app.p2p.constants import (
+        SWIM_FAILURE_TIMEOUT,
+        SWIM_SUSPICION_TIMEOUT,
+        SWIM_PING_INTERVAL,
+    )
+except ImportError:
+    # Fallback to tuned defaults matching app.p2p.constants defaults
+    SWIM_FAILURE_TIMEOUT = 30.0
+    SWIM_SUSPICION_TIMEOUT = 20.0
+    SWIM_PING_INTERVAL = 1.0
+
+# Import P2P handler constants (these are still in scripts.p2p.constants)
 try:
     from scripts.p2p.constants import (
         MEMBERSHIP_MODE,
         SWIM_BIND_PORT,
         SWIM_ENABLED,
-        SWIM_FAILURE_TIMEOUT,
-        SWIM_PING_INTERVAL,
-        SWIM_SUSPICION_TIMEOUT,
     )
 except ImportError:
     SWIM_ENABLED = False
     SWIM_BIND_PORT = 7947
-    SWIM_FAILURE_TIMEOUT = 5.0
-    SWIM_SUSPICION_TIMEOUT = 3.0
-    SWIM_PING_INTERVAL = 1.0
     MEMBERSHIP_MODE = "http"
 
 

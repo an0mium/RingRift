@@ -44,6 +44,12 @@ from scripts.p2p.handlers.timeout_decorator import (
 # Dec 2025: Use consolidated handler utilities
 from scripts.p2p.handlers.handlers_base import get_event_bridge
 
+# Jan 22, 2026: Import canonical HTTP timeout for cross-cloud election requests
+try:
+    from app.p2p.constants import HTTP_TOTAL_TIMEOUT
+except ImportError:
+    HTTP_TOTAL_TIMEOUT = 45  # Fallback to match constants.py default
+
 if TYPE_CHECKING:
     pass
 
@@ -645,7 +651,7 @@ class ElectionHandlersMixin(BaseP2PHandler):
                                     url,
                                     json={"requester_id": self.node_id, "reason": reason},
                                     headers=self._auth_headers(),
-                                    timeout=aiohttp.ClientTimeout(total=5.0),
+                                    timeout=aiohttp.ClientTimeout(total=HTTP_TOTAL_TIMEOUT),
                                 ) as resp:
                                     if resp.status == 200:
                                         forwarded_to.append(voter_id)

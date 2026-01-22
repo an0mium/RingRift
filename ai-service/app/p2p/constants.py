@@ -471,8 +471,10 @@ GOSSIP_JITTER = float(os.environ.get("RINGRIFT_P2P_GOSSIP_JITTER", "0.2") or 0.2
 # Upper bound on peer endpoints included in gossip payloads to limit message size.
 # Jan 5, 2026: Increased from 25 to 45 for 41-node cluster to ensure all peers
 # are shared in gossip messages. With 25 limit, only ~60% of peers were visible.
+# Jan 22, 2026: Increased from 45 to 60 for growing cluster (41+ nodes) to prevent
+# gossip messages from randomly excluding peers, which can cause network partitions.
 GOSSIP_MAX_PEER_ENDPOINTS = int(
-    os.environ.get("RINGRIFT_P2P_GOSSIP_MAX_PEER_ENDPOINTS", "45") or 45
+    os.environ.get("RINGRIFT_P2P_GOSSIP_MAX_PEER_ENDPOINTS", "60") or 60
 )
 
 # Peer lifecycle

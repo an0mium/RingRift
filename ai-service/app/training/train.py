@@ -2220,7 +2220,7 @@ def train_model(
     use_hex_v5 = bool(use_hex_model and model_version in ('v5', 'v5-gnn', 'v5-heavy'))
     use_hex_v5_large = bool(use_hex_model and model_version in ('v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'))
     use_hex_v4 = bool(use_hex_model and model_version == 'v4')
-    use_hex_v3 = bool(use_hex_model and model_version in ('v3', 'v3-flat'))
+    use_hex_v3 = bool(use_hex_model and model_version in ('v3', 'v3-flat', 'v3-spatial'))
 
     # December 2025: Detect heuristic feature count from NPZ for v5_heavy models
     # This enables automatic switching between fast (21) and full (49) modes
@@ -2294,7 +2294,7 @@ def train_model(
                     compatible_versions = "v2"
                 elif inferred_in_channels == 64:
                     data_encoding = "V3/V4 (16 base channels × 4 frames = 64)"
-                    compatible_versions = "v3 or v4"
+                    compatible_versions = "v3, v3-flat, v3-spatial, or v4"
                 else:
                     data_encoding = f"unknown ({inferred_in_channels} channels)"
                     compatible_versions = "unknown"

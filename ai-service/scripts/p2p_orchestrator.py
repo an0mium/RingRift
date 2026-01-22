@@ -7010,30 +7010,19 @@ class P2POrchestrator(
         # Track which voters we've counted to avoid double-counting
         counted_voters: set[str] = set()
 
-        # Jan 12, 2026: Get our advertised host for self-recognition
-        # Fixes issue where node_id != voter_id but host matches voter's Tailscale IP
-        self_host = getattr(self, "advertise_host", None) or getattr(self, "host", None)
-
         # Check each voter
         for voter_id in voter_ids:
             if voter_id in counted_voters:
                 continue
 
-            # Check 1a: Is this voter us? (by node_id)
-            if voter_id == self.node_id:
-                alive_count += 1
-                counted_voters.add(voter_id)
-                continue
-
-            # Check 1b: Is this voter us? (by IP - for node_id mismatch cases)
-            # Jan 12, 2026 Root cause fix: Lambda nodes derive node_id from hostname
-            # (e.g., "192-222-51-195") but voter list uses configured names
-            # (e.g., "lambda-gh200-training"). Check if our host matches voter's IPs.
+            # Check 1: Is this voter us? (comprehensive check)
+            # Jan 22, 2026: Use _is_self_voter() for multi-method self-recognition
+            # Handles Lambda nodes where node_id differs from configured voter names
             voter_ips = voter_ip_map.get(voter_id, set())
-            if self_host and self_host in voter_ips:
+            if self._is_self_voter(voter_id, voter_ips):
                 alive_count += 1
                 counted_voters.add(voter_id)
-                logger.debug(f"[VoterSelfRecognition] Matched self as voter {voter_id} via host {self_host}")
+                logger.info(f"[VoterCount] Self recognized as voter: {voter_id}")
                 continue
 
             # Check 2: Direct node_id match in peers
@@ -7130,6 +7119,34 @@ class P2POrchestrator(
                             counted_voters.add(voter_id)
                             break
 
+            if voter_id in counted_voters:
+                continue
+
+            # Check 6: SWIM-discovered voters (Jan 22, 2026)
+            # SWIM entries (IP:7947) are normally skipped, but they may contain
+            # voter information if SWIM discovered a voter before HTTP heartbeats.
+            # Extract IP and check if it matches a voter.
+            for peer_id, peer in self.peers.items():
+                if voter_id in counted_voters:
+                    break
+                if not self._is_swim_peer_id(peer_id):
+                    continue  # Only process SWIM entries in this check
+                # Extract IP from SWIM format (IP:7947)
+                swim_ip = peer_id.rsplit(":", 1)[0]
+                if swim_ip in voter_ips:
+                    is_alive = (
+                        peer.is_alive()
+                        if hasattr(peer, "is_alive")
+                        else self._is_peer_alive(peer)
+                    )
+                    if is_alive:
+                        alive_count += 1
+                        counted_voters.add(voter_id)
+                        logger.info(
+                            f"[VoterSwim] Counted voter {voter_id} via SWIM IP {swim_ip}"
+                        )
+                        break
+
         return alive_count
 
     def _is_peer_alive(self, peer_info: dict) -> bool:
@@ -7159,6 +7176,86 @@ class P2POrchestrator(
         parts = peer_id.rsplit(":", 1)
         if len(parts) == 2 and parts[1] == "7947":
             return True
+        return False
+
+    def _is_self_voter(self, voter_id: str, voter_ips: set[str]) -> bool:
+        """Check if we are this voter using multiple identification methods.
+
+        Jan 22, 2026: Comprehensive self-recognition for Lambda nodes and other
+        environments where node_id differs from configured voter names.
+
+        Methods checked:
+        1. Direct node_id match
+        2. Host IP match (advertise_host or host)
+        3. All local interfaces
+        4. Tailscale IP from environment variable
+
+        Args:
+            voter_id: The voter ID to check against ourselves.
+            voter_ips: Set of IPs associated with this voter.
+
+        Returns:
+            True if we are this voter.
+        """
+        import socket
+
+        # Method 1: Direct node_id match
+        if voter_id == self.node_id:
+            return True
+
+        # Method 2: Host IP match
+        self_host = getattr(self, "advertise_host", None) or getattr(self, "host", None)
+        if self_host and self_host in voter_ips:
+            logger.debug(f"[VoterSelfRecognition] Matched via host IP: {self_host}")
+            return True
+
+        # Method 3: Check ALL local interfaces
+        try:
+            # Get all local IPs via getaddrinfo
+            local_ips: set[str] = set()
+            try:
+                for addr in socket.getaddrinfo(socket.gethostname(), None):
+                    local_ips.add(addr[4][0])
+            except socket.gaierror:
+                pass
+
+            # Also check common interface discovery
+            try:
+                # Check localhost variations
+                for addr in socket.getaddrinfo("localhost", None):
+                    local_ips.add(addr[4][0])
+            except socket.gaierror:
+                pass
+
+            if voter_ips & local_ips:
+                matching = voter_ips & local_ips
+                logger.debug(f"[VoterSelfRecognition] Matched via local interface: {matching}")
+                return True
+        except Exception as e:
+            logger.debug(f"[VoterSelfRecognition] Local interface check failed: {e}")
+
+        # Method 4: Tailscale IP from environment
+        ts_ip = os.environ.get("TAILSCALE_IP")
+        if ts_ip and ts_ip in voter_ips:
+            logger.debug(f"[VoterSelfRecognition] Matched via TAILSCALE_IP env: {ts_ip}")
+            return True
+
+        # Method 5: Check Tailscale CGNAT range IPs we might have
+        try:
+            from app.p2p.config import TAILSCALE_CGNAT_NETWORK
+            for addr in socket.getaddrinfo(socket.gethostname(), None):
+                ip = addr[4][0]
+                try:
+                    import ipaddress
+                    if ipaddress.ip_address(ip) in TAILSCALE_CGNAT_NETWORK:
+                        if ip in voter_ips:
+                            logger.debug(f"[VoterSelfRecognition] Matched via Tailscale CGNAT: {ip}")
+                            return True
+                except (ValueError, TypeError):
+                    continue
+        except Exception as e:
+            logger.debug(f"[VoterSelfRecognition] Tailscale CGNAT check failed: {e}")
+
         return False
 
     def _check_voter_health(self) -> dict[str, any]:
