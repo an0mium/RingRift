@@ -46,6 +46,12 @@ try:
 except ImportError:
     AUTO_UPDATE_ENABLED = False
 
+# Jan 22, 2026: Import canonical HTTP timeout for cross-cloud requests
+try:
+    from app.p2p.constants import HTTP_TOTAL_TIMEOUT
+except ImportError:
+    HTTP_TOTAL_TIMEOUT = 45  # Fallback to match constants.py default
+
 
 class AdminHandlersMixin(BaseP2PHandler):
     """Mixin providing admin and git HTTP handlers.
@@ -479,7 +485,7 @@ class AdminHandlersMixin(BaseP2PHandler):
 
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(peer_url, timeout=aiohttp.ClientTimeout(total=5.0)) as resp:
+                    async with session.get(peer_url, timeout=aiohttp.ClientTimeout(total=HTTP_TOTAL_TIMEOUT)) as resp:
                         if resp.status == 200:
                             is_reachable = True
                             try:
