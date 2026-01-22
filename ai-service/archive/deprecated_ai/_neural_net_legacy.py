@@ -4713,6 +4713,24 @@ class NeuralNetAI(BaseAI):
         if policy_fc2_weight is not None and hasattr(policy_fc2_weight, "shape"):
             policy_size_override = int(policy_fc2_weight.shape[0])
 
+        # Jan 2026: Infer board_size from movement_conv.weight for hex V3/V4 models
+        # movement_conv.weight shape is [movement_channels, filters, 1, 1]
+        # movement_channels = num_directions * (board_size - 1) = 6 * (board_size - 1)
+        # So board_size = (movement_channels / 6) + 1
+        # This is critical for hex8 (board_size=9) vs hexagonal (board_size=25)
+        movement_conv_weight = state_dict.get("movement_conv.weight")
+        hex_board_size_override = None
+        if movement_conv_weight is not None and hasattr(movement_conv_weight, "shape"):
+            movement_channels = int(movement_conv_weight.shape[0])
+            # 6 hex directions
+            if movement_channels % 6 == 0:
+                max_distance = movement_channels // 6
+                hex_board_size_override = max_distance + 1
+                logger.debug(
+                    "Inferred hex board_size=%d from movement_conv.weight (channels=%d)",
+                    hex_board_size_override, movement_channels,
+                )
+
         # Infer res-block count from state_dict keys
         indices: set[int] = set()
         for key in state_dict:
@@ -4813,13 +4831,26 @@ class NeuralNetAI(BaseAI):
                 hex_in_channels = int(conv1_weight.shape[1])  # Total channels from checkpoint
             else:
                 hex_in_channels = in_channels_override or (64 if "v3" in model_class_name else 40)
-            self.model = cls(
-                board_size=self.board_size,
-                in_channels=hex_in_channels,
-                num_res_blocks=num_res_blocks,
-                num_filters=num_filters,
-                num_players=num_players_override,
-            )
+            # Jan 2026: Use inferred board_size from movement_conv for hex V3/V4 models
+            # This is critical for loading hex8 models (board_size=9) which differ from
+            # the default hexagonal board_size (25). Without this, movement_conv dimensions
+            # mismatch: hex8 has 48 channels (6*8), hexagonal has 144 channels (6*24).
+            effective_board_size = hex_board_size_override or self.board_size
+            # Also infer hex_radius from board_size
+            hex_radius = (effective_board_size - 1) // 2
+            # V3/V4 models need max_distance passed explicitly
+            model_kwargs: dict[str, Any] = {
+                "board_size": effective_board_size,
+                "in_channels": hex_in_channels,
+                "num_res_blocks": num_res_blocks,
+                "num_filters": num_filters,
+                "num_players": num_players_override,
+            }
+            # V3/V4 models have hex_radius and max_distance parameters
+            if "v3" in model_class_name.lower() or "v4" in model_class_name.lower():
+                model_kwargs["hex_radius"] = hex_radius
+                model_kwargs["max_distance"] = effective_board_size - 1
+            self.model = cls(**model_kwargs)
         else:
             # Fallback to create_model_for_board
             self.model = create_model_for_board(
@@ -6913,7 +6944,7 @@ class HexNeuralNet_v3(nn.Module):
         hex_radius: int = 12,
         num_ring_counts: int = 3,  # Ring count options (1, 2, 3)
         num_directions: int = NUM_HEX_DIRS,  # 6 hex directions
-        max_distance: int = HEX_MAX_DIST,  # 24 distance buckets
+        max_distance: int | None = None,  # Computed from board_size if None
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -6927,8 +6958,9 @@ class HexNeuralNet_v3(nn.Module):
         # Spatial policy dimensions
         self.num_ring_counts = num_ring_counts
         self.num_directions = num_directions
-        self.max_distance = max_distance
-        self.movement_channels = num_directions * max_distance  # 6 × 24 = 144
+        # max_distance = board_size - 1: hex8 (9x9) uses 8, hexagonal (25x25) uses 24
+        self.max_distance = max_distance if max_distance is not None else board_size - 1
+        self.movement_channels = num_directions * self.max_distance
 
         # Pre-compute hex validity mask
         self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
@@ -7151,7 +7183,7 @@ class HexNeuralNet_v3_Lite(nn.Module):
         hex_radius: int = 12,
         num_ring_counts: int = 3,
         num_directions: int = NUM_HEX_DIRS,
-        max_distance: int = HEX_MAX_DIST,
+        max_distance: int | None = None,  # Computed from board_size if None
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -7165,8 +7197,9 @@ class HexNeuralNet_v3_Lite(nn.Module):
         # Spatial policy dimensions
         self.num_ring_counts = num_ring_counts
         self.num_directions = num_directions
-        self.max_distance = max_distance
-        self.movement_channels = num_directions * max_distance
+        # max_distance = board_size - 1: hex8 (9x9) uses 8, hexagonal (25x25) uses 24
+        self.max_distance = max_distance if max_distance is not None else board_size - 1
+        self.movement_channels = num_directions * self.max_distance
 
         # Pre-compute hex validity mask
         self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
