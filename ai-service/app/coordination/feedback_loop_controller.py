@@ -1203,9 +1203,18 @@ class FeedbackLoopController(SelfplayFeedbackMixin, RegressionHandlingMixin, Eva
                 f"policy_acc={policy_accuracy:.2%}, value_acc={value_accuracy:.2%}"
             )
 
-            # Trigger evaluation if accuracy is good enough
-            if policy_accuracy >= self.policy_accuracy_threshold:
+            # Always trigger evaluation for newly trained models (January 21, 2026 fix)
+            # The policy accuracy threshold was too restrictive and blocked evaluation
+            # when policy_accuracy wasn't reported in the training event (defaulted to 0.0).
+            # Gauntlet evaluation provides the definitive quality assessment.
+            if model_path:
                 self._trigger_evaluation(config_key, model_path)
+            elif policy_accuracy >= self.policy_accuracy_threshold:
+                # Fallback: trigger based on accuracy if no model path available
+                logger.warning(
+                    f"[FeedbackLoopController] No model_path in training event for {config_key}, "
+                    f"using policy_accuracy threshold fallback"
+                )
 
             # Record training in curriculum
             self._record_training_in_curriculum(config_key)

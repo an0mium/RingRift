@@ -4095,6 +4095,7 @@ def train_model(
     best_train_loss_at_best_val = float('inf')  # Track train loss at best val for overfitting detection
     avg_val_loss = float('inf')  # Initialize for final checkpoint
     avg_train_loss = float('inf')  # Track for return value
+    avg_policy_accuracy: float | None = None  # Jan 2026: Initialize for TRAINING_COMPLETED event
 
     # Track per-epoch losses for downstream analysis
     epoch_losses: list[dict[str, float]] = []
@@ -6472,7 +6473,8 @@ def train_model(
                         # model_path for FeedbackLoopController (Dec 2025 integration fix)
                         "model_path": str(save_path),
                         # policy_accuracy for evaluation trigger threshold check
-                        "policy_accuracy": float(avg_policy_accuracy) if 'avg_policy_accuracy' in dir() else 0.0,
+                        # Jan 2026: Fixed - use proper None check instead of 'in dir()'
+                        "policy_accuracy": float(avg_policy_accuracy) if avg_policy_accuracy is not None else 0.0,
                     }
                     # Include checkpoint_path if available (for auto-evaluation)
                     if _final_checkpoint_path:
