@@ -618,10 +618,12 @@ class HexNeuralNet_v3(nn.Module):
         # Movement logits: [B, 144, H, W]
         movement_logits = self.movement_conv(out)
 
-        # Apply hex mask to spatial logits ONLY during inference (not training).
-        # During training, we need valid logits for ALL indices to avoid explosive loss.
-        # (Fix for hex8 v4 policy loss issue - Dec 2025)
-        if mask is not None and not self.training:
+        # Apply hex mask ALWAYS (training and inference).
+        # Invalid hex corners must have large negative logits so they don't pollute
+        # the softmax denominator. The encoder ensures targets only reference
+        # valid hex positions, so masking during training is safe.
+        # (Fixed Jan 2026 - previous Dec 2025 fix was backwards)
+        if mask is not None:
             mask_expanded = mask.to(dtype=out.dtype, device=out.device)
             # Broadcast mask to all channels
             placement_logits = placement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
@@ -858,10 +860,12 @@ class HexNeuralNet_v3_Lite(nn.Module):
         placement_logits = self.placement_conv(out)
         movement_logits = self.movement_conv(out)
 
-        # Apply hex mask ONLY during inference (not training).
-        # During training, we need valid logits for ALL indices to avoid explosive loss.
-        # (Fix for hex8 v4 policy loss issue - Dec 2025)
-        if mask is not None and not self.training:
+        # Apply hex mask ALWAYS (training and inference).
+        # Invalid hex corners must have large negative logits so they don't pollute
+        # the softmax denominator. The encoder ensures targets only reference
+        # valid hex positions, so masking during training is safe.
+        # (Fixed Jan 2026 - previous Dec 2025 fix was backwards)
+        if mask is not None:
             mask_expanded = mask.to(dtype=out.dtype, device=out.device)
             placement_logits = placement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
             movement_logits = movement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
@@ -1348,13 +1352,12 @@ class HexNeuralNet_v4(nn.Module):
         placement_logits = self.placement_conv(out)
         movement_logits = self.movement_conv(out)
 
-        # Apply hex mask to policy heads ONLY during inference (not training).
-        # During training, we need valid logits for ALL indices because:
-        # 1. v3-encoded targets may reference any index in [0, policy_size]
-        # 2. -1e9 logits cause explosive loss when targets land on masked positions
-        # During inference, masking is fine since we only sample from model output.
-        # (Fix for hex8_2p v4 policy loss issue - Dec 2025)
-        if mask is not None and not self.training:
+        # Apply hex mask ALWAYS (training and inference).
+        # Invalid hex corners must have large negative logits so they don't pollute
+        # the softmax denominator. The encoder's _is_valid_hex_cell() ensures training
+        # targets only have probability on valid hex positions, so this is safe.
+        # (Fixed Jan 2026 - previous Dec 2025 fix was backwards)
+        if mask is not None:
             mask_expanded = mask.to(dtype=out.dtype, device=out.device)
             placement_logits = placement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
             movement_logits = movement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
