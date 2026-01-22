@@ -539,9 +539,11 @@ class HexNeuralNet_v3(nn.Module):
         device = placement_logits.device
         dtype = placement_logits.dtype
 
-        # Initialize flat policy with large negative (will be masked anyway)
-        # Use -1e4 instead of -1e9 to avoid float16 overflow in mixed precision
-        policy = torch.full((B, self.policy_size), -1e4, device=device, dtype=dtype)
+        # Initialize flat policy with -1e9 to mask padding positions.
+        # This ensures positions not covered by scatter (e.g., policy_size padding)
+        # don't pollute the softmax. For FP16 inference, the model will convert
+        # to FP32 first or clamp values.
+        policy = torch.full((B, self.policy_size), -1e9, device=device, dtype=dtype)
 
         # Flatten spatial dimensions for scatter
         # placement_logits: [B, 3, H, W] → [B, 3*H*W]
@@ -804,8 +806,8 @@ class HexNeuralNet_v3_Lite(nn.Module):
         device = placement_logits.device
         dtype = placement_logits.dtype
 
-        # Use -1e4 instead of -1e9 to avoid float16 overflow in mixed precision
-        policy = torch.full((B, self.policy_size), -1e4, device=device, dtype=dtype)
+        # Initialize with -1e9 to properly mask padding positions
+        policy = torch.full((B, self.policy_size), -1e9, device=device, dtype=dtype)
 
         placement_flat = placement_logits.view(B, -1)
         placement_idx_flat = self.placement_idx.view(-1).expand(B, -1)

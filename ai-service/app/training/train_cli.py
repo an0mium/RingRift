@@ -415,10 +415,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         '--model-version', type=str, default=None,
-        choices=['v2', 'v2_lite', 'v3', 'v3_lite', 'v3-flat', 'v4', 'v5', 'v5-gnn', 'v5-heavy',
-                 'v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'],
-        help='Model architecture version (for CNN models). v3 uses spatial policy heads (default), '
-             'v3-flat uses flat policy heads (fallback). v5/v5-heavy use heuristic features. '
+        choices=['v2', 'v2_lite', 'v3', 'v3_lite', 'v3-flat', 'v3-spatial', 'v4', 'v5', 'v5-gnn',
+                 'v5-heavy', 'v5-heavy-large', 'v5-heavy-xl', 'v6', 'v6-xl'],
+        help='Model architecture version (for CNN models). v3 uses flat policy heads (stable). '
+             'v3-spatial uses spatial policy heads (experimental, may have better gradients). '
+             'v5/v5-heavy use heuristic features. '
              'v5-heavy-large/v5-heavy-xl are scaled up for 2000+ Elo (~25-35M params). '
              'Note: v6/v6-xl are deprecated aliases for v5-heavy-large/v5-heavy-xl.'
     )
