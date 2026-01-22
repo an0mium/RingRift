@@ -201,6 +201,63 @@ function computeValidLandingsWithCaptures(
 }
 
 /**
+ * Compute all valid landing positions from an existing stack on the board,
+ * including both simple movement targets and capture landing positions.
+ *
+ * Unlike computeValidLandingsWithCaptures, this uses the actual board state
+ * rather than a simulated stack, since the stack already exists on the board.
+ */
+function computeValidLandingsForExistingStack(
+  board: BoardState,
+  fromPos: Position,
+  playerNumber: number
+): Position[] {
+  const boardType = board.type as BoardType;
+
+  // Use the real board view (stack already exists)
+  const boardView = createMovementBoardView(board);
+
+  // Get simple movement targets
+  const simpleLandings = enumerateSimpleMoveTargetsFromStack(
+    boardType,
+    fromPos,
+    playerNumber,
+    boardView
+  );
+
+  // Get capture landing targets
+  const captureMoves = enumerateCaptureMoves(
+    boardType,
+    fromPos,
+    playerNumber,
+    boardView as CaptureBoardAdapters,
+    0 // moveNumber not used for enumeration
+  );
+
+  // Combine both sets of landing positions, deduplicating
+  const landingSet = new Set<string>();
+  const allLandings: Position[] = [];
+
+  for (const landing of simpleLandings) {
+    const key = positionToString(landing.to);
+    if (!landingSet.has(key)) {
+      landingSet.add(key);
+      allLandings.push(landing.to);
+    }
+  }
+
+  for (const capture of captureMoves) {
+    const key = positionToString(capture.to);
+    if (!landingSet.has(key)) {
+      landingSet.add(key);
+      allLandings.push(capture.to);
+    }
+  }
+
+  return allLandings;
+}
+
+/**
  * Ring placement prompt state for the context-menu dialog.
  */
 export interface RingPlacementPrompt {
@@ -843,7 +900,54 @@ export function useBackendBoardHandlers(
           return;
         }
 
-        // Case 4: Clicking on existing stack - place 1 ring immediately (stacks max at 1 per placement)
+        // Case 4: Clicking on existing stack
+        // - First click on own stack: SELECT it (show valid landings for movement)
+        // - Second click on same selected stack: PLACE ring (if rings in hand)
+        // - Click on opponent stack: PLACE ring immediately (take control)
+        const clickedStack = board.stacks.get(posKey);
+        const isOwnStack =
+          clickedStack && clickedStack.controllingPlayer === gameState.currentPlayer;
+
+        if (isOwnStack) {
+          const isAlreadySelected = selected && positionsEqual(selected, pos);
+
+          if (!isAlreadySelected) {
+            // First click on own stack: SELECT it and show valid landings for movement
+            setSelected(pos);
+            const landings = computeValidLandingsForExistingStack(
+              board,
+              pos,
+              gameState.currentPlayer
+            );
+            setValidTargets(landings);
+            setPendingRingPlacement(null);
+            return;
+          }
+
+          // Second click on same stack (already selected): attempt placement if possible
+          const stackPlaceMoves = validMoves.filter(
+            (m) => m.type === 'place_ring' && positionsEqual(m.to, pos)
+          );
+          if (stackPlaceMoves.length > 0) {
+            const chosen =
+              stackPlaceMoves.find((m) => (m.placementCount ?? 1) === 1) || stackPlaceMoves[0];
+            submitMove({
+              type: 'place_ring',
+              to: chosen.to,
+              placementCount: chosen.placementCount,
+              placedOnStack: chosen.placedOnStack,
+            } as PartialMove);
+            setSelected(undefined);
+            setValidTargets([]);
+            setPendingRingPlacement(null);
+            return;
+          }
+
+          // No placement possible (0 rings in hand) - keep selected
+          return;
+        }
+
+        // Opponent stack: place ring immediately (taking control)
         const stackPlaceMoves = validMoves.filter(
           (m) => m.type === 'place_ring' && positionsEqual(m.to, pos)
         );
@@ -862,9 +966,10 @@ export function useBackendBoardHandlers(
           return;
         }
 
-        // No placement moves on this stack - just select it (for skip_placement + move)
+        // No placement moves available - select for potential skip_placement + move
         setSelected(pos);
-        setValidTargets([]);
+        const landings = computeValidLandingsForExistingStack(board, pos, gameState.currentPlayer);
+        setValidTargets(landings);
         setPendingRingPlacement(null);
         return;
       }
