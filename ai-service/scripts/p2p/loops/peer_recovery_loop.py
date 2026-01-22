@@ -275,6 +275,35 @@ class PeerRecoveryConfig:
         in {"1", "true", "yes", "on"}
     )
 
+    # ==========================================================================
+    # Flapping Peer Priority Configuration (January 22, 2026 - P2P Self-Healing)
+    # ==========================================================================
+    # Flapping peers (excessive ALIVE<->DEAD transitions) need faster stabilization.
+    # Instead of using the normal recovery interval, probe flapping peers more
+    # aggressively with shorter timeouts to quickly determine their true state.
+
+    # Whether flapping peer priority is enabled
+    flapping_priority_enabled: bool = field(
+        default_factory=lambda: os.environ.get(
+            "RINGRIFT_P2P_FLAPPING_PRIORITY_ENABLED", "true"
+        ).lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+    # Max flapping peers to prioritize per cycle
+    flapping_max_probes: int = field(
+        default_factory=lambda: int(
+            os.environ.get("RINGRIFT_P2P_FLAPPING_MAX_PROBES", "5")
+        )
+    )
+
+    # Probe timeout for flapping peers (shorter for faster feedback)
+    flapping_probe_timeout: float = field(
+        default_factory=lambda: float(
+            os.environ.get("RINGRIFT_P2P_FLAPPING_PROBE_TIMEOUT", "7.0")
+        )
+    )
+
     def __post_init__(self) -> None:
         """Validate configuration values."""
         if self.recovery_interval_seconds <= 0:
@@ -349,6 +378,8 @@ class PeerRecoveryLoop(BaseLoop):
         get_circuit_state: Callable[[str], str] | None = None,
         reset_circuit: Callable[[str], bool] | None = None,
         get_total_peer_count: Callable[[], int] | None = None,
+        get_flapping_peers: Callable[[], list[str]] | None = None,
+        get_peer_by_id: Callable[[str], Any] | None = None,
         config: PeerRecoveryConfig | None = None,
     ):
         """Initialize peer recovery loop.
@@ -367,6 +398,10 @@ class PeerRecoveryLoop(BaseLoop):
             get_total_peer_count: Optional callback to get total known peer count.
                                   Required for burst mode detection. If not provided,
                                   burst mode will use retired peer count as estimate.
+            get_flapping_peers: Optional callback to get list of flapping peer IDs.
+                               Jan 22, 2026: For P2P Self-Healing flapping prioritization.
+            get_peer_by_id: Optional callback to get peer object by node_id.
+                           Required for flapping peer probing.
             config: Recovery configuration
         """
         self.config = config or PeerRecoveryConfig()
@@ -384,6 +419,9 @@ class PeerRecoveryLoop(BaseLoop):
         self._get_circuit_state = get_circuit_state
         self._reset_circuit = reset_circuit
         self._get_total_peer_count = get_total_peer_count
+        # Jan 22, 2026: Flapping peer prioritization
+        self._get_flapping_peers = get_flapping_peers
+        self._get_peer_by_id = get_peer_by_id
 
         # Per-peer failure tracking for backoff
         self._peer_failures: dict[str, int] = {}  # node_id -> consecutive failures
@@ -406,6 +444,10 @@ class PeerRecoveryLoop(BaseLoop):
         self._burst_mode_active = False
         self._burst_mode_activated_at: float | None = None
         self._stats_burst_mode_activations = 0
+
+        # Flapping peer priority stats (January 22, 2026 - P2P Self-Healing)
+        self._stats_flapping_probes = 0
+        self._stats_flapping_stabilized = 0
 
     def _check_burst_mode(self, retired_count: int) -> bool:
         """Check if burst recovery mode should be active.
@@ -526,8 +568,12 @@ class PeerRecoveryLoop(BaseLoop):
         burst_mode = self._check_burst_mode(len(peers))
         max_probes, _ = self._get_effective_params(burst_mode)
 
-        # Filter peers that are ready to be probed (respecting backoff)
+        # Jan 22, 2026: Priority probe flapping peers first (P2P Self-Healing)
+        # This helps stabilize flapping peers faster (30-60s vs 5-10 min)
         now = time.time()
+        await self._probe_flapping_peers(now)
+
+        # Filter peers that are ready to be probed (respecting backoff)
         ready_peers = []
         peers_in_backoff = []  # Jan 7, 2026: Track peers in backoff for TCP check
         circuit_broken_peers = []  # Sprint 12 Session 8: Track CB-open peers separately
@@ -706,6 +752,9 @@ class PeerRecoveryLoop(BaseLoop):
             # Burst mode stats (January 2026)
             "burst_mode_active": self._burst_mode_active,
             "burst_mode_activations": self._stats_burst_mode_activations,
+            # Flapping peer priority stats (January 22, 2026)
+            "flapping_probes": self._stats_flapping_probes,
+            "flapping_stabilized": self._stats_flapping_stabilized,
         }
         if self._burst_mode_activated_at:
             stats["burst_mode_duration"] = time.time() - self._burst_mode_activated_at
@@ -958,6 +1007,121 @@ class PeerRecoveryLoop(BaseLoop):
             )
 
         return reset_count
+
+    async def _probe_flapping_peers(self, now: float) -> int:
+        """Prioritize probing flapping peers for faster stabilization.
+
+        January 22, 2026 - P2P Self-Healing Architecture:
+
+        Flapping peers (excessive ALIVE<->DEAD transitions within 5 minutes)
+        indicate network instability. Instead of waiting for normal recovery
+        intervals, we probe them more aggressively with shorter timeouts.
+
+        This helps:
+        - Quickly determine if a flapping peer is truly dead or transiently failing
+        - Reduce time-to-stability from 5-10 minutes to 30-60 seconds
+        - Feed better data to StabilityController for root cause analysis
+
+        Args:
+            now: Current timestamp for logging
+
+        Returns:
+            Number of flapping peers successfully stabilized
+        """
+        if not self.config.flapping_priority_enabled:
+            return 0
+
+        if not self._get_flapping_peers or not self._get_peer_by_id:
+            return 0
+
+        # Get flapping peer IDs
+        flapping_ids = self._get_flapping_peers()
+        if not flapping_ids:
+            return 0
+
+        logger.info(
+            f"[PeerRecovery] Fast-probing {len(flapping_ids)} flapping peers "
+            f"(timeout={self.config.flapping_probe_timeout}s)"
+        )
+
+        stabilized_count = 0
+        probed_count = 0
+
+        for node_id in flapping_ids[: self.config.flapping_max_probes]:
+            # Skip if already probing
+            if node_id in self._active_probes:
+                continue
+
+            # Get peer info
+            peer = self._get_peer_by_id(node_id)
+            if peer is None:
+                continue
+
+            address = self._get_peer_address(peer)
+            if not address:
+                continue
+
+            # Mark as actively probing
+            self._active_probes.add(node_id)
+            probed_count += 1
+            self._stats_flapping_probes += 1
+
+            try:
+                # Use shorter timeout for flapping peers
+                is_healthy = await asyncio.wait_for(
+                    self._probe_peer(address),
+                    timeout=self.config.flapping_probe_timeout,
+                )
+
+                if is_healthy:
+                    # Attempt recovery
+                    recovered = await self._recover_peer(peer)
+                    if recovered:
+                        stabilized_count += 1
+                        self._stats_flapping_stabilized += 1
+                        # Clear any backoff since peer is now healthy
+                        self._peer_failures.pop(node_id, None)
+                        self._peer_next_probe.pop(node_id, None)
+
+                        logger.info(
+                            f"[PeerRecovery] FLAPPING_STABILIZED: {node_id} "
+                            f"recovered via priority probe"
+                        )
+
+                        if self._emit_event and self.config.emit_events:
+                            self._emit_event(
+                                "FLAPPING_PEER_STABILIZED",
+                                {
+                                    "node_id": node_id,
+                                    "address": address,
+                                    "recovery_source": "flapping_priority_probe",
+                                    "timestamp": now,
+                                },
+                            )
+                else:
+                    logger.debug(
+                        f"[PeerRecovery] Flapping peer {node_id} probe unhealthy"
+                    )
+
+            except asyncio.TimeoutError:
+                logger.debug(
+                    f"[PeerRecovery] Flapping peer {node_id} probe timeout "
+                    f"({self.config.flapping_probe_timeout}s)"
+                )
+            except Exception as e:
+                logger.debug(
+                    f"[PeerRecovery] Flapping peer {node_id} probe error: {e}"
+                )
+            finally:
+                self._active_probes.discard(node_id)
+
+        if probed_count > 0:
+            logger.info(
+                f"[PeerRecovery] Flapping priority: probed {probed_count}, "
+                f"stabilized {stabilized_count}"
+            )
+
+        return stabilized_count
 
     async def _try_proactive_circuit_recovery(
         self, circuit_broken_peers: list[Any], now: float

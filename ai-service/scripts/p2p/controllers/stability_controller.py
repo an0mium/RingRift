@@ -137,6 +137,9 @@ class StabilityController(BaseLoop):
         self._last_action_time: dict[RecoveryAction, float] = {}
         self._action_cooldown = 120.0  # 2 minutes between same action type
 
+        # Track first run for verification logging
+        self._first_run_logged = False
+
         logger.info(
             f"StabilityController initialized: enabled={STABILITY_CONTROLLER_ENABLED}, "
             f"interval={check_interval}s, callbacks={list(action_callbacks.keys()) if action_callbacks else []}"
@@ -146,6 +149,13 @@ class StabilityController(BaseLoop):
         """Main analysis loop - runs every check_interval seconds."""
         if not STABILITY_CONTROLLER_ENABLED:
             return
+
+        # Log first successful run for verification
+        if not self._first_run_logged:
+            logger.info(
+                "[StabilityController] First symptom check starting - self-healing ACTIVE"
+            )
+            self._first_run_logged = True
 
         symptoms = self._detect_symptoms()
 

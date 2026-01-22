@@ -3959,6 +3959,98 @@ class P2POrchestrator(
             else:
                 logger.debug("[LoopManager] StabilityController: not initialized, skipping")
 
+            # PeerRecoveryLoop - January 22, 2026 (P2P Self-Healing Architecture)
+            # Active peer recovery with flapping peer prioritization.
+            # Probes retired/dead peers and prioritizes flapping peers for faster stabilization.
+            try:
+                from scripts.p2p.loops import PeerRecoveryLoop, PeerRecoveryConfig
+
+                # Callback: Get flapping peer IDs from PeerStateTracker
+                def _get_flapping_peers_for_recovery() -> list[str]:
+                    if self._peer_state_tracker:
+                        return self._peer_state_tracker.get_flapping_peers()
+                    return []
+
+                # Callback: Get peer object by node_id
+                def _get_peer_by_id_for_recovery(node_id: str):
+                    return self.peers.get(node_id)
+
+                # Callback: Get retired peers
+                def _get_retired_peers_for_recovery() -> list:
+                    return [
+                        p for p in self.peers.values()
+                        if getattr(p, "retired", False) or not p.is_alive()
+                    ]
+
+                # Callback: Probe peer health
+                async def _probe_peer_for_recovery(address: str) -> bool:
+                    try:
+                        async with self.http_session.get(
+                            f"{address}/health",
+                            timeout=aiohttp.ClientTimeout(total=10),
+                        ) as resp:
+                            return resp.status == 200
+                    except Exception:
+                        return False
+
+                # Callback: Recover a peer
+                async def _recover_peer_for_recovery(peer) -> bool:
+                    try:
+                        node_id = getattr(peer, "node_id", str(peer))
+                        info = self.peers.get(node_id)
+                        if info:
+                            info.retired = False
+                            info.retired_at = 0.0
+                            if self._cooldown_manager:
+                                self._cooldown_manager.clear_cooldown(node_id)
+                            if self._peer_state_tracker:
+                                self._peer_state_tracker.record_recovery(
+                                    node_id=node_id,
+                                    details={"recovery_source": "peer_recovery_loop"},
+                                )
+                            return True
+                        return False
+                    except Exception:
+                        return False
+
+                # Callback: Get circuit breaker state
+                def _get_circuit_state_for_recovery(node_id: str) -> str:
+                    try:
+                        from app.distributed.circuit_breaker import get_node_circuit_state
+                        return get_node_circuit_state(node_id) or "CLOSED"
+                    except Exception:
+                        return "CLOSED"
+
+                # Callback: Reset circuit breaker
+                def _reset_circuit_for_recovery(node_id: str) -> bool:
+                    try:
+                        from app.distributed.circuit_breaker import reset_node_circuit
+                        return reset_node_circuit(node_id)
+                    except Exception:
+                        return False
+
+                # Callback: Get total peer count
+                def _get_total_peer_count_for_recovery() -> int:
+                    return len(self.peers)
+
+                peer_recovery = PeerRecoveryLoop(
+                    get_retired_peers=_get_retired_peers_for_recovery,
+                    probe_peer=_probe_peer_for_recovery,
+                    recover_peer=_recover_peer_for_recovery,
+                    emit_event=self._emit_event_for_loop,
+                    get_circuit_state=_get_circuit_state_for_recovery,
+                    reset_circuit=_reset_circuit_for_recovery,
+                    get_total_peer_count=_get_total_peer_count_for_recovery,
+                    get_flapping_peers=_get_flapping_peers_for_recovery,
+                    get_peer_by_id=_get_peer_by_id_for_recovery,
+                    config=PeerRecoveryConfig(),
+                )
+                manager.register(peer_recovery)
+                self._peer_recovery_loop = peer_recovery
+                logger.info("[LoopManager] PeerRecoveryLoop registered (flapping peer prioritization)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"PeerRecoveryLoop: not available: {e}")
+
             self._loops_registered = True
             logger.info(f"LoopManager: registered {len(manager.loop_names)} loops")
             return True
@@ -22327,13 +22419,11 @@ print(json.dumps({{
                     logger.info(f"Peer {node_id} recovered from retirement")
 
                     # Jan 21, 2026: Track state transition for diagnostics
+                    # Jan 22, 2026: Use record_recovery() to clear SUSPECTED state
                     if self._peer_state_tracker:
                         try:
-                            from scripts.p2p.diagnostics import PeerState
-                            self._peer_state_tracker.record_transition(
+                            self._peer_state_tracker.record_recovery(
                                 node_id=node_id,
-                                to_state=PeerState.ALIVE,
-                                reason=None,
                                 details={"recovery_type": "retirement_cleared"},
                             )
                         except Exception:
@@ -22416,12 +22506,12 @@ print(json.dumps({{
                         logger.info(f"Retired peer {node_id} (dead for {dead_for:.0f}s)")
 
                         # Jan 21, 2026: Track state transition for diagnostics
+                        # Jan 22, 2026: Use record_probe_failure() for SUSPECTED grace period
                         if self._peer_state_tracker:
                             try:
-                                from scripts.p2p.diagnostics import PeerState, DeathReason
-                                self._peer_state_tracker.record_transition(
+                                from scripts.p2p.diagnostics import DeathReason
+                                self._peer_state_tracker.record_probe_failure(
                                     node_id=node_id,
-                                    to_state=PeerState.DEAD,
                                     reason=DeathReason.HEARTBEAT_TIMEOUT,
                                     details={"dead_for": dead_for, "last_heartbeat": last_hb},
                                 )
@@ -25518,8 +25608,16 @@ print(json.dumps({{
     async def _action_reset_circuits(
         self, nodes: list[str], symptom: Any
     ) -> None:
-        """Reset circuit breakers for affected nodes."""
+        """Reset circuit breakers for affected nodes.
+
+        January 22, 2026 - P2P Self-Healing Architecture:
+        Now resets both node-level and per-transport circuit breakers.
+        This enables transport fallover when one transport (e.g., Tailscale) fails.
+        """
         reset_count = 0
+        transport_reset_count = 0
+
+        # Reset node-level circuit breakers
         try:
             from app.distributed.circuit_breaker import reset_circuit_breaker
             for node_id in nodes:
@@ -25527,17 +25625,43 @@ print(json.dumps({{
                     reset_circuit_breaker(node_id)
                     reset_count += 1
                 except Exception as e:
-                    logger.debug(f"Failed to reset circuit for {node_id}: {e}")
+                    logger.debug(f"Failed to reset node circuit for {node_id}: {e}")
         except ImportError:
             logger.debug("Circuit breaker module not available")
+
+        # Reset per-transport circuit breakers for transport fallover
+        try:
+            from app.distributed.circuit_breaker import reset_transport_breakers_for_host
+            for node_id in nodes:
+                try:
+                    # Get the host/IP for this node
+                    peer = self.peers.get(node_id)
+                    if peer:
+                        host = getattr(peer, "ip", None) or getattr(peer, "host", None) or node_id
+                        count = reset_transport_breakers_for_host(host)
+                        transport_reset_count += count
+                        if count > 0:
+                            logger.debug(
+                                f"[Stability] Reset {count} transport circuits for {node_id}"
+                            )
+                except Exception as e:
+                    logger.debug(f"Failed to reset transport circuits for {node_id}: {e}")
+        except ImportError:
+            logger.debug("Transport circuit breaker module not available")
 
         if self._effectiveness_tracker:
             self._effectiveness_tracker.record_action(
                 "reset_circuit",
                 nodes,
-                {"symptom": symptom.symptom.value if hasattr(symptom, "symptom") else str(symptom)},
+                {
+                    "symptom": symptom.symptom.value if hasattr(symptom, "symptom") else str(symptom),
+                    "node_circuits_reset": reset_count,
+                    "transport_circuits_reset": transport_reset_count,
+                },
             )
-        logger.info(f"[Stability] Reset {reset_count} circuit breakers")
+        logger.info(
+            f"[Stability] Reset circuits: {reset_count} node, {transport_reset_count} transport"
+        )
 
     async def _action_increase_cooldown(
         self, nodes: list[str], symptom: Any
@@ -31414,6 +31538,20 @@ print(json.dumps({{
                     f"LoopManager: started {started_count}/{len(startup_results)} loops, "
                     f"job_reaper={'running' if job_reaper_started else 'FAILED'}"
                 )
+
+                # Jan 22, 2026: Verify StabilityController started (critical for self-healing)
+                stability_started = startup_results.get("stability_controller", False)
+                if not stability_started and self._stability_controller is not None:
+                    logger.warning("[P2P] StabilityController failed to start via LoopManager - attempting direct start")
+                    try:
+                        self._stability_controller.start_background()
+                        await asyncio.sleep(0.5)
+                        if self._stability_controller.running:
+                            logger.info("[P2P] StabilityController started via direct fallback")
+                        else:
+                            logger.error("[P2P] StabilityController direct start failed - self-healing disabled")
+                    except Exception as e:
+                        logger.error(f"[P2P] StabilityController fallback start error: {e}")
 
         # Phase 4.1: Inline job reaper fallback (Dec 27, 2025)
         # If JobReaperLoop specifically failed to start, run inline fallback for job cleanup

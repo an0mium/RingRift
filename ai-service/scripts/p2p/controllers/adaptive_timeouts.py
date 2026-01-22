@@ -92,8 +92,21 @@ class AdaptiveTimeoutManager:
     MIN_TIMEOUT = 5.0   # Minimum timeout in seconds
     MAX_TIMEOUT = 60.0  # Maximum timeout in seconds
     SAFETY_MARGIN = 2.0  # Additional buffer in seconds
-    EWMA_ALPHA = 0.1    # Slow adaptation rate (higher = faster adaptation)
-    MIN_SAMPLES = 10    # Minimum samples before using adaptive timeout
+    EWMA_ALPHA = 0.3    # Jan 2026: Increased from 0.1 for 3x faster adaptation
+    MIN_SAMPLES = 5     # Jan 2026: Reduced from 10 for faster activation
+
+    # Provider-based initial timeouts (used before adaptive kicks in)
+    # These are tuned based on observed latency characteristics per provider
+    _PROVIDER_DEFAULTS: dict[str, float] = {
+        "vast": 35.0,      # Consumer networks, high latency variance
+        "lambda": 25.0,    # NAT relay latency
+        "runpod": 30.0,    # Container overhead
+        "nebius": 20.0,    # Stable enterprise cloud
+        "hetzner": 15.0,   # Bare metal, low latency
+        "vultr": 20.0,     # Cloud, moderate latency
+        "local": 10.0,     # Local machines
+        "mac": 10.0,       # Mac machines (local)
+    }
 
     def __init__(self, default_timeout: float = 15.0):
         """Initialize the adaptive timeout manager.
@@ -108,7 +121,7 @@ class AdaptiveTimeoutManager:
 
         logger.info(
             f"AdaptiveTimeoutManager initialized: enabled={ADAPTIVE_TIMEOUTS_ENABLED}, "
-            f"default={default_timeout}s"
+            f"default={default_timeout}s, provider_defaults={len(self._PROVIDER_DEFAULTS)}"
         )
 
     def record_latency(self, node_id: str, latency_ms: float) -> None:
@@ -132,7 +145,7 @@ class AdaptiveTimeoutManager:
         """Get adaptive timeout for a node.
 
         Returns the calculated adaptive timeout if sufficient samples exist,
-        otherwise returns the default timeout.
+        otherwise returns provider-based default or global default.
 
         Args:
             node_id: The node identifier
@@ -147,7 +160,13 @@ class AdaptiveTimeoutManager:
         if node_id in self._current_timeouts:
             return self._current_timeouts[node_id]
 
-        # Use default if insufficient data
+        # Use provider-based initial timeout before adaptation kicks in
+        node_lower = node_id.lower()
+        for prefix, timeout in self._PROVIDER_DEFAULTS.items():
+            if node_lower.startswith(prefix):
+                return timeout
+
+        # Fall back to global default
         return self._default
 
     def update_timeouts(self) -> dict[str, float]:

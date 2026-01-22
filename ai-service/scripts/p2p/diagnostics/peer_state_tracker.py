@@ -62,6 +62,7 @@ class PeerStateTracker:
         flap_window: float = 300.0,
         flap_threshold: int = 4,
         max_history: int = 10000,
+        suspected_grace_period: float = 60.0,
     ) -> None:
         """Initialize the tracker.
 
@@ -69,11 +70,14 @@ class PeerStateTracker:
             flap_window: Time window in seconds to detect flapping (default 5 min)
             flap_threshold: Number of transitions to consider flapping (default 4)
             max_history: Maximum transitions to keep in memory
+            suspected_grace_period: Seconds in SUSPECTED state before marking DEAD (default 60s)
         """
         self._transitions: deque[StateTransition] = deque(maxlen=max_history)
         self._current_state: dict[str, PeerState] = {}
+        self._suspected_since: dict[str, float] = {}  # Track when nodes entered SUSPECTED
         self._flap_window = flap_window
         self._flap_threshold = flap_threshold
+        self._suspected_grace_period = suspected_grace_period
 
     def record_transition(
         self,
@@ -125,6 +129,101 @@ class PeerStateTracker:
         # Warn if peer is flapping
         if self.is_flapping(node_id):
             logger.warning(f"PEER_FLAPPING: {node_id} has excessive state transitions")
+
+    def record_probe_failure(
+        self,
+        node_id: str,
+        reason: DeathReason,
+        grace_period: float | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> PeerState:
+        """Record probe failure with SUSPECTED grace period.
+
+        Jan 2026: Part of P2P Self-Healing Architecture.
+
+        Instead of immediately marking a node as DEAD on probe failure,
+        this method implements a grace period:
+
+        1. ALIVE -> SUSPECTED: First failure, node enters grace period
+        2. SUSPECTED (within grace): Stay in SUSPECTED, wait for recovery
+        3. SUSPECTED (grace exceeded): Now transition to DEAD
+
+        This reduces false positives where healthy nodes are marked dead
+        due to transient network issues.
+
+        Args:
+            node_id: The peer's node ID
+            reason: Reason for the probe failure
+            grace_period: Override for grace period (default: self._suspected_grace_period)
+            details: Additional context (latency, error message, etc.)
+
+        Returns:
+            The new state after recording the failure
+        """
+        grace = grace_period if grace_period is not None else self._suspected_grace_period
+        current = self._current_state.get(node_id, PeerState.DEAD)
+        now = time.time()
+
+        if current == PeerState.ALIVE:
+            # First failure: transition to SUSPECTED, not DEAD
+            self._suspected_since[node_id] = now
+            self.record_transition(node_id, PeerState.SUSPECTED, reason, details)
+            logger.debug(
+                f"SUSPECTED_GRACE: {node_id} entered SUSPECTED state, "
+                f"will become DEAD after {grace:.0f}s if not recovered"
+            )
+            return PeerState.SUSPECTED
+
+        elif current == PeerState.SUSPECTED:
+            # Already suspected - check if grace period exceeded
+            suspected_time = self._suspected_since.get(node_id, now)
+            elapsed = now - suspected_time
+
+            if elapsed >= grace:
+                # Grace period exceeded: now mark as DEAD
+                self.record_transition(node_id, PeerState.DEAD, reason, details)
+                # Clean up suspected tracking
+                self._suspected_since.pop(node_id, None)
+                logger.info(
+                    f"SUSPECTED_EXPIRED: {node_id} was SUSPECTED for {elapsed:.0f}s >= "
+                    f"{grace:.0f}s grace period, now DEAD"
+                )
+                return PeerState.DEAD
+            else:
+                # Still within grace period - stay SUSPECTED
+                logger.debug(
+                    f"SUSPECTED_GRACE: {node_id} still SUSPECTED "
+                    f"({elapsed:.0f}s/{grace:.0f}s elapsed)"
+                )
+                return PeerState.SUSPECTED
+
+        else:
+            # Already DEAD or PROBING - just record the failure normally
+            self.record_transition(node_id, PeerState.DEAD, reason, details)
+            return PeerState.DEAD
+
+    def record_recovery(self, node_id: str, details: dict[str, Any] | None = None) -> None:
+        """Record that a node has recovered (probe succeeded).
+
+        Clears any SUSPECTED state tracking and transitions to ALIVE.
+
+        Args:
+            node_id: The peer's node ID
+            details: Additional context (latency, etc.)
+        """
+        # Clear suspected tracking if any
+        self._suspected_since.pop(node_id, None)
+        self.record_transition(node_id, PeerState.ALIVE, None, details)
+
+    def get_suspected_duration(self, node_id: str) -> float | None:
+        """Get how long a node has been in SUSPECTED state.
+
+        Returns:
+            Duration in seconds, or None if not in SUSPECTED state
+        """
+        if node_id not in self._suspected_since:
+            return None
+        return time.time() - self._suspected_since[node_id]
 
     def get_state(self, node_id: str) -> PeerState:
         """Get current state of a peer."""
@@ -202,6 +301,13 @@ class PeerStateTracker:
             if t.to_state == PeerState.DEAD
         ][:10]
 
+        # Count suspected nodes with their durations
+        suspected_nodes = {
+            nid: self.get_suspected_duration(nid)
+            for nid, state in self._current_state.items()
+            if state == PeerState.SUSPECTED
+        }
+
         return {
             "total_transitions_5min": len(recent),
             "flapping_peers": self.get_flapping_peers(),
@@ -209,10 +315,15 @@ class PeerStateTracker:
             "alive_count": sum(
                 1 for s in self._current_state.values() if s == PeerState.ALIVE
             ),
+            "suspected_count": sum(
+                1 for s in self._current_state.values() if s == PeerState.SUSPECTED
+            ),
+            "suspected_nodes": suspected_nodes,
             "dead_count": sum(
                 1 for s in self._current_state.values() if s == PeerState.DEAD
             ),
             "recent_deaths": recent_deaths,
+            "suspected_grace_period": self._suspected_grace_period,
         }
 
     def clear(self) -> None:
