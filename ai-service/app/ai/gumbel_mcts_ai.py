@@ -303,7 +303,10 @@ class GumbelMCTSAI(BaseAI):
         # Load neural network (required for Gumbel MCTS)
         self.neural_net: NeuralNetAI | None = None
         try:
-            self.neural_net = NeuralNetAI(player_number, config)
+            # Jan 2026: Pass board_type to enable early model initialization
+            # This ensures the model is loaded with the correct board dimensions
+            # (e.g., hex8 uses board_size=9, hexagonal uses board_size=25)
+            self.neural_net = NeuralNetAI(player_number, config, board_type=board_type)
             logger.info(
                 f"GumbelMCTSAI(player={player_number}): loaded neural network "
                 f"(model={config.nn_model_id}, m={self.num_sampled_actions}, "
