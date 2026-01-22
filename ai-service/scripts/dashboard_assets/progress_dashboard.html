@@ -305,6 +305,156 @@
 
     <p class="last-updated" id="last-updated"></p>
 
+    <!-- Detailed Analysis Section -->
+    <div class="chart-section" id="detailed-section">
+        <div class="card">
+            <h2>Training Health Indicators</h2>
+            <p style="color: #888; margin-bottom: 20px; font-size: 0.9rem;">
+                Key metrics to assess if the training loop is successfully improving models over time.
+            </p>
+            <div id="health-indicators" class="health-grid">
+                <div class="loading">Loading health indicators...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-section">
+        <div class="card">
+            <h2>Historical Elo Rankings by Config</h2>
+            <p style="color: #888; margin-bottom: 20px; font-size: 0.9rem;">
+                Track model strength improvements over time. Each row represents an Elo snapshot from gauntlet evaluation.
+            </p>
+            <div id="historical-tables">
+                <div class="loading">Loading historical data...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-section">
+        <div class="card">
+            <h2>Training Loop Diagnostics</h2>
+            <p style="color: #888; margin-bottom: 20px; font-size: 0.9rem;">
+                Questions to help diagnose why training may not be improving models.
+            </p>
+            <div id="diagnostics" class="diagnostics-section">
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .health-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .health-item {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        .health-item .label {
+            color: #888;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+        }
+        .health-item .value {
+            font-size: 1.3rem;
+            font-weight: bold;
+        }
+        .health-item .value.healthy { color: #00ff88; }
+        .health-item .value.warning { color: #ffd93d; }
+        .health-item .value.critical { color: #ff6b6b; }
+        .health-item .detail {
+            color: #666;
+            font-size: 0.8rem;
+            margin-top: 5px;
+        }
+        .config-table-wrapper {
+            margin-bottom: 25px;
+        }
+        .config-table-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .config-table-header h3 {
+            color: #00d4ff;
+            font-size: 1.1rem;
+        }
+        .config-table-header .status-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .status-badge.improving { background: #0a3d2e; color: #00ff88; }
+        .status-badge.stalled { background: #3d3d3d; color: #888; }
+        .status-badge.no-data { background: #3d1a1a; color: #ff6b6b; }
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        .history-table th {
+            background: #0f3460;
+            color: #00d4ff;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #333;
+        }
+        .history-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #333;
+        }
+        .history-table tr:hover {
+            background: #1f3a5f;
+        }
+        .history-table .elo-change {
+            font-weight: 600;
+        }
+        .history-table .elo-change.positive { color: #00ff88; }
+        .history-table .elo-change.negative { color: #ff6b6b; }
+        .no-history {
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+            text-align: center;
+        }
+        .diagnostics-section {
+            display: grid;
+            gap: 15px;
+        }
+        .diagnostic-item {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid #333;
+        }
+        .diagnostic-item.pass { border-left-color: #00ff88; }
+        .diagnostic-item.fail { border-left-color: #ff6b6b; }
+        .diagnostic-item.warn { border-left-color: #ffd93d; }
+        .diagnostic-item.info { border-left-color: #00d4ff; }
+        .diagnostic-item .question {
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .diagnostic-item .answer {
+            color: #888;
+            font-size: 0.9rem;
+        }
+        .diagnostic-item .answer strong {
+            color: #eee;
+        }
+        .diagnostic-item .answer code {
+            background: #1a1a2e;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+    </style>
+
     <script>
         // Configuration
         const TARGET_ELO = 2000;
@@ -356,6 +506,9 @@
                 renderStats(data.overall);
                 renderConfigCards(data.configs);
                 renderChart(data.configs);
+                renderHealthIndicators(data.configs, data.overall);
+                renderHistoricalTables(data.configs);
+                renderDiagnostics(data.configs, data.overall);
 
                 document.getElementById('last-updated').textContent =
                     `Last updated: ${data.generated_at}`;
@@ -574,6 +727,215 @@
         // that fabricated fake data. These were removed January 21, 2026 because fabricating
         // data that appears to be real research results is misleading and unethical.
         // The chart now uses actual historical data from the elo_progress.db database.
+
+        // Render health indicators to assess training loop success
+        function renderHealthIndicators(configs, overall) {
+            const container = document.getElementById('health-indicators');
+
+            // Calculate health metrics
+            const configsWithHistory = Object.values(configs).filter(c => c.history && c.history.length > 0).length;
+            const configsWithGames = Object.values(configs).filter(c => c.games_played > 0).length;
+            const totalGames = Object.values(configs).reduce((sum, c) => sum + (c.games_played || 0), 0);
+
+            // Check for suspicious patterns
+            const iterationsWithoutProgress = Object.entries(configs)
+                .filter(([k, c]) => c.iterations > 10 && c.delta === 0)
+                .map(([k]) => k);
+
+            container.innerHTML = `
+                <div class="health-item">
+                    <div class="label">Configs with Elo History</div>
+                    <div class="value ${configsWithHistory >= 8 ? 'healthy' : configsWithHistory >= 4 ? 'warning' : 'critical'}">${configsWithHistory}/12</div>
+                    <div class="detail">Need gauntlet evaluations to track progress</div>
+                </div>
+                <div class="health-item">
+                    <div class="label">Configs with Games Played</div>
+                    <div class="value ${configsWithGames >= 8 ? 'healthy' : configsWithGames >= 4 ? 'warning' : 'critical'}">${configsWithGames}/12</div>
+                    <div class="detail">Gauntlet games used for Elo calculation</div>
+                </div>
+                <div class="health-item">
+                    <div class="label">Total Training Iterations</div>
+                    <div class="value ${overall.total_iterations >= 100 ? 'healthy' : overall.total_iterations >= 20 ? 'warning' : 'critical'}">${overall.total_iterations}</div>
+                    <div class="detail">Across all 12 configurations</div>
+                </div>
+                <div class="health-item">
+                    <div class="label">Total Gauntlet Games</div>
+                    <div class="value ${totalGames >= 100 ? 'healthy' : totalGames >= 20 ? 'warning' : 'critical'}">${totalGames}</div>
+                    <div class="detail">Used for Elo rating calculation</div>
+                </div>
+                <div class="health-item">
+                    <div class="label">Avg Elo Gain/Iteration</div>
+                    <div class="value ${overall.avg_elo_gain_per_iteration > 5 ? 'healthy' : overall.avg_elo_gain_per_iteration > 0 ? 'warning' : 'critical'}">
+                        ${overall.avg_elo_gain_per_iteration ? '+' + overall.avg_elo_gain_per_iteration.toFixed(1) : 'N/A'}
+                    </div>
+                    <div class="detail">Target: >5 Elo per iteration</div>
+                </div>
+                <div class="health-item">
+                    <div class="label">Iterations Without Progress</div>
+                    <div class="value ${iterationsWithoutProgress.length === 0 ? 'healthy' : 'critical'}">${iterationsWithoutProgress.length}</div>
+                    <div class="detail">${iterationsWithoutProgress.length > 0 ? iterationsWithoutProgress.join(', ') : 'All configs progressing'}</div>
+                </div>
+            `;
+        }
+
+        // Render historical Elo tables for each config
+        function renderHistoricalTables(configs) {
+            const container = document.getElementById('historical-tables');
+
+            // Sort configs by current Elo descending
+            const sortedConfigs = Object.entries(configs)
+                .sort((a, b) => b[1].current_elo - a[1].current_elo);
+
+            const tables = sortedConfigs.map(([key, cfg]) => {
+                const hasHistory = cfg.history && cfg.history.length > 0;
+                const statusClass = cfg.delta > 0 ? 'improving' : (hasHistory ? 'stalled' : 'no-data');
+                const statusText = cfg.delta > 0 ? 'Improving' : (hasHistory ? 'Stalled' : 'No Data');
+
+                if (!hasHistory) {
+                    return `
+                        <div class="config-table-wrapper">
+                            <div class="config-table-header">
+                                <h3>${key}</h3>
+                                <span class="status-badge ${statusClass}">${statusText}</span>
+                            </div>
+                            <div class="no-history">
+                                No Elo history recorded yet.
+                                ${cfg.iterations > 0 ? `(${cfg.iterations} iterations completed but no gauntlet evaluation)` : 'Waiting for selfplay and training.'}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Deduplicate and sort history by date (newest first), keeping only unique Elo values
+                const uniqueHistory = [];
+                const seenElos = new Set();
+                [...cfg.history].reverse().forEach(point => {
+                    const eloKey = point.elo.toFixed(1);
+                    if (!seenElos.has(eloKey)) {
+                        seenElos.add(eloKey);
+                        uniqueHistory.push(point);
+                    }
+                });
+
+                // Limit to last 10 unique entries
+                const displayHistory = uniqueHistory.slice(0, 10);
+
+                // Calculate changes
+                const historyWithChanges = displayHistory.map((point, idx) => {
+                    const prevElo = idx < displayHistory.length - 1 ? displayHistory[idx + 1].elo : cfg.starting_elo;
+                    const change = point.elo - prevElo;
+                    return { ...point, change };
+                });
+
+                const rows = historyWithChanges.map(point => {
+                    const changeClass = point.change > 0 ? 'positive' : (point.change < 0 ? 'negative' : '');
+                    const changeStr = point.change >= 0 ? `+${point.change.toFixed(0)}` : point.change.toFixed(0);
+                    return `
+                        <tr>
+                            <td>${point.timestamp}</td>
+                            <td><strong>${point.elo.toFixed(0)}</strong></td>
+                            <td class="elo-change ${changeClass}">${changeStr}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                return `
+                    <div class="config-table-wrapper">
+                        <div class="config-table-header">
+                            <h3>${key}</h3>
+                            <span class="status-badge ${statusClass}">${statusText}</span>
+                        </div>
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Elo Rating</th>
+                                    <th>Change</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = tables;
+        }
+
+        // Render diagnostic questions
+        function renderDiagnostics(configs, overall) {
+            const container = document.getElementById('diagnostics');
+
+            // Calculate diagnostic metrics
+            const iterationsWithoutGames = Object.entries(configs)
+                .filter(([k, c]) => c.iterations > 0 && c.games_played === 0)
+                .map(([k, c]) => ({ key: k, iterations: c.iterations }));
+
+            const configsWithHistory = Object.values(configs).filter(c => c.history && c.history.length > 0).length;
+            const configsImproving = Object.values(configs).filter(c => c.delta > 0).length;
+
+            // Check if any config has very high iterations but low Elo
+            const highIterLowElo = Object.entries(configs)
+                .filter(([k, c]) => c.iterations > 50 && c.current_elo < 1100)
+                .map(([k]) => k);
+
+            const diagnostics = [
+                {
+                    question: "Is the selfplay pipeline generating games?",
+                    status: overall.total_iterations > 0 ? 'pass' : 'fail',
+                    answer: overall.total_iterations > 0
+                        ? `<strong>Yes</strong> - ${overall.total_iterations} training iterations recorded across configs.`
+                        : `<strong>No</strong> - No training iterations recorded. Check if master_loop.py or P2P orchestrator is running.`
+                },
+                {
+                    question: "Are gauntlet evaluations running after training?",
+                    status: configsWithHistory >= 6 ? 'pass' : (configsWithHistory > 0 ? 'warn' : 'fail'),
+                    answer: configsWithHistory > 0
+                        ? `<strong>${configsWithHistory}/12 configs</strong> have Elo history from gauntlet evaluations.`
+                        : `<strong>No</strong> - No gauntlet evaluations recorded. Models may be training but not being evaluated.`
+                },
+                {
+                    question: "Are training iterations producing stronger models?",
+                    status: configsImproving >= 6 ? 'pass' : (configsImproving > 0 ? 'warn' : 'fail'),
+                    answer: configsImproving > 0
+                        ? `<strong>${configsImproving}/12 configs</strong> show positive Elo delta (improving).`
+                        : `<strong>No improvement detected</strong> - Check training loss, data quality, or hyperparameters.`
+                },
+                {
+                    question: "Are there configs with iterations but no games played?",
+                    status: iterationsWithoutGames.length === 0 ? 'pass' : 'fail',
+                    answer: iterationsWithoutGames.length === 0
+                        ? `<strong>All configs OK</strong> - Iterations correlate with games played.`
+                        : `<strong>Problem detected:</strong> ${iterationsWithoutGames.map(c => `${c.key} (${c.iterations} iterations)`).join(', ')} have iterations but 0 games. This suggests iteration counting is broken or gauntlet is not running.`
+                },
+                {
+                    question: "Are high-iteration configs actually improving?",
+                    status: highIterLowElo.length === 0 ? 'pass' : 'fail',
+                    answer: highIterLowElo.length === 0
+                        ? `<strong>Yes</strong> - No configs with high iterations stuck at low Elo.`
+                        : `<strong>Problem:</strong> ${highIterLowElo.join(', ')} have 50+ iterations but Elo <1100. Training may not be learning effectively.`
+                },
+                {
+                    question: "What should I check if models aren't improving?",
+                    status: 'info',
+                    answer: `<strong>Checklist:</strong><br>
+                        1. <strong>Selfplay quality:</strong> Are games using enough MCTS simulations? (should be 200+)<br>
+                        2. <strong>Data quality:</strong> Run <code>python -m app.training.data_quality --db data/games/canonical_*.db</code><br>
+                        3. <strong>Training loss:</strong> Is loss decreasing? Check tensorboard or training logs<br>
+                        4. <strong>Gauntlet results:</strong> What's the win rate vs random? (should be >85%)<br>
+                        5. <strong>P2P cluster:</strong> Is the cluster healthy? Check <code>curl localhost:8770/status</code>`
+                }
+            ];
+
+            container.innerHTML = diagnostics.map(d => `
+                <div class="diagnostic-item ${d.status}">
+                    <div class="question">${d.question}</div>
+                    <div class="answer">${d.answer}</div>
+                </div>
+            `).join('');
+        }
 
         // Time period button handlers
         document.querySelectorAll('.time-buttons button').forEach(btn => {
