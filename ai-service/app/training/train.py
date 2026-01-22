@@ -4894,7 +4894,13 @@ def train_model(
                             outcome_weights = outcome_weights.clamp(min=0.1)  # Prevent zero/negative weights
 
                         # Compute per-sample policy loss and apply weights
-                        per_sample_policy = -(policy_targets * policy_log_probs).sum(dim=1)
+                        # NOTE: Use torch.where to avoid 0 * -inf = NaN when policy_log_probs
+                        # has -inf values from masked_log_softmax (V3/V4 spatial policy heads)
+                        per_sample_policy = -torch.where(
+                            policy_targets > 0,
+                            policy_targets * policy_log_probs,
+                            torch.zeros_like(policy_log_probs)
+                        ).sum(dim=1)
                         valid_mask = policy_targets.sum(dim=1) > 0
                         if valid_mask.any():
                             weighted_policy = (per_sample_policy[valid_mask] * outcome_weights[valid_mask]).mean()
@@ -4938,7 +4944,13 @@ def train_model(
                             final_weights = blend * quality_weights + (1.0 - blend) * uniform_weights
 
                             # Apply to policy loss (per-sample then weighted mean)
-                            per_sample_policy_loss = -(policy_targets * policy_log_probs).sum(dim=1)
+                            # NOTE: Use torch.where to avoid 0 * -inf = NaN when policy_log_probs
+                            # has -inf values from masked_log_softmax (V3/V4 spatial policy heads)
+                            per_sample_policy_loss = -torch.where(
+                                policy_targets > 0,
+                                policy_targets * policy_log_probs,
+                                torch.zeros_like(policy_log_probs)
+                            ).sum(dim=1)
                             valid_mask = policy_targets.sum(dim=1) > 0
                             if valid_mask.any():
                                 policy_loss = (per_sample_policy_loss[valid_mask] * final_weights[valid_mask]).mean()
