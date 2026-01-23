@@ -293,6 +293,12 @@ def get_self_raft_address(
 ) -> str | None:
     """Get this node's Raft address from config.
 
+    Jan 23, 2026: Enhanced to work on macOS by checking:
+    1. RINGRIFT_ADVERTISE_HOST environment variable (most reliable)
+    2. cluster_config tailscale_ip lookup
+    3. hostname-based lookup
+    4. ifconfig/hostname -I for interface IPs
+
     Args:
         config_path: Path to distributed_hosts.yaml
         bind_port: Raft bind port
@@ -300,9 +306,34 @@ def get_self_raft_address(
     Returns:
         Self address in "host:port" format, or None if not determinable
     """
+    import os
     import socket
+    import subprocess
 
-    # Try to get hostname-based address first
+    # Method 1: Check environment variable (works on all platforms)
+    advertise_host = os.environ.get("RINGRIFT_ADVERTISE_HOST")
+    if advertise_host and advertise_host not in ("127.0.0.1", "localhost"):
+        logger.debug(f"Using RINGRIFT_ADVERTISE_HOST for Raft: {advertise_host}")
+        return f"{advertise_host}:{bind_port}"
+
+    # Method 2: Get from cluster_config using node_id
+    if HAS_CLUSTER_CONFIG and get_cluster_nodes is not None:
+        try:
+            node_id = os.environ.get("RINGRIFT_NODE_ID")
+            if not node_id:
+                node_id = socket.gethostname().lower().replace(".", "-")
+
+            nodes = get_cluster_nodes()
+            for node in nodes:
+                if node.name == node_id:
+                    ip = node.tailscale_ip or node.ssh_host
+                    if ip and ip not in ("127.0.0.1", "localhost"):
+                        logger.debug(f"Using cluster_config for Raft: {ip}")
+                        return f"{ip}:{bind_port}"
+        except Exception as e:
+            logger.debug(f"cluster_config lookup failed: {e}")
+
+    # Method 3: Try to get hostname-based address
     try:
         hostname = socket.gethostname()
         ip = socket.gethostbyname(hostname)
@@ -311,10 +342,8 @@ def get_self_raft_address(
     except socket.error:
         pass
 
-    # Fall back to first non-localhost interface
+    # Method 4a: Linux - hostname -I
     try:
-        import subprocess
-
         result = subprocess.run(
             ["hostname", "-I"],
             capture_output=True,
@@ -325,6 +354,30 @@ def get_self_raft_address(
             ips = result.stdout.strip().split()
             for ip in ips:
                 if ip and not ip.startswith("127."):
+                    return f"{ip}:{bind_port}"
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    # Method 4b: macOS - ifconfig (en0 for ethernet/wifi, utun for Tailscale)
+    try:
+        result = subprocess.run(
+            ["ifconfig"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            import re
+            # Look for Tailscale IPs (100.x.x.x) first, then any non-localhost
+            tailscale_ips = re.findall(r"inet (100\.\d+\.\d+\.\d+)", result.stdout)
+            if tailscale_ips:
+                logger.debug(f"Using Tailscale IP from ifconfig: {tailscale_ips[0]}")
+                return f"{tailscale_ips[0]}:{bind_port}"
+
+            # Fall back to any non-localhost IPv4
+            all_ips = re.findall(r"inet (\d+\.\d+\.\d+\.\d+)", result.stdout)
+            for ip in all_ips:
+                if not ip.startswith("127."):
                     return f"{ip}:{bind_port}"
     except (subprocess.SubprocessError, FileNotFoundError):
         pass
