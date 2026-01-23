@@ -71,7 +71,7 @@ class StabilityMonitor:
     def _get_cluster_status(self) -> dict[str, Any] | None:
         """Fetch cluster status from P2P orchestrator."""
         try:
-            response = requests.get(f"{self.p2p_url}/status", timeout=10)
+            response = requests.get(f"{self.p2p_url}/status", timeout=30)
             if response.status_code == 200:
                 return response.json()
             logger.warning(f"P2P status returned {response.status_code}")
