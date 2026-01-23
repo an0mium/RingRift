@@ -2120,6 +2120,14 @@ class P2POrchestrator(
         # and self.role from concurrent modification in async contexts.
         self.leader_state_lock = threading.RLock()
 
+        # Jan 23, 2026: Singleton ThreadPoolExecutor for manager health checks
+        # Previously created a new executor on every health check cycle (every 30s),
+        # causing thread churn and overhead. Reusing a single executor is more efficient.
+        from concurrent.futures import ThreadPoolExecutor
+        self._health_check_executor = ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="health_"
+        )
+
         # Jan 12, 2026: Lock-free job snapshot for /status endpoint
         # Updates via _job_snapshot.update(self.local_jobs) after mutations
         self._job_snapshot = JobSnapshot()
@@ -4741,7 +4749,7 @@ class P2POrchestrator(
 
         # Jan 22, 2026: Add timeout protection to individual manager health checks
         # to prevent event loop blocking when a manager's health_check() is slow
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+        from concurrent.futures import TimeoutError as FuturesTimeout
         MANAGER_HEALTH_TIMEOUT = 2.0  # 2 second timeout per manager
 
         def _safe_health_check(manager):
@@ -4756,11 +4764,11 @@ class P2POrchestrator(
                     status["unhealthy_count"] += 1
                 elif hasattr(manager, "health_check"):
                     # Jan 22, 2026: Use ThreadPoolExecutor with timeout to prevent blocking
-                    # This ensures slow manager health checks don't freeze the entire orchestrator
+                    # Jan 23, 2026: Use singleton executor instead of creating new one each cycle
+                    # This reduces thread churn from ~2 executor creates per second to zero
                     try:
-                        with ThreadPoolExecutor(max_workers=1) as executor:
-                            future = executor.submit(_safe_health_check, manager)
-                            health = future.result(timeout=MANAGER_HEALTH_TIMEOUT)
+                        future = self._health_check_executor.submit(_safe_health_check, manager)
+                        health = future.result(timeout=MANAGER_HEALTH_TIMEOUT)
                     except FuturesTimeout:
                         logger.warning(f"[P2P] Manager {name} health check timed out after {MANAGER_HEALTH_TIMEOUT}s")
                         status["managers"][name] = {"status": "timeout", "error": f"Health check timed out after {MANAGER_HEALTH_TIMEOUT}s"}
@@ -32016,6 +32024,14 @@ print(json.dumps({{
                 pass  # Module not available
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"ThreadedLoopRegistry shutdown failed: {e}")
+
+            # Jan 23, 2026: Shutdown health check executor (singleton efficiency fix)
+            try:
+                if hasattr(self, "_health_check_executor") and self._health_check_executor:
+                    self._health_check_executor.shutdown(wait=False)
+                    logger.debug("Health check executor shutdown complete")
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Health check executor shutdown failed: {e}")
 
             try:
                 await asyncio.wait_for(runner.cleanup(), timeout=30)
