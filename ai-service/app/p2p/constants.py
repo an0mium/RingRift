@@ -58,48 +58,52 @@ HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_HEARTBEAT_INTERVAL", "15")
 # rely on relay mode. Relay adds latency and can cause false-positive peer deaths.
 # With 15s heartbeats, 8 missed = dead for NAT-blocked, 6 for coordinators, 4 for DC.
 # Jan 22, 2026: Increased to 180s to allow more time for gossip state reconciliation.
-# Nodes were being marked dead before gossip could converge, causing cluster instability.
-PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "180") or 180)
-# Original fast timeout for non-coordinator nodes in well-connected DC environments
-PEER_TIMEOUT_FAST = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_FAST", "60") or 60)
-# Jan 2, 2026: Extended timeout for NAT-blocked nodes using relay mode.
-# These nodes have higher latency due to relay hops and need more tolerance.
-PEER_TIMEOUT_NAT_BLOCKED = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_NAT_BLOCKED", "180") or 180)
+# Jan 23, 2026: REVERTED to 90s - 180s + ±25% jitter created 70s disagreement window
+# causing nodes to disagree on liveness. With 90s unified timeout and ±10% jitter,
+# disagreement window is only 18s, much better for gossip convergence.
+PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "90") or 90)
+# Jan 23, 2026: UNIFIED - All node types now use the same timeout (90s) for consistency.
+# Role-based timeouts caused different nodes to disagree on peer liveness, breaking gossip.
+# NAT-blocked nodes compensate via retry/relay, not longer timeouts.
+PEER_TIMEOUT_FAST = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_FAST", "90") or 90)
+# Jan 23, 2026: UNIFIED to 90s - was 180s which caused gossip divergence with DC nodes.
+PEER_TIMEOUT_NAT_BLOCKED = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_NAT_BLOCKED", "90") or 90)
 
 
 def get_peer_timeout_for_node(is_coordinator: bool = False, nat_blocked: bool = False) -> int:
-    """Get appropriate peer timeout based on node role and NAT status.
+    """Get peer timeout - now unified for all node types.
 
-    NAT-blocked nodes need the longest timeouts due to relay latency.
-    Coordinators behind NAT need moderate timeouts.
-    DC nodes can use shorter timeouts for faster failover.
+    Jan 23, 2026: Changed to return PEER_TIMEOUT (90s) for ALL node types.
+    Role-based timeouts caused gossip divergence where different nodes disagreed
+    on peer liveness. With unified timeouts, all nodes make the same decision
+    within the jitter window (±10% = max 18s disagreement), allowing gossip to converge.
+
+    NAT-blocked and coordinator nodes compensate for latency via:
+    - Multiple retry attempts in heartbeat loop
+    - Relay/fallback transport mechanisms
+    - CPU-adaptive timeout extension (handled separately)
 
     Args:
-        is_coordinator: True if node is a coordinator (typically behind NAT)
-        nat_blocked: True if node is NAT-blocked and uses relay mode
+        is_coordinator: True if node is a coordinator (ignored for timeout)
+        nat_blocked: True if node is NAT-blocked (ignored for timeout)
 
     Returns:
-        Timeout in seconds:
-        - 120s for NAT-blocked nodes (relay mode)
-        - 90s for coordinators behind NAT
-        - 60s for well-connected DC nodes
+        Timeout in seconds: Always PEER_TIMEOUT (90s) for consistency
     """
-    if nat_blocked:
-        return PEER_TIMEOUT_NAT_BLOCKED  # 120s for NAT-blocked nodes
-    if is_coordinator:
-        return PEER_TIMEOUT  # 90s for coordinators behind NAT
-    return PEER_TIMEOUT_FAST  # 60s for well-connected DC nodes
+    # Jan 23, 2026: Return unified timeout regardless of role
+    # This ensures all nodes agree on peer liveness within the jitter window
+    return PEER_TIMEOUT
 
 
 # Jan 19, 2026: Jitter factor to prevent synchronized death cascades.
 # When multiple nodes check peer liveness at exactly the same timeout,
 # they all mark the same slow peer dead simultaneously, causing gossip storms.
 # Adding randomness desynchronizes these checks.
-# Jan 23, 2026: Increased from ±10% to ±25% for 40+ node clusters.
-# With 180s timeout, ±10% = ±18s window - still too narrow for 40 nodes.
-# With ±25% = ±45s window, nodes spread their checks over 90s range.
+# Jan 23, 2026: REVERTED to ±10% - ±25% with 180s timeout created 70s disagreement windows.
+# With unified 90s timeout and ±10% jitter, max disagreement is 18s (90s * 0.2 = 18s).
+# This is small enough for gossip to converge within 2-3 rounds (24-36s at 12s interval).
 PEER_TIMEOUT_JITTER_FACTOR = float(
-    os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_JITTER", "0.25") or 0.25
+    os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_JITTER", "0.10") or 0.10
 )
 
 
@@ -133,11 +137,14 @@ CPU_LOAD_CRITICAL_THRESHOLD = float(
     os.environ.get("RINGRIFT_P2P_CPU_LOAD_CRITICAL", "0.95") or 0.95
 )
 # Timeout multipliers for high CPU load
+# Jan 23, 2026: Reduced from 1.5x/2.0x to 1.2x/1.4x to keep disagreement windows small.
+# With 90s base timeout: High CPU = 108s (+18s), Critical = 126s (+36s).
+# This keeps max disagreement under 36s, achievable in 3 gossip rounds.
 CPU_HIGH_TIMEOUT_MULTIPLIER = float(
-    os.environ.get("RINGRIFT_P2P_CPU_HIGH_TIMEOUT_MULT", "1.5") or 1.5
+    os.environ.get("RINGRIFT_P2P_CPU_HIGH_TIMEOUT_MULT", "1.2") or 1.2
 )
 CPU_CRITICAL_TIMEOUT_MULTIPLIER = float(
-    os.environ.get("RINGRIFT_P2P_CPU_CRITICAL_TIMEOUT_MULT", "2.0") or 2.0
+    os.environ.get("RINGRIFT_P2P_CPU_CRITICAL_TIMEOUT_MULT", "1.4") or 1.4
 )
 
 
