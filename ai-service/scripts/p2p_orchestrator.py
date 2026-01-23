@@ -6918,14 +6918,21 @@ class P2POrchestrator(
         """Select best primary address (prefer IPv4 for compatibility) and return alternates.
 
         January 2, 2026: Added for dual-stack IPv4/IPv6 support.
+        January 23, 2026: Added RINGRIFT_PREFER_PUBLIC_IP to prioritize public IPs over Tailscale.
         Ensures primary advertise_host is IPv4 when available (broader compatibility),
         with IPv6 addresses available in alternate_ips for dual-stack peers.
 
-        Preference order for primary:
+        Preference order for primary (default):
         1. Tailscale CGNAT IPv4 (100.x.x.x) - globally routable via Tailscale mesh
         2. Other IPv4 addresses
         3. Tailscale IPv6 (fd7a:115c:a1e0::) - if no IPv4 available
         4. Other IPv6 addresses
+
+        If RINGRIFT_PREFER_PUBLIC_IP=1, preference order becomes:
+        1. Public IPv4 addresses (non-100.x.x.x, non-private)
+        2. Tailscale CGNAT IPv4 (100.x.x.x)
+        3. Other IPv4 addresses
+        4. IPv6 addresses
 
         Args:
             all_ips: Set of all discovered IP addresses
@@ -6945,14 +6952,28 @@ class P2POrchestrator(
             else:
                 ipv4_ips.add(ip)
 
-        # Preference 1: Tailscale CGNAT IPv4 (100.x.x.x)
+        # Check if we should prefer public IPs over Tailscale
+        prefer_public = os.environ.get("RINGRIFT_PREFER_PUBLIC_IP", "").strip().lower() in ("1", "true", "yes")
+
+        # Separate public and Tailscale IPs
         tailscale_v4 = [ip for ip in ipv4_ips if ip.startswith("100.")]
+        public_v4 = [ip for ip in ipv4_ips if not ip.startswith("100.") and not ip.startswith("10.") and not ip.startswith("172.") and not ip.startswith("192.168.")]
+
+        if prefer_public:
+            # Preference 1: Public IPv4 (non-Tailscale, non-private)
+            if public_v4:
+                primary = public_v4[0]
+                alternates = all_ips - {primary}
+                logger.info(f"[P2P] Preferring public IP {primary} over Tailscale (RINGRIFT_PREFER_PUBLIC_IP=1)")
+                return primary, alternates
+
+        # Preference 1/2: Tailscale CGNAT IPv4 (100.x.x.x)
         if tailscale_v4:
             primary = tailscale_v4[0]
             alternates = all_ips - {primary}
             return primary, alternates
 
-        # Preference 2: Any other IPv4
+        # Preference 2/3: Any other IPv4
         if ipv4_ips:
             primary = next(iter(ipv4_ips))
             alternates = all_ips - {primary}
