@@ -5797,12 +5797,28 @@ class P2POrchestrator(
         # Calculate consensus ratio
         consensus_ratio = agreement / total_voters if total_voters > 0 else 0
 
-        # Only act on strong consensus (>50%)
-        if consensus_ratio < 0.5:
-            return False
-
         ulsm_state = self._leadership_sm._state
         ulsm_leader = self._leadership_sm._leader_id
+
+        # Jan 23, 2026: Lowered threshold from 50% to 25% to help build consensus
+        # Also added proactive consensus building when no consensus exists
+        MIN_CONSENSUS_THRESHOLD = 0.25
+
+        # If very low consensus (<25%), try to help build it by broadcasting our leader view
+        if consensus_ratio < MIN_CONSENSUS_THRESHOLD:
+            # If we know who the leader is, proactively announce it
+            if self.leader_id and self.leader_id != self.node_id:
+                # We're a follower with a known leader - this is normal, no action needed
+                pass
+            elif ulsm_state == LeaderState.LEADER:
+                # We think we're leader but consensus doesn't agree
+                # Proactively send leadership claim to help convergence
+                logger.info(
+                    f"[LeaderReconciliation] Low consensus ({consensus_ratio:.0%}), "
+                    f"proactively announcing leadership to help convergence"
+                )
+                self._broadcast_leadership_claim()
+            return False
 
         # Case 1: Gossip says we're leader, ULSM doesn't know
         if consensus_leader == self.node_id and ulsm_state != LeaderState.LEADER:
@@ -5836,6 +5852,61 @@ class P2POrchestrator(
             return True
 
         return False
+
+    def _broadcast_leadership_claim(self) -> None:
+        """Proactively broadcast leadership claim to help consensus convergence.
+
+        Jan 23, 2026: Added to help build consensus when agreement is low.
+        Sends a leadership claim heartbeat to all peers.
+        """
+        if not self.leader_id:
+            return
+
+        # Schedule async broadcast using the event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Create a small heartbeat-like message announcing our leader view
+                asyncio.create_task(self._async_broadcast_leader_claim())
+        except RuntimeError:
+            # No event loop available
+            pass
+
+    async def _async_broadcast_leader_claim(self) -> None:
+        """Async helper to broadcast leadership claim."""
+        try:
+            peers_snapshot = self._peer_snapshot.get_snapshot()
+            tasks = []
+
+            for peer_id, peer_info in peers_snapshot.items():
+                if not peer_info.is_alive():
+                    continue
+
+                url = f"http://{peer_info.host}:{peer_info.port}/heartbeat"
+                payload = {
+                    "node_id": self.node_id,
+                    "leader_id": self.leader_id,
+                    "role": self.role.value if hasattr(self.role, "value") else str(self.role),
+                    "timestamp": time.time(),
+                    "is_leadership_claim": True,  # Flag to indicate this is proactive
+                }
+                tasks.append(self._send_heartbeat_to_peer(url, payload, peer_id))
+
+            if tasks:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                success = sum(1 for r in results if r is True)
+                logger.debug(f"[LeaderReconciliation] Broadcast leadership claim to {success}/{len(tasks)} peers")
+        except Exception as e:
+            logger.debug(f"[LeaderReconciliation] Failed to broadcast leadership claim: {e}")
+
+    async def _send_heartbeat_to_peer(self, url: str, payload: dict, peer_id: str) -> bool:
+        """Send heartbeat to a single peer."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    return response.status == 200
+        except Exception:
+            return False
 
     def _get_config_version(self) -> dict:
         """Get config file version info for drift detection.
@@ -13242,7 +13313,39 @@ class P2POrchestrator(
                 # Dec 2025: Leader discovery from peer heartbeats
                 # If we don't have a leader but peer reports one, consider adopting it
                 # Jan 3, 2026: CRITICAL FIX - Handle case where peer reports US as leader
+                # Jan 23, 2026: Enhanced to also track consensus when we have a different leader
                 peer_leader = getattr(peer_info, "leader_id", "") or ""
+
+                # Track leader reports for consensus building (Jan 23, 2026)
+                if peer_leader:
+                    if not hasattr(self, "_leader_reports"):
+                        self._leader_reports = {}
+                    self._leader_reports[peer_info.node_id] = (peer_leader, time.time())
+
+                    # Clean old reports (older than 60 seconds)
+                    cutoff = time.time() - 60
+                    self._leader_reports = {
+                        k: v for k, v in self._leader_reports.items()
+                        if v[1] > cutoff
+                    }
+
+                    # Check if we should switch leaders based on peer consensus
+                    if self.leader_id and self.leader_id != peer_leader:
+                        # Count how many peers report the same leader
+                        leader_counts = {}
+                        for _, (reported_leader, _) in self._leader_reports.items():
+                            leader_counts[reported_leader] = leader_counts.get(reported_leader, 0) + 1
+
+                        # If 3+ peers report a different leader, consider switching
+                        if leader_counts.get(peer_leader, 0) >= 3:
+                            potential_leader = self.peers.get(peer_leader)
+                            if potential_leader and potential_leader.is_alive():
+                                logger.info(
+                                    f"[ConsensusSwitch] Switching leader from {self.leader_id} to {peer_leader} "
+                                    f"based on peer consensus ({leader_counts.get(peer_leader)} reports)"
+                                )
+                                self._set_leader(peer_leader, reason=f"consensus_switch_via_{peer_info.node_id}")
+
                 if peer_leader and not self.leader_id:
                     # CRITICAL FIX (Jan 3, 2026): Check if peer reports US as leader
                     # This fixes the leader self-recognition desync bug where leader_id
@@ -32791,6 +32894,8 @@ def _is_process_running_check(pid: int) -> bool:
 
 def _claim_supervisor_role(mode: str = "manual", force: bool = False) -> tuple[bool, str]:
     """Claim P2P management role."""
+    from datetime import datetime, timedelta
+
     existing = _read_supervisor_file()
 
     if existing is None or existing.get("managed_by") in ("none", None):
@@ -32801,11 +32906,28 @@ def _claim_supervisor_role(mode: str = "manual", force: bool = False) -> tuple[b
     existing_manager = existing.get("managed_by")
     existing_pid = existing.get("pid")
 
+    # Check if PID is dead
     if existing_pid and not _is_process_running_check(existing_pid):
         logger.info(f"[P2P] Previous manager (PID {existing_pid}) is dead, taking over")
         if _write_supervisor_file(mode, os.getpid(), force=True):
             return (True, "claimed")
         return (False, "write_failed")
+
+    # Jan 23, 2026: Check for stale claims based on timestamp
+    # If last_health_check is older than 10 minutes, consider it stale
+    last_health = existing.get("last_health_check") or existing.get("started_at")
+    if last_health:
+        try:
+            last_health_dt = datetime.fromisoformat(last_health.replace("Z", "+00:00"))
+            now = datetime.now(last_health_dt.tzinfo) if last_health_dt.tzinfo else datetime.utcnow()
+            stale_threshold = timedelta(minutes=10)
+            if now - last_health_dt > stale_threshold:
+                logger.info(f"[P2P] Previous manager (PID {existing_pid}) has stale health check ({last_health}), taking over")
+                if _write_supervisor_file(mode, os.getpid(), force=True):
+                    return (True, "claimed")
+                return (False, "write_failed")
+        except (ValueError, TypeError) as e:
+            logger.debug(f"[P2P] Could not parse health check timestamp: {e}")
 
     if existing_pid == os.getpid():
         return (True, "already_manager")
