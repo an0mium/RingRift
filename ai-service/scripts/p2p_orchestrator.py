@@ -1727,6 +1727,10 @@ class P2POrchestrator(
         # the heartbeat socket address, but the port must be self-reported. This
         # matters for port-mapped environments like Vast.ai.
         self.advertise_host = (advertise_host or os.environ.get(ADVERTISE_HOST_ENV, "")).strip()
+
+        # Jan 23, 2026: Check for public IP preference BEFORE setting Tailscale IP
+        prefer_public = os.environ.get("RINGRIFT_PREFER_PUBLIC_IP", "").strip().lower() in ("1", "true", "yes")
+
         if not self.advertise_host:
             # Prefer a stable mesh address (Tailscale) when available so nodes
             # behind NAT remain reachable and the cluster converges on a single
@@ -1735,15 +1739,18 @@ class P2POrchestrator(
             # Jan 12, 2026: Multi-fallback IP resolution with YAML config priority.
             # Order: 1) YAML config tailscale_ip, 2) Tailscale CLI with retry,
             #        3) Local IP (last resort)
+            # Jan 23, 2026: If RINGRIFT_PREFER_PUBLIC_IP=1, skip Tailscale and use
+            #        public IP from YAML ssh_host or detected network interfaces.
             #
             # YAML fallback added because Tailscale CLI may not be ready at startup,
             # and the pre-configured tailscale_ip in distributed_hosts.yaml is a
             # reliable source for the correct IP.
-            yaml_ip = self._get_yaml_tailscale_ip()
-            if yaml_ip:
-                self.advertise_host = yaml_ip
-                logger.info(f"[P2P] Using YAML config tailscale_ip: {yaml_ip}")
-            else:
+            if not prefer_public:
+                yaml_ip = self._get_yaml_tailscale_ip()
+                if yaml_ip:
+                    self.advertise_host = yaml_ip
+                    logger.info(f"[P2P] Using YAML config tailscale_ip: {yaml_ip}")
+            if not self.advertise_host and not prefer_public:
                 # Try Tailscale detection with retry (up to 90s - increased Jan 12, 2026)
                 # Root cause: 30s was insufficient when mac-studio boots and Tailscale
                 # takes 45-60s to initialize. This caused persistent local IP (10.0.0.62)
@@ -1755,6 +1762,10 @@ class P2POrchestrator(
                         f"[P2P] Tailscale unavailable, using local IP: {self.advertise_host}. "
                         "Set RINGRIFT_ADVERTISE_HOST or ensure Tailscale is running."
                     )
+            if not self.advertise_host and prefer_public:
+                # With RINGRIFT_PREFER_PUBLIC_IP=1, use ssh_host from YAML or detected public IP
+                # _validate_and_fix_advertise_host() will select the best public IP
+                logger.info("[P2P] RINGRIFT_PREFER_PUBLIC_IP=1: skipping Tailscale, will use public IP")
 
         # Dec 30, 2025: Validate advertise_host to prevent private IP issues
         # that cause P2P quorum loss when nodes can't reach each other
@@ -6870,8 +6881,18 @@ class P2POrchestrator(
             if cfg_ts_ip:
                 ips.add(cfg_ts_ip)
 
-            # Try to resolve ssh_host if it's a hostname - both address families
+            # Jan 23, 2026: Add ssh_host directly if it looks like an IP address (public IP)
+            # This is critical for RINGRIFT_PREFER_PUBLIC_IP to work
             ssh_host = node_cfg.get("ssh_host")
+            if ssh_host and not ssh_host.startswith("ssh"):  # Skip vast.ai ssh gateway
+                # Check if ssh_host is already an IP address (IPv4)
+                import re
+                ipv4_pattern = re.compile(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+                if ipv4_pattern.match(ssh_host):
+                    ips.add(ssh_host)
+                    logger.debug(f"[P2P] Added ssh_host IP from YAML: {ssh_host}")
+
+            # Also try to resolve ssh_host if it's a hostname - both address families
             if ssh_host and not ssh_host.startswith("ssh"):  # Skip vast.ai ssh gateway
                 try:
                     # IPv4
