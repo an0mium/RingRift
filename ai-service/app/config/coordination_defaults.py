@@ -1168,12 +1168,13 @@ class P2PDefaults:
 
     # Peer timeout (seconds) - consider dead after no heartbeat
     # Jan 19, 2026: Increased from 30 to 90 to reduce false disconnections
-    # The 30s timeout was too aggressive for NAT-blocked nodes (Lambda, Vast CGNAT)
-    PEER_TIMEOUT: int = _env_int("RINGRIFT_P2P_PEER_TIMEOUT", 90)
+    # Jan 22, 2026: Increased to 180 to align with app/p2p/constants.py for gossip convergence
+    PEER_TIMEOUT: int = _env_int("RINGRIFT_P2P_PEER_TIMEOUT", 180)
 
     # NAT-blocked peer timeout (seconds) - longer timeout for Lambda/Vast NAT-blocked nodes
     # Jan 19, 2026: Added for nodes behind CGNAT or strict NAT (rely on relay/P2PD)
-    PEER_TIMEOUT_NAT_BLOCKED: int = _env_int("RINGRIFT_P2P_PEER_TIMEOUT_NAT_BLOCKED", 120)
+    # Jan 22, 2026: Increased to 180 to align with app/p2p/constants.py
+    PEER_TIMEOUT_NAT_BLOCKED: int = _env_int("RINGRIFT_P2P_PEER_TIMEOUT_NAT_BLOCKED", 180)
 
     # Fast peer timeout (seconds) - for well-connected datacenter nodes
     # Jan 19, 2026: Added for Hetzner, Vultr nodes with direct connectivity

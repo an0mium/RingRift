@@ -47,7 +47,8 @@ class UdpDiscoveryConfig:
     max_message_size: int = 1024
     # Phase 3.1 Dec 29, 2025: Add max iterations to prevent infinite loop
     # If recvfrom keeps returning data (e.g., broadcast storms), we break after N messages
-    max_receive_iterations: int = 100
+    # Jan 22, 2026: Increased from 100 to 500 to handle larger cluster broadcasts (40+ nodes)
+    max_receive_iterations: int = 500
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
@@ -193,7 +194,8 @@ class FollowerDiscoveryConfig:
 
     discovery_interval_seconds: float = 60.0
     query_timeout_seconds: float = 10.0
-    max_nodes_to_query: int = 5
+    # Jan 22, 2026: Increased from 5 to 15 to discover more peers in large clusters (40+ nodes)
+    max_nodes_to_query: int = 15
 
     def __post_init__(self) -> None:
         """Validate configuration values."""

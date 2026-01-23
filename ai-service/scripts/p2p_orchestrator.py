@@ -2869,11 +2869,11 @@ class P2POrchestrator(
                 async def _sync_model_to_node(node_id: str, config_key: str, source_path: str) -> bool:
                     """Sync a model to a specific node."""
                     try:
-                        # Use rsync for model distribution
-                        peer = self.peers.get(node_id)
+                        # Jan 22, 2026: Use lock-free snapshot + fix type error (peer is NodeInfo, not dict)
+                        peer = self._peer_snapshot.get_snapshot().get(node_id)
                         if not peer:
                             return False
-                        host = peer.get("ip") or peer.get("host", "")
+                        host = getattr(peer, "ip", None) or getattr(peer, "host", "")
                         if not host:
                             return False
                         # Use sync_models infrastructure
@@ -2896,7 +2896,8 @@ class P2POrchestrator(
                     get_model_versions=lambda: getattr(self, '_model_versions', {}),
                     get_node_models=_get_node_models_for_sync,
                     sync_model=_sync_model_to_node,
-                    get_active_nodes=lambda: list(self.peers.keys()) if self.peers else [],
+                    # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+                    get_active_nodes=lambda: list(self._peer_snapshot.get_snapshot().keys()),
                 )
                 manager.register(model_sync)
             else:
@@ -3573,7 +3574,8 @@ class P2POrchestrator(
                 async def _fetch_node_health_for_loop(node_id: str) -> dict[str, Any]:
                     """Fetch health metrics from a specific node."""
                     try:
-                        peer = self.peers.get(node_id)
+                        # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+                        peer = self._peer_snapshot.get_snapshot().get(node_id)
                         if not peer:
                             return {"healthy": False, "error": "peer_not_found"}
                         host = peer.host or peer.ip
@@ -3847,7 +3849,8 @@ class P2POrchestrator(
 
                 def _get_peer_endpoint_for_split_brain(peer_id: str) -> str | None:
                     """Get HTTP endpoint for a peer."""
-                    peer = self.peers.get(peer_id)
+                    # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+                    peer = self._peer_snapshot.get_snapshot().get(peer_id)
                     if not peer:
                         return None
                     host = peer.host or peer.ip
@@ -3866,7 +3869,8 @@ class P2POrchestrator(
                     )
 
                 split_brain_detection = SplitBrainDetectionLoop(
-                    get_peers=lambda: dict(self.peers) if self.peers else {},
+                    # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+                    get_peers=lambda: dict(self._peer_snapshot.get_snapshot()),
                     get_peer_endpoint=_get_peer_endpoint_for_split_brain,
                     get_own_leader_id=lambda: self.leader_id,
                     get_cluster_epoch=lambda: getattr(self, "cluster_epoch", 0),
@@ -4027,13 +4031,15 @@ class P2POrchestrator(
                     return []
 
                 # Callback: Get peer object by node_id
+                # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
                 def _get_peer_by_id_for_recovery(node_id: str):
-                    return self.peers.get(node_id)
+                    return self._peer_snapshot.get_snapshot().get(node_id)
 
                 # Callback: Get retired peers
+                # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
                 def _get_retired_peers_for_recovery() -> list:
                     return [
-                        p for p in self.peers.values()
+                        p for p in self._peer_snapshot.get_snapshot().values()
                         if getattr(p, "retired", False) or not p.is_alive()
                     ]
 
@@ -4553,8 +4559,9 @@ class P2POrchestrator(
                 get_leader_id=lambda: self.leader_id,
                 claim_from_leader=self._claim_work_from_leader,
                 # Channel 2: Peer discovery
+                # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
                 get_alive_peers=lambda: [
-                    p.node_id for p in self.peers.values() if p.is_alive()
+                    p.node_id for p in self._peer_snapshot.get_snapshot().values() if p.is_alive()
                 ],
                 query_peer_work=self._query_peer_for_work,
                 # Channel 3: Autonomous queue
@@ -4585,7 +4592,8 @@ class P2POrchestrator(
         January 4, 2026: Phase 5 - Peer discovery channel.
         """
         try:
-            peer = self.peers.get(peer_id)
+            # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+            peer = self._peer_snapshot.get_snapshot().get(peer_id)
             if not peer or not peer.is_alive():
                 return None
 
@@ -9301,7 +9309,8 @@ class P2POrchestrator(
             from app.distributed.data_events import DataEventType
             from app.coordination.event_router import emit_event
 
-            peer_info = self.peers.get(node_id)
+            # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+            peer_info = self._peer_snapshot.get_snapshot().get(node_id)
             emit_event(DataEventType.HOST_ONLINE.value, {
                 "node_id": node_id,
                 "host": getattr(peer_info, "host", "") if peer_info else "",
@@ -9323,7 +9332,8 @@ class P2POrchestrator(
             from app.distributed.data_events import DataEventType
             from app.coordination.event_router import emit_event
 
-            peer_info = self.peers.get(node_id)
+            # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+            peer_info = self._peer_snapshot.get_snapshot().get(node_id)
             emit_event(DataEventType.HOST_ONLINE.value, {
                 "node_id": node_id,
                 "host": getattr(peer_info, "host", "") if peer_info else "",
