@@ -15267,7 +15267,11 @@ print(json.dumps(result))
         if not local_manifest:
             # Try to load from cache or collect if we don't have one
             try:
-                local_manifest = self.sync_planner.collect_local_manifest_cached(max_cache_age=600)
+                # Jan 23, 2026: Wrap in asyncio.to_thread() to prevent event loop blocking
+                # collect_local_manifest_cached() does file I/O and SQLite operations
+                local_manifest = await asyncio.to_thread(
+                    self.sync_planner.collect_local_manifest_cached, max_cache_age=600
+                )
                 with self.manifest_lock:
                     self.local_data_manifest = local_manifest
             except (AttributeError):
@@ -24661,7 +24665,11 @@ print(json.dumps({{
         local_manifest = getattr(self, "local_data_manifest", None)
         if not local_manifest:
             try:
-                local_manifest = self.sync_planner.collect_local_manifest_cached(max_cache_age=600)
+                # Jan 23, 2026: Wrap in asyncio.to_thread() to prevent event loop blocking
+                # collect_local_manifest_cached() does file I/O and SQLite operations
+                local_manifest = await asyncio.to_thread(
+                    self.sync_planner.collect_local_manifest_cached, max_cache_age=600
+                )
                 with self.manifest_lock:
                     self.local_data_manifest = local_manifest
             except (AttributeError):
