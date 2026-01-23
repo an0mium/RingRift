@@ -7929,6 +7929,70 @@ class P2POrchestrator(
 
             await asyncio.sleep(SNAPSHOT_INTERVAL)
 
+    async def _event_loop_latency_monitor(self) -> None:
+        """Monitor event loop responsiveness to detect blocking operations.
+
+        Jan 23, 2026: Added to diagnose event loop blocking issues that cause
+        HTTP endpoints to become unresponsive while the process is still running.
+
+        When asyncio.sleep(0.1) takes significantly longer than 100ms, it indicates
+        the event loop was blocked by a synchronous operation (e.g., SQLite I/O).
+
+        Logs warnings when latency exceeds 1 second, errors when exceeds 5 seconds.
+        """
+        EXPECTED_SLEEP = 0.1  # 100ms
+        WARNING_THRESHOLD = 1.0  # 1 second
+        ERROR_THRESHOLD = 5.0  # 5 seconds
+        CHECK_INTERVAL = 5.0  # Check every 5 seconds
+
+        await asyncio.sleep(10)  # Initial delay to let startup complete
+
+        consecutive_blocks = 0
+        while True:
+            try:
+                start = time.monotonic()
+                await asyncio.sleep(EXPECTED_SLEEP)
+                actual = time.monotonic() - start
+                latency = actual - EXPECTED_SLEEP
+
+                if latency > ERROR_THRESHOLD:
+                    consecutive_blocks += 1
+                    logger.error(
+                        f"[EventLoop] CRITICAL: Event loop blocked for {latency:.2f}s "
+                        f"(expected {EXPECTED_SLEEP}s, actual {actual:.2f}s). "
+                        f"Consecutive blocks: {consecutive_blocks}. "
+                        f"Likely cause: synchronous SQLite or file I/O."
+                    )
+                    # Emit event for external monitoring
+                    try:
+                        self._safe_emit_event("EVENT_LOOP_BLOCKED", {
+                            "node_id": self.node_id,
+                            "latency_seconds": latency,
+                            "consecutive_blocks": consecutive_blocks,
+                            "severity": "critical",
+                        })
+                    except Exception:  # noqa: BLE001
+                        pass
+                elif latency > WARNING_THRESHOLD:
+                    consecutive_blocks += 1
+                    logger.warning(
+                        f"[EventLoop] Event loop blocked for {latency:.2f}s "
+                        f"(expected {EXPECTED_SLEEP}s, actual {actual:.2f}s). "
+                        f"May indicate synchronous I/O operation."
+                    )
+                else:
+                    # Reset consecutive counter on healthy iteration
+                    if consecutive_blocks > 0:
+                        logger.info(f"[EventLoop] Recovered after {consecutive_blocks} blocked iterations")
+                    consecutive_blocks = 0
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[EventLoop] Monitor error: {e}")
+
+            await asyncio.sleep(CHECK_INTERVAL)
+
     def _maybe_adopt_voter_node_ids(self, voter_node_ids: list[str], *, source: str) -> bool:
         """Adopt/override the voter set when it's not explicitly configured.
 
@@ -31970,6 +32034,12 @@ print(json.dumps({{
         # Logs detailed peer counts, voter health, and election state every 60 seconds
         tasks.append(self._create_safe_task(
             self._cluster_health_snapshot_loop(), "cluster_health_snapshot", factory=self._cluster_health_snapshot_loop
+        ))
+
+        # Jan 23, 2026: Event loop latency monitor for diagnosing HTTP unresponsiveness
+        # Detects when synchronous operations block the event loop, causing health checks to fail
+        tasks.append(self._create_safe_task(
+            self._event_loop_latency_monitor(), "event_loop_monitor", factory=self._event_loop_latency_monitor
         ))
 
         # NOTE: _follower_discovery_loop removed Dec 2025 - now runs via LoopManager (FollowerDiscoveryLoop)
