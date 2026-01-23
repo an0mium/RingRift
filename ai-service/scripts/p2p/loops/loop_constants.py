@@ -221,7 +221,9 @@ class LoopTimeouts:
     SQLITE_LOCK_LONG: float = 30.0           # Long-running DB operations
 
     # HTTP handler timeouts (web endpoint processing)
-    HANDLER_GOSSIP: float = 30.0             # Gossip/status handlers
+    # Jan 22, 2026: Increased from 30s to 45s - gossip with large cluster state
+    # was taking 31s, causing cascade failures in status endpoint
+    HANDLER_GOSSIP: float = 45.0             # Gossip/status handlers
     HANDLER_TOURNAMENT: float = 60.0         # Tournament/gauntlet handlers
     HANDLER_DELIVERY: float = 120.0          # File delivery handlers
     HANDLER_ADMIN: float = 300.0             # Admin/long-running handlers
