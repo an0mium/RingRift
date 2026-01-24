@@ -65,11 +65,13 @@ from scripts.p2p.protocol_utils import load_constants, safe_import, safe_import_
 _consts = load_constants(
     "CONSENSUS_MODE", "DEFAULT_PORT", "RAFT_AUTO_UNLOCK_TIME",
     "RAFT_BIND_PORT", "RAFT_COMPACTION_MIN_ENTRIES", "RAFT_ENABLED",
+    "RAFT_USE_MANUAL_TICK",
     defaults={
         "RAFT_ENABLED": False,
         "RAFT_BIND_PORT": 4321,
         "RAFT_COMPACTION_MIN_ENTRIES": 1000,
         "RAFT_AUTO_UNLOCK_TIME": 300.0,
+        "RAFT_USE_MANUAL_TICK": False,
         "CONSENSUS_MODE": "bully",
         "DEFAULT_PORT": 8770,
     },
@@ -141,8 +143,12 @@ if PYSYNCOBJ_AVAILABLE:
             raft_dump_dir.mkdir(parents=True, exist_ok=True)
             raft_dump_path = str(raft_dump_dir / "raft_work_queue.dump")
 
+            # Jan 24, 2026: Honor RAFT_USE_MANUAL_TICK to allow AsyncRaftManager
+            # to control ticking, preventing CPU-hogging autoTick thread.
+            _auto_tick = not _consts["RAFT_USE_MANUAL_TICK"]
+            logger.info(f"ReplicatedWorkQueue: RAFT_USE_MANUAL_TICK={_consts['RAFT_USE_MANUAL_TICK']}, autoTick={_auto_tick}")
             conf = _SyncObjConf(
-                autoTick=True,
+                autoTick=_auto_tick,
                 appendEntriesUseBatch=True,
                 fullDumpFile=raft_dump_path,  # Persist Raft state across restarts
                 logCompactionMinEntries=compaction_min_entries,
@@ -376,8 +382,10 @@ if PYSYNCOBJ_AVAILABLE:
             # callbacks may access is_ready property during initialization
             self._is_ready = False
 
+            # Jan 24, 2026: Honor RAFT_USE_MANUAL_TICK to prevent CPU-hogging
+            _auto_tick = not _consts["RAFT_USE_MANUAL_TICK"]
             conf = _SyncObjConf(
-                autoTick=True,
+                autoTick=_auto_tick,
                 appendEntriesUseBatch=True,
             )
             super().__init__(self_addr, partner_addrs, conf=conf)
