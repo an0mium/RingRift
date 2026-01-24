@@ -432,8 +432,10 @@ class ReplicatedWorkQueue(SyncObj):
         # Configure PySyncObj
         # Jan 24, 2026: Use RAFT_USE_MANUAL_TICK to control autoTick behavior.
         # When manual tick is enabled, AsyncRaftManager controls ticking.
+        _auto_tick = not RAFT_USE_MANUAL_TICK
+        logger.info(f"ReplicatedWorkQueue: RAFT_USE_MANUAL_TICK={RAFT_USE_MANUAL_TICK}, autoTick={_auto_tick}")
         conf = SyncObjConf(
-            autoTick=not RAFT_USE_MANUAL_TICK,
+            autoTick=_auto_tick,
             appendEntriesUseBatch=True,
             raftMinTimeout=0.5,
             raftMaxTimeout=2.0,
