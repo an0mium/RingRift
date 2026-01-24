@@ -430,12 +430,12 @@ class ReplicatedWorkQueue(SyncObj):
         self.__lock_manager = ReplLockManager(autoUnlockTime=auto_unlock_time)
 
         # Configure PySyncObj
-        # Jan 24, 2026: Use RAFT_USE_MANUAL_TICK to control autoTick behavior.
-        # When manual tick is enabled, AsyncRaftManager controls ticking.
-        _auto_tick = not RAFT_USE_MANUAL_TICK
-        logger.info(f"ReplicatedWorkQueue: RAFT_USE_MANUAL_TICK={RAFT_USE_MANUAL_TICK}, autoTick={_auto_tick}")
+        # Jan 24, 2026: Keep autoTick=True but use slower tick period (0.1s)
+        # to reduce CPU usage while maintaining Raft functionality.
+        logger.info("ReplicatedWorkQueue: autoTick=True, autoTickPeriod=0.1s")
         conf = SyncObjConf(
-            autoTick=_auto_tick,
+            autoTick=True,
+            autoTickPeriod=0.1,  # 100ms tick period (vs ~1ms default)
             appendEntriesUseBatch=True,
             raftMinTimeout=0.5,
             raftMaxTimeout=2.0,
@@ -903,10 +903,12 @@ class ReplicatedJobAssignments(SyncObj):
         self.__node_jobs = ReplDict()  # node_id -> list[job_id]
 
         # Configure PySyncObj
-        # Jan 24, 2026: Use RAFT_USE_MANUAL_TICK to control autoTick behavior.
-        # When manual tick is enabled, AsyncRaftManager controls ticking.
+        # Jan 24, 2026: Keep autoTick=True but use slower tick period (0.1s)
+        # to reduce CPU usage while maintaining Raft functionality.
+        logger.info("ReplicatedJobAssignments: autoTick=True, autoTickPeriod=0.1s")
         conf = SyncObjConf(
-            autoTick=not RAFT_USE_MANUAL_TICK,
+            autoTick=True,
+            autoTickPeriod=0.1,  # 100ms tick period (vs ~1ms default)
             appendEntriesUseBatch=True,
             raftMinTimeout=0.5,
             raftMaxTimeout=2.0,
@@ -1384,10 +1386,12 @@ class ReplicatedEloStore(SyncObj):
         self._max_recent_matches = 10000  # Keep last 10K matches in Raft
 
         # Configure PySyncObj
-        # Jan 24, 2026: Use RAFT_USE_MANUAL_TICK to control autoTick behavior.
-        # When manual tick is enabled, AsyncRaftManager controls ticking.
+        # Jan 24, 2026: Keep autoTick=True but use slower tick period (0.1s)
+        # to reduce CPU usage while maintaining Raft functionality.
+        logger.info("ReplicatedEloStore: autoTick=True, autoTickPeriod=0.1s")
         conf = SyncObjConf(
-            autoTick=not RAFT_USE_MANUAL_TICK,
+            autoTick=True,
+            autoTickPeriod=0.1,  # 100ms tick period (vs ~1ms default)
             appendEntriesUseBatch=True,
             raftMinTimeout=0.5,
             raftMaxTimeout=2.0,
