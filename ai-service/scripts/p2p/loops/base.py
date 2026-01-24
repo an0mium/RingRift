@@ -577,7 +577,7 @@ class BaseLoop(ABC):
             "running": self._running,
             "enabled": self.enabled,
             "interval": self.interval,
-            "stats": self._stats.to_dict(),
+            "stats": self._stats.to_dict() if hasattr(self._stats, 'to_dict') else self._stats,
             "backoff": {
                 "initial_delay": self.backoff_config.initial_delay,
                 "max_delay": self.backoff_config.max_delay,
