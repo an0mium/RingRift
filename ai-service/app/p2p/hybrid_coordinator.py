@@ -55,6 +55,7 @@ from app.p2p.constants import (
     CONSENSUS_MODE,
     MEMBERSHIP_MODE,
     RAFT_ENABLED,
+    RAFT_USE_MANUAL_TICK,
     SWIM_ENABLED,
 )
 
@@ -87,6 +88,17 @@ except ImportError:
     PYSYNCOBJ_AVAILABLE = False
     ReplicatedWorkQueue = None  # type: ignore
     create_replicated_work_queue = None  # type: ignore
+
+# ============================================
+# Import AsyncRaftManager for manual tick control
+# ============================================
+
+try:
+    from app.p2p.async_raft_wrapper import get_async_raft_manager
+    ASYNC_RAFT_MANAGER_AVAILABLE = True
+except ImportError:
+    ASYNC_RAFT_MANAGER_AVAILABLE = False
+    get_async_raft_manager = None  # type: ignore
 
 # ============================================
 # Import SQLite work queue for fallback
@@ -224,6 +236,7 @@ class HybridCoordinator:
         self._swim_manager: SwimMembershipManager | HybridMembershipManager | None = None
         self._raft_queue: ReplicatedWorkQueue | None = None
         self._sqlite_queue: WorkQueue | None = None
+        self._raft_manager: Any = None  # AsyncRaftManager for manual tick control
 
         # State tracking
         self._started = False
@@ -382,6 +395,14 @@ class HybridCoordinator:
                 logger.warning("Failed to create Raft work queue")
                 return False
 
+            # Jan 24, 2026: If manual tick mode is enabled, register with AsyncRaftManager
+            if RAFT_USE_MANUAL_TICK and ASYNC_RAFT_MANAGER_AVAILABLE and get_async_raft_manager:
+                logger.info("Manual tick mode enabled, registering with AsyncRaftManager...")
+                self._raft_manager = get_async_raft_manager()
+                self._raft_manager.register(self._raft_queue, name="ReplicatedWorkQueue")
+                await self._raft_manager.start()
+                logger.info("AsyncRaftManager started with manual tick control")
+
             # Wait briefly for cluster formation
             await asyncio.sleep(1.0)
 
@@ -415,6 +436,14 @@ class HybridCoordinator:
             except Exception as e:
                 logger.warning(f"Error stopping SWIM: {e}")
             self._swim_manager = None
+
+        # Stop AsyncRaftManager first (before destroying Raft instances)
+        if self._raft_manager:
+            try:
+                await self._raft_manager.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping AsyncRaftManager: {e}")
+            self._raft_manager = None
 
         # Stop Raft
         if self._raft_queue:

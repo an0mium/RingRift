@@ -675,6 +675,13 @@ RAFT_BIND_PORT = int(os.environ.get("RINGRIFT_RAFT_BIND_PORT", "4321") or 4321)
 RAFT_COMPACTION_MIN_ENTRIES = int(os.environ.get("RINGRIFT_RAFT_COMPACTION_MIN_ENTRIES", "1000") or 1000)
 RAFT_AUTO_UNLOCK_TIME = float(os.environ.get("RINGRIFT_RAFT_AUTO_UNLOCK_TIME", "300") or 300)
 
+# Jan 24, 2026: Manual tick mode for asyncio-compatible Raft operation.
+# When enabled, PySyncObj instances are created with autoTick=False and ticked
+# manually by AsyncRaftManager. This prevents the 100% CPU usage caused by
+# PySyncObj's internal busy-wait polling threads.
+# See: app/p2p/async_raft_wrapper.py for the AsyncRaftManager implementation.
+RAFT_USE_MANUAL_TICK = os.environ.get("RINGRIFT_RAFT_USE_MANUAL_TICK", "").lower() in {"1", "true", "yes", "on"}
+
 # ============================================
 # SWIM membership (optional)
 # ============================================

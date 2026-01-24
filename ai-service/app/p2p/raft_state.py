@@ -30,6 +30,7 @@ Phase 2.3 - Dec 26, 2025
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import asdict, dataclass, field
@@ -37,6 +38,8 @@ from pathlib import Path
 from typing import Any, Callable, ItemsView, KeysView, ValuesView
 
 import yaml
+
+from app.p2p.constants import RAFT_USE_MANUAL_TICK
 
 logger = logging.getLogger(__name__)
 
@@ -413,14 +416,24 @@ class ReplicatedWorkQueue(SyncObj):
         self._on_leader_change_callback = on_leader_change
         self._is_ready = False
 
+        # Jan 24, 2026: Capture event loop for thread-safe callback marshaling
+        # PySyncObj callbacks fire from internal threads, so we use call_soon_threadsafe
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop running - callbacks will execute directly
+            self._loop = None
+
         # Replicated state
         self.__work_items = ReplDict()
         self.__claimed = ReplDict()  # work_id -> claimer_node_id
         self.__lock_manager = ReplLockManager(autoUnlockTime=auto_unlock_time)
 
         # Configure PySyncObj
+        # Jan 24, 2026: Use RAFT_USE_MANUAL_TICK to control autoTick behavior.
+        # When manual tick is enabled, AsyncRaftManager controls ticking.
         conf = SyncObjConf(
-            autoTick=True,
+            autoTick=not RAFT_USE_MANUAL_TICK,
             appendEntriesUseBatch=True,
             raftMinTimeout=0.5,
             raftMaxTimeout=2.0,
@@ -463,6 +476,7 @@ class ReplicatedWorkQueue(SyncObj):
         state.pop('_ReplicatedWorkQueue__lock_manager', None)
         state.pop('_on_ready_callback', None)
         state.pop('_on_leader_change_callback', None)
+        state.pop('_loop', None)  # Event loops cannot be pickled
         return state
 
     def __setstate__(self, state: dict) -> None:
@@ -479,25 +493,50 @@ class ReplicatedWorkQueue(SyncObj):
         # Reset callbacks to None - they'll need to be set again if needed
         self._on_ready_callback = None
         self._on_leader_change_callback = None
+        # Try to capture event loop for thread-safe callbacks
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
 
     def _handle_ready(self) -> None:
-        """Handle cluster ready event."""
+        """Handle cluster ready event.
+
+        Jan 24, 2026: Thread-safe callback marshaling. PySyncObj fires this
+        from an internal thread, so we use call_soon_threadsafe to schedule
+        the callback on the asyncio event loop.
+        """
         self._is_ready = True
         leader = self._getLeader()
         logger.info(f"Raft cluster ready. Leader: {leader}")
         if self._on_ready_callback:
             try:
-                self._on_ready_callback()
+                if self._loop is not None and self._loop.is_running():
+                    self._loop.call_soon_threadsafe(self._on_ready_callback)
+                else:
+                    # No event loop - call directly
+                    self._on_ready_callback()
             except Exception as e:
                 logger.error(f"Error in on_ready callback: {e}")
 
     def _handle_leader_change(self) -> None:
-        """Handle leader change event."""
+        """Handle leader change event.
+
+        Jan 24, 2026: Thread-safe callback marshaling.
+        """
         leader = self._getLeader()
         logger.info(f"Raft leader changed to: {leader}")
         if self._on_leader_change_callback:
             try:
-                self._on_leader_change_callback(leader)
+                if self._loop is not None and self._loop.is_running():
+                    # Use functools.partial to pass the leader argument
+                    import functools
+                    self._loop.call_soon_threadsafe(
+                        functools.partial(self._on_leader_change_callback, leader)
+                    )
+                else:
+                    # No event loop - call directly
+                    self._on_leader_change_callback(leader)
             except Exception as e:
                 logger.error(f"Error in on_leader_change callback: {e}")
 
@@ -851,13 +890,21 @@ class ReplicatedJobAssignments(SyncObj):
         self._on_leader_change_callback = on_leader_change
         self._is_ready = False
 
+        # Jan 24, 2026: Capture event loop for thread-safe callback marshaling
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
         # Replicated state
         self.__assignments = ReplDict()  # job_id -> JobAssignment dict
         self.__node_jobs = ReplDict()  # node_id -> list[job_id]
 
         # Configure PySyncObj
+        # Jan 24, 2026: Use RAFT_USE_MANUAL_TICK to control autoTick behavior.
+        # When manual tick is enabled, AsyncRaftManager controls ticking.
         conf = SyncObjConf(
-            autoTick=True,
+            autoTick=not RAFT_USE_MANUAL_TICK,
             appendEntriesUseBatch=True,
             raftMinTimeout=0.5,
             raftMaxTimeout=2.0,
@@ -888,6 +935,7 @@ class ReplicatedJobAssignments(SyncObj):
         # Remove unpicklable callback attributes
         state.pop('_on_ready_callback', None)
         state.pop('_on_leader_change_callback', None)
+        state.pop('_loop', None)  # Event loops cannot be pickled
         return state
 
     def __setstate__(self, state: dict) -> None:
@@ -899,25 +947,45 @@ class ReplicatedJobAssignments(SyncObj):
         # Reset callbacks to None - they'll need to be set again if needed
         self._on_ready_callback = None
         self._on_leader_change_callback = None
+        # Try to capture event loop for thread-safe callbacks
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
 
     def _handle_ready(self) -> None:
-        """Handle cluster ready event."""
+        """Handle cluster ready event.
+
+        Jan 24, 2026: Thread-safe callback marshaling.
+        """
         self._is_ready = True
         leader = self._getLeader()
         logger.info(f"Job assignments Raft cluster ready. Leader: {leader}")
         if self._on_ready_callback:
             try:
-                self._on_ready_callback()
+                if self._loop is not None and self._loop.is_running():
+                    self._loop.call_soon_threadsafe(self._on_ready_callback)
+                else:
+                    self._on_ready_callback()
             except Exception as e:
                 logger.error(f"Error in on_ready callback: {e}")
 
     def _handle_leader_change(self) -> None:
-        """Handle leader change event."""
+        """Handle leader change event.
+
+        Jan 24, 2026: Thread-safe callback marshaling.
+        """
         leader = self._getLeader()
         logger.info(f"Job assignments Raft leader changed to: {leader}")
         if self._on_leader_change_callback:
             try:
-                self._on_leader_change_callback(leader)
+                if self._loop is not None and self._loop.is_running():
+                    import functools
+                    self._loop.call_soon_threadsafe(
+                        functools.partial(self._on_leader_change_callback, leader)
+                    )
+                else:
+                    self._on_leader_change_callback(leader)
             except Exception as e:
                 logger.error(f"Error in on_leader_change callback: {e}")
 
@@ -1299,6 +1367,12 @@ class ReplicatedEloStore(SyncObj):
         self._on_leader_change_callback = on_leader_change
         self._is_ready = False
 
+        # Jan 24, 2026: Capture event loop for thread-safe callback marshaling
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
+
         # Replicated state
         # Key: "{participant_id}:{board_type}:{num_players}"
         self.__ratings = ReplDict()
@@ -1308,8 +1382,10 @@ class ReplicatedEloStore(SyncObj):
         self._max_recent_matches = 10000  # Keep last 10K matches in Raft
 
         # Configure PySyncObj
+        # Jan 24, 2026: Use RAFT_USE_MANUAL_TICK to control autoTick behavior.
+        # When manual tick is enabled, AsyncRaftManager controls ticking.
         conf = SyncObjConf(
-            autoTick=True,
+            autoTick=not RAFT_USE_MANUAL_TICK,
             appendEntriesUseBatch=True,
             raftMinTimeout=0.5,
             raftMaxTimeout=2.0,
@@ -1340,6 +1416,7 @@ class ReplicatedEloStore(SyncObj):
         # Remove unpicklable callback attributes
         state.pop('_on_ready_callback', None)
         state.pop('_on_leader_change_callback', None)
+        state.pop('_loop', None)  # Event loops cannot be pickled
         return state
 
     def __setstate__(self, state: dict) -> None:
@@ -1351,25 +1428,45 @@ class ReplicatedEloStore(SyncObj):
         # Reset callbacks to None - they'll need to be set again if needed
         self._on_ready_callback = None
         self._on_leader_change_callback = None
+        # Try to capture event loop for thread-safe callbacks
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
 
     def _handle_ready(self) -> None:
-        """Handle cluster ready event."""
+        """Handle cluster ready event.
+
+        Jan 24, 2026: Thread-safe callback marshaling.
+        """
         self._is_ready = True
         leader = self._getLeader()
         logger.info(f"Elo store Raft cluster ready. Leader: {leader}")
         if self._on_ready_callback:
             try:
-                self._on_ready_callback()
+                if self._loop is not None and self._loop.is_running():
+                    self._loop.call_soon_threadsafe(self._on_ready_callback)
+                else:
+                    self._on_ready_callback()
             except Exception as e:
                 logger.error(f"Error in on_ready callback: {e}")
 
     def _handle_leader_change(self) -> None:
-        """Handle leader change event."""
+        """Handle leader change event.
+
+        Jan 24, 2026: Thread-safe callback marshaling.
+        """
         leader = self._getLeader()
         logger.info(f"Elo store Raft leader changed to: {leader}")
         if self._on_leader_change_callback:
             try:
-                self._on_leader_change_callback(leader)
+                if self._loop is not None and self._loop.is_running():
+                    import functools
+                    self._loop.call_soon_threadsafe(
+                        functools.partial(self._on_leader_change_callback, leader)
+                    )
+                else:
+                    self._on_leader_change_callback(leader)
             except Exception as e:
                 logger.error(f"Error in on_leader_change callback: {e}")
 
