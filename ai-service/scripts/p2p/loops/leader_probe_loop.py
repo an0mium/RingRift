@@ -131,6 +131,13 @@ class LeaderProbeLoop(BaseLoop):
         self._max_failure_threshold = 14  # 140s - degraded cluster, avoid false elections
         self._dynamic_threshold_enabled = True
 
+        # Jan 23, 2026: Handle "no leader" case - trigger election after threshold
+        # CRITICAL FIX: Previously the loop would just skip when leader_id=None,
+        # leaving the cluster stuck without any leader election being triggered.
+        # Now we track how long we've been leaderless and trigger an election.
+        self._no_leader_since: float | None = None
+        self._no_leader_election_threshold = 60.0  # Trigger election after 60s without leader
+
     def _is_in_startup_phase(self) -> bool:
         """Check if we're still in the startup grace period.
 
@@ -243,11 +250,51 @@ class LeaderProbeLoop(BaseLoop):
             self._consecutive_failures = 0
             return
 
-        # Skip if no known leader
+        # Check if we have a leader
         leader_id = self._get_leader_id()
         if not leader_id:
-            # No leader known - don't probe, let election process handle it
+            # No leader known - track how long we've been leaderless
+            if self._no_leader_since is None:
+                self._no_leader_since = time.time()
+                logger.warning("[LeaderProbe] No leader detected, starting timer")
+
+            leaderless_duration = time.time() - self._no_leader_since
+
+            # Skip election during startup grace period
+            if self._is_in_startup_phase():
+                logger.debug(
+                    f"[LeaderProbe] No leader for {leaderless_duration:.0f}s "
+                    f"(startup grace period active, deferring election)"
+                )
+                return
+
+            # Trigger election if we've been leaderless too long
+            if leaderless_duration >= self._no_leader_election_threshold:
+                logger.error(
+                    f"[LeaderProbe] No leader for {leaderless_duration:.0f}s, "
+                    f"triggering election (threshold: {self._no_leader_election_threshold}s)"
+                )
+                self._emit_event("NO_LEADER_ELECTION_TRIGGERED", {
+                    "leaderless_duration": leaderless_duration,
+                    "threshold": self._no_leader_election_threshold,
+                })
+                await self._trigger_election_for_no_leader()
+                # Reset timer after triggering election
+                self._no_leader_since = time.time()
+            else:
+                logger.debug(
+                    f"[LeaderProbe] No leader for {leaderless_duration:.0f}s "
+                    f"(waiting for threshold: {self._no_leader_election_threshold}s)"
+                )
             return
+
+        # We have a leader - reset the no-leader timer
+        if self._no_leader_since is not None:
+            leaderless_duration = time.time() - self._no_leader_since
+            logger.info(
+                f"[LeaderProbe] Leader {leader_id} detected after {leaderless_duration:.0f}s leaderless"
+            )
+            self._no_leader_since = None
 
         # Jan 5, 2026: Track probe latency for early warning
         start_time = time.time()
@@ -848,6 +895,63 @@ class LeaderProbeLoop(BaseLoop):
         self._consecutive_failures = 0
 
         # Phase 1.2 (Jan 7, 2026): Verify elected leader has consensus
+        # Schedule consensus verification after election settles
+        asyncio.create_task(self._verify_elected_leader_after_delay(3.0))
+
+    async def _trigger_election_for_no_leader(self) -> None:
+        """Trigger election when cluster has no leader.
+
+        Jan 23, 2026: Handles the case where the cluster is stuck without any leader.
+        This is different from _trigger_election() which handles unreachable leaders.
+        """
+        # Cooldown check to prevent election storms
+        if self._election_triggered_recently:
+            logger.debug("[LeaderProbe] Election cooldown active, skipping no-leader election")
+            return
+
+        effective_cooldown = self._get_effective_cooldown()
+
+        logger.info(
+            f"[LeaderProbe] Triggering election for leaderless cluster "
+            f"(cooldown={effective_cooldown:.0f}s)"
+        )
+
+        self._election_triggered_recently = True
+
+        # Schedule cooldown reset
+        async def reset_cooldown():
+            await asyncio.sleep(effective_cooldown)
+            self._election_triggered_recently = False
+
+        asyncio.create_task(reset_cooldown())
+
+        # Check quorum before starting election
+        try:
+            check_quorum = getattr(self._orchestrator, "_check_quorum_health", None)
+            if check_quorum:
+                from scripts.p2p.leader_election import QuorumHealthLevel
+                quorum_health = check_quorum()
+                if quorum_health == QuorumHealthLevel.LOST:
+                    logger.warning(
+                        "[LeaderProbe] Quorum LOST - cannot hold election. "
+                        "Wait for voters to recover."
+                    )
+                    self._emit_event("ELECTION_BLOCKED_QUORUM_LOST", {
+                        "reason": "no_leader",
+                        "quorum_health": quorum_health.value,
+                    })
+                    return
+
+            # Trigger election
+            start_election = getattr(self._orchestrator, "_start_election", None)
+            if start_election:
+                await start_election(reason="no_leader_timeout")
+                logger.info("[LeaderProbe] No-leader election triggered successfully")
+            else:
+                logger.warning("[LeaderProbe] No _start_election method available")
+        except Exception as e:
+            logger.error(f"[LeaderProbe] Failed to start no-leader election: {e}")
+
         # Schedule consensus verification after election settles
         asyncio.create_task(self._verify_elected_leader_after_delay(3.0))
 

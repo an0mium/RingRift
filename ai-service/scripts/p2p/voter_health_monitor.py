@@ -65,14 +65,14 @@ class VoterHealthConfig:
 
     # Response time thresholds (milliseconds)
     response_time_degraded_ms: float = 5000.0  # 5s = degraded
-    response_time_unhealthy_ms: float = 15000.0  # 15s = unhealthy
+    response_time_unhealthy_ms: float = 10000.0  # 10s = unhealthy (tightened from 15s)
 
     # Error rate thresholds (fraction of requests)
     error_rate_degraded: float = 0.10  # 10% errors = degraded
-    error_rate_unhealthy: float = 0.30  # 30% errors = unhealthy
+    error_rate_unhealthy: float = 0.20  # 20% errors = unhealthy (tightened from 30%)
 
     # Consecutive failures before demotion
-    consecutive_failures_demote: int = 5
+    consecutive_failures_demote: int = 4  # (tightened from 5)
 
     # Time window for calculating metrics (seconds)
     metrics_window_seconds: float = 300.0  # 5 minutes
