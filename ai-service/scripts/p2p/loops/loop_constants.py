@@ -103,7 +103,7 @@ class LoopLimits:
 
     # Node limits
     MIN_NODES: int = 2                       # Minimum cluster size
-    MAX_NODES: int = 20                      # Maximum cluster size
+    MAX_NODES: int = 50                      # Maximum cluster size (supports 40+ node clusters)
 
     # DNS and network
     DNS_TIMEOUT_SECONDS: float = 10.0        # DNS lookup timeout

@@ -39,7 +39,7 @@ class AutoScalingConfig:
     scale_up_threshold: int = 10  # Pending items per node to trigger scale up
     scale_down_threshold: int = 2  # Pending items per node to trigger scale down
     min_nodes: int = 2
-    max_nodes: int = 20
+    max_nodes: int = 50  # Supports 40+ node clusters
     scale_cooldown_seconds: float = 600.0  # 10 minutes
     max_scale_per_cycle: int = 3
     idle_threshold_seconds: float = 900.0  # 15 minutes
