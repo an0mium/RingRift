@@ -568,6 +568,8 @@ class ConsensusMixin(P2PMixinBase):
 
         Dec 30, 2025: Fixed to use peer.host instead of peer.endpoint which
         doesn't exist on NodeInfo dataclass.
+        Jan 24, 2026: Added cluster_config fallback for startup when peers
+        haven't been discovered yet.
 
         Returns:
             List of partner addresses in format "host:port"
@@ -579,7 +581,7 @@ class ConsensusMixin(P2PMixinBase):
             if voter_id == self.node_id:
                 continue  # Skip self
 
-            # Try to get peer address
+            # Try to get peer address from dynamic peers first
             with self.peers_lock:
                 peer = self.peers.get(voter_id)
 
@@ -589,6 +591,22 @@ class ConsensusMixin(P2PMixinBase):
                 host = getattr(peer, "tailscale_ip", None) or getattr(peer, "host", None)
                 if host and host not in ("", "unknown"):
                     partners.append(f"{host}:{RAFT_BIND_PORT}")
+
+        # Fallback to cluster_config if no peers discovered yet
+        if not partners:
+            try:
+                from app.config.cluster_config import get_cluster_nodes
+                cluster_nodes = get_cluster_nodes()
+                for voter_id in self.voter_node_ids:
+                    if voter_id == self.node_id:
+                        continue
+                    node = cluster_nodes.get(voter_id)
+                    if node and node.tailscale_ip:
+                        partners.append(f"{node.tailscale_ip}:{RAFT_BIND_PORT}")
+                if partners:
+                    logger.info(f"Raft partners from cluster_config fallback: {partners}")
+            except Exception as e:
+                logger.warning(f"Failed to get Raft partners from cluster_config: {e}")
 
         return partners
 
