@@ -3427,6 +3427,17 @@ class P2POrchestrator(
             except (ImportError, TypeError) as e:
                 logger.debug(f"LeaderProbeLoop: not available: {e}")
 
+            # LeaderMaintenanceLoop - January 25, 2026
+            # Periodic leadership refresh on designated coordinator
+            # Prevents gossip from overwriting forced leadership state
+            try:
+                from scripts.p2p.loops import LeaderMaintenanceLoop
+                leader_maintenance = LeaderMaintenanceLoop(orchestrator=self)
+                manager.register(leader_maintenance)
+                logger.info("[LoopManager] LeaderMaintenanceLoop registered (leadership stability)")
+            except (ImportError, TypeError) as e:
+                logger.debug(f"LeaderMaintenanceLoop: not available: {e}")
+
             # RelayHealthLoop - January 15, 2026
             # Phase 3 of P2P Resilience Plan: Proactive relay health monitoring
             # Probes relay nodes every 30s, triggers failover after 5 consecutive failures
