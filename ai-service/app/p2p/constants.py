@@ -107,10 +107,11 @@ def get_peer_timeout_for_node(is_coordinator: bool = False, nat_blocked: bool = 
 # they all mark the same slow peer dead simultaneously, causing gossip storms.
 # Adding randomness desynchronizes these checks.
 # Jan 24, 2026: Reduced from ±10% to ±5% for faster gossip convergence.
-# With 120s timeout and ±5% jitter, max disagreement is 12s (120s * 0.1 = 12s).
-# This allows gossip to converge within 1 round (12s interval).
+# Jan 25, 2026: Reduced from ±5% to ±3% to minimize disagreement window.
+# With 150s timeout and ±3% jitter, max disagreement is 9s (150s * 0.03 * 2 = 9s).
+# This allows gossip to converge within 1 round (12s interval) before deaths.
 PEER_TIMEOUT_JITTER_FACTOR = float(
-    os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_JITTER", "0.05") or 0.05
+    os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_JITTER", "0.03") or 0.03
 )
 
 
@@ -427,11 +428,14 @@ RETRY_DEAD_NODE_INTERVAL = 120  # Retry dead nodes every 2 minutes (reduced from
 # Jan 2026: Split into leader/follower fanout for differentiated propagation
 # Jan 23, 2026: Increased base fanout from 10 to 12 for 40+ node clusters.
 # Higher fanout = faster gossip convergence but more network traffic.
-GOSSIP_FANOUT = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT", "12") or 12)
+# Jan 25, 2026: Increased base to 14 and leader to 18 for 20+ node stability.
+# With 40 nodes and 14 fanout: reach 95% in 3 rounds (36s) vs 6 rounds (72s) with 12.
+GOSSIP_FANOUT = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT", "14") or 14)
 # January 2026: Increased fanout for better visibility in 20-40 node clusters
 # Jan 23, 2026: Leader: 16 (was 14), Follower: 14 (was 12) for >95% peer visibility
-GOSSIP_FANOUT_LEADER = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT_LEADER", "16") or 16)
-GOSSIP_FANOUT_FOLLOWER = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT_FOLLOWER", "14") or 14)
+# Jan 25, 2026: Leader: 18 (was 16), Follower: 16 (was 14) for faster convergence
+GOSSIP_FANOUT_LEADER = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT_LEADER", "18") or 18)
+GOSSIP_FANOUT_FOLLOWER = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT_FOLLOWER", "16") or 16)
 
 # Gossip lock timeout - max time to wait for gossip state lock
 # Jan 2026: Increased from 2.0s to 3.0s for larger clusters with lock contention
