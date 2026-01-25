@@ -507,6 +507,10 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 self.last_leader_seen = time.time()
                 self.election_in_progress = False
 
+                # Jan 25, 2026: Set forced leader override to bypass consensus checks
+                # This fixes the is_leader desync where work queue showed is_leader=False
+                self._forced_leader_override = True
+
                 self._increment_cluster_epoch()
                 self._save_state()
 

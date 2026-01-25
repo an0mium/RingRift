@@ -5528,7 +5528,23 @@ class P2POrchestrator(
         1. consensus_mixin.is_raft_leader() - Deferred Raft init, works after peer discovery
         2. HybridCoordinator.is_leader() - May fall back to Bully
         3. Bully algorithm - Legacy fallback
+
+        Jan 25, 2026: Added _forced_leader_override to bypass consensus checks when
+        leadership is forced via /election/force_leader endpoint. This fixes the
+        is_leader desync issue where work queue showed is_leader=False despite
+        main status showing this node as leader.
         """
+        # Jan 25, 2026: Check forced leader override first - bypasses all consensus checks
+        # This ensures force_leader actually works for work queue operations
+        if getattr(self, "_forced_leader_override", False):
+            # Verify lease is still valid
+            if time.time() < getattr(self, "leader_lease_expires", 0):
+                return True
+            else:
+                # Lease expired, clear the override
+                self._forced_leader_override = False
+                logger.info("[ForcedLeader] Forced leadership lease expired, clearing override")
+
         # Jan 23, 2026: First check consensus_mixin's Raft (supports deferred initialization)
         # This is the preferred path because it initializes AFTER peers are discovered.
         if hasattr(self, "_raft_initialized") and self._raft_initialized:
