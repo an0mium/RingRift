@@ -17335,11 +17335,82 @@ print(json.dumps(result))
 
         return dict(stats)
 
-    async def _get_game_analytics_cached(self) -> dict[str, Any]:
-        """Get game analytics with caching (5 min TTL)."""
+    def _get_game_analytics_sync(self, ai_root: Path, cutoff: float) -> dict[str, Any]:
+        """Synchronous helper for game analytics (runs in thread pool).
+
+        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
+        File I/O operations (rglob, stat, read) are blocking.
+        """
         import json
         from collections import defaultdict
 
+        data_dirs = [
+            ai_root / "data" / "games" / "daemon_sync",
+            ai_root / "data" / "selfplay",
+        ]
+
+        game_lengths: dict[str, list[int]] = defaultdict(list)
+        games_by_hour: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
+        opening_moves: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+        for data_dir in data_dirs:
+            if not data_dir.exists():
+                continue
+            try:
+                jsonl_files = list(data_dir.rglob("*.jsonl"))
+            except OSError:
+                continue
+
+            for jsonl_path in jsonl_files:
+                try:
+                    mtime = jsonl_path.stat().st_mtime
+                    if mtime < cutoff:
+                        continue
+                    with open_jsonl_file(jsonl_path) as f:
+                        for line in f:
+                            try:
+                                game = json.loads(line)
+                                board_type = game.get("board_type", "unknown")
+                                num_players = game.get("num_players", 0)
+                                config = f"{board_type}_{num_players}p"
+
+                                length = game.get("length", 0)
+                                if length > 0:
+                                    game_lengths[config].append(length)
+
+                                hour_bucket = int(mtime // 3600)
+                                games_by_hour[config][hour_bucket] += 1
+
+                                moves = game.get("moves", [])
+                                if moves and len(moves) >= 1:
+                                    first_move = str(moves[0].get("action", ""))[:20]
+                                    if first_move:
+                                        opening_moves[config][first_move] += 1
+                            except json.JSONDecodeError:
+                                continue
+                except (json.JSONDecodeError, ValueError, AttributeError, OSError):
+                    continue
+
+        analytics: dict[str, Any] = {"configs": {}}
+        for config in set(list(game_lengths.keys()) + list(games_by_hour.keys())):
+            lengths = game_lengths.get(config, [])
+            hourly = games_by_hour.get(config, {})
+            openings = opening_moves.get(config, {})
+            throughput = sum(hourly.values()) / max(len(hourly), 1) if hourly else 0
+
+            analytics["configs"][config] = {
+                "avg_length": round(sum(lengths) / len(lengths), 1) if lengths else 0,
+                "throughput_per_hour": round(throughput, 1),
+                "opening_diversity": len(openings),
+            }
+
+        return analytics
+
+    async def _get_game_analytics_cached(self) -> dict[str, Any]:
+        """Get game analytics with caching (5 min TTL).
+
+        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
+        """
         cache_key = "_game_analytics_cache"
         cache_time_key = "_game_analytics_cache_time"
         cache_ttl = 300
@@ -17354,70 +17425,64 @@ print(json.dumps(result))
 
         hours = 24
         cutoff = now - (hours * 3600)
-
         ai_root = Path(self._get_ai_service_path())
-        data_dirs = [
-            ai_root / "data" / "games" / "daemon_sync",
-            ai_root / "data" / "selfplay",
-        ]
 
-        game_lengths: dict[str, list[int]] = defaultdict(list)
-        games_by_hour: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
-        opening_moves: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-
-        for data_dir in data_dirs:
-            if not data_dir.exists():
-                continue
-            for jsonl_path in data_dir.rglob("*.jsonl"):
-                try:
-                    if jsonl_path.stat().st_mtime < cutoff:
-                        continue
-                    with open_jsonl_file(jsonl_path) as f:
-                        for line in f:
-                            try:
-                                game = json.loads(line)
-                                board_type = game.get("board_type", "unknown")
-                                num_players = game.get("num_players", 0)
-                                config = f"{board_type}_{num_players}p"
-
-                                length = game.get("length", 0)
-                                if length > 0:
-                                    game_lengths[config].append(length)
-
-                                hour_bucket = int(jsonl_path.stat().st_mtime // 3600)
-                                games_by_hour[config][hour_bucket] += 1
-
-                                moves = game.get("moves", [])
-                                if moves and len(moves) >= 1:
-                                    first_move = str(moves[0].get("action", ""))[:20]
-                                    if first_move:
-                                        opening_moves[config][first_move] += 1
-                            except json.JSONDecodeError:
-                                continue
-                except (json.JSONDecodeError, ValueError, AttributeError):
-                    continue
-
-        analytics = {"configs": {}}
-        for config in set(list(game_lengths.keys()) + list(games_by_hour.keys())):
-            lengths = game_lengths.get(config, [])
-            hourly = games_by_hour.get(config, {})
-            openings = opening_moves.get(config, {})
-            throughput = sum(hourly.values()) / max(len(hourly), 1) if hourly else 0
-
-            analytics["configs"][config] = {
-                "avg_length": round(sum(lengths) / len(lengths), 1) if lengths else 0,
-                "throughput_per_hour": round(throughput, 1),
-                "opening_diversity": len(openings),
-            }
+        # Jan 25, 2026: Run blocking file I/O operations in thread pool
+        analytics = await asyncio.to_thread(self._get_game_analytics_sync, ai_root, cutoff)
 
         setattr(self, cache_key, analytics)
         setattr(self, cache_time_key, now)
         return analytics
 
-    async def _get_training_metrics_cached(self) -> dict[str, Any]:
-        """Get training metrics with caching (2 min TTL)."""
+    def _get_training_metrics_sync(self, logs_dir: Path) -> dict[str, Any]:
+        """Synchronous helper for training metrics (runs in thread pool).
+
+        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
+        File I/O operations (glob, stat, read_text) are blocking.
+        """
         import re
 
+        metrics: dict[str, Any] = {"configs": {}}
+
+        if not logs_dir.exists():
+            return metrics
+
+        try:
+            log_files = sorted(logs_dir.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)[:10]
+        except OSError:
+            return metrics
+
+        for log_file in log_files:
+            try:
+                content = log_file.read_text()
+                config_match = re.search(r"(square\d+|hexagonal|hex)_(\d+)p", log_file.name)
+                if not config_match:
+                    continue
+                config = f"{config_match.group(1)}_{config_match.group(2)}p"
+
+                loss_pattern = re.compile(r"[Ee]poch\s+(\d+).*?loss[=:]\s*([\d.]+)")
+                epochs = []
+                for match in loss_pattern.finditer(content):
+                    epochs.append({
+                        "epoch": int(match.group(1)),
+                        "loss": float(match.group(2)),
+                    })
+
+                if epochs:
+                    metrics["configs"][config] = {
+                        "latest_loss": epochs[-1]["loss"],
+                        "latest_epoch": epochs[-1]["epoch"],
+                    }
+            except (OSError, ValueError, KeyError, IndexError, AttributeError):
+                continue
+
+        return metrics
+
+    async def _get_training_metrics_cached(self) -> dict[str, Any]:
+        """Get training metrics with caching (2 min TTL).
+
+        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
+        """
         cache_key = "_training_metrics_cache"
         cache_time_key = "_training_metrics_cache_time"
         cache_ttl = 120
@@ -17429,34 +17494,8 @@ print(json.dumps(result))
         ai_root = Path(self._get_ai_service_path())
         logs_dir = ai_root / "logs" / "training"
 
-        metrics = {"configs": {}}
-
-        if logs_dir.exists():
-            log_files = sorted(logs_dir.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)[:10]
-
-            for log_file in log_files:
-                try:
-                    content = log_file.read_text()
-                    config_match = re.search(r"(square\d+|hexagonal|hex)_(\d+)p", log_file.name)
-                    if not config_match:
-                        continue
-                    config = f"{config_match.group(1)}_{config_match.group(2)}p"
-
-                    loss_pattern = re.compile(r"[Ee]poch\s+(\d+).*?loss[=:]\s*([\d.]+)")
-                    epochs = []
-                    for match in loss_pattern.finditer(content):
-                        epochs.append({
-                            "epoch": int(match.group(1)),
-                            "loss": float(match.group(2)),
-                        })
-
-                    if epochs:
-                        metrics["configs"][config] = {
-                            "latest_loss": epochs[-1]["loss"],
-                            "latest_epoch": epochs[-1]["epoch"],
-                        }
-                except (OSError, ValueError, KeyError, IndexError, AttributeError):
-                    continue
+        # Jan 25, 2026: Run blocking file I/O operations in thread pool
+        metrics = await asyncio.to_thread(self._get_training_metrics_sync, logs_dir)
 
         setattr(self, cache_key, metrics)
         setattr(self, cache_time_key, now)
@@ -17558,34 +17597,29 @@ print(json.dumps(result))
         setattr(self, cache_time_key, now)
         return metrics
 
-    async def _get_mcts_stats_cached(self) -> dict[str, Any]:
-        """Get MCTS search statistics with caching (2 min TTL)."""
+    def _get_mcts_stats_sync(self, ai_root: Path, cutoff: float) -> dict[str, Any]:
+        """Synchronous helper for MCTS stats (runs in thread pool).
+
+        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
+        File I/O operations (glob, read_text, rglob, stat) are blocking and must
+        run in a separate thread.
+        """
         import json
         import re
 
-        cache_key = "_mcts_stats_cache"
-        cache_time_key = "_mcts_stats_cache_time"
-        cache_ttl = 120
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        # Skip JSONL scanning during startup grace period
-        if self._is_in_startup_grace_period():
-            return {"configs": {}, "summary": {}}
-
-        ai_root = Path(self._get_ai_service_path())
-        stats = {"configs": {}, "summary": {}}
+        stats: dict[str, Any] = {"configs": {}, "summary": {}}
 
         # Parse selfplay logs for MCTS stats
         logs_dir = ai_root / "logs" / "selfplay"
         if logs_dir.exists():
-            log_files = sorted(logs_dir.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)[:20]
+            try:
+                log_files = sorted(logs_dir.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)[:20]
+            except OSError:
+                log_files = []
 
-            nodes_per_move = []
-            depth_stats = []
-            time_per_move = []
+            nodes_per_move: list[int] = []
+            depth_stats: list[int] = []
+            time_per_move: list[float] = []
 
             for log_file in log_files:
                 try:
@@ -17600,7 +17634,7 @@ print(json.dumps(result))
                     # Pattern: "time: 0.123s" or "move_time: 123ms"
                     for match in re.finditer(r'(?:move_)?time[:\s]*([\d.]+)\s*(?:s|ms)?', content, re.I):
                         time_per_move.append(float(match.group(1)))
-                except (ValueError, KeyError, IndexError, AttributeError):
+                except (ValueError, KeyError, IndexError, AttributeError, OSError):
                     continue
 
             if nodes_per_move:
@@ -17617,12 +17651,16 @@ print(json.dumps(result))
             ai_root / "data" / "games" / "daemon_sync",
             ai_root / "data" / "selfplay",
         ]
-        cutoff = now - 3600  # Last hour
 
         for data_dir in data_dirs:
             if not data_dir.exists():
                 continue
-            for jsonl_path in data_dir.rglob("*.jsonl"):
+            try:
+                jsonl_files = list(data_dir.rglob("*.jsonl"))
+            except OSError:
+                continue
+
+            for jsonl_path in jsonl_files:
                 try:
                     if jsonl_path.stat().st_mtime < cutoff:
                         continue
@@ -17648,7 +17686,7 @@ print(json.dumps(result))
                                         stats["configs"][config]["depth_samples"].append(mcts_data["avg_depth"])
                             except json.JSONDecodeError:
                                 continue
-                except (json.JSONDecodeError, AttributeError):
+                except (json.JSONDecodeError, AttributeError, OSError):
                     continue
 
         # Compute per-config averages
@@ -17661,6 +17699,31 @@ print(json.dumps(result))
             data.pop("nodes_samples", None)
             data.pop("depth_samples", None)
 
+        return stats
+
+    async def _get_mcts_stats_cached(self) -> dict[str, Any]:
+        """Get MCTS search statistics with caching (2 min TTL).
+
+        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
+        """
+        cache_key = "_mcts_stats_cache"
+        cache_time_key = "_mcts_stats_cache_time"
+        cache_ttl = 120
+
+        now = time.time()
+        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
+            return getattr(self, cache_key)
+
+        # Skip JSONL scanning during startup grace period
+        if self._is_in_startup_grace_period():
+            return {"configs": {}, "summary": {}}
+
+        ai_root = Path(self._get_ai_service_path())
+        cutoff = now - 3600  # Last hour
+
+        # Jan 25, 2026: Run blocking file I/O operations in thread pool to avoid blocking event loop
+        stats = await asyncio.to_thread(self._get_mcts_stats_sync, ai_root, cutoff)
+
         setattr(self, cache_key, stats)
         setattr(self, cache_time_key, now)
         return stats
@@ -17669,27 +17732,18 @@ print(json.dumps(result))
     # Feature 1: Tournament Matchup Analysis
     # =========================================================================
 
-    async def _get_matchup_matrix_cached(self) -> dict[str, Any]:
-        """Get head-to-head matchup statistics with caching (5 min TTL)."""
+    def _get_matchup_matrix_sync(self, db_path: Path, cutoff: float) -> dict[str, Any]:
+        """Synchronous helper for matchup matrix (runs in thread pool).
+
+        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
+        SQLite operations are blocking and must run in a separate thread.
+        """
         import sqlite3
         from collections import defaultdict
 
-        cache_key = "_matchup_matrix_cache"
-        cache_time_key = "_matchup_matrix_cache_time"
-        cache_ttl = 300
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        ai_root = Path(self._get_ai_service_path())
-        db_path = ai_root / "data" / "unified_elo.db"
-
-        matrix = {"matchups": [], "models": [], "configs": {}}
+        matrix: dict[str, Any] = {"matchups": [], "models": [], "configs": {}}
 
         if not db_path.exists():
-            setattr(self, cache_key, matrix)
-            setattr(self, cache_time_key, now)
             return matrix
 
         try:
@@ -17705,12 +17759,12 @@ print(json.dumps(result))
                     WHERE timestamp > ?
                     ORDER BY timestamp DESC
                     LIMIT 10000
-                """, (now - 86400 * 7,)).fetchall()  # Last 7 days
+                """, (cutoff,)).fetchall()  # Last 7 days
 
                 # Build matchup stats
                 h2h: dict[str, dict[str, dict[str, int]]] = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "draws": 0}))
-                models = set()
-                config_stats = defaultdict(lambda: {"total_matches": 0, "avg_game_length": [], "avg_duration": []})
+                models: set[str] = set()
+                config_stats: dict[str, Any] = defaultdict(lambda: {"total_matches": 0, "avg_game_length": [], "avg_duration": []})
 
                 for row in rows:
                     a = row["participant_a"]
@@ -17773,6 +17827,28 @@ print(json.dumps(result))
                 matrix["total_matches"] = sum(c["total_matches"] for c in config_stats.values())
         except (sqlite3.Error, OSError, KeyError, ValueError, TypeError):
             pass
+
+        return matrix
+
+    async def _get_matchup_matrix_cached(self) -> dict[str, Any]:
+        """Get head-to-head matchup statistics with caching (5 min TTL).
+
+        Jan 25, 2026: Fixed event loop blocking by running SQLite in thread pool.
+        """
+        cache_key = "_matchup_matrix_cache"
+        cache_time_key = "_matchup_matrix_cache_time"
+        cache_ttl = 300
+
+        now = time.time()
+        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
+            return getattr(self, cache_key)
+
+        ai_root = Path(self._get_ai_service_path())
+        db_path = ai_root / "data" / "unified_elo.db"
+        cutoff = now - 86400 * 7  # Last 7 days
+
+        # Jan 25, 2026: Run blocking SQLite operations in thread pool
+        matrix = await asyncio.to_thread(self._get_matchup_matrix_sync, db_path, cutoff)
 
         setattr(self, cache_key, matrix)
         setattr(self, cache_time_key, now)
@@ -17881,34 +17957,24 @@ print(json.dumps(result))
     # Feature 3: Data Quality Metrics
     # =========================================================================
 
-    async def _get_data_quality_cached(self) -> dict[str, Any]:
-        """Get data quality metrics with caching (5 min TTL)."""
+    def _get_data_quality_sync(self, ai_root: Path, cutoff: float) -> dict[str, Any]:
+        """Synchronous helper for data quality metrics (runs in thread pool).
+
+        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
+        File I/O operations (rglob, stat, read) are blocking.
+        """
         import json
         from collections import defaultdict
 
-        cache_key = "_data_quality_cache"
-        cache_time_key = "_data_quality_cache_time"
-        cache_ttl = 300
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        # Skip JSONL scanning during startup grace period
-        if self._is_in_startup_grace_period():
-            return {"configs": {}, "issues": [], "summary": {}}
-
-        ai_root = Path(self._get_ai_service_path())
-        quality = {"configs": {}, "issues": [], "summary": {}}
+        quality: dict[str, Any] = {"configs": {}, "issues": [], "summary": {}}
 
         data_dirs = [
             ai_root / "data" / "games" / "daemon_sync",
             ai_root / "data" / "selfplay",
         ]
-        cutoff = now - 86400  # Last 24 hours
 
         try:
-            config_stats = defaultdict(lambda: {
+            config_stats: dict[str, Any] = defaultdict(lambda: {
                 "total_games": 0,
                 "game_lengths": [],
                 "short_games": 0,  # < 10 moves
@@ -17922,7 +17988,12 @@ print(json.dumps(result))
             for data_dir in data_dirs:
                 if not data_dir.exists():
                     continue
-                for jsonl_path in data_dir.rglob("*.jsonl"):
+                try:
+                    jsonl_files = list(data_dir.rglob("*.jsonl"))
+                except OSError:
+                    continue
+
+                for jsonl_path in jsonl_files:
                     try:
                         if jsonl_path.stat().st_mtime < cutoff:
                             continue
@@ -17966,7 +18037,7 @@ print(json.dumps(result))
                         continue
 
             # Convert to quality metrics
-            issues = []
+            issues: list[dict[str, Any]] = []
             for config, stats in config_stats.items():
                 total = stats["total_games"]
                 if total == 0:
@@ -18017,6 +18088,31 @@ print(json.dumps(result))
 
         except (OSError, ValueError, KeyError, TypeError):
             pass
+
+        return quality
+
+    async def _get_data_quality_cached(self) -> dict[str, Any]:
+        """Get data quality metrics with caching (5 min TTL).
+
+        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
+        """
+        cache_key = "_data_quality_cache"
+        cache_time_key = "_data_quality_cache_time"
+        cache_ttl = 300
+
+        now = time.time()
+        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
+            return getattr(self, cache_key)
+
+        # Skip JSONL scanning during startup grace period
+        if self._is_in_startup_grace_period():
+            return {"configs": {}, "issues": [], "summary": {}}
+
+        ai_root = Path(self._get_ai_service_path())
+        cutoff = now - 86400  # Last 24 hours
+
+        # Jan 25, 2026: Run blocking file I/O operations in thread pool
+        quality = await asyncio.to_thread(self._get_data_quality_sync, ai_root, cutoff)
 
         setattr(self, cache_key, quality)
         setattr(self, cache_time_key, now)
