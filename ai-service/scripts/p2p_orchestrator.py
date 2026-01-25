@@ -29882,13 +29882,19 @@ print(json.dumps({{
         - Remove deprecated selfplay databases
         - Compress and archive old logs
         - Clear /tmp files older than 24h
+
+        Jan 25, 2026: Fixed event loop blocking by wrapping subprocess.run()
+        in asyncio.to_thread(). Previously, the 300s timeout subprocess call
+        would block the entire event loop, causing heartbeat timeouts and
+        false-positive node deaths.
         """
         logger.info("Running local disk cleanup...")
         try:
             # Prefer the shared disk monitor (used by cron/resilience) for consistent cleanup policy.
             disk_monitor = Path(self._get_ai_service_path()) / "scripts" / "disk_monitor.py"
             if disk_monitor.exists():
-                usage = self._get_resource_usage()
+                # Jan 25, 2026: Wrap in asyncio.to_thread() to avoid blocking event loop
+                usage = await asyncio.to_thread(self._get_resource_usage)
                 disk_percent = float(usage.get("disk_percent", 0.0) or 0.0)
                 cmd = [
                     sys.executable,  # Use venv Python
@@ -29902,25 +29908,38 @@ print(json.dumps({{
                 if disk_percent >= DISK_CRITICAL_THRESHOLD:
                     cmd.append("--force")
 
-                out = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                    cwd=str(Path(self._get_ai_service_path())),
-                )
+                # Jan 25, 2026: CRITICAL FIX - wrap in asyncio.to_thread() to prevent
+                # event loop blocking. This was causing 8+ second blocks during cleanup.
+                def _run_cleanup():
+                    return subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                        cwd=str(Path(self._get_ai_service_path())),
+                    )
+
+                out = await asyncio.to_thread(_run_cleanup)
                 if out.returncode == 0:
                     logger.info("Disk monitor cleanup completed")
                 else:
                     logger.info(f"Disk monitor cleanup failed: {out.stderr[:200]}")
             else:
                 # Minimal fallback: clear old logs if disk monitor isn't available.
-                log_dir = Path(self._get_ai_service_path()) / "logs"
-                if log_dir.exists():
-                    for logfile in log_dir.rglob("*.log"):
-                        if time.time() - logfile.stat().st_mtime > 7 * 86400:  # 7 days
-                            logfile.unlink()
-                            logger.info(f"Cleaned old log: {logfile}")
+                # Jan 25, 2026: Also wrap in asyncio.to_thread() for file I/O
+                def _cleanup_old_logs():
+                    log_dir = Path(self._get_ai_service_path()) / "logs"
+                    cleaned = []
+                    if log_dir.exists():
+                        for logfile in log_dir.rglob("*.log"):
+                            if time.time() - logfile.stat().st_mtime > 7 * 86400:  # 7 days
+                                logfile.unlink()
+                                cleaned.append(str(logfile))
+                    return cleaned
+
+                cleaned = await asyncio.to_thread(_cleanup_old_logs)
+                for logfile in cleaned:
+                    logger.info(f"Cleaned old log: {logfile}")
 
         except Exception as e:  # noqa: BLE001
             logger.info(f"Disk cleanup error: {e}")
