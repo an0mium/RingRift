@@ -105,11 +105,35 @@ class ConfigSyncDaemon(HandlerBase):
         self._syncs_pulled = 0
 
     def _get_event_subscriptions(self) -> dict[str, Callable]:
-        """Subscribe to CONFIG_UPDATED for pull-based sync."""
+        """Subscribe to config sync events."""
         return {
             "CONFIG_UPDATED": self._on_config_updated,
             "config_updated": self._on_config_updated,  # Lowercase variant
+            "CONFIG_SYNC_ACK": self._on_config_sync_ack,
+            "config_sync_ack": self._on_config_sync_ack,  # Lowercase variant
         }
+
+    async def _on_config_sync_ack(self, event: Any) -> None:
+        """Handle CONFIG_SYNC_ACK event from worker nodes.
+
+        Used by coordinator to track which nodes have synced.
+        """
+        if not self._is_coordinator:
+            return
+
+        try:
+            payload = self._get_payload(event)
+            node_id = payload.get("node_id", "")
+            config_hash = payload.get("hash", "")
+
+            if node_id:
+                self.mark_node_synced(node_id)
+                logger.debug(
+                    f"[ConfigSync] Received sync ACK from {node_id} "
+                    f"(hash={config_hash[:8] if config_hash else 'unknown'}...)"
+                )
+        except Exception as e:
+            logger.warning(f"[ConfigSync] Error handling CONFIG_SYNC_ACK: {e}")
 
     async def _run_cycle(self) -> None:
         """Main cycle: detect changes and orchestrate sync."""
@@ -203,6 +227,32 @@ class ConfigSyncDaemon(HandlerBase):
         else:
             logger.warning("[ConfigSync] Failed to emit CONFIG_UPDATED event")
 
+    async def _emit_sync_ack(self, config_hash: str) -> None:
+        """Emit CONFIG_SYNC_ACK to notify coordinator that we synced.
+
+        Args:
+            config_hash: Hash of the config we synced to
+        """
+        payload = {
+            "node_id": env.node_id,
+            "hash": config_hash,
+            "timestamp": time.time(),
+        }
+
+        # Use safe event emission
+        success = await self._safe_emit_event_async(
+            "CONFIG_SYNC_ACK",
+            payload,
+        )
+
+        if success:
+            logger.debug(
+                f"[ConfigSync] Emitted CONFIG_SYNC_ACK: "
+                f"node={env.node_id}, hash={config_hash[:8]}..."
+            )
+        else:
+            logger.warning("[ConfigSync] Failed to emit CONFIG_SYNC_ACK event")
+
     async def _on_config_updated(self, event: Any) -> None:
         """Handle CONFIG_UPDATED event (worker nodes).
 
@@ -253,6 +303,9 @@ class ConfigSyncDaemon(HandlerBase):
             if success:
                 self._syncs_pulled += 1
                 logger.info(f"[ConfigSync] Successfully pulled config from {source_node}")
+
+                # Send ACK to coordinator so it knows we synced
+                await self._emit_sync_ack(event_hash)
             else:
                 logger.warning(f"[ConfigSync] Failed to pull config from {source_node}")
 
@@ -337,10 +390,151 @@ class ConfigSyncDaemon(HandlerBase):
         """Push config to nodes that haven't pulled within timeout.
 
         This is a coordinator fallback for nodes that miss the event.
+        Tracks nodes via CONFIG_SYNC_ACK events and pushes to those
+        that haven't acknowledged within push_delay (default 60s).
         """
-        # TODO: Implement active push for nodes that don't pull
-        # This requires tracking which nodes have synced via gossip state
-        pass
+        if not self._is_coordinator:
+            return
+
+        # Skip if no config version yet
+        if self._last_known_version is None:
+            return
+
+        try:
+            # Get active cluster nodes
+            config = load_cluster_config()
+            hosts = config.get("hosts", {})
+
+            # Track nodes that need push
+            current_time = time.time()
+            nodes_to_push: list[str] = []
+
+            for node_id, node_config in hosts.items():
+                # Skip self
+                if node_id == env.node_id:
+                    continue
+
+                # Skip nodes without SSH access
+                if not node_config.get("tailscale_ip") and not node_config.get("ssh_host"):
+                    continue
+
+                # Skip if node isn't active (based on status field if present)
+                status = node_config.get("status", "active")
+                if status in ("inactive", "terminated", "deprecated"):
+                    continue
+
+                # Check if node is in pending sync list
+                if node_id in self._pending_sync_nodes:
+                    first_seen = self._pending_sync_nodes[node_id]
+                    if current_time - first_seen > self._push_delay:
+                        # Node hasn't synced within timeout, needs push
+                        nodes_to_push.append(node_id)
+                else:
+                    # Add to pending list (will be pushed on next cycle if still stale)
+                    self._pending_sync_nodes[node_id] = current_time
+
+            # Push to stale nodes
+            for node_id in nodes_to_push:
+                # Check failure count
+                failures = self._sync_failures.get(node_id, 0)
+                if failures >= self._max_retries:
+                    logger.warning(
+                        f"[ConfigSync] Skipping push to {node_id} "
+                        f"({failures} consecutive failures)"
+                    )
+                    continue
+
+                logger.info(
+                    f"[ConfigSync] Active push to stale node: {node_id} "
+                    f"(no sync for {current_time - self._pending_sync_nodes[node_id]:.0f}s)"
+                )
+
+                success = await self._push_config_to_node(node_id)
+                if success:
+                    self._syncs_pushed += 1
+                    # Remove from pending list
+                    self._pending_sync_nodes.pop(node_id, None)
+                    self._sync_failures.pop(node_id, None)
+                else:
+                    self._sync_failures[node_id] = failures + 1
+
+        except Exception as e:
+            logger.error(f"[ConfigSync] Error in push_to_stale_nodes: {e}")
+            self._record_error(str(e))
+
+    async def _push_config_to_node(self, node_id: str) -> bool:
+        """Push config to a specific node via rsync.
+
+        Args:
+            node_id: Target node ID
+
+        Returns:
+            True if config was successfully pushed
+        """
+        try:
+            # Get node config
+            config = load_cluster_config()
+            hosts = config.get("hosts", {})
+            node_config = hosts.get(node_id, {})
+
+            if not node_config:
+                logger.warning(f"[ConfigSync] Unknown node for push: {node_id}")
+                return False
+
+            # Get IP (prefer Tailscale)
+            ip = node_config.get("tailscale_ip") or node_config.get("ssh_host")
+            if not ip:
+                logger.warning(f"[ConfigSync] No IP for node: {node_id}")
+                return False
+
+            # Get remote path
+            remote_user = node_config.get("ssh_user", "ubuntu")
+            local_path = str(self._config_path)
+            remote_path = f"{remote_user}@{ip}:ringrift/ai-service/config/distributed_hosts.yaml"
+
+            # rsync push with checksum verification
+            cmd = f"rsync -az --checksum {local_path} {remote_path}"
+
+            logger.debug(f"[ConfigSync] Pushing config: {cmd}")
+
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=self._sync_timeout,
+            )
+
+            if proc.returncode != 0:
+                logger.error(
+                    f"[ConfigSync] rsync push failed to {node_id}: "
+                    f"{stderr.decode().strip()}"
+                )
+                return False
+
+            logger.info(f"[ConfigSync] Successfully pushed config to {node_id}")
+            return True
+
+        except asyncio.TimeoutError:
+            logger.error(f"[ConfigSync] Timeout pushing config to {node_id}")
+            return False
+        except Exception as e:
+            logger.error(f"[ConfigSync] Error pushing config to {node_id}: {e}")
+            return False
+
+    def mark_node_synced(self, node_id: str) -> None:
+        """Mark a node as having synced (removes from pending list).
+
+        Called when CONFIG_SYNC_ACK is received from a node.
+
+        Args:
+            node_id: Node that acknowledged sync
+        """
+        self._pending_sync_nodes.pop(node_id, None)
+        self._sync_failures.pop(node_id, None)
 
     def _record_error(self, error: str) -> None:
         """Record an error in stats."""
@@ -363,6 +557,15 @@ class ConfigSyncDaemon(HandlerBase):
             "last_error": self._stats.last_error,
         }
 
+        # Add coordinator-specific metrics
+        if self._is_coordinator:
+            details["pending_sync_nodes"] = len(self._pending_sync_nodes)
+            details["failed_sync_nodes"] = len(
+                [n for n, f in self._sync_failures.items() if f >= self._max_retries]
+            )
+            if self._pending_sync_nodes:
+                details["pending_node_ids"] = list(self._pending_sync_nodes.keys())[:10]  # Limit to 10
+
         if self._last_known_version:
             details["last_hash"] = self._last_known_version.content_hash[:8]
             details["last_mtime"] = time.strftime(
@@ -373,7 +576,8 @@ class ConfigSyncDaemon(HandlerBase):
         return HealthCheckResult(
             healthy=is_healthy,
             message=f"ConfigSync {'coordinator' if self._is_coordinator else 'worker'} "
-                    f"({self._changes_detected} changes, {self._syncs_pulled} pulls)",
+                    f"({self._changes_detected} changes, {self._syncs_pushed} pushes, "
+                    f"{self._syncs_pulled} pulls)",
             details=details,
         )
 
