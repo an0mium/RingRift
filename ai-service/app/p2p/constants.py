@@ -617,12 +617,18 @@ if _bootstrap_seeds_env:
     BOOTSTRAP_SEEDS: list[str] = [s.strip() for s in _bootstrap_seeds_env.split(",") if s.strip()]
 else:
     # Hardcoded essential seeds - stable nodes that are always online
-    # Priority: Hetzner CPU (always on, relay-capable) > Vultr > Lambda GH200 (NAT-blocked but via relay)
+    # Priority: Public IPs first (for non-Tailscale nodes) > Tailscale IPs
+    # Jan 25, 2026: Added public IPs so Vast.ai/non-Tailscale nodes can bootstrap
     BOOTSTRAP_SEEDS: list[str] = [
-        "100.94.174.19:8770",    # hetzner-cpu1 (always online, relay-capable)
-        "100.67.131.72:8770",    # hetzner-cpu2 (always online, relay-capable)
-        "100.126.21.102:8770",   # hetzner-cpu3 (always online, relay-capable)
-        "100.94.201.92:8770",    # vultr-a100-20gb (stable, relay-capable)
+        # Public IPs (reachable from anywhere, including Vast.ai)
+        "46.62.147.150:8770",    # hetzner-cpu1 (public IP, always online)
+        "208.167.249.164:8770",  # vultr-a100-20gb (public IP, stable)
+        "89.169.98.165:8770",    # nebius-h100-3 (public IP, H100)
+        # Tailscale IPs (for Tailscale-connected nodes)
+        "100.94.174.19:8770",    # hetzner-cpu1 (Tailscale, relay-capable)
+        "100.67.131.72:8770",    # hetzner-cpu2 (Tailscale, relay-capable)
+        "100.126.21.102:8770",   # hetzner-cpu3 (Tailscale, relay-capable)
+        "100.94.201.92:8770",    # vultr-a100-20gb (Tailscale, stable)
         "100.107.168.125:8770",  # mac-studio (coordinator)
         "100.71.89.91:8770",     # lambda-gh200-1 (reachable via relay)
         "100.121.230.110:8770",  # lambda-gh200-8 (direct connection)

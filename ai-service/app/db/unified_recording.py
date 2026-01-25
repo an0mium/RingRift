@@ -1124,7 +1124,7 @@ class UnifiedGameRecorder:
                 },
                 context="UnifiedGameRecorder",
             )
-        except Exception:
+        except (ImportError, RuntimeError, AttributeError):
             pass  # Non-critical - don't break recording
 
 
@@ -1162,7 +1162,7 @@ def emit_games_recorded_batch(
             },
             context="UnifiedRecording.batch",
         )
-    except Exception:
+    except (ImportError, RuntimeError, AttributeError):
         pass  # Non-critical
 
 

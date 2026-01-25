@@ -81,7 +81,8 @@ describe('BoardControlsOverlay', () => {
       it('shows ring placement instructions for non-spectators', () => {
         render(<BoardControlsOverlay {...defaultProps} mode="backend" />);
 
-        expect(screen.getByText(/ring placement/i)).toBeInTheDocument();
+        // Multiple elements mention "ring placement", so use getAllByText
+        expect(screen.getAllByText(/ring placement/i).length).toBeGreaterThan(0);
         expect(
           screen.getByText(/highlighted cells show legal ring locations/i)
         ).toBeInTheDocument();

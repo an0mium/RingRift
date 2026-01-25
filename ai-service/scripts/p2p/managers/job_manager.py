@@ -2142,7 +2142,7 @@ class JobManager(EventSubscriptionMixin):
                                 f"GPU-required mode requested but no GPU available "
                                 f"(CUDA={has_cuda}, MPS={has_mps}), using CPU mode '{effective_mode}' for job {job_id}"
                             )
-                        except Exception:
+                        except (ImportError, AttributeError, TypeError):
                             logger.warning(
                                 f"GPU-required mode requested but no GPU available, falling back to maxn for job {job_id}"
                             )
@@ -2382,7 +2382,7 @@ class JobManager(EventSubscriptionMixin):
                             tracker = get_node_queue_tracker()
                             if tracker:
                                 tracker.on_job_completed(job_node_id)
-                        except Exception:
+                        except (AttributeError, TypeError, KeyError):
                             pass  # Non-critical
 
                     # Session 17.38: Track config completion for multi-config support
@@ -2394,7 +2394,7 @@ class JobManager(EventSubscriptionMixin):
                             )
                             if config_tracker and job_config_key:
                                 config_tracker.remove_config(job_node_id, job_config_key)
-                        except Exception:
+                        except (AttributeError, TypeError, KeyError):
                             pass  # Non-critical
 
                     # Remove from active jobs

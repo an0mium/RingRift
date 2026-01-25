@@ -3144,7 +3144,7 @@ class P2POrchestrator(
                     """Probe a bootstrap seed for health."""
                     try:
                         return await self._probe_peer_health(addr)
-                    except Exception:
+                    except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
                         return False
 
                 async def _on_peer_discovered_during_crisis(peer_id: str, addr: str) -> None:
@@ -4099,7 +4099,7 @@ class P2POrchestrator(
                             timeout=aiohttp.ClientTimeout(total=10),
                         ) as resp:
                             return resp.status == 200
-                    except Exception:
+                    except (aiohttp.ClientError, asyncio.TimeoutError, OSError):
                         return False
 
                 # Callback: Recover a peer

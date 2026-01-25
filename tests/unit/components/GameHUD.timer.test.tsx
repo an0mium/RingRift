@@ -163,7 +163,7 @@ describe('GameHUD player timers', () => {
 
     const timer = screen.getByLabelText('Alice time remaining: 0:02');
     expect(timer).toHaveAttribute('data-severity', 'critical');
-    expect(timer).toHaveClass('text-red-600');
+    expect(timer).toHaveClass('text-red-400');
   });
 
   it('shows warning severity when time is low but above critical threshold', () => {
@@ -176,7 +176,7 @@ describe('GameHUD player timers', () => {
 
     const timer = screen.getByLabelText('Alice time remaining: 0:05');
     expect(timer).toHaveAttribute('data-severity', 'warning');
-    expect(timer).toHaveClass('text-amber-400');
+    expect(timer).toHaveClass('text-amber-300');
   });
 
   it('renders local sandbox banner when isLocalSandboxOnly is true', () => {

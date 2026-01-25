@@ -29,6 +29,12 @@ jest.mock('../../../src/server/config', () => ({
     server: {
       publicClientUrl: 'http://localhost:3000',
     },
+    email: {
+      provider: 'mock',
+      from: 'test@ringrift.ai',
+      ses: null,
+    },
+    isTest: true,
   },
 }));
 
@@ -99,7 +105,7 @@ describe('sendEmail', () => {
     jest.advanceTimersByTime(100);
     await resultPromise;
 
-    const logCall = (logger.info as jest.Mock).mock.calls[0];
+    const logCall = (logger.info as jest.Mock).mock.calls[1];
     const loggedHtml = logCall[1].html;
 
     // Should be truncated to first 100 chars + '...'
@@ -118,7 +124,7 @@ describe('sendEmail', () => {
     jest.advanceTimersByTime(100);
     await resultPromise;
 
-    const logCall = (logger.info as jest.Mock).mock.calls[0];
+    const logCall = (logger.info as jest.Mock).mock.calls[1];
     expect(logCall[1].html).toBeUndefined();
   });
 });
@@ -142,9 +148,10 @@ describe('sendVerificationEmail', () => {
     const result = await resultPromise;
 
     expect(result).toBe(true);
-    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledTimes(2); // sendEmail called + MOCK EMAIL SENT
 
-    const logCall = (logger.info as jest.Mock).mock.calls[0];
+    // Second call is the MOCK EMAIL SENT log
+    const logCall = (logger.info as jest.Mock).mock.calls[1];
     expect(logCall[0]).toBe('MOCK EMAIL SENT');
     expect(logCall[1].to).toBe('newuser@example.com');
     expect(logCall[1].subject).toBe('Verify your RingRift account');
@@ -161,7 +168,7 @@ describe('sendVerificationEmail', () => {
     jest.advanceTimersByTime(100);
     await resultPromise;
 
-    const logCall = (logger.info as jest.Mock).mock.calls[0];
+    const logCall = (logger.info as jest.Mock).mock.calls[1];
     // HTML should be truncated but should contain the link mention
     expect(logCall[1].html).toBeDefined();
   });
@@ -186,9 +193,9 @@ describe('sendPasswordResetEmail', () => {
     const result = await resultPromise;
 
     expect(result).toBe(true);
-    expect(logger.info).toHaveBeenCalledTimes(1);
+    expect(logger.info).toHaveBeenCalledTimes(2); // sendEmail called + MOCK EMAIL SENT
 
-    const logCall = (logger.info as jest.Mock).mock.calls[0];
+    const logCall = (logger.info as jest.Mock).mock.calls[1];
     expect(logCall[0]).toBe('MOCK EMAIL SENT');
     expect(logCall[1].to).toBe('forgotpw@example.com');
     expect(logCall[1].subject).toBe('Reset your RingRift password');
@@ -203,7 +210,7 @@ describe('sendPasswordResetEmail', () => {
     jest.advanceTimersByTime(100);
     await resultPromise;
 
-    const logCall = (logger.info as jest.Mock).mock.calls[0];
+    const logCall = (logger.info as jest.Mock).mock.calls[1];
     expect(logCall[1].html).toBeDefined();
   });
 
@@ -215,7 +222,7 @@ describe('sendPasswordResetEmail', () => {
     jest.advanceTimersByTime(100);
     await resultPromise;
 
-    const logCall = (logger.info as jest.Mock).mock.calls[0];
+    const logCall = (logger.info as jest.Mock).mock.calls[1];
     // The text body should indicate the reset was requested
     expect(logCall[1].text).toContain('password reset');
   });

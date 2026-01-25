@@ -676,11 +676,11 @@ describe('BackendGameHost (React host behaviour)', () => {
     render(<BackendGameHost gameId="game-123" />);
 
     // Ensure the line reward options are visible (using actual button text)
-    expect(screen.getByText('Full Collapse + Elimination Bonus')).toBeInTheDocument();
+    expect(screen.getByText('Full Collapse + Elimination')).toBeInTheDocument();
     expect(screen.getByText('Minimum Collapse')).toBeInTheDocument();
 
     // Click the first option
-    fireEvent.click(screen.getByText('Full Collapse + Elimination Bonus'));
+    fireEvent.click(screen.getByText('Full Collapse + Elimination'));
 
     // Respond hook should be called with the selected option
     expect(mockRespondToChoice).toHaveBeenCalledTimes(1);

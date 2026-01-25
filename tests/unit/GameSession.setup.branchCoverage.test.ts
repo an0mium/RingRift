@@ -1,7 +1,7 @@
 /**
  * Tests for GameSession branch coverage - Setup and Configuration.
  * Covers: userSockets, edge cases, rngSeed, gameId, time control, board types.
- * 
+ *
  * Split from GameSession.init.branchCoverage.test.ts for maintainability.
  */
 
@@ -123,6 +123,37 @@ const createMockIo = (): jest.Mocked<SocketIOServer> =>
     },
   }) as unknown as jest.Mocked<SocketIOServer>;
 
+// Track created sessions for cleanup to prevent memory leaks
+const createdSessions: GameSession[] = [];
+
+/**
+ * Create a GameSession and register it for cleanup.
+ * Use this instead of `new GameSession()` directly to prevent memory leaks.
+ */
+function createTrackedSession(
+  gameId: string,
+  io: SocketIOServer,
+  config: never,
+  userSockets: Map<string, string> = new Map()
+): GameSession {
+  const session = new GameSession(gameId, io, config, userSockets);
+  createdSessions.push(session);
+  return session;
+}
+
+// Global cleanup after each test
+afterEach(() => {
+  // Terminate all created sessions to release resources
+  while (createdSessions.length > 0) {
+    const session = createdSessions.pop();
+    try {
+      session?.terminate('session_cleanup');
+    } catch {
+      // Ignore errors during cleanup
+    }
+  }
+});
+
 describe('GameSession Branch Coverage - userSockets map usage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -134,7 +165,7 @@ describe('GameSession Branch Coverage - userSockets map usage', () => {
     userSockets.set('player-1', 'socket-1');
     userSockets.set('player-2', 'socket-2');
 
-    const session = new GameSession('test-game-id', io, {} as never, userSockets);
+    const session = createTrackedSession('test-game-id', io, {} as never, userSockets);
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -158,7 +189,7 @@ describe('GameSession Branch Coverage - userSockets map usage', () => {
 
   it('handles empty userSockets map', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -188,7 +219,7 @@ describe('GameSession Branch Coverage - edge case game states', () => {
 
   it('handles maxPlayers as null (defaults to 2)', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -213,7 +244,7 @@ describe('GameSession Branch Coverage - edge case game states', () => {
 
   it('handles isRated as null', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -244,7 +275,7 @@ describe('GameSession Branch Coverage - rngSeed edge cases', () => {
 
   it('handles rngSeed of zero', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -268,7 +299,7 @@ describe('GameSession Branch Coverage - rngSeed edge cases', () => {
 
   it('handles string rngSeed value (invalid type)', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -292,7 +323,7 @@ describe('GameSession Branch Coverage - rngSeed edge cases', () => {
 
   it('handles negative rngSeed value', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -316,7 +347,7 @@ describe('GameSession Branch Coverage - rngSeed edge cases', () => {
 
   it('handles large rngSeed value', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -347,7 +378,7 @@ describe('GameSession Branch Coverage - various gameId scenarios', () => {
   it('handles gameId with special characters', async () => {
     const io = createMockIo();
     const specialGameId = 'test-game-uuid-123-456';
-    const session = new GameSession(specialGameId, io, {} as never, new Map());
+    const session = createTrackedSession(specialGameId, io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: specialGameId,
@@ -375,7 +406,7 @@ describe('GameSession Branch Coverage - waiting status without all players', () 
 
   it('does not auto-start when not all players present', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -406,7 +437,7 @@ describe('GameSession Branch Coverage - game already completed status', () => {
 
   it('initializes completed game correctly', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -437,7 +468,7 @@ describe('GameSession Branch Coverage - empty difficulty array', () => {
 
   it('uses default difficulty when difficulty array is empty', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -473,7 +504,7 @@ describe('GameSession Branch Coverage - gameState with empty object', () => {
 
   it('handles empty object gameState', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -503,7 +534,7 @@ describe('GameSession Branch Coverage - player2 only no player1', () => {
 
   it('handles game with player2 but no player1', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -533,7 +564,7 @@ describe('GameSession Branch Coverage - special time control configurations', ()
 
   it('handles bullet time control', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -557,7 +588,7 @@ describe('GameSession Branch Coverage - special time control configurations', ()
 
   it('handles time control with very high increment', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -581,7 +612,7 @@ describe('GameSession Branch Coverage - special time control configurations', ()
 
   it('handles time control with zero values', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -605,7 +636,7 @@ describe('GameSession Branch Coverage - special time control configurations', ()
 
   it('handles custom time control type', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -635,7 +666,7 @@ describe('GameSession Branch Coverage - abandoned status', () => {
 
   it('initializes game with abandoned status', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -666,7 +697,7 @@ describe('GameSession Branch Coverage - AI with default mode', () => {
 
   it('defaults to service mode when mode not specified', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -702,7 +733,7 @@ describe('GameSession Branch Coverage - getGameState without initialization', ()
 
   it('throws when getGameState called before initialize', () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     expect(() => session.getGameState()).toThrow();
   });
@@ -715,7 +746,7 @@ describe('GameSession Branch Coverage - double initialization check', () => {
 
   it('handles multiple initialize calls', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -747,7 +778,7 @@ describe('GameSession Branch Coverage - createPlayer edge cases', () => {
 
   it('handles player with empty string username', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -778,7 +809,7 @@ describe('GameSession Branch Coverage - AI profile creation', () => {
 
   it('handles AI profile creation with all options', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -815,7 +846,7 @@ describe('GameSession Branch Coverage - game auto-start variations', () => {
 
   it('skips auto-start when status is not waiting', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -840,7 +871,7 @@ describe('GameSession Branch Coverage - game auto-start variations', () => {
 
   it('skips auto-start when maxPlayers not reached', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -871,7 +902,7 @@ describe('GameSession Branch Coverage - fixture metadata application', () => {
 
   it('stores fixture metadata when provided', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -908,7 +939,7 @@ describe('GameSession Branch Coverage - configureEngineSelection branches', () =
 
   it('uses human player for targeting when available', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -938,7 +969,7 @@ describe('GameSession Branch Coverage - configureEngineSelection branches', () =
 
   it('handles all-AI game engine selection', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-game-id', io, {} as never, new Map());
+    const session = createTrackedSession('test-game-id', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-game-id',
@@ -974,7 +1005,7 @@ describe('GameSession additional board type coverage', () => {
 
   it('handles 3-player game initialization', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-3p-game', io, {} as never, new Map());
+    const session = createTrackedSession('test-3p-game', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-3p-game',
@@ -999,7 +1030,7 @@ describe('GameSession additional board type coverage', () => {
 
   it('handles 4-player game initialization', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-4p-game', io, {} as never, new Map());
+    const session = createTrackedSession('test-4p-game', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-4p-game',
@@ -1025,7 +1056,7 @@ describe('GameSession additional board type coverage', () => {
 
   it('handles game with missing player slots gracefully', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-partial-game', io, {} as never, new Map());
+    const session = createTrackedSession('test-partial-game', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-partial-game',
@@ -1048,7 +1079,7 @@ describe('GameSession additional board type coverage', () => {
 
   it('handles square19 board type', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-sq19-game', io, {} as never, new Map());
+    const session = createTrackedSession('test-sq19-game', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-sq19-game',
@@ -1071,7 +1102,7 @@ describe('GameSession additional board type coverage', () => {
 
   it('handles hexagonal board type', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-hex-game', io, {} as never, new Map());
+    const session = createTrackedSession('test-hex-game', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-hex-game',
@@ -1094,7 +1125,7 @@ describe('GameSession additional board type coverage', () => {
 
   it('handles unrated game initialization', async () => {
     const io = createMockIo();
-    const session = new GameSession('test-unrated-game', io, {} as never, new Map());
+    const session = createTrackedSession('test-unrated-game', io, {} as never, new Map());
 
     mockGameFindUnique.mockResolvedValue({
       id: 'test-unrated-game',

@@ -96,7 +96,7 @@ function buildGameState(players: Player[]): GameState {
 }
 
 describe('VictoryModal render', () => {
-  it('renders winner summary and stats, and closes on backdrop click', () => {
+  it('renders winner summary and stats, and closes on button click', () => {
     const players = buildPlayers();
     const gameResult = buildGameResult();
     const gameState = buildGameState(players);
@@ -120,12 +120,10 @@ describe('VictoryModal render', () => {
     expect(screen.getAllByText(/Rings Eliminated/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Victory/i).length).toBeGreaterThan(0);
 
-    // Backdrop click closes modal
-    const dialog = screen.getByRole('dialog');
-    const overlay = dialog.parentElement;
-    const backdrop = overlay?.querySelector<HTMLElement>('[aria-hidden="true"]') ?? null;
-    expect(backdrop).toBeInTheDocument();
-    fireEvent.click(backdrop as HTMLElement);
+    // Close button closes modal (backdrop click disabled)
+    const closeButton = screen.getByRole('button', { name: /close/i });
+    expect(closeButton).toBeInTheDocument();
+    fireEvent.click(closeButton);
     expect(onClose).toHaveBeenCalled();
   });
 

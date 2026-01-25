@@ -72,10 +72,11 @@ describe('redis connection lifecycle', () => {
     expect(options.password).toBe('test-password');
     expect(options.socket.connectTimeout).toBe(60000);
 
-    // Reconnect strategy should back off and eventually stop retrying after >10 attempts.
-    expect(options.socket.reconnectStrategy(1)).toBeGreaterThan(0);
-    expect(options.socket.reconnectStrategy(5)).toBeLessThanOrEqual(1000);
-    expect(options.socket.reconnectStrategy(11)).toBe(false);
+    // Reconnect strategy should back off exponentially with cap at 30s (never gives up)
+    expect(options.socket.reconnectStrategy(1)).toBe(100);
+    expect(options.socket.reconnectStrategy(5)).toBe(500);
+    expect(options.socket.reconnectStrategy(11)).toBe(1100);
+    expect(options.socket.reconnectStrategy(500)).toBe(30000); // Capped at 30s
 
     // Client should be connected once.
     expect(mockConnect).toHaveBeenCalledTimes(1);

@@ -217,7 +217,7 @@ describe('ChoiceDialog', () => {
     it('renders Full Collapse option button', () => {
       const choice = createLineRewardChoice();
       render(<ChoiceDialog {...defaultProps} choice={choice} />);
-      expect(screen.getByText('Full Collapse + Elimination Bonus')).toBeInTheDocument();
+      expect(screen.getByText('Full Collapse + Elimination')).toBeInTheDocument();
       expect(screen.getByText(/Convert entire line to territory/)).toBeInTheDocument();
     });
 
@@ -232,7 +232,7 @@ describe('ChoiceDialog', () => {
       const choice = createLineRewardChoice();
       render(<ChoiceDialog {...defaultProps} choice={choice} />);
 
-      fireEvent.click(screen.getByText('Full Collapse + Elimination Bonus'));
+      fireEvent.click(screen.getByText('Full Collapse + Elimination'));
 
       expect(mockOnSelectOption).toHaveBeenCalledWith(
         choice,

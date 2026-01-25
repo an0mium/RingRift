@@ -336,16 +336,19 @@ class MonitoringManager:
     async def _start_prometheus_systemd(self) -> bool:
         """Try to start Prometheus via systemd."""
         try:
-            result = subprocess.run(
-                ["sudo", "systemctl", "start", "prometheus"],
-                capture_output=True,
-                timeout=30,
-            )
+            def _start_sync() -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    ["sudo", "systemctl", "start", "prometheus"],
+                    capture_output=True,
+                    timeout=30,
+                )
+
+            result = await asyncio.to_thread(_start_sync)
             if result.returncode == 0:
                 logger.info("[Monitoring] Started Prometheus via systemd")
                 return True
             return False
-        except Exception as e:
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             logger.debug(f"[Monitoring] systemd prometheus not available: {e}")
             return False
 
@@ -393,16 +396,19 @@ class MonitoringManager:
     async def _start_grafana_systemd(self) -> bool:
         """Try to start Grafana via systemd."""
         try:
-            result = subprocess.run(
-                ["sudo", "systemctl", "start", "grafana-server"],
-                capture_output=True,
-                timeout=30,
-            )
+            def _start_sync() -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    ["sudo", "systemctl", "start", "grafana-server"],
+                    capture_output=True,
+                    timeout=30,
+                )
+
+            result = await asyncio.to_thread(_start_sync)
             if result.returncode == 0:
                 logger.info("[Monitoring] Started Grafana via systemd")
                 return True
             return False
-        except Exception as e:
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
             logger.debug(f"[Monitoring] systemd grafana not available: {e}")
             return False
 
@@ -410,17 +416,20 @@ class MonitoringManager:
         """Start Grafana as a subprocess (usually not needed if installed)."""
         # Grafana is typically run via systemd, so we just check if it's running
         try:
-            result = subprocess.run(
-                ["pgrep", "-f", "grafana"],
-                capture_output=True,
-                timeout=5,
-            )
+            def _check_running() -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    ["pgrep", "-f", "grafana"],
+                    capture_output=True,
+                    timeout=5,
+                )
+
+            result = await asyncio.to_thread(_check_running)
             if result.returncode == 0:
                 logger.info("[Monitoring] Grafana is already running")
                 return True
             logger.warning("[Monitoring] Grafana not running and systemd start failed")
             return False
-        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
     async def stop(self):
@@ -475,13 +484,16 @@ class MonitoringManager:
 
         # Try systemd reload
         try:
-            subprocess.run(
-                ["sudo", "systemctl", "reload", "prometheus"],
-                capture_output=True,
-                timeout=10,
-            )
+            def _reload_sync() -> None:
+                subprocess.run(
+                    ["sudo", "systemctl", "reload", "prometheus"],
+                    capture_output=True,
+                    timeout=10,
+                )
+
+            await asyncio.to_thread(_reload_sync)
             logger.info("[Monitoring] Prometheus config reloaded via systemd")
-        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.SubprocessError, subprocess.TimeoutExpired, FileNotFoundError, OSError):
             # Send SIGHUP to process
             if self._prometheus_process:
                 self._prometheus_process.send_signal(1)  # SIGHUP
