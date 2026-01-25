@@ -66,9 +66,11 @@ HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_HEARTBEAT_INTERVAL", "10")
 # Jan 24, 2026: Increased from 90s to 120s for better stability on 40+ node clusters.
 # With ±5% jitter on 120s, disagreement window is only 12s (vs 18s at 90s with ±10%).
 # Jan 25, 2026: Increased from 120s to 150s for stable 20+ node connectivity.
-# Creates sequence: SUSPECT(60s) → PEER_TIMEOUT(150s) → RETIRE(210s).
-# With 10s heartbeat, 15 missed = DEAD. ±5% jitter = 142.5-157.5s (15s window).
-PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "150") or 150)
+# Jan 25, 2026 (later): Increased from 150s to 180s to reduce false peer deaths
+# during queue backpressure and high CPU load periods.
+# Creates sequence: SUSPECT(60s) → PEER_TIMEOUT(180s) → RETIRE(240s).
+# With 10s heartbeat, 18 missed = DEAD. ±5% jitter = 171-189s (18s window).
+PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "180") or 180)
 # Jan 23, 2026: UNIFIED - All node types now use the same timeout (90s) for consistency.
 # Role-based timeouts caused different nodes to disagree on peer liveness, breaking gossip.
 # NAT-blocked nodes compensate via retry/relay, not longer timeouts.
@@ -525,8 +527,9 @@ GOSSIP_MAX_PEER_ENDPOINTS = int(
 # Creates 60s gap between PEER_TIMEOUT(120s) and RETIRE(180s) to prevent race conditions.
 # Rollback: RINGRIFT_USE_LEGACY_TIMEOUTS=true
 # Jan 25, 2026: Increased from 180s to 210s to maintain 60s gap with PEER_TIMEOUT=150s.
-# Sequence: SUSPECT(60s) → DEAD(150s) → RETIRE(210s).
-PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "210") or 210)
+# Jan 25, 2026 (later): Increased from 210s to 240s to maintain 60s gap with PEER_TIMEOUT=180s.
+# Sequence: SUSPECT(60s) → DEAD(180s) → RETIRE(240s).
+PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "240") or 240)
 # Renamed from RETRY_RETIRED_NODE_INTERVAL to PEER_RECOVERY_RETRY_INTERVAL for clarity
 PEER_RECOVERY_RETRY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "120") or 120)
 # Backward compat alias (deprecated - use PEER_RECOVERY_RETRY_INTERVAL)

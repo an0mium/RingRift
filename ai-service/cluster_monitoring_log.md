@@ -48,6 +48,69 @@
 - **Leader**: local-mac
 - **Quorum OK**: True
 - **Nodes**: hetzner-cpu2, lambda-gh200-1/3/4/8/10/training, nebius-h100-3, vast-29118471, vast-29126088, vultr-a100-20gb
+
+---
+
+## Monitoring Round 2 (Session 2 - Started 17:00 CST)
+
+### Actions Taken
+
+1. **Restarted P2P on 6 Vast.ai nodes** with proper node IDs:
+   - vast-29118471 (107.174.186.233:36356) - STARTED
+   - vast-29126088 (76.66.207.49:45674) - STARTED
+   - vast-29128352 (93.91.156.82:54251) - STARTED (but using container ID)
+   - vast-29129151 (ssh4.vast.ai:19150) - STARTED
+   - vast-30274241 (160.250.70.27:6133) - STARTED
+   - vast-30274242 (160.250.70.26:4695) - STARTED
+
+2. **Restarted P2P on Lambda GH200 nodes**:
+   - GH200-3, GH200-4, GH200-8, GH200-9, GH200-10, GH200-11, GH200-training
+
+3. **Key Discovery - Vast.ai Node ID Issue**:
+   - The P2P orchestrator reads `RINGRIFT_NODE_ID` env var, not the canonical_node_id file
+   - Some Vast.ai nodes are appearing with container IDs (2d9de0d97a72, 7513a0ce51c0)
+   - These ARE the Vast.ai nodes but with wrong identifiers
+
+### Status Checks (17:00-17:10 CST)
+
+| Time  | Alive | Leader    | Notes                                     |
+| ----- | ----- | --------- | ----------------------------------------- |
+| 17:00 | 19    | local-mac | Peak count - includes 4 Vast.ai, 7 Lambda |
+| 17:02 | 13    | local-mac | Dropped - some Lambda nodes went offline  |
+| 17:03 | 9     | local-mac | Continued drop                            |
+| 17:04 | 10    | local-mac | Slight recovery                           |
+| 17:05 | 7     | local-mac | Fluctuating - 3 Lambda, 2 Vast.ai         |
+
+### Current Status (17:10 CST)
+
+- **Alive Peers**: 7 (fluctuating 7-19)
+- **Leader**: local-mac
+- **Quorum OK**: True (4/2 voters)
+- **Lambda nodes alive**: 3 (GH200-3, GH200-10, GH200-11)
+- **Vast.ai nodes alive**: 2 (29118471, 29126088)
+- **Other**: hetzner-cpu3, nebius-h100-3
+
+### Analysis
+
+**Cluster Fluctuation Causes**:
+
+1. Lambda GH200 nodes with P2P not fully started (waiting for Tailscale)
+2. Vast.ai nodes with wrong node IDs (container IDs instead of vast-\*)
+3. Some nodes marked as NAT-blocked due to intermittent connectivity
+4. PEER_DEAD_TIMEOUT (150s) is appropriate but nodes are timing out during reconnection
+
+**Fixes Applied This Session**:
+
+- PEER_DEAD_TIMEOUT: Already set to 150s (matches PEER_TIMEOUT in constants.py)
+- Vast.ai SSH key: Confirmed as `~/.ssh/id_cluster_lambda`
+- Bootstrap seeds: Using public IPs (46.62.147.150:8770, 208.167.249.164:8770)
+
+**Recommendations**:
+
+1. For Vast.ai nodes: Set `RINGRIFT_NODE_ID` env var when starting P2P
+2. For Lambda nodes: Ensure Tailscale is running before P2P starts
+3. Monitor for 4+ hours to confirm stability
+
 - **Issues**: hetzner-cpu1/3 dropped, leader changed to local-mac
 - **Notes**: Cluster size fluctuating between 10-13 nodes
 
