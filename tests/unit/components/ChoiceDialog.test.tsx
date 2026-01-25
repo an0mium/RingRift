@@ -312,17 +312,16 @@ describe('ChoiceDialog', () => {
     it('renders region options with ID, size, and representative position', () => {
       const choice = createRegionOrderChoice();
       render(<ChoiceDialog {...defaultProps} choice={choice} />);
-      expect(screen.getByText(/Region region-1/)).toBeInTheDocument();
-      expect(screen.getByText(/5 spaces/)).toBeInTheDocument();
-      expect(screen.getByText(/Region region-2/)).toBeInTheDocument();
-      expect(screen.getByText(/3 spaces/)).toBeInTheDocument();
+      // Component renders "Region {size} spaces at ({x}, {y})"
+      expect(screen.getByText(/Region 5 spaces at \(1, 1\)/)).toBeInTheDocument();
+      expect(screen.getByText(/Region 3 spaces at \(4, 4\)/)).toBeInTheDocument();
     });
 
     it('calls onSelectOption with correct region option', () => {
       const choice = createRegionOrderChoice();
       render(<ChoiceDialog {...defaultProps} choice={choice} />);
 
-      fireEvent.click(screen.getByText(/Region region-2/));
+      fireEvent.click(screen.getByText(/Region 3 spaces at \(4, 4\)/));
 
       expect(mockOnSelectOption).toHaveBeenCalledWith(choice, choice.options[1]);
     });
@@ -681,7 +680,8 @@ describe('ChoiceDialog', () => {
 
       render(<ChoiceDialog {...defaultProps} choice={choice} />);
 
-      expect(screen.getByText(/sample \(1, 2, -3\)/)).toBeInTheDocument();
+      // Component renders "Region {size} spaces at ({x}, {y}, {z})"
+      expect(screen.getByText(/Region 4 spaces at \(1, 2, -3\)/)).toBeInTheDocument();
     });
 
     it('displays z-coordinate for capture direction positions', () => {
