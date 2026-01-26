@@ -49,6 +49,9 @@ class ProviderTimeouts:
 
     # Provider-specific timeout multipliers
     # Higher values = longer timeouts for slower/less reliable networks
+    # Jan 25, 2026: Changed local/mac from 0.5 to 1.0 to match cluster nodes
+    # A 0.5x multiplier caused 108s local timeout vs 180-360s cluster,
+    # triggering timeout disagreement retirements (ratio > 2.0 = instant retire)
     MULTIPLIERS: ClassVar[dict[str, float]] = {
         "vast": 2.5,       # Consumer networks, high variance, NAT issues
         "lambda": 2.0,     # NAT-blocked GH200s, relay latency
@@ -56,8 +59,8 @@ class ProviderTimeouts:
         "nebius": 1.5,     # Stable cloud, some variance
         "vultr": 1.5,      # vGPU shared infrastructure
         "hetzner": 1.0,    # Bare metal, direct IP
-        "local": 0.5,      # Local machines, fast
-        "mac": 0.5,        # Local Macs
+        "local": 1.0,      # Local machines (was 0.5, caused disagreement)
+        "mac": 1.0,        # Local Macs (was 0.5, caused disagreement)
     }
 
     # Default multiplier for unknown providers (conservative)
