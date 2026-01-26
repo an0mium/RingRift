@@ -875,11 +875,14 @@ class LeaderProbeLoop(BaseLoop):
 
             # Jan 5, 2026: Clear stale leader references from gossip before election
             # This helps prevent split-brain where old leader info persists
+            # Jan 25, 2026: Wrap in asyncio.to_thread() to avoid blocking event loop
             gossip_mixin = getattr(self._orchestrator, "_gossip_mixin", None)
             if gossip_mixin and hasattr(gossip_mixin, "clear_stale_leader_from_gossip"):
                 current_epoch = getattr(self._orchestrator, "_election_epoch", 1) + 1
-                cleared = gossip_mixin.clear_stale_leader_from_gossip(
-                    unreachable_leader, current_epoch
+                cleared = await asyncio.to_thread(
+                    gossip_mixin.clear_stale_leader_from_gossip,
+                    unreachable_leader,
+                    current_epoch,
                 )
                 if cleared > 0:
                     logger.info(f"[LeaderProbe] Cleared {cleared} stale leader gossip refs")

@@ -262,9 +262,10 @@ class GossipHandlersMixin(BaseP2PHandler):
             new_peers = []
 
             # Jan 3, 2026: Use sync lock to prevent race with cleanup
+            # Jan 25, 2026: Wrap in asyncio.to_thread() to avoid blocking event loop
             sync_lock = getattr(self, "_gossip_state_sync_lock", None)
             if sync_lock is not None:
-                sync_lock.acquire()
+                await asyncio.to_thread(sync_lock.acquire)
             try:
                 for node_id, state in peer_states.items():
                     if node_id == self.node_id:

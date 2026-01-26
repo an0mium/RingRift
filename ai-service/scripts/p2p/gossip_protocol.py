@@ -815,9 +815,12 @@ class GossipProtocolMixin(P2PMixinBase):
                 return
 
         # Jan 3, 2026: Also acquire sync lock to prevent race with sync state modifiers
+        # Jan 25, 2026: Wrap in asyncio.to_thread() to avoid blocking event loop
         sync_acquired = False
         if sync_lock is not None:
-            sync_acquired = sync_lock.acquire(blocking=True, timeout=_GOSSIP_LOCK_TIMEOUT)
+            sync_acquired = await asyncio.to_thread(
+                lambda: sync_lock.acquire(blocking=True, timeout=_GOSSIP_LOCK_TIMEOUT)
+            )
             if not sync_acquired:
                 if async_lock is not None and async_acquired:
                     async_lock.release()
@@ -1816,9 +1819,12 @@ class GossipProtocolMixin(P2PMixinBase):
         persisted_states = self._load_persisted_gossip_states()
         if persisted_states:
             # Jan 3, 2026 (Sprint 15.1): Use sync lock for thread safety during restore
+            # Jan 25, 2026: Add timeout to prevent indefinite blocking at startup
             lock = getattr(self, "_gossip_state_sync_lock", None)
             if lock is not None:
-                lock.acquire()
+                if not lock.acquire(blocking=True, timeout=10.0):
+                    self._log_warning("Gossip lock acquisition timed out during startup restore")
+                    return
             try:
                 # Merge with any existing states (prefer fresher data)
                 for node_id, state in persisted_states.items():
