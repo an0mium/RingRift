@@ -9572,6 +9572,18 @@ class P2POrchestrator(
         # Used by _compute_connectivity_score() to determine leader eligibility
         info.visible_peers = len([p for p in self.peers.values() if p.is_alive()])
 
+        # Jan 25, 2026: Compute effective_timeout for broadcast to peers
+        # This tells other nodes how long to wait before marking us dead
+        try:
+            from app.p2p.constants import PEER_TIMEOUT, get_cpu_adaptive_timeout
+            from app.config.provider_timeouts import ProviderTimeouts
+            cpu_load = info.cpu_percent / 100.0 if info.cpu_percent > 0 else 0.0
+            base_timeout = get_cpu_adaptive_timeout(PEER_TIMEOUT, cpu_load)
+            provider_mult = ProviderTimeouts.get_multiplier(self.node_id) if ProviderTimeouts else 1.0
+            info.effective_timeout = base_timeout * provider_mult
+        except Exception:
+            info.effective_timeout = 180.0  # Fallback to default
+
         return info
 
     def _collect_all_addresses(
@@ -13843,6 +13855,8 @@ class P2POrchestrator(
             "data_summary": self._get_data_summary_cached(),
             # Jan 20, 2026: Adaptive dead peer cooldown stats
             "cooldown_stats": self._get_cooldown_stats(),
+            # Jan 25, 2026: Peer health summary for P2P stability monitoring (Phase 3)
+            "peer_health_summary": self._get_peer_health_summary(),
         })
 
     @with_request_timeout(10.0)
@@ -20547,6 +20561,18 @@ print(json.dumps({{
         # Used by _compute_connectivity_score() to determine leader eligibility
         self.self_info.visible_peers = len([p for p in self.peers.values() if p.is_alive()])
 
+        # Jan 25, 2026: Update effective_timeout for broadcast to peers
+        # This tells other nodes how long to wait before marking us dead
+        try:
+            from app.p2p.constants import PEER_TIMEOUT, get_cpu_adaptive_timeout
+            from app.config.provider_timeouts import ProviderTimeouts
+            cpu_load = usage["cpu_percent"] / 100.0 if usage.get("cpu_percent", 0) > 0 else 0.0
+            base_timeout = get_cpu_adaptive_timeout(PEER_TIMEOUT, cpu_load)
+            provider_mult = ProviderTimeouts.get_multiplier(self.node_id) if ProviderTimeouts else 1.0
+            self.self_info.effective_timeout = base_timeout * provider_mult
+        except Exception:
+            self.self_info.effective_timeout = 180.0  # Fallback to default
+
         # Report to unified resource optimizer for cluster-wide coordination
         if HAS_NEW_COORDINATION:
             try:
@@ -23388,6 +23414,18 @@ print(json.dumps({{
                         retired_peers.append((node_id, last_hb, dead_for))
                         logger.info(f"Retired peer {node_id} (dead for {dead_for:.0f}s)")
 
+                        # Jan 25, 2026: Log timeout disagreement warning for diagnostics
+                        my_timeout = getattr(self.self_info, "effective_timeout", 0.0) or 180.0
+                        peer_timeout = getattr(info, "effective_timeout", 0.0)
+                        if peer_timeout > 0:
+                            ratio = peer_timeout / my_timeout if my_timeout > 0 else 1.0
+                            if ratio > 1.3 or ratio < 0.7:
+                                logger.warning(
+                                    f"[P2P] Timeout disagreement retiring {node_id}: "
+                                    f"our_timeout={my_timeout:.1f}s, their_timeout={peer_timeout:.1f}s, "
+                                    f"ratio={ratio:.2f}"
+                                )
+
                         # Jan 21, 2026: Track state transition for diagnostics
                         # Jan 22, 2026: Use record_probe_failure() for SUSPECTED grace period
                         if self._peer_state_tracker:
@@ -25307,6 +25345,11 @@ print(json.dumps({{
             "has_gpu": getattr(self.self_info, "has_gpu", False),
             "gpu_name": getattr(self.self_info, "gpu_name", ""),
             "voter_quorum_ok": self._has_voter_quorum(),
+            # Jan 25, 2026: Include visible_peers for gossip convergence
+            # This allows nodes to have accurate connectivity info about remote peers
+            "visible_peers": getattr(self.self_info, "visible_peers", 0),
+            # Jan 25, 2026: Include effective_timeout so all nodes agree on when to mark us dead
+            "effective_timeout": getattr(self.self_info, "effective_timeout", 0.0),
         }
 
         # DISTRIBUTED TRAINING COORDINATION: Include active training configs
@@ -25531,6 +25574,18 @@ print(json.dumps({{
             existing = self._gossip_peer_states.get(node_id, {})
             if state.get("version", 0) > existing.get("version", 0):
                 self._gossip_peer_states[node_id] = state
+
+                # Jan 25, 2026: Update peer's visible_peers and effective_timeout from gossip
+                # This ensures all nodes have accurate connectivity info about remote peers
+                with contextlib.suppress(Exception):
+                    if node_id in self.peers:
+                        peer = self.peers[node_id]
+                        peer_visible = state.get("visible_peers")
+                        if peer_visible is not None:
+                            peer.visible_peers = int(peer_visible)
+                        peer_timeout = state.get("effective_timeout")
+                        if peer_timeout is not None and peer_timeout > 0:
+                            peer.effective_timeout = float(peer_timeout)
 
         # Process manifest info for P2P sync
         peer_manifests = response.get("peer_manifests", {})
@@ -27454,6 +27509,66 @@ print(json.dumps({{
                 "enabled": True,
                 "error": str(e),
             }
+
+    def _get_peer_health_summary(self) -> dict[str, Any]:
+        """Get peer health summary for P2P stability monitoring.
+
+        January 25, 2026: Added for Phase 3 instrumentation - provides lightweight
+        visibility into peer state transitions, flapping, and timeout disagreements.
+
+        Returns:
+            Dict with:
+            - transitions_5min: Count of state transitions in last 5 minutes
+            - flapping_peers: List of currently flapping peer IDs
+            - suspected_count: Number of peers currently in SUSPECTED state
+            - timeout_disagreements: Peers with effective_timeout significantly different from ours
+        """
+        result: dict[str, Any] = {
+            "transitions_5min": 0,
+            "flapping_peers": [],
+            "suspected_count": 0,
+            "timeout_disagreements": [],
+        }
+
+        # Get diagnostics from peer state tracker
+        if self._peer_state_tracker:
+            try:
+                diagnostics = self._peer_state_tracker.get_diagnostics()
+                result["transitions_5min"] = diagnostics.get("total_transitions_5min", 0)
+                result["flapping_peers"] = diagnostics.get("flapping_peers", [])
+                # Count suspected peers
+                from scripts.p2p.diagnostics.peer_state_tracker import PeerState
+                suspected_count = 0
+                for node_id, state in getattr(self._peer_state_tracker, "_current_state", {}).items():
+                    if state == PeerState.SUSPECTED:
+                        suspected_count += 1
+                result["suspected_count"] = suspected_count
+            except Exception as e:  # noqa: BLE001
+                result["tracker_error"] = str(e)
+
+        # Check for timeout disagreements (significant difference from our effective_timeout)
+        try:
+            my_timeout = getattr(self.self_info, "effective_timeout", 0.0) or 180.0
+            disagreements = []
+            for peer in self.peers.values():
+                if not peer.is_alive():
+                    continue
+                peer_timeout = getattr(peer, "effective_timeout", 0.0)
+                if peer_timeout > 0:
+                    # Flag if difference > 30% (significant disagreement)
+                    ratio = peer_timeout / my_timeout if my_timeout > 0 else 1.0
+                    if ratio > 1.3 or ratio < 0.7:
+                        disagreements.append({
+                            "node_id": peer.node_id,
+                            "their_timeout": round(peer_timeout, 1),
+                            "our_timeout": round(my_timeout, 1),
+                            "ratio": round(ratio, 2),
+                        })
+            result["timeout_disagreements"] = disagreements
+        except Exception as e:  # noqa: BLE001
+            result["timeout_error"] = str(e)
+
+        return result
 
     def _get_fallback_status(self) -> dict[str, Any]:
         """Get fallback mechanism status for debugging partition issues.

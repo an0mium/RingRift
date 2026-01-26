@@ -123,6 +123,9 @@ class NodeInfo:
     # Jan 24, 2026: Number of visible peers for connectivity scoring
     # Used by _compute_connectivity_score() to determine leader eligibility
     visible_peers: int = 0
+    # Jan 25, 2026: Broadcast effective timeout so all nodes agree on when to mark us dead
+    # Computed from PEER_TIMEOUT * CPU_multiplier * Provider_multiplier
+    effective_timeout: float = 0.0
 
     def get_health_state(self) -> NodeHealthState:
         """Get detailed health state based on heartbeat timing.
@@ -153,16 +156,23 @@ class NodeInfo:
         """
         elapsed = time.time() - self.last_heartbeat
 
-        # Jan 20, 2026: Use CPU-adaptive timeout based on peer's reported CPU load
-        # If peer reports high CPU, give it more time before marking dead
-        cpu_load = self.cpu_percent / 100.0 if self.cpu_percent > 0 else None
-        adaptive_timeout = get_cpu_adaptive_timeout(PEER_TIMEOUT, cpu_load)
+        # Jan 25, 2026: Use peer's broadcast effective_timeout if available
+        # This ensures all nodes agree on when this peer should be marked dead
+        # The peer computes its timeout based on its own CPU load and provider
+        if self.effective_timeout > 0:
+            adaptive_timeout = self.effective_timeout
+        else:
+            # Fallback to local calculation for backward compatibility
+            # Jan 20, 2026: Use CPU-adaptive timeout based on peer's reported CPU load
+            # If peer reports high CPU, give it more time before marking dead
+            cpu_load = self.cpu_percent / 100.0 if self.cpu_percent > 0 else None
+            adaptive_timeout = get_cpu_adaptive_timeout(PEER_TIMEOUT, cpu_load)
 
-        # Jan 23, 2026: Apply provider-specific timeout multiplier
-        # This prevents false-positive deaths for nodes with slower networks
-        if ProviderTimeouts is not None:
-            provider_mult = ProviderTimeouts.get_multiplier(self.node_id)
-            adaptive_timeout = adaptive_timeout * provider_mult
+            # Jan 23, 2026: Apply provider-specific timeout multiplier
+            # This prevents false-positive deaths for nodes with slower networks
+            if ProviderTimeouts is not None:
+                provider_mult = ProviderTimeouts.get_multiplier(self.node_id)
+                adaptive_timeout = adaptive_timeout * provider_mult
 
         if elapsed < SUSPECT_TIMEOUT:
             return NodeHealthState.ALIVE
