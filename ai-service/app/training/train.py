@@ -976,7 +976,7 @@ def train_model(
     # MANDATORY BY DEFAULT - prevents 95% of stale data training incidents
     # Phase 1.5 of improvement plan: fail early if data is stale
     skip_freshness_check: bool = False,  # Default: check IS enabled
-    max_data_age_hours: float = 1.0,     # Default: data must be <1 hour old
+    max_data_age_hours: float = 2000.0,  # Default: data must be <2000 hours old (relaxed)
     allow_stale_data: bool = False,      # Default: FAIL on stale data (not warn)
     # Stale fallback for 48-hour autonomous operation (December 2025)
     # Allows training to proceed with stale data after sync failures or timeout

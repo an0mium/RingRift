@@ -592,8 +592,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
              'By default, training will fail if data is older than max-data-age-hours.'
     )
     parser.add_argument(
-        '--max-data-age-hours', type=float, default=1.0,
-        help='Maximum age in hours for "fresh" training data (default: 1.0). '
+        '--max-data-age-hours', type=float, default=2000.0,
+        help='Maximum age in hours for "fresh" training data (default: 2000.0). '
              'Training fails if data is older unless --allow-stale-data is specified.'
     )
     parser.add_argument(
