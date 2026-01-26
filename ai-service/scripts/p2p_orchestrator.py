@@ -1716,6 +1716,13 @@ class P2POrchestrator(
         self.start_time = time.time()
         self.last_peer_bootstrap = 0.0
 
+        # Jan 26, 2026: Cache local IPs at startup to avoid DNS blocking in health endpoints
+        # Root cause: _is_self_voter() calls socket.getaddrinfo() on every request,
+        # which blocks when DNS is slow (common on Lambda nodes). Caching at startup
+        # eliminates this per-request overhead.
+        self._cached_local_ips: set[str] = self._cache_local_ips()
+        logger.info(f"[P2P] Cached {len(self._cached_local_ips)} local IPs for voter recognition")
+
         # Resource detection delegation (Dec 28, 2025)
         self._resource_detector = ResourceDetector(
             ringrift_path=self.ringrift_path,
@@ -7761,16 +7768,72 @@ class P2POrchestrator(
                         logger.info(f"[SWIM->Gossip] Recorded failure for {node_id}")
                         break
 
+    def _cache_local_ips(self) -> set[str]:
+        """Cache all local IPs at startup to avoid DNS blocking in health endpoints.
+
+        Jan 26, 2026: Called once at initialization and cached in self._cached_local_ips.
+        This eliminates per-request DNS lookups that were blocking Lambda health endpoints.
+
+        Returns:
+            Set of local IP addresses.
+        """
+        import socket
+        import subprocess
+
+        local_ips: set[str] = set()
+
+        # Method 1: Hostname resolution
+        try:
+            hostname = socket.gethostname()
+            for addr in socket.getaddrinfo(hostname, None):
+                local_ips.add(addr[4][0])
+        except (socket.gaierror, socket.herror, OSError, UnicodeError):
+            pass
+
+        # Method 2: Localhost variations
+        try:
+            for addr in socket.getaddrinfo("localhost", None):
+                local_ips.add(addr[4][0])
+        except (socket.gaierror, socket.herror, OSError):
+            pass
+
+        # Method 3: Subprocess fallback for containers
+        try:
+            result = subprocess.run(
+                ["hostname", "-I"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                for ip in result.stdout.strip().split():
+                    local_ips.add(ip)
+        except Exception:
+            pass
+
+        # Method 4: Add advertise_host if configured
+        advertise_host = os.environ.get("RINGRIFT_ADVERTISE_HOST", "").strip()
+        if advertise_host:
+            local_ips.add(advertise_host)
+
+        # Method 5: Add Tailscale IP from environment
+        ts_ip = os.environ.get("TAILSCALE_IP", "").strip()
+        if ts_ip:
+            local_ips.add(ts_ip)
+
+        return local_ips
+
     def _is_self_voter(self, voter_id: str, voter_ips: set[str]) -> bool:
         """Check if we are this voter using multiple identification methods.
 
         Jan 22, 2026: Comprehensive self-recognition for Lambda nodes and other
         environments where node_id differs from configured voter names.
 
+        Jan 26, 2026: Now uses cached local IPs (self._cached_local_ips) to avoid
+        DNS blocking in health endpoints. DNS lookups are done once at startup.
+
         Methods checked:
         1. Direct node_id match
         2. Host IP match (advertise_host or host)
-        3. All local interfaces
+        3. Cached local interfaces
         4. Tailscale IP from environment variable
 
         Args:
@@ -7780,8 +7843,6 @@ class P2POrchestrator(
         Returns:
             True if we are this voter.
         """
-        import socket
-
         # Method 1: Direct node_id match
         if voter_id == self.node_id:
             return True
@@ -7792,48 +7853,12 @@ class P2POrchestrator(
             logger.debug(f"[VoterSelfRecognition] Matched via host IP: {self_host}")
             return True
 
-        # Method 3: Check ALL local interfaces
-        try:
-            # Get all local IPs via getaddrinfo
-            local_ips: set[str] = set()
-
-            # Try hostname resolution (may fail in containers)
-            try:
-                hostname = socket.gethostname()
-                for addr in socket.getaddrinfo(hostname, None):
-                    local_ips.add(addr[4][0])
-            except (socket.gaierror, socket.herror, OSError, UnicodeError):
-                # Container environments often can't resolve their own hostname
-                pass
-
-            # Also check common interface discovery
-            try:
-                # Check localhost variations
-                for addr in socket.getaddrinfo("localhost", None):
-                    local_ips.add(addr[4][0])
-            except (socket.gaierror, socket.herror, OSError):
-                pass
-
-            # Fallback: use netifaces or subprocess if available (for containers)
-            if not local_ips:
-                try:
-                    import subprocess
-                    result = subprocess.run(
-                        ["hostname", "-I"],
-                        capture_output=True, text=True, timeout=2
-                    )
-                    if result.returncode == 0:
-                        for ip in result.stdout.strip().split():
-                            local_ips.add(ip)
-                except Exception:
-                    pass
-
-            if voter_ips & local_ips:
-                matching = voter_ips & local_ips
-                logger.debug(f"[VoterSelfRecognition] Matched via local interface: {matching}")
-                return True
-        except Exception as e:
-            logger.debug(f"[VoterSelfRecognition] Local interface check failed: {e}")
+        # Method 3: Use cached local IPs (Jan 26, 2026: avoids DNS blocking)
+        local_ips = getattr(self, "_cached_local_ips", set())
+        if voter_ips & local_ips:
+            matching = voter_ips & local_ips
+            logger.debug(f"[VoterSelfRecognition] Matched via cached local IP: {matching}")
+            return True
 
         # Method 4: Tailscale IP from environment
         ts_ip = os.environ.get("TAILSCALE_IP")
@@ -7841,20 +7866,13 @@ class P2POrchestrator(
             logger.debug(f"[VoterSelfRecognition] Matched via TAILSCALE_IP env: {ts_ip}")
             return True
 
-        # Method 5: Check Tailscale CGNAT range IPs we might have
+        # Method 5: Check Tailscale CGNAT range IPs from cached local IPs
+        # Jan 26, 2026: Use cached IPs instead of DNS lookup
         try:
             from app.p2p.config import TAILSCALE_CGNAT_NETWORK
             import ipaddress
 
-            # Safely get hostname IPs (may fail in containers)
-            hostname_ips = []
-            try:
-                hostname = socket.gethostname()
-                hostname_ips = [addr[4][0] for addr in socket.getaddrinfo(hostname, None)]
-            except (socket.gaierror, socket.herror, OSError, UnicodeError):
-                pass
-
-            for ip in hostname_ips:
+            for ip in local_ips:
                 try:
                     if ipaddress.ip_address(ip) in TAILSCALE_CGNAT_NETWORK:
                         if ip in voter_ips:
