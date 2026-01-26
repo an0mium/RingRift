@@ -199,10 +199,15 @@ class AutoExportDaemon(HandlerBase):
             await asyncio.to_thread(self._init_state_db)
             await asyncio.to_thread(self._load_state)
 
-        if env.is_coordinator or not env.export_enabled:
+        # Jan 26, 2026: Changed from `is_coordinator or not export_enabled` to just
+        # `not export_enabled`. The coordinator CAN export consolidated game data if
+        # RINGRIFT_EXPORT_ENABLED=true is set. Previously, coordinator was always
+        # skipped even when export_enabled=True, breaking the training data pipeline.
+        if not env.export_enabled:
             logger.info(
-                f"[AutoExportDaemon] Export operations skipped on coordinator node: {env.node_id} "
+                f"[AutoExportDaemon] Export operations disabled on node: {env.node_id} "
                 f"(is_coordinator={env.is_coordinator}, export_enabled={env.export_enabled}). "
+                f"Set RINGRIFT_EXPORT_ENABLED=true to enable exports on this node. "
                 f"State tracking still active for observability."
             )
             self._coordinator_skip = True
