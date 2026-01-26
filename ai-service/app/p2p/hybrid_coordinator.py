@@ -630,13 +630,18 @@ class HybridCoordinator:
         return self._is_bully_leader()
 
     def _is_bully_leader(self) -> bool:
-        """Check leader status via Bully algorithm."""
+        """Check leader status via Bully algorithm.
+
+        IMPORTANT: Do NOT call orchestrator.is_leader() here - it creates infinite
+        recursion since the orchestrator's is_leader() calls back to this method.
+        Always check leader_id attribute directly.
+        """
         if not self._orchestrator:
             return False
 
         try:
-            if hasattr(self._orchestrator, "is_leader"):
-                return self._orchestrator.is_leader()
+            # Check leader_id attribute directly to avoid infinite recursion
+            # The orchestrator's is_leader property calls back to hybrid_coordinator
             if hasattr(self._orchestrator, "leader_id"):
                 return self._orchestrator.leader_id == self._node_id
         except Exception as e:
