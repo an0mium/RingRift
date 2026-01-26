@@ -424,9 +424,14 @@ GPU_POWER_RANKINGS = {
 # ============================================
 
 # HTTP timeouts increased (Dec 2025) for better cross-cloud reliability
-HTTP_CONNECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_HTTP_CONNECT_TIMEOUT", "15"))  # Was 10
-HTTP_TOTAL_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_HTTP_TOTAL_TIMEOUT", "45"))      # Was 30
-MAX_CONSECUTIVE_FAILURES = 5  # Mark node dead after 5 failures (increased from 3)
+# Jan 26, 2026: HTTP_TOTAL_TIMEOUT increased from 45s to 90s to allow sufficient retries
+# before PEER_TIMEOUT (180s). With 15s heartbeat, this allows 6 HTTP attempts before dead.
+# Previously 45s caused false timeouts - HTTP would fail before peer was actually dead.
+HTTP_CONNECT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_HTTP_CONNECT_TIMEOUT", "30"))  # Was 15
+HTTP_TOTAL_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_HTTP_TOTAL_TIMEOUT", "90"))      # Was 45
+# Jan 26, 2026: Increased from 5 to 12 to align with PEER_TIMEOUT/HEARTBEAT_INTERVAL
+# Previously 5 failures = 75s but PEER_TIMEOUT is 180s, causing split-brain on peer liveness
+MAX_CONSECUTIVE_FAILURES = 12  # Mark node dead after 12 failures (180s / 15s heartbeat)
 RETRY_DEAD_NODE_INTERVAL = 120  # Retry dead nodes every 2 minutes (reduced from 5)
 
 # ============================================
@@ -972,7 +977,10 @@ DYNAMIC_VOTER_ENABLED = os.environ.get("RINGRIFT_P2P_DYNAMIC_VOTER", "").lower()
 DYNAMIC_VOTER_MIN = int(os.environ.get("RINGRIFT_P2P_DYNAMIC_VOTER_MIN", "3") or 3)
 DYNAMIC_VOTER_TARGET = int(os.environ.get("RINGRIFT_P2P_DYNAMIC_VOTER_TARGET", "5") or 5)
 DYNAMIC_VOTER_MAX_QUORUM = int(os.environ.get("RINGRIFT_P2P_DYNAMIC_VOTER_MAX_QUORUM", "7") or 7)
-VOTER_DEMOTION_FAILURES = int(os.environ.get("RINGRIFT_P2P_VOTER_DEMOTION_FAILURES", "3") or 3)
+# Jan 26, 2026: Increased from 3 to 12 to align with PEER_TIMEOUT/HEARTBEAT_INTERVAL
+# Previously 3 failures = 45s caused voter count to fluctuate - voter marked dead at 45s
+# while other nodes still saw it alive (PEER_TIMEOUT=180s). Now 12 failures = 180s aligns.
+VOTER_DEMOTION_FAILURES = int(os.environ.get("RINGRIFT_P2P_VOTER_DEMOTION_FAILURES", "12") or 12)
 VOTER_HEALTH_THRESHOLD = float(os.environ.get("RINGRIFT_P2P_VOTER_HEALTH_THRESHOLD", "0.8") or 0.8)
 VOTER_PROMOTION_UPTIME = int(os.environ.get("RINGRIFT_P2P_VOTER_PROMOTION_UPTIME", "3600") or 3600)  # 1 hour
 
