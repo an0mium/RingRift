@@ -32,7 +32,7 @@ import {
 } from '../../shared/stateMachines/connection';
 import { getChatPersistenceService } from '../services/ChatPersistenceService';
 import { getRematchService } from '../services/RematchService';
-import { MatchmakingService } from '../services/MatchmakingService';
+import { PersistentMatchmakingService } from '../services/PersistentMatchmakingService';
 import { serializeBoardState } from '../../shared/engine/contracts/serialization';
 
 /**
@@ -247,7 +247,7 @@ export class WebSocketServer {
   private gameRooms: Map<string, Set<string>> = new Map();
   private userSockets: Map<string, string> = new Map();
   private sessionManager: GameSessionManager;
-  private matchmakingService: MatchmakingService;
+  private matchmakingService: PersistentMatchmakingService;
   private static LOBBY_ROOM = 'lobby';
 
   // Track users who have disconnected but might reconnect
@@ -291,7 +291,7 @@ export class WebSocketServer {
     });
 
     this.sessionManager = new GameSessionManager(this.io, this.userSockets);
-    this.matchmakingService = new MatchmakingService(this);
+    this.matchmakingService = new PersistentMatchmakingService(this);
 
     this.setupMiddleware();
     this.setupEventHandlers();
@@ -589,7 +589,12 @@ export class WebSocketServer {
             }
           }
 
-          this.matchmakingService.addToQueue(socket.userId, socket.id, payload.preferences, rating);
+          await this.matchmakingService.addToQueue(
+            socket.userId,
+            socket.id,
+            payload.preferences,
+            rating
+          );
 
           logger.info('User joined matchmaking queue', {
             userId: socket.userId,
@@ -614,9 +619,9 @@ export class WebSocketServer {
         }
       });
 
-      socket.on('matchmaking:leave', () => {
+      socket.on('matchmaking:leave', async () => {
         if (socket.userId) {
-          this.matchmakingService.removeFromQueue(socket.userId);
+          await this.matchmakingService.removeFromQueue(socket.userId);
           logger.info('User left matchmaking queue', { userId: socket.userId });
         }
       });
@@ -1513,9 +1518,14 @@ export class WebSocketServer {
       gameId: socket.gameId,
     });
 
-    // Remove from matchmaking queue if user was in queue
+    // Remove from matchmaking queue if user was in queue (fire-and-forget)
     if (socket.userId) {
-      this.matchmakingService.removeFromQueue(socket.userId);
+      this.matchmakingService.removeFromQueue(socket.userId).catch((err) => {
+        logger.warn('Failed to remove from matchmaking queue on disconnect', {
+          userId: socket.userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     }
 
     // Remove from user socket mapping immediately
@@ -1850,6 +1860,10 @@ export class WebSocketServer {
 
   public getConnectedUsers(): string[] {
     return Array.from(this.userSockets.keys());
+  }
+
+  public getSocketIdForUser(userId: string): string | undefined {
+    return this.userSockets.get(userId);
   }
 
   public getGameRooms(): Map<string, Set<string>> {

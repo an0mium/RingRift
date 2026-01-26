@@ -44,6 +44,7 @@ model User {
   chatMessages   ChatMessage[]
   rematchRequests RematchRequest[] @relation("RematchRequester")
   ratingHistory  RatingHistory[]
+  matchmakingQueue MatchmakingQueue[]
 
   // Index for efficient soft-delete filtering queries
   @@index([deletedAt])
@@ -278,4 +279,85 @@ model RatingHistory {
   @@index([userId, timestamp])
   @@index([gameId])
   @@map("rating_history")
+}
+
+// Matchmaking queue entries - persists queue state across restarts
+model MatchmakingQueue {
+  id              String              @id @default(cuid())
+  ticketId        String              @unique  // External reference ID
+  userId          String
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Preferences
+  boardType       BoardType
+  ratingRangeMin  Int
+  ratingRangeMax  Int
+  timeControlMin  Int                 // Seconds
+  timeControlMax  Int                 // Seconds
+
+  // State
+  status          MatchmakingQueueStatus @default(searching)
+  rating          Int                 // Snapshot of rating when joined
+  joinedAt        DateTime            @default(now())
+  matchedAt       DateTime?
+  cancelledAt     DateTime?
+  gameId          String?             // Game created when matched
+  matchedWithId   String?             // The other player's queue entry ID
+
+  // Server tracking (for multi-instance support)
+  serverId        String?             // Which server instance owns this entry
+  lastHeartbeat   DateTime            @default(now())
+
+  @@unique([userId, status])  // Only one active queue entry per user
+  @@index([status, boardType])
+  @@index([status, rating])
+  @@index([joinedAt])
+  @@map("matchmaking_queue")
+}
+
+enum MatchmakingQueueStatus {
+  searching      // Actively looking for match
+  matching       // Found potential match, creating game
+  matched        // Successfully matched and game created
+  cancelled      // User cancelled or disconnected
+  expired        // Timed out waiting for match
+}
+
+// Matchmaking analytics and metrics
+model MatchmakingMetrics {
+  id              String    @id @default(cuid())
+  ticketId        String    // Reference to queue entry
+  userId          String
+  boardType       BoardType
+  rating          Int
+
+  // Timing metrics
+  joinedAt        DateTime
+  matchedAt       DateTime?
+  waitTimeMs      Int?      // Time in queue until match (null if cancelled/expired)
+
+  // Match quality
+  ratingDiff      Int?      // Rating difference with matched opponent
+  matchQualityScore Float?  // 0-1 score based on various factors
+
+  // Outcome
+  outcome         MatchmakingOutcome
+
+  // Context
+  queueSizeAtJoin Int?      // How many were in queue when joined
+  queueSizeAtMatch Int?     // How many were in queue when matched
+
+  createdAt       DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([boardType, createdAt])
+  @@index([outcome, createdAt])
+  @@map("matchmaking_metrics")
+}
+
+enum MatchmakingOutcome {
+  matched           // Successfully found a match
+  cancelled_user    // User cancelled
+  cancelled_disconnect  // User disconnected
+  expired           // Timed out
 }

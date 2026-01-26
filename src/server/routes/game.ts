@@ -2699,4 +2699,85 @@ router.get(
   })
 );
 
+/**
+ * @openapi
+ * /games/matchmaking/stats:
+ *   get:
+ *     summary: Get matchmaking queue statistics
+ *     description: |
+ *       Returns current matchmaking queue statistics including queue size,
+ *       breakdown by board type, and average wait times. Useful for lobby UI.
+ *     tags:
+ *       - Games
+ *     responses:
+ *       200:
+ *         description: Matchmaking statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     queueSize:
+ *                       type: number
+ *                     byBoardType:
+ *                       type: object
+ *                     avgWaitTimeMs:
+ *                       type: number
+ */
+router.get(
+  '/matchmaking/stats',
+  asyncHandler(async (_req, res: Response) => {
+    const prisma = getDatabaseClient();
+    if (!prisma) {
+      throw createError('Database not available', 503, ErrorCodes.SERVER_INTERNAL_ERROR);
+    }
+
+    // Get queue statistics from database
+    const searching = await prisma.matchmakingQueue.findMany({
+      where: { status: 'searching' },
+      select: {
+        boardType: true,
+        joinedAt: true,
+      },
+    });
+
+    const now = Date.now();
+    const byBoardType: Record<string, number> = {};
+    let totalWaitTime = 0;
+
+    for (const entry of searching) {
+      byBoardType[entry.boardType] = (byBoardType[entry.boardType] || 0) + 1;
+      totalWaitTime += now - entry.joinedAt.getTime();
+    }
+
+    // Get recent match metrics for average wait time (last 24 hours)
+    const recentMatches = await prisma.matchmakingMetrics.aggregate({
+      where: {
+        outcome: 'matched',
+        createdAt: { gte: new Date(now - 24 * 60 * 60 * 1000) },
+      },
+      _avg: { waitTimeMs: true },
+      _count: true,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        queueSize: searching.length,
+        byBoardType,
+        avgWaitTimeMs: searching.length > 0 ? Math.round(totalWaitTime / searching.length) : 0,
+        recentStats: {
+          avgWaitTimeMs: Math.round(recentMatches._avg.waitTimeMs || 0),
+          matchCount24h: recentMatches._count,
+        },
+      },
+    });
+  })
+);
+
 export default router;

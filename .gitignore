@@ -70,7 +70,6 @@ tests/e2e/__snapshots__/
 *.db.bak
 *.sqlite
 *.sqlite3
-prisma/migrations/
 
 # Redis
 dump.rdb
