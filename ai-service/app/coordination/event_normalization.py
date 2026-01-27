@@ -301,6 +301,17 @@ CANONICAL_EVENT_NAMES: Final[dict[str, str]] = {
     # Canonical: BACKPRESSURE_ACTIVATED
     "backpressure_activated": "BACKPRESSURE_ACTIVATED",
     "BACKPRESSURE_ACTIVATED": "BACKPRESSURE_ACTIVATED",  # Canonical
+
+    # =============================================================================
+    # Curriculum Events (Jan 26, 2026 - P2 Elo→Curriculum Feedback)
+    # =============================================================================
+    # Canonical: CURRICULUM_RESET_REQUESTED
+    "curriculum_reset_requested": "CURRICULUM_RESET_REQUESTED",
+    "CURRICULUM_RESET_REQUESTED": "CURRICULUM_RESET_REQUESTED",  # Canonical
+
+    # Canonical: CURRICULUM_REBALANCED
+    "curriculum_rebalanced": "CURRICULUM_REBALANCED",
+    "CURRICULUM_REBALANCED": "CURRICULUM_REBALANCED",  # Canonical
 }
 
 # =============================================================================

@@ -118,6 +118,7 @@ class DataEventType(Enum):
     CURRICULUM_PROPAGATE = "curriculum_propagate"  # Jan 2026: Propagate curriculum advancement to similar configs
     CURRICULUM_ROLLBACK = "curriculum_rollback"  # Session 17.25: Signal to restore prior curriculum weights after regression
     CURRICULUM_ROLLBACK_COMPLETED = "curriculum_rollback_completed"  # Sprint 16.1: Confirm curriculum weight rollback after regression
+    CURRICULUM_RESET_REQUESTED = "curriculum_reset_requested"  # Jan 26, 2026: Reset curriculum on extended stalls (96+ hours)
     WEIGHT_UPDATED = "weight_updated"
     ELO_SIGNIFICANT_CHANGE = "elo_significant_change"  # Triggers curriculum rebalance
 

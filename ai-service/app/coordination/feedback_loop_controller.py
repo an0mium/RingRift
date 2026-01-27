@@ -215,6 +215,10 @@ class FeedbackState:
     # Dec 29 2025: Curriculum tier tracking for velocity-based advancement
     curriculum_tier: int = 0  # Current curriculum tier (0=beginner, 1=intermediate, 2=advanced, 3=expert)
     curriculum_last_advanced: float = 0.0  # Timestamp of last curriculum advancement
+    curriculum_last_reset: float = 0.0  # Jan 26, 2026: Timestamp of last curriculum weight reset (stall recovery)
+
+    # Evaluation state (Jan 26, 2026)
+    evaluation_in_progress: bool = False  # True when evaluation is running for this config
 
     # Work queue metrics (December 2025)
     work_completed_count: int = 0  # Total work items completed

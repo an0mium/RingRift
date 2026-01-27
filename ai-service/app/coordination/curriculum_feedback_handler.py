@@ -132,12 +132,14 @@ class CurriculumFeedbackHandler(HandlerBase):
         """Return event subscriptions for this handler.
 
         December 30, 2025: Added EVALUATION_STARTED to prepare curriculum updates.
+        January 26, 2026: Added CURRICULUM_RESET_REQUESTED for extended stall recovery.
         """
         return {
             "SELFPLAY_QUALITY_ASSESSED": self._on_selfplay_quality_assessed,
             "TRAINING_METRICS_AVAILABLE": self._on_training_metrics_available,
             "TRAINING_COMPLETED": self._on_training_completed,
             "evaluation_started": self._on_evaluation_started,
+            "CURRICULUM_RESET_REQUESTED": self._on_curriculum_reset_requested,
         }
 
     async def _on_evaluation_started(self, event) -> None:
@@ -161,6 +163,77 @@ class CurriculumFeedbackHandler(HandlerBase):
                 f"[CurriculumFeedbackHandler] Evaluation started for {config_key}, "
                 f"preparing curriculum updates"
             )
+
+    async def _on_curriculum_reset_requested(self, event) -> None:
+        """Reset curriculum weights on extended stalls (96+ hours).
+
+        January 26, 2026: Wires PROGRESS_STALL_DETECTED → curriculum reset.
+        When a config stalls for 96+ hours (tier 3 or 4 stall), the
+        progress_watchdog_daemon emits curriculum_reset_requested. This handler
+        resets the curriculum weights to baseline (equal distribution) to
+        encourage exploration of different strategies.
+
+        This closes the Elo velocity → curriculum feedback loop for severe stalls.
+
+        Args:
+            event: Event with payload containing config_key, reason, stall_duration_hours
+        """
+        payload = self._get_payload(event)
+        config_key = self._extract_config_key(payload)
+        reason = payload.get("reason", "unknown")
+        stall_hours = payload.get("stall_duration_hours", 0)
+
+        if not config_key or config_key == "unknown":
+            logger.debug("[CurriculumFeedbackHandler] Ignoring curriculum reset with no config_key")
+            return
+
+        logger.info(
+            f"[CurriculumFeedbackHandler] Resetting curriculum for {config_key} "
+            f"(reason={reason}, stall_hours={stall_hours})"
+        )
+
+        # Reset weights to equal distribution (1.0 = baseline)
+        state = self._get_or_create_state(config_key)
+        old_weight = state.current_curriculum_weight
+        state.current_curriculum_weight = 1.0  # Reset to baseline
+        state.curriculum_last_reset = time.time()
+
+        # Also reset in curriculum_feedback system if available
+        try:
+            from app.training.curriculum_feedback import get_curriculum_feedback
+
+            feedback = get_curriculum_feedback()
+            if hasattr(feedback, "_current_weights"):
+                feedback._current_weights[config_key] = 1.0
+            if hasattr(feedback, "reset_config"):
+                feedback.reset_config(config_key)
+        except ImportError:
+            pass
+        except (AttributeError, RuntimeError) as e:
+            logger.debug(f"[CurriculumFeedbackHandler] Could not reset curriculum_feedback: {e}")
+
+        self._curriculum_adjustments += 1
+        self._last_adjustment_time = time.time()
+
+        # Emit completion event for observability
+        safe_emit_event(
+            "CURRICULUM_REBALANCED",
+            {
+                "config_key": config_key,
+                "reason": f"stall_reset_{reason}",
+                "stall_duration_hours": stall_hours,
+                "old_weight": old_weight,
+                "new_weight": 1.0,
+                "source": "CurriculumFeedbackHandler",
+            },
+            source="curriculum_feedback_handler",
+            context="stall_reset",
+        )
+
+        logger.info(
+            f"[CurriculumFeedbackHandler] Curriculum reset complete for {config_key}: "
+            f"weight {old_weight:.2f} → 1.0 (baseline)"
+        )
 
     async def _run_cycle(self) -> None:
         """Run one cycle of the curriculum feedback handler.
