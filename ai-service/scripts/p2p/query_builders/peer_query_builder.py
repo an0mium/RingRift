@@ -81,6 +81,21 @@ class PeerQueryBuilder(BaseQueryBuilder):
         """Check if peer has GPU."""
         return bool(getattr(peer, "gpu_type", None))
 
+    def _is_healthy(self, peer: "NodeInfo") -> bool:
+        """Check if peer is healthy (method or score-based).
+
+        Tries is_healthy() method first, then falls back to is_alive() + health_score.
+        """
+        is_healthy = getattr(peer, "is_healthy", None)
+        if callable(is_healthy):
+            return is_healthy()
+        # Fallback: alive + health score >= 0.5
+        return self._is_alive(peer) and getattr(peer, "health_score", 1.0) >= 0.5
+
+    def _is_training_enabled(self, peer: "NodeInfo") -> bool:
+        """Check if peer has training enabled."""
+        return bool(getattr(peer, "training_enabled", False))
+
     # =========================================================================
     # Simple filter methods - replacements for _get_* methods
     # =========================================================================
@@ -362,3 +377,192 @@ class PeerQueryBuilder(BaseQueryBuilder):
             QueryResult containing the leader peer or None.
         """
         return self.first(lambda p: getattr(p, "role", None) == "leader")
+
+    # =========================================================================
+    # Extended filter methods (Phase 3.2 Step 6 continuation)
+    # =========================================================================
+
+    def healthy_with_gpu(
+        self, *, exclude_self: bool = True
+    ) -> QueryResult[List["NodeInfo"]]:
+        """Get healthy peers with GPU capability.
+
+        Replaces: _get_gpu_workers_for_cmaes() pattern
+            [p for p in peers if p.is_healthy() and p.has_gpu]
+
+        Args:
+            exclude_self: If True, exclude this node from results.
+
+        Returns:
+            QueryResult containing list of healthy GPU-capable NodeInfo objects.
+        """
+        def predicate(peer: "NodeInfo") -> bool:
+            if exclude_self and self._is_self(peer):
+                return False
+            return self._is_healthy(peer) and self._has_gpu(peer)
+
+        return self.filter(predicate)
+
+    def training_enabled(
+        self, *, alive_only: bool = True, exclude_self: bool = True
+    ) -> QueryResult[List["NodeInfo"]]:
+        """Get peers with training enabled.
+
+        Args:
+            alive_only: If True, only include alive peers.
+            exclude_self: If True, exclude this node from results.
+
+        Returns:
+            QueryResult containing list of training-enabled NodeInfo objects.
+        """
+        def predicate(peer: "NodeInfo") -> bool:
+            if exclude_self and self._is_self(peer):
+                return False
+            if alive_only and not self._is_alive(peer):
+                return False
+            return self._is_training_enabled(peer)
+
+        return self.filter(predicate)
+
+    def available_for_reassignment(
+        self,
+        *,
+        cpu_threshold: float = 90.0,
+        gpu_mem_threshold: float = 95.0,
+        stale_seconds: float = 120.0,
+    ) -> QueryResult[List[str]]:
+        """Get node IDs available for job reassignment.
+
+        Replaces: _get_healthy_node_ids_for_reassignment() pattern
+        Filters out nodes that are offline/failing/retired, overloaded, or stale.
+
+        Args:
+            cpu_threshold: Max CPU percent to be considered available.
+            gpu_mem_threshold: Max GPU memory percent to be considered available.
+            stale_seconds: Max seconds since last heartbeat.
+
+        Returns:
+            QueryResult containing list of available node IDs.
+        """
+        import time
+        now = time.time()
+
+        def predicate(peer: "NodeInfo") -> bool:
+            # Skip offline/failing/retired
+            status = getattr(peer, "status", "unknown")
+            if status in ("offline", "failing", "retired"):
+                return False
+            if self._is_retired(peer):
+                return False
+            # Skip overloaded nodes
+            if getattr(peer, "cpu_percent", 0.0) > cpu_threshold:
+                return False
+            if getattr(peer, "gpu_memory_percent", 0.0) > gpu_mem_threshold:
+                return False
+            # Skip stale nodes
+            last_seen = getattr(peer, "last_seen", 0.0) or getattr(peer, "last_heartbeat", 0.0)
+            if last_seen > 0 and (now - last_seen) > stale_seconds:
+                return False
+            return True
+
+        return self.map(
+            mapper=lambda p: getattr(p, "node_id", ""),
+            predicate=predicate,
+        )
+
+    def to_endpoint_dicts(
+        self, *, limit: int = 0, exclude_self: bool = True
+    ) -> QueryResult[List[Dict[str, Any]]]:
+        """Get alive, non-retired peers as endpoint dictionaries for gossip.
+
+        Replaces: _get_peer_endpoints_for_gossip() pattern
+
+        Args:
+            limit: Maximum number of endpoints to return (0 = unlimited).
+            exclude_self: If True, exclude this node from results.
+
+        Returns:
+            QueryResult containing list of endpoint dicts with node_id, host, port, etc.
+        """
+        def mapper(peer: "NodeInfo") -> Dict[str, Any]:
+            return {
+                "node_id": getattr(peer, "node_id", ""),
+                "host": str(getattr(peer, "host", "") or ""),
+                "port": int(getattr(peer, "port", 8770) or 8770),
+                "tailscale_ip": str(getattr(peer, "tailscale_ip", "") or ""),
+                "is_alive": True,
+                "last_heartbeat": float(getattr(peer, "last_heartbeat", 0) or 0),
+            }
+
+        def predicate(peer: "NodeInfo") -> bool:
+            if exclude_self and self._is_self(peer):
+                return False
+            return self._is_alive(peer) and not self._is_retired(peer)
+
+        result = self.map(mapper=mapper, predicate=predicate)
+        if limit > 0 and result.success and len(result.data) > limit:
+            result.data = result.data[:limit]
+            result.count = len(result.data)
+        return result
+
+    # =========================================================================
+    # Extended count methods (Phase 3.2 Step 6 continuation)
+    # =========================================================================
+
+    def alive_non_retired_count(self, *, exclude_self: bool = True) -> QueryResult[int]:
+        """Count alive, non-retired peers.
+
+        Replaces: sum(1 for p in peers if p.is_alive() and not p.retired)
+
+        Args:
+            exclude_self: If True, don't count this node.
+
+        Returns:
+            QueryResult containing count.
+        """
+        def predicate(peer: "NodeInfo") -> bool:
+            if exclude_self and self._is_self(peer):
+                return False
+            return self._is_alive(peer) and not self._is_retired(peer)
+
+        return self.count(predicate)
+
+    def alive_gpu_count(self, *, exclude_self: bool = True) -> QueryResult[int]:
+        """Count alive, non-retired peers with GPU.
+
+        Replaces: sum(1 for p in peers if p.is_alive() and not p.retired and p.gpu_type)
+
+        Args:
+            exclude_self: If True, don't count this node.
+
+        Returns:
+            QueryResult containing count.
+        """
+        def predicate(peer: "NodeInfo") -> bool:
+            if exclude_self and self._is_self(peer):
+                return False
+            return self._is_alive(peer) and not self._is_retired(peer) and self._has_gpu(peer)
+
+        return self.count(predicate)
+
+    def training_enabled_count(self, *, exclude_self: bool = True) -> QueryResult[int]:
+        """Count alive, non-retired peers with training enabled.
+
+        Replaces: sum(1 for p in peers if p.is_alive() and not p.retired and p.training_enabled)
+
+        Args:
+            exclude_self: If True, don't count this node.
+
+        Returns:
+            QueryResult containing count.
+        """
+        def predicate(peer: "NodeInfo") -> bool:
+            if exclude_self and self._is_self(peer):
+                return False
+            return (
+                self._is_alive(peer)
+                and not self._is_retired(peer)
+                and self._is_training_enabled(peer)
+            )
+
+        return self.count(predicate)
