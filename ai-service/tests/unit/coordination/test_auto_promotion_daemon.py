@@ -563,6 +563,94 @@ class TestHealthCheck:
 
 
 # =============================================================================
+# Test Velocity Gate (P4 - Jan 26, 2026)
+# =============================================================================
+
+
+class TestVelocityGate:
+    """Tests for Elo velocity gate functionality."""
+
+    @pytest.mark.asyncio
+    async def test_velocity_gate_passes_when_velocity_positive(self):
+        """Velocity gate passes when Elo is increasing."""
+        config = AutoPromotionConfig(velocity_gate_enabled=True)
+        daemon = AutoPromotionDaemon(config=config)
+        candidate = PromotionCandidate(config_key="hex8_2p", model_path="/model.pth")
+
+        mock_trend = {"slope": 5.0, "is_declining": False}
+        with patch(
+            "app.coordination.auto_promotion_daemon.get_elo_trend_for_config",
+            return_value=mock_trend,
+        ), patch("app.coordination.auto_promotion_daemon.HAS_ELO_TREND", True):
+            passed, reason = await daemon._check_velocity_gate(candidate)
+
+        assert passed is True
+        assert "velocity_ok" in reason
+
+    @pytest.mark.asyncio
+    async def test_velocity_gate_fails_when_declining(self):
+        """Velocity gate fails when Elo is declining."""
+        config = AutoPromotionConfig(velocity_gate_enabled=True)
+        daemon = AutoPromotionDaemon(config=config)
+        candidate = PromotionCandidate(config_key="hex8_2p", model_path="/model.pth")
+
+        mock_trend = {"slope": -2.0, "is_declining": True}
+        with patch(
+            "app.coordination.auto_promotion_daemon.get_elo_trend_for_config",
+            return_value=mock_trend,
+        ), patch("app.coordination.auto_promotion_daemon.HAS_ELO_TREND", True):
+            passed, reason = await daemon._check_velocity_gate(candidate)
+
+        assert passed is False
+        assert "declining" in reason
+
+    @pytest.mark.asyncio
+    async def test_velocity_gate_passes_when_unavailable(self):
+        """Velocity gate passes gracefully when elo_service unavailable."""
+        config = AutoPromotionConfig(velocity_gate_enabled=True)
+        daemon = AutoPromotionDaemon(config=config)
+        candidate = PromotionCandidate(config_key="hex8_2p", model_path="/model.pth")
+
+        with patch("app.coordination.auto_promotion_daemon.HAS_ELO_TREND", False):
+            passed, reason = await daemon._check_velocity_gate(candidate)
+
+        assert passed is True
+        assert "unavailable" in reason
+
+    @pytest.mark.asyncio
+    async def test_velocity_gate_passes_when_no_trend_data(self):
+        """Velocity gate passes when no trend data available (bootstrap)."""
+        config = AutoPromotionConfig(velocity_gate_enabled=True)
+        daemon = AutoPromotionDaemon(config=config)
+        candidate = PromotionCandidate(config_key="hex8_2p", model_path="/model.pth")
+
+        with patch(
+            "app.coordination.auto_promotion_daemon.get_elo_trend_for_config",
+            return_value=None,
+        ), patch("app.coordination.auto_promotion_daemon.HAS_ELO_TREND", True):
+            passed, reason = await daemon._check_velocity_gate(candidate)
+
+        assert passed is True
+        assert "no_trend_data" in reason
+
+    @pytest.mark.asyncio
+    async def test_velocity_gate_handles_errors_gracefully(self):
+        """Velocity gate passes on errors (don't block on check failures)."""
+        config = AutoPromotionConfig(velocity_gate_enabled=True)
+        daemon = AutoPromotionDaemon(config=config)
+        candidate = PromotionCandidate(config_key="hex8_2p", model_path="/model.pth")
+
+        with patch(
+            "app.coordination.auto_promotion_daemon.get_elo_trend_for_config",
+            side_effect=Exception("DB connection failed"),
+        ), patch("app.coordination.auto_promotion_daemon.HAS_ELO_TREND", True):
+            passed, reason = await daemon._check_velocity_gate(candidate)
+
+        assert passed is True
+        assert "error" in reason
+
+
+# =============================================================================
 # Test Status
 # =============================================================================
 
