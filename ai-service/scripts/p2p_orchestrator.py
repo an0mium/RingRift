@@ -5097,15 +5097,14 @@ class P2POrchestrator(
     # CMA-ES Coordinator callback helpers (Jan 2026 - Aggressive Decomposition Phase 3)
 
     def _get_gpu_workers_for_cmaes(self) -> list:
-        """Get available GPU workers for CMA-ES. Used by CMAESCoordinator callback."""
-        gpu_workers = []
-        with self.peers_lock:
-            for peer in self.peers.values():
-                if peer.is_healthy() and peer.has_gpu and peer.node_id != self.node_id:
-                    gpu_workers.append(peer)
+        """Get available GPU workers for CMA-ES. Used by CMAESCoordinator callback.
+
+        Jan 27, 2026: Migrated to PeerQueryBuilder (Phase 3.2).
+        """
+        workers = self._peer_query.healthy_with_gpu().unwrap_or([])
         if self.self_info.has_gpu:
-            gpu_workers.append(self.self_info)
-        return gpu_workers
+            workers.append(self.self_info)
+        return workers
 
     async def _send_cmaes_to_worker(self, worker_id: str, endpoint: str, payload: dict) -> bool:
         """Send CMA-ES request to a worker. Used by CMAESCoordinator callback."""
@@ -13894,39 +13893,16 @@ print(json.dumps(result))
         - Has recent health check data
         - Is not overloaded (CPU < 90%, GPU mem < 95%)
 
+        Jan 27, 2026: Migrated to PeerQueryBuilder (Phase 3.2).
+
         Returns:
             List of node IDs suitable for job reassignment.
         """
-        try:
-            healthy_nodes = []
-            for node_id, peer_info in self.peers.items():
-                # Skip nodes that are marked as offline or failing
-                status = peer_info.get("status", "unknown")
-                if status in ("offline", "failing", "retired"):
-                    continue
-
-                # Check basic health metrics
-                cpu_percent = peer_info.get("cpu_percent", 0.0)
-                gpu_mem_percent = peer_info.get("gpu_memory_percent", 0.0)
-
-                # Skip overloaded nodes
-                if cpu_percent > 90.0:
-                    continue
-                if gpu_mem_percent > 95.0:
-                    continue
-
-                # Skip nodes without recent heartbeat
-                last_seen = peer_info.get("last_seen", 0.0)
-                if time.time() - last_seen > 120:  # 2 minutes stale
-                    continue
-
-                healthy_nodes.append(node_id)
-
-            return healthy_nodes
-
-        except Exception as e:
-            logger.debug(f"[JobReassignment] Error getting healthy nodes: {e}")
-            return []
+        return self._peer_query.available_for_reassignment(
+            cpu_threshold=90.0,
+            gpu_mem_threshold=95.0,
+            stale_seconds=120.0,
+        ).unwrap_or([])
 
     # Dec 2025: Automation loops (527 LOC) moved to LoopManager - see scripts/p2p/loops/
 
@@ -19494,28 +19470,10 @@ print(json.dumps({{
 
         Returns a list of alive peer endpoints with connection info.
         This enables nodes to discover peers they can't reach directly.
+
+        Jan 27, 2026: Migrated to PeerQueryBuilder (Phase 3.2).
         """
-        endpoints = []
-        with self.peers_lock:
-            # Get alive, non-retired peers
-            alive_peers = [
-                p for p in self.peers.values()
-                if p.node_id != self.node_id and p.is_alive() and not getattr(p, "retired", False)
-            ]
-
-        # Limit to top N peers to avoid payload bloat
-        for peer in alive_peers[:GOSSIP_MAX_PEER_ENDPOINTS]:
-            endpoint = {
-                "node_id": peer.node_id,
-                "host": str(getattr(peer, "host", "") or ""),
-                "port": int(getattr(peer, "port", DEFAULT_PORT) or DEFAULT_PORT),
-                "tailscale_ip": str(getattr(peer, "tailscale_ip", "") or ""),
-                "is_alive": True,
-                "last_heartbeat": float(getattr(peer, "last_heartbeat", 0) or 0),
-            }
-            endpoints.append(endpoint)
-
-        return endpoints
+        return self._peer_query.to_endpoint_dicts(limit=GOSSIP_MAX_PEER_ENDPOINTS).unwrap_or([])
 
     def _process_gossip_response(self, response: dict):
         """Process gossip response from a peer, updating our view of the cluster."""
