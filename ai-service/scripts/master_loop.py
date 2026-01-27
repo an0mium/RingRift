@@ -1485,6 +1485,10 @@ class MasterLoopController:
             DaemonType.STALE_EVALUATION,
             DaemonType.OWC_MODEL_IMPORT,
             DaemonType.AUTO_PROMOTION,
+            # January 27, 2026 (Phase 2.1): Reanalysis daemon for improved training targets
+            # Re-evaluates historical games with improved models (+25-50 Elo potential)
+            # Subscribes to MODEL_PROMOTED, triggers when Elo delta >= 50
+            DaemonType.REANALYSIS,
             DaemonType.TOURNAMENT_DAEMON,
             DaemonType.CURRICULUM_INTEGRATION,
             # January 5, 2026 (Task 8.7): Cascade training orchestrator
