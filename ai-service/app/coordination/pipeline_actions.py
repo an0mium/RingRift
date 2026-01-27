@@ -1096,6 +1096,87 @@ async def trigger_training(
     return result
 
 
+async def _dispatch_evaluation_to_cluster(
+    model_path: str,
+    board_type: str,
+    num_players: int,
+    iteration: int,
+    num_games: int,
+    baselines: list[str] | None,
+) -> StageCompletionResult:
+    """Dispatch evaluation to cluster node via work queue.
+
+    January 27, 2026: Added to prevent coordinator nodes from running
+    heavy evaluation workloads locally. Coordinators dispatch work
+    to GPU cluster nodes instead.
+    """
+    start_time = time.time()
+    config_key = make_config_key(board_type, num_players)
+
+    try:
+        from app.coordination.work_distributor import get_work_distributor
+
+        distributor = get_work_distributor()
+        work_id = await distributor.submit_evaluation(
+            candidate_model=model_path,
+            baseline_model=None,
+            games=num_games * len(baselines or ["random", "heuristic"]),
+            board=board_type,
+            num_players=num_players,
+            evaluation_type="gauntlet",
+        )
+
+        if work_id:
+            logger.info(
+                f"[PipelineActions] Dispatched evaluation to cluster: {work_id} "
+                f"for {model_path}"
+            )
+            return StageCompletionResult(
+                success=True,
+                stage="evaluation",
+                iteration=iteration,
+                duration_seconds=time.time() - start_time,
+                metadata={
+                    "dispatched_to_cluster": True,
+                    "work_id": work_id,
+                    "config_key": config_key,
+                },
+            )
+        else:
+            logger.warning(
+                f"[PipelineActions] Failed to dispatch evaluation to cluster: {model_path}"
+            )
+            return StageCompletionResult(
+                success=False,
+                stage="evaluation",
+                iteration=iteration,
+                duration_seconds=time.time() - start_time,
+                error="dispatch_failed",
+                metadata={"config_key": config_key},
+            )
+
+    except ImportError:
+        logger.warning(
+            "[PipelineActions] WorkDistributor not available, cannot dispatch to cluster"
+        )
+        return StageCompletionResult(
+            success=False,
+            stage="evaluation",
+            iteration=iteration,
+            duration_seconds=time.time() - start_time,
+            error="work_distributor_unavailable",
+        )
+    except (OSError, RuntimeError) as e:
+        logger.error(f"[PipelineActions] Dispatch to cluster failed: {e}")
+        return StageCompletionResult(
+            success=False,
+            stage="evaluation",
+            iteration=iteration,
+            duration_seconds=time.time() - start_time,
+            error=str(e),
+        )
+
+
 async def trigger_evaluation(
     model_path: str,
     board_type: str,
@@ -1142,6 +1223,17 @@ async def trigger_evaluation(
             duration_seconds=0.0,
             error=f"Circuit open for {config_key} - too many recent failures",
             metadata={"circuit_blocked": True, "config_key": config_key},
+        )
+
+    # January 27, 2026: Check if this node should run evaluations locally
+    # Coordinators dispatch to cluster nodes instead of running locally
+    from app.config.env import env
+    if not env.gauntlet_enabled:
+        logger.info(
+            f"[PipelineActions] Gauntlet disabled on this node, dispatching to cluster: {model_path}"
+        )
+        return await _dispatch_evaluation_to_cluster(
+            model_path, board_type, num_players, iteration, num_games, baselines
         )
 
     # December 30, 2025: Use centralized RetryConfig for consistency

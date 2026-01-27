@@ -396,6 +396,96 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             "reason": reason,
         })
 
+    async def _forward_to_leader(
+        self,
+        endpoint: str,
+        data: dict,
+        method: str = "POST",
+    ) -> web.Response | None:
+        """Forward a request to the P2P leader.
+
+        Session 17.45 (Jan 27, 2026): Added for reverse sync - allows non-leader
+        nodes to forward work completion/failure reports to the leader.
+
+        Args:
+            endpoint: The endpoint path (e.g., "/work/complete")
+            data: JSON payload to forward
+            method: HTTP method (default: POST)
+
+        Returns:
+            Response from leader, or None if forwarding failed
+        """
+        leader_id = getattr(self, "leader_id", None)
+        if not leader_id:
+            logger.warning("[ForwardToLeader] No leader_id available")
+            return None
+
+        # Get leader info from peers
+        peers = getattr(self, "peers", None)
+        peers_lock = getattr(self, "peers_lock", None)
+
+        if peers is None:
+            logger.warning("[ForwardToLeader] No peers dict available")
+            return None
+
+        try:
+            if peers_lock:
+                with peers_lock:
+                    leader_info = peers.get(leader_id)
+            else:
+                leader_info = peers.get(leader_id)
+
+            if leader_info is None:
+                logger.warning(f"[ForwardToLeader] Leader {leader_id} not in peers")
+                return None
+
+            # Get leader URL - try multiple attributes
+            leader_url = (
+                getattr(leader_info, "url", None)
+                or getattr(leader_info, "api_url", None)
+                or getattr(leader_info, "base_url", None)
+            )
+
+            if not leader_url:
+                # Try to construct from IP
+                leader_ip = getattr(leader_info, "tailscale_ip", None) or getattr(
+                    leader_info, "ip", None
+                )
+                leader_port = getattr(leader_info, "port", 8770)
+                if leader_ip:
+                    leader_url = f"http://{leader_ip}:{leader_port}"
+
+            if not leader_url:
+                logger.warning(f"[ForwardToLeader] No URL for leader {leader_id}")
+                return None
+
+            import aiohttp
+
+            full_url = f"{leader_url.rstrip('/')}{endpoint}"
+            logger.debug(f"[ForwardToLeader] Forwarding {method} to {full_url}")
+
+            async with aiohttp.ClientSession() as session:
+                if method == "POST":
+                    async with session.post(
+                        full_url,
+                        json=data,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp:
+                        result = await resp.json()
+                        return self.json_response(result, status=resp.status)
+                else:
+                    async with session.get(
+                        full_url,
+                        params=data,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp:
+                        result = await resp.json()
+                        return self.json_response(result, status=resp.status)
+
+        except Exception as e:
+            logger.warning(f"[ForwardToLeader] Failed to forward to leader: {e}")
+            return None
+
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_add(self, request: web.Request) -> web.Response:
         """Add work to the centralized queue (leader only)."""
@@ -884,18 +974,29 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_start(self, request: web.Request) -> web.Response:
-        """Mark work as started (running)."""
+        """Mark work as started (running).
+
+        Session 17.45 (Jan 27, 2026): Non-leaders now forward to leader instead
+        of returning 403. This enables workers to report work start through
+        any P2P node, improving resilience during network partitions.
+        """
         try:
+            # Parse body early so we can forward it if not leader
+            data = await self.parse_json_body(request)
+            if data is None:
+                return self.bad_request("Invalid JSON body")
+
             if not self.is_leader:
+                # Forward to leader instead of returning 403
+                response = await self._forward_to_leader("/work/start", data)
+                if response is not None:
+                    return response
+                # Forwarding failed - fall back to 403
                 return self._not_leader_response()
 
             wq = get_work_queue()
             if wq is None:
                 return self._work_queue_unavailable()
-
-            data = await self.parse_json_body(request)
-            if data is None:
-                return self.bad_request("Invalid JSON body")
 
             work_id = data.get("work_id", "")
             if not work_id:
@@ -912,20 +1013,31 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_complete(self, request: web.Request) -> web.Response:
-        """Mark work as completed successfully."""
+        """Mark work as completed successfully.
+
+        Session 17.45 (Jan 27, 2026): Non-leaders now forward to leader instead
+        of returning 403. This enables workers to report completions through
+        any P2P node, improving resilience during network partitions.
+        """
         try:
             from app.coordination.work_queue import WorkType
 
+            # Parse body early so we can forward it if not leader
+            data = await self.parse_json_body(request)
+            if data is None:
+                return self.bad_request("Invalid JSON body")
+
             if not self.is_leader:
+                # Forward to leader instead of returning 403
+                response = await self._forward_to_leader("/work/complete", data)
+                if response is not None:
+                    return response
+                # Forwarding failed - fall back to 403
                 return self._not_leader_response()
 
             wq = get_work_queue()
             if wq is None:
                 return self._work_queue_unavailable()
-
-            data = await self.parse_json_body(request)
-            if data is None:
-                return self.bad_request("Invalid JSON body")
 
             work_id = data.get("work_id", "")
             result = data.get("result", {})
@@ -1001,18 +1113,29 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_work_fail(self, request: web.Request) -> web.Response:
-        """Mark work as failed (may retry based on attempts)."""
+        """Mark work as failed (may retry based on attempts).
+
+        Session 17.45 (Jan 27, 2026): Non-leaders now forward to leader instead
+        of returning 403. This enables workers to report failures through
+        any P2P node, improving resilience during network partitions.
+        """
         try:
+            # Parse body early so we can forward it if not leader
+            data = await self.parse_json_body(request)
+            if data is None:
+                return self.bad_request("Invalid JSON body")
+
             if not self.is_leader:
+                # Forward to leader instead of returning 403
+                response = await self._forward_to_leader("/work/fail", data)
+                if response is not None:
+                    return response
+                # Forwarding failed - fall back to 403
                 return self._not_leader_response()
 
             wq = get_work_queue()
             if wq is None:
                 return self._work_queue_unavailable()
-
-            data = await self.parse_json_body(request)
-            if data is None:
-                return self.bad_request("Invalid JSON body")
 
             work_id = data.get("work_id", "")
             error = data.get("error", "unknown")

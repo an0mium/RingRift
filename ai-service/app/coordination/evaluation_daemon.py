@@ -1042,6 +1042,16 @@ class EvaluationDaemon(BaseEventHandler):
             )
             return
 
+        # January 27, 2026: Check if this node should run gauntlets locally
+        # Coordinators dispatch to cluster nodes instead of running locally
+        from app.config.env import env
+        if not env.gauntlet_enabled:
+            logger.info(
+                f"[EvaluationDaemon] Gauntlet disabled on this node, dispatching to cluster: {model_path}"
+            )
+            await self._dispatch_gauntlet_to_cluster(model_path, board_type, num_players, request)
+            return
+
         start_time = time.time()
         config_key = make_config_key(board_type, num_players)
         run_id = str(uuid.uuid4())
@@ -1697,6 +1707,57 @@ class EvaluationDaemon(BaseEventHandler):
             logger.debug(f"[EvaluationDaemon] Recorded gauntlet complete: {run_id}")
         except Exception as e:  # noqa: BLE001
             logger.debug(f"[EvaluationDaemon] Failed to record gauntlet complete: {e}")
+
+    async def _dispatch_gauntlet_to_cluster(
+        self,
+        model_path: str,
+        board_type: str,
+        num_players: int,
+        request: dict,
+    ) -> None:
+        """Dispatch gauntlet evaluation to a cluster node via work queue.
+
+        January 27, 2026: Added to prevent coordinator nodes from running
+        heavy gauntlet workloads locally. Coordinators should dispatch work
+        to GPU cluster nodes instead.
+        """
+        try:
+            from app.coordination.work_distributor import get_work_distributor
+
+            distributor = get_work_distributor()
+            work_id = await distributor.submit_evaluation(
+                candidate_model=model_path,
+                baseline_model=None,
+                games=self.config.games_per_baseline * len(self.config.baselines),
+                board=board_type,
+                num_players=num_players,
+                evaluation_type="gauntlet",
+            )
+
+            if work_id:
+                logger.info(
+                    f"[EvaluationDaemon] Dispatched gauntlet to cluster: {work_id} "
+                    f"for {model_path}"
+                )
+                self._eval_stats.evaluations_triggered += 1
+            else:
+                logger.warning(
+                    f"[EvaluationDaemon] Failed to dispatch gauntlet to cluster: {model_path}"
+                )
+                self._eval_stats.evaluations_failed += 1
+                await self._emit_evaluation_failed(
+                    model_path, board_type, num_players,
+                    "dispatch_failed"
+                )
+
+        except ImportError:
+            logger.warning(
+                "[EvaluationDaemon] WorkDistributor not available, cannot dispatch to cluster"
+            )
+            self._eval_stats.evaluations_failed += 1
+        except (OSError, RuntimeError) as e:
+            logger.error(f"[EvaluationDaemon] Dispatch to cluster failed: {e}")
+            self._eval_stats.evaluations_failed += 1
 
     def _should_activate_backpressure(self) -> bool:
         """Session 17.24: Check if backpressure can be activated respecting hysteresis.

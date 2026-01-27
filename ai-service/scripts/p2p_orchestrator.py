@@ -14061,6 +14061,78 @@ print(json.dumps(result))
                 asyncio.create_task(_run_tournament_task())
                 return True
 
+            elif work_type == "gauntlet":
+                # January 27, 2026: Added gauntlet work execution
+                # Prevents coordinator from running gauntlets locally
+                from app.config.env import env
+                if not env.gauntlet_enabled:
+                    logger.info(
+                        f"Skipping gauntlet work {work_id}: gauntlet_enabled=false for this node"
+                    )
+                    return True  # Return True to indicate "handled" (just skipped)
+
+                # Execute gauntlet via quick_gauntlet script
+                board_type = config.get("board_type", "square8")
+                num_players = config.get("num_players", 2)
+                model_path = config.get("candidate_model", "")
+                games = config.get("games", 100)
+
+                if not model_path:
+                    logger.warning(f"Gauntlet work {work_id}: No model_path specified")
+                    return False
+
+                logger.info(
+                    f"Executing gauntlet work {work_id}: {model_path} "
+                    f"({board_type}/{num_players}p, {games} games)"
+                )
+
+                async def _run_gauntlet_subprocess():
+                    try:
+                        cmd = [
+                            sys.executable,
+                            "scripts/quick_gauntlet.py",
+                            "--board-type", board_type,
+                            "--num-players", str(num_players),
+                            "--model", model_path,
+                            "--games", str(games),
+                        ]
+                        proc = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT,
+                            cwd=str(Path(__file__).parent.parent),  # ai-service directory
+                        )
+                        stdout, _ = await proc.communicate()
+                        if proc.returncode == 0:
+                            logger.info(
+                                f"Gauntlet completed: {model_path} (work_id={work_id})"
+                            )
+                            # Emit evaluation completed event
+                            try:
+                                from app.distributed.data_events import DataEventType
+                                from app.coordination.event_router import emit_event
+                                config_key = f"{board_type}_{num_players}p"
+                                emit_event(DataEventType.EVALUATION_COMPLETED, {
+                                    "config_key": config_key,
+                                    "board_type": board_type,
+                                    "num_players": num_players,
+                                    "model_path": model_path,
+                                    "work_id": work_id,
+                                })
+                            except ImportError:
+                                pass
+                        else:
+                            output = stdout.decode()[:2000] if stdout else "no output"
+                            logger.error(
+                                f"Gauntlet failed: {model_path}: "
+                                f"returncode={proc.returncode}, output={output}"
+                            )
+                    except Exception as e:
+                        logger.exception(f"Gauntlet subprocess error for {model_path}: {e}")
+
+                asyncio.create_task(_run_gauntlet_subprocess())
+                return True
+
             else:
                 logger.warning(f"Unknown work type: {work_type}")
                 return False
@@ -23770,6 +23842,16 @@ print(json.dumps({{
                         "board_type": config.get("board_type", "square8"),
                         "num_players": config.get("num_players", 2),
                         "num_games": config.get("num_games", 500),
+                        "work_id": work_id,
+                    }
+                elif work_type == WorkType.GAUNTLET:
+                    # January 27, 2026: Route to gauntlet endpoint
+                    url = self._url_for_peer(peer, "/gauntlet/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "model_path": config.get("candidate_model", ""),
+                        "games": config.get("games", 100),
                         "work_id": work_id,
                     }
                 else:

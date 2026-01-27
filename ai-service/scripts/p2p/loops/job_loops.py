@@ -1259,7 +1259,8 @@ class WorkerPullLoop(BaseLoop):
                 return
 
         # Get allowed work types
-        capabilities = ["selfplay", "training", "gpu_cmaes", "tournament"]
+        # January 27, 2026: Added "gauntlet" for distributed model evaluation
+        capabilities = ["selfplay", "training", "gpu_cmaes", "tournament", "gauntlet"]
         if self._get_allowed_work_types:
             try:
                 capabilities = self._get_allowed_work_types()
