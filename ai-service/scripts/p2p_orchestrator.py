@@ -1008,6 +1008,12 @@ from scripts.p2p.managers.work_discovery_manager import (
 )
 from scripts.p2p.metrics_manager import MetricsManager
 from scripts.p2p.resource_detector import ResourceDetector, ResourceDetectorMixin
+from scripts.p2p.config.selfplay_job_configs import (
+    SELFPLAY_CONFIGS,
+    get_filtered_configs,
+    get_unique_configs,
+    get_weighted_configs,
+)
 from scripts.p2p.event_emission_mixin import EventEmissionMixin
 from scripts.p2p.failover_integration import FailoverIntegrationMixin
 from scripts.p2p.relay_leader_propagator import RelayLeaderPropagatorMixin  # Phase 1: NAT-blocked leader propagation (Jan 4, 2026)
@@ -28268,155 +28274,15 @@ print(json.dumps({{
                 needed = target_selfplay - node.selfplay_jobs
                 logger.info(f"{node.node_id} needs {needed} more selfplay jobs")
 
-                # Job configuration diversity - cycle through different AI methods
-                # LEARNED LESSONS - Prioritize varied AI methods for better training:
-                # - nn-only: Neural network evaluation (NNUE + Descent)
-                # - best-vs-pool: Tournament-style asymmetric play (best model vs varied pool)
-                # - nn-vs-mcts: NN player vs MCTS player (asymmetric tournament)
-                # - nn-vs-minimax: NN player vs Minimax player (asymmetric tournament)
-                # - nn-vs-descent: NN player vs heuristic Descent (asymmetric tournament)
-                # - tournament-varied: Each player gets different AI type (max variety)
-                # - mcts-only: Pure Monte Carlo Tree Search
-                # - descent-only: Gradient descent based evaluation (no NN)
-                # - minimax-only: Classic minimax with alpha-beta pruning
-                # NOTE: Heuristic-only modes removed to ensure NN/strong AI in every game
-                selfplay_configs = [
-                    # ================================================================
-                    # GUMBEL MCTS - HIGHEST PRIORITY (70% of jobs should use Gumbel)
-                    # GPU-accelerated Gumbel Top-K MCTS for high-quality training data
-                    # 3p/4p get priority 12 (underrepresented), 2p get priority 10
-                    # ================================================================
-                    {"board_type": "hex8", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "hex8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: +20% for underrepresented
-                    {"board_type": "hex8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: +20% for underrepresented
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 10},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: +20% for underrepresented
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 10},  # Already has most data
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "gumbel-mcts", "priority": 12},  # Dec 27: underrepresented
-                    # ================================================================
-                    # UNDERREPRESENTED COMBINATIONS - MIXED MODE (PRIORITY 8)
-                    # "mixed" mode provides varied AI matchups (NNUE, MCTS, heuristic combos)
-                    # for maximum training data diversity (~30% of jobs)
-                    # ================================================================
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "hex8", "num_players": 2, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "hex8", "num_players": 3, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "hex8", "num_players": 4, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "mixed", "priority": 8},
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "mixed", "priority": 8},
-                    # ================================================================
-                    # UNDERREPRESENTED COMBINATIONS (PRIORITY 7)
-                    # Specific AI matchup modes for variety
-                    # ================================================================
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 7},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-only", "priority": 7},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 7},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "nn-only", "priority": 7},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 7},
-                    # ================================================================
-                    # SQUARE8 MULTI-PLAYER WITH MIXED MODE (PRIORITY 6.5)
-                    # ================================================================
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "mixed", "priority": 7},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "mixed", "priority": 7},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "mixed", "priority": 6},
-                    # ================================================================
-                    # CROSS-AI MATCHES (PRIORITY 6) - Variety via asymmetric opponents
-                    # heuristic/random vs strong AI (MCTS, Minimax, Descent, NN)
-                    # ================================================================
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "heuristic-vs-nn", "priority": 6},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "random-vs-mcts", "priority": 6},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "heuristic-vs-nn", "priority": 6},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-vs-mcts", "priority": 6},
-                    # ================================================================
-                    # NEURAL NETWORK MODES (PRIORITY 5)
-                    # ================================================================
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-only", "priority": 5},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-only", "priority": 5},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "best-vs-pool", "priority": 5},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "best-vs-pool", "priority": 5},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "nn-only", "priority": 5},
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "nn-only", "priority": 5},
-                    # ================================================================
-                    # ASYMMETRIC TOURNAMENT MODES (PRIORITY 5) - NN vs other AI types
-                    # ================================================================
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-mcts", "priority": 5},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 5},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "nn-vs-mcts", "priority": 5},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-minimax", "priority": 5},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-minimax", "priority": 5},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "nn-vs-descent", "priority": 5},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "nn-vs-descent", "priority": 5},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "nn-vs-mcts", "priority": 5},
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "nn-vs-mcts", "priority": 5},
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "nn-vs-mcts", "priority": 5},
-                    # ================================================================
-                    # TOURNAMENT-VARIED (PRIORITY 4) - Max diversity, always includes NN
-                    # ================================================================
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "tournament-varied", "priority": 4},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "tournament-varied", "priority": 4},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "tournament-varied", "priority": 4},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "tournament-varied", "priority": 4},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "tournament-varied", "priority": 4},
-                    # ================================================================
-                    # CPU-BOUND AI METHODS (PRIORITY 3) - MCTS, Descent, Minimax
-                    # For CPU-only instances and variety
-                    # ================================================================
-                    {"board_type": "hexagonal", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
-                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "descent-only", "priority": 3},
-                    {"board_type": "square19", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "mcts-only", "priority": 3},
-                    {"board_type": "square19", "num_players": 3, "engine_mode": "descent-only", "priority": 3},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "mcts-only", "priority": 3},
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "descent-only", "priority": 3},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "descent-only", "priority": 3},
-                    {"board_type": "square8", "num_players": 4, "engine_mode": "mcts-only", "priority": 3},
-                    # ================================================================
-                    # MINIMAX (PRIORITY 2) - Classical approach, good for variety
-                    # ================================================================
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "minimax-only", "priority": 2},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
-                    {"board_type": "square19", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "descent-only", "priority": 2},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "minimax-only", "priority": 2},
-                    # NO PURE HEURISTIC-ONLY MODES - all modes include at least one
-                    # strong AI (NN/MCTS/Descent/Minimax) for quality training data
-                ]
-
-                # LEARNED LESSONS - Weighted selection favoring high priority configs
-                # Expand configs by priority for weighted random selection
+                # January 2026: Selfplay configs extracted to scripts/p2p/config/selfplay_job_configs.py
+                # Use imported helper functions for filtering and weighting
                 node_mem = int(getattr(node, "memory_gb", 0) or 0)
-                filtered_configs = selfplay_configs
-                if node_mem and node_mem < 48:
-                    # Smaller CPU nodes should avoid square19/hexagonal to reduce
-                    # OOM risk and thrash. Keep them productive with square8.
-                    filtered_configs = [cfg for cfg in selfplay_configs if cfg.get("board_type") == "square8"]
-
-                weighted_configs = []
-                for cfg in filtered_configs:
-                    weighted_configs.extend([cfg] * cfg.get("priority", 1))
+                filtered_configs = get_filtered_configs(node_memory_gb=node_mem)
+                weighted_configs = get_weighted_configs(filtered_configs)
+                unique_configs = get_unique_configs(filtered_configs)
 
                 # FIXED: Start all needed jobs with fair config distribution
                 # Instead of max 2, start up to 10 at a time to quickly fill all configs
-                # Use round-robin across unique configs to ensure coverage
-                unique_configs = list({(c["board_type"], c["num_players"]): c for c in filtered_configs}.values())
                 jobs_to_start = min(needed, 10)  # Start up to 10 jobs per iteration
 
                 # HYBRID MODE: Calculate how many GPU vs CPU-only jobs to spawn
