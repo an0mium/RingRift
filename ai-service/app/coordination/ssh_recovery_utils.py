@@ -270,11 +270,15 @@ tailscale ip -4
         Returns:
             Shell command to kill and restart P2P orchestrator
         """
+        # Jan 2026: Switched to nohup and added screen cleanup to prevent dead sessions
         return f"""
 pkill -f 'python.*p2p_orchestrator' 2>/dev/null || true
+screen -X -S p2p quit 2>/dev/null || true
+screen -wipe 2>/dev/null || true
 sleep 2
 cd {config.ringrift_path} && \\
-screen -dmS p2p bash -c 'PYTHONPATH=. python scripts/p2p_orchestrator.py'
+mkdir -p logs && \\
+PYTHONPATH=. nohup python scripts/p2p_orchestrator.py > logs/p2p.log 2>&1 &
 sleep 3
 pgrep -f p2p_orchestrator
 """
@@ -282,6 +286,135 @@ pgrep -f p2p_orchestrator
     def build_health_check_command(self) -> str:
         """Build command to check P2P health status."""
         return "curl -s --connect-timeout 5 http://localhost:8770/status | head -c 500"
+
+    # =========================================================================
+    # ControlMaster Cache Management
+    # =========================================================================
+
+    def get_control_master_path(self, host: str, user: str = "root") -> str:
+        """Get the ControlMaster socket path for a host.
+
+        Args:
+            host: Target host
+            user: SSH user
+
+        Returns:
+            Path to the ControlMaster socket file
+        """
+        # Standard ControlMaster path pattern: ~/.ssh/cm-%r@%h:%p
+        import os
+        ssh_dir = os.path.expanduser("~/.ssh")
+        # Use the common ControlPath pattern
+        return os.path.join(ssh_dir, f"cm-{user}@{host}:22")
+
+    async def invalidate_control_master(
+        self,
+        host: str,
+        user: str = "root",
+        port: int = 22,
+    ) -> bool:
+        """Invalidate cached SSH ControlMaster connection.
+
+        Call this after an authentication failure to ensure the next
+        connection attempt doesn't use a cached (potentially invalid) socket.
+
+        Args:
+            host: Target host
+            user: SSH user
+            port: SSH port
+
+        Returns:
+            True if socket was removed or didn't exist, False on error
+        """
+        import os
+
+        # Try multiple common ControlPath patterns
+        patterns = [
+            f"cm-{user}@{host}:{port}",
+            f"cm-{user}@{host}:*",
+            f"sockets/{host}",
+            f"sockets/{user}@{host}",
+        ]
+
+        ssh_dir = os.path.expanduser("~/.ssh")
+        removed = False
+
+        for pattern in patterns:
+            socket_path = os.path.join(ssh_dir, pattern)
+
+            # Handle wildcard patterns
+            if "*" in pattern:
+                import glob
+                for path in glob.glob(socket_path):
+                    try:
+                        os.remove(path)
+                        logger.info(f"[SSHRecoveryHelper] Removed ControlMaster socket: {path}")
+                        removed = True
+                    except OSError as e:
+                        logger.debug(f"[SSHRecoveryHelper] Could not remove {path}: {e}")
+            elif os.path.exists(socket_path):
+                try:
+                    os.remove(socket_path)
+                    logger.info(f"[SSHRecoveryHelper] Removed ControlMaster socket: {socket_path}")
+                    removed = True
+                except OSError as e:
+                    logger.warning(f"[SSHRecoveryHelper] Failed to remove {socket_path}: {e}")
+                    return False
+
+        # Also try to kill the ControlMaster process with ssh -O exit
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ssh",
+                "-O", "exit",
+                "-o", "ControlPath=~/.ssh/cm-%r@%h:%p",
+                f"{user}@{host}",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+            if proc.returncode == 0:
+                logger.info(f"[SSHRecoveryHelper] Closed ControlMaster for {user}@{host}")
+                removed = True
+        except (asyncio.TimeoutError, OSError) as e:
+            logger.debug(f"[SSHRecoveryHelper] ssh -O exit failed (may be normal): {e}")
+
+        if removed:
+            logger.info(f"[SSHRecoveryHelper] ControlMaster invalidated for {user}@{host}")
+        else:
+            logger.debug(f"[SSHRecoveryHelper] No ControlMaster found for {user}@{host}")
+
+        return True
+
+    async def invalidate_all_control_masters(self) -> int:
+        """Invalidate all cached SSH ControlMaster connections.
+
+        Returns:
+            Number of sockets removed
+        """
+        import os
+        import glob
+
+        ssh_dir = os.path.expanduser("~/.ssh")
+        removed = 0
+
+        # Common ControlMaster socket patterns
+        patterns = [
+            os.path.join(ssh_dir, "cm-*"),
+            os.path.join(ssh_dir, "sockets/*"),
+        ]
+
+        for pattern in patterns:
+            for socket_path in glob.glob(pattern):
+                try:
+                    if os.path.exists(socket_path):
+                        os.remove(socket_path)
+                        logger.info(f"[SSHRecoveryHelper] Removed: {socket_path}")
+                        removed += 1
+                except OSError as e:
+                    logger.debug(f"[SSHRecoveryHelper] Could not remove {socket_path}: {e}")
+
+        logger.info(f"[SSHRecoveryHelper] Invalidated {removed} ControlMaster sockets")
+        return removed
 
     # =========================================================================
     # Verification Utilities
@@ -412,6 +545,88 @@ async def restart_tailscale_via_ssh(
         result.success = helper.verify_tailscale_output(result.output)
 
     return result
+
+
+async def invalidate_control_master(
+    host: str,
+    user: str = "root",
+    port: int = 22,
+) -> bool:
+    """Convenience function to invalidate SSH ControlMaster for a host.
+
+    Args:
+        host: Target host
+        user: SSH user
+        port: SSH port
+
+    Returns:
+        True if successful
+    """
+    helper = get_ssh_recovery_helper()
+    return await helper.invalidate_control_master(host, user, port)
+
+
+async def handle_ssh_auth_failure(
+    node_id: str,
+    host: str,
+    error_message: str,
+    exit_code: int = 1,
+    user: str = "root",
+) -> bool:
+    """Handle an SSH authentication failure by invalidating caches and resetting circuit.
+
+    This combines:
+    1. Error classification to confirm it's an auth failure
+    2. ControlMaster invalidation
+    3. Circuit breaker reset for SSH transport
+
+    Args:
+        node_id: Node ID for circuit breaker
+        host: SSH host for ControlMaster
+        error_message: The SSH error message
+        exit_code: SSH exit code
+        user: SSH user
+
+    Returns:
+        True if auth failure was handled, False if not an auth failure
+    """
+    # Import here to avoid circular imports
+    try:
+        from app.coordination.ssh_error_classifier import classify_ssh_error
+        from app.coordination.transport_circuit_breaker import get_transport_circuit_breaker
+    except ImportError:
+        logger.warning("[SSHRecoveryHelper] Could not import classifier or circuit breaker")
+        return False
+
+    # Classify the error
+    classification = classify_ssh_error(error_message, exit_code)
+
+    if not classification.should_invalidate_control_master:
+        logger.debug(
+            f"[SSHRecoveryHelper] SSH error is not auth failure: "
+            f"{classification.error_type.value} ({classification.matched_pattern})"
+        )
+        return False
+
+    logger.info(
+        f"[SSHRecoveryHelper] Handling SSH auth failure for {node_id}/{host}: "
+        f"{classification.error_type.value} ({classification.matched_pattern})"
+    )
+
+    # Invalidate ControlMaster
+    helper = get_ssh_recovery_helper()
+    await helper.invalidate_control_master(host, user)
+
+    # Reset SSH circuit breaker
+    if classification.should_reset_circuit:
+        breaker = get_transport_circuit_breaker()
+        breaker.reset_transport_circuit(
+            node_id,
+            "ssh",
+            reason=f"auth_failure:{classification.matched_pattern}",
+        )
+
+    return True
 
 
 async def restart_p2p_via_ssh(

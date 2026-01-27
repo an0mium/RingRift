@@ -1073,6 +1073,151 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             return self.error_response(str(e), status=500)
 
     @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
+    async def handle_work_metrics(self, request: web.Request) -> web.Response:
+        """Get detailed work queue metrics broken down by config and work type.
+
+        January 2026 - Phase 3.3 (Automation Hardening):
+        Provides real-time queue depth and throughput metrics for monitoring
+        dashboards and automation systems.
+
+        Query params:
+            config: Optional filter for specific config (e.g., "hex8_2p")
+            work_type: Optional filter for work type (e.g., "selfplay")
+            include_history: If "true", include completion/failure rates (slower)
+
+        Response:
+        {
+            "total_pending": 150,
+            "total_running": 12,
+            "by_config": {
+                "hex8_2p": {"pending": 50, "running": 3, "completed_1h": 45},
+                "square8_4p": {"pending": 20, "running": 2, "completed_1h": 18},
+                ...
+            },
+            "by_work_type": {
+                "selfplay": {"pending": 100, "running": 8},
+                "training": {"pending": 5, "running": 2},
+                ...
+            },
+            "throughput": {
+                "completions_1h": 180,
+                "failures_1h": 5,
+                "avg_duration_seconds": 145.3
+            },
+            "backpressure": {...}
+        }
+        """
+        try:
+            wq = get_work_queue()
+            if wq is None:
+                return self._work_queue_unavailable()
+
+            # Get query params
+            config_filter = request.query.get("config", None)
+            work_type_filter = request.query.get("work_type", None)
+            include_history = request.query.get("include_history", "").lower() == "true"
+
+            # Build metrics
+            metrics = {
+                "total_pending": 0,
+                "total_running": 0,
+                "total_claimed": 0,
+                "by_config": {},
+                "by_work_type": {},
+                "is_leader": self.is_leader,
+                "leader_id": self.leader_id,
+            }
+
+            # Aggregate from work queue items
+            with wq.lock:
+                for work_id, item in wq.items.items():
+                    # Extract config key
+                    config = item.config or {}
+                    board_type = config.get("board_type", "unknown")
+                    num_players = config.get("num_players", 0)
+                    config_key = f"{board_type}_{num_players}p" if board_type != "unknown" else "unknown"
+
+                    # Apply filters
+                    if config_filter and config_key != config_filter:
+                        continue
+                    if work_type_filter and item.work_type.value != work_type_filter:
+                        continue
+
+                    # Count by status
+                    status = item.status.value if hasattr(item.status, "value") else str(item.status)
+                    work_type = item.work_type.value if hasattr(item.work_type, "value") else str(item.work_type)
+
+                    # Update totals
+                    if status == "pending":
+                        metrics["total_pending"] += 1
+                    elif status == "running":
+                        metrics["total_running"] += 1
+                    elif status == "claimed":
+                        metrics["total_claimed"] += 1
+
+                    # Update by_config
+                    if config_key not in metrics["by_config"]:
+                        metrics["by_config"][config_key] = {
+                            "pending": 0,
+                            "running": 0,
+                            "claimed": 0,
+                        }
+                    if status in ("pending", "running", "claimed"):
+                        metrics["by_config"][config_key][status] += 1
+
+                    # Update by_work_type
+                    if work_type not in metrics["by_work_type"]:
+                        metrics["by_work_type"][work_type] = {
+                            "pending": 0,
+                            "running": 0,
+                            "claimed": 0,
+                        }
+                    if status in ("pending", "running", "claimed"):
+                        metrics["by_work_type"][work_type][status] += 1
+
+            # Include history-based metrics if requested (slower, hits DB)
+            if include_history:
+                try:
+                    import time
+                    one_hour_ago = time.time() - 3600
+
+                    # Get recent completions/failures from history
+                    history = wq.get_history(limit=500, status_filter=None)
+                    completions_1h = 0
+                    failures_1h = 0
+                    total_duration = 0.0
+                    duration_count = 0
+
+                    for item in history:
+                        completed_at = item.get("completed_at", 0)
+                        if completed_at and completed_at >= one_hour_ago:
+                            if item.get("status") == "completed":
+                                completions_1h += 1
+                                duration = item.get("duration_seconds", 0)
+                                if duration:
+                                    total_duration += duration
+                                    duration_count += 1
+                            elif item.get("status") == "failed":
+                                failures_1h += 1
+
+                    metrics["throughput"] = {
+                        "completions_1h": completions_1h,
+                        "failures_1h": failures_1h,
+                        "avg_duration_seconds": round(total_duration / duration_count, 1) if duration_count > 0 else 0,
+                    }
+                except Exception as e:
+                    logger.debug(f"Error getting history metrics: {e}")
+                    metrics["throughput"] = {"error": str(e)}
+
+            # Add backpressure status
+            metrics["backpressure"] = wq.get_backpressure_status()
+
+            return self.json_response(metrics)
+        except Exception as e:
+            logger.error(f"Error getting work metrics: {e}")
+            return self.error_response(str(e), status=500)
+
+    @handler_timeout(HANDLER_TIMEOUT_TOURNAMENT)
     async def handle_populator_status(self, request: web.Request) -> web.Response:
         """Get queue populator status for monitoring."""
         try:

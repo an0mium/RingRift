@@ -84,6 +84,7 @@ WORK_QUEUE_ROUTES = [
     Route("POST", "/work/complete", "handle_work_complete"),
     Route("POST", "/work/fail", "handle_work_fail"),
     Route("GET", "/work/status", "handle_work_status"),
+    Route("GET", "/work/metrics", "handle_work_metrics"),  # Jan 2026: Real-time queue metrics per config
     Route("GET", "/work/populator", "handle_populator_status"),
     Route("GET", "/work/node/{node_id}", "handle_work_for_node"),
     Route("POST", "/work/cancel", "handle_work_cancel"),

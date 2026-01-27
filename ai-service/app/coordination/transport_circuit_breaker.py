@@ -472,6 +472,80 @@ class TransportAwareCircuitBreaker:
             "transport_status": transport_status,
         }
 
+    def reset_transport_circuit(
+        self,
+        node_id: str,
+        transport: TransportType | str,
+        reason: str = "manual_reset",
+    ) -> bool:
+        """Explicitly reset a transport circuit to closed state.
+
+        Use this when you know a transport has recovered (e.g., after
+        ControlMaster invalidation for SSH auth failures).
+
+        Args:
+            node_id: Target node
+            transport: Transport type to reset
+            reason: Reason for reset (for logging)
+
+        Returns:
+            True if circuit was reset, False if not found
+        """
+        if isinstance(transport, str):
+            try:
+                transport = TransportType(transport)
+            except ValueError:
+                return False
+
+        with self._lock:
+            if node_id not in self._transport_states:
+                return False
+
+            if transport not in self._transport_states[node_id]:
+                return False
+
+            state = self._transport_states[node_id][transport]
+            old_state = state.state
+
+            # Reset to closed state
+            state.state = CircuitState.CLOSED
+            state.failure_count = 0
+            state.success_count = 0
+            state.opened_at = 0.0
+            state.half_open_at = 0.0
+
+            logger.info(
+                f"Circuit reset for {node_id}/{transport.value}: "
+                f"{old_state.value} -> closed (reason: {reason})"
+            )
+
+            # Also clear node exclusion if this was the last failing transport
+            if node_id in self._excluded_nodes:
+                available = self.get_available_transports(node_id)
+                if available:
+                    del self._excluded_nodes[node_id]
+                    logger.info(
+                        f"Node {node_id} un-excluded after transport reset"
+                    )
+
+            return True
+
+    def reset_all_transports(self, node_id: str, reason: str = "full_reset") -> int:
+        """Reset all transport circuits for a node.
+
+        Args:
+            node_id: Target node
+            reason: Reason for reset (for logging)
+
+        Returns:
+            Number of circuits reset
+        """
+        reset_count = 0
+        for transport in TransportType.priority_order():
+            if self.reset_transport_circuit(node_id, transport, reason):
+                reset_count += 1
+        return reset_count
+
     def get_summary(self) -> dict[str, Any]:
         """Get summary of all circuit breaker states."""
         with self._lock:

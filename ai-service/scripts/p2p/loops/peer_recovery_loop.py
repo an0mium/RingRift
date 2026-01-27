@@ -1123,6 +1123,244 @@ class PeerRecoveryLoop(BaseLoop):
 
         return stabilized_count
 
+    async def _ssh_probe_peer(
+        self,
+        node_id: str,
+        ssh_host: str,
+        ssh_port: int = 22,
+        ssh_user: str = "root",
+        timeout: float = 10.0,
+    ) -> tuple[bool, str | None]:
+        """SSH-specific probe for a peer with error classification.
+
+        January 2026 - Phase 3.2 (Automation Hardening):
+        Probes SSH connectivity separately from HTTP. Uses SSH error classification
+        to distinguish auth failures (permanent) from transient errors.
+
+        Args:
+            node_id: Node identifier for logging
+            ssh_host: SSH hostname or IP
+            ssh_port: SSH port (default: 22)
+            ssh_user: SSH user (default: root)
+            timeout: SSH command timeout in seconds
+
+        Returns:
+            Tuple of (is_healthy, error_type) where:
+            - is_healthy: True if SSH probe succeeded
+            - error_type: None if healthy, else SSHErrorType value
+        """
+        try:
+            from app.coordination.ssh_recovery_utils import (
+                SSHConfig,
+                SSHRecoveryHelper,
+            )
+            from app.coordination.ssh_error_classifier import (
+                classify_ssh_error,
+                SSHErrorType,
+            )
+        except ImportError:
+            logger.debug(
+                f"[PeerRecovery] SSH recovery modules not available, skipping SSH probe for {node_id}"
+            )
+            return False, "import_error"
+
+        helper = SSHRecoveryHelper(max_retries=1)  # Single attempt for probing
+        config = SSHConfig(
+            host=ssh_host,
+            port=ssh_port,
+            user=ssh_user,
+            connect_timeout=min(5, int(timeout / 2)),
+            command_timeout=int(timeout),
+        )
+
+        try:
+            # Quick health check command
+            result = await asyncio.wait_for(
+                helper.execute_ssh_command(config, "echo healthy"),
+                timeout=timeout + 2,  # Slight buffer for SSH overhead
+            )
+
+            if result.success and "healthy" in result.stdout:
+                logger.debug(f"[PeerRecovery] SSH probe success for {node_id}")
+                return True, None
+
+            # Classify the failure
+            error_msg = result.error or result.stderr or result.stdout
+            classification = classify_ssh_error(error_msg, result.exit_code)
+
+            logger.debug(
+                f"[PeerRecovery] SSH probe failed for {node_id}: "
+                f"{classification.error_type.value} ({classification.matched_pattern})"
+            )
+            return False, classification.error_type.value
+
+        except asyncio.TimeoutError:
+            logger.debug(f"[PeerRecovery] SSH probe timeout for {node_id}")
+            return False, "timeout"
+        except Exception as e:
+            logger.debug(f"[PeerRecovery] SSH probe error for {node_id}: {e}")
+            return False, "error"
+
+    async def _try_transport_specific_recovery(
+        self,
+        node_id: str,
+        peer: Any,
+        transports_to_check: list[str] | None = None,
+        now: float | None = None,
+    ) -> bool:
+        """Try transport-specific recovery for a peer.
+
+        January 2026 - Phase 3.2 (Automation Hardening):
+        Instead of treating all failures the same, probe each transport
+        independently and reset only the circuits that have recovered.
+
+        Args:
+            node_id: Node identifier
+            peer: Peer object
+            transports_to_check: List of transports to check (default: ["ssh", "http"])
+            now: Current timestamp
+
+        Returns:
+            True if any transport recovered
+        """
+        if now is None:
+            now = time.time()
+
+        if transports_to_check is None:
+            transports_to_check = ["ssh", "http"]
+
+        # Try to get transport-aware circuit breaker
+        try:
+            from app.coordination.transport_circuit_breaker import (
+                get_transport_circuit_breaker,
+            )
+            breaker = get_transport_circuit_breaker()
+        except ImportError:
+            breaker = None
+
+        any_recovered = False
+
+        for transport in transports_to_check:
+            if transport == "ssh":
+                # Get SSH connection info from peer
+                ssh_host = self._get_ssh_host(peer)
+                if not ssh_host:
+                    continue
+
+                ssh_port = self._get_ssh_port(peer)
+                ssh_user = self._get_ssh_user(peer)
+
+                # Probe SSH
+                is_healthy, error_type = await self._ssh_probe_peer(
+                    node_id,
+                    ssh_host,
+                    ssh_port,
+                    ssh_user,
+                    timeout=10.0,
+                )
+
+                if is_healthy:
+                    # Reset SSH circuit
+                    if breaker:
+                        breaker.reset_transport_circuit(
+                            node_id, "ssh", reason="ssh_probe_healthy"
+                        )
+                    if self._reset_circuit:
+                        self._reset_circuit(node_id)
+                    any_recovered = True
+                    logger.info(
+                        f"[PeerRecovery] SSH transport recovered for {node_id}"
+                    )
+
+                    if self._emit_event and self.config.emit_events:
+                        self._emit_event(
+                            "TRANSPORT_RECOVERED",
+                            {
+                                "node_id": node_id,
+                                "transport": "ssh",
+                                "timestamp": now,
+                            },
+                        )
+                elif error_type and error_type.startswith("auth"):
+                    # Auth failure - handle specially
+                    logger.warning(
+                        f"[PeerRecovery] SSH auth failure for {node_id}: {error_type}"
+                    )
+                    try:
+                        from app.coordination.ssh_recovery_utils import (
+                            handle_ssh_auth_failure,
+                        )
+                        await handle_ssh_auth_failure(
+                            node_id, ssh_host, f"SSH probe: {error_type}", 255
+                        )
+                    except ImportError:
+                        pass
+
+            elif transport == "http":
+                # Use existing HTTP probe
+                address = self._get_peer_address(peer)
+                if not address:
+                    continue
+
+                try:
+                    is_healthy = await asyncio.wait_for(
+                        self._probe_peer(address),
+                        timeout=5.0,
+                    )
+
+                    if is_healthy:
+                        # Reset HTTP circuit
+                        if breaker:
+                            breaker.reset_transport_circuit(
+                                node_id, "http", reason="http_probe_healthy"
+                            )
+                        any_recovered = True
+                        logger.info(
+                            f"[PeerRecovery] HTTP transport recovered for {node_id}"
+                        )
+
+                        if self._emit_event and self.config.emit_events:
+                            self._emit_event(
+                                "TRANSPORT_RECOVERED",
+                                {
+                                    "node_id": node_id,
+                                    "transport": "http",
+                                    "timestamp": now,
+                                },
+                            )
+                except asyncio.TimeoutError:
+                    pass
+                except Exception:
+                    pass
+
+        return any_recovered
+
+    def _get_ssh_host(self, peer: Any) -> str | None:
+        """Extract SSH host from peer object."""
+        if hasattr(peer, "ssh_host"):
+            return peer.ssh_host
+        if hasattr(peer, "tailscale_ip"):
+            return peer.tailscale_ip
+        if isinstance(peer, dict):
+            return peer.get("ssh_host") or peer.get("tailscale_ip")
+        return None
+
+    def _get_ssh_port(self, peer: Any) -> int:
+        """Extract SSH port from peer object."""
+        if hasattr(peer, "ssh_port"):
+            return peer.ssh_port
+        if isinstance(peer, dict):
+            return peer.get("ssh_port", 22)
+        return 22
+
+    def _get_ssh_user(self, peer: Any) -> str:
+        """Extract SSH user from peer object."""
+        if hasattr(peer, "ssh_user"):
+            return peer.ssh_user
+        if isinstance(peer, dict):
+            return peer.get("ssh_user", "root")
+        return "root"
+
     async def _try_proactive_circuit_recovery(
         self, circuit_broken_peers: list[Any], now: float
     ) -> None:
@@ -1130,6 +1368,10 @@ class PeerRecoveryLoop(BaseLoop):
 
         Sprint 12 Session 8: Reduces mean recovery time from 180s (CB default timeout)
         to 5-15s by actively probing peers with open circuit breakers.
+
+        January 2026 - Phase 3.2 (Automation Hardening):
+        Now uses transport-specific probing (SSH and HTTP separately) for better
+        recovery accuracy. Auth failures are handled specially via error classification.
 
         When a peer recovers (e.g., SSH node comes back online), the circuit stays
         open until the CB timeout expires. This wastes recovery time. By proactively
@@ -1150,6 +1392,36 @@ class PeerRecoveryLoop(BaseLoop):
             node_id = self._get_peer_id(peer)
             address = self._get_peer_address(peer)
 
+            # Jan 2026 - Phase 3.2: Try transport-specific recovery first
+            # This provides better diagnostics and handles auth failures properly
+            if await self._try_transport_specific_recovery(node_id, peer, now=now):
+                recovered_count += 1
+                self._stats_recoveries += 1
+                self._peer_failures.pop(node_id, None)
+                self._peer_next_probe.pop(node_id, None)
+
+                if self._emit_event and self.config.emit_events:
+                    self._emit_event(
+                        "CIRCUIT_RESET",
+                        {
+                            "node_id": node_id,
+                            "address": address,
+                            "recovery_source": "transport_specific_recovery",
+                            "timestamp": now,
+                        },
+                    )
+
+                # Also attempt full peer recovery
+                try:
+                    await self._recover_peer(peer)
+                except Exception as e:
+                    logger.debug(
+                        f"[PeerRecovery] Peer recovery after transport reset "
+                        f"failed for {node_id}: {e}"
+                    )
+                continue
+
+            # Fallback to original HTTP-only probe
             try:
                 self._stats_probes_sent += 1
                 self._peer_last_probe[node_id] = now
