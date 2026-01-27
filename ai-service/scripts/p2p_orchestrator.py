@@ -16371,7 +16371,7 @@ print(json.dumps({{
 
                     # Jan 13, 2026: Exponential backoff during isolation
                     # Check if we're completely isolated (no alive peers)
-                    alive_peers = sum(1 for p in self.peers.values() if p.is_alive() and p.node_id != self.node_id)
+                    alive_peers = self._peer_query.alive_count().unwrap_or(0)
                     if alive_peers == 0:
                         # Track isolation start time
                         if not hasattr(self, "_isolation_start"):
@@ -16404,7 +16404,7 @@ print(json.dumps({{
                     # Check if priority mode should expire
                     if time.time() > getattr(self, "_tailscale_priority_until", 0):
                         # Check if connectivity recovered
-                        alive_count = sum(1 for p in self.peers.values() if p.is_alive() and p.node_id != self.node_id)
+                        alive_count = self._peer_query.alive_count().unwrap_or(0)
                         if alive_count > 0:
                             self._disable_tailscale_priority()
 
@@ -17566,10 +17566,11 @@ print(json.dumps({{
             self._sync_peer_snapshot()
 
             # Capture final counts for capacity events (inside lock for consistency)
+            # Jan 27, 2026: Using PeerQueryBuilder for consistent counting (Phase 3.2)
             capacity_total = len(self.peers)
-            capacity_alive = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False))
-            capacity_gpu = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "gpu_type", None))
-            capacity_training = sum(1 for p in self.peers.values() if p.is_alive() and not getattr(p, "retired", False) and getattr(p, "training_enabled", False))
+            capacity_alive = self._peer_query.alive_non_retired_count(exclude_self=False).unwrap_or(0)
+            capacity_gpu = self._peer_query.alive_gpu_count(exclude_self=False).unwrap_or(0)
+            capacity_training = self._peer_query.training_enabled_count(exclude_self=False).unwrap_or(0)
 
         # Jan 19, 2026: Apply rate limiting to peer retirements
         # Sort by longest-dead first, then only retire up to PEER_DEATH_RATE_LIMIT peers
@@ -20436,7 +20437,7 @@ print(json.dumps({{
 
         Returns metrics used to evaluate whether recovery actions helped.
         """
-        alive_count = sum(1 for p in self.peers.values() if p.is_alive())
+        alive_count = self._peer_query.alive_count(exclude_self=False).unwrap_or(0)
         total_count = len(self.peers) + 1  # Include self
 
         # Calculate stability score (0-100)
