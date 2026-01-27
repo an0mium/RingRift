@@ -41,6 +41,14 @@ from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
 
+# January 26, 2026 (P4): Elo velocity gate - import Elo trend function
+try:
+    from app.training.elo_service import get_elo_trend_for_config
+    HAS_ELO_TREND = True
+except ImportError:
+    HAS_ELO_TREND = False
+    get_elo_trend_for_config = None
+
 # January 3, 2026 (Sprint 16.2): Hashgraph consensus for BFT model promotion
 # Requires supermajority approval before promotion can proceed
 try:
@@ -105,6 +113,11 @@ class AutoPromotionConfig:
     head_to_head_enabled: bool = True
     min_win_rate_vs_canonical: float = 0.52  # Must win 52%+ vs current canonical
     head_to_head_games: int = 50  # Games to play vs canonical for evaluation
+    # January 26, 2026 (P4): Elo velocity gate - block promotion if Elo is declining
+    # This prevents promoting models during regression periods, ensuring only models
+    # with positive momentum (or at least stable Elo) get promoted.
+    velocity_gate_enabled: bool = True
+    min_velocity_for_promotion: float = 0.0  # Block if velocity < 0 (declining)
 
 
 @dataclass
@@ -540,6 +553,18 @@ class AutoPromotionDaemon(HandlerBase):
                         f"Elo improvement {candidate.elo_improvement:+.1f} < {effective_min_elo:.1f} required"
                     )
                     return
+
+                # January 26, 2026 (P4): Elo velocity gate - block promotion if declining
+                # This ensures we don't promote models during regression periods
+                if self.config.velocity_gate_enabled and HAS_ELO_TREND:
+                    velocity_passed, velocity_reason = await self._check_velocity_gate(candidate)
+                    if not velocity_passed:
+                        logger.info(
+                            f"[AutoPromotion] {candidate.config_key}: "
+                            f"Velocity gate FAILED: {velocity_reason}"
+                        )
+                        return
+
                 await self._promote_model(candidate)
         else:
             # Reset streak on failure
@@ -615,6 +640,48 @@ class AutoPromotionDaemon(HandlerBase):
             return False, f"quality_failed: {quality_reason}"
 
         return True, "quality_gate_passed"
+
+    async def _check_velocity_gate(
+        self,
+        candidate: PromotionCandidate,
+    ) -> tuple[bool, str]:
+        """Check if config's Elo velocity allows promotion.
+
+        January 26, 2026 (P4): Blocks promotion if Elo is declining. This prevents
+        promoting models during regression periods, ensuring only models with positive
+        momentum (or at least stable Elo) get promoted.
+
+        Args:
+            candidate: PromotionCandidate to check
+
+        Returns:
+            Tuple of (passed, reason) where reason explains the gate result
+        """
+        if not HAS_ELO_TREND or get_elo_trend_for_config is None:
+            # Gracefully skip if elo_service not available
+            return True, "velocity_check_unavailable"
+
+        try:
+            # Get Elo trend for this config over the last 48 hours
+            trend = get_elo_trend_for_config(candidate.config_key, hours=48)
+
+            if trend is None:
+                # No trend data available - allow promotion (bootstrap case)
+                return True, "no_trend_data_available"
+
+            velocity = trend.get("slope", 0.0)
+            is_declining = trend.get("is_declining", False)
+
+            # Block if velocity is below threshold (default: 0.0, meaning declining)
+            if is_declining or velocity < self.config.min_velocity_for_promotion:
+                return False, f"velocity={velocity:.2f}_elo_per_hour_declining"
+
+            return True, f"velocity_ok_{velocity:.2f}_elo_per_hour"
+
+        except Exception as e:
+            # Don't block on velocity check errors - log and allow promotion
+            logger.warning(f"[AutoPromotion] Velocity check error for {candidate.config_key}: {e}")
+            return True, f"velocity_check_error: {e}"
 
     async def _check_parity_status(
         self,
