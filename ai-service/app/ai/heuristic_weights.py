@@ -102,6 +102,22 @@ BASE_V1_BALANCED_WEIGHTS: HeuristicWeights = {
     "WEIGHT_RECOVERY_ELIGIBILITY": 8.0,     # Bonus/penalty for recovery eligibility status
     "WEIGHT_BURIED_RING_VALUE": 3.0,        # Value of buried rings as recovery resource
     "WEIGHT_RECOVERY_THREAT": 5.0,          # Threat from opponent's recovery potential
+    # v1.6: Phase 3.1 - Advanced strategic features (Jan 2026)
+    # Chain Capture Risk - detects cascade capture vulnerability
+    "WEIGHT_CHAIN_CAPTURE_RISK": 7.0,       # Penalty for vulnerable capture chains
+    "WEIGHT_CHAIN_CAPTURE_POTENTIAL": 6.0,  # Bonus for chain capture opportunities
+    # Tempo Advantage - identifies who has initiative/forcing moves
+    "WEIGHT_TEMPO_ADVANTAGE": 5.0,          # Bonus for having initiative
+    "WEIGHT_FORCING_MOVE_VALUE": 3.0,       # Value per forcing move available
+    # Endgame Phase Transition - phase-aware weight modulation
+    "WEIGHT_ENDGAME_AGGRESSION": 4.0,       # Increased capture value in endgame
+    "WEIGHT_PHASE_TRANSITION_BONUS": 3.0,   # Bonus for favorable phase entry
+    # Stack Synergy - measures coordination between stacks
+    "WEIGHT_STACK_SYNERGY": 4.0,            # Bonus for coordinated stacks
+    "WEIGHT_MUTUAL_DEFENSE": 3.0,           # Stacks that protect each other
+    # Expansion Potential - territory growth rate
+    "WEIGHT_EXPANSION_POTENTIAL": 5.0,      # Value of growth opportunities
+    "WEIGHT_FRONTIER_STRENGTH": 3.0,        # Strength of expansion frontier
 }
 
 
@@ -165,6 +181,17 @@ HEURISTIC_WEIGHT_KEYS: list[str] = [
     "WEIGHT_RECOVERY_ELIGIBILITY",
     "WEIGHT_BURIED_RING_VALUE",
     "WEIGHT_RECOVERY_THREAT",
+    # v1.6: Phase 3.1 - Advanced strategic features
+    "WEIGHT_CHAIN_CAPTURE_RISK",
+    "WEIGHT_CHAIN_CAPTURE_POTENTIAL",
+    "WEIGHT_TEMPO_ADVANTAGE",
+    "WEIGHT_FORCING_MOVE_VALUE",
+    "WEIGHT_ENDGAME_AGGRESSION",
+    "WEIGHT_PHASE_TRANSITION_BONUS",
+    "WEIGHT_STACK_SYNERGY",
+    "WEIGHT_MUTUAL_DEFENSE",
+    "WEIGHT_EXPANSION_POTENTIAL",
+    "WEIGHT_FRONTIER_STRENGTH",
 ]
 
 
@@ -363,6 +390,17 @@ HEURISTIC_V1_SQUARE19_2P: HeuristicWeights = {
     "WEIGHT_RECOVERY_ELIGIBILITY": 10.0,
     "WEIGHT_BURIED_RING_VALUE": 4.0,
     "WEIGHT_RECOVERY_THREAT": 6.0,
+    # v1.6: Phase 3.1 - Advanced strategic features (tuned for large board)
+    "WEIGHT_CHAIN_CAPTURE_RISK": 8.0,       # Higher on large board - chains more dangerous
+    "WEIGHT_CHAIN_CAPTURE_POTENTIAL": 7.0,  # Chain captures more valuable
+    "WEIGHT_TEMPO_ADVANTAGE": 6.0,          # Initiative more important on big board
+    "WEIGHT_FORCING_MOVE_VALUE": 4.0,       # Forcing moves critical
+    "WEIGHT_ENDGAME_AGGRESSION": 5.0,       # Endgame more decisive
+    "WEIGHT_PHASE_TRANSITION_BONUS": 4.0,   # Phase transitions more significant
+    "WEIGHT_STACK_SYNERGY": 5.0,            # Coordination critical on large board
+    "WEIGHT_MUTUAL_DEFENSE": 4.0,           # Mutual defense important
+    "WEIGHT_EXPANSION_POTENTIAL": 6.0,      # Expansion key on big board
+    "WEIGHT_FRONTIER_STRENGTH": 4.0,        # Frontier control matters
 }
 
 
@@ -430,6 +468,17 @@ HEURISTIC_V1_3P: HeuristicWeights = {
     "WEIGHT_RECOVERY_ELIGIBILITY": 9.0,
     "WEIGHT_BURIED_RING_VALUE": 3.5,
     "WEIGHT_RECOVERY_THREAT": 5.5,
+    # v1.6: Phase 3.1 - Advanced strategic features (tuned for 3-player)
+    "WEIGHT_CHAIN_CAPTURE_RISK": 6.0,       # Chain risk moderate in 3P
+    "WEIGHT_CHAIN_CAPTURE_POTENTIAL": 5.0,  # Chain potential balanced
+    "WEIGHT_TEMPO_ADVANTAGE": 4.0,          # Tempo shared among 3 players
+    "WEIGHT_FORCING_MOVE_VALUE": 2.5,       # Forcing moves less decisive
+    "WEIGHT_ENDGAME_AGGRESSION": 3.5,       # Moderate endgame aggression
+    "WEIGHT_PHASE_TRANSITION_BONUS": 2.5,   # Phase transitions balanced
+    "WEIGHT_STACK_SYNERGY": 3.5,            # Synergy moderate importance
+    "WEIGHT_MUTUAL_DEFENSE": 2.5,           # Defense less critical
+    "WEIGHT_EXPANSION_POTENTIAL": 4.5,      # Expansion important
+    "WEIGHT_FRONTIER_STRENGTH": 2.5,        # Frontier moderate value
 }
 
 # 4-player optimized weights (CMA-ES, 20 generations, fitness: 75%)
@@ -491,6 +540,17 @@ HEURISTIC_V1_4P: HeuristicWeights = {
     "WEIGHT_RECOVERY_ELIGIBILITY": 10.0,
     "WEIGHT_BURIED_RING_VALUE": 4.0,
     "WEIGHT_RECOVERY_THREAT": 6.0,
+    # v1.6: Phase 3.1 - Advanced strategic features (tuned for 4-player)
+    "WEIGHT_CHAIN_CAPTURE_RISK": 8.0,       # Chain risk high in 4P chaos
+    "WEIGHT_CHAIN_CAPTURE_POTENTIAL": 7.0,  # Chain captures very valuable
+    "WEIGHT_TEMPO_ADVANTAGE": 6.0,          # Tempo critical with 3 opponents
+    "WEIGHT_FORCING_MOVE_VALUE": 4.0,       # Forcing moves decisive
+    "WEIGHT_ENDGAME_AGGRESSION": 5.0,       # Aggressive endgame essential
+    "WEIGHT_PHASE_TRANSITION_BONUS": 4.0,   # Phase transitions matter
+    "WEIGHT_STACK_SYNERGY": 5.0,            # Synergy critical for survival
+    "WEIGHT_MUTUAL_DEFENSE": 4.0,           # Mutual defense important
+    "WEIGHT_EXPANSION_POTENTIAL": 5.5,      # Expansion key to resources
+    "WEIGHT_FRONTIER_STRENGTH": 3.5,        # Frontier defense important
 }
 
 

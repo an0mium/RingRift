@@ -34,11 +34,11 @@ if TYPE_CHECKING:
 @dataclass
 class StrategicWeights:
     """Weight configuration for strategic evaluation.
-    
+
     These weights control the relative importance of each strategic feature
     in the overall evaluation. Default values match the HeuristicAI class
     constants for backward compatibility.
-    
+
     Attributes:
         victory_proximity: Weight for victory proximity score.
         opponent_victory_threat: Weight for opponent win threat penalty.
@@ -48,6 +48,8 @@ class StrategicWeights:
         victory_threshold_bonus: Bonus when at/near victory.
         rings_proximity_factor: Factor for rings-based proximity.
         territory_proximity_factor: Factor for territory-based proximity.
+        tempo_advantage: Weight for having initiative/forcing moves.
+        forcing_move_value: Value per forcing move available.
     """
     victory_proximity: float = 20.0
     opponent_victory_threat: float = 6.0
@@ -57,17 +59,19 @@ class StrategicWeights:
     victory_threshold_bonus: float = 1000.0
     rings_proximity_factor: float = 50.0
     territory_proximity_factor: float = 50.0
-    
+    tempo_advantage: float = 5.0
+    forcing_move_value: float = 3.0
+
     @classmethod
     def from_heuristic_ai(cls, ai: "HeuristicAI") -> "StrategicWeights":
         """Create StrategicWeights from HeuristicAI instance weights.
-        
+
         This factory method extracts the relevant WEIGHT_* attributes from
         a HeuristicAI instance to create a StrategicWeights configuration.
-        
+
         Args:
             ai: HeuristicAI instance to extract weights from.
-            
+
         Returns:
             StrategicWeights with values matching the AI's configuration.
         """
@@ -94,11 +98,13 @@ class StrategicWeights:
             territory_proximity_factor=getattr(
                 ai, "WEIGHT_TERRITORY_PROXIMITY_FACTOR", 50.0
             ),
+            tempo_advantage=getattr(ai, "WEIGHT_TEMPO_ADVANTAGE", 5.0),
+            forcing_move_value=getattr(ai, "WEIGHT_FORCING_MOVE_VALUE", 3.0),
         )
-    
+
     def to_dict(self) -> dict[str, float]:
         """Convert weights to dictionary format.
-        
+
         Returns:
             Dictionary with weight names as keys (WEIGHT_* format).
         """
@@ -111,13 +117,15 @@ class StrategicWeights:
             "WEIGHT_VICTORY_THRESHOLD_BONUS": self.victory_threshold_bonus,
             "WEIGHT_RINGS_PROXIMITY_FACTOR": self.rings_proximity_factor,
             "WEIGHT_TERRITORY_PROXIMITY_FACTOR": self.territory_proximity_factor,
+            "WEIGHT_TEMPO_ADVANTAGE": self.tempo_advantage,
+            "WEIGHT_FORCING_MOVE_VALUE": self.forcing_move_value,
         }
 
 
 @dataclass
 class StrategicScore:
     """Result from strategic evaluation with feature breakdown.
-    
+
     Attributes:
         total: Sum of all strategic feature scores.
         victory_proximity: Score from victory proximity (symmetric).
@@ -125,6 +133,7 @@ class StrategicScore:
         forced_elimination_risk: Penalty for FE vulnerability.
         lps_action_advantage: Score from LPS dynamics (3+ players).
         multi_leader_threat: Penalty for single opponent ahead (3+ players).
+        tempo_advantage: Score from having initiative/forcing moves.
     """
     total: float = 0.0
     victory_proximity: float = 0.0
@@ -132,7 +141,8 @@ class StrategicScore:
     forced_elimination_risk: float = 0.0
     lps_action_advantage: float = 0.0
     multi_leader_threat: float = 0.0
-    
+    tempo_advantage: float = 0.0
+
     def to_dict(self) -> dict[str, float]:
         """Convert to dictionary for breakdown reporting."""
         return {
@@ -142,6 +152,7 @@ class StrategicScore:
             "forced_elimination_risk": self.forced_elimination_risk,
             "lps_action_advantage": self.lps_action_advantage,
             "multi_leader_threat": self.multi_leader_threat,
+            "tempo_advantage": self.tempo_advantage,
         }
 
 
@@ -239,36 +250,33 @@ class StrategicEvaluator:
     
     def set_weights(self, weights: dict[str, float]) -> None:
         """Update weight values from a profile dictionary.
-        
+
         This method allows dynamic weight updates from
         HEURISTIC_WEIGHT_PROFILES or other configuration sources.
-        
+
         Args:
             weights: Dictionary with WEIGHT_* keys to update.
         """
         if "WEIGHT_VICTORY_PROXIMITY" in weights:
             self.weights.victory_proximity = weights["WEIGHT_VICTORY_PROXIMITY"]
         if "WEIGHT_OPPONENT_VICTORY_THREAT" in weights:
-            val = weights["WEIGHT_OPPONENT_VICTORY_THREAT"]
-            self.weights.opponent_victory_threat = val
+            self.weights.opponent_victory_threat = weights["WEIGHT_OPPONENT_VICTORY_THREAT"]
         if "WEIGHT_FORCED_ELIMINATION_RISK" in weights:
-            val = weights["WEIGHT_FORCED_ELIMINATION_RISK"]
-            self.weights.forced_elimination_risk = val
+            self.weights.forced_elimination_risk = weights["WEIGHT_FORCED_ELIMINATION_RISK"]
         if "WEIGHT_LPS_ACTION_ADVANTAGE" in weights:
-            val = weights["WEIGHT_LPS_ACTION_ADVANTAGE"]
-            self.weights.lps_action_advantage = val
+            self.weights.lps_action_advantage = weights["WEIGHT_LPS_ACTION_ADVANTAGE"]
         if "WEIGHT_MULTI_LEADER_THREAT" in weights:
-            val = weights["WEIGHT_MULTI_LEADER_THREAT"]
-            self.weights.multi_leader_threat = val
+            self.weights.multi_leader_threat = weights["WEIGHT_MULTI_LEADER_THREAT"]
         if "WEIGHT_VICTORY_THRESHOLD_BONUS" in weights:
-            val = weights["WEIGHT_VICTORY_THRESHOLD_BONUS"]
-            self.weights.victory_threshold_bonus = val
+            self.weights.victory_threshold_bonus = weights["WEIGHT_VICTORY_THRESHOLD_BONUS"]
         if "WEIGHT_RINGS_PROXIMITY_FACTOR" in weights:
-            val = weights["WEIGHT_RINGS_PROXIMITY_FACTOR"]
-            self.weights.rings_proximity_factor = val
+            self.weights.rings_proximity_factor = weights["WEIGHT_RINGS_PROXIMITY_FACTOR"]
         if "WEIGHT_TERRITORY_PROXIMITY_FACTOR" in weights:
-            val = weights["WEIGHT_TERRITORY_PROXIMITY_FACTOR"]
-            self.weights.territory_proximity_factor = val
+            self.weights.territory_proximity_factor = weights["WEIGHT_TERRITORY_PROXIMITY_FACTOR"]
+        if "WEIGHT_TEMPO_ADVANTAGE" in weights:
+            self.weights.tempo_advantage = weights["WEIGHT_TEMPO_ADVANTAGE"]
+        if "WEIGHT_FORCING_MOVE_VALUE" in weights:
+            self.weights.forcing_move_value = weights["WEIGHT_FORCING_MOVE_VALUE"]
     
     def _compute_all_features(
         self,
@@ -276,34 +284,39 @@ class StrategicEvaluator:
         player_idx: int,
     ) -> StrategicScore:
         """Compute all strategic features and return detailed result.
-        
+
         This is the internal workhorse that computes each feature
         independently. Made symmetric where appropriate.
-        
+
         Args:
             state: Current game state.
             player_idx: Player number (1-indexed).
-            
+
         Returns:
             StrategicScore with all feature values and total.
         """
         result = StrategicScore()
-        
+
         # Victory proximity (symmetric)
         result.victory_proximity = self._evaluate_victory_proximity(
             state, player_idx
         )
-        
+
         # Opponent victory threat
         result.opponent_victory_threat = self._evaluate_opponent_victory_threat(
             state, player_idx
         )
-        
+
         # Forced elimination risk
         result.forced_elimination_risk = self._evaluate_forced_elimination_risk(
             state, player_idx
         )
-        
+
+        # Tempo advantage (initiative/forcing moves)
+        result.tempo_advantage = self._evaluate_tempo_advantage(
+            state, player_idx
+        )
+
         # Multiplayer features (only for 3+ players)
         num_players = len(state.players)
         if num_players > 2:
@@ -313,16 +326,17 @@ class StrategicEvaluator:
             result.multi_leader_threat = self._evaluate_multi_leader_threat(
                 state, player_idx
             )
-        
+
         # Compute total
         result.total = (
             result.victory_proximity +
             result.opponent_victory_threat +
             result.forced_elimination_risk +
+            result.tempo_advantage +
             result.lps_action_advantage +
             result.multi_leader_threat
         )
-        
+
         return result
     
     def _victory_proximity_base_for_player(
@@ -631,7 +645,101 @@ class StrategicEvaluator:
             return 2.0 - ratio
         else:
             return 1.0 + (1.0 - ratio)
-    
+
+    def _evaluate_tempo_advantage(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate tempo advantage (who has initiative/forcing moves).
+
+        Tempo is about having the initiative - forcing opponents to respond
+        to your threats rather than executing their own plans. A forcing move
+        is one that creates an immediate threat requiring response.
+
+        Forcing moves include:
+        - Capture threats (we can capture an enemy stack)
+        - Multi-threat positions (attacking multiple targets at once)
+        - Positions that force defensive responses
+
+        Made symmetric: computes (my_tempo - max_opponent_tempo).
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Tempo advantage score (positive = we have initiative).
+        """
+        my_forcing = self._count_forcing_moves(state, player_idx)
+
+        # Find max opponent forcing moves for symmetric evaluation
+        max_opponent_forcing = 0
+        for p in state.players:
+            if p.player_number != player_idx:
+                opp_forcing = self._count_forcing_moves(state, p.player_number)
+                max_opponent_forcing = max(max_opponent_forcing, opp_forcing)
+
+        # Symmetric: our forcing moves minus best opponent's
+        tempo_diff = my_forcing - max_opponent_forcing
+
+        # Scale the advantage
+        return tempo_diff * self.weights.tempo_advantage
+
+    def _count_forcing_moves(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> int:
+        """Count forcing moves available to a player.
+
+        A forcing move is one that creates a threat requiring immediate
+        response. We count:
+        1. Capture threats - stacks that can capture an enemy stack
+        2. Multi-attack positions - stacks threatening multiple enemies
+        3. Moves that increase pressure on enemy
+
+        Args:
+            state: Current game state.
+            player_num: Player to count forcing moves for.
+
+        Returns:
+            Number of forcing moves available.
+        """
+        board = state.board
+        board_type = board.type
+        stacks = board.stacks
+        forcing_count = 0
+
+        player_stacks = [
+            s for s in stacks.values()
+            if s.controlling_player == player_num
+        ]
+
+        for stack in player_stacks:
+            pos_key = stack.position.to_key()
+            adjacent_keys = self.fast_geo.get_adjacent_keys(pos_key, board_type)
+
+            # Count how many enemy stacks we threaten
+            threats_from_this_stack = 0
+            for adj_key in adjacent_keys:
+                if adj_key in stacks:
+                    adj_stack = stacks[adj_key]
+                    # We can capture if we control and have higher/equal cap_height
+                    if (adj_stack.controlling_player != player_num
+                            and adj_stack.controlling_player > 0
+                            and stack.cap_height >= adj_stack.cap_height):
+                        threats_from_this_stack += 1
+
+            # Single threat is a forcing move
+            if threats_from_this_stack >= 1:
+                forcing_count += 1
+                # Multi-threat (fork) is extra valuable
+                if threats_from_this_stack >= 2:
+                    forcing_count += self.weights.forcing_move_value
+
+        return forcing_count
+
     def _evaluate_lps_action_advantage(
         self,
         state: "GameState",
@@ -814,15 +922,33 @@ class StrategicEvaluator:
         player_idx: int,
     ) -> float:
         """Evaluate multi-leader threat feature only.
-        
+
         Compatibility method matching HeuristicAI._evaluate_multi_leader_threat
         signature.
-        
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
             Multi-leader threat score.
         """
         return self._evaluate_multi_leader_threat(state, player_idx)
+
+    def evaluate_tempo_advantage(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate tempo advantage feature only.
+
+        Compatibility method for HeuristicAI delegation.
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Tempo advantage score (positive = we have initiative).
+        """
+        return self._evaluate_tempo_advantage(state, player_idx)

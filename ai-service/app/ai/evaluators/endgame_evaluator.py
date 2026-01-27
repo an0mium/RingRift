@@ -37,11 +37,11 @@ if TYPE_CHECKING:
 @dataclass
 class EndgameWeights:
     """Weight configuration for endgame evaluation.
-    
+
     These weights control the relative importance of each endgame feature
     in the overall evaluation. Default values match the HeuristicAI class
     constants for backward compatibility.
-    
+
     Attributes:
         recovery_potential: Weight for having recovery as strategic option.
         recovery_eligibility: Bonus/penalty for recovery eligibility status.
@@ -50,6 +50,8 @@ class EndgameWeights:
         terminal_win_score: Score for winning terminal positions.
         terminal_loss_score: Score for losing terminal positions.
         terminal_draw_score: Score for drawn terminal positions.
+        endgame_aggression: Increased capture value in endgame.
+        phase_transition_bonus: Bonus for favorable phase entry.
     """
     recovery_potential: float = 6.0
     recovery_eligibility: float = 8.0
@@ -58,17 +60,19 @@ class EndgameWeights:
     terminal_win_score: float = 100000.0
     terminal_loss_score: float = -100000.0
     terminal_draw_score: float = 0.0
-    
+    endgame_aggression: float = 4.0
+    phase_transition_bonus: float = 3.0
+
     @classmethod
     def from_heuristic_ai(cls, ai: "HeuristicAI") -> "EndgameWeights":
         """Create EndgameWeights from HeuristicAI instance weights.
-        
+
         This factory method extracts the relevant WEIGHT_* attributes from
         a HeuristicAI instance to create an EndgameWeights configuration.
-        
+
         Args:
             ai: HeuristicAI instance to extract weights from.
-            
+
         Returns:
             EndgameWeights with values matching the AI's configuration.
         """
@@ -82,11 +86,13 @@ class EndgameWeights:
             terminal_win_score=100000.0,
             terminal_loss_score=-100000.0,
             terminal_draw_score=0.0,
+            endgame_aggression=getattr(ai, "WEIGHT_ENDGAME_AGGRESSION", 4.0),
+            phase_transition_bonus=getattr(ai, "WEIGHT_PHASE_TRANSITION_BONUS", 3.0),
         )
-    
+
     def to_dict(self) -> dict[str, float]:
         """Convert weights to dictionary format.
-        
+
         Returns:
             Dictionary with weight names as keys (WEIGHT_* format).
         """
@@ -98,31 +104,36 @@ class EndgameWeights:
             "TERMINAL_WIN_SCORE": self.terminal_win_score,
             "TERMINAL_LOSS_SCORE": self.terminal_loss_score,
             "TERMINAL_DRAW_SCORE": self.terminal_draw_score,
+            "WEIGHT_ENDGAME_AGGRESSION": self.endgame_aggression,
+            "WEIGHT_PHASE_TRANSITION_BONUS": self.phase_transition_bonus,
         }
 
 
 @dataclass
 class EndgameScore:
     """Result from endgame evaluation with feature breakdown.
-    
+
     Attributes:
         total: Sum of all endgame feature scores.
         recovery_potential: Score from recovery strategic value.
+        phase_transition: Score from phase-aware modulation.
         is_terminal: Whether position is terminal.
         game_phase: Current game phase ('early', 'mid', 'late', 'endgame').
         forced_outcome: Detected forced outcome or None.
     """
     total: float = 0.0
     recovery_potential: float = 0.0
+    phase_transition: float = 0.0
     is_terminal: bool = False
     game_phase: str = "early"
     forced_outcome: Optional[str] = None
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for breakdown reporting."""
         return {
             "total": self.total,
             "recovery_potential": self.recovery_potential,
+            "phase_transition": self.phase_transition,
             "is_terminal": self.is_terminal,
             "game_phase": self.game_phase,
             "forced_outcome": self.forced_outcome,
@@ -218,25 +229,25 @@ class EndgameEvaluator:
     
     def set_weights(self, weights: dict[str, float]) -> None:
         """Update weight values from a profile dictionary.
-        
+
         This method allows dynamic weight updates from
         HEURISTIC_WEIGHT_PROFILES or other configuration sources.
-        
+
         Args:
             weights: Dictionary with WEIGHT_* keys to update.
         """
         if "WEIGHT_RECOVERY_POTENTIAL" in weights:
-            val = weights["WEIGHT_RECOVERY_POTENTIAL"]
-            self.weights.recovery_potential = val
+            self.weights.recovery_potential = weights["WEIGHT_RECOVERY_POTENTIAL"]
         if "WEIGHT_RECOVERY_ELIGIBILITY" in weights:
-            val = weights["WEIGHT_RECOVERY_ELIGIBILITY"]
-            self.weights.recovery_eligibility = val
+            self.weights.recovery_eligibility = weights["WEIGHT_RECOVERY_ELIGIBILITY"]
         if "WEIGHT_BURIED_RING_VALUE" in weights:
-            val = weights["WEIGHT_BURIED_RING_VALUE"]
-            self.weights.buried_ring_value = val
+            self.weights.buried_ring_value = weights["WEIGHT_BURIED_RING_VALUE"]
         if "WEIGHT_RECOVERY_THREAT" in weights:
-            val = weights["WEIGHT_RECOVERY_THREAT"]
-            self.weights.recovery_threat = val
+            self.weights.recovery_threat = weights["WEIGHT_RECOVERY_THREAT"]
+        if "WEIGHT_ENDGAME_AGGRESSION" in weights:
+            self.weights.endgame_aggression = weights["WEIGHT_ENDGAME_AGGRESSION"]
+        if "WEIGHT_PHASE_TRANSITION_BONUS" in weights:
+            self.weights.phase_transition_bonus = weights["WEIGHT_PHASE_TRANSITION_BONUS"]
     
     def _compute_all_features(
         self,
@@ -244,37 +255,42 @@ class EndgameEvaluator:
         player_idx: int,
     ) -> EndgameScore:
         """Compute all endgame features and return detailed result.
-        
+
         This is the internal workhorse that computes each feature
         independently.
-        
+
         Args:
             state: Current game state.
             player_idx: Player number (1-indexed).
-            
+
         Returns:
             EndgameScore with all feature values and metadata.
         """
         result = EndgameScore()
-        
+
         # Terminal detection
         result.is_terminal = self.is_terminal_position(state)
-        
+
         # Game phase detection
         result.game_phase = self.get_game_phase(state)
-        
+
         # Forced outcome detection
         result.forced_outcome = self.detect_forced_outcome(state, player_idx)
-        
+
         # Recovery potential (only compute if not terminal)
         if not result.is_terminal:
             result.recovery_potential = self._evaluate_recovery_potential(
                 state, player_idx
             )
-        
+
+            # Phase transition bonus (only compute if not terminal)
+            result.phase_transition = self._evaluate_phase_transition(
+                state, player_idx, result.game_phase
+            )
+
         # Compute total
-        result.total = result.recovery_potential
-        
+        result.total = result.recovery_potential + result.phase_transition
+
         return result
     
     def is_terminal_position(self, state: "GameState") -> bool:
@@ -510,7 +526,133 @@ class EndgameEvaluator:
             score += buried * self.weights.buried_ring_value * 0.3
 
         return score
-    
+
+    def _evaluate_phase_transition(
+        self,
+        state: "GameState",
+        player_idx: int,
+        game_phase: str,
+    ) -> float:
+        """Evaluate phase transition bonus (symmetric).
+
+        As the game transitions to endgame, aggressive play becomes more
+        important. This feature:
+
+        1. Increases value of captures in late/endgame phases
+        2. Provides bonus for being ahead when entering endgame
+        3. Penalizes falling behind in endgame
+
+        Made symmetric by computing (my_advantage - max_opponent_advantage).
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+            game_phase: Current game phase from get_game_phase().
+
+        Returns:
+            Phase transition score (positive = favorable position).
+        """
+        # Phase multiplier: higher in later phases
+        phase_multipliers = {
+            "early": 0.0,
+            "mid": 0.25,
+            "late": 0.75,
+            "endgame": 1.0,
+        }
+        phase_mult = phase_multipliers.get(game_phase, 0.0)
+
+        if phase_mult <= 0:
+            return 0.0
+
+        # Compute position advantage relative to opponents
+        my_advantage = self._compute_endgame_position_score(state, player_idx)
+
+        # Find max opponent advantage
+        max_opp_advantage = 0.0
+        for p in state.players:
+            if p.player_number != player_idx:
+                opp_advantage = self._compute_endgame_position_score(
+                    state, p.player_number
+                )
+                max_opp_advantage = max(max_opp_advantage, opp_advantage)
+
+        # Symmetric: our advantage minus best opponent
+        relative_advantage = my_advantage - max_opp_advantage
+
+        # Apply phase multiplier and weights
+        aggression_bonus = (
+            relative_advantage
+            * phase_mult
+            * self.weights.endgame_aggression
+        )
+
+        # Additional transition bonus for being ahead when entering late/endgame
+        transition_bonus = 0.0
+        if relative_advantage > 0 and game_phase in ("late", "endgame"):
+            transition_bonus = (
+                self.weights.phase_transition_bonus
+                * min(relative_advantage / 10.0, 1.0)  # Cap at 1.0
+            )
+
+        return aggression_bonus + transition_bonus
+
+    def _compute_endgame_position_score(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> float:
+        """Compute endgame position strength for a player.
+
+        Factors considered:
+        - Eliminated rings (progress towards victory)
+        - Territory controlled
+        - Material advantage (stacks, heights)
+        - Capture potential
+
+        Args:
+            state: Current game state.
+            player_num: Player number.
+
+        Returns:
+            Position strength score.
+        """
+        player = self._get_player(state, player_num)
+        if not player:
+            return 0.0
+
+        score = 0.0
+
+        # Progress towards ring victory
+        eliminated = player.eliminated_rings
+        rings_needed = state.victory_threshold - eliminated
+        if rings_needed <= 0:
+            score += 100.0  # Near victory
+        else:
+            score += eliminated * 5.0  # Value per eliminated ring
+
+        # Territory progress
+        territory = player.territory_spaces
+        territory_needed = state.territory_victory_threshold - territory
+        if territory_needed <= 0:
+            score += 100.0  # Near victory
+        else:
+            score += territory * 2.0  # Value per territory
+
+        # Material advantage (stack control and capture potential)
+        board = state.board
+        player_stacks = [
+            s for s in board.stacks.values()
+            if s.controlling_player == player_num
+        ]
+
+        for stack in player_stacks:
+            # Value of controlling a stack
+            score += 1.0
+            # Capture potential (higher cap = more capture power)
+            score += stack.cap_height * 0.5
+
+        return score
+
     # === Compatibility methods for HeuristicAI delegation ===
     # These methods match the original HeuristicAI method signatures
     # to enable gradual migration.
@@ -521,15 +663,34 @@ class EndgameEvaluator:
         player_idx: int,
     ) -> float:
         """Evaluate recovery potential feature only.
-        
+
         Compatibility method matching HeuristicAI._evaluate_recovery_potential
         signature.
-        
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
             Recovery potential score.
         """
         return self._evaluate_recovery_potential(state, player_idx)
+
+    def evaluate_phase_transition(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate phase transition bonus feature only.
+
+        Compatibility method for HeuristicAI delegation.
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Phase transition score (positive = favorable endgame position).
+        """
+        game_phase = self.get_game_phase(state)
+        return self._evaluate_phase_transition(state, player_idx, game_phase)

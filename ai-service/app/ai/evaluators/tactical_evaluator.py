@@ -32,32 +32,36 @@ if TYPE_CHECKING:
 @dataclass
 class TacticalWeights:
     """Weight configuration for tactical evaluation.
-    
+
     These weights control the relative importance of each tactical feature
     in the overall evaluation. Default values match the HeuristicAI class
     constants for backward compatibility.
-    
+
     Attributes:
         opponent_threat: Weight for adjacent enemy stacks with
             capture advantage.
         vulnerability: Weight for line-of-sight capture risk.
         overtake_potential: Weight for line-of-sight capture
             opportunities.
+        chain_capture_risk: Weight for cascade capture vulnerability.
+        chain_capture_potential: Weight for cascade capture opportunities.
     """
     opponent_threat: float = 6.0
     vulnerability: float = 8.0
     overtake_potential: float = 8.0
-    
+    chain_capture_risk: float = 7.0
+    chain_capture_potential: float = 6.0
+
     @classmethod
     def from_heuristic_ai(cls, ai: "HeuristicAI") -> "TacticalWeights":
         """Create TacticalWeights from HeuristicAI instance weights.
-        
+
         This factory method extracts the relevant WEIGHT_* attributes from
         a HeuristicAI instance to create a TacticalWeights configuration.
-        
+
         Args:
             ai: HeuristicAI instance to extract weights from.
-            
+
         Returns:
             TacticalWeights with values matching the AI's configuration.
         """
@@ -65,11 +69,13 @@ class TacticalWeights:
             opponent_threat=getattr(ai, "WEIGHT_OPPONENT_THREAT", 6.0),
             vulnerability=getattr(ai, "WEIGHT_VULNERABILITY", 8.0),
             overtake_potential=getattr(ai, "WEIGHT_OVERTAKE_POTENTIAL", 8.0),
+            chain_capture_risk=getattr(ai, "WEIGHT_CHAIN_CAPTURE_RISK", 7.0),
+            chain_capture_potential=getattr(ai, "WEIGHT_CHAIN_CAPTURE_POTENTIAL", 6.0),
         )
-    
+
     def to_dict(self) -> dict[str, float]:
         """Convert weights to dictionary format.
-        
+
         Returns:
             Dictionary with weight names as keys (WEIGHT_* format).
         """
@@ -77,24 +83,30 @@ class TacticalWeights:
             "WEIGHT_OPPONENT_THREAT": self.opponent_threat,
             "WEIGHT_VULNERABILITY": self.vulnerability,
             "WEIGHT_OVERTAKE_POTENTIAL": self.overtake_potential,
+            "WEIGHT_CHAIN_CAPTURE_RISK": self.chain_capture_risk,
+            "WEIGHT_CHAIN_CAPTURE_POTENTIAL": self.chain_capture_potential,
         }
 
 
 @dataclass
 class TacticalScore:
     """Result from tactical evaluation with feature breakdown.
-    
+
     Attributes:
         total: Sum of all tactical feature scores.
         opponent_threats: Score from adjacent enemy stacks.
         vulnerability: Score from line-of-sight capture risk.
         overtake_potential: Score from line-of-sight capture opportunities.
+        chain_capture_risk: Score from cascade capture vulnerability.
+        chain_capture_potential: Score from cascade capture opportunities.
     """
     total: float = 0.0
     opponent_threats: float = 0.0
     vulnerability: float = 0.0
     overtake_potential: float = 0.0
-    
+    chain_capture_risk: float = 0.0
+    chain_capture_potential: float = 0.0
+
     def to_dict(self) -> dict[str, float]:
         """Convert to dictionary for breakdown reporting."""
         return {
@@ -102,6 +114,8 @@ class TacticalScore:
             "opponent_threats": self.opponent_threats,
             "vulnerability": self.vulnerability,
             "overtake_potential": self.overtake_potential,
+            "chain_capture_risk": self.chain_capture_risk,
+            "chain_capture_potential": self.chain_capture_potential,
         }
 
 
@@ -199,10 +213,10 @@ class TacticalEvaluator:
     
     def set_weights(self, weights: dict[str, float]) -> None:
         """Update weight values from a profile dictionary.
-        
+
         This method allows dynamic weight updates from
         HEURISTIC_WEIGHT_PROFILES or other configuration sources.
-        
+
         Args:
             weights: Dictionary with WEIGHT_* keys to update.
         """
@@ -211,8 +225,11 @@ class TacticalEvaluator:
         if "WEIGHT_VULNERABILITY" in weights:
             self.weights.vulnerability = weights["WEIGHT_VULNERABILITY"]
         if "WEIGHT_OVERTAKE_POTENTIAL" in weights:
-            val = weights["WEIGHT_OVERTAKE_POTENTIAL"]
-            self.weights.overtake_potential = val
+            self.weights.overtake_potential = weights["WEIGHT_OVERTAKE_POTENTIAL"]
+        if "WEIGHT_CHAIN_CAPTURE_RISK" in weights:
+            self.weights.chain_capture_risk = weights["WEIGHT_CHAIN_CAPTURE_RISK"]
+        if "WEIGHT_CHAIN_CAPTURE_POTENTIAL" in weights:
+            self.weights.chain_capture_potential = weights["WEIGHT_CHAIN_CAPTURE_POTENTIAL"]
     
     def _compute_all_features(
         self,
@@ -220,42 +237,54 @@ class TacticalEvaluator:
         player_idx: int,
     ) -> TacticalScore:
         """Compute all tactical features and return detailed result.
-        
+
         This is the internal workhorse that computes each feature
         independently. Clears the visibility cache at the start.
-        
+
         Args:
             state: Current game state.
             player_idx: Player number (1-indexed).
-            
+
         Returns:
             TacticalScore with all feature values and total.
         """
         # Clear visibility cache for this evaluation
         self._visible_stacks_cache.clear()
-        
+
         result = TacticalScore()
-        
+
         # Opponent threats (adjacent stacks)
         result.opponent_threats = self._evaluate_opponent_threats(
             state, player_idx
         )
-        
+
         # Vulnerability (LoS capture risk)
         result.vulnerability = self._evaluate_vulnerability(state, player_idx)
-        
+
         # Overtake potential (LoS capture opportunities)
         result.overtake_potential = self._evaluate_overtake_potential(
             state, player_idx
         )
-        
+
+        # Chain capture risk (cascade capture vulnerability)
+        result.chain_capture_risk = self._evaluate_chain_capture_risk(
+            state, player_idx
+        )
+
+        # Chain capture potential (cascade capture opportunities)
+        result.chain_capture_potential = self._evaluate_chain_capture_potential(
+            state, player_idx
+        )
+
         # Compute total
         result.total = (
             result.opponent_threats +
             result.vulnerability +
-            result.overtake_potential
+            result.overtake_potential +
+            result.chain_capture_risk +
+            result.chain_capture_potential
         )
-        
+
         return result
     
     def _evaluate_opponent_threats(
@@ -373,7 +402,158 @@ class TacticalEvaluator:
                     score += diff * 1.0
         
         return score * self.weights.overtake_potential
-    
+
+    def _evaluate_chain_capture_risk(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate chain capture vulnerability (cascade capture risk).
+
+        Detects positions where capturing one of our stacks would expose
+        another of our stacks to immediate capture. This is a dangerous
+        tactical pattern that should be avoided.
+
+        The algorithm:
+        1. For each of our vulnerable stacks (can be captured by opponent)
+        2. Simulate the capture (opponent takes our position)
+        3. Check if any of our other stacks become newly vulnerable
+        4. Score based on the chain length and stack values involved
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Chain capture risk score (negative = more risk).
+        """
+        score = 0.0
+        board = state.board
+        stacks = board.stacks
+
+        my_stacks = [
+            s for s in stacks.values()
+            if s.controlling_player == player_idx
+        ]
+        enemy_stacks = [
+            s for s in stacks.values()
+            if s.controlling_player != player_idx and s.controlling_player > 0
+        ]
+
+        # For each of our stacks, check if it's vulnerable
+        for my_stack in my_stacks:
+            visible = self._get_visible_stacks(my_stack.position, state)
+
+            # Find enemy stacks that can capture this stack
+            capturers = [
+                s for s in visible
+                if s.controlling_player != player_idx
+                and s.controlling_player > 0
+                and s.cap_height > my_stack.cap_height
+            ]
+
+            if not capturers:
+                continue
+
+            # Check if capturing this stack would expose another of our stacks
+            my_pos_key = my_stack.position.to_key()
+
+            for other_stack in my_stacks:
+                if other_stack.position.to_key() == my_pos_key:
+                    continue
+
+                # Check if our captured position would threaten other_stack
+                # This happens when:
+                # 1. Our captured stack is in LoS of other_stack
+                # 2. After capture, enemy's new stack would be stronger
+                visible_from_other = self._get_visible_stacks(
+                    other_stack.position, state
+                )
+
+                for capturer in capturers:
+                    # If capturing puts enemy in position to threaten another stack
+                    if my_stack in visible_from_other:
+                        # After capture, enemy takes our position with their cap_height
+                        # This creates a chain capture opportunity
+                        if capturer.cap_height > other_stack.cap_height:
+                            chain_severity = (
+                                capturer.cap_height - other_stack.cap_height
+                            )
+                            score -= chain_severity * 0.5
+
+        return score * self.weights.chain_capture_risk
+
+    def _evaluate_chain_capture_potential(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate chain capture opportunities (cascade capture potential).
+
+        Detects positions where capturing an enemy stack would enable
+        capturing another enemy stack. This is a valuable tactical pattern.
+
+        The algorithm:
+        1. For each enemy stack we can capture
+        2. Check if capturing it would put us in position to capture another
+        3. Score based on the chain length and stack values involved
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Chain capture potential score (positive = more opportunities).
+        """
+        score = 0.0
+        board = state.board
+        stacks = board.stacks
+
+        my_stacks = [
+            s for s in stacks.values()
+            if s.controlling_player == player_idx
+        ]
+        enemy_stacks = [
+            s for s in stacks.values()
+            if s.controlling_player != player_idx and s.controlling_player > 0
+        ]
+
+        # For each of our stacks, check what enemy stacks it can capture
+        for my_stack in my_stacks:
+            visible = self._get_visible_stacks(my_stack.position, state)
+
+            # Find enemy stacks we can capture
+            capturable = [
+                s for s in visible
+                if s.controlling_player != player_idx
+                and s.controlling_player > 0
+                and my_stack.cap_height > s.cap_height
+            ]
+
+            for target in capturable:
+                # Check if capturing this target would threaten another enemy
+                target_pos_key = target.position.to_key()
+
+                for other_enemy in enemy_stacks:
+                    if other_enemy.position.to_key() == target_pos_key:
+                        continue
+
+                    # Check if target position has LoS to other_enemy
+                    visible_from_target = self._get_visible_stacks(
+                        target.position, state
+                    )
+
+                    if other_enemy in visible_from_target:
+                        # After capture, we'd be at target's position
+                        # with our cap_height. Can we threaten other_enemy?
+                        if my_stack.cap_height > other_enemy.cap_height:
+                            chain_value = (
+                                my_stack.cap_height - other_enemy.cap_height
+                            )
+                            score += chain_value * 0.5
+
+        return score * self.weights.chain_capture_potential
+
     def _get_visible_stacks(
         self,
         position: "Position",
@@ -534,14 +714,54 @@ class TacticalEvaluator:
         state: "GameState",
     ) -> list["RingStack"]:
         """Get line-of-sight visible stacks from a position.
-        
+
         Public accessor for the visibility calculation.
-        
+
         Args:
             position: Starting position for LoS check.
             state: Current game state.
-            
+
         Returns:
             List of stacks visible in line of sight from position.
         """
         return self._get_visible_stacks(position, state)
+
+    def evaluate_chain_capture_risk(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate chain capture risk feature only.
+
+        Compatibility method for HeuristicAI delegation.
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Chain capture risk score (negative = more risk).
+        """
+        # Clear cache to ensure fresh computation
+        self._visible_stacks_cache.clear()
+        return self._evaluate_chain_capture_risk(state, player_idx)
+
+    def evaluate_chain_capture_potential(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate chain capture potential feature only.
+
+        Compatibility method for HeuristicAI delegation.
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Chain capture potential score (positive = more opportunities).
+        """
+        # Clear cache to ensure fresh computation
+        self._visible_stacks_cache.clear()
+        return self._evaluate_chain_capture_potential(state, player_idx)

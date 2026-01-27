@@ -33,32 +33,40 @@ if TYPE_CHECKING:
 @dataclass
 class PositionalWeights:
     """Weight configuration for positional evaluation.
-    
+
     These weights control the relative importance of each positional feature
     in the overall evaluation. Default values match the HeuristicAI class
     constants for backward compatibility.
-    
+
     Attributes:
         territory: Weight for territory space advantage.
         center_control: Weight for stacks in center positions.
         territory_closure: Weight for marker clustering (enclosure potential).
         territory_safety: Weight for distance from opponent stacks.
+        stack_synergy: Weight for coordinated stacks that support each other.
+        mutual_defense: Weight for stacks that protect each other.
+        expansion_potential: Weight for territory growth opportunities.
+        frontier_strength: Weight for strength of expansion frontier.
     """
     territory: float = 8.0
     center_control: float = 4.0
     territory_closure: float = 10.0
     territory_safety: float = 5.0
-    
+    stack_synergy: float = 4.0
+    mutual_defense: float = 3.0
+    expansion_potential: float = 5.0
+    frontier_strength: float = 3.0
+
     @classmethod
     def from_heuristic_ai(cls, ai: "HeuristicAI") -> "PositionalWeights":
         """Create PositionalWeights from HeuristicAI instance weights.
-        
+
         This factory method extracts the relevant WEIGHT_* attributes from
         a HeuristicAI instance to create a PositionalWeights configuration.
-        
+
         Args:
             ai: HeuristicAI instance to extract weights from.
-            
+
         Returns:
             PositionalWeights with values matching the AI's configuration.
         """
@@ -67,11 +75,15 @@ class PositionalWeights:
             center_control=getattr(ai, "WEIGHT_CENTER_CONTROL", 4.0),
             territory_closure=getattr(ai, "WEIGHT_TERRITORY_CLOSURE", 10.0),
             territory_safety=getattr(ai, "WEIGHT_TERRITORY_SAFETY", 5.0),
+            stack_synergy=getattr(ai, "WEIGHT_STACK_SYNERGY", 4.0),
+            mutual_defense=getattr(ai, "WEIGHT_MUTUAL_DEFENSE", 3.0),
+            expansion_potential=getattr(ai, "WEIGHT_EXPANSION_POTENTIAL", 5.0),
+            frontier_strength=getattr(ai, "WEIGHT_FRONTIER_STRENGTH", 3.0),
         )
-    
+
     def to_dict(self) -> dict[str, float]:
         """Convert weights to dictionary format.
-        
+
         Returns:
             Dictionary with weight names as keys (WEIGHT_* format).
         """
@@ -80,26 +92,34 @@ class PositionalWeights:
             "WEIGHT_CENTER_CONTROL": self.center_control,
             "WEIGHT_TERRITORY_CLOSURE": self.territory_closure,
             "WEIGHT_TERRITORY_SAFETY": self.territory_safety,
+            "WEIGHT_STACK_SYNERGY": self.stack_synergy,
+            "WEIGHT_MUTUAL_DEFENSE": self.mutual_defense,
+            "WEIGHT_EXPANSION_POTENTIAL": self.expansion_potential,
+            "WEIGHT_FRONTIER_STRENGTH": self.frontier_strength,
         }
 
 
 @dataclass
 class PositionalScore:
     """Result from positional evaluation with feature breakdown.
-    
+
     Attributes:
         total: Sum of all positional feature scores.
         territory: Score from territory space advantage.
         center_control: Score from center position control.
         territory_closure: Score from marker clustering.
         territory_safety: Score from opponent proximity.
+        stack_synergy: Score from coordinated stacks.
+        expansion_potential: Score from territory growth opportunities.
     """
     total: float = 0.0
     territory: float = 0.0
     center_control: float = 0.0
     territory_closure: float = 0.0
     territory_safety: float = 0.0
-    
+    stack_synergy: float = 0.0
+    expansion_potential: float = 0.0
+
     def to_dict(self) -> dict[str, float]:
         """Convert to dictionary for breakdown reporting."""
         return {
@@ -108,6 +128,8 @@ class PositionalScore:
             "center_control": self.center_control,
             "territory_closure": self.territory_closure,
             "territory_safety": self.territory_safety,
+            "stack_synergy": self.stack_synergy,
+            "expansion_potential": self.expansion_potential,
         }
 
 
@@ -202,10 +224,10 @@ class PositionalEvaluator:
     
     def set_weights(self, weights: dict[str, float]) -> None:
         """Update weight values from a profile dictionary.
-        
+
         This method allows dynamic weight updates from
         HEURISTIC_WEIGHT_PROFILES or other configuration sources.
-        
+
         Args:
             weights: Dictionary with WEIGHT_* keys to update.
         """
@@ -214,10 +236,17 @@ class PositionalEvaluator:
         if "WEIGHT_CENTER_CONTROL" in weights:
             self.weights.center_control = weights["WEIGHT_CENTER_CONTROL"]
         if "WEIGHT_TERRITORY_CLOSURE" in weights:
-            val = weights["WEIGHT_TERRITORY_CLOSURE"]
-            self.weights.territory_closure = val
+            self.weights.territory_closure = weights["WEIGHT_TERRITORY_CLOSURE"]
         if "WEIGHT_TERRITORY_SAFETY" in weights:
             self.weights.territory_safety = weights["WEIGHT_TERRITORY_SAFETY"]
+        if "WEIGHT_STACK_SYNERGY" in weights:
+            self.weights.stack_synergy = weights["WEIGHT_STACK_SYNERGY"]
+        if "WEIGHT_MUTUAL_DEFENSE" in weights:
+            self.weights.mutual_defense = weights["WEIGHT_MUTUAL_DEFENSE"]
+        if "WEIGHT_EXPANSION_POTENTIAL" in weights:
+            self.weights.expansion_potential = weights["WEIGHT_EXPANSION_POTENTIAL"]
+        if "WEIGHT_FRONTIER_STRENGTH" in weights:
+            self.weights.frontier_strength = weights["WEIGHT_FRONTIER_STRENGTH"]
     
     def _compute_all_features(
         self,
@@ -225,19 +254,19 @@ class PositionalEvaluator:
         player_idx: int,
     ) -> PositionalScore:
         """Compute all positional features and return detailed result.
-        
+
         This is the internal workhorse that computes each feature
         independently. Made symmetric where appropriate.
-        
+
         Args:
             state: Current game state.
             player_idx: Player number (1-indexed).
-            
+
         Returns:
             PositionalScore with all feature values and total.
         """
         result = PositionalScore()
-        
+
         # Territory control (symmetric)
         result.territory = self._evaluate_territory(state, player_idx)
 
@@ -250,20 +279,32 @@ class PositionalEvaluator:
         result.territory_closure = self._evaluate_territory_closure(
             state, player_idx
         )
-        
+
         # Territory safety (opponent proximity)
         result.territory_safety = self._evaluate_territory_safety(
             state, player_idx
         )
-        
+
+        # Stack synergy (coordinated stacks)
+        result.stack_synergy = self._evaluate_stack_synergy(
+            state, player_idx
+        )
+
+        # Expansion potential (territory growth opportunities)
+        result.expansion_potential = self._evaluate_expansion_potential(
+            state, player_idx
+        )
+
         # Compute total
         result.total = (
             result.territory +
             result.center_control +
             result.territory_closure +
-            result.territory_safety
+            result.territory_safety +
+            result.stack_synergy +
+            result.expansion_potential
         )
-        
+
         return result
     
     def _get_player(self, state: "GameState", player_idx: int):
@@ -538,7 +579,189 @@ class PositionalEvaluator:
                 score -= (3.0 - min_dist)  # -2 for dist 1, -1 for dist 2
 
         return score
-    
+
+    def _evaluate_stack_synergy(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate stack synergy (coordination between stacks).
+
+        Stack synergy measures how well our stacks work together:
+        - Adjacent friendly stacks that protect each other (mutual defense)
+        - Stacks positioned to support each other in captures
+        - Coordinated stacks that control space together
+
+        Made symmetric by computing (my_synergy - max_opponent_synergy).
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Stack synergy score (positive = better coordination).
+        """
+        my_synergy = self._compute_synergy_score_for_player(state, player_idx)
+
+        # Compute max opponent synergy for symmetric evaluation
+        opp_synergies = [
+            self._compute_synergy_score_for_player(state, p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        max_opp_synergy = max(opp_synergies) if opp_synergies else 0.0
+
+        # Symmetric: advantage over best opponent
+        return (my_synergy - max_opp_synergy) * self.weights.stack_synergy
+
+    def _compute_synergy_score_for_player(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> float:
+        """Compute raw stack synergy score for a player.
+
+        Args:
+            state: Current game state.
+            player_num: Player number.
+
+        Returns:
+            Raw synergy score.
+        """
+        board = state.board
+        board_type = board.type
+        stacks = board.stacks
+
+        player_stacks = [
+            s for s in stacks.values()
+            if s.controlling_player == player_num
+        ]
+
+        if len(player_stacks) < 2:
+            return 0.0
+
+        synergy_score = 0.0
+        mutual_defense_score = 0.0
+
+        for stack in player_stacks:
+            pos_key = stack.position.to_key()
+            adjacent_keys = self.fast_geo.get_adjacent_keys(pos_key, board_type)
+
+            for adj_key in adjacent_keys:
+                if adj_key in stacks:
+                    adj_stack = stacks[adj_key]
+
+                    # Check for friendly adjacent stacks (synergy)
+                    if adj_stack.controlling_player == player_num:
+                        # Adjacent friendly stacks provide mutual support
+                        synergy_score += 0.5
+
+                        # Mutual defense: stacks that can protect each other
+                        # (similar cap heights provide better mutual defense)
+                        height_diff = abs(stack.cap_height - adj_stack.cap_height)
+                        if height_diff <= 1:
+                            mutual_defense_score += (
+                                self.weights.mutual_defense * 0.3
+                            )
+
+        # Avoid double-counting (each pair counted twice)
+        synergy_score /= 2.0
+        mutual_defense_score /= 2.0
+
+        return synergy_score + mutual_defense_score
+
+    def _evaluate_expansion_potential(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate expansion potential (territory growth opportunities).
+
+        Measures the potential for territory expansion:
+        - Empty spaces adjacent to our stacks (room to grow)
+        - Frontier strength (stacks at the edge of our territory)
+        - Growth trajectory (direction of expansion)
+
+        Made symmetric by computing (my_potential - max_opponent_potential).
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Expansion potential score (positive = more growth opportunity).
+        """
+        my_expansion = self._compute_expansion_score_for_player(
+            state, player_idx
+        )
+
+        # Compute max opponent expansion for symmetric evaluation
+        opp_expansions = [
+            self._compute_expansion_score_for_player(state, p.player_number)
+            for p in state.players
+            if p.player_number != player_idx
+        ]
+        max_opp_expansion = max(opp_expansions) if opp_expansions else 0.0
+
+        # Symmetric: advantage over best opponent
+        return (my_expansion - max_opp_expansion) * self.weights.expansion_potential
+
+    def _compute_expansion_score_for_player(
+        self,
+        state: "GameState",
+        player_num: int,
+    ) -> float:
+        """Compute raw expansion potential score for a player.
+
+        Args:
+            state: Current game state.
+            player_num: Player number.
+
+        Returns:
+            Raw expansion score.
+        """
+        board = state.board
+        board_type = board.type
+        stacks = board.stacks
+        collapsed = board.collapsed_spaces
+
+        player_stacks = [
+            s for s in stacks.values()
+            if s.controlling_player == player_num
+        ]
+
+        if not player_stacks:
+            return 0.0
+
+        expansion_score = 0.0
+        frontier_score = 0.0
+
+        # Count empty adjacent spaces (expansion opportunities)
+        expansion_spaces = set()
+
+        for stack in player_stacks:
+            pos_key = stack.position.to_key()
+            adjacent_keys = self.fast_geo.get_adjacent_keys(pos_key, board_type)
+
+            is_frontier_stack = False
+            for adj_key in adjacent_keys:
+                # Check for empty spaces (expansion opportunities)
+                if adj_key not in stacks and adj_key not in collapsed:
+                    expansion_spaces.add(adj_key)
+                    is_frontier_stack = True
+
+            # Frontier stacks (stacks at the edge of our territory)
+            if is_frontier_stack:
+                # Frontier strength based on stack height
+                frontier_score += (
+                    stack.cap_height * self.weights.frontier_strength * 0.2
+                )
+
+        # Expansion potential from empty adjacent spaces
+        expansion_score = len(expansion_spaces) * 0.3
+
+        return expansion_score + frontier_score
+
     # === Compatibility methods for HeuristicAI delegation ===
     # These methods match the original HeuristicAI method signatures
     # to enable gradual migration.
@@ -625,15 +848,51 @@ class PositionalEvaluator:
         player_idx: int,
     ) -> float:
         """Evaluate piece connectivity score.
-        
+
         This is implemented as territory closure which measures marker
         clustering/connectivity as a proxy for enclosure potential.
-        
+
         Args:
             state: Current game state.
             player_idx: Player number.
-            
+
         Returns:
             Connectivity score (via territory_closure).
         """
         return self._evaluate_territory_closure(state, player_idx)
+
+    def evaluate_stack_synergy(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate stack synergy feature only.
+
+        Compatibility method for HeuristicAI delegation.
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Stack synergy score (positive = better coordination).
+        """
+        return self._evaluate_stack_synergy(state, player_idx)
+
+    def evaluate_expansion_potential(
+        self,
+        state: "GameState",
+        player_idx: int,
+    ) -> float:
+        """Evaluate expansion potential feature only.
+
+        Compatibility method for HeuristicAI delegation.
+
+        Args:
+            state: Current game state.
+            player_idx: Player number.
+
+        Returns:
+            Expansion potential score (positive = more growth opportunity).
+        """
+        return self._evaluate_expansion_potential(state, player_idx)
