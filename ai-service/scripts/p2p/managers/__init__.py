@@ -100,6 +100,26 @@ from .data_sync_coordinator import (
     reset_data_sync_coordinator,
     set_data_sync_coordinator,
 )
+# January 2026: Aggressive Decomposition Phase 5 - IP Discovery Manager
+from .ip_discovery_manager import (
+    IPDiscoveryConfig,
+    IPDiscoveryManager,
+    IPDiscoveryStats,
+    create_ip_discovery_manager,
+    get_ip_discovery_manager,
+    reset_ip_discovery_manager,
+    set_ip_discovery_manager,
+)
+# January 2026: Aggressive Decomposition Phase 6 - Worker Pull Controller
+from .worker_pull_controller import (
+    WorkerPullConfig,
+    WorkerPullController,
+    WorkerPullStats,
+    create_worker_pull_controller,
+    get_worker_pull_controller,
+    reset_worker_pull_controller,
+    set_worker_pull_controller,
+)
 
 __all__ = [
     "DiscoveryChannel",
@@ -171,4 +191,20 @@ __all__ = [
     "get_data_sync_coordinator",
     "reset_data_sync_coordinator",
     "set_data_sync_coordinator",
+    # IP Discovery Manager
+    "IPDiscoveryConfig",
+    "IPDiscoveryManager",
+    "IPDiscoveryStats",
+    "create_ip_discovery_manager",
+    "get_ip_discovery_manager",
+    "reset_ip_discovery_manager",
+    "set_ip_discovery_manager",
+    # Worker Pull Controller
+    "WorkerPullConfig",
+    "WorkerPullController",
+    "WorkerPullStats",
+    "create_worker_pull_controller",
+    "get_worker_pull_controller",
+    "reset_worker_pull_controller",
+    "set_worker_pull_controller",
 ]

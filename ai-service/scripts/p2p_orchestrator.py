@@ -2525,6 +2525,30 @@ class P2POrchestrator(
         )
         logger.info("[P2P] DataSyncCoordinator initialized")
 
+        # January 2026: Aggressive Decomposition Phase 5 - IP Discovery Manager
+        # Handles cloud and mesh IP discovery (Tailscale, Vast, AWS)
+        from scripts.p2p.managers.ip_discovery_manager import (
+            create_ip_discovery_manager,
+            IPDiscoveryConfig,
+        )
+        self.ip_discovery_manager = create_ip_discovery_manager(
+            config=IPDiscoveryConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] IPDiscoveryManager initialized")
+
+        # January 2026: Aggressive Decomposition Phase 6 - Worker Pull Controller
+        # Handles work claiming from leader in pull-based model
+        from scripts.p2p.managers.worker_pull_controller import (
+            create_worker_pull_controller,
+            WorkerPullConfig,
+        )
+        self.worker_pull_controller = create_worker_pull_controller(
+            config=WorkerPullConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] WorkerPullController initialized")
+
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
         self._initialize_work_discovery_manager()
@@ -8907,132 +8931,27 @@ class P2POrchestrator(
     async def _force_ip_refresh_all_sources(self) -> int:
         """Force immediate refresh of IPs from all CLI sources (Tailscale, Vast, AWS).
 
-        Called when network partition is detected to aggressively discover
-        alternative paths to reach peers.
+        Jan 2026: Delegated to IPDiscoveryManager for better modularity.
 
         Returns:
             Total number of IPs updated across all sources
         """
-        if not HAS_DYNAMIC_REGISTRY or get_registry is None:
-            return 0
+        return await self.ip_discovery_manager.force_ip_refresh_all_sources()
 
-        registry = get_registry()
-        total_updated = 0
-
-        logger.info("Force-refreshing all IP sources for partition recovery...")
-
-        # Refresh Tailscale first (most likely to help in partition)
-        try:
-            # Reset rate limit to force immediate check
-            registry._last_tailscale_check = 0
-            updated = await registry.update_tailscale_ips()
-            if updated > 0:
-                logger.info(f"Tailscale refresh: {updated} IPs updated")
-                total_updated += updated
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Tailscale refresh error: {e}")
-
-        # Refresh Vast IPs
-        try:
-            registry._last_vast_check = 0
-            updated = await registry.update_vast_ips()
-            if updated > 0:
-                logger.info(f"Vast refresh: {updated} IPs updated")
-                total_updated += updated
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Vast refresh error: {e}")
-
-        # Refresh AWS IPs
-        try:
-            registry._last_aws_check = 0
-            updated = await registry.update_aws_ips()
-            if updated > 0:
-                logger.info(f"AWS refresh: {updated} IPs updated")
-                total_updated += updated
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"AWS refresh error: {e}")
-
-        if total_updated > 0:
-            logger.info(f"Force refresh complete: {total_updated} total IPs updated")
-        return total_updated
+    # Jan 2026: IP update loops moved to IPDiscoveryManager
+    # These are now deprecated thin wrappers for backward compatibility
 
     async def _vast_ip_update_loop(self):
-        """Background loop to periodically refresh Vast instance connection info.
-
-        Uses VAST_API_KEY when available, otherwise falls back to the `vastai`
-        CLI if installed (see DynamicHostRegistry.update_vast_ips).
-        """
-        if not HAS_DYNAMIC_REGISTRY:
-            return
-
-        logger.info("Vast IP update loop started")
-        registry = get_registry()
-
-        while self.running:
-            try:
-                await asyncio.sleep(300)  # Check every 5 minutes
-
-                updated = await registry.update_vast_ips()
-                if updated > 0:
-                    logger.info(f"Updated {updated} Vast instance IPs from API")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.info(f"Vast IP update loop error: {e}")
-                await asyncio.sleep(60)
+        """DEPRECATED: Use ip_discovery_manager.vast_ip_update_loop()."""
+        return await self.ip_discovery_manager.vast_ip_update_loop()
 
     async def _aws_ip_update_loop(self):
-        """Background loop to periodically refresh AWS instance connection info.
-
-        Uses the `aws` CLI (see DynamicHostRegistry.update_aws_ips). No-op when
-        no AWS instances are configured in distributed_hosts.yaml properties.
-        """
-        if not HAS_DYNAMIC_REGISTRY:
-            return
-
-        logger.info("AWS IP update loop started")
-        registry = get_registry()
-
-        while self.running:
-            try:
-                await asyncio.sleep(300)  # Check every 5 minutes
-
-                updated = await registry.update_aws_ips()
-                if updated > 0:
-                    logger.info(f"Updated {updated} AWS instance IPs via CLI")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.info(f"AWS IP update loop error: {e}")
-                await asyncio.sleep(60)
+        """DEPRECATED: Use ip_discovery_manager.aws_ip_update_loop()."""
+        return await self.ip_discovery_manager.aws_ip_update_loop()
 
     async def _tailscale_ip_update_loop(self):
-        """Background loop to discover and update Tailscale IPs for cluster nodes.
-
-        Uses `tailscale status --json` to discover mesh network peers.
-        Tailscale provides reliable connectivity even when public IPs change.
-        """
-        if not HAS_DYNAMIC_REGISTRY:
-            return
-
-        logger.info("Tailscale IP update loop started")
-        registry = get_registry()
-
-        while self.running:
-            try:
-                await asyncio.sleep(120)  # Check every 2 minutes
-
-                updated = await registry.update_tailscale_ips()
-                if updated > 0:
-                    logger.info(f"Updated {updated} node Tailscale IPs")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.info(f"Tailscale IP update loop error: {e}")
-                await asyncio.sleep(60)
+        """DEPRECATED: Use ip_discovery_manager.tailscale_ip_update_loop()."""
+        return await self.ip_discovery_manager.tailscale_ip_update_loop()
 
     # Jan 2026: _tailscale_peer_recovery_loop removed (113 LOC)
     # Now runs via LoopManager as TailscalePeerDiscoveryLoop in scripts/p2p/loops/network_loops.py
@@ -9040,216 +8959,31 @@ class P2POrchestrator(
     async def _discover_tailscale_peers(self):
         """One-shot Tailscale peer discovery for bootstrap fallback.
 
-        Phase 30: Called when bootstrap from seeds fails. Discovers peers
-        via `tailscale status --json` and attempts to connect.
-
-        Jan 2026: Uses async subprocess to avoid blocking event loop.
+        Jan 2026: Delegated to IPDiscoveryManager for better modularity.
         """
-        import json
-
-        logger.info("Running one-shot Tailscale peer discovery...")
-
-        try:
-            returncode, stdout, stderr = await self._run_subprocess_async(
-                ["tailscale", "status", "--json"], timeout=10
-            )
-            if returncode != 0:
-                logger.warning(f"Tailscale status failed: {stderr}")
-                return
-
-            ts_data = json.loads(stdout)
-            peers = ts_data.get("Peer", {})
-
-            # Get current peer node_ids
-            current_peers = set()
-            with self.peers_lock:
-                current_peers = {p.node_id for p in self.peers.values()}
-
-            # Patterns for compute nodes
-            COMPUTE_PATTERNS = [
-                "lambda-", "vast-", "gh200", "h100", "a100", "a10",
-                "nebius-", "runpod-", "vultr-", "hetzner-",
-            ]
-
-            discovered = 0
-            for peer_info in peers.values():
-                hostname = peer_info.get("HostName", "").lower()
-                is_compute = any(pat in hostname for pat in COMPUTE_PATTERNS)
-                if not is_compute:
-                    continue
-
-                # Get IP from TailscaleIPs (prefer IPv4)
-                ts_ips = peer_info.get("TailscaleIPs", [])
-                ipv4s = [ip for ip in ts_ips if "." in ip]
-                if not ipv4s:
-                    continue
-                ip = ipv4s[0]
-
-                # Skip if we already know this IP
-                known = False
-                with self.peers_lock:
-                    for p in self.peers.values():
-                        if getattr(p, "tailscale_ip", None) == ip or p.host == ip:
-                            known = True
-                            break
-                if known:
-                    continue
-
-                # Try to connect
-                try:
-                    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-                        async with session.get(f"http://{ip}:{DEFAULT_PORT}/status") as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                node_id = data.get("node_id", hostname)
-                                if node_id not in current_peers:
-                                    logger.info(f"Discovered peer {node_id} via Tailscale at {ip}")
-                                    await self._send_heartbeat_to_peer(ip, DEFAULT_PORT)
-                                    discovered += 1
-                except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError) as e:
-                    # Debug log for Tailscale discovery - failures are normal for offline nodes
-                    logger.debug(f"Tailscale discovery failed for {hostname}/{ip}: {type(e).__name__}")
-
-            if discovered > 0:
-                logger.info(f"Tailscale discovery: connected to {discovered} new peer(s)")
-            else:
-                logger.info("Tailscale discovery: no new peers found")
-
-        except FileNotFoundError:
-            logger.debug("Tailscale not installed on this node")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Tailscale discovery error: {e}")
+        return await self.ip_discovery_manager.discover_tailscale_peers(
+            peers_lock=self.peers_lock,
+            peers=self.peers,
+            send_heartbeat_callback=self._send_heartbeat_to_peer,
+            run_subprocess_callback=self._run_subprocess_async,
+        )
 
     async def _reconnect_missing_tailscale_peers(self) -> int:
         """Force reconnect to peers online in Tailscale but missing from P2P mesh.
 
-        January 2026 (Phase 1.1): Fixes peer discovery asymmetry where P2P shows
-        5-7 peers while Tailscale shows 40 online. This method is called during
-        startup after Tailscale discovery to ensure all reachable peers are connected.
-
-        The root cause is that SWIM gossip and heartbeat loops may not discover all
-        peers during initial bootstrap, especially when nodes start asynchronously.
-        This method performs a targeted reconnection sweep.
-
-        Jan 2026: Uses async subprocess to avoid blocking event loop.
+        Jan 2026: Delegated to IPDiscoveryManager for better modularity.
 
         Returns:
             Number of peers successfully reconnected.
         """
-        import json
-
-        logger.info("[NetworkHealth] Running Tailscale-to-P2P reconnection sweep...")
-
-        try:
-            # Get Tailscale status (Jan 2026: use async helper to avoid blocking)
-            returncode, stdout, stderr = await self._run_subprocess_async(
-                ["tailscale", "status", "--json"], timeout=10
-            )
-            if returncode != 0:
-                logger.warning(f"Tailscale status failed: {stderr}")
-                return 0
-
-            ts_data = json.loads(stdout)
-            ts_peers = ts_data.get("Peer", {})
-
-            # Build map of Tailscale IPs to online status
-            ts_online: dict[str, bool] = {}
-            for peer_info in ts_peers.values():
-                ts_ips = peer_info.get("TailscaleIPs", [])
-                is_online = peer_info.get("Online", False)
-                for ip in ts_ips:
-                    if "." in ip:  # IPv4
-                        ts_online[ip] = is_online
-
-            # Get config hosts for IP-to-node mapping
-            config_hosts = self._load_distributed_hosts().get("hosts", {})
-            ip_to_node = {
-                h.get("tailscale_ip"): (name, h)
-                for name, h in config_hosts.items()
-                if h.get("tailscale_ip") and h.get("p2p_enabled", True)
-            }
-
-            # Get current P2P peer IDs
-            p2p_peer_ids = set()
-            with self.peers_lock:
-                for peer_id, peer_info in self.peers.items():
-                    is_alive = getattr(peer_info, "is_alive", lambda: True)
-                    if (callable(is_alive) and is_alive()) or (not callable(is_alive) and is_alive):
-                        p2p_peer_ids.add(peer_id)
-
-            # Find and reconnect missing peers
-            reconnected = 0
-            attempted = 0
-
-            for ts_ip, is_online in ts_online.items():
-                if not is_online:
-                    continue
-
-                if ts_ip not in ip_to_node:
-                    continue
-
-                node_name, node_config = ip_to_node[ts_ip]
-
-                # Skip if already connected in P2P
-                if node_name in p2p_peer_ids:
-                    continue
-
-                attempted += 1
-                port = node_config.get("p2p_port", DEFAULT_PORT)
-
-                try:
-                    # Try to reconnect via heartbeat
-                    success = await self._reconnect_discovered_peer(node_name, ts_ip, port)
-                    if success:
-                        reconnected += 1
-                        logger.debug(f"[NetworkHealth] Reconnected {node_name}")
-                except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
-                    logger.debug(f"[NetworkHealth] Failed to reconnect {node_name}: {e}")
-
-            if reconnected > 0:
-                logger.info(
-                    f"[NetworkHealth] Reconnection sweep complete: "
-                    f"{reconnected}/{attempted} peers reconnected"
-                )
-            elif attempted > 0:
-                logger.warning(
-                    f"[NetworkHealth] Reconnection sweep: "
-                    f"0/{attempted} peers reconnected (check network connectivity)"
-                )
-            else:
-                logger.debug("[NetworkHealth] No missing peers to reconnect")
-
-            # Emit metric for observability
-            try:
-                from app.coordination.event_router import safe_emit_event
-                safe_emit_event(
-                    "P2P_DISCOVERY_GAP",
-                    {
-                        "tailscale_online": sum(1 for v in ts_online.values() if v),
-                        "p2p_connected": len(p2p_peer_ids),
-                        "gap": attempted,
-                        "reconnected": reconnected,
-                        "node_id": self.node_id,
-                    },
-                    source="p2p_orchestrator",
-                )
-            except ImportError:
-                pass
-
-            return reconnected
-
-        except FileNotFoundError:
-            logger.debug("[NetworkHealth] Tailscale not installed")
-            return 0
-        except json.JSONDecodeError as e:
-            logger.warning(f"[NetworkHealth] Tailscale status JSON parse error: {e}")
-            return 0
-        except subprocess.TimeoutExpired:
-            logger.warning("[NetworkHealth] Tailscale status command timed out")
-            return 0
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[NetworkHealth] Reconnection sweep error: {e}")
-            return 0
+        return await self.ip_discovery_manager.reconnect_missing_tailscale_peers(
+            peers_lock=self.peers_lock,
+            peers=self.peers,
+            load_distributed_hosts_callback=self._load_distributed_hosts,
+            reconnect_peer_callback=self._reconnect_discovered_peer,
+            run_subprocess_callback=self._run_subprocess_async,
+            node_id=self.node_id,
+        )
 
     async def _convert_jsonl_to_db(self, data_dir: Path, games_dir: Path) -> int:
         """Convert JSONL selfplay files to SQLite DB format for training.
@@ -14070,80 +13804,30 @@ print(json.dumps(result))
     # Dec 2025-Jan 2026: Handlers moved to mixins, loops moved to LoopManager
 
     async def _claim_work_from_leader(self, capabilities: list[str]) -> dict[str, Any] | None:
-        """Claim work from the leader's work queue."""
-        if not self.leader_id or self.leader_id == self.node_id:
-            return None
+        """Claim work from the leader's work queue.
 
-        # Find leader peer
-        with self.peers_lock:
-            leader_peer = self.peers.get(self.leader_id)
-
-        if not leader_peer:
-            return None
-
-        try:
-            timeout = ClientTimeout(total=15)
-            async with get_client_session(timeout) as session:
-                caps_str = ",".join(capabilities)
-                url = self._url_for_peer(leader_peer, f"/work/claim?node_id={self.node_id}&capabilities={caps_str}")
-                async with session.get(url, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        # Jan 10, 2026: Update timestamp on any leader response (not just work)
-                        # This prevents false stall detection when queue is empty
-                        self.last_work_from_leader = time.time()
-                        data = await resp.json()
-                        if data.get("status") == "claimed":
-                            return data.get("work")
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"Failed to claim work from leader: {e}")
-
-        return None
+        Jan 2026: Delegated to WorkerPullController for better modularity.
+        """
+        result = await self.worker_pull_controller.claim_work_from_leader(capabilities)
+        # Sync last_work_from_leader for backward compatibility
+        if self.worker_pull_controller.last_work_from_leader > 0:
+            self.last_work_from_leader = self.worker_pull_controller.last_work_from_leader
+        return result
 
     async def _claim_work_batch_from_leader(
         self, capabilities: list[str], max_items: int
     ) -> list[dict[str, Any]]:
         """Claim multiple work items from the leader's work queue.
 
-        Session 17.34 (Jan 5, 2026): Added batch claiming to reduce HTTP round-trips
-        and improve GPU utilization by +30-40%.
-
-        Args:
-            capabilities: List of work types this node can handle
-            max_items: Maximum number of items to claim (capped at 10)
-
-        Returns:
-            List of work items, empty list if none available or error
+        Jan 2026: Delegated to WorkerPullController for better modularity.
         """
-        if not self.leader_id or self.leader_id == self.node_id:
-            return []
-
-        # Find leader peer
-        with self.peers_lock:
-            leader_peer = self.peers.get(self.leader_id)
-
-        if not leader_peer:
-            return []
-
-        try:
-            timeout = ClientTimeout(total=20)  # Slightly longer for batch
-            async with get_client_session(timeout) as session:
-                caps_str = ",".join(capabilities)
-                url = self._url_for_peer(
-                    leader_peer,
-                    f"/work/claim_batch?node_id={self.node_id}&capabilities={caps_str}&max_items={max_items}"
-                )
-                async with session.get(url, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        # Jan 10, 2026: Update timestamp on any leader response (not just work)
-                        # This prevents false stall detection when queue is empty
-                        self.last_work_from_leader = time.time()
-                        data = await resp.json()
-                        if data.get("status") == "claimed" and data.get("items"):
-                            return data.get("items", [])
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"Failed to batch claim work from leader: {e}")
-
-        return []
+        result = await self.worker_pull_controller.claim_work_batch_from_leader(
+            capabilities, max_items
+        )
+        # Sync last_work_from_leader for backward compatibility
+        if self.worker_pull_controller.last_work_from_leader > 0:
+            self.last_work_from_leader = self.worker_pull_controller.last_work_from_leader
+        return result
 
     async def _execute_claimed_work(self, work_item: dict[str, Any]) -> bool:
         """Execute a claimed work item locally."""
@@ -14386,35 +14070,11 @@ print(json.dumps(result))
             return False
 
     async def _report_work_result(self, work_item: dict[str, Any], success: bool) -> None:
-        """Report work completion/failure to the leader."""
-        if not self.leader_id or self.leader_id == self.node_id:
-            return
+        """Report work completion/failure to the leader.
 
-        work_id = work_item.get("work_id", "")
-        if not work_id:
-            return
-
-        with self.peers_lock:
-            leader_peer = self.peers.get(self.leader_id)
-
-        if not leader_peer:
-            return
-
-        try:
-            timeout = ClientTimeout(total=15)
-            async with get_client_session(timeout) as session:
-                if success:
-                    url = self._url_for_peer(leader_peer, "/work/complete")
-                    payload = {"work_id": work_id, "result": {"node_id": self.node_id}}
-                else:
-                    url = self._url_for_peer(leader_peer, "/work/fail")
-                    payload = {"work_id": work_id, "error": "execution_failed"}
-
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        logger.debug(f"Reported work {work_id} result: {'success' if success else 'failed'}")
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"Failed to report work result: {e}")
+        Jan 2026: Delegated to WorkerPullController for better modularity.
+        """
+        await self.worker_pull_controller.report_work_result(work_item, success)
 
     # Dec 2025: Work queue and idle detection loops moved to LoopManager (170 LOC)
 
@@ -26694,10 +26354,12 @@ print(json.dumps({{
             ))
 
         # Add cloud IP refresh loops (best-effort; no-op if not configured).
+        # Jan 2026: Delegated to IPDiscoveryManager for better modularity
         if HAS_DYNAMIC_REGISTRY:
-            tasks.append(self._create_safe_task(self._vast_ip_update_loop(), "vast_ip_update"))
-            tasks.append(self._create_safe_task(self._aws_ip_update_loop(), "aws_ip_update"))
-            tasks.append(self._create_safe_task(self._tailscale_ip_update_loop(), "tailscale_ip_update"))
+            self.ip_discovery_manager.start()
+            tasks.append(self._create_safe_task(self.ip_discovery_manager.vast_ip_update_loop(), "vast_ip_update"))
+            tasks.append(self._create_safe_task(self.ip_discovery_manager.aws_ip_update_loop(), "aws_ip_update"))
+            tasks.append(self._create_safe_task(self.ip_discovery_manager.tailscale_ip_update_loop(), "tailscale_ip_update"))
 
         # Phase 26: Continuous bootstrap loop - ensures isolated nodes can rejoin
         tasks.append(self._create_safe_task(self._continuous_bootstrap_loop(), "continuous_bootstrap"))
