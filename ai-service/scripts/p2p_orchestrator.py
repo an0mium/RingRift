@@ -992,6 +992,12 @@ from scripts.p2p.utils import (
     systemd_notify_watchdog,
 )
 from scripts.p2p.managers import (
+    AnalyticsCacheConfig,
+    AnalyticsCacheManager,
+    CMAESConfig,
+    CMAESCoordinator,
+    DataSyncCoordinator,
+    DataSyncCoordinatorConfig,
     JobManager,
     JobOrchestrationConfig,
     JobOrchestrationManager,
@@ -1001,6 +1007,9 @@ from scripts.p2p.managers import (
     SyncPlanner,
     SyncPlannerConfig,
     TrainingCoordinator,
+    create_analytics_cache_manager,
+    create_cmaes_coordinator,
+    create_data_sync_coordinator,
     create_job_orchestration_manager,
 )
 from scripts.p2p.managers.state_manager import PersistedLeaderState
@@ -1380,27 +1389,8 @@ except ImportError:
     CMAESAutoTuner = None
     PlateauConfig = None
 
-# ============================================
-# Configuration
-# ============================================
-# NOTE: All constants have been consolidated into scripts/p2p/constants.py
-# and are imported at the top of this file (Phase 2 refactoring).
-# See scripts/p2p/constants.py for configuration values and documentation.
-# ============================================
-
-
-# ============================================
-# Types and Models (Refactored)
-# ============================================
-# The following types have been moved to scripts/p2p/ for modularity:
-# - NodeRole, JobType (scripts/p2p/types.py)
-# - NodeInfo, ClusterJob, DistributedCMAESState, DistributedTournamentState,
-#   SSHTournamentRun, ImprovementLoopState, TrainingJob, TrainingThresholds,
-#   DataFileInfo, NodeDataManifest, ClusterDataManifest, DataSyncJob,
-#   ClusterSyncPlan (scripts/p2p/models.py)
-#
-# They are imported at the top of this file for backward compatibility.
-# ============================================
+# Configuration: See scripts/p2p/constants.py
+# Types: See scripts/p2p/types.py and scripts/p2p/models.py
 
 
 class WebhookNotifier:
@@ -2501,6 +2491,39 @@ class P2POrchestrator(
         # NOTE: Using factory function which wires all callbacks automatically
         self.job_orchestration = create_job_orchestration_manager(self)
         logger.info("[P2P] JobOrchestrationManager initialized")
+
+        # January 2026: Aggressive Decomposition Phase 1 - Analytics Cache Manager
+        # Handles all cached analytics computations (victory stats, game analytics, MCTS stats, etc.)
+        self.analytics_cache_manager = create_analytics_cache_manager(
+            config=AnalyticsCacheConfig(),
+            get_ai_service_path=lambda: self._get_ai_service_path(),
+            is_in_startup_grace_period=lambda: self._is_in_startup_grace_period(),
+            increment_rollback_counter=lambda: self._increment_rollback_counter(),
+            send_notification=lambda **kwargs: asyncio.create_task(self.notifier.send(**kwargs)) if hasattr(self, 'notifier') else None,
+            node_id=self.node_id,
+        )
+        logger.info("[P2P] AnalyticsCacheManager initialized")
+
+        # January 2026: Aggressive Decomposition Phase 3 - CMA-ES Coordinator
+        # Handles distributed CMA-ES hyperparameter optimization across cluster
+        self.cmaes_coordinator = create_cmaes_coordinator(
+            config=CMAESConfig(ai_service_path=self._get_ai_service_path()),
+            get_gpu_workers=lambda: self._get_gpu_workers_for_cmaes(),
+            send_to_worker=lambda wid, ep, pl: self._send_cmaes_to_worker(wid, ep, pl),
+            report_to_leader=lambda ep, pl: self._report_cmaes_to_leader(ep, pl),
+            get_node_role=lambda: self.role.value if hasattr(self.role, 'value') else str(self.role),
+            get_leader_id=lambda: self.leader_id,
+            get_node_id=lambda: self.node_id,
+            handle_cmaes_complete=lambda bt, np, w: self._handle_cmaes_complete_callback(bt, np, w),
+        )
+        logger.info("[P2P] CMAESCoordinator initialized")
+
+        # January 2026: Aggressive Decomposition Phase 4 - Data Sync Coordinator
+        # Handles external storage scanning (OWC, S3) for unified cluster data visibility
+        self.data_sync_coordinator = create_data_sync_coordinator(
+            config=DataSyncCoordinatorConfig(),
+        )
+        logger.info("[P2P] DataSyncCoordinator initialized")
 
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
@@ -5023,6 +5046,70 @@ class P2POrchestrator(
         if self.ringrift_path.rstrip("/").endswith("ai-service"):
             return self.ringrift_path
         return os.path.join(self.ringrift_path, "ai-service")
+
+    def _increment_rollback_counter(self) -> None:
+        """Increment the rollback counter in diversity metrics.
+
+        Used by AnalyticsCacheManager callback.
+        """
+        self.diversity_metrics["rollbacks"] += 1
+
+    # CMA-ES Coordinator callback helpers (Jan 2026 - Aggressive Decomposition Phase 3)
+
+    def _get_gpu_workers_for_cmaes(self) -> list:
+        """Get available GPU workers for CMA-ES. Used by CMAESCoordinator callback."""
+        gpu_workers = []
+        with self.peers_lock:
+            for peer in self.peers.values():
+                if peer.is_healthy() and peer.has_gpu and peer.node_id != self.node_id:
+                    gpu_workers.append(peer)
+        if self.self_info.has_gpu:
+            gpu_workers.append(self.self_info)
+        return gpu_workers
+
+    async def _send_cmaes_to_worker(self, worker_id: str, endpoint: str, payload: dict) -> bool:
+        """Send CMA-ES request to a worker. Used by CMAESCoordinator callback."""
+        try:
+            with self.peers_lock:
+                worker = self.peers.get(worker_id)
+            if not worker:
+                return False
+            timeout = ClientTimeout(total=300)
+            async with get_client_session(timeout) as session:
+                url = self._url_for_peer(worker, endpoint)
+                await session.post(url, json=payload, headers=self._auth_headers())
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to send CMA-ES request to {worker_id}: {e}")
+            return False
+
+    async def _report_cmaes_to_leader(self, endpoint: str, payload: dict) -> bool:
+        """Report CMA-ES result to leader. Used by CMAESCoordinator callback."""
+        try:
+            if not self.leader_id:
+                return False
+            with self.peers_lock:
+                leader = self.peers.get(self.leader_id)
+            if not leader:
+                return False
+            timeout = ClientTimeout(total=30)
+            async with get_client_session(timeout) as session:
+                url = self._url_for_peer(leader, endpoint)
+                await session.post(url, json=payload, headers=self._auth_headers())
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to report CMA-ES result to leader: {e}")
+            return False
+
+    def _handle_cmaes_complete_callback(self, board_type: str, num_players: int, weights: dict) -> str | None:
+        """Handle CMA-ES completion. Used by CMAESCoordinator callback."""
+        if self.improvement_cycle_manager:
+            agent_id = self.improvement_cycle_manager.handle_cmaes_complete(
+                board_type, num_players, weights
+            )
+            self.diversity_metrics["cmaes_triggers"] += 1
+            return agent_id
+        return None
 
     def _get_script_path(self, script_name: str) -> str:
         """Get the full path to a script in ai-service/scripts/.
@@ -7678,14 +7765,7 @@ class P2POrchestrator(
         return result
 
     # _tailscale_urls_for_voter: Provided by NetworkUtilsMixin
-
-    # NOTE: _is_in_startup_grace_period, _get_resource_usage, _check_nfs_accessible,
-    # _detect_local_external_work delegated to ResourceDetectorMixin (Dec 28, 2025).
-    # ~170 LOC removed. Use: self._is_in_startup_grace_period(), self._get_resource_usage(), etc.
-
-    # NOTE: _get_diversity_metrics() and _track_selfplay_diversity() removed.
-    # Delegated to self.selfplay_scheduler.get_diversity_metrics() and
-    # self.selfplay_scheduler.track_diversity(). Removed ~66 LOC Dec 2025.
+    # Dec 2025: Resource/diversity methods delegated to mixins and selfplay_scheduler (~236 LOC)
 
     def _get_db_game_count_sync(self, db_path: Path) -> int:
         """Get game count from database synchronously.
@@ -8206,10 +8286,7 @@ class P2POrchestrator(
         # which can take 5-8 seconds and block the event loop, causing leader election failures
         return self.sync_planner.collect_local_manifest(use_cache=True)
 
-    # NOTE: _collect_local_data_manifest_legacy() removed Dec 27, 2025
-    # (150 LOC dead code - was never called, SyncPlanner.collect_local_manifest used instead)
-    # NOTE: _compute_file_hash() removed Dec 28, 2025
-    # (12 LOC dead code - zero callers, orphaned legacy method)
+    # Dec 2025: Legacy manifest methods removed (162 LOC) - using SyncPlanner
 
     def _request_peer_manifest_sync(self, peer_id: str) -> NodeDataManifest | None:
         """Synchronous wrapper for requesting peer manifest.
@@ -8375,375 +8452,55 @@ class P2POrchestrator(
     async def _collect_external_storage_metadata(self) -> ExternalStorageManifest:
         """Collect metadata from external storage sources (OWC drive, S3 bucket).
 
-        Jan 2026: Added for unified cluster data visibility.
+        Jan 2026: Delegates to DataSyncCoordinator for unified cluster data visibility.
 
         Returns:
             ExternalStorageManifest with OWC and S3 metadata.
         """
         from scripts.p2p.models import ExternalStorageManifest
 
-        external = ExternalStorageManifest(collected_at=time.time())
+        # Delegate to DataSyncCoordinator
+        metadata = await self.data_sync_coordinator.collect_external_storage_metadata()
 
-        # Collect OWC drive metadata (if accessible)
-        try:
-            owc_metadata = await self._scan_owc_metadata()
-            if owc_metadata:
-                external.owc_available = True
-                external.owc_games_by_config = owc_metadata.get("games_by_config", {})
-                external.owc_total_games = owc_metadata.get("total_games", 0)
-                external.owc_total_size_bytes = owc_metadata.get("total_size_bytes", 0)
-                external.owc_last_scan = time.time()
-            else:
-                external.owc_scan_error = "OWC scan returned no data"
-        except Exception as e:
-            external.owc_scan_error = str(e)
-            logger.warning(f"[ExternalStorage] OWC scan failed: {e}")
-
-        # Collect S3 bucket metadata (if configured)
-        try:
-            s3_metadata = await self._scan_s3_metadata()
-            if s3_metadata:
-                external.s3_available = True
-                external.s3_games_by_config = s3_metadata.get("games_by_config", {})
-                external.s3_total_games = s3_metadata.get("total_games", 0)
-                external.s3_total_size_bytes = s3_metadata.get("total_size_bytes", 0)
-                external.s3_bucket = s3_metadata.get("bucket", "")
-                external.s3_last_scan = time.time()
-            else:
-                external.s3_scan_error = "S3 scan returned no data (check boto3 and credentials)"
-        except Exception as e:
-            external.s3_scan_error = str(e)
-            logger.warning(f"[ExternalStorage] S3 scan failed: {e}")
+        # Convert to ExternalStorageManifest
+        external = ExternalStorageManifest(collected_at=metadata.collected_at)
+        external.owc_available = metadata.owc_available
+        external.owc_games_by_config = metadata.owc_games_by_config
+        external.owc_total_games = metadata.owc_total_games
+        external.owc_total_size_bytes = metadata.owc_total_size_bytes
+        external.owc_last_scan = metadata.owc_last_scan
+        external.owc_scan_error = metadata.owc_scan_error or ""
+        external.s3_available = metadata.s3_available
+        external.s3_games_by_config = metadata.s3_games_by_config
+        external.s3_total_games = metadata.s3_total_games
+        external.s3_total_size_bytes = metadata.s3_total_size_bytes
+        external.s3_last_scan = metadata.s3_last_scan
+        external.s3_bucket = metadata.s3_bucket
+        external.s3_scan_error = metadata.s3_scan_error or ""
 
         return external
 
     async def _scan_owc_metadata(self) -> dict | None:
-        """Scan OWC external drive for game data metadata.
-
-        Jan 2026: OWC drive is mounted on mac-studio at /Volumes/RingRift-Data.
-
-        Returns:
-            Dict with games_by_config, total_games, total_size_bytes, or None if unavailable.
-        """
-        import os
-        import socket
-
-        # Load OWC paths from config if available, otherwise use defaults
-        owc_paths = []
-        try:
-            from app.config.cluster_config import load_cluster_config
-            config = load_cluster_config()
-            sync_cfg = config.get_raw_section("sync_routing")
-            for storage in sync_cfg.get("allowed_external_storage", []):
-                if storage.get("host") == "mac-studio":
-                    owc_paths.append(storage.get("path"))
-        except Exception:
-            pass
-
-        # Fallback to hardcoded paths if config unavailable
-        if not owc_paths:
-            owc_paths = [
-                "/Volumes/RingRift-Data",
-                "/Volumes/OWC",
-            ]
-
-        # Check if running on mac-studio (OWC is local)
-        hostname = socket.gethostname().lower()
-        is_mac_studio = "mac-studio" in hostname or hostname == "mac-studio"
-
-        if is_mac_studio:
-            # Direct local access
-            for owc_path in owc_paths:
-                if os.path.exists(owc_path):
-                    return await asyncio.to_thread(
-                        self._scan_owc_local, owc_path
-                    )
-            return None
-
-        # Remote access via SSH to mac-studio (get IP from config)
-        mac_studio_host = "mac-studio"  # Default hostname
-        try:
-            from app.config.cluster_config import load_cluster_config
-            config = load_cluster_config()
-            mac_studio_cfg = config.hosts_raw.get("mac-studio", {})
-            # Prefer Tailscale IP for reliability
-            mac_studio_host = (
-                mac_studio_cfg.get("tailscale_ip")
-                or mac_studio_cfg.get("ssh_host")
-                or "mac-studio"
-            )
-        except Exception:
-            pass  # Fall back to hostname
-
-        try:
-            return await self._scan_owc_remote(mac_studio_host, owc_paths[0])
-        except Exception as e:
-            logger.warning(f"[OWC] Remote scan failed to {mac_studio_host}: {e}")
-            return None
+        """Scan OWC external drive. Delegates to DataSyncCoordinator."""
+        return await self.data_sync_coordinator.scan_owc_metadata()
 
     def _scan_owc_local(self, base_path: str) -> dict:
-        """Scan OWC drive locally for game databases.
-
-        Returns dict with games_by_config, total_games, total_size_bytes.
-        """
-        import os
-        import sqlite3
-        from pathlib import Path
-
-        games_by_config: dict[str, int] = {}
-        total_games = 0
-        total_size_bytes = 0
-
-        # Look for game databases in standard locations
-        data_paths = [
-            Path(base_path) / "data" / "games",
-            Path(base_path) / "games",
-            Path(base_path) / "selfplay",
-        ]
-
-        for data_path in data_paths:
-            if not data_path.exists():
-                continue
-
-            for db_file in data_path.glob("**/*.db"):
-                try:
-                    total_size_bytes += db_file.stat().st_size
-
-                    # Extract config from filename or query DB
-                    config_key = self._extract_config_from_path(db_file)
-                    if not config_key:
-                        continue
-
-                    # Quick game count query
-                    conn = sqlite3.connect(str(db_file), timeout=5.0)
-                    try:
-                        cursor = conn.execute(
-                            "SELECT COUNT(*) FROM games WHERE status = 'completed'"
-                        )
-                        count = cursor.fetchone()[0]
-                        games_by_config[config_key] = (
-                            games_by_config.get(config_key, 0) + count
-                        )
-                        total_games += count
-                    except sqlite3.OperationalError:
-                        # Table doesn't exist or different schema
-                        pass
-                    finally:
-                        conn.close()
-                except Exception:
-                    continue
-
-        return {
-            "games_by_config": games_by_config,
-            "total_games": total_games,
-            "total_size_bytes": total_size_bytes,
-        }
+        """Scan OWC drive locally. Delegates to DataSyncCoordinator."""
+        return self.data_sync_coordinator._scan_owc_local(base_path)
 
     def _extract_config_from_path(self, db_path: Path) -> str | None:
-        """Extract board_type and num_players from database path.
-
-        Expected patterns:
-        - canonical_hex8_2p.db
-        - hex8_2p_selfplay.db
-        - games_square8_4p.db
-        """
-        import re
-
-        filename = db_path.stem.lower()
-
-        # Try common patterns
-        patterns = [
-            r"(hex8|hexagonal|square8|square19)_(\d)p",
-            r"canonical_(hex8|hexagonal|square8|square19)_(\d)p",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, filename)
-            if match:
-                board_type = match.group(1)
-                num_players = match.group(2)
-                return f"{board_type}_{num_players}p"
-
-        return None
-
-    async def _scan_owc_remote(self, host: str, owc_path: str) -> dict | None:
-        """Scan OWC drive via SSH to mac-studio.
-
-        Returns dict with games_by_config, total_games, total_size_bytes.
-        """
-        # Use a simple SSH command to get file listing and sizes
-        ssh_cmd = f"""
-        cd {owc_path} 2>/dev/null && find . -name "*.db" -type f -exec stat -f '%z %N' {{}} \\; 2>/dev/null | head -100
-        """
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes",
-                host, "bash", "-c", ssh_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
-
-            if proc.returncode != 0:
-                return None
-
-            # Parse output: "size path"
-            games_by_config: dict[str, int] = {}
-            total_size_bytes = 0
-            total_games = 0
-
-            for line in stdout.decode().strip().split("\n"):
-                if not line:
-                    continue
-                parts = line.split(maxsplit=1)
-                if len(parts) != 2:
-                    continue
-                size_str, path = parts
-                try:
-                    total_size_bytes += int(size_str)
-                except ValueError:
-                    continue
-
-                # Extract config from path
-                from pathlib import Path
-                config_key = self._extract_config_from_path(Path(path))
-                if config_key:
-                    # Estimate 100 games per DB file as placeholder
-                    # (accurate count would require opening each DB)
-                    games_by_config[config_key] = games_by_config.get(config_key, 0) + 100
-                    total_games += 100
-
-            return {
-                "games_by_config": games_by_config,
-                "total_games": total_games,
-                "total_size_bytes": total_size_bytes,
-            }
-        except (asyncio.TimeoutError, OSError):
-            return None
+        """Extract config from path. Delegates to DataSyncCoordinator."""
+        return self.data_sync_coordinator.extract_config_from_path(db_path)
 
     def _get_s3_bucket_from_config(self) -> str | None:
-        """Get S3 bucket name from config or environment.
-
-        Priority:
-        1. RINGRIFT_S3_BUCKET environment variable (backward compat)
-        2. sync_routing.s3.bucket from distributed_hosts.yaml
-        3. Default: ringrift-models-20251214
-
-        Returns:
-            S3 bucket name or None if S3 is disabled.
-        """
-        import os
-
-        # Priority 1: Environment variable
-        s3_bucket = os.environ.get("RINGRIFT_S3_BUCKET")
-        if s3_bucket:
-            return s3_bucket
-
-        # Priority 2: Load from YAML config
-        try:
-            from app.config.cluster_config import load_cluster_config
-            config = load_cluster_config()
-            s3_cfg = config.get_raw_section("sync_routing").get("s3", {})
-            if not s3_cfg.get("enabled", True):
-                logger.info("[S3] S3 disabled in config")
-                return None
-            bucket = s3_cfg.get("bucket")
-            if bucket:
-                return bucket
-        except Exception as e:
-            logger.debug(f"[S3] Could not load config from YAML: {e}")
-
-        # Priority 3: Default bucket
-        return "ringrift-models-20251214"
+        """Get S3 bucket. Delegates to DataSyncCoordinator."""
+        return self.data_sync_coordinator.get_s3_bucket_from_config()
 
     async def _scan_s3_metadata(self) -> dict | None:
-        """Scan S3 bucket for game data metadata.
+        """Scan S3 bucket. Delegates to DataSyncCoordinator."""
+        return await self.data_sync_coordinator.scan_s3_metadata()
 
-        Jan 2026: Uses boto3 if available, with caching to avoid repeated API calls.
-
-        Returns:
-            Dict with games_by_config, total_games, total_size_bytes, bucket, or None.
-        """
-        # Get S3 bucket from config (env var or YAML)
-        s3_bucket = self._get_s3_bucket_from_config()
-        if not s3_bucket:
-            logger.info("[S3] S3 scanning disabled - no bucket configured")
-            return None
-
-        # Check for cached result (cache for 1 hour)
-        cache_key = "_s3_metadata_cache"
-        cache_time_key = "_s3_metadata_cache_time"
-
-        cached = getattr(self, cache_key, None)
-        cached_time = getattr(self, cache_time_key, 0.0)
-
-        if cached and (time.time() - cached_time) < 3600:  # 1 hour cache
-            return cached
-
-        try:
-            import boto3
-        except ImportError:
-            logger.warning("[S3] boto3 not installed. Install with: pip install boto3")
-            return None
-
-        try:
-            s3 = boto3.client("s3")
-
-            games_by_config: dict[str, int] = {}
-            total_games = 0
-            total_size_bytes = 0
-
-            # List objects in bucket (limit to games/ prefix)
-            paginator = s3.get_paginator("list_objects_v2")
-            for prefix in ["data/games/", "games/", "selfplay/"]:
-                try:
-                    for page in paginator.paginate(Bucket=s3_bucket, Prefix=prefix):
-                        for obj in page.get("Contents", []):
-                            key = obj["Key"]
-                            size = obj["Size"]
-
-                            if not key.endswith(".db"):
-                                continue
-
-                            total_size_bytes += size
-
-                            # Extract config from key
-                            from pathlib import Path
-                            config_key = self._extract_config_from_path(Path(key))
-                            if config_key:
-                                # Estimate based on file size (rough: 1 game = 10KB)
-                                est_games = max(1, size // 10000)
-                                games_by_config[config_key] = (
-                                    games_by_config.get(config_key, 0) + est_games
-                                )
-                                total_games += est_games
-                except Exception:
-                    continue
-
-            result = {
-                "games_by_config": games_by_config,
-                "total_games": total_games,
-                "total_size_bytes": total_size_bytes,
-                "bucket": s3_bucket,
-            }
-
-            # Cache result
-            setattr(self, cache_key, result)
-            setattr(self, cache_time_key, time.time())
-
-            return result
-
-        except Exception as e:
-            logger.warning(f"[S3] Scan failed: {e}")
-            return None
-
-    # ============================================
-    # Phase 2: P2P Rsync Coordination Methods
-    # ============================================
-
-    # NOTE: _generate_sync_plan() removed Dec 2025 (61 LOC dead code).
-    # Use self.sync_planner.generate_sync_plan(cluster_manifest) instead.
+    # Phase 2: P2P Rsync Coordination - using SyncPlanner
 
     async def _execute_sync_plan(self) -> None:
         """Leader executes the sync plan by dispatching jobs to nodes.
@@ -9145,10 +8902,7 @@ class P2POrchestrator(
 
         return result
 
-    # NOTE: _training_sync_loop() removed Dec 2025 (72 LOC).
-    # Now runs via LoopManager as TrainingSyncLoop.
-    # See scripts/p2p/loops/training_sync_loop.py for implementation.
-    # The loop calls self._sync_selfplay_to_training_nodes() via callback.
+    # Dec 2025: _training_sync_loop moved to LoopManager (TrainingSyncLoop)
 
     async def _force_ip_refresh_all_sources(self) -> int:
         """Force immediate refresh of IPs from all CLI sources (Tailscale, Vast, AWS).
@@ -9280,120 +9034,8 @@ class P2POrchestrator(
                 logger.info(f"Tailscale IP update loop error: {e}")
                 await asyncio.sleep(60)
 
-    async def _tailscale_peer_recovery_loop(self):
-        """Proactively discover and connect to all Tailscale nodes.
-
-        .. deprecated::
-            December 2025 - This method is deprecated and now runs via LoopManager
-            as TailscalePeerDiscoveryLoop. See scripts/p2p/loops/network_loops.py.
-            This inline version is kept for fallback compatibility but is no longer
-            invoked by default. Will be removed Q2 2026.
-
-        LEARNED LESSONS: Cross-cloud nodes (Lambda, Vast, Hetzner) can lose
-        connectivity intermittently. This loop ensures all nodes stay in the
-        P2P network by:
-        1. Running `tailscale status --json` to find all online nodes
-        2. Attempting to connect to nodes not in the peer list
-        3. Retrying dead/stale nodes more aggressively
-        """
-        import json
-        import subprocess
-
-        logger.info("Tailscale peer recovery loop started (interval=120s)")
-
-        # Patterns for compute nodes we want in the P2P network
-        COMPUTE_PATTERNS = [
-            "lambda-", "vast-", "gh200", "h100", "a100", "a10",
-            "192-222-", "aws-",  # Lambda public IPs and AWS nodes
-        ]
-
-        while self.running:
-            try:
-                await asyncio.sleep(120)  # Every 2 minutes
-
-                # Phase 30: All nodes participate in discovery (not just leader)
-                # This ensures isolated nodes can rejoin the cluster
-                # Rate limit non-leaders to every 5 minutes (3 loops)
-                is_leader = self.role == NodeRole.LEADER
-                if not is_leader:
-                    # Non-leaders do discovery less frequently
-                    loop_count = getattr(self, "_ts_recovery_loop_count", 0) + 1
-                    self._ts_recovery_loop_count = loop_count
-                    if loop_count % 3 != 0:  # Every 3rd iteration = 6 minutes
-                        # Unless we're isolated (few peers)
-                        with self.peers_lock:
-                            alive_count = sum(1 for p in self.peers.values() if p.is_alive())
-                        if alive_count >= MIN_CONNECTED_PEERS:
-                            continue  # Skip if we have enough peers
-
-                # Get current peer node_ids
-                current_peers = set()
-                with self.peers_lock:
-                    current_peers = {p.node_id for p in self.peers.values()}
-
-                # Get Tailscale peers (Jan 2026: use async helper to avoid blocking event loop)
-                try:
-                    returncode, stdout, stderr = await self._run_subprocess_async(
-                        ["tailscale", "status", "--json"], timeout=10
-                    )
-                    if returncode != 0:
-                        continue
-                    ts_data = json.loads(stdout)
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Tailscale status failed: {e}")
-                    continue
-
-                # Find compute nodes not in P2P network
-                missing_nodes = []
-                for _peer_id, peer_info in ts_data.get("Peer", {}).items():
-                    hostname = peer_info.get("HostName", "").lower()
-                    online = peer_info.get("Online", False)
-                    ts_ips = peer_info.get("TailscaleIPs", [])
-
-                    if not online or not ts_ips:
-                        continue
-
-                    # Check if this is a compute node
-                    is_compute = any(pat in hostname for pat in COMPUTE_PATTERNS)
-                    if not is_compute:
-                        continue
-
-                    # Check if already in P2P network
-                    if hostname in current_peers or hostname.replace("-", "_") in current_peers:
-                        continue
-
-                    # Also check by IP prefix
-                    ip = ts_ips[0] if ts_ips else ""
-                    ip_based_id = ip.replace(".", "-")
-                    if ip_based_id in current_peers:
-                        continue
-
-                    missing_nodes.append((hostname, ip))
-
-                if missing_nodes:
-                    logger.info(f"Tailscale peer recovery: {len(missing_nodes)} compute nodes not in P2P network")
-                    for hostname, ip in missing_nodes[:10]:  # Limit to 10 per cycle
-                        logger.info(f"  Attempting to connect: {hostname} ({ip})")
-                        try:
-                            # Try to establish connection via heartbeat
-                            url = f"http://{ip}:{DEFAULT_PORT}/health"
-                            timeout = ClientTimeout(total=10)
-                            async with get_client_session(timeout) as session:
-                                async with session.get(url) as resp:
-                                    if resp.status == 200:
-                                        data = await resp.json()
-                                        node_id = data.get("node_id", hostname)
-                                        logger.info(f"  Connected to {node_id}, sending join request")
-                                        # Send heartbeat to register
-                                        await self._send_heartbeat_to_peer(ip, DEFAULT_PORT)
-                        except Exception as e:  # noqa: BLE001
-                            logger.debug(f"  Failed to connect to {hostname}: {e}")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"Tailscale peer recovery loop error: {e}")
-                await asyncio.sleep(60)
+    # Jan 2026: _tailscale_peer_recovery_loop removed (113 LOC)
+    # Now runs via LoopManager as TailscalePeerDiscoveryLoop in scripts/p2p/loops/network_loops.py
 
     async def _discover_tailscale_peers(self):
         """One-shot Tailscale peer discovery for bootstrap fallback.
@@ -10016,11 +9658,7 @@ class P2POrchestrator(
 
         return conversions_done
 
-    # NOTE: _data_management_loop_DEPRECATED() removed Dec 28, 2025 (~180 LOC).
-    # See scripts/p2p/loops/data_loops.py::DataManagementLoop for replacement.
-
-    # NOTE: _model_sync_loop_DEPRECATED() removed Dec 28, 2025 (~143 LOC).
-    # See scripts/p2p/loops/data_loops.py::ModelSyncLoop for replacement.
+    # Dec 2025: Data/model sync loops moved to LoopManager (323 LOC)
 
     async def _consolidate_selfplay_data(self):
         """Consolidate siloed job databases AND JSONL files into training DB.
@@ -11983,300 +11621,25 @@ class P2POrchestrator(
     # - handle_cmaes_status, handle_cmaes_result
 
     async def _run_distributed_cmaes(self, job_id: str):
-        """Main coordinator loop for distributed CMA-ES.
-
-        Integrates with CMA-ES algorithm to optimize heuristic weights.
-        Distributes candidate evaluation across GPU workers in the cluster.
-        """
-        try:
-            state = self.distributed_cmaes_state.get(job_id)
-            if not state:
-                return
-
-            logger.info(f"CMA-ES coordinator started for job {job_id}")
-            logger.info(f"Config: {state.generations} gens, pop={state.population_size}, {state.games_per_eval} games/eval")
-
-            # Try to import CMA-ES library
-            try:
-                import cma
-                import numpy as np
-            except ImportError:
-                logger.info("CMA-ES requires: pip install cma numpy")
-                state.status = "error: cma not installed"
-                return
-
-            # Default heuristic weights to optimize
-            weight_names = [
-                "material_weight", "ring_count_weight", "stack_height_weight",
-                "center_control_weight", "territory_weight", "mobility_weight",
-                "line_potential_weight", "defensive_weight",
-            ]
-            default_weights = {
-                "material_weight": 1.0, "ring_count_weight": 0.5,
-                "stack_height_weight": 0.3, "center_control_weight": 0.4,
-                "territory_weight": 0.8, "mobility_weight": 0.2,
-                "line_potential_weight": 0.6, "defensive_weight": 0.3,
-            }
-
-            # Convert to vector for CMA-ES
-            x0 = np.array([default_weights[n] for n in weight_names])
-
-            # Initialize CMA-ES
-            es = cma.CMAEvolutionStrategy(x0, 0.5, {
-                'popsize': state.population_size,
-                'maxiter': state.generations,
-                'bounds': [0, 2],  # Weights between 0 and 2
-            })
-
-            state.current_generation = 0
-
-            while not es.stop() and state.status == "running":
-                state.current_generation += 1
-                state.last_update = time.time()
-
-                # Get candidate solutions
-                solutions = es.ask()
-
-                # Distribute evaluations across workers
-                fitness_results = {}
-                pending_evals = {}
-
-                for idx, sol in enumerate(solutions):
-                    weights = {name: float(sol[i]) for i, name in enumerate(weight_names)}
-
-                    # Round-robin assign to workers
-                    if state.worker_nodes:
-                        worker_idx = idx % len(state.worker_nodes)
-                        worker_id = state.worker_nodes[worker_idx]
-
-                        # Send evaluation request to worker
-                        eval_id = f"{job_id}_gen{state.current_generation}_idx{idx}"
-                        pending_evals[eval_id] = idx
-
-                        try:
-                            with self.peers_lock:
-                                worker = self.peers.get(worker_id)
-                            if worker:
-                                timeout = ClientTimeout(total=300)
-                                async with get_client_session(timeout) as session:
-                                    url = self._url_for_peer(worker, "/cmaes/evaluate")
-                                    await session.post(url, json={
-                                        "job_id": job_id,
-                                        "weights": weights,
-                                        "generation": state.current_generation,
-                                        "individual_idx": idx,
-                                        "games_per_eval": state.games_per_eval,
-                                        "board_type": state.board_type,
-                                        "num_players": state.num_players,
-                                    }, headers=self._auth_headers())
-                        except Exception as e:  # noqa: BLE001
-                            logger.error(f"Failed to send eval to {worker_id}: {e}")
-                            # Fall back to local evaluation
-                            fitness = await self._evaluate_cmaes_weights_local(
-                                weights, state.games_per_eval, state.board_type, state.num_players
-                            )
-                            fitness_results[idx] = fitness
-
-                # Wait for results with timeout
-                wait_start = time.time()
-                len(solutions) - len(fitness_results)
-                while len(fitness_results) < len(solutions) and (time.time() - wait_start) < 300:
-                    await asyncio.sleep(1)
-                    state.last_update = time.time()
-
-                    # Check for results that came in via /cmaes/result endpoint
-                    # Results are stored in state.pending_results by handle_cmaes_result
-                    for idx in range(len(solutions)):
-                        if idx in fitness_results:
-                            continue
-                        result_key = f"{state.current_generation}_{idx}"
-                        if result_key in state.pending_results:
-                            fitness_results[idx] = state.pending_results[result_key]
-                            del state.pending_results[result_key]  # Clean up
-
-                    # Progress logging every 30 seconds
-                    elapsed = time.time() - wait_start
-                    if int(elapsed) % 30 == 0 and elapsed > 1:
-                        received = len(fitness_results)
-                        logger.info(f"Gen {state.current_generation}: {received}/{len(solutions)} results received ({elapsed:.0f}s elapsed)")
-
-                # Fill in any missing results with default fitness
-                fitnesses = []
-                for idx in range(len(solutions)):
-                    fitness = fitness_results.get(idx, 0.5)  # Default to 0.5 if no result
-                    fitnesses.append(-fitness)  # CMA-ES minimizes, so negate
-
-                # Update CMA-ES
-                es.tell(solutions, fitnesses)
-
-                # Track best
-                best_idx = np.argmin(fitnesses)
-                if -fitnesses[best_idx] > state.best_fitness:
-                    state.best_fitness = -fitnesses[best_idx]
-                    state.best_weights = {name: float(solutions[best_idx][i]) for i, name in enumerate(weight_names)}
-
-                logger.info(f"Gen {state.current_generation}: best_fitness={state.best_fitness:.4f}")
-
-            state.status = "completed"
-            logger.info(f"CMA-ES job {job_id} completed: best_fitness={state.best_fitness:.4f}")
-            logger.info(f"Best weights: {state.best_weights}")
-
-            # Feed CMA-ES results back to improvement cycle manager
-            if self.improvement_cycle_manager and state.best_weights:
-                try:
-                    agent_id = self.improvement_cycle_manager.handle_cmaes_complete(
-                        state.board_type, state.num_players, state.best_weights
-                    )
-                    logger.info(f"CMA-ES weights registered as agent: {agent_id}")
-                    self.diversity_metrics["cmaes_triggers"] += 1
-
-                    # Save weights to file for future use
-                    weights_file = Path(self._get_ai_service_path()) / "data" / "cmaes" / f"best_weights_{state.board_type}_{state.num_players}p.json"
-                    weights_file.parent.mkdir(parents=True, exist_ok=True)
-                    import json as json_mod
-                    with open(weights_file, "w") as f:
-                        json_mod.dump({
-                            "weights": state.best_weights,
-                            "fitness": state.best_fitness,
-                            "job_id": job_id,
-                            "generation": state.current_generation,
-                            "timestamp": time.time(),
-                        }, f, indent=2)
-                    logger.info(f"Saved CMA-ES weights to {weights_file}")
-
-                    # Propagate new weights to selfplay jobs
-                    asyncio.create_task(self._propagate_cmaes_weights(
-                        state.board_type, state.num_players, state.best_weights
-                    ))
-                except Exception as e:  # noqa: BLE001
-                    logger.error(f"Failed to register CMA-ES weights: {e}")
-
-        except Exception as e:  # noqa: BLE001
-            import traceback
-            logger.info(f"CMA-ES coordinator error: {e}")
-            traceback.print_exc()
-            if job_id in self.distributed_cmaes_state:
-                self.distributed_cmaes_state[job_id].status = f"error: {e}"
+        """Main coordinator loop for distributed CMA-ES. Delegates to CMAESCoordinator."""
+        await self.cmaes_coordinator.run_distributed_cmaes(job_id)
 
     async def _evaluate_cmaes_weights_local(
         self, weights: dict, num_games: int, board_type: str, num_players: int
     ) -> float:
-        """Evaluate weights locally by running selfplay games."""
-        try:
-            sem = getattr(self, "_cmaes_eval_semaphore", None)
-            if sem is None:
-                sem = asyncio.Semaphore(1)
-
-            async with sem:
-                # Run selfplay subprocess to evaluate weights
-                import json as json_mod
-                import tempfile
-
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                    json_mod.dump(weights, f)
-                    weights_file = f.name
-
-                ai_service_path = str(Path(self._get_ai_service_path()))
-                cmd = [
-                    sys.executable, "-c", f"""
-import sys
-sys.path.insert(0, '{ai_service_path}')
-from app.game_engine import GameEngine
-from app.ai.heuristic_ai import HeuristicAI
-from app.models import AIConfig, BoardType, GameStatus
-from app.training.generate_data import create_initial_state
-import json
-
-weights = json.load(open('{weights_file}'))
-board_type = BoardType('{board_type}')
-wins = 0
-total = {num_games}
-
-for i in range(total):
-    state = create_initial_state(board_type, num_players={num_players})
-    engine = GameEngine()
-
-    # Candidate with custom weights vs baseline
-    config_candidate = AIConfig(difficulty=5, randomness=0.1, think_time=500, custom_weights=weights)
-    config_baseline = AIConfig(difficulty=5, randomness=0.1, think_time=500)
-
-    ai_candidate = HeuristicAI(1, config_candidate)
-    ai_baseline = HeuristicAI(2, config_baseline)
-
-    move_count = 0
-    while state.game_status == GameStatus.ACTIVE and move_count < 300:
-        current_ai = ai_candidate if state.current_player == 1 else ai_baseline
-        move = current_ai.select_move(state)
-        if move is None:
-            break
-        state = engine.apply_move(state, move)
-        move_count += 1
-
-    if state.winner == 1:
-        wins += 1
-    elif state.winner is None:
-        wins += 0.5  # Draw counts as half
-
-print(wins / total)
-"""
-                ]
-
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env={**os.environ, "PYTHONPATH": ai_service_path},
-                )
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-
-                # Clean up temp file
-                os.unlink(weights_file)
-
-                if proc.returncode == 0:
-                    return float(stdout.decode().strip())
-                else:
-                    logger.info(f"Local eval error: {stderr.decode()}")
-                    return 0.5
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Local CMA-ES evaluation error: {e}")
-            return 0.5
+        """Evaluate weights locally by running selfplay games. Delegates to CMAESCoordinator."""
+        return await self.cmaes_coordinator.evaluate_weights_local(
+            weights, num_games, board_type, num_players
+        )
 
     async def _evaluate_cmaes_weights(
         self, job_id: str, weights: dict, generation: int, individual_idx: int,
         games_per_eval: int = 5, board_type: str = "square8", num_players: int = 2
     ):
-        """Evaluate weights locally and report result to coordinator."""
-        try:
-            # Run local evaluation using passed parameters (workers don't have state)
-            fitness = await self._evaluate_cmaes_weights_local(
-                weights, games_per_eval, board_type, num_players
-            )
-
-            logger.info(f"Completed local CMA-ES evaluation: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f}")
-
-            # If we're not the coordinator, report result back
-            if self.role != NodeRole.LEADER and self.leader_id:
-                with self.peers_lock:
-                    leader = self.peers.get(self.leader_id)
-                if leader:
-                    try:
-                        timeout = ClientTimeout(total=30)
-                        async with get_client_session(timeout) as session:
-                            url = self._url_for_peer(leader, "/cmaes/result")
-                            await session.post(url, json={
-                                "job_id": job_id,
-                                "generation": generation,
-                                "individual_idx": individual_idx,
-                                "fitness": fitness,
-                                "weights": weights,
-                                "worker_id": self.node_id,
-                            }, headers=self._auth_headers())
-                    except Exception as e:  # noqa: BLE001
-                        logger.error(f"Failed to report CMA-ES result to leader: {e}")
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"CMA-ES evaluation error: {e}")
+        """Evaluate weights locally and report result to coordinator. Delegates to CMAESCoordinator."""
+        await self.cmaes_coordinator.evaluate_weights(
+            job_id, weights, generation, individual_idx, games_per_eval, board_type, num_players
+        )
 
     # Tournament Handlers moved to scripts/p2p/handlers/tournament.py
     # Inherited from TournamentHandlersMixin:
@@ -12577,27 +11940,7 @@ print(json.dumps(result))
             if job_id in self.improvement_loop_state:
                 self.improvement_loop_state[job_id].status = f"error: {e}"
 
-    # NOTE: The following methods were removed Dec 27, 2025 (call sites updated to use job_manager directly):
-    # - _run_distributed_selfplay() -> self.job_manager.run_distributed_selfplay()
-    # - _export_training_data() -> self.job_manager.export_training_data()
-    # - _run_training() -> self.job_manager.run_training()
-    # - _run_local_selfplay() -> self.job_manager.run_local_selfplay() (removed Dec 2025)
-    # - _run_local_training() -> self.job_manager.run_local_training() (removed Dec 2025)
-
-    # ============================================
-    # Phase 3: Training Pipeline Integration Methods
-    # ============================================
-
-    # NOTE: _check_training_readiness() removed Dec 2025 (95 LOC).
-    # Use self.training_coordinator.check_training_readiness() instead.
-    # See scripts/p2p/managers/training_coordinator.py for implementation.
-
-    # NOTE: _find_running_training_job() and _find_resumable_training_job() removed Dec 2025 (29 LOC).
-    # Use self.training_coordinator.find_running_training_job() and
-    # self.training_coordinator.find_resumable_training_job() instead.
-
-    # NOTE: _dispatch_training_job() removed Dec 2025 (9 LOC).
-    # Use self.training_coordinator.dispatch_training_job() directly.
+    # Dec 2025: Training methods delegated to job_manager and training_coordinator
 
     async def _check_and_trigger_training(self):
         """Periodic check for training readiness (leader only)."""
@@ -12936,77 +12279,8 @@ print(json.dumps(result))
     #           handle_training_trigger, handle_training_trigger_decision, handle_training_trigger_configs, handle_nnue_start
 
     async def _trigger_auto_cmaes(self, board_type: str, num_players: int):
-        """Automatically trigger CMA-ES optimization for a configuration.
-
-        Called by improvement cycle manager when optimization is due.
-        """
-        try:
-            job_id = f"auto_cmaes_{board_type}_{num_players}p_{int(time.time())}"
-            logger.info(f"Auto-triggering CMA-ES: {job_id}")
-
-            # Check for GPU workers
-            gpu_workers = []
-            with self.peers_lock:
-                for peer in self.peers.values():
-                    if peer.is_healthy() and peer.has_gpu and peer.node_id != self.node_id:
-                        gpu_workers.append(peer)
-
-            if self.self_info.has_gpu:
-                gpu_workers.append(self.self_info)
-
-            if len(gpu_workers) >= 2:
-                # DISTRIBUTED MODE
-                cmaes_job_id = f"cmaes_auto_{job_id}"
-                state = DistributedCMAESState(
-                    job_id=cmaes_job_id,
-                    board_type=board_type,
-                    num_players=num_players,
-                    generations=100,
-                    population_size=max(32, len(gpu_workers) * 8),
-                    games_per_eval=100,
-                    status="running",
-                    started_at=time.time(),
-                    last_update=time.time(),
-                    worker_nodes=[w.node_id for w in gpu_workers],
-                )
-                self.distributed_cmaes_state[cmaes_job_id] = state
-                asyncio.create_task(self._run_distributed_cmaes(cmaes_job_id))
-                logger.info(f"Started distributed CMA-ES with {len(gpu_workers)} workers")
-            else:
-                # LOCAL MODE - use GPU CMA-ES script
-                output_dir = os.path.join(
-                    self._get_ai_service_path(), "data", "cmaes",
-                    f"{board_type}_{num_players}p_auto_{int(time.time())}"
-                )
-                os.makedirs(output_dir, exist_ok=True)
-
-                cmd = [
-                    sys.executable,
-                    os.path.join(self._get_ai_service_path(), "scripts", "run_gpu_cmaes.py"),
-                    "--board", board_type,
-                    "--num-players", str(num_players),
-                    "--generations", "100",
-                    "--population-size", "32",
-                    "--games-per-eval", "100",
-                    "--max-moves", "10000",
-                    "--output-dir", output_dir,
-                    "--multi-gpu",
-                ]
-
-                env = os.environ.copy()
-                env["PYTHONPATH"] = self._get_ai_service_path()
-                env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
-
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                )
-                logger.info(f"Started local CMA-ES optimization (PID {proc.pid})")
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Auto CMA-ES trigger failed: {e}")
+        """Automatically trigger CMA-ES optimization for a configuration. Delegates to CMAESCoordinator."""
+        await self.cmaes_coordinator.trigger_auto_cmaes(board_type, num_players)
 
     async def handle_cmaes_start_auto(self, request: web.Request) -> web.Response:
         """Handle CMA-ES optimization start request.
@@ -13943,41 +13217,15 @@ print(json.dumps(result))
     ):
         """Propagate new CMA-ES weights to selfplay workers.
 
-        After CMA-ES optimization finds better weights, this:
-        1. Saves weights to shared config file
-        2. Restarts selfplay jobs for this config with new weights
+        Delegates weight saving to CMAESCoordinator. Handles job management locally.
         """
         try:
             config_key = f"{board_type}_{num_players}p"
-            logger.info(f"Propagating CMA-ES weights for {config_key}")
 
-            # 1. Save to shared heuristic weights config
-            config_path = Path(self._get_ai_service_path()) / "config" / "heuristic_weights.json"
-            config_path.parent.mkdir(parents=True, exist_ok=True)
+            # Delegate weight saving and tracking to coordinator
+            await self.cmaes_coordinator.propagate_weights(board_type, num_players, weights)
 
-            import json as json_mod
-            existing = {}
-            if config_path.exists():
-                with contextlib.suppress(Exception):
-                    existing = json_mod.loads(config_path.read_text())
-
-            existing[config_key] = {
-                "weights": weights,
-                "updated_at": time.time(),
-            }
-            config_path.write_text(json_mod.dumps(existing, indent=2))
-            logger.info(f"Updated heuristic_weights.json with {config_key} weights")
-
-            # 2. Track config for weight-aware selfplay scheduling
-            if not hasattr(self, 'cmaes_weight_configs'):
-                self.cmaes_weight_configs = {}
-
-            self.cmaes_weight_configs[config_key] = {
-                "weights": weights,
-                "updated_at": time.time(),
-            }
-
-            # 3. Stop existing selfplay jobs for this config (they'll restart with new weights)
+            # Stop existing selfplay jobs for this config (orchestrator-specific)
             jobs_to_stop = []
             with self.jobs_lock:
                 for job_id, job in self.local_jobs.items():
@@ -13991,7 +13239,7 @@ print(json.dumps(result))
                 await self._stop_local_job(job_id)
                 logger.info(f"Stopped selfplay job {job_id} for weight update")
 
-            # 4. Boost selfplay to generate data with new weights
+            # Boost selfplay to generate data with new weights
             asyncio.create_task(self._boost_selfplay_for_config(board_type, num_players))
 
             logger.info(f"Weight propagation complete for {config_key}")
@@ -14627,1258 +13875,89 @@ print(json.dumps(result))
     # handle_elo_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
     # handle_nodes_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
 
+    # NOTE: Analytics cache methods moved to AnalyticsCacheManager (Jan 26, 2026)
+    # Thin wrappers kept for backward compatibility
+
     async def _get_victory_type_stats(self) -> dict[tuple[str, int, str], int]:
-        """Aggregate victory types from recent game data.
-
-        Returns dict mapping (board_type, num_players, victory_type) -> count.
-        Caches results for 5 minutes to avoid excessive I/O.
-        """
-        import json
-        from collections import defaultdict
-
-        cache_key = "_victory_stats_cache"
-        cache_time_key = "_victory_stats_cache_time"
-        cache_ttl = 300  # 5 minutes
-
-        # Check cache
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        # Skip JSONL scanning during startup grace period
-        if self._is_in_startup_grace_period():
-            return {}
-
-        stats: dict[tuple[str, int, str], int] = defaultdict(int)
-
-        # Scan recent game files (last 24 hours)
-        ai_root = Path(self._get_ai_service_path())
-        data_dirs = [
-            ai_root / "data" / "games" / "daemon_sync",
-            ai_root / "data" / "selfplay",
-        ]
-
-        cutoff_time = now - 86400  # 24 hours ago
-
-        for data_dir in data_dirs:
-            if not data_dir.exists():
-                continue
-            for jsonl_path in data_dir.rglob("*.jsonl"):
-                try:
-                    # Skip files older than 24h
-                    if jsonl_path.stat().st_mtime < cutoff_time:
-                        continue
-                    with open_jsonl_file(jsonl_path) as f:
-                        for line in f:
-                            try:
-                                game = json.loads(line)
-                                board_type = game.get("board_type", "unknown")
-                                num_players = game.get("num_players", 0)
-                                victory_type = game.get("victory_type", "unknown")
-                                if victory_type and victory_type != "unknown":
-                                    stats[(board_type, num_players, victory_type)] += 1
-                            except json.JSONDecodeError:
-                                continue
-                except (json.JSONDecodeError, AttributeError):
-                    continue
-
-        # Update cache
-        setattr(self, cache_key, dict(stats))
-        setattr(self, cache_time_key, now)
-
-        return dict(stats)
-
-    def _get_game_analytics_sync(self, ai_root: Path, cutoff: float) -> dict[str, Any]:
-        """Synchronous helper for game analytics (runs in thread pool).
-
-        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
-        File I/O operations (rglob, stat, read) are blocking.
-        """
-        import json
-        from collections import defaultdict
-
-        data_dirs = [
-            ai_root / "data" / "games" / "daemon_sync",
-            ai_root / "data" / "selfplay",
-        ]
-
-        game_lengths: dict[str, list[int]] = defaultdict(list)
-        games_by_hour: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
-        opening_moves: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-
-        for data_dir in data_dirs:
-            if not data_dir.exists():
-                continue
-            try:
-                jsonl_files = list(data_dir.rglob("*.jsonl"))
-            except OSError:
-                continue
-
-            for jsonl_path in jsonl_files:
-                try:
-                    mtime = jsonl_path.stat().st_mtime
-                    if mtime < cutoff:
-                        continue
-                    with open_jsonl_file(jsonl_path) as f:
-                        for line in f:
-                            try:
-                                game = json.loads(line)
-                                board_type = game.get("board_type", "unknown")
-                                num_players = game.get("num_players", 0)
-                                config = f"{board_type}_{num_players}p"
-
-                                length = game.get("length", 0)
-                                if length > 0:
-                                    game_lengths[config].append(length)
-
-                                hour_bucket = int(mtime // 3600)
-                                games_by_hour[config][hour_bucket] += 1
-
-                                moves = game.get("moves", [])
-                                if moves and len(moves) >= 1:
-                                    first_move = str(moves[0].get("action", ""))[:20]
-                                    if first_move:
-                                        opening_moves[config][first_move] += 1
-                            except json.JSONDecodeError:
-                                continue
-                except (json.JSONDecodeError, ValueError, AttributeError, OSError):
-                    continue
-
-        analytics: dict[str, Any] = {"configs": {}}
-        for config in set(list(game_lengths.keys()) + list(games_by_hour.keys())):
-            lengths = game_lengths.get(config, [])
-            hourly = games_by_hour.get(config, {})
-            openings = opening_moves.get(config, {})
-            throughput = sum(hourly.values()) / max(len(hourly), 1) if hourly else 0
-
-            analytics["configs"][config] = {
-                "avg_length": round(sum(lengths) / len(lengths), 1) if lengths else 0,
-                "throughput_per_hour": round(throughput, 1),
-                "opening_diversity": len(openings),
-            }
-
-        return analytics
+        """Aggregate victory types from recent game data. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_victory_type_stats()
 
     async def _get_game_analytics_cached(self) -> dict[str, Any]:
-        """Get game analytics with caching (5 min TTL).
-
-        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
-        """
-        cache_key = "_game_analytics_cache"
-        cache_time_key = "_game_analytics_cache_time"
-        cache_ttl = 300
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        # Skip JSONL scanning during startup grace period
-        if self._is_in_startup_grace_period():
-            return {"configs": {}}
-
-        hours = 24
-        cutoff = now - (hours * 3600)
-        ai_root = Path(self._get_ai_service_path())
-
-        # Jan 25, 2026: Run blocking file I/O operations in thread pool
-        analytics = await asyncio.to_thread(self._get_game_analytics_sync, ai_root, cutoff)
-
-        setattr(self, cache_key, analytics)
-        setattr(self, cache_time_key, now)
-        return analytics
-
-    def _get_training_metrics_sync(self, logs_dir: Path) -> dict[str, Any]:
-        """Synchronous helper for training metrics (runs in thread pool).
-
-        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
-        File I/O operations (glob, stat, read_text) are blocking.
-        """
-        import re
-
-        metrics: dict[str, Any] = {"configs": {}}
-
-        if not logs_dir.exists():
-            return metrics
-
-        try:
-            log_files = sorted(logs_dir.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)[:10]
-        except OSError:
-            return metrics
-
-        for log_file in log_files:
-            try:
-                content = log_file.read_text()
-                config_match = re.search(r"(square\d+|hexagonal|hex)_(\d+)p", log_file.name)
-                if not config_match:
-                    continue
-                config = f"{config_match.group(1)}_{config_match.group(2)}p"
-
-                loss_pattern = re.compile(r"[Ee]poch\s+(\d+).*?loss[=:]\s*([\d.]+)")
-                epochs = []
-                for match in loss_pattern.finditer(content):
-                    epochs.append({
-                        "epoch": int(match.group(1)),
-                        "loss": float(match.group(2)),
-                    })
-
-                if epochs:
-                    metrics["configs"][config] = {
-                        "latest_loss": epochs[-1]["loss"],
-                        "latest_epoch": epochs[-1]["epoch"],
-                    }
-            except (OSError, ValueError, KeyError, IndexError, AttributeError):
-                continue
-
-        return metrics
+        """Get game analytics with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_game_analytics_cached()
 
     async def _get_training_metrics_cached(self) -> dict[str, Any]:
-        """Get training metrics with caching (2 min TTL).
-
-        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
-        """
-        cache_key = "_training_metrics_cache"
-        cache_time_key = "_training_metrics_cache_time"
-        cache_ttl = 120
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        ai_root = Path(self._get_ai_service_path())
-        logs_dir = ai_root / "logs" / "training"
-
-        # Jan 25, 2026: Run blocking file I/O operations in thread pool
-        metrics = await asyncio.to_thread(self._get_training_metrics_sync, logs_dir)
-
-        setattr(self, cache_key, metrics)
-        setattr(self, cache_time_key, now)
-        return metrics
-
-    def _get_holdout_metrics_sync(self, db_path: Path) -> dict[str, Any]:
-        """Synchronous helper for holdout metrics (runs in thread pool).
-
-        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
-        SQLite operations are blocking and must run in a separate thread.
-        """
-        import sqlite3
-
-        metrics: dict[str, Any] = {"configs": {}, "evaluations": [], "summary": {}}
-
-        if not db_path.exists():
-            return metrics
-
-        try:
-            with safe_db_connection(db_path) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-
-                # Get holdout game counts by config
-                cursor.execute("""
-                    SELECT board_type, num_players, COUNT(*) as game_count, SUM(num_positions) as total_positions
-                    FROM holdout_games
-                    GROUP BY board_type, num_players
-                """)
-                for row in cursor.fetchall():
-                    config = f"{row['board_type']}_{row['num_players']}p"
-                    metrics["configs"][config] = {
-                        "holdout_games": row["game_count"],
-                        "holdout_positions": row["total_positions"] or 0,
-                    }
-
-                # Get latest evaluations per config
-                cursor.execute("""
-                    SELECT model_path, board_type, num_players, holdout_loss, holdout_accuracy,
-                           train_loss, num_samples, evaluated_at, overfit_gap
-                    FROM evaluations
-                    WHERE id IN (
-                        SELECT MAX(id) FROM evaluations
-                        GROUP BY board_type, num_players
-                    )
-                    ORDER BY evaluated_at DESC
-                """)
-                for row in cursor.fetchall():
-                    config = f"{row['board_type']}_{row['num_players']}p"
-                    eval_data = {
-                        "config": config,
-                        "model": row["model_path"],
-                        "holdout_loss": row["holdout_loss"],
-                        "holdout_accuracy": row["holdout_accuracy"],
-                        "train_loss": row["train_loss"],
-                        "overfit_gap": row["overfit_gap"],
-                        "num_samples": row["num_samples"],
-                        "evaluated_at": row["evaluated_at"],
-                    }
-                    metrics["evaluations"].append(eval_data)
-                    # Update config metrics
-                    if config in metrics["configs"]:
-                        metrics["configs"][config].update({
-                            "holdout_loss": row["holdout_loss"],
-                            "holdout_accuracy": row["holdout_accuracy"],
-                            "overfit_gap": row["overfit_gap"],
-                        })
-
-                # Get summary stats
-                cursor.execute("SELECT COUNT(*) FROM holdout_games")
-                metrics["summary"]["total_holdout_games"] = cursor.fetchone()[0]
-                cursor.execute("SELECT COUNT(*) FROM evaluations")
-                metrics["summary"]["total_evaluations"] = cursor.fetchone()[0]
-        except (sqlite3.Error, OSError, KeyError, IndexError, TypeError):
-            pass
-
-        return metrics
+        """Get training metrics with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_training_metrics_cached()
 
     async def _get_holdout_metrics_cached(self) -> dict[str, Any]:
-        """Get holdout validation metrics with caching (5 min TTL).
-
-        Jan 25, 2026: Fixed event loop blocking by running SQLite in thread pool.
-        """
-        cache_key = "_holdout_metrics_cache"
-        cache_time_key = "_holdout_metrics_cache_time"
-        cache_ttl = 300
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        ai_root = Path(self._get_ai_service_path())
-        db_path = ai_root / "data" / "holdouts" / "holdout_validation.db"
-
-        # Jan 25, 2026: Run blocking SQLite operations in thread pool to avoid blocking event loop
-        metrics = await asyncio.to_thread(self._get_holdout_metrics_sync, db_path)
-
-        setattr(self, cache_key, metrics)
-        setattr(self, cache_time_key, now)
-        return metrics
-
-    def _get_mcts_stats_sync(self, ai_root: Path, cutoff: float) -> dict[str, Any]:
-        """Synchronous helper for MCTS stats (runs in thread pool).
-
-        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
-        File I/O operations (glob, read_text, rglob, stat) are blocking and must
-        run in a separate thread.
-        """
-        import json
-        import re
-
-        stats: dict[str, Any] = {"configs": {}, "summary": {}}
-
-        # Parse selfplay logs for MCTS stats
-        logs_dir = ai_root / "logs" / "selfplay"
-        if logs_dir.exists():
-            try:
-                log_files = sorted(logs_dir.glob("*.log"), key=lambda f: f.stat().st_mtime, reverse=True)[:20]
-            except OSError:
-                log_files = []
-
-            nodes_per_move: list[int] = []
-            depth_stats: list[int] = []
-            time_per_move: list[float] = []
-
-            for log_file in log_files:
-                try:
-                    content = log_file.read_text(errors='ignore')
-                    # Parse MCTS stats patterns (nodes visited, search depth, time)
-                    # Pattern: "nodes: 1234" or "nodes_visited: 1234"
-                    for match in re.finditer(r'nodes[_\s]*(?:visited)?[:\s]*(\d+)', content, re.I):
-                        nodes_per_move.append(int(match.group(1)))
-                    # Pattern: "depth: 12" or "search_depth: 12"
-                    for match in re.finditer(r'(?:search_)?depth[:\s]*(\d+)', content, re.I):
-                        depth_stats.append(int(match.group(1)))
-                    # Pattern: "time: 0.123s" or "move_time: 123ms"
-                    for match in re.finditer(r'(?:move_)?time[:\s]*([\d.]+)\s*(?:s|ms)?', content, re.I):
-                        time_per_move.append(float(match.group(1)))
-                except (ValueError, KeyError, IndexError, AttributeError, OSError):
-                    continue
-
-            if nodes_per_move:
-                stats["summary"]["avg_nodes_per_move"] = sum(nodes_per_move) / len(nodes_per_move)
-                stats["summary"]["max_nodes_per_move"] = max(nodes_per_move)
-            if depth_stats:
-                stats["summary"]["avg_search_depth"] = sum(depth_stats) / len(depth_stats)
-                stats["summary"]["max_search_depth"] = max(depth_stats)
-            if time_per_move:
-                stats["summary"]["avg_time_per_move"] = sum(time_per_move) / len(time_per_move)
-
-        # Also check game JSONL files for MCTS metadata
-        data_dirs = [
-            ai_root / "data" / "games" / "daemon_sync",
-            ai_root / "data" / "selfplay",
-        ]
-
-        for data_dir in data_dirs:
-            if not data_dir.exists():
-                continue
-            try:
-                jsonl_files = list(data_dir.rglob("*.jsonl"))
-            except OSError:
-                continue
-
-            for jsonl_path in jsonl_files:
-                try:
-                    if jsonl_path.stat().st_mtime < cutoff:
-                        continue
-                    with open_jsonl_file(jsonl_path) as f:
-                        for line in f:
-                            try:
-                                game = json.loads(line)
-                                board_type = game.get("board_type", "unknown")
-                                num_players = game.get("num_players", 0)
-                                config = f"{board_type}_{num_players}p"
-
-                                # Check for MCTS metadata in game
-                                mcts_data = game.get("mcts_stats", {})
-                                if mcts_data:
-                                    if config not in stats["configs"]:
-                                        stats["configs"][config] = {
-                                            "nodes_samples": [],
-                                            "depth_samples": [],
-                                        }
-                                    if "avg_nodes" in mcts_data:
-                                        stats["configs"][config]["nodes_samples"].append(mcts_data["avg_nodes"])
-                                    if "avg_depth" in mcts_data:
-                                        stats["configs"][config]["depth_samples"].append(mcts_data["avg_depth"])
-                            except json.JSONDecodeError:
-                                continue
-                except (json.JSONDecodeError, AttributeError, OSError):
-                    continue
-
-        # Compute per-config averages
-        for _config, data in stats["configs"].items():
-            if data.get("nodes_samples"):
-                data["avg_nodes"] = sum(data["nodes_samples"]) / len(data["nodes_samples"])
-            if data.get("depth_samples"):
-                data["avg_depth"] = sum(data["depth_samples"]) / len(data["depth_samples"])
-            # Clean up sample lists
-            data.pop("nodes_samples", None)
-            data.pop("depth_samples", None)
-
-        return stats
+        """Get holdout validation metrics with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_holdout_metrics_cached()
 
     async def _get_mcts_stats_cached(self) -> dict[str, Any]:
-        """Get MCTS search statistics with caching (2 min TTL).
-
-        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
-        """
-        cache_key = "_mcts_stats_cache"
-        cache_time_key = "_mcts_stats_cache_time"
-        cache_ttl = 120
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        # Skip JSONL scanning during startup grace period
-        if self._is_in_startup_grace_period():
-            return {"configs": {}, "summary": {}}
-
-        ai_root = Path(self._get_ai_service_path())
-        cutoff = now - 3600  # Last hour
-
-        # Jan 25, 2026: Run blocking file I/O operations in thread pool to avoid blocking event loop
-        stats = await asyncio.to_thread(self._get_mcts_stats_sync, ai_root, cutoff)
-
-        setattr(self, cache_key, stats)
-        setattr(self, cache_time_key, now)
-        return stats
-
-    # =========================================================================
-    # Feature 1: Tournament Matchup Analysis
-    # =========================================================================
-
-    def _get_matchup_matrix_sync(self, db_path: Path, cutoff: float) -> dict[str, Any]:
-        """Synchronous helper for matchup matrix (runs in thread pool).
-
-        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
-        SQLite operations are blocking and must run in a separate thread.
-        """
-        import sqlite3
-        from collections import defaultdict
-
-        matrix: dict[str, Any] = {"matchups": [], "models": [], "configs": {}}
-
-        if not db_path.exists():
-            return matrix
-
-        try:
-            # Phase 3.4 Dec 29, 2025: Use context manager to prevent connection leaks
-            with safe_db_connection(db_path) as conn:
-                conn.row_factory = sqlite3.Row
-
-                # Get all match history
-                rows = conn.execute("""
-                    SELECT participant_a, participant_b, winner, board_type, num_players,
-                           game_length, duration_sec, timestamp
-                    FROM match_history
-                    WHERE timestamp > ?
-                    ORDER BY timestamp DESC
-                    LIMIT 10000
-                """, (cutoff,)).fetchall()  # Last 7 days
-
-                # Build matchup stats
-                h2h: dict[str, dict[str, dict[str, int]]] = defaultdict(lambda: defaultdict(lambda: {"wins": 0, "losses": 0, "draws": 0}))
-                models: set[str] = set()
-                config_stats: dict[str, Any] = defaultdict(lambda: {"total_matches": 0, "avg_game_length": [], "avg_duration": []})
-
-                for row in rows:
-                    a = row["participant_a"]
-                    b = row["participant_b"]
-                    winner = row["winner"]
-                    config = f"{row['board_type']}_{row['num_players']}p"
-
-                    if a and b:
-                        models.add(a)
-                        models.add(b)
-
-                        if winner == a:
-                            h2h[a][b]["wins"] += 1
-                            h2h[b][a]["losses"] += 1
-                        elif winner == b:
-                            h2h[b][a]["wins"] += 1
-                            h2h[a][b]["losses"] += 1
-                        else:
-                            h2h[a][b]["draws"] += 1
-                            h2h[b][a]["draws"] += 1
-
-                        config_stats[config]["total_matches"] += 1
-                        if row["game_length"]:
-                            config_stats[config]["avg_game_length"].append(row["game_length"])
-                        if row["duration_sec"]:
-                            config_stats[config]["avg_duration"].append(row["duration_sec"])
-
-                # Convert to matchup list
-                matchups = []
-                for model_a in sorted(models):
-                    for model_b in sorted(models):
-                        if model_a < model_b:  # Avoid duplicates
-                            stats = h2h[model_a][model_b]
-                            total = stats["wins"] + stats["losses"] + stats["draws"]
-                            if total > 0:
-                                matchups.append({
-                                    "model_a": model_a,
-                                    "model_b": model_b,
-                                    "a_wins": stats["wins"],
-                                    "b_wins": stats["losses"],
-                                    "draws": stats["draws"],
-                                    "total": total,
-                                    "a_win_rate": round(stats["wins"] / total, 3) if total > 0 else 0,
-                                })
-
-                # Compute config averages
-                for _config, data in config_stats.items():
-                    if data["avg_game_length"]:
-                        data["avg_game_length"] = round(sum(data["avg_game_length"]) / len(data["avg_game_length"]), 1)
-                    else:
-                        data["avg_game_length"] = 0
-                    if data["avg_duration"]:
-                        data["avg_duration"] = round(sum(data["avg_duration"]) / len(data["avg_duration"]), 2)
-                    else:
-                        data["avg_duration"] = 0
-
-                matrix["matchups"] = matchups
-                matrix["models"] = sorted(models)
-                matrix["configs"] = dict(config_stats)
-                matrix["total_matches"] = sum(c["total_matches"] for c in config_stats.values())
-        except (sqlite3.Error, OSError, KeyError, ValueError, TypeError):
-            pass
-
-        return matrix
+        """Get MCTS search statistics with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_mcts_stats_cached()
 
     async def _get_matchup_matrix_cached(self) -> dict[str, Any]:
-        """Get head-to-head matchup statistics with caching (5 min TTL).
-
-        Jan 25, 2026: Fixed event loop blocking by running SQLite in thread pool.
-        """
-        cache_key = "_matchup_matrix_cache"
-        cache_time_key = "_matchup_matrix_cache_time"
-        cache_ttl = 300
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        ai_root = Path(self._get_ai_service_path())
-        db_path = ai_root / "data" / "unified_elo.db"
-        cutoff = now - 86400 * 7  # Last 7 days
-
-        # Jan 25, 2026: Run blocking SQLite operations in thread pool
-        matrix = await asyncio.to_thread(self._get_matchup_matrix_sync, db_path, cutoff)
-
-        setattr(self, cache_key, matrix)
-        setattr(self, cache_time_key, now)
-        return matrix
+        """Get head-to-head matchup statistics with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_matchup_matrix_cached()
 
     # =========================================================================
     # Feature 2: Model Lineage Tracking
     # =========================================================================
 
     async def _get_model_lineage_cached(self) -> dict[str, Any]:
-        """Get model lineage and ancestry with caching (10 min TTL)."""
-        import re
-
-        cache_key = "_model_lineage_cache"
-        cache_time_key = "_model_lineage_cache_time"
-        cache_ttl = 600
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        ai_root = Path(self._get_ai_service_path())
-        models_dir = ai_root / "models"
-
-        lineage = {"models": [], "generations": {}, "configs": {}}
-
-        if not models_dir.exists():
-            setattr(self, cache_key, lineage)
-            setattr(self, cache_time_key, now)
-            return lineage
-
-        try:
-            # Discover all models
-            model_files = list(models_dir.glob("**/*.pt")) + list(models_dir.glob("**/*.pth"))
-
-            for model_path in model_files:
-                model_name = model_path.stem
-                model_stat = model_path.stat()
-
-                # Parse model name for lineage info
-                # Common patterns:
-                #   - square8_2p_v5_gen12, nnue_square8_2p_epoch50
-                #   - ringrift_best_sq8_2p, ringrift_best_sq19_2p
-                #   - hex_3p_nn_baseline, ringrift_best_hex_2p
-                # Handle both full names (square8, hexagonal) and abbreviations (sq8, hex)
-                config_match = re.search(
-                    r"(square\d+|sq\d+|hexagonal|hex)[\W_]*(\d+)p",
-                    model_name,
-                    re.I
-                )
-                gen_match = re.search(r"gen(\d+)|v(\d+)|epoch(\d+)", model_name, re.I)
-
-                if config_match:
-                    board = config_match.group(1).lower()
-                    players = config_match.group(2)
-                    # Normalize board names (only transform abbreviations, not full names)
-                    if board.startswith("sq") and not board.startswith("square"):
-                        # sq8 -> square8, sq19 -> square19
-                        board = f"square{board[2:]}"
-                    elif board == "hex":
-                        board = "hexagonal"
-                    config = f"{board}_{players}p"
-                else:
-                    config = "unknown"
-                generation = int(gen_match.group(1) or gen_match.group(2) or gen_match.group(3) or 0) if gen_match else 0
-
-                model_info = {
-                    "name": model_name,
-                    "path": str(model_path.relative_to(ai_root)),
-                    "config": config,
-                    "generation": generation,
-                    "size_mb": round(model_stat.st_size / 1024 / 1024, 2),
-                    "created_at": model_stat.st_mtime,
-                    "age_hours": round((now - model_stat.st_mtime) / 3600, 1),
-                }
-                lineage["models"].append(model_info)
-
-                # Track generations per config
-                if config not in lineage["generations"]:
-                    lineage["generations"][config] = []
-                lineage["generations"][config].append(model_info)
-
-            # Sort models by generation within each config
-            for config in lineage["generations"]:
-                lineage["generations"][config].sort(key=lambda m: m["generation"])
-
-            # Summary per config
-            for config, models in lineage["generations"].items():
-                lineage["configs"][config] = {
-                    "total_models": len(models),
-                    "latest_generation": max(m["generation"] for m in models) if models else 0,
-                    "latest_model": models[-1]["name"] if models else None,
-                    "total_size_mb": round(sum(m["size_mb"] for m in models), 1),
-                }
-
-            lineage["total_models"] = len(lineage["models"])
-
-        except (sqlite3.Error, OSError, KeyError, ValueError, TypeError):
-            pass
-
-        setattr(self, cache_key, lineage)
-        setattr(self, cache_time_key, now)
-        return lineage
+        """Get model lineage and ancestry with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_model_lineage_cached()
 
     # =========================================================================
     # Feature 3: Data Quality Metrics
     # =========================================================================
 
-    def _get_data_quality_sync(self, ai_root: Path, cutoff: float) -> dict[str, Any]:
-        """Synchronous helper for data quality metrics (runs in thread pool).
-
-        Jan 25, 2026: Extracted from async method to avoid blocking event loop.
-        File I/O operations (rglob, stat, read) are blocking.
-        """
-        import json
-        from collections import defaultdict
-
-        quality: dict[str, Any] = {"configs": {}, "issues": [], "summary": {}}
-
-        data_dirs = [
-            ai_root / "data" / "games" / "daemon_sync",
-            ai_root / "data" / "selfplay",
-        ]
-
-        try:
-            config_stats: dict[str, Any] = defaultdict(lambda: {
-                "total_games": 0,
-                "game_lengths": [],
-                "short_games": 0,  # < 10 moves
-                "long_games": 0,   # > 500 moves
-                "stalemates": 0,
-                "unique_openings": set(),
-                "player_wins": defaultdict(int),
-                "parse_errors": 0,
-            })
-
-            for data_dir in data_dirs:
-                if not data_dir.exists():
-                    continue
-                try:
-                    jsonl_files = list(data_dir.rglob("*.jsonl"))
-                except OSError:
-                    continue
-
-                for jsonl_path in jsonl_files:
-                    try:
-                        if jsonl_path.stat().st_mtime < cutoff:
-                            continue
-                        with open_jsonl_file(jsonl_path) as f:
-                            for line in f:
-                                try:
-                                    game = json.loads(line)
-                                    board_type = game.get("board_type", "unknown")
-                                    num_players = game.get("num_players", 0)
-                                    config = f"{board_type}_{num_players}p"
-
-                                    stats = config_stats[config]
-                                    stats["total_games"] += 1
-
-                                    length = game.get("length", 0)
-                                    if length > 0:
-                                        stats["game_lengths"].append(length)
-                                        if length < 10:
-                                            stats["short_games"] += 1
-                                        elif length > 500:
-                                            stats["long_games"] += 1
-
-                                    victory_type = game.get("victory_type", "")
-                                    if victory_type == "stalemate":
-                                        stats["stalemates"] += 1
-
-                                    # Track opening diversity
-                                    moves = game.get("moves", [])
-                                    if moves and len(moves) >= 2:
-                                        opening = str(moves[0].get("action", ""))[:15] + "-" + str(moves[1].get("action", ""))[:15]
-                                        stats["unique_openings"].add(opening)
-
-                                    # Track winner distribution
-                                    winner = game.get("winner")
-                                    if winner is not None:
-                                        stats["player_wins"][winner] += 1
-
-                                except json.JSONDecodeError:
-                                    config_stats["unknown"]["parse_errors"] += 1
-                    except (OSError, ValueError, KeyError):
-                        continue
-
-            # Convert to quality metrics
-            issues: list[dict[str, Any]] = []
-            for config, stats in config_stats.items():
-                total = stats["total_games"]
-                if total == 0:
-                    continue
-
-                lengths = stats["game_lengths"]
-                avg_length = sum(lengths) / len(lengths) if lengths else 0
-                length_std = (sum((length - avg_length) ** 2 for length in lengths) / len(lengths)) ** 0.5 if len(lengths) > 1 else 0
-
-                short_rate = stats["short_games"] / total
-                long_rate = stats["long_games"] / total
-                stalemate_rate = stats["stalemates"] / total
-                opening_diversity = len(stats["unique_openings"])
-
-                # Detect issues
-                if short_rate > 0.1:
-                    issues.append({"config": config, "issue": "high_short_game_rate", "value": round(short_rate * 100, 1), "severity": "warning"})
-                if stalemate_rate > 0.3:
-                    issues.append({"config": config, "issue": "high_stalemate_rate", "value": round(stalemate_rate * 100, 1), "severity": "warning"})
-                if opening_diversity < 5 and total > 50:
-                    issues.append({"config": config, "issue": "low_opening_diversity", "value": opening_diversity, "severity": "warning"})
-
-                # Check for player bias
-                wins = stats["player_wins"]
-                if len(wins) >= 2 and total > 20:
-                    max_win_rate = max(wins.values()) / total
-                    if max_win_rate > 0.7:
-                        issues.append({"config": config, "issue": "player_bias", "value": round(max_win_rate * 100, 1), "severity": "info"})
-
-                quality["configs"][config] = {
-                    "total_games": total,
-                    "avg_length": round(avg_length, 1),
-                    "length_std": round(length_std, 1),
-                    "short_game_rate": round(short_rate * 100, 1),
-                    "long_game_rate": round(long_rate * 100, 1),
-                    "stalemate_rate": round(stalemate_rate * 100, 1),
-                    "opening_diversity": opening_diversity,
-                    "parse_errors": stats["parse_errors"],
-                }
-
-            quality["issues"] = issues
-            quality["summary"] = {
-                "total_configs": len(quality["configs"]),
-                "total_issues": len(issues),
-                "critical_issues": len([i for i in issues if i["severity"] == "critical"]),
-                "warning_issues": len([i for i in issues if i["severity"] == "warning"]),
-            }
-
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-
-        return quality
-
     async def _get_data_quality_cached(self) -> dict[str, Any]:
-        """Get data quality metrics with caching (5 min TTL).
-
-        Jan 25, 2026: Fixed event loop blocking by running file I/O in thread pool.
-        """
-        cache_key = "_data_quality_cache"
-        cache_time_key = "_data_quality_cache_time"
-        cache_ttl = 300
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        # Skip JSONL scanning during startup grace period
-        if self._is_in_startup_grace_period():
-            return {"configs": {}, "issues": [], "summary": {}}
-
-        ai_root = Path(self._get_ai_service_path())
-        cutoff = now - 86400  # Last 24 hours
-
-        # Jan 25, 2026: Run blocking file I/O operations in thread pool
-        quality = await asyncio.to_thread(self._get_data_quality_sync, ai_root, cutoff)
-
-        setattr(self, cache_key, quality)
-        setattr(self, cache_time_key, now)
-        return quality
+        """Get data quality metrics with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_data_quality_cached()
 
     # =========================================================================
     # Feature 4: Training Efficiency Dashboard
     # =========================================================================
 
-    def _get_elo_history_sync(self, db_path: Path, cutoff_time: float) -> dict[str, dict]:
-        """Get Elo history from database synchronously.
-
-        IMPORTANT: This is a blocking operation. Call via asyncio.to_thread() from async code.
-        Added Jan 25, 2026 to fix event loop blocking in _get_training_efficiency_cached().
-        """
-        elo_history: dict[str, dict] = {}
-        if not db_path.exists():
-            return elo_history
-
-        try:
-            with safe_db_connection(db_path) as conn:
-                rows = conn.execute("""
-                    SELECT board_type, num_players, participant_id, rating, timestamp
-                    FROM rating_history
-                    WHERE timestamp > ?
-                    ORDER BY timestamp ASC
-                """, (cutoff_time,)).fetchall()
-
-                for row in rows:
-                    config = f"{row[0]}_{row[1]}p"
-                    if config not in elo_history:
-                        elo_history[config] = {"ratings": [], "timestamps": []}
-                    elo_history[config]["ratings"].append(row[3])
-                    elo_history[config]["timestamps"].append(row[4])
-        except (sqlite3.Error, OSError):
-            pass
-
-        return elo_history
-
     async def _get_training_efficiency_cached(self) -> dict[str, Any]:
-        """Get training efficiency metrics with caching (5 min TTL)."""
-        import re
-        import sqlite3
-
-        cache_key = "_training_efficiency_cache"
-        cache_time_key = "_training_efficiency_cache_time"
-        cache_ttl = 300
-
-        now = time.time()
-        if hasattr(self, cache_key) and hasattr(self, cache_time_key) and now - getattr(self, cache_time_key) < cache_ttl:
-            return getattr(self, cache_key)
-
-        ai_root = Path(self._get_ai_service_path())
-        efficiency = {"configs": {}, "summary": {}, "cost_tracking": {}}
-
-        try:
-            # Get Elo history to track improvements
-            db_path = ai_root / "data" / "unified_elo.db"
-
-            # Jan 25, 2026: Use asyncio.to_thread() for blocking SQLite operation
-            elo_history = await asyncio.to_thread(self._get_elo_history_sync, db_path, now - 86400 * 7)
-
-            # Parse training logs for GPU hours
-            logs_dir = ai_root / "logs" / "training"
-            gpu_hours_per_config = {}
-
-            if logs_dir.exists():
-                for log_file in logs_dir.glob("*.log"):
-                    try:
-                        content = log_file.read_text(errors='ignore')
-                        config_match = re.search(r"(square\d+|hex\w*)_(\d+)p", log_file.name)
-                        if not config_match:
-                            continue
-                        config = f"{config_match.group(1)}_{config_match.group(2)}p"
-
-                        # Extract training duration
-                        duration_match = re.search(r"(?:total[_\s]?time|duration)[:\s]*([\d.]+)\s*(?:s|sec|min|h)", content, re.I)
-                        if duration_match:
-                            duration = float(duration_match.group(1))
-                            # Assume hours if > 100, else assume minutes
-                            if duration > 100:
-                                duration = duration / 3600  # seconds to hours
-                            elif duration < 24:
-                                duration = duration / 60  # minutes to hours
-
-                            if config not in gpu_hours_per_config:
-                                gpu_hours_per_config[config] = 0
-                            gpu_hours_per_config[config] += duration
-                    except (ValueError, KeyError, IndexError, AttributeError):
-                        continue
-
-            # Calculate efficiency metrics per config
-            for config in set(list(elo_history.keys()) + list(gpu_hours_per_config.keys())):
-                elo_data = elo_history.get(config, {"ratings": [], "timestamps": []})
-                gpu_hours = gpu_hours_per_config.get(config, 0)
-
-                if elo_data["ratings"]:
-                    initial_elo = elo_data["ratings"][0] if elo_data["ratings"] else INITIAL_ELO_RATING
-                    current_elo = elo_data["ratings"][-1] if elo_data["ratings"] else INITIAL_ELO_RATING
-                    elo_gain = current_elo - initial_elo
-                else:
-                    initial_elo = current_elo = INITIAL_ELO_RATING
-                    elo_gain = 0
-
-                # Elo per GPU hour
-                elo_per_hour = elo_gain / gpu_hours if gpu_hours > 0 else 0
-
-                # Estimated cost (assuming $2/GPU-hour average)
-                estimated_cost = gpu_hours * 2.0
-
-                efficiency["configs"][config] = {
-                    "gpu_hours": round(gpu_hours, 2),
-                    "initial_elo": round(initial_elo, 1),
-                    "current_elo": round(current_elo, 1),
-                    "elo_gain": round(elo_gain, 1),
-                    "elo_per_gpu_hour": round(elo_per_hour, 2),
-                    "estimated_cost_usd": round(estimated_cost, 2),
-                    "cost_per_elo_point": round(estimated_cost / max(elo_gain, 1), 2) if elo_gain > 0 else None,
-                }
-
-            # Summary
-            total_gpu_hours = sum(c.get("gpu_hours", 0) for c in efficiency["configs"].values())
-            total_elo_gain = sum(c.get("elo_gain", 0) for c in efficiency["configs"].values())
-            total_cost = sum(c.get("estimated_cost_usd", 0) for c in efficiency["configs"].values())
-
-            efficiency["summary"] = {
-                "total_gpu_hours": round(total_gpu_hours, 2),
-                "total_elo_gain": round(total_elo_gain, 1),
-                "total_estimated_cost_usd": round(total_cost, 2),
-                "overall_elo_per_gpu_hour": round(total_elo_gain / max(total_gpu_hours, 1), 2),
-            }
-
-        except (sqlite3.Error, OSError, ValueError, KeyError, TypeError):
-            pass
-
-        setattr(self, cache_key, efficiency)
-        setattr(self, cache_time_key, now)
-        return efficiency
+        """Get training efficiency metrics with caching. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.get_training_efficiency_cached()
 
     # =========================================================================
     # Feature 5: Automated Model Rollback
     # =========================================================================
 
-    def _get_rollback_elo_data_sync(self, db_path: Path) -> dict[str, list]:
-        """Get Elo data for rollback detection synchronously.
-
-        IMPORTANT: This is a blocking operation. Call via asyncio.to_thread() from async code.
-        Added Jan 25, 2026 to fix event loop blocking in _check_rollback_conditions().
-        """
-        elo_data: dict[str, list] = {}
-        if not db_path.exists():
-            return elo_data
-
-        try:
-            with safe_db_connection(db_path) as conn:
-                rows = conn.execute("""
-                    SELECT board_type, num_players, participant_id, rating, timestamp
-                    FROM rating_history
-                    ORDER BY timestamp DESC
-                    LIMIT 1000
-                """).fetchall()
-
-                for row in rows:
-                    config = f"{row[0]}_{row[1]}p"
-                    if config not in elo_data:
-                        elo_data[config] = []
-                    elo_data[config].append({"model": row[2], "rating": row[3], "timestamp": row[4]})
-        except (sqlite3.Error, OSError):
-            pass
-
-        return elo_data
-
     async def _check_rollback_conditions(self) -> dict[str, Any]:
-        """Check if any models should be rolled back based on metrics."""
-        rollback_status = {"candidates": [], "recent_rollbacks": [], "config_status": {}}
-
-        try:
-            # Get holdout metrics for overfitting detection
-            holdout = await self._get_holdout_metrics_cached()
-
-            # Get Elo data for regression detection
-            ai_root = Path(self._get_ai_service_path())
-            db_path = ai_root / "data" / "unified_elo.db"
-
-            # Jan 25, 2026: Use asyncio.to_thread() for blocking SQLite operation
-            elo_data = await asyncio.to_thread(self._get_rollback_elo_data_sync, db_path)
-
-            # Check each config for rollback conditions
-            for config, holdout_data in holdout.get("configs", {}).items():
-                status = {"config": config, "rollback_recommended": False, "reasons": []}
-
-                # Check 1: Overfitting (overfit_gap > 0.15)
-                overfit_gap = holdout_data.get("overfit_gap", 0)
-                if overfit_gap and overfit_gap > 0.15:
-                    status["rollback_recommended"] = True
-                    status["reasons"].append(f"Overfitting detected: gap={overfit_gap:.3f}")
-
-                # Check 2: Low holdout accuracy (< 60%)
-                holdout_acc = holdout_data.get("holdout_accuracy", 1.0)
-                if holdout_acc and holdout_acc < 0.6:
-                    status["rollback_recommended"] = True
-                    status["reasons"].append(f"Low holdout accuracy: {holdout_acc*100:.1f}%")
-
-                # Check 3: Elo regression (dropped > 50 points recently)
-                if config in elo_data and len(elo_data[config]) >= 2:
-                    recent = elo_data[config][0]["rating"]
-                    previous = max(e["rating"] for e in elo_data[config][:10])
-                    if previous - recent > 50:
-                        status["rollback_recommended"] = True
-                        status["reasons"].append(f"Elo regression: {previous:.0f} -> {recent:.0f}")
-
-                rollback_status["config_status"][config] = status
-                if status["rollback_recommended"]:
-                    rollback_status["candidates"].append(status)
-
-            # Load recent rollback history if exists
-            rollback_log = ai_root / "logs" / "rollbacks.json"
-            if rollback_log.exists():
-                import json
-                with contextlib.suppress(json.JSONDecodeError, OSError, KeyError, IndexError):
-                    rollback_status["recent_rollbacks"] = json.loads(rollback_log.read_text())[-10:]
-
-        except (sqlite3.Error, OSError, ValueError, KeyError, TypeError):
-            pass
-
-        return rollback_status
+        """Check if any models should be rolled back. Delegates to AnalyticsCacheManager."""
+        return await self.analytics_cache_manager.check_rollback_conditions()
 
     async def _execute_rollback(self, config: str, dry_run: bool = False) -> dict[str, Any]:
-        """Execute a rollback for the given config by restoring previous model.
-
-        Args:
-            config: Config string like "square8_2p"
-            dry_run: If True, only simulate the rollback without making changes
-
-        Returns:
-            Dict with rollback results (success, message, details)
-        """
-        import json
-        import shutil
-
-        result = {
-            "success": False,
-            "config": config,
-            "dry_run": dry_run,
-            "message": "",
-            "details": {},
+        """Execute a rollback for the given config. Delegates to AnalyticsCacheManager."""
+        result = await self.analytics_cache_manager.execute_rollback(config, dry_run)
+        return {
+            "success": result.success,
+            "config": result.config,
+            "dry_run": result.dry_run,
+            "message": result.message,
+            "details": result.details,
         }
 
-        try:
-            ai_root = Path(self._get_ai_service_path())
-            models_dir = ai_root / "models"
-            archive_dir = models_dir / "archive"
-            archive_dir.mkdir(parents=True, exist_ok=True)
-
-            # Parse config to get board type and player count
-            parts = config.rsplit("_", 1)
-            if len(parts) != 2 or not parts[1].endswith("p"):
-                result["message"] = f"Invalid config format: {config}"
-                return result
-
-            board = parts[0]
-            players = parts[1][:-1]
-
-            # Find the current best model alias
-            # Common patterns: ringrift_best_sq8_2p, ringrift_best_square8_2p
-            board_abbrev = board.replace("square", "sq").replace("hexagonal", "hex")
-            best_patterns = [
-                f"ringrift_best_{board_abbrev}_{players}p.pth",
-                f"ringrift_best_{board}_{players}p.pth",
-            ]
-
-            current_best = None
-            for pattern in best_patterns:
-                candidate = models_dir / pattern
-                if candidate.exists():
-                    current_best = candidate
-                    break
-
-            if not current_best:
-                result["message"] = f"No best model found for {config}"
-                return result
-
-            # Find previous checkpoints for this config
-            checkpoint_dir = models_dir / "checkpoints"
-            checkpoints = []
-            if checkpoint_dir.exists():
-                for ckpt in checkpoint_dir.glob(f"*{board_abbrev}*{players}p*.pth"):
-                    try:
-                        stat = ckpt.stat()
-                        checkpoints.append({
-                            "path": ckpt,
-                            "mtime": stat.st_mtime,
-                            "name": ckpt.name,
-                        })
-                    except (AttributeError):
-                        continue
-
-            # Also check archive for previous best models
-            for archived in archive_dir.glob(f"*{board_abbrev}*{players}p*.pth"):
-                try:
-                    stat = archived.stat()
-                    checkpoints.append({
-                        "path": archived,
-                        "mtime": stat.st_mtime,
-                        "name": archived.name,
-                    })
-                except (AttributeError):
-                    continue
-
-            # Sort by modification time descending
-            checkpoints.sort(key=lambda x: x["mtime"], reverse=True)
-
-            # Filter out the current best model
-            current_mtime = current_best.stat().st_mtime
-            previous_checkpoints = [c for c in checkpoints if abs(c["mtime"] - current_mtime) > 60]
-
-            if not previous_checkpoints:
-                result["message"] = f"No previous checkpoints found for rollback of {config}"
-                return result
-
-            # Select the most recent previous checkpoint
-            rollback_source = previous_checkpoints[0]
-
-            result["details"] = {
-                "current_model": current_best.name,
-                "rollback_to": rollback_source["name"],
-                "rollback_age_hours": round((time.time() - rollback_source["mtime"]) / 3600, 1),
-                "available_checkpoints": len(previous_checkpoints),
-            }
-
-            if dry_run:
-                result["success"] = True
-                result["message"] = f"Dry run: Would rollback {current_best.name} to {rollback_source['name']}"
-                return result
-
-            # Archive the current model
-            timestamp = time.strftime("%Y%m%d_%H%M%S")
-            archived_name = f"{current_best.stem}_archived_{timestamp}.pth"
-            shutil.copy2(current_best, archive_dir / archived_name)
-
-            # Restore the previous checkpoint
-            shutil.copy2(rollback_source["path"], current_best)
-
-            # Log the rollback
-            rollback_log = ai_root / "logs" / "rollbacks.json"
-            rollback_log.parent.mkdir(parents=True, exist_ok=True)
-
-            rollback_entry = {
-                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                "config": config,
-                "previous_model": current_best.name,
-                "rolled_back_to": rollback_source["name"],
-                "archived_as": archived_name,
-            }
-
-            try:
-                existing = json.loads(rollback_log.read_text()) if rollback_log.exists() else []
-            except (json.JSONDecodeError, OSError, KeyError, IndexError, AttributeError):
-                existing = []
-
-            existing.append(rollback_entry)
-            rollback_log.write_text(json.dumps(existing[-100:], indent=2))  # Keep last 100 rollbacks
-
-            result["success"] = True
-            result["message"] = f"Successfully rolled back {config} from {current_best.name} to {rollback_source['name']}"
-
-            # Increment rollback counter
-            self.diversity_metrics["rollbacks"] += 1
-
-            # Send alert notification
-            asyncio.create_task(self.notifier.send(
-                title="Model Rollback Executed",
-                message=f"Rolled back {config} from {current_best.name} to {rollback_source['name']}",
-                level="warning",
-                fields={
-                    "Config": config,
-                    "Previous": current_best.name,
-                    "Restored": rollback_source["name"],
-                    "Age": f"{result['details']['rollback_age_hours']:.1f}h",
-                },
-                node_id=self.node_id,
-            ))
-
-        except Exception as e:  # noqa: BLE001
-            result["message"] = f"Rollback failed: {e!s}"
-
-        return result
-
     async def _auto_rollback_check(self) -> list[dict[str, Any]]:
-        """Automatically check and execute rollbacks for critical candidates.
-
-        Returns list of executed rollbacks.
-        """
-        # Check if auto-rollback is enabled
-        if os.environ.get("RINGRIFT_AUTO_ROLLBACK", "").lower() not in ("1", "true", "yes"):
-            return []
-
-        executed = []
-        try:
-            status = await self._check_rollback_conditions()
-            for candidate in status.get("candidates", []):
-                # Only auto-rollback if multiple serious conditions are met
-                reasons = candidate.get("reasons", [])
-                if len(reasons) >= 2 or any("Overfitting" in r for r in reasons):
-                    config = candidate["config"]
-                    result = await self._execute_rollback(config, dry_run=False)
-                    executed.append(result)
-                    if result["success"]:
-                        logger.warning(f"[AUTO-ROLLBACK] Executed for {config}: {reasons}")
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[AUTO-ROLLBACK] Error: {e}")
-
-        return executed
+        """Automatically check and execute rollbacks. Delegates to AnalyticsCacheManager."""
+        results = await self.analytics_cache_manager.auto_rollback_check()
+        return [
+            {
+                "success": r.success,
+                "config": r.config,
+                "dry_run": r.dry_run,
+                "message": r.message,
+                "details": r.details,
+            }
+            for r in results
+        ]
 
     # =========================================================================
     # Feature 6: Distributed Selfplay Autoscaling
@@ -15988,24 +14067,7 @@ print(json.dumps(result))
 
         return autoscale
 
-    # handle_victory_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
-    # handle_elo_history moved to EloAnalyticsHandlersMixin (Jan 2026 - P2P Modularization Phase 4a)
-
-    # Elo Sync Handlers moved to scripts/p2p/handlers/elo_sync.py
-    # Inherited from EloSyncHandlersMixin:
-    # - handle_elo_sync_status, handle_elo_sync_trigger
-    # - handle_elo_sync_download, handle_elo_sync_upload
-    # - _trigger_elo_sync_after_matches
-
-    # NOTE: _elo_sync_loop() removed Dec 2025 (29 LOC).
-    # Now runs via LoopManager as EloSyncLoop.
-    # See scripts/p2p/loops/elo_sync_loop.py for implementation.
-
-    # NOTE: _worker_pull_loop() removed Dec 2025 (85 LOC).
-    # Now runs via LoopManager as WorkerPullLoop.
-    # See scripts/p2p/loops/job_loops.py for implementation.
-    # Helper methods _claim_work_from_leader, _execute_claimed_work, _report_work_result
-    # are retained and passed as callbacks to WorkerPullLoop.
+    # Dec 2025-Jan 2026: Handlers moved to mixins, loops moved to LoopManager
 
     async def _claim_work_from_leader(self, capabilities: list[str]) -> dict[str, Any] | None:
         """Claim work from the leader's work queue."""
@@ -16354,13 +14416,7 @@ print(json.dumps(result))
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Failed to report work result: {e}")
 
-    # NOTE: _work_queue_maintenance_loop() removed Dec 2025 (42 LOC).
-    # Now runs via LoopManager as WorkQueueMaintenanceLoop.
-    # See scripts/p2p/loops/job_loops.py for implementation.
-
-    # NOTE: _idle_detection_loop() removed Dec 2025 (128 LOC).
-    # Now runs via LoopManager as IdleDetectionLoop.
-    # See scripts/p2p/loops/job_loops.py for implementation.
+    # Dec 2025: Work queue and idle detection loops moved to LoopManager (170 LOC)
 
     async def _handle_zombie_detected(self, peer, zombie_duration: float) -> None:
         """Handle detection of zombie/stuck selfplay processes on a node.
@@ -16716,37 +14772,7 @@ print(json.dumps(result))
             logger.debug(f"[JobReassignment] Error getting healthy nodes: {e}")
             return []
 
-    # =========================================================================
-    # AUTOMATION LOOPS (2024-12)
-    # These loops enable hands-free cluster operation
-    # =========================================================================
-
-    # NOTE: _auto_scaling_loop() removed Dec 2025 (101 LOC).
-    # Now runs via LoopManager as AutoScalingLoop.
-    # See scripts/p2p/loops/coordination_loops.py for implementation.
-
-    # NOTE: _predictive_monitoring_loop() removed Dec 2025 (~98 LOC).
-    # Now runs via LoopManager as PredictiveMonitoringLoop.
-    # See scripts/p2p/loops/resilience_loops.py for implementation.
-
-    # NOTE: _self_healing_loop() removed Dec 2025 (~71 LOC).
-    # Now runs via LoopManager as SelfHealingLoop.
-    # See scripts/p2p/loops/resilience_loops.py for implementation.
-
-    # NOTE: _job_reaper_loop() removed Dec 2025 (60 LOC).
-    # Now runs via LoopManager as JobReaperLoop.
-    # See scripts/p2p/loops/job_loops.py for implementation.
-
-    # NOTE: _get_ssh_config_for_reaper() removed Dec 2025 (~23 LOC).
-    # No callers existed - job reaper now uses cluster_config helpers.
-
-    # NOTE: _validation_loop() removed Dec 2025 (92 LOC).
-    # Now runs via LoopManager as ValidationLoop.
-    # See scripts/p2p/loops/validation_loop.py for implementation.
-
-    # NOTE: _queue_populator_loop() removed Dec 2025 (82 LOC).
-    # Now runs via LoopManager as QueuePopulatorLoop.
-    # See scripts/p2p/loops/queue_populator_loop.py for implementation.
+    # Dec 2025: Automation loops (527 LOC) moved to LoopManager - see scripts/p2p/loops/
 
     async def handle_games_analytics(self, request: web.Request) -> web.Response:
         """GET /games/analytics - Game statistics for dashboards.
@@ -25969,15 +23995,7 @@ print(json.dumps({{
         # Clean up old completed/failed jobs to prevent memory leak
         self.job_manager.cleanup_completed_jobs()
 
-    # NOTE: _cleanup_old_completed_jobs() removed Dec 2025 (31 LOC).
-    # Use self.job_manager.cleanup_completed_jobs() directly.
-
-    # NOTE: _get_elo_based_priority_boost() removed Dec 2025 (~45 LOC).
-    # Use self.selfplay_scheduler.get_elo_based_priority_boost() instead.
-
-    # NOTE: _pick_weighted_selfplay_config() removed Dec 2025 (95 LOC).
-    # Use self.selfplay_scheduler.pick_weighted_config() instead.
-    # See scripts/p2p/managers/selfplay_scheduler.py for implementation.
+    # Dec 2025: Job/selfplay methods delegated to job_manager and selfplay_scheduler
 
     async def _auto_scale_gpu_utilization(self) -> int:
         """Auto-scale selfplay jobs to reach 60-80% GPU utilization.
@@ -26420,15 +24438,7 @@ print(json.dumps({{
     # Backward compatibility alias (GPU selfplay now redirects to diverse/hybrid)
     _schedule_gpu_selfplay_on_node = _schedule_diverse_selfplay_on_node
 
-    # NOTE: _target_selfplay_jobs_for_node() removed Dec 2025 (160 LOC).
-    # Use self.selfplay_scheduler.get_target_jobs_for_node() instead.
-
-    # NOTE: _get_hybrid_job_targets() removed Dec 2025 (38 LOC).
-    # Use self.selfplay_scheduler.get_hybrid_job_targets() instead.
-
-    # NOTE: _should_spawn_cpu_only_jobs() removed Dec 2025 (33 LOC).
-    # Use self.selfplay_scheduler.should_spawn_cpu_only_jobs() instead.
-
+    # Dec 2025: Selfplay target methods delegated to selfplay_scheduler
 
     async def _check_cluster_balance(self) -> dict[str, Any]:
         """Check and rebalance jobs across the cluster.
@@ -28856,8 +26866,6 @@ print(json.dumps({{
             self._create_safe_task(
                 self._heartbeat_loop(), "heartbeat", factory=self._heartbeat_loop
             ),
-            # NOTE: _manifest_collection_loop removed Dec 2025 - now runs via LoopManager (ManifestCollectionLoop)
-            # See scripts/p2p/loops/manifest_collection_loop.py for implementation
             # Job management - auto-restart on failure
             self._create_safe_task(
                 self._job_management_loop(), "job_management", factory=self._job_management_loop
@@ -28875,8 +26883,6 @@ print(json.dumps({{
             self._create_safe_task(
                 self._reconnect_dead_peers_loop(), "dead_peer_reconnect", factory=self._reconnect_dead_peers_loop
             ),
-            # NOTE: _nat_management_loop removed Dec 2025 - now runs via LoopManager (NATManagementLoop)
-            # See scripts/p2p/loops/network_loops.py for implementation
             # SWIM gossip membership for leaderless failure detection (<5s vs 60s+)
             self._create_safe_task(
                 self._swim_membership_loop(), "swim_membership", factory=self._swim_membership_loop
@@ -28889,17 +26895,11 @@ print(json.dumps({{
                 self._git_update_loop(), "git_update", factory=self._git_update_loop
             ))
 
-        # NOTE: _training_sync_loop removed Dec 2025 - now runs via LoopManager (TrainingSyncLoop)
-        # See scripts/p2p/loops/training_sync_loop.py for implementation
-
         # Add cloud IP refresh loops (best-effort; no-op if not configured).
         if HAS_DYNAMIC_REGISTRY:
             tasks.append(self._create_safe_task(self._vast_ip_update_loop(), "vast_ip_update"))
             tasks.append(self._create_safe_task(self._aws_ip_update_loop(), "aws_ip_update"))
             tasks.append(self._create_safe_task(self._tailscale_ip_update_loop(), "tailscale_ip_update"))
-
-        # NOTE: _tailscale_peer_recovery_loop removed Dec 2025 - now runs via LoopManager (TailscalePeerDiscoveryLoop)
-        # See scripts/p2p/loops/network_loops.py for implementation
 
         # Phase 26: Continuous bootstrap loop - ensures isolated nodes can rejoin
         tasks.append(self._create_safe_task(self._continuous_bootstrap_loop(), "continuous_bootstrap"))
@@ -28928,44 +26928,7 @@ print(json.dumps({{
             self._event_loop_latency_monitor(), "event_loop_monitor", factory=self._event_loop_latency_monitor
         ))
 
-        # NOTE: _follower_discovery_loop removed Dec 2025 - now runs via LoopManager (FollowerDiscoveryLoop)
-        # See scripts/p2p/loops/discovery_loop.py for implementation
-
-        # NOTE: _data_management_loop removed Dec 2025 - now runs via LoopManager (DataManagementLoop)
-        # See scripts/p2p/loops/data_loops.py for implementation
-
-        # NOTE: _model_sync_loop removed Dec 2025 - now runs via LoopManager (ModelSyncLoop)
-        # See scripts/p2p/loops/data_loops.py for implementation
-
-        # NOTE: _elo_sync_loop removed Dec 2025 - now runs via LoopManager (EloSyncLoop)
-
-        # NOTE: _worker_pull_loop removed Dec 2025 - now runs via LoopManager (WorkerPullLoop)
-        # See scripts/p2p/loops/job_loops.py for implementation
-
-        # NOTE: _work_queue_maintenance_loop removed Dec 2025 - now runs via LoopManager (WorkQueueMaintenanceLoop)
-        # See scripts/p2p/loops/job_loops.py for implementation
-
-        # NOTE: _idle_detection_loop removed Dec 2025 - now runs via LoopManager (IdleDetectionLoop)
-
-        # === AUTOMATION LOOPS (2024-12) ===
-        # These loops enable hands-free cluster operation
-
-        # NOTE: _auto_scaling_loop removed Dec 2025 - now runs via LoopManager (AutoScalingLoop)
-
-        # NOTE: _predictive_monitoring_loop removed Dec 2025 (~98 LOC)
-        # Now runs via LoopManager as PredictiveMonitoringLoop.
-        # See scripts/p2p/loops/resilience_loops.py for implementation.
-
-        # NOTE: _self_healing_loop removed Dec 2025 (~71 LOC)
-        # Now runs via LoopManager as SelfHealingLoop.
-        # See scripts/p2p/loops/resilience_loops.py for implementation.
-
-        # NOTE: _job_reaper_loop removed Dec 2025 - now runs via LoopManager (JobReaperLoop)
-
-        # NOTE: _validation_loop removed Dec 2025 - now runs via LoopManager (ValidationLoop)
-        # See scripts/p2p/loops/validation_loop.py for implementation
-
-        # NOTE: _queue_populator_loop removed Dec 2025 - now runs via LoopManager (QueuePopulatorLoop)
+        # Dec 2025: 11 loops extracted to LoopManager - see scripts/p2p/loops/
 
         # Store tasks for shutdown handling
         self._background_tasks = tasks

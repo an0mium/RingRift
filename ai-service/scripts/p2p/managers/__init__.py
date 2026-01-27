@@ -11,6 +11,7 @@ Managers:
 - TrainingCoordinator: Training dispatch and promotion (December 2025)
 - SelfplayScheduler: Selfplay config selection and diversity (December 2025)
 - WorkDiscoveryManager: Multi-channel work discovery (January 2026)
+- AnalyticsCacheManager: Cached analytics and computed metrics (January 2026)
 
 Factory:
 - ManagerFactory: Dependency injection for all managers (January 2026)
@@ -65,6 +66,40 @@ from .network_config_manager import (
     get_network_config_manager,
     set_network_config_manager,
 )
+# January 2026: Aggressive Decomposition Phase 1 - Analytics Cache Manager
+from .analytics_cache_manager import (
+    AnalyticsCacheConfig,
+    AnalyticsCacheManager,
+    CacheEntry,
+    RollbackCandidate,
+    RollbackResult,
+    create_analytics_cache_manager,
+    get_analytics_cache_manager,
+    reset_analytics_cache_manager,
+    set_analytics_cache_manager,
+)
+# January 2026: Aggressive Decomposition Phase 3 - CMA-ES Coordinator
+from .cmaes_coordinator import (
+    CMAESConfig,
+    CMAESCoordinator,
+    CMAESJobState,
+    CMAESStats,
+    create_cmaes_coordinator,
+    get_cmaes_coordinator,
+    reset_cmaes_coordinator,
+    set_cmaes_coordinator,
+)
+# January 2026: Aggressive Decomposition Phase 4 - Data Sync Coordinator
+from .data_sync_coordinator import (
+    DataSyncCoordinator,
+    DataSyncCoordinatorConfig,
+    DataSyncCoordinatorStats,
+    ExternalStorageMetadata,
+    create_data_sync_coordinator,
+    get_data_sync_coordinator,
+    reset_data_sync_coordinator,
+    set_data_sync_coordinator,
+)
 
 __all__ = [
     "DiscoveryChannel",
@@ -108,4 +143,32 @@ __all__ = [
     "create_network_config_manager",
     "get_network_config_manager",
     "set_network_config_manager",
+    # Analytics Cache Manager
+    "AnalyticsCacheConfig",
+    "AnalyticsCacheManager",
+    "CacheEntry",
+    "RollbackCandidate",
+    "RollbackResult",
+    "create_analytics_cache_manager",
+    "get_analytics_cache_manager",
+    "reset_analytics_cache_manager",
+    "set_analytics_cache_manager",
+    # CMA-ES Coordinator
+    "CMAESConfig",
+    "CMAESCoordinator",
+    "CMAESJobState",
+    "CMAESStats",
+    "create_cmaes_coordinator",
+    "get_cmaes_coordinator",
+    "reset_cmaes_coordinator",
+    "set_cmaes_coordinator",
+    # Data Sync Coordinator
+    "DataSyncCoordinator",
+    "DataSyncCoordinatorConfig",
+    "DataSyncCoordinatorStats",
+    "ExternalStorageMetadata",
+    "create_data_sync_coordinator",
+    "get_data_sync_coordinator",
+    "reset_data_sync_coordinator",
+    "set_data_sync_coordinator",
 ]
