@@ -1023,6 +1023,7 @@ from scripts.p2p.managers.work_discovery_manager import (
     set_selfplay_disabled_override,
 )
 from scripts.p2p.metrics_manager import MetricsManager
+from scripts.p2p.query_builders import PeerQueryBuilder
 from scripts.p2p.resource_detector import ResourceDetector, ResourceDetectorMixin
 from scripts.p2p.config.selfplay_job_configs import (
     DIVERSE_PROFILES,
@@ -2169,6 +2170,10 @@ class P2POrchestrator(
         # Updates via _job_snapshot.update(self.local_jobs) after mutations
         self._job_snapshot = JobSnapshot()
 
+        # Jan 27, 2026: Query builder for peer collection queries (Phase 3.2)
+        # Consolidates _get_* methods with thread-safe access and consistent error handling
+        self._peer_query = PeerQueryBuilder(self.peers, self.peers_lock, self.node_id)
+
         # ============================================
         # Phase 5: SWIM + Raft Integration (Dec 26, 2025)
         # ============================================
@@ -2902,25 +2907,12 @@ class P2POrchestrator(
         """Get list of alive peers for manifest broadcast.
 
         Jan 2026: Added for leader broadcast functionality.
+        Jan 27, 2026: Migrated to PeerQueryBuilder (Phase 3.2).
 
         Returns:
             List of NodeInfo objects for alive, non-retired peers
         """
-        with self.peers_lock:
-            alive_peers = []
-            for peer_id, peer in self.peers.items():
-                # Skip self
-                if peer_id == self.node_id:
-                    continue
-                # Check if peer is alive
-                is_alive = getattr(peer, 'is_alive', lambda: False)
-                if callable(is_alive):
-                    is_alive = is_alive()
-                # Check if peer is retired
-                is_retired = getattr(peer, 'retired', False)
-                if is_alive and not is_retired:
-                    alive_peers.append(peer)
-            return alive_peers
+        return self._peer_query.alive_non_retired().unwrap_or([])
 
     def _update_improvement_cycle_from_loop(self, by_board_type: dict[str, Any]) -> None:
         """Update ImprovementCycleManager from ManifestCollectionLoop.
