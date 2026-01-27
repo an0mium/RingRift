@@ -1017,6 +1017,10 @@ from scripts.p2p.config.selfplay_job_configs import (
     get_weighted_configs,
     select_diverse_profiles,
 )
+from scripts.p2p.job_spawner import (
+    GUMBEL_ENGINE_MODES,
+    SELFPLAY_ENGINE_MODES,
+)
 from scripts.p2p.event_emission_mixin import EventEmissionMixin
 from scripts.p2p.failover_integration import FailoverIntegrationMixin
 from scripts.p2p.relay_leader_propagator import RelayLeaderPropagatorMixin  # Phase 1: NAT-blocked leader propagation (Jan 4, 2026)
@@ -28647,44 +28651,14 @@ print(json.dumps({{
                 # Normalize engine_mode to what run_self_play_soak.py supports.
                 # LEARNED LESSONS - Variety of AI methods for better training:
                 # - nn-only: Uses NNUE/neural network evaluation
-                # - best-vs-pool: Tournament-style with varied opponents
-                # - mcts-only/descent-only/minimax-only: Single AI method
-                # Jan 17, 2026: Added nnue-guided, brs, maxn, paranoid for harness diversity
-                supported_engine_modes = {
-                    "descent-only",
-                    "mixed",
-                    "random-only",
-                    "heuristic-only",
-                    "minimax-only",
-                    "mcts-only",
-                    "nn-only",
-                    "best-vs-pool",
-                    # GPU-accelerated Gumbel MCTS modes
-                    "gumbel",
-                    "gumbel-mcts",
-                    "gumbel-mcts-only",
-                    # NNUE-guided search (fast + strong)
-                    "nnue-guided",
-                    "nnue",
-                    # Multiplayer-optimized engines
-                    "maxn",             # MaxN search for 3-4 player
-                    "brs",              # Best Response Search
-                    "paranoid",         # Paranoid minimax (assumes opponents cooperate)
-                    "policy-only",      # Neural policy only (no search)
-                    # Cross-AI asymmetric matches for variety
-                    "nn-vs-mcts",
-                    "nn-vs-minimax",
-                    "nn-vs-descent",
-                    "tournament-varied",
-                    "heuristic-vs-nn",
-                    "heuristic-vs-mcts",
-                    "random-vs-mcts",
-                }
+                # January 2026: Engine modes defined in scripts/p2p/job_spawner.py
+                # - SELFPLAY_ENGINE_MODES: All supported modes
+                # - GUMBEL_ENGINE_MODES: Gumbel MCTS aliases
+
                 # Normalize engine mode - map aliases to what run_self_play_soak.py expects
-                gumbel_aliases = {"gumbel", "gumbel-mcts"}
-                if engine_mode in gumbel_aliases:
+                if engine_mode in GUMBEL_ENGINE_MODES:
                     engine_mode_norm = "gumbel-mcts-only"  # Actual mode name in run_self_play_soak.py
-                elif engine_mode in supported_engine_modes:
+                elif engine_mode in SELFPLAY_ENGINE_MODES:
                     engine_mode_norm = engine_mode
                 else:
                     engine_mode_norm = "nn-only"
