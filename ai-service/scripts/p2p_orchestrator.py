@@ -2630,6 +2630,28 @@ class P2POrchestrator(
         )
         logger.info("[P2P] RecoveryManager initialized")
 
+        # January 27, 2026: Phase 14 - HeartbeatManager for heartbeat operations
+        from scripts.p2p.managers.heartbeat_manager import (
+            HeartbeatConfig,
+            create_heartbeat_manager,
+        )
+        self.heartbeat_manager = create_heartbeat_manager(
+            config=HeartbeatConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] HeartbeatManager initialized")
+
+        # January 27, 2026: Phase 15 - JobCoordinationManager for job coordination
+        from scripts.p2p.managers.job_coordination_manager import (
+            JobCoordinationConfig,
+            create_job_coordination_manager,
+        )
+        self.job_coordination_manager = create_job_coordination_manager(
+            config=JobCoordinationConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] JobCoordinationManager initialized")
+
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
         self._initialize_work_discovery_manager()
@@ -18218,111 +18240,11 @@ print(json.dumps({{
         """
         return self._peer_query.to_endpoint_dicts(limit=GOSSIP_MAX_PEER_ENDPOINTS).unwrap_or([])
 
-    # Jan 27, 2026: _process_gossip_response, _process_gossip_peer_endpoints,
-    # _try_connect_gossip_peer are inherited from GossipProtocolMixin (Phase 13 decomposition)
-
-    async def _tcp_probe_peer(self, node_id: str, host: str, port: int) -> bool:
-        """Probe a peer via HTTP /status to check if it's reachable.
-
-        This is used by DeadPeerCooldownManager for probe-based early recovery.
-        A successful probe indicates the node is back online and can be reconnected.
-
-        Args:
-            node_id: The node identifier (for logging)
-            host: The host to probe
-            port: The port to probe
-
-        Returns:
-            True if the peer responded to /status, False otherwise
-        """
-        try:
-            url = f"http://{host}:{port}/status"
-            timeout = ClientTimeout(total=5.0)
-            async with get_client_session(timeout) as session:
-                async with session.get(url, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        logger.debug(f"TCP probe success for {node_id} at {host}:{port}")
-                        return True
-        except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError) as e:
-            logger.debug(f"TCP probe failed for {node_id}: {type(e).__name__}")
-        return False
-
-    def _wire_cooldown_manager_probe(self) -> None:
-        """Wire the TCP probe function to the cooldown manager.
-
-        Called during startup to enable probe-based early recovery.
-        """
-        if self._cooldown_manager:
-            self._cooldown_manager.set_probe_func(self._tcp_probe_peer)
-            logger.info("Cooldown manager probe function wired")
-
-    def _wire_connection_pool_dynamic_sizing(self) -> None:
-        """Wire cluster size callback to the connection pool.
-
-        January 20, 2026: Enables dynamic pool scaling based on cluster size.
-        Fixes connection exhaustion with 40+ node clusters.
-        """
-        try:
-            from scripts.p2p.connection_pool import get_connection_pool
-            pool = get_connection_pool()
-            pool.set_cluster_size_callback(self._get_cluster_size_for_pool)
-            logger.info("Connection pool dynamic sizing wired")
-        except ImportError as e:
-            logger.debug(f"Connection pool not available for dynamic sizing: {e}")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Failed to wire connection pool sizing: {e}")
-
-    def _get_cluster_size_for_pool(self) -> int:
-        """Get current cluster size for connection pool dynamic sizing.
-
-        Returns the number of alive peers plus self.
-        """
-        try:
-            # Use peer snapshot for lock-free access
-            alive_count = sum(
-                1 for p in self._peer_snapshot.get_snapshot().values()
-                if p.is_alive() and not getattr(p, "retired", False)
-            )
-            return alive_count + 1  # +1 for self
-        except Exception:  # noqa: BLE001
-            return 40  # Default to reasonable cluster size
-
-    def _is_peer_alive_for_circuit_breaker(self, host: str) -> bool:
-        """Check if a peer is alive based on gossip/P2P membership.
-
-        January 20, 2026: Used by CircuitBreakerDecayLoop for external alive
-        verification. Enables immediate circuit recovery when gossip reports
-        a node is alive, instead of waiting for TTL expiry.
-
-        Args:
-            host: Host identifier (node_id or Tailscale IP)
-
-        Returns:
-            True if the host is known to be alive from P2P membership
-        """
-        try:
-            # Check by node_id first
-            for peer in self._peer_snapshot.get_snapshot().values():
-                if peer.node_id == host:
-                    return peer.is_alive() and not getattr(peer, "retired", False)
-
-                # Also check by Tailscale IP
-                tailscale_ip = getattr(peer, "tailscale_ip", "")
-                if tailscale_ip and host == tailscale_ip:
-                    return peer.is_alive() and not getattr(peer, "retired", False)
-
-                # Check by regular host IP
-                peer_host = getattr(peer, "host", "")
-                if peer_host and host == peer_host:
-                    return peer.is_alive() and not getattr(peer, "retired", False)
-
-            # Host not found in peers
-            return False
-        except Exception:  # noqa: BLE001
-            return False
-
-    # Jan 27, 2026: _handle_incoming_cluster_epoch, _gossip_anti_entropy_repair
-    # are inherited from GossipProtocolMixin (Phase 13 decomposition)
+    # Jan 27, 2026: Phase 13 Gossip Protocol Cleanup - Inherited from GossipProtocolMixin:
+    # - _process_gossip_response, _process_gossip_peer_endpoints, _try_connect_gossip_peer
+    # - _handle_incoming_cluster_epoch, _gossip_anti_entropy_repair
+    # - _tcp_probe_peer, _wire_cooldown_manager_probe, _wire_connection_pool_dynamic_sizing
+    # - _get_cluster_size_for_pool, _is_peer_alive_for_circuit_breaker
 
     # =========================================================================
     # DISTRIBUTED TRAINING COORDINATION
@@ -18686,7 +18608,9 @@ print(json.dumps({{
 
     def _get_node_recovery_metrics(self) -> dict:
         """Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition)."""
-        return self.recovery_manager.get_node_recovery_metrics()
+        from dataclasses import asdict
+        metrics = self.recovery_manager.get_node_recovery_metrics()
+        return asdict(metrics)
 
     # =========================================================================
     # STABILITY CONTROLLER CALLBACKS (Jan 2026 - Self-Healing Architecture)
