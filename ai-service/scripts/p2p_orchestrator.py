@@ -5343,56 +5343,7 @@ class P2POrchestrator(
         if prepopulated:
             logger.info(f"[P2P] Pre-populated {prepopulated} voter peers for gossip reachability")
 
-    def _load_voter_node_ids(self) -> list[str]:
-        """Load the set of P2P voter node_ids (for quorum-based leadership).
-
-        If no voters are configured, returns an empty list and quorum checks are
-        disabled (backwards compatible).
-
-        December 2025 (Phase 7.1.2): Consolidated to use cluster_config.get_p2p_voters()
-        for YAML loading, while preserving env var priority for overrides.
-        """
-        # Priority 1: Environment variable override (highest priority)
-        env = (os.environ.get("RINGRIFT_P2P_VOTERS") or "").strip()
-        if env:
-            self.voter_config_source = "env"
-            voters = [t.strip() for t in env.split(",") if t.strip()]
-            return sorted(set(voters))
-
-        # Priority 2: Use cluster_config for YAML-based voter loading
-        # This handles both p2p_voters list and legacy per-host p2p_voter: true
-        try:
-            from app.config.cluster_config import get_p2p_voters
-            voters = get_p2p_voters()
-            if voters:
-                self.voter_config_source = "config"
-                return voters
-        except ImportError:
-            logger.debug("[P2P] cluster_config not available, falling back to direct YAML load")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[P2P] Failed to load voters via cluster_config: {e}")
-
-        # Priority 3: Fallback - direct YAML load for legacy compatibility
-        cfg_path = Path(self._get_ai_service_path()) / "config" / "distributed_hosts.yaml"
-        if not cfg_path.exists():
-            self.voter_config_source = "none"
-            return []
-
-        try:
-            import yaml
-            data = yaml.safe_load(cfg_path.read_text()) or {}
-            p2p_voters_list = data.get("p2p_voters", []) or []
-            if p2p_voters_list and isinstance(p2p_voters_list, list):
-                voters = sorted({str(v).strip() for v in p2p_voters_list if str(v).strip()})
-                if voters:
-                    self.voter_config_source = "config"
-                    return voters
-        except (OSError, yaml.YAMLError, ValueError, KeyError) as e:
-            # Dec 2025: Narrowed from bare Exception; config file may not exist
-            logger.debug(f"Failed to load voter config from file: {e}")
-
-        self.voter_config_source = "none"
-        return []
+    # NOTE: _load_voter_node_ids() removed - delegated to QuorumManager (Jan 2026 Phase 1)
 
     def _load_cluster_config_raw(self) -> dict[str, Any]:
         """Load raw cluster config from distributed_hosts.yaml.
@@ -5415,34 +5366,7 @@ class P2POrchestrator(
             return {}
 
     # NOTE: _build_voter_ip_mapping() moved to LeadershipHealthMixin (Jan 26, 2026)
-
-    def _build_ip_to_node_map(self) -> dict[str, str]:
-        """Build a reverse mapping from IP addresses to node names.
-
-        Jan 2, 2026: Added for translating SWIM peer IDs (IP:port) to node names.
-        """
-        cfg_path = Path(self._get_ai_service_path()) / "config" / "distributed_hosts.yaml"
-        if not cfg_path.exists():
-            return {}
-        try:
-            import yaml
-            data = yaml.safe_load(cfg_path.read_text()) or {}
-            hosts = data.get("hosts", {}) or {}
-        except Exception:
-            return {}
-        ip_to_node: dict[str, str] = {}
-        for node_id, host_cfg in hosts.items():
-            # Jan 13, 2026: Add BOTH Tailscale IP and ssh_host for node resolution.
-            # This enables IP->node mapping regardless of which IP the peer uses.
-            ts_ip = host_cfg.get("tailscale_ip")
-            if ts_ip:
-                ip_to_node[ts_ip] = node_id
-            # Also add ssh_host if it's a valid IP
-            if host_cfg.get("ssh_host"):
-                ssh_host = host_cfg["ssh_host"]
-                if ssh_host and not any(c.isalpha() for c in ssh_host.replace(".", "")):
-                    ip_to_node[ssh_host] = node_id
-        return ip_to_node
+    # NOTE: _build_ip_to_node_map() removed - delegated to QuorumManager (Jan 2026 Phase 1)
 
     def _get_cached_peer_snapshot(self, max_age_seconds: float = 1.0) -> list:
         """Get cached peer snapshot to reduce lock acquisitions.
@@ -5473,56 +5397,7 @@ class P2POrchestrator(
         setattr(self, cache_time_key, now)
         return snapshot
 
-    def _find_voter_peer_by_ip(self, voter_id: str) -> tuple[str | None, "NodeInfo | None"]:
-        """Find a voter's peer entry by matching their known IPs against peers dict.
-
-        Jan 2, 2026: Added to fix voter heartbeat loop which was looking up voters
-        by friendly name (e.g., 'hetzner-cpu1') but peers dict uses IP:port keys
-        from SWIM (e.g., '135.181.39.239:7947').
-
-        Jan 5, 2026: Fixed to try node_id matching first and check peer info 'host'
-        field. The SWIM protocol (port 7947) is disabled - P2P runs on port 8770.
-        Peers now register as node_id (friendly name) or IP:8770 format.
-
-        Args:
-            voter_id: The voter's friendly node_id (e.g., 'hetzner-cpu1')
-
-        Returns:
-            Tuple of (peer_key, peer_info) where peer_key is the key in
-            self.peers, or (None, None) if not found.
-        """
-        # Jan 2026: Use lock-free PeerSnapshot for read-only access
-        peers_snapshot = self._peer_snapshot.get_snapshot()
-
-        # Strategy 1: Direct node_id match (most reliable when peers use friendly names)
-        if voter_id in peers_snapshot:
-            return voter_id, peers_snapshot[voter_id]
-
-        # Strategy 2: Get voter's known IPs from config
-        voter_ip_map = self._build_voter_ip_mapping()
-        voter_ips = voter_ip_map.get(voter_id, set())
-
-        if not voter_ips:
-            return None, None
-
-        # Strategy 3: Check peer info 'host' field for IP match
-        for peer_key, peer_info in peers_snapshot.items():
-            if isinstance(peer_info, dict):
-                peer_host = peer_info.get("host", "")
-                if peer_host in voter_ips:
-                    return peer_key, peer_info
-            elif hasattr(peer_info, "host") and peer_info.host in voter_ips:
-                return peer_key, peer_info
-
-        # Strategy 4: Extract IP from peer_key (IP:PORT format, typically IP:8770)
-        for peer_key, peer_info in peers_snapshot.items():
-            if ":" in peer_key:
-                peer_ip = peer_key.rsplit(":", 1)[0]
-                if peer_ip in voter_ips:
-                    return peer_key, peer_info
-
-        return None, None
-
+    # NOTE: _find_voter_peer_by_ip() removed - delegated to QuorumManager (Jan 2026 Phase 1)
     # NOTE: _count_alive_voters(), _is_peer_alive(), _is_swim_peer_id()
     # moved to LeadershipHealthMixin (Jan 26, 2026)
 
@@ -5656,60 +5531,7 @@ class P2POrchestrator(
         """
         await self.health_metrics_manager.event_loop_latency_monitor()
 
-    def _maybe_adopt_voter_node_ids(self, voter_node_ids: list[str], *, source: str) -> bool:
-        """Adopt/override the voter set when it's not explicitly configured.
-
-        This is a convergence mechanism: some nodes may boot without local
-        config (or with stale config), which would disable quorum gating and
-        allow non-voter nodes to become leaders. Leaders propagate the stable
-        voter set via `/coordinator` so the cluster converges.
-
-        Dec 2025: Don't override if config source is 'env' or 'config' (YAML).
-        Dec 2025: Added strict validation to prevent voter set flapping.
-        """
-        # If explicitly configured via env var, never override
-        if (os.environ.get("RINGRIFT_P2P_VOTERS") or "").strip():
-            return False
-
-        # If explicitly configured via YAML, never override from gossip
-        if getattr(self, "voter_config_source", "") == "config":
-            return False
-
-        normalized = sorted({str(v).strip() for v in (voter_node_ids or []) if str(v).strip()})
-        if not normalized:
-            return False
-
-        # Dec 2025: Strict validation to prevent voter set flapping
-        # Reject voter sets that are too small (need at least 3 for meaningful quorum)
-        if len(normalized) < 3:
-            return False
-
-        # Dec 2025: Canonical voters that MUST be in any valid voter set
-        # These are stable, always-on nodes that should always be voters
-        canonical_voters = {"nebius-backbone-1", "vultr-a100-20gb"}
-        has_canonical = bool(canonical_voters & set(normalized))
-        if not has_canonical:
-            # Reject voter sets that don't include any canonical voter
-            return False
-
-        current = sorted(set(getattr(self, "voter_node_ids", []) or []))
-        if current == normalized:
-            return False
-
-        # Dec 2025: Once we have a learned voter set with 5+ voters, don't downgrade
-        if len(current) >= 5 and len(normalized) < len(current):
-            return False
-
-        self.voter_node_ids = normalized
-        # SIMPLIFIED QUORUM: Fixed at 3 voters (or less if fewer voters exist)
-        self.voter_quorum_size = min(VOTER_MIN_QUORUM, len(normalized))
-        self.voter_config_source = source or "learned"
-        print(
-            f"[P2P] Updated voter set ({self.voter_config_source}): voters={len(normalized)}, "
-            f"quorum={self.voter_quorum_size} ({', '.join(normalized)})"
-        )
-        return True
-
+    # NOTE: _maybe_adopt_voter_node_ids() removed - delegated to QuorumManager (Jan 2026 Phase 1)
     # _has_voter_quorum: Provided by LeaderElectionMixin
     # _release_voter_grant_if_self: Provided by LeaderElectionMixin
 
@@ -6490,7 +6312,11 @@ class P2POrchestrator(
                 and not (getattr(self, "voter_node_ids", []) or [])
                 and str(getattr(self, "voter_config_source", "none") or "none") == "none"
             ):
-                self.quorum_manager.maybe_adopt_voter_node_ids(ls.voter_node_ids, source="state")
+                if self.quorum_manager.maybe_adopt_voter_node_ids(ls.voter_node_ids, source="state"):
+                    # Sync adopted state back to orchestrator attributes
+                    self.voter_node_ids = self.quorum_manager.voter_node_ids
+                    self.voter_config_source = self.quorum_manager.voter_config_source
+                    self.voter_quorum_size = min(VOTER_MIN_QUORUM, len(self.voter_node_ids)) if self.voter_node_ids else 0
 
             # Self-heal inconsistent persisted leader state (can happen after
             # abrupt shutdowns or partial writes): never keep role=leader without
@@ -9795,7 +9621,11 @@ class P2POrchestrator(
                 elif isinstance(incoming_voters, str):
                     voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
                 if voters_list:
-                    self.quorum_manager.maybe_adopt_voter_node_ids(voters_list, source="learned")
+                    if self.quorum_manager.maybe_adopt_voter_node_ids(voters_list, source="learned"):
+                        # Sync adopted state back to orchestrator attributes
+                        self.voter_node_ids = self.quorum_manager.voter_node_ids
+                        self.voter_config_source = self.quorum_manager.voter_config_source
+                        self.voter_quorum_size = min(VOTER_MIN_QUORUM, len(self.voter_node_ids)) if self.voter_node_ids else 0
 
             voters = list(getattr(self, "voter_node_ids", []) or [])
             if voters and new_leader not in voters:
@@ -13538,7 +13368,11 @@ print(json.dumps({{
                         elif isinstance(incoming_voters, str):
                             voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
                         if voters_list:
-                            self._maybe_adopt_voter_node_ids(voters_list, source="learned")
+                            if self.quorum_manager.maybe_adopt_voter_node_ids(voters_list, source="learned"):
+                                # Sync adopted state back to orchestrator attributes
+                                self.voter_node_ids = self.quorum_manager.voter_node_ids
+                                self.voter_config_source = self.quorum_manager.voter_config_source
+                                self.voter_quorum_size = min(VOTER_MIN_QUORUM, len(self.voter_node_ids)) if self.voter_node_ids else 0
 
                     self._save_state()
                     logger.info(f"Bootstrap from {host}:{port}: imported {len(peers_data)} peers")
@@ -14479,8 +14313,9 @@ print(json.dumps({{
                 for voter_id in other_voters:
                     # Find voter peer info by IP mapping (Jan 2, 2026 fix)
                     # Peers dict uses IP:port keys from SWIM, not friendly node_ids
+                    # Jan 2026: Delegated to QuorumManager.
                     async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                        peer_key, voter_peer = self._find_voter_peer_by_ip(voter_id)
+                        peer_key, voter_peer = self.quorum_manager.find_voter_peer_by_ip(voter_id)
 
                     if not voter_peer:
                         # Try to discover voter from known peers
