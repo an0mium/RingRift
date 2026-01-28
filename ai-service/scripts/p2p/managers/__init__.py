@@ -183,6 +183,26 @@ from .recovery_manager import (
     reset_recovery_manager,
     set_recovery_manager,
 )
+# January 2026: Phase 14 - Heartbeat Manager
+from .heartbeat_manager import (
+    HeartbeatConfig,
+    HeartbeatManager,
+    HeartbeatStats,
+    create_heartbeat_manager,
+    get_heartbeat_manager,
+    reset_heartbeat_manager,
+    set_heartbeat_manager,
+)
+# January 2026: Phase 15 - Job Coordination Manager
+from .job_coordination_manager import (
+    JobCoordinationConfig,
+    JobCoordinationManager,
+    JobCoordinationStats,
+    create_job_coordination_manager,
+    get_job_coordination_manager,
+    reset_job_coordination_manager,
+    set_job_coordination_manager,
+)
 
 __all__ = [
     "DiscoveryChannel",
@@ -321,4 +341,20 @@ __all__ = [
     "get_recovery_manager",
     "reset_recovery_manager",
     "set_recovery_manager",
+    # Heartbeat Manager (Phase 14)
+    "HeartbeatConfig",
+    "HeartbeatManager",
+    "HeartbeatStats",
+    "create_heartbeat_manager",
+    "get_heartbeat_manager",
+    "reset_heartbeat_manager",
+    "set_heartbeat_manager",
+    # Job Coordination Manager (Phase 15)
+    "JobCoordinationConfig",
+    "JobCoordinationManager",
+    "JobCoordinationStats",
+    "create_job_coordination_manager",
+    "get_job_coordination_manager",
+    "reset_job_coordination_manager",
+    "set_job_coordination_manager",
 ]
