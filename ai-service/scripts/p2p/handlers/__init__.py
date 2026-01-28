@@ -104,6 +104,7 @@ from .tables import TableHandlersMixin
 from .work_queue import WorkQueueHandlersMixin
 from .metrics import MetricsHandlersMixin
 from .models import ModelHandlersMixin, setup_model_routes
+from .pipeline import PipelineHandlersMixin
 from .selfplay_api import SelfplayHandlersMixin
 from .cluster_api import ClusterApiHandlersMixin
 from .dashboard import DashboardHandlersMixin
@@ -151,6 +152,8 @@ __all__ = [
     "setup_model_routes",
     # Metrics (January 2026 - P2P Modularization)
     "MetricsHandlersMixin",
+    # Pipeline (January 2026 - P2P Modularization Phase 6)
+    "PipelineHandlersMixin",
     # Selfplay API (January 2026 - P2P Modularization)
     "SelfplayHandlersMixin",
     # Cluster API (January 2026 - P2P Modularization)
