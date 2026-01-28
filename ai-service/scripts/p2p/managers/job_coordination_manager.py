@@ -297,15 +297,64 @@ class JobCoordinationManager:
             self._stats.gpu_scaling_adjustments += 1
 
     async def local_resource_cleanup(self) -> None:
-        """DECENTRALIZED: Handle disk/memory pressure on this node.
+        """DECENTRALIZED: Each node handles its own resource pressure.
 
-        Cleans up resources when thresholds are exceeded.
+        Runs on ALL nodes to ensure resource cleanup without leader coordination.
+        Handles disk cleanup, memory pressure, and log rotation.
 
-        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 15).
+        Jan 27, 2026: Phase 16B - Full implementation migrated from p2p_orchestrator.py.
         """
-        if self._orchestrator and hasattr(self._orchestrator, "_local_resource_cleanup"):
-            await self._orchestrator._local_resource_cleanup()
-            self._stats.resource_cleanups += 1
+        import asyncio
+
+        now = time.time()
+
+        # Rate limit: check every 5 minutes
+        if now - self._last_local_resource_check < 300:
+            return
+        self._last_local_resource_check = now
+
+        await self._update_self_info()
+        node = self._self_info
+        if not node:
+            return
+
+        # Get thresholds from config
+        disk_threshold = self.config.disk_cleanup_threshold
+        memory_critical = self.config.memory_critical_threshold
+        memory_warning = self.config.memory_warning_threshold
+
+        disk_percent = getattr(node, "disk_percent", 0) or 0
+        memory_percent = getattr(node, "memory_percent", 0) or 0
+
+        # Disk cleanup
+        if disk_percent >= disk_threshold:
+            logger.info(f"LOCAL: Disk at {disk_percent:.0f}% - triggering cleanup")
+            if self._orchestrator and hasattr(self._orchestrator, "_cleanup_local_disk"):
+                await self._orchestrator._cleanup_local_disk()
+
+        # Memory pressure - reduce jobs and clear caches
+        if memory_percent >= memory_critical:
+            logger.warning(f"LOCAL: Memory CRITICAL at {memory_percent:.0f}% - emergency cleanup")
+            if self._orchestrator and hasattr(self._orchestrator, "_reduce_local_selfplay_jobs"):
+                await self._orchestrator._reduce_local_selfplay_jobs(0, reason="memory_critical")
+            if self._orchestrator and hasattr(self._orchestrator, "_emergency_memory_cleanup"):
+                self._orchestrator._emergency_memory_cleanup()
+            # Backoff after emergency cleanup to avoid tight loop
+            logger.info("LOCAL: Sleeping 60s after memory emergency to avoid tight loop")
+            await asyncio.sleep(60)
+        elif memory_percent >= memory_warning:
+            current = int(getattr(node, "selfplay_jobs", 0) or 0)
+            target = max(1, current // 2)
+            logger.info(f"LOCAL: Memory warning at {memory_percent:.0f}% - reducing jobs to {target}")
+            if self._orchestrator and hasattr(self._orchestrator, "_reduce_local_selfplay_jobs"):
+                await self._orchestrator._reduce_local_selfplay_jobs(target, reason="memory_warning")
+
+        # Clean up old completed/failed jobs to prevent memory leak
+        job_manager = getattr(self._orchestrator, "job_manager", None)
+        if job_manager and hasattr(job_manager, "cleanup_completed_jobs"):
+            job_manager.cleanup_completed_jobs()
+
+        self._stats.resource_cleanups += 1
 
     # =========================================================================
     # Leader-Only Operations
@@ -346,21 +395,106 @@ class JobCoordinationManager:
             await self._orchestrator._auto_rebalance_from_work_queue()
             self._stats.work_queue_dispatches += 1
 
-    async def dispatch_queued_work(self, work_item: Any, target_node: Any) -> bool:
-        """Dispatch a work item to a specific node.
+    async def dispatch_queued_work(self, peer: Any, work_item: Any) -> bool:
+        """Dispatch a work queue item to a specific node.
+
+        Routes different work types to appropriate endpoints.
 
         Args:
-            work_item: The work item to dispatch.
-            target_node: The node to dispatch to.
+            peer: Target node info (NodeInfo)
+            work_item: Work item dict with work_id, work_type, config, etc.
 
         Returns:
             True if dispatch was successful.
 
-        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 15).
+        Jan 27, 2026: Phase 16B - Full implementation migrated from p2p_orchestrator.py.
         """
-        if self._orchestrator and hasattr(self._orchestrator, "_dispatch_queued_work"):
-            return await self._orchestrator._dispatch_queued_work(work_item, target_node)
-        return False
+        if aiohttp is None:
+            return False
+
+        from app.coordination.work_queue import WorkType
+        from scripts.p2p.network import get_client_session
+
+        try:
+            timeout = ClientTimeout(total=30)
+            async with get_client_session(timeout) as session:
+                # Handle both dict and object formats for backward compatibility
+                if isinstance(work_item, dict):
+                    work_type = work_item.get("work_type")
+                    config = work_item.get("config", {})
+                    work_id = work_item.get("work_id")
+                else:
+                    work_type = getattr(work_item, "work_type", None)
+                    config = getattr(work_item, "config", {})
+                    work_id = getattr(work_item, "work_id", None)
+
+                # Convert string work_type to enum if needed
+                if isinstance(work_type, str):
+                    try:
+                        work_type = WorkType(work_type)
+                    except ValueError:
+                        logger.warning(f"Unknown work type string: {work_type}")
+                        return False
+
+                # Get peer node_id for logging
+                peer_node_id = getattr(peer, "node_id", "unknown")
+
+                if work_type == WorkType.TRAINING:
+                    url = self._url_for_peer(peer, "/start_job")
+                    payload = {
+                        "job_type": "training",
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "work_id": work_id,
+                    }
+                elif work_type == WorkType.GPU_CMAES:
+                    url = self._url_for_peer(peer, "/cmaes/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "work_id": work_id,
+                    }
+                elif work_type == WorkType.TOURNAMENT:
+                    url = self._url_for_peer(peer, "/tournament/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "work_id": work_id,
+                    }
+                elif work_type == WorkType.SELFPLAY:
+                    url = self._url_for_peer(peer, "/selfplay/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "num_games": config.get("num_games", 500),
+                        "work_id": work_id,
+                    }
+                elif work_type == WorkType.GAUNTLET:
+                    url = self._url_for_peer(peer, "/gauntlet/start")
+                    payload = {
+                        "board_type": config.get("board_type", "square8"),
+                        "num_players": config.get("num_players", 2),
+                        "model_path": config.get("candidate_model", ""),
+                        "games": config.get("games", 100),
+                        "work_id": work_id,
+                    }
+                else:
+                    logger.warning(f"Unknown work type: {work_type}")
+                    return False
+
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        logger.info(f"Dispatched {work_type.value} work to {peer_node_id}")
+                        self._stats.work_queue_dispatches += 1
+                        return True
+                    else:
+                        error = await resp.text()
+                        logger.warning(f"Failed to dispatch work to {peer_node_id}: {error}")
+                        return False
+
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Error dispatching work to {getattr(peer, 'node_id', 'unknown')}: {e}")
+            return False
 
     async def schedule_diverse_selfplay_on_node(
         self,

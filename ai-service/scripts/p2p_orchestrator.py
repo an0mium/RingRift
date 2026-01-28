@@ -14346,432 +14346,39 @@ print(json.dumps({{
     async def _send_heartbeat_to_peer(self, peer_host: str, peer_port: int, scheme: str = "http", timeout: int = 15) -> NodeInfo | None:
         """Send heartbeat to a peer and return their info.
 
-        Args:
-            peer_host: Target peer hostname or IP
-            peer_port: Target peer port
-            scheme: HTTP or HTTPS scheme
-            timeout: Request timeout in seconds (default 15, use smaller for voter heartbeats)
-
-        Dec 2025: Added SSH fallback via HybridTransport when HTTP fails.
-        Jan 11, 2026: Phase 3 - Increased default timeout from 10s to 15s for better
-        reliability with relay/NAT nodes that can exceed 10s latency.
+        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
         """
-        target = f"{peer_host}:{peer_port}"
-        breaker = self._circuit_registry.get_breaker("p2p")
-
-        # Check circuit breaker before attempting request
-        if not breaker.can_execute(target):
-            state = breaker.get_state(target)
-            if state == CircuitState.OPEN:
-                # Circuit is open - skip this peer temporarily
-                return None
-
-        http_failed = False
-        # Prepare payload outside try block so it's available for SSH fallback
-        # Jan 23, 2026: Use async version to avoid blocking event loop
-        await self._update_self_info_async()
-        payload = self.self_info.to_dict()
-        voter_node_ids = list(getattr(self, "voter_node_ids", []) or [])
-        if voter_node_ids:
-            payload["voter_node_ids"] = voter_node_ids
-            payload["voter_quorum_size"] = int(getattr(self, "voter_quorum_size", 0) or 0)
-            payload["voter_config_source"] = str(getattr(self, "voter_config_source", "") or "")
-
-        try:
-            # Adjust timeout based on circuit state (shorter for half-open probing)
-            effective_timeout = self._circuit_registry.get_timeout("p2p", target, float(timeout))
-            client_timeout = ClientTimeout(total=effective_timeout)
-
-            async with get_client_session(client_timeout) as session:
-                scheme = (scheme or "http").lower()
-                url = f"{scheme}://{peer_host}:{peer_port}/heartbeat"
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    data, json_error = await safe_json_response(resp, default=None, log_errors=False)
-                    if json_error or data is None:
-                        # Record failure with circuit breaker for empty/invalid responses
-                        breaker.record_failure(target)
-                        http_failed = True
-                    else:
-                        incoming_voters = data.get("voter_node_ids") or data.get("voters") or None
-                        if incoming_voters:
-                            voters_list: list[str] = []
-                            if isinstance(incoming_voters, list):
-                                voters_list = [str(v).strip() for v in incoming_voters if str(v).strip()]
-                            elif isinstance(incoming_voters, str):
-                                voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
-                            if voters_list:
-                                self._maybe_adopt_voter_node_ids(voters_list, source="learned")
-                        info = NodeInfo.from_dict(data)
-                        if not info.reported_host:
-                            info.reported_host = info.host
-                        if not info.reported_port:
-                            info.reported_port = info.port
-                        # Use the address we successfully reached instead of any
-                        # self-reported interface address.
-                        info.scheme = scheme
-                        info.host = peer_host
-                        info.port = peer_port
-                        # Record success with circuit breaker
-                        breaker.record_success(target)
-
-                        # Phase 27: Cache peer for persistence across restarts
-                        self._save_peer_to_cache(
-                            info.node_id,
-                            peer_host,
-                            peer_port,
-                            str(getattr(info, "tailscale_ip", "") or "")
-                        )
-                        self._update_peer_reputation(info.node_id, success=True)
-
-                        return info
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError, ValueError, KeyError):
-            # Record failure with circuit breaker
-            breaker.record_failure(target)
-            http_failed = True
-
-        # Dec 2025: SSH fallback via HybridTransport when HTTP fails
-        if http_failed and self.hybrid_transport:
-            info = await self._send_heartbeat_via_ssh_fallback(peer_host, peer_port, payload)
-            if info:
-                breaker.record_success(target)
-                return info
-
-        return None
+        return await self.heartbeat_manager.send_heartbeat_to_peer(peer_host, peer_port, scheme, timeout)
 
     async def _send_heartbeat_via_ssh_fallback(
         self, peer_host: str, peer_port: int, payload: dict[str, Any]
     ) -> NodeInfo | None:
         """Send heartbeat via SSH when HTTP fails.
 
-        Dec 2025: Uses HybridTransport SSH fallback for nodes behind NAT or
-        with unreachable HTTP endpoints.
-
-        Args:
-            peer_host: Target peer hostname or IP
-            peer_port: Target peer port
-            payload: Heartbeat payload dict
-
-        Returns:
-            NodeInfo if successful, None otherwise
+        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
         """
-        if not self.hybrid_transport:
-            return None
-
-        # Try to find node_id for this host
-        node_id = self._find_node_id_for_host(peer_host)
-        if not node_id:
-            return None
-
-        try:
-            success, response = await self.hybrid_transport.send_heartbeat(
-                node_id=node_id,
-                host=peer_host,
-                port=peer_port,
-                self_info=payload,
-            )
-
-            if success and response:
-                info = NodeInfo.from_dict(response)
-                if not info.reported_host:
-                    info.reported_host = info.host
-                if not info.reported_port:
-                    info.reported_port = info.port
-                info.scheme = "http"  # SSH proxied to local HTTP
-                info.host = peer_host
-                info.port = peer_port
-
-                # Cache peer for persistence
-                self._save_peer_to_cache(
-                    info.node_id,
-                    peer_host,
-                    peer_port,
-                    str(getattr(info, "tailscale_ip", "") or "")
-                )
-                self._update_peer_reputation(info.node_id, success=True)
-
-                logger.debug(f"[P2P] SSH fallback heartbeat successful to {node_id}")
-                return info
-
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[P2P] SSH fallback heartbeat failed for {node_id}: {e}")
-
-        return None
+        return await self.heartbeat_manager._send_heartbeat_via_ssh_fallback(peer_host, peer_port, payload)
 
     def _find_node_id_for_host(self, host: str) -> str | None:
         """Find node_id for a given host address.
 
-        Dec 2025: Looks up node_id from cluster_hosts.yaml or peer cache.
-
-        Args:
-            host: Hostname or IP address
-
-        Returns:
-            node_id if found, None otherwise
+        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
         """
-        # Check peers first
-        with self.peers_lock:
-            for peer in self.peers.values():
-                if peer.host == host or getattr(peer, "tailscale_ip", None) == host:
-                    return peer.node_id
-
-        # Check cluster_hosts.yaml
-        try:
-            from app.sync.cluster_hosts import get_cluster_nodes
-            configured_hosts = get_cluster_nodes()
-            for name, cfg in configured_hosts.items():
-                if cfg.tailscale_ip == host or cfg.ssh_host == host or cfg.best_ip == host:
-                    return name
-        except (AttributeError, ImportError):
-            pass
-
-        return None
+        return self.heartbeat_manager.find_node_id_for_host(host)
 
     async def _bootstrap_from_known_peers(self) -> bool:
         """Import cluster membership from seed peers via `/relay/peers`.
 
-        Heartbeats intentionally return only a single peer's NodeInfo, which
-        makes initial convergence slow when only one seed peer is configured
-        (common for cloud nodes). `/relay/peers` returns a snapshot of the
-        sender's full peer list, allowing new nodes to quickly learn about the
-        leader and other cluster members.
+        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
         """
-        # Seed peers are configured via `--peers`, but relying on a single
-        # coordinator makes clusters brittle. Also bootstrap from any
-        # previously-seen directly-reachable peers so nodes can re-join after
-        # restarts even if the original seed goes offline.
-        known_seed_peers: list[str] = [p for p in (self.known_peers or []) if p]
-        discovered_seed_peers: list[str] = []
-
-        with self.peers_lock:
-            peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
-        peers_snapshot.sort(key=lambda p: str(getattr(p, "node_id", "") or ""))
-
-        for peer in peers_snapshot:
-            if getattr(peer, "nat_blocked", False):
-                # NAT-blocked nodes cannot serve as inbound seeds.
-                continue
-            if not peer.should_retry():
-                continue
-
-            scheme = (getattr(peer, "scheme", "http") or "http").lower()
-            host = str(getattr(peer, "host", "") or "").strip()
-            try:
-                port = int(getattr(peer, "port", DEFAULT_PORT) or DEFAULT_PORT)
-            except (ValueError):
-                port = DEFAULT_PORT
-            if host:
-                discovered_seed_peers.append(f"{scheme}://{host}:{port}")
-
-            rh = str(getattr(peer, "reported_host", "") or "").strip()
-            try:
-                rp = int(getattr(peer, "reported_port", 0) or 0)
-            except (ValueError):
-                rp = 0
-            if rh and rp:
-                discovered_seed_peers.append(f"{scheme}://{rh}:{rp}")
-
-        seen: set[str] = set()
-        seed_peers: list[str] = []
-        ki = 0
-        di = 0
-        while ki < len(known_seed_peers) or di < len(discovered_seed_peers):
-            if ki < len(known_seed_peers):
-                candidate = known_seed_peers[ki]
-                ki += 1
-                if candidate and candidate not in seen:
-                    seen.add(candidate)
-                    seed_peers.append(candidate)
-            if di < len(discovered_seed_peers):
-                candidate = discovered_seed_peers[di]
-                di += 1
-                if candidate and candidate not in seen:
-                    seen.add(candidate)
-                    seed_peers.append(candidate)
-        if not seed_peers:
-            return False
-
-        now = time.time()
-        if now - self.last_peer_bootstrap < PEER_BOOTSTRAP_INTERVAL:
-            return False
-
-        max_seeds = int(os.environ.get("RINGRIFT_P2P_BOOTSTRAP_MAX_SEEDS_PER_RUN", "8") or 8)
-        max_seeds = max(1, min(max_seeds, 32))
-
-        timeout = ClientTimeout(total=8)
-        bootstrapped = False
-        imported_any = False
-
-        async with get_client_session(timeout) as session:
-            for idx, peer_addr in enumerate(seed_peers):
-                if idx >= max_seeds:
-                    break
-                try:
-                    scheme, host, port = self._parse_peer_address(peer_addr)
-                    scheme = (scheme or "http").lower()
-                    url = f"{scheme}://{host}:{port}/relay/peers"
-                    async with session.get(url, headers=self._auth_headers()) as resp:
-                        if resp.status != 200:
-                            continue
-                        data = await resp.json()
-
-                    if not isinstance(data, dict) or not data.get("success"):
-                        continue
-
-                    bootstrapped = True
-
-                    incoming_voters = data.get("voter_node_ids") or data.get("voters") or None
-                    if incoming_voters:
-                        voters_list: list[str] = []
-                        if isinstance(incoming_voters, list):
-                            voters_list = [str(v).strip() for v in incoming_voters if str(v).strip()]
-                        elif isinstance(incoming_voters, str):
-                            voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
-                        if voters_list:
-                            self._maybe_adopt_voter_node_ids(voters_list, source="learned")
-
-                    peers_data = data.get("peers") or {}
-                    if not isinstance(peers_data, dict):
-                        continue
-
-                    with self.peers_lock:
-                        before = len(self.peers)
-                        for node_id, peer_dict in peers_data.items():
-                            if not node_id or node_id == self.node_id:
-                                continue
-                            try:
-                                info = NodeInfo.from_dict(peer_dict)
-                            except (AttributeError):
-                                continue
-                            existing = self.peers.get(info.node_id)
-                            if existing:
-                                # Preserve relay/NAT routing and retirement state when merging peer snapshots.
-                                if getattr(existing, "nat_blocked", False) and not getattr(info, "nat_blocked", False):
-                                    info.nat_blocked = True
-                                    info.nat_blocked_since = float(getattr(existing, "nat_blocked_since", 0.0) or 0.0) or time.time()
-                                    info.last_nat_probe = float(getattr(existing, "last_nat_probe", 0.0) or 0.0)
-                                if (getattr(existing, "relay_via", "") or "") and not (getattr(info, "relay_via", "") or ""):
-                                    info.relay_via = str(getattr(existing, "relay_via", "") or "")
-                                if getattr(existing, "retired", False):
-                                    info.retired = True
-                                    info.retired_at = float(getattr(existing, "retired_at", 0.0) or 0.0)
-                                # Preserve local reachability diagnostics.
-                                info.consecutive_failures = int(getattr(existing, "consecutive_failures", 0) or 0)
-                                info.last_failure_time = float(getattr(existing, "last_failure_time", 0.0) or 0.0)
-
-                            self.peers[info.node_id] = info
-                        after = len(self.peers)
-
-                    # Jan 12, 2026: Sync to lock-free snapshot after gossip merge
-                    self._sync_peer_snapshot()
-
-                    new = max(0, after - before)
-                    if new:
-                        imported_any = True
-                        logger.info(f"Bootstrap: imported {new} new peers from {host}:{port}")
-
-                    leader_id = str(data.get("leader_id") or "").strip()
-                    if leader_id and leader_id != self.node_id:
-                        # If we're currently leader but the seed reports a higher-priority
-                        # leader, step down to converge quickly.
-                        if self.role == NodeRole.LEADER and leader_id > self.node_id:
-                            logger.info(f"Bootstrap: stepping down for leader {leader_id}")
-                        # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
-                        self._set_leader(leader_id, reason="bootstrap_discover_leader", save_state=False)
-                except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, KeyError, ValueError):
-                    continue
-
-        self.last_peer_bootstrap = now
-        if bootstrapped:
-            self._maybe_adopt_leader_from_peers()
-            self._save_state()
-        return imported_any
+        return await self.heartbeat_manager.bootstrap_from_known_peers()
 
     async def _continuous_bootstrap_loop(self) -> None:
         """Phase 26.3: Continuously attempt to join cluster when isolated.
 
-        This loop runs on ALL nodes (not just leader) and ensures that
-        isolated nodes can rejoin the cluster without manual intervention.
-
-        Triggers when:
-        - Less than MIN_CONNECTED_PEERS alive peers
-        - No leader known
-
-        Uses multi-seed bootstrap with:
-        1. Cached peers (highest reputation first)
-        2. CLI-provided peers
-        3. Hardcoded BOOTSTRAP_SEEDS
-        4. Tailscale network scan (fallback)
+        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
         """
-        # Dec 30, 2025: Conditional startup grace period
-        # - If --peers provided: Wait STARTUP_GRACE_PERIOD for other nodes to restart
-        # - If no --peers: Start immediately (we're already isolated, no point waiting)
-        # This enables fast mesh join when nodes start without explicit peer list.
-        if self.known_peers:
-            logger.debug(f"[ContinuousBootstrap] Waiting {STARTUP_GRACE_PERIOD}s grace period (have known peers)")
-            await asyncio.sleep(STARTUP_GRACE_PERIOD)
-        else:
-            # No peers configured - skip grace period but wait briefly for HTTP server
-            logger.info("[ContinuousBootstrap] No known peers, skipping startup grace period")
-            await asyncio.sleep(5)
-
-        while self.running:
-            try:
-                await asyncio.sleep(ISOLATED_BOOTSTRAP_INTERVAL)
-
-                # Count alive peers
-                with self.peers_lock:
-                    peers_alive = sum(
-                        1 for p in self.peers.values()
-                        if p.node_id != self.node_id and p.is_alive()
-                    )
-
-                # Check if we're isolated (few peers or no leader)
-                is_isolated = peers_alive < MIN_CONNECTED_PEERS
-                no_leader = self.leader_id is None or (
-                    self.leader_id != self.node_id and
-                    self.leader_id not in self.peers
-                )
-
-                if is_isolated or no_leader:
-                    if is_isolated:
-                        logger.warning(
-                            f"Isolated: only {peers_alive} alive peers "
-                            f"(need {MIN_CONNECTED_PEERS}), attempting bootstrap..."
-                        )
-                    elif no_leader:
-                        logger.warning(
-                            f"No valid leader (current: {self.leader_id}), "
-                            f"attempting bootstrap..."
-                        )
-
-                    # Try bootstrap from multiple sources
-                    bootstrapped = await self._bootstrap_from_multiple_seeds()
-
-                    if bootstrapped:
-                        logger.info(
-                            f"Bootstrap successful! "
-                            f"Now have {len([p for p in self.peers.values() if p.is_alive()])} alive peers"
-                        )
-                        # Try to adopt leader from newly discovered peers
-                        self._maybe_adopt_leader_from_peers()
-
-                        # If still no leader, start election
-                        if not self.leader_id:
-                            # CRITICAL: Check quorum before starting election to prevent quorum bypass
-                            if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-                                logger.warning("Skipping election after bootstrap: no voter quorum available")
-                            else:
-                                await self._start_election()
-                    else:
-                        # Fallback: try Tailscale peer discovery
-                        logger.info("Bootstrap from seeds failed, trying Tailscale discovery...")
-                        await self._discover_tailscale_peers()
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.error(f"Error in continuous bootstrap loop: {e}")
-                await asyncio.sleep(30)  # Back off on errors
+        await self.heartbeat_manager.continuous_bootstrap_loop()
 
     async def _bootstrap_from_multiple_seeds(self) -> bool:
         """Phase 26.3: Try multiple seeds until we join the cluster.
@@ -20654,44 +20261,9 @@ print(json.dumps({{
     async def _local_resource_cleanup(self):
         """DECENTRALIZED: Each node handles its own resource pressure.
 
-        Runs on ALL nodes to ensure resource cleanup without leader coordination.
-        Handles disk cleanup, memory pressure, and log rotation.
+        Jan 27, 2026: Phase 16B - Delegates to JobCoordinationManager.
         """
-        now = time.time()
-
-        # Rate limit: check every 5 minutes
-        last_check = getattr(self, "_last_local_resource_check", 0)
-        if now - last_check < 300:
-            return
-        self._last_local_resource_check = now
-
-        self._update_self_info()
-        node = self.self_info
-
-        # Disk cleanup
-        if node.disk_percent >= DISK_CLEANUP_THRESHOLD:
-            logger.info(f"LOCAL: Disk at {node.disk_percent:.0f}% - triggering cleanup")
-            await self._cleanup_local_disk()
-
-        # Memory pressure - reduce jobs and clear caches
-        if node.memory_percent >= MEMORY_CRITICAL_THRESHOLD:
-            logger.warning(f"LOCAL: Memory CRITICAL at {node.memory_percent:.0f}% - emergency cleanup")
-            await self._reduce_local_selfplay_jobs(0, reason="memory_critical")
-            # Jan 10, 2026: Clear gossip caches to free memory
-            self._emergency_memory_cleanup()
-            # Jan 21, 2026: Backoff after emergency cleanup to avoid tight loop
-            # When memory is truly critical, spinning at 100% CPU makes it worse.
-            # Sleep for 60s to give the system time to reclaim memory.
-            logger.info("LOCAL: Sleeping 60s after memory emergency to avoid tight loop")
-            await asyncio.sleep(60)
-        elif node.memory_percent >= MEMORY_WARNING_THRESHOLD:
-            current = int(getattr(node, "selfplay_jobs", 0) or 0)
-            target = max(1, current // 2)
-            logger.info(f"LOCAL: Memory warning at {node.memory_percent:.0f}% - reducing jobs to {target}")
-            await self._reduce_local_selfplay_jobs(target, reason="memory_warning")
-
-        # Clean up old completed/failed jobs to prevent memory leak
-        self.job_manager.cleanup_completed_jobs()
+        await self.job_coordination_manager.local_resource_cleanup()
 
     # Dec 2025: Job/selfplay methods delegated to job_manager and selfplay_scheduler
 
@@ -20948,96 +20520,9 @@ print(json.dumps({{
     async def _dispatch_queued_work(self, peer: NodeInfo, work_item: dict) -> bool:
         """Dispatch a work queue item to a specific node.
 
-        Routes different work types to appropriate endpoints.
-
-        Args:
-            peer: Target node info
-            work_item: Work item dict with work_id, work_type, config, etc.
-                       (from claim_work_distributed)
+        Jan 27, 2026: Phase 16B - Delegates to JobCoordinationManager.
         """
-        from app.coordination.work_queue import WorkType
-
-        try:
-            timeout = ClientTimeout(total=30)
-            async with get_client_session(timeout) as session:
-                # Handle both dict and object formats for backward compatibility
-                if isinstance(work_item, dict):
-                    work_type = work_item.get("work_type")
-                    config = work_item.get("config", {})
-                    work_id = work_item.get("work_id")
-                else:
-                    work_type = work_item.work_type
-                    config = work_item.config
-                    work_id = work_item.work_id
-
-                # Convert string work_type to enum if needed
-                if isinstance(work_type, str):
-                    try:
-                        work_type = WorkType(work_type)
-                    except ValueError:
-                        logger.warning(f"Unknown work type string: {work_type}")
-                        return False
-
-                if work_type == WorkType.TRAINING:
-                    # Route to training endpoint
-                    url = self._url_for_peer(peer, "/start_job")
-                    payload = {
-                        "job_type": "training",
-                        "board_type": config.get("board_type", "square8"),
-                        "num_players": config.get("num_players", 2),
-                        "work_id": work_id,
-                    }
-                elif work_type == WorkType.GPU_CMAES:
-                    # Route to CMA-ES endpoint
-                    url = self._url_for_peer(peer, "/cmaes/start")
-                    payload = {
-                        "board_type": config.get("board_type", "square8"),
-                        "num_players": config.get("num_players", 2),
-                        "work_id": work_id,
-                    }
-                elif work_type == WorkType.TOURNAMENT:
-                    # Route to tournament endpoint
-                    url = self._url_for_peer(peer, "/tournament/start")
-                    payload = {
-                        "board_type": config.get("board_type", "square8"),
-                        "num_players": config.get("num_players", 2),
-                        "work_id": work_id,
-                    }
-                elif work_type == WorkType.SELFPLAY:
-                    # Route to selfplay endpoint
-                    url = self._url_for_peer(peer, "/selfplay/start")
-                    payload = {
-                        "board_type": config.get("board_type", "square8"),
-                        "num_players": config.get("num_players", 2),
-                        "num_games": config.get("num_games", 500),
-                        "work_id": work_id,
-                    }
-                elif work_type == WorkType.GAUNTLET:
-                    # January 27, 2026: Route to gauntlet endpoint
-                    url = self._url_for_peer(peer, "/gauntlet/start")
-                    payload = {
-                        "board_type": config.get("board_type", "square8"),
-                        "num_players": config.get("num_players", 2),
-                        "model_path": config.get("candidate_model", ""),
-                        "games": config.get("games", 100),
-                        "work_id": work_id,
-                    }
-                else:
-                    logger.warning(f"Unknown work type: {work_type}")
-                    return False
-
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        logger.info(f"Dispatched {work_type.value} work to {peer.node_id}")
-                        return True
-                    else:
-                        error = await resp.text()
-                        logger.warning(f"Failed to dispatch work to {peer.node_id}: {error}")
-                        return False
-
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Error dispatching work to {peer.node_id}: {e}")
-            return False
+        return await self.job_coordination_manager.dispatch_queued_work(peer, work_item)
 
     async def _schedule_diverse_selfplay_on_node(self, node_id: str) -> dict | None:
         """Schedule a diverse selfplay job on a specific node.

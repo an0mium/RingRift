@@ -549,6 +549,9 @@ class GossipProtocolMixin(P2PMixinBase):
     _gossip_peer_states: dict[str, dict]
     _gossip_peer_manifests: dict[str, Any]
     _gossip_learned_endpoints: dict[str, dict]
+    # Jan 27, 2026: Type hints for Phase 13 helper methods
+    _cooldown_manager: Any  # DeadPeerCooldownManager
+    _peer_snapshot: Any  # PeerSnapshot for lock-free peer access
 
     # Dec 28, 2025: Limits to prevent unbounded memory growth
     GOSSIP_MAX_PEER_STATES = 200  # Max peer states to keep
@@ -4144,6 +4147,139 @@ class GossipProtocolMixin(P2PMixinBase):
             metrics["error"] = str(e)
 
         return metrics
+
+    # =========================================================================
+    # HELPER METHODS (Phase 13 migration from orchestrator - Jan 27, 2026)
+    # =========================================================================
+
+    async def _tcp_probe_peer(self, node_id: str, host: str, port: int) -> bool:
+        """Probe a peer via HTTP /status to check if it's reachable.
+
+        This is used by DeadPeerCooldownManager for probe-based early recovery.
+        A successful probe indicates the node is back online and can be reconnected.
+
+        Args:
+            node_id: The node identifier (for logging)
+            host: The host to probe
+            port: The port to probe
+
+        Returns:
+            True if the peer responded to /status, False otherwise
+
+        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 13 decomposition).
+        """
+        if aiohttp is None:
+            return False
+
+        try:
+            from .network import get_client_session
+        except ImportError:
+            get_client_session = None
+
+        if get_client_session is None:
+            return False
+
+        try:
+            url = f"http://{host}:{port}/status"
+            timeout = ClientTimeout(total=5.0)
+            async with get_client_session(timeout) as session:
+                auth_headers = getattr(self, "_auth_headers", lambda: {})()
+                async with session.get(url, headers=auth_headers) as resp:
+                    if resp.status == 200:
+                        self._log_debug(f"TCP probe success for {node_id} at {host}:{port}")
+                        return True
+        except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError) as e:
+            self._log_debug(f"TCP probe failed for {node_id}: {type(e).__name__}")
+        return False
+
+    def _wire_cooldown_manager_probe(self) -> None:
+        """Wire the TCP probe function to the cooldown manager.
+
+        Called during startup to enable probe-based early recovery.
+
+        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 13 decomposition).
+        """
+        cooldown_mgr = getattr(self, "_cooldown_manager", None)
+        if cooldown_mgr:
+            cooldown_mgr.set_probe_func(self._tcp_probe_peer)
+            self._log_info("Cooldown manager probe function wired")
+
+    def _wire_connection_pool_dynamic_sizing(self) -> None:
+        """Wire cluster size callback to the connection pool.
+
+        January 20, 2026: Enables dynamic pool scaling based on cluster size.
+        Fixes connection exhaustion with 40+ node clusters.
+
+        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 13 decomposition).
+        """
+        try:
+            from .connection_pool import get_connection_pool
+            pool = get_connection_pool()
+            pool.set_cluster_size_callback(self._get_cluster_size_for_pool)
+            self._log_info("Connection pool dynamic sizing wired")
+        except ImportError as e:
+            self._log_debug(f"Connection pool not available for dynamic sizing: {e}")
+        except Exception as e:  # noqa: BLE001
+            self._log_warning(f"Failed to wire connection pool sizing: {e}")
+
+    def _get_cluster_size_for_pool(self) -> int:
+        """Get current cluster size for connection pool dynamic sizing.
+
+        Returns the number of alive peers plus self.
+
+        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 13 decomposition).
+        """
+        try:
+            peer_snapshot = getattr(self, "_peer_snapshot", None)
+            if peer_snapshot is None:
+                return 40  # Default
+
+            alive_count = sum(
+                1 for p in peer_snapshot.get_snapshot().values()
+                if p.is_alive() and not getattr(p, "retired", False)
+            )
+            return alive_count + 1  # +1 for self
+        except Exception:  # noqa: BLE001
+            return 40  # Default to reasonable cluster size
+
+    def _is_peer_alive_for_circuit_breaker(self, host: str) -> bool:
+        """Check if a peer is alive based on gossip/P2P membership.
+
+        January 20, 2026: Used by CircuitBreakerDecayLoop for external alive
+        verification. Enables immediate circuit recovery when gossip reports
+        a node is alive, instead of waiting for TTL expiry.
+
+        Args:
+            host: Host identifier (node_id or Tailscale IP)
+
+        Returns:
+            True if the host is known to be alive from P2P membership
+
+        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 13 decomposition).
+        """
+        try:
+            peer_snapshot = getattr(self, "_peer_snapshot", None)
+            if peer_snapshot is None:
+                return False
+
+            for peer in peer_snapshot.get_snapshot().values():
+                if peer.node_id == host:
+                    return peer.is_alive() and not getattr(peer, "retired", False)
+
+                # Also check by Tailscale IP
+                tailscale_ip = getattr(peer, "tailscale_ip", "")
+                if tailscale_ip and host == tailscale_ip:
+                    return peer.is_alive() and not getattr(peer, "retired", False)
+
+                # Check by regular host IP
+                peer_host = getattr(peer, "host", "")
+                if peer_host and host == peer_host:
+                    return peer.is_alive() and not getattr(peer, "retired", False)
+
+            # Host not found in peers
+            return False
+        except Exception:  # noqa: BLE001
+            return False
 
     def health_check(self) -> dict[str, Any]:
         """Return health status for gossip protocol mixin (DaemonManager integration).
