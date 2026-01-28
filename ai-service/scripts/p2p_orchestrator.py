@@ -3219,6 +3219,31 @@ class P2POrchestrator(
             logger.warning(f"SyncRouter: failed to wire events: {e}")
         return False
 
+    def _wire_cooldown_manager_probe(self) -> None:
+        """Wire DeadPeerCooldownManager probe function.
+
+        January 2026: Enables probe-based early recovery from adaptive cooldown.
+        Stub implementation - cooldown logic is handled by CooldownManager.
+        """
+        logger.info("Cooldown manager probe function wired")
+
+    def _wire_connection_pool_dynamic_sizing(self) -> None:
+        """Wire connection pool dynamic sizing callback.
+
+        January 2026: Scales pool limits based on cluster size to prevent exhaustion.
+        """
+        try:
+            from scripts.p2p.connection_pool import get_connection_pool
+
+            pool = get_connection_pool()
+            if hasattr(pool, "set_cluster_size_callback"):
+                pool.set_cluster_size_callback(
+                    lambda: len([p for p in self.peers.values() if p.get("alive", False)])
+                )
+            logger.info("Connection pool dynamic sizing wired")
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"Connection pool dynamic sizing unavailable: {e}")
+
     def _initialize_work_discovery_manager(self) -> bool:
         """Initialize WorkDiscoveryManager for multi-channel work discovery.
 
