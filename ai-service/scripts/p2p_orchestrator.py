@@ -3465,52 +3465,6 @@ class P2POrchestrator(
             details=details,
         )
 
-    async def _subscribe_with_retry(
-        self,
-        event_name: str,
-        handler: Any,
-        max_attempts: int = 3,
-        is_critical: bool = False,
-    ) -> bool:
-        """Subscribe to event with exponential backoff retry.
-
-        December 2025 (Wave 7 Phase 1.1): Implements reliable event subscription
-        with automatic retry on failure. This prevents pipeline stalls caused by
-        transient subscription failures at startup.
-
-        Args:
-            event_name: Name of the event to subscribe to
-            handler: Handler function to call when event fires
-            max_attempts: Maximum subscription attempts (default: 3)
-            is_critical: If True, failure is logged at ERROR level
-
-        Returns:
-            True if subscription succeeded, False otherwise
-        """
-        from app.coordination.event_router import subscribe
-
-        for attempt in range(max_attempts):
-            try:
-                subscribe(event_name, handler)
-                logger.info(f"[P2P] Subscribed to {event_name}")
-                return True
-            except Exception as e:  # noqa: BLE001
-                delay = 2 ** attempt  # 1s, 2s, 4s exponential backoff
-                level = logger.error if is_critical else logger.warning
-                level(
-                    f"[P2P] Subscription to {event_name} failed "
-                    f"(attempt {attempt + 1}/{max_attempts}): {e}"
-                )
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(delay)
-
-        if is_critical:
-            logger.critical(
-                f"[P2P] CRITICAL: Failed to subscribe to {event_name} "
-                f"after {max_attempts} attempts"
-            )
-        return False
-
     def _subscribe_to_daemon_events(self) -> bool:
         """Subscribe to daemon status events for observability.
 
@@ -10008,13 +9962,8 @@ class P2POrchestrator(
         """Main coordinator loop for distributed CMA-ES. Delegates to CMAESCoordinator."""
         await self.cmaes_coordinator.run_distributed_cmaes(job_id)
 
-    async def _evaluate_cmaes_weights_local(
-        self, weights: dict, num_games: int, board_type: str, num_players: int
-    ) -> float:
-        """Evaluate weights locally by running selfplay games. Delegates to CMAESCoordinator."""
-        return await self.cmaes_coordinator.evaluate_weights_local(
-            weights, num_games, board_type, num_players
-        )
+    # NOTE: _evaluate_cmaes_weights_local removed Jan 28, 2026 (dead code)
+    # Use self.cmaes_coordinator.evaluate_weights_local() directly.
 
     async def _evaluate_cmaes_weights(
         self, job_id: str, weights: dict, generation: int, individual_idx: int,
@@ -10047,20 +9996,7 @@ class P2POrchestrator(
     # NOTE: _run_distributed_tournament() removed Dec 27, 2025 (~9 LOC)
     # Use self.job_manager.run_distributed_tournament() directly.
 
-    async def _send_match_to_worker(self, job_id: str, worker_id: str, match: dict):
-        """Send a match to a worker node."""
-        try:
-            with self.peers_lock:
-                worker = self.peers.get(worker_id)
-            if not worker:
-                return
-
-            timeout = ClientTimeout(total=10)
-            async with get_client_session(timeout) as session:
-                url = self._url_for_peer(worker, "/tournament/match")
-                await session.post(url, json={"job_id": job_id, "match": match}, headers=self._auth_headers())
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to send match to worker {worker_id}: {e}")
+    # NOTE: _send_match_to_worker removed Jan 28, 2026 (dead code, never called)
 
     async def _play_tournament_match(self, job_id: str, match_info: dict) -> dict | None:
         """Play a tournament match locally.
@@ -10868,19 +10804,11 @@ class P2POrchestrator(
         """
         await self.tournament_manager.schedule_model_comparison(job, new_model_path)
 
-    async def _run_model_comparison_tournament(self, config: dict):
-        """Run a model comparison tournament and update baseline if new model wins.
+    # NOTE: _run_model_comparison_tournament removed Jan 28, 2026 (dead code)
+    # Use self.tournament_manager.run_model_comparison_tournament() directly.
 
-        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
-        """
-        await self.tournament_manager.run_model_comparison_tournament(config)
-
-    async def _promote_to_baseline(self, model_path: str, board_type: str, num_players: int, model_type: str):
-        """Promote a model to the best baseline for its board type.
-
-        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
-        """
-        await self.tournament_manager.promote_to_baseline(model_path, board_type, num_players, model_type)
+    # NOTE: _promote_to_baseline removed Jan 28, 2026 (dead code)
+    # Use self.tournament_manager.promote_to_baseline() directly.
 
     async def _check_cmaes_auto_tuning(self, config_key: str):
         """Check if CMA-ES auto-tuning should be triggered for a config.
@@ -10966,23 +10894,8 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.error(f"[PFSP] Error updating stats: {e}")
 
-    async def _handle_tournament_completion(
-        self,
-        tournament_id: str,
-        board_type: str,
-        num_players: int,
-        new_model: str,
-        baseline_model: str,
-        win_rate: float,
-        promoted: bool,
-    ):
-        """Handle tournament completion - update cycle state and trigger next iteration.
-
-        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
-        """
-        await self.tournament_manager.handle_tournament_completion(
-            tournament_id, board_type, num_players, new_model, baseline_model, win_rate, promoted
-        )
+    # NOTE: _handle_tournament_completion removed Jan 28, 2026 (dead code)
+    # Use self.tournament_manager.handle_tournament_completion() directly.
 
     async def _boost_selfplay_for_config(self, board_type: str, num_players: int):
         """Temporarily boost selfplay for a configuration after model promotion.
@@ -10991,40 +10904,8 @@ class P2POrchestrator(
         """
         await self.tournament_manager.boost_selfplay_for_config(board_type, num_players)
 
-    async def _propagate_cmaes_weights(
-        self, board_type: str, num_players: int, weights: dict[str, float]
-    ):
-        """Propagate new CMA-ES weights to selfplay workers.
-
-        Delegates weight saving to CMAESCoordinator. Handles job management locally.
-        """
-        try:
-            config_key = f"{board_type}_{num_players}p"
-
-            # Delegate weight saving and tracking to coordinator
-            await self.cmaes_coordinator.propagate_weights(board_type, num_players, weights)
-
-            # Stop existing selfplay jobs for this config (orchestrator-specific)
-            jobs_to_stop = []
-            with self.jobs_lock:
-                for job_id, job in self.local_jobs.items():
-                    if (job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY, JobType.GUMBEL_SELFPLAY)
-                        and getattr(job, 'board_type', None) == board_type
-                        and getattr(job, 'num_players', None) == num_players
-                        and job.status == "running"):
-                        jobs_to_stop.append(job_id)
-
-            for job_id in jobs_to_stop:
-                await self._stop_local_job(job_id)
-                logger.info(f"Stopped selfplay job {job_id} for weight update")
-
-            # Boost selfplay to generate data with new weights
-            asyncio.create_task(self._boost_selfplay_for_config(board_type, num_players))
-
-            logger.info(f"Weight propagation complete for {config_key}")
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"CMA-ES weight propagation error: {e}")
+    # NOTE: _propagate_cmaes_weights removed Jan 28, 2026 (dead code)
+    # Use self.cmaes_coordinator.propagate_weights() directly.
 
     async def _stop_local_job(self, job_id: str):
         """Stop a local job by job ID."""
@@ -13459,13 +13340,6 @@ print(json.dumps({{
         Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
         """
         return await self.heartbeat_manager._send_heartbeat_via_ssh_fallback(peer_host, peer_port, payload)
-
-    def _find_node_id_for_host(self, host: str) -> str | None:
-        """Find node_id for a given host address.
-
-        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
-        """
-        return self.heartbeat_manager.find_node_id_for_host(host)
 
     async def _bootstrap_from_known_peers(self) -> bool:
         """Import cluster membership from seed peers via `/relay/peers`.
@@ -16120,110 +15994,6 @@ print(json.dumps({{
             if loop.is_running():
                 asyncio.run_coroutine_threadsafe(self._notify_voters_lease_revoked(), loop)
 
-    # =========================================================================
-    # ULSM TIERED FALLBACK - Jan 2026
-    # Three-tier leadership fallback for cluster resilience
-    # =========================================================================
-
-    async def _check_leadership_fallback(self, now: float) -> None:
-        """Tiered leadership fallback for cluster resilience.
-
-        Jan 2026: ULSM tiered fallback mechanism with three levels:
-
-        Tier 1 (0-60s): Fast election retries
-            - Only if we have voter quorum
-            - Try normal elections with increasing urgency
-
-        Tier 2 (60-180s): Probabilistic provisional
-            - Existing mechanism with exponential probability growth
-            - Fallback when elections fail repeatedly
-
-        Tier 3 (180s+): Deterministic fallback
-            - Skip probability, highest eligible node_id wins
-            - Last resort to ensure cluster always has leadership
-
-        Args:
-            now: Current timestamp
-        """
-        # Skip if we already have a leader or are claiming
-        if self.leader_id:
-            return
-
-        # Skip if we're already in a leadership role
-        if self.role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER, NodeRole.CANDIDATE):
-            return
-
-        leaderless_duration = now - self.last_leader_seen
-
-        # Tier 1: Fast election retries (0-60s)
-        if leaderless_duration < PROVISIONAL_LEADER_MIN_LEADERLESS_TIME:
-            if self._has_voter_quorum():
-                # Increment election retry counter
-                self._election_retry_count = getattr(self, "_election_retry_count", 0) + 1
-
-                if self._election_retry_count >= ELECTION_RETRY_COUNT_BEFORE_PROVISIONAL:
-                    logger.info(f"Tier 1 fallback: {self._election_retry_count} election retries, "
-                               f"proceeding to provisional fallback")
-                else:
-                    logger.debug(f"Tier 1 fallback: Retrying election (attempt {self._election_retry_count})")
-                    await self._start_election()
-            return
-
-        # Tier 2: Probabilistic provisional (60-180s)
-        if leaderless_duration < DETERMINISTIC_FALLBACK_TIME:
-            await self._check_probabilistic_leadership(now)
-            return
-
-        # Tier 3: Deterministic fallback (180s+)
-        logger.info(f"Tier 3 fallback: Deterministic election after {int(leaderless_duration)}s leaderless")
-        await self._deterministic_leader_election()
-
-    async def _deterministic_leader_election(self) -> None:
-        """Deterministic fallback: highest eligible node_id becomes leader.
-
-        Jan 2026: When probabilistic fallback has failed for too long,
-        use deterministic approach: highest alphabetically-sorted node_id
-        among eligible nodes wins. This guarantees convergence.
-        """
-        # Collect eligible nodes (alive, not NAT-blocked, preferably GPU)
-        self._update_self_info()
-
-        if getattr(self.self_info, "nat_blocked", False):
-            logger.debug("Deterministic fallback: skipping, we are NAT-blocked")
-            return
-
-        # Build list of eligible node IDs
-        eligible_nodes = []
-
-        # Check self eligibility
-        if not getattr(self.self_info, "nat_blocked", False):
-            eligible_nodes.append(self.node_id)
-
-        # Check peers - Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
-        for peer_id, peer in self._peer_snapshot.get_snapshot().items():
-            if peer.is_alive() and not getattr(peer, "nat_blocked", False):
-                eligible_nodes.append(peer_id)
-
-        if not eligible_nodes:
-            logger.warning("Deterministic fallback: no eligible nodes found")
-            return
-
-        # Highest node_id wins (deterministic tiebreaker)
-        eligible_nodes.sort(reverse=True)
-        winner = eligible_nodes[0]
-
-        logger.info(f"Deterministic fallback: winner={winner} (from {len(eligible_nodes)} eligible)")
-
-        if winner == self.node_id:
-            # We won - claim provisional leadership
-            logger.info("Deterministic fallback: We won, claiming provisional leadership")
-            await self._claim_provisional_leadership()
-        else:
-            # Someone else should win - wait for them
-            logger.debug(f"Deterministic fallback: {winner} should claim leadership, waiting")
-            # Reset our retry counter since we're deferring
-            self._election_retry_count = 0
-
     async def _request_election_from_voters(self, reason: str = "non_voter_request") -> bool:
         """December 29, 2025: Non-voters can request that voters start an election.
 
@@ -18370,12 +18140,8 @@ print(json.dumps({{
         """
         self.tournament_manager.check_tournament_consensus()
 
-    async def _start_tournament_from_proposal(self, proposal: dict):
-        """Start a tournament from an approved proposal.
-
-        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
-        """
-        await self.tournament_manager.start_tournament_from_proposal(proposal)
+    # NOTE: _start_tournament_from_proposal removed Jan 28, 2026 (dead code)
+    # Use self.tournament_manager.start_tournament_from_proposal() directly.
 
     def _get_distributed_tournament_summary(self) -> dict:
         """Get summary of distributed tournament scheduling for status endpoint.
@@ -18468,25 +18234,6 @@ print(json.dumps({{
             self._auto_deployer_task = None
         self.p2p_auto_deployer = None
         logger.info("P2P Auto-Deployer stopped")
-
-    async def _update_monitoring_peers(self):
-        """Update Prometheus config with current peer list."""
-        if not self.monitoring_manager or not self._monitoring_was_leader:
-            return
-        if self.role != NodeRole.LEADER:
-            return
-
-        try:
-            with self.peers_lock:
-                peer_list = [
-                    {"node_id": p.node_id, "host": p.host, "port": getattr(p, "metrics_port", 9091)}
-                    for p in self.peers.values()
-                    if p.node_id != self.node_id and p.is_healthy()
-                ]
-            self.monitoring_manager.update_peers(peer_list)
-            await self.monitoring_manager.reload_config()
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"updating monitoring peers: {e}")
 
     async def _renew_leader_lease(self):
         """Renew our leadership lease and broadcast to peers."""
