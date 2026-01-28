@@ -50,11 +50,16 @@ MIN_CONNECTED_PEERS = 3  # Minimum peers before considered isolated
 
 @dataclass
 class HeartbeatConfig:
-    """Configuration for heartbeat behavior."""
+    """Configuration for heartbeat behavior.
+
+    Jan 28, 2026: voter_heartbeat_timeout increased from 8.0s to 45.0s to align
+    with VOTER_HEARTBEAT_TIMEOUT_UNIFIED = PEER_TIMEOUT * 0.30. The 8s timeout
+    was causing voters to appear dead before peers, creating asymmetric views.
+    """
     heartbeat_interval: float = 15.0
     peer_timeout: float = 60.0
     voter_heartbeat_interval: float = 10.0
-    voter_heartbeat_timeout: float = 8.0
+    voter_heartbeat_timeout: float = 45.0  # Aligned with VOTER_HEARTBEAT_TIMEOUT_UNIFIED
     peer_bootstrap_interval: float = 60.0
     relay_heartbeat_interval: float = 30.0
     dead_peer_probe_interval: float = 15.0

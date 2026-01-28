@@ -82,6 +82,14 @@ PEER_TIMEOUT_FAST = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_FAST", "90") o
 # Jan 23, 2026: UNIFIED to 90s - was 180s which caused gossip divergence with DC nodes.
 PEER_TIMEOUT_NAT_BLOCKED = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT_NAT_BLOCKED", "90") or 90)
 
+# Jan 28, 2026: Unified voter timeout derived from PEER_TIMEOUT.
+# Ratio of 0.30 = 45s for 150s PEER_TIMEOUT (3 missed 15s heartbeats).
+# Previously voter heartbeat used hardcoded 45s while peer timeout was 150s,
+# creating asymmetric liveness views where voters appeared dead to gossip
+# before peers appeared dead to the voter heartbeat check.
+VOTER_TIMEOUT_RATIO = float(os.environ.get("RINGRIFT_P2P_VOTER_TIMEOUT_RATIO", "0.30") or 0.30)
+VOTER_HEARTBEAT_TIMEOUT_UNIFIED = int(PEER_TIMEOUT * VOTER_TIMEOUT_RATIO)
+
 
 def get_peer_timeout_for_node(is_coordinator: bool = False, nat_blocked: bool = False) -> int:
     """Get peer timeout - now unified for all node types.
@@ -460,8 +468,8 @@ GOSSIP_FANOUT_FOLLOWER = int(os.environ.get("RINGRIFT_P2P_GOSSIP_FANOUT_FOLLOWER
 GOSSIP_LOCK_TIMEOUT_BASE = float(os.environ.get("RINGRIFT_P2P_GOSSIP_LOCK_TIMEOUT", "3.0") or 3.0)
 
 
-def get_gossip_fanout(peer_count: int, is_leader: bool = False) -> int:
-    """Get adaptive gossip fanout based on cluster size and node role.
+def get_gossip_fanout(peer_count: int, is_leader: bool = False, voter_count: int = 0) -> int:
+    """Get adaptive gossip fanout with guaranteed voter coverage.
 
     Larger clusters need higher fanout to ensure gossip messages
     propagate to all nodes within a reasonable number of rounds.
@@ -471,14 +479,19 @@ def get_gossip_fanout(peer_count: int, is_leader: bool = False) -> int:
     Leaders use higher fanout to ensure faster propagation of
     authoritative state (work assignments, model updates, etc.).
 
+    Jan 28, 2026: Leaders must reach ALL voters in every gossip round.
+    This ensures quorum nodes always receive leader state, preventing
+    cluster fragmentation where voters are excluded from gossip.
+
     Args:
         peer_count: Current number of known peers in the cluster.
         is_leader: Whether this node is the cluster leader.
+        voter_count: Number of voter nodes in the cluster (default 0).
 
     Returns:
         Recommended gossip fanout:
-        - Leaders: 12 for 20+ peers, scaled down for smaller clusters
-        - Followers: 10 for 20+ peers, scaled down for smaller clusters
+        - Leaders: max(size_based_fanout, voter_count) to guarantee voter coverage
+        - Followers: size-based fanout (10-14 depending on cluster size)
 
     December 30, 2025: Added to fix peer visibility discrepancy where
     mac-studio saw only 11 peers while Nebius nodes saw 21-26.
@@ -495,23 +508,26 @@ def get_gossip_fanout(peer_count: int, is_leader: bool = False) -> int:
     # Jan 25, 2026: Increased 10-20 range fanout to 14/12 for faster convergence
     if is_leader:
         if peer_count < 10:
-            return 8  # Small cluster leader (was 6)
+            base = 8  # Small cluster leader
         elif peer_count < 20:
-            return 14  # Medium cluster leader (was 12) - 25% more for 10-20 nodes
+            base = 14  # Medium cluster leader
         elif peer_count < 40:
-            return 14  # Large cluster leader (was 12)
+            base = 16  # Large cluster leader
         else:
-            return GOSSIP_FANOUT_LEADER  # Very large cluster leader (16)
+            base = GOSSIP_FANOUT_LEADER  # Very large cluster leader (18)
+
+        # Jan 28, 2026: Leaders MUST reach all voters to maintain quorum health
+        return max(base, voter_count)
     else:
         # Followers use slightly lower fanout
         if peer_count < 10:
-            return 6  # Small cluster follower (was 4)
+            return 6  # Small cluster follower
         elif peer_count < 20:
-            return 12  # Medium cluster follower (was 10) - 20% more for 10-20 nodes
+            return 12  # Medium cluster follower
         elif peer_count < 40:
-            return 12  # Large cluster follower (was 10)
+            return 14  # Large cluster follower
         else:
-            return GOSSIP_FANOUT_FOLLOWER  # Very large cluster follower (14)
+            return GOSSIP_FANOUT_FOLLOWER  # Very large cluster follower (16)
 
 
 # Gossip interval - seconds between gossip rounds

@@ -2534,27 +2534,42 @@ class GossipProtocolMixin(P2PMixinBase):
 
         Returns a list of alive peer endpoints with connection info.
         This enables nodes to discover peers they can't reach directly.
+
+        Jan 28, 2026: Voters are always included FIRST to ensure critical
+        quorum nodes are never randomly excluded from gossip messages.
         """
         endpoints = []
+        voter_ids = set(getattr(self, "voter_node_ids", []) or [])
+
         with self.peers_lock:
             # Get alive, non-retired peers
-            alive_peers = [
+            all_peers = [
                 p for p in self.peers.values()
                 if p.node_id != self.node_id and p.is_alive() and not getattr(p, "retired", False)
             ]
 
-        # Limit to top N peers to avoid payload bloat
-        for peer in alive_peers[:GOSSIP_MAX_PEER_ENDPOINTS]:
-            endpoint = {
+        # Separate voters from non-voters (voters get priority)
+        voter_peers = [p for p in all_peers if p.node_id in voter_ids]
+        non_voter_peers = [p for p in all_peers if p.node_id not in voter_ids]
+
+        def _peer_to_endpoint(peer: Any) -> dict[str, Any]:
+            return {
                 "node_id": peer.node_id,
                 "host": str(getattr(peer, "host", "") or ""),
                 "port": int(getattr(peer, "port", DEFAULT_PORT) or DEFAULT_PORT),
                 "tailscale_ip": str(getattr(peer, "tailscale_ip", "") or ""),
-                # Dec 2025: Use dynamic is_alive() instead of hardcoded True
                 "is_alive": peer.is_alive(),
                 "last_heartbeat": float(getattr(peer, "last_heartbeat", 0) or 0),
             }
-            endpoints.append(endpoint)
+
+        # ALWAYS include ALL voters first (critical for quorum)
+        for peer in voter_peers:
+            endpoints.append(_peer_to_endpoint(peer))
+
+        # Fill remaining slots with non-voters
+        remaining = GOSSIP_MAX_PEER_ENDPOINTS - len(endpoints)
+        for peer in non_voter_peers[:remaining]:
+            endpoints.append(_peer_to_endpoint(peer))
 
         return endpoints
 

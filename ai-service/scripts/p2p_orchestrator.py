@@ -119,6 +119,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 from urllib.parse import urlparse
 
+# P2P Managers - Phase 1 Consolidation (Jan 2026)
+from scripts.p2p.managers.quorum_manager import QuorumManager, QuorumConfig
+
 if TYPE_CHECKING:
     from app.coordination.unified_queue_populator import UnifiedQueuePopulator as QueuePopulator
     from app.coordination.p2p_auto_deployer import P2PAutoDeployer
@@ -1821,8 +1824,21 @@ class P2POrchestrator(
         # Voters can be configured via:
         # - env: RINGRIFT_P2P_VOTERS="node-a,node-b,..."
         # - ai-service/config/distributed_hosts.yaml: per-host `p2p_voter: true`
-        self.voter_config_source: str = "none"  # env|config|state|learned|none
-        self.voter_node_ids: list[str] = self._load_voter_node_ids()
+        #
+        # Jan 2026 (Phase 1 Consolidation): Voter logic delegated to QuorumManager.
+        # The orchestrator maintains these attributes for backward compatibility.
+        config_path = Path(self._get_ai_service_path()) / "config" / "distributed_hosts.yaml"
+        self.quorum_manager = QuorumManager(
+            config=QuorumConfig(
+                node_id=self.node_id,
+                config_path=config_path if config_path.exists() else None,
+            ),
+            get_peers=lambda: self.peers,
+            get_peers_lock=lambda: self.peers_lock,
+            orchestrator=self,
+        )
+        self.voter_node_ids: list[str] = self.quorum_manager.load_voter_node_ids()
+        self.voter_config_source: str = self.quorum_manager.voter_config_source
         # SIMPLIFIED QUORUM: Fixed at 3 voters (or less if fewer voters exist)
         self.voter_quorum_size: int = min(VOTER_MIN_QUORUM, len(self.voter_node_ids)) if self.voter_node_ids else 0
         if self.voter_node_ids:
@@ -1834,7 +1850,8 @@ class P2POrchestrator(
         # Jan 2, 2026: IP-to-node-name mapping for SWIM peer ID resolution
         # SWIM identifies peers by IP:port, but voters are configured by name.
         # This mapping translates between them.
-        self._ip_to_node_map: dict[str, str] = self._build_ip_to_node_map()
+        # Jan 2026: Delegated to QuorumManager.
+        self._ip_to_node_map: dict[str, str] = self.quorum_manager.build_ip_to_node_map()
 
         # Jan 27, 2026: Cache cluster config from distributed_hosts.yaml
         # Used by loop_registry.py and autonomous_queue_loop.py for relay/selfplay config
@@ -1858,6 +1875,7 @@ class P2POrchestrator(
 
         self.verbose = bool(os.environ.get("RINGRIFT_P2P_VERBOSE", "").strip())
         self.peers: dict[str, NodeInfo] = {}
+        self._prepopulate_voter_peers()  # Jan 28, 2026: Bootstrap fix for gossip reachability
         # Jan 12, 2026: Lock-free peer snapshot for read-heavy operations like /status
         # PeerSnapshot maintains an immutable copy that can be read without acquiring peers_lock
         self._peer_snapshot: PeerSnapshot[NodeInfo] = PeerSnapshot()
@@ -5268,6 +5286,63 @@ class P2POrchestrator(
 
         return False
 
+    def _prepopulate_voter_peers(self) -> None:
+        """Pre-populate voter nodes into peers dict for immediate gossip reachability.
+
+        Jan 28, 2026: Fixes bootstrap chicken-and-egg where voters are invisible
+        to gossip until discovered via heartbeat. Without this, new nodes have an
+        empty peers dict → gossip can't reach voters → voters never get added.
+        """
+        if not self.voter_node_ids:
+            return
+
+        if os.environ.get("RINGRIFT_SKIP_VOTER_PREPOPULATION", "").lower() in ("1", "true"):
+            logger.info("[P2P] Voter pre-population disabled via env var")
+            return
+
+        try:
+            from app.config.cluster_config import get_cluster_nodes
+            cluster_nodes = get_cluster_nodes()
+        except ImportError:
+            logger.warning("[P2P] Cannot pre-populate voters: cluster_config unavailable")
+            return
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[P2P] Cannot pre-populate voters: {e}")
+            return
+
+        prepopulated = 0
+        for voter_id in self.voter_node_ids:
+            if voter_id == self.node_id:
+                continue  # Skip self
+
+            if voter_id in self.peers:
+                continue  # Already known
+
+            node_cfg = cluster_nodes.get(voter_id)
+            if not node_cfg:
+                logger.debug(f"[P2P] Voter {voter_id} not in cluster_config, skipping prepopulation")
+                continue
+
+            host = getattr(node_cfg, 'best_ip', None) or getattr(node_cfg, 'tailscale_ip', None)
+            if not host:
+                logger.debug(f"[P2P] Voter {voter_id} has no IP in cluster_config, skipping")
+                continue
+
+            voter_info = NodeInfo(
+                node_id=voter_id,
+                host=host,
+                port=DEFAULT_PORT,
+                tailscale_ip=getattr(node_cfg, 'tailscale_ip', '') or '',
+                role=NodeRole.FOLLOWER,
+                last_heartbeat=0,  # Will update on first heartbeat
+            )
+            self.peers[voter_id] = voter_info
+            prepopulated += 1
+            logger.debug(f"[P2P] Pre-populated voter {voter_id} at {host}:{DEFAULT_PORT}")
+
+        if prepopulated:
+            logger.info(f"[P2P] Pre-populated {prepopulated} voter peers for gossip reachability")
+
     def _load_voter_node_ids(self) -> list[str]:
         """Load the set of P2P voter node_ids (for quorum-based leadership).
 
@@ -6415,7 +6490,7 @@ class P2POrchestrator(
                 and not (getattr(self, "voter_node_ids", []) or [])
                 and str(getattr(self, "voter_config_source", "none") or "none") == "none"
             ):
-                self._maybe_adopt_voter_node_ids(ls.voter_node_ids, source="state")
+                self.quorum_manager.maybe_adopt_voter_node_ids(ls.voter_node_ids, source="state")
 
             # Self-heal inconsistent persisted leader state (can happen after
             # abrupt shutdowns or partial writes): never keep role=leader without
@@ -9720,7 +9795,7 @@ class P2POrchestrator(
                 elif isinstance(incoming_voters, str):
                     voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
                 if voters_list:
-                    self._maybe_adopt_voter_node_ids(voters_list, source="learned")
+                    self.quorum_manager.maybe_adopt_voter_node_ids(voters_list, source="learned")
 
             voters = list(getattr(self, "voter_node_ids", []) or [])
             if voters and new_leader not in voters:
