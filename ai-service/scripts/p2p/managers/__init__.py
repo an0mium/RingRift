@@ -140,6 +140,49 @@ from .job_lifecycle_manager import (
     reset_job_lifecycle_manager,
     set_job_lifecycle_manager,
 )
+# January 2026: Aggressive Decomposition Phase 9 - Health Metrics Manager
+from .health_metrics_manager import (
+    HealthMetricsConfig,
+    HealthMetricsManager,
+    HealthMetricsStats,
+    PeerCircuitBreaker,
+    PeerHealthScore,
+    create_health_metrics_manager,
+    get_health_metrics_manager,
+    reset_health_metrics_manager,
+    set_health_metrics_manager,
+)
+# January 2026: Aggressive Decomposition Phase 10 - Memory Disk Manager
+from .memory_disk_manager import (
+    MemoryDiskConfig,
+    MemoryDiskManager,
+    MemoryDiskStats,
+    create_memory_disk_manager,
+    get_memory_disk_manager,
+    reset_memory_disk_manager,
+    set_memory_disk_manager,
+)
+# January 2026: Aggressive Decomposition Phase 11 - Tournament Manager
+from .tournament_manager import (
+    TournamentConfig,
+    TournamentManager,
+    TournamentStats,
+    create_tournament_manager,
+    get_tournament_manager,
+    reset_tournament_manager,
+    set_tournament_manager,
+)
+# January 2026: Aggressive Decomposition Phase 12 - Recovery Manager
+from .recovery_manager import (
+    NodeRecoveryMetrics,
+    RecoveryConfig,
+    RecoveryManager,
+    RecoveryStats,
+    create_recovery_manager,
+    get_recovery_manager,
+    reset_recovery_manager,
+    set_recovery_manager,
+)
 
 __all__ = [
     "DiscoveryChannel",
@@ -243,4 +286,39 @@ __all__ = [
     "get_job_lifecycle_manager",
     "reset_job_lifecycle_manager",
     "set_job_lifecycle_manager",
+    # Health Metrics Manager
+    "HealthMetricsConfig",
+    "HealthMetricsManager",
+    "HealthMetricsStats",
+    "PeerCircuitBreaker",
+    "PeerHealthScore",
+    "create_health_metrics_manager",
+    "get_health_metrics_manager",
+    "reset_health_metrics_manager",
+    "set_health_metrics_manager",
+    # Memory Disk Manager
+    "MemoryDiskConfig",
+    "MemoryDiskManager",
+    "MemoryDiskStats",
+    "create_memory_disk_manager",
+    "get_memory_disk_manager",
+    "reset_memory_disk_manager",
+    "set_memory_disk_manager",
+    # Tournament Manager
+    "TournamentConfig",
+    "TournamentManager",
+    "TournamentStats",
+    "create_tournament_manager",
+    "get_tournament_manager",
+    "reset_tournament_manager",
+    "set_tournament_manager",
+    # Recovery Manager
+    "NodeRecoveryMetrics",
+    "RecoveryConfig",
+    "RecoveryManager",
+    "RecoveryStats",
+    "create_recovery_manager",
+    "get_recovery_manager",
+    "reset_recovery_manager",
+    "set_recovery_manager",
 ]

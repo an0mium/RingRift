@@ -261,7 +261,34 @@ class ManifestHandlersMixin(BaseP2PHandler):
                     "is_leader": self.role == NodeRole.LEADER,
                 })
 
-            # No manifest cached - provide leader info for redirect
+            # No manifest cached - if we ARE the leader, collect on-demand
+            if self.role == NodeRole.LEADER:
+                logger.info("[ManifestHandlers] Leader has no cached manifest, collecting on-demand")
+                try:
+                    fresh_manifest = await self._collect_cluster_manifest()
+                    if fresh_manifest:
+                        # Cache the freshly collected manifest
+                        with self.manifest_lock:
+                            self.cluster_data_manifest = fresh_manifest
+                            self._cluster_manifest_received_at = time.time()
+
+                        manifest_dict = (
+                            fresh_manifest.to_dict()
+                            if hasattr(fresh_manifest, 'to_dict')
+                            else fresh_manifest
+                        )
+                        return web.json_response({
+                            "cluster_manifest": manifest_dict,
+                            "age_seconds": 0,  # Just collected
+                            "node_id": self.node_id,
+                            "is_leader": True,
+                            "collected_on_demand": True,
+                        })
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[ManifestHandlers] On-demand manifest collection failed: {e}")
+                    # Fall through to 404 response
+
+            # Not leader or collection failed - provide leader info for redirect
             leader_url = None
             if self.leader_id:
                 # Try to get leader's URL from peers

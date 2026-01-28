@@ -214,7 +214,15 @@ class MomentumToCurriculumBridge:
             if hasattr(DataEventType, 'CURRICULUM_ROLLBACK'):
                 router.subscribe(DataEventType.CURRICULUM_ROLLBACK, self._on_curriculum_rollback)
 
-            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE, REGRESSION_DETECTED, TRAINING_LOSS_ANOMALY, QUORUM_RECOVERY_STARTED, CURRICULUM_ROLLBACK")
+            # Jan 2026 P1: Subscribe to OPPONENT_DIVERSITY_NEEDED for stall escalation.
+            # When a config has been stalled for 48+ hours, inject opponent diversity
+            # to help break through local optimum.
+            try:
+                router.subscribe("OPPONENT_DIVERSITY_NEEDED", self._on_opponent_diversity_needed)
+            except (AttributeError, TypeError):
+                logger.debug("[MomentumToCurriculumBridge] OPPONENT_DIVERSITY_NEEDED not available")
+
+            logger.info("[MomentumToCurriculumBridge] Subscribed to EVALUATION_COMPLETED, SELFPLAY_RATE_CHANGED, ELO_SIGNIFICANT_CHANGE, SELFPLAY_ALLOCATION_UPDATED, MODEL_PROMOTED, TIER_PROMOTION, CROSSBOARD_PROMOTION, CURRICULUM_ADVANCEMENT_NEEDED, ELO_VELOCITY_CHANGED, CURRICULUM_ADVANCED, CURRICULUM_PROPAGATE, REGRESSION_DETECTED, TRAINING_LOSS_ANOMALY, QUORUM_RECOVERY_STARTED, CURRICULUM_ROLLBACK, OPPONENT_DIVERSITY_NEEDED")
 
             # December 29, 2025: Only set _event_subscribed = True after successful subscription
             # Previously this was in finally block which caused race condition:
@@ -284,6 +292,11 @@ class MomentumToCurriculumBridge:
                 # Session 17.25: Unsubscribe from CURRICULUM_ROLLBACK
                 if hasattr(DataEventType, 'CURRICULUM_ROLLBACK'):
                     router.unsubscribe(DataEventType.CURRICULUM_ROLLBACK, self._on_curriculum_rollback)
+                # Jan 2026 P1: Unsubscribe from OPPONENT_DIVERSITY_NEEDED
+                try:
+                    router.unsubscribe("OPPONENT_DIVERSITY_NEEDED", self._on_opponent_diversity_needed)
+                except (AttributeError, TypeError):
+                    pass
             self._event_subscribed = False
         except (ImportError, AttributeError, TypeError, RuntimeError):
             # ImportError: modules not available
@@ -1293,6 +1306,86 @@ class MomentumToCurriculumBridge:
 
         except (AttributeError, KeyError, TypeError, ValueError) as e:
             logger.warning(f"[MomentumToCurriculumBridge] Error handling quorum recovery: {e}")
+
+    def _on_opponent_diversity_needed(self, event) -> None:
+        """Handle OPPONENT_DIVERSITY_NEEDED - inject varied opponents to break local optimum.
+
+        Jan 2026 P1: At escalation level 2 (48h+ stall), this handler receives
+        a signal to diversify the opponent mix for a stalled config. This helps
+        break through local optima by introducing varied training opponents.
+
+        Action:
+        1. Emit CURRICULUM_DIVERSITY_BOOST with suggested opponent mix
+        2. Temporarily increase exploration in selfplay
+        3. Reduce weight of "best" opponent in favor of varied opponents
+
+        Suggested opponent mix at escalation level 2:
+        - best: 30% (reduced from typical 60-70%)
+        - previous: 40% (play against previous versions)
+        - heuristic: 20% (play against heuristic AI)
+        - random: 10% (pure exploration)
+        """
+        try:
+            from app.coordination.safe_event_emit import safe_emit_event
+
+            payload = event.payload if hasattr(event, 'payload') else event if isinstance(event, dict) else {}
+
+            config_key = payload.get("config_key", "")
+            stall_duration = payload.get("stall_duration_hours", 48.0)
+            escalation_level = payload.get("escalation_level", 2)
+            suggested_mix = payload.get("suggested_mix", {
+                "best": 0.30,
+                "previous": 0.40,
+                "heuristic": 0.20,
+                "random": 0.10,
+            })
+
+            if not config_key:
+                logger.debug("[MomentumToCurriculumBridge] OPPONENT_DIVERSITY_NEEDED missing config_key")
+                return
+
+            logger.warning(
+                f"[MomentumToCurriculumBridge] OPPONENT_DIVERSITY_NEEDED for {config_key}: "
+                f"stalled {stall_duration:.1f}h, escalation level {escalation_level}. "
+                f"Injecting opponent diversity: best={suggested_mix.get('best', 0.3):.0%}, "
+                f"previous={suggested_mix.get('previous', 0.4):.0%}, "
+                f"heuristic={suggested_mix.get('heuristic', 0.2):.0%}, "
+                f"random={suggested_mix.get('random', 0.1):.0%}"
+            )
+
+            # Emit CURRICULUM_DIVERSITY_BOOST to trigger opponent mix change
+            safe_emit_event(
+                "CURRICULUM_DIVERSITY_BOOST",
+                {
+                    "config_key": config_key,
+                    "stall_duration_hours": stall_duration,
+                    "escalation_level": escalation_level,
+                    "opponent_mix": suggested_mix,
+                    "source": "stall_escalation",
+                    "duration_games": 500,  # Apply diversity for next 500 games
+                },
+            )
+
+            # Also emit exploration boost to increase temperature/noise
+            safe_emit_event(
+                "EXPLORATION_BOOST",
+                {
+                    "config_key": config_key,
+                    "boost_factor": 1.3,  # 30% exploration boost
+                    "source": "opponent_diversity_injection",
+                    "duration_games": 500,
+                },
+            )
+
+            logger.info(
+                f"[MomentumToCurriculumBridge] Emitted CURRICULUM_DIVERSITY_BOOST and "
+                f"EXPLORATION_BOOST for {config_key} (stall recovery)"
+            )
+
+            self._last_sync_time = time.time()
+
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            logger.warning(f"[MomentumToCurriculumBridge] Error handling opponent diversity: {e}")
 
     def _get_similar_configs(self, config_key: str) -> list[str]:
         """Get similar configs for cross-board curriculum propagation.

@@ -106,17 +106,39 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
         # Their heuristic AI is not as dominant relative to NN training
     }
 
+    # 3-player specific opponent mix (Jan 27, 2026)
+    # 3-player games develop rock-paper-scissors dynamics that require more diversity.
+    # hexagonal_3p was stuck at 1400 Elo with default mix - need to break RPS patterns.
+    # Key changes: More random exploration, boost maxn (designed for multiplayer),
+    # reduce heuristic ceiling, increase search diversity.
+    OPPONENT_MIX_3P: dict[str, float] = {
+        "random": 0.10,       # Doubled from 0.05 - more exploration to break RPS
+        "heuristic": 0.20,    # Reduced from 0.25 - less ceiling, more room to grow
+        "mcts": 0.30,         # Keep high - quality NN training signal
+        "minimax": 0.05,      # Paranoid search for 3p
+        "maxn": 0.10,         # Doubled from 0.05 - maxn is designed for multiplayer
+        "brs": 0.05,          # Fast best-reply approximation
+        "policy_only": 0.10,  # Direct NN policy
+        "descent": 0.10,      # Gradient-based
+    }
+
     @classmethod
-    def get_opponent_mix_for_board(cls, board_type: str) -> dict[str, float]:
-        """Get board-specific opponent mix.
+    def get_opponent_mix_for_board(
+        cls, board_type: str, num_players: int = 2
+    ) -> dict[str, float]:
+        """Get opponent mix for board type and player count.
 
         Args:
             board_type: Board type string (e.g., 'square8', 'hex8')
+            num_players: Number of players (2, 3, or 4)
 
         Returns:
             Opponent mix dict with probabilities for each opponent type.
-            Returns board-specific mix if available, otherwise DEFAULT_MIX.
+            Priority: 3-player specific mix > board-specific mix > DEFAULT_MIX.
         """
+        # Jan 27, 2026: 3-player games need special diversity to break RPS dynamics
+        if num_players == 3:
+            return cls.OPPONENT_MIX_3P.copy()
         return cls.BOARD_SPECIFIC_MIX.get(board_type, cls.DEFAULT_MIX).copy()
 
     # Opponent types and their player count restrictions
@@ -147,10 +169,13 @@ class MixedOpponentSelfplayRunner(SelfplayRunner):
         config.engine_mode = EngineMode.MIXED
         super().__init__(config)
 
-        # Select default mix based on board type (Jan 14, 2026)
+        # Select default mix based on board type and player count (Jan 14, 2026)
         # Square8 uses reduced heuristic (30% vs 50%) due to stronger heuristic AI
+        # Jan 27, 2026: 3-player games use OPPONENT_MIX_3P to break RPS dynamics
         if opponent_mix is None:
-            opponent_mix = self.get_opponent_mix_for_board(config.board_type)
+            opponent_mix = self.get_opponent_mix_for_board(
+                config.board_type, config.num_players
+            )
 
         # Filter out opponents incompatible with this player count
         self.opponent_mix = self._filter_compatible_opponents(opponent_mix, config.num_players)

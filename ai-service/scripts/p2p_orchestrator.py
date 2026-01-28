@@ -2606,6 +2606,30 @@ class P2POrchestrator(
         )
         logger.info("[P2P] MemoryDiskManager initialized")
 
+        # January 2026: Aggressive Decomposition Phase 11 - Tournament Manager
+        # Handles tournament coordination, match execution, and gossip-based scheduling
+        from scripts.p2p.managers.tournament_manager import (
+            create_tournament_manager,
+            TournamentConfig,
+        )
+        self.tournament_manager = create_tournament_manager(
+            config=TournamentConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] TournamentManager initialized")
+
+        # January 2026: Aggressive Decomposition Phase 12 - Recovery Manager
+        # Handles NAT recovery and node recovery for cluster self-healing
+        from scripts.p2p.managers.recovery_manager import (
+            create_recovery_manager,
+            RecoveryConfig,
+        )
+        self.recovery_manager = create_recovery_manager(
+            config=RecoveryConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] RecoveryManager initialized")
+
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
         self._initialize_work_discovery_manager()
@@ -10564,195 +10588,11 @@ class P2POrchestrator(
             logger.error(f"Failed to send match to worker {worker_id}: {e}")
 
     async def _play_tournament_match(self, job_id: str, match_info: dict) -> dict | None:
-        """Play a tournament match locally using subprocess selfplay.
+        """Play a tournament match locally.
 
-        Dec 28, 2025: Fixed to accept both field name conventions:
-        - agent1/agent2 (from tournament handler)
-        - player1_model/player2_model (from JobManager)
-
-        Returns:
-            Match result dict or None on error
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        try:
-            import json as json_module
-            import sys
-
-            # Support both naming conventions
-            agent1 = match_info.get("agent1") or match_info.get("player1_model")
-            agent2 = match_info.get("agent2") or match_info.get("player2_model")
-            game_num = match_info.get("game_num", 0)
-            board_type = match_info.get("board_type", "square8")
-            num_players = match_info.get("num_players", 2)
-
-            logger.info(f"Playing tournament match: {agent1} vs {agent2} (game {game_num})")
-
-            # Build the subprocess command to run a single game
-            # Agent IDs map to model paths or heuristic configurations
-            # Dec 28, 2025: Fixed imports and game playing logic
-            game_script = f"""
-import sys
-sys.path.insert(0, '{self._get_ai_service_path()}')
-from app.training.initial_state import create_initial_state
-from app.rules import get_rules_engine
-from app.ai.heuristic_ai import HeuristicAI
-from app.ai.random_ai import RandomAI
-from app.models import AIConfig
-import json
-import os
-
-# Skip shadow contracts for performance
-os.environ['RINGRIFT_SKIP_SHADOW_CONTRACTS'] = 'true'
-
-def load_agent(agent_id: str, player_idx: int, board_type: str, num_players: int, game_seed: int = 0):
-    '''Load agent by ID - supports random, heuristic, or model paths.
-
-    Jan 2026: Added game_seed for unique randomness per game.
-    Without this, RandomAI/HeuristicAI produce identical games.
-    '''
-    # Per-game seed for varied randomness
-    rng_seed = (game_seed * 10000 + player_idx * 1000) & 0xFFFFFFFF
-    config = AIConfig(board_type=board_type, num_players=num_players, difficulty=5, rng_seed=rng_seed)
-    if agent_id == 'random':
-        return RandomAI(player_idx, config=config)
-    elif agent_id == 'heuristic':
-        return HeuristicAI(player_idx, config=config)
-    elif agent_id.startswith('heuristic:'):
-        # Parse weights from agent ID: "heuristic:w1,w2,w3,..."
-        weight_str = agent_id.split(':')[1]
-        weights = [float(w) for w in weight_str.split(',')]
-        weight_names = [
-            "material_weight", "ring_count_weight", "stack_height_weight",
-            "center_control_weight", "territory_weight", "mobility_weight",
-            "line_potential_weight", "defensive_weight",
-        ]
-        weight_dict = dict(zip(weight_names, weights))
-        config.heuristic_weights = weight_dict
-        return HeuristicAI(player_idx, config=config)
-    elif agent_id.startswith('model:') or agent_id.startswith('canonical_'):
-        # Neural network model - for now, fall back to heuristic
-        # TODO: Load actual neural network models
-        return HeuristicAI(player_idx, config=config)
-    else:
-        # Default heuristic agent
-        return HeuristicAI(player_idx, config=config)
-
-# Initialize game state and engine
-engine = get_rules_engine(skip_shadow_contracts=True)
-state = create_initial_state(board_type='{board_type}', num_players={num_players})
-agents = [
-    load_agent('{agent1}', 0, '{board_type}', {num_players}, {game_num}),
-    load_agent('{agent2}', 1, '{board_type}', {num_players}, {game_num}),
-]
-
-# Play until completion
-max_moves = 10000
-move_count = 0
-while not state.game_over and move_count < max_moves:
-    current_player = state.current_player_index
-    agent = agents[current_player]
-    move = agent.select_move(state)
-    if move is None:
-        break
-    state = engine.apply_move(state, move)
-    move_count += 1
-
-# Get result
-winner_idx = None
-victory_type = 'unknown'
-if state.game_over:
-    # Find winner from scores
-    scores = state.player_scores
-    if scores:
-        max_score = max(scores)
-        if scores.count(max_score) == 1:
-            winner_idx = scores.index(max_score)
-
-# Map winner index to agent ID
-winner_agent = None
-if winner_idx == 0:
-    winner_agent = '{agent1}'
-elif winner_idx == 1:
-    winner_agent = '{agent2}'
-
-result = {{
-    'agent1': '{agent1}',
-    'agent2': '{agent2}',
-    'winner': winner_agent,
-    'winner_idx': winner_idx,
-    'victory_type': victory_type,
-    'move_count': move_count,
-    'game_num': {game_num},
-}}
-print(json.dumps(result))
-"""
-            # Run the game in subprocess
-            cmd = [sys.executable, "-c", game_script]
-            env = os.environ.copy()
-            env["PYTHONPATH"] = self._get_ai_service_path()
-            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
-
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=300  # 5 minute timeout per game
-            )
-
-            if proc.returncode != 0:
-                logger.info(f"Tournament match subprocess error: {stderr.decode()}")
-                result = {
-                    "agent1": agent1,
-                    "agent2": agent2,
-                    "winner": None,
-                    "error": stderr.decode()[:200],
-                    "game_num": game_num,
-                }
-            else:
-                # Parse result from stdout
-                output_lines = stdout.decode().strip().split('\n')
-                result_line = output_lines[-1] if output_lines else '{}'
-                result = json_module.loads(result_line)
-
-            logger.info(f"Match result: {agent1} vs {agent2} -> winner={result.get('winner')}")
-
-            # Report result back to coordinator (leader)
-            if self.role != NodeRole.LEADER and self.leader_id:
-                with self.peers_lock:
-                    leader = self.peers.get(self.leader_id)
-                if leader:
-                    try:
-                        timeout = ClientTimeout(total=10)
-                        async with get_client_session(timeout) as session:
-                            url = self._url_for_peer(leader, "/tournament/result")
-                            await session.post(url, json={
-                                "job_id": job_id,
-                                "result": result,
-                                "worker_id": self.node_id,
-                            }, headers=self._auth_headers())
-                    except Exception as e:  # noqa: BLE001
-                        logger.error(f"Failed to report tournament result to leader: {e}")
-            else:
-                # We are the leader, update state directly
-                if job_id in self.distributed_tournament_state:
-                    state = self.distributed_tournament_state[job_id]
-                    state.results.append(result)
-                    state.completed_matches += 1
-                    state.last_update = time.time()
-
-            # Dec 28, 2025: Return result for synchronous handler usage
-            return result
-
-        except asyncio.TimeoutError:
-            logger.info(f"Tournament match timed out: {match_info}")
-            return None
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Tournament match error: {e}")
-            return None
+        return await self.tournament_manager.play_tournament_match(job_id, match_info)
 
     # NOTE: _calculate_tournament_ratings removed Dec 27, 2025 (dead code, never called)
     # Elo rating calculation is now handled in JobManager.run_distributed_tournament()
@@ -11727,163 +11567,23 @@ print(json.dumps(result))
     async def _schedule_model_comparison(self, job: TrainingJob, new_model_path: str):
         """Schedule a tournament to compare new model against current baseline.
 
-        LEARNED LESSONS - After training, automatically run tournament to:
-        1. Compare new model against current best baseline
-        2. Update Elo ratings
-        3. Promote to best baseline if new model wins
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        try:
-            config_key = f"{job.board_type}_{job.num_players}p"
-            logger.info(f"Scheduling model comparison tournament for {config_key}")
-
-            # Find current baseline model
-            baseline_dir = Path(self._get_ai_service_path()) / "models" / job.job_type
-            baseline_pattern = f"{job.board_type}_{job.num_players}p_best*"
-
-            baseline_model = None
-            for f in baseline_dir.glob(baseline_pattern):
-                baseline_model = str(f)
-                break
-
-            if not baseline_model:
-                # No baseline - this model becomes baseline
-                logger.info(f"No baseline found for {config_key}, new model becomes baseline")
-                await self._promote_to_baseline(new_model_path, job.board_type, job.num_players, job.job_type)
-                return
-
-            # Schedule tournament via SSH tournament system
-            tournament_id = f"autoeval_{config_key}_{int(time.time())}"
-
-            # Use existing SSH tournament infrastructure
-            with self.ssh_tournament_lock:
-                self.ssh_tournament_runs[tournament_id] = SSHTournamentRun(
-                    tournament_id=tournament_id,
-                    board_type=job.board_type,
-                    num_players=job.num_players,
-                    status="pending",
-                    started_at=time.time(),
-                )
-
-            # Start tournament in background
-            tournament_config = {
-                "tournament_id": tournament_id,
-                "board_type": job.board_type,
-                "num_players": job.num_players,
-                "model_a": new_model_path,
-                "model_b": baseline_model,
-                "games_per_matchup": 50,
-            }
-            asyncio.create_task(self._run_model_comparison_tournament(tournament_config))
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Model comparison scheduling error: {e}")
+        await self.tournament_manager.schedule_model_comparison(job, new_model_path)
 
     async def _run_model_comparison_tournament(self, config: dict):
-        """Run a model comparison tournament and update baseline if new model wins."""
-        tournament_id = config["tournament_id"]
-        try:
-            logger.info(f"Running model comparison tournament {tournament_id}")
+        """Run a model comparison tournament and update baseline if new model wins.
 
-            results_dir = Path(self._get_ai_service_path()) / "results" / "tournaments"
-            results_dir.mkdir(parents=True, exist_ok=True)
-
-            cmd = [
-                sys.executable,
-                os.path.join(self._get_ai_service_path(), "scripts", "run_tournament.py"),
-                "--player1", f"nn:{config['model_a']}",
-                "--player2", f"nn:{config['model_b']}",
-                "--board", config["board_type"],
-                "--num-players", str(config["num_players"]),
-                "--games", str(config["games_per_matchup"]),
-                "--output", str(results_dir / f"{tournament_id}.json"),
-            ]
-
-            env = os.environ.copy()
-            env["PYTHONPATH"] = self._get_ai_service_path()
-            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
-
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-
-            _stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=3600)
-
-            if proc.returncode == 0:
-                results_file = results_dir / f"{tournament_id}.json"
-                if results_file.exists():
-                    import json as json_module
-                    results = json_module.loads(results_file.read_text())
-                    new_model_wins = results.get("player1_wins", 0)
-                    baseline_wins = results.get("player2_wins", 0)
-                    total_games = new_model_wins + baseline_wins
-
-                    win_rate = new_model_wins / total_games if total_games > 0 else 0.5
-                    logger.info(f"Tournament {tournament_id}: new model win rate = {win_rate:.1%}")
-
-                    promoted = win_rate >= 0.55
-                    if promoted:
-                        logger.info("New model beats baseline! Promoting to best baseline.")
-                        await self._promote_to_baseline(
-                            config["model_a"], config["board_type"],
-                            config["num_players"], "nnue" if "nnue" in config["model_a"].lower() else "cmaes"
-                        )
-
-                    # Update improvement cycle manager with tournament result
-                    await self._handle_tournament_completion(
-                        tournament_id,
-                        config["board_type"],
-                        config["num_players"],
-                        config["model_a"],
-                        config["model_b"],
-                        win_rate,
-                        promoted,
-                    )
-
-            with self.ssh_tournament_lock:
-                if tournament_id in self.ssh_tournament_runs:
-                    self.ssh_tournament_runs[tournament_id].status = "completed"
-                    self.ssh_tournament_runs[tournament_id].completed_at = time.time()
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Tournament {tournament_id} error: {e}")
-            with self.ssh_tournament_lock:
-                if tournament_id in self.ssh_tournament_runs:
-                    self.ssh_tournament_runs[tournament_id].status = "failed"
-                    self.ssh_tournament_runs[tournament_id].error = str(e)
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
+        """
+        await self.tournament_manager.run_model_comparison_tournament(config)
 
     async def _promote_to_baseline(self, model_path: str, board_type: str, num_players: int, model_type: str):
-        """Promote a model to the best baseline for its board type."""
-        try:
-            import shutil
-            baseline_dir = Path(self._get_ai_service_path()) / "models" / model_type
-            baseline_dir.mkdir(parents=True, exist_ok=True)
+        """Promote a model to the best baseline for its board type.
 
-            baseline_path = baseline_dir / f"{board_type}_{num_players}p_best.pt"
-            if baseline_path.exists():
-                backup_path = baseline_dir / f"{board_type}_{num_players}p_prev_{int(time.time())}.pt"
-                shutil.copy2(baseline_path, backup_path)
-                logger.info(f"Backed up previous baseline to {backup_path}")
-
-            shutil.copy2(model_path, baseline_path)
-            logger.info(f"Promoted {model_path} to baseline at {baseline_path}")
-
-            # Dec 2025: Emit MODEL_PROMOTED event for coordination layer
-            # Enables: model distribution, model selector hot-reload, temperature adjustment
-            config_key = f"{board_type}_{num_players}p"
-            model_id = Path(model_path).name
-            await self._emit_model_promoted(
-                model_id=model_id,
-                config_key=config_key,
-                elo=0.0,  # Elo not available in this context
-                elo_gain=0.0,
-                source="p2p_orchestrator._promote_to_baseline",
-            )
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Baseline promotion error: {e}")
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
+        """
+        await self.tournament_manager.promote_to_baseline(model_path, board_type, num_players, model_type)
 
     async def _check_cmaes_auto_tuning(self, config_key: str):
         """Check if CMA-ES auto-tuning should be triggered for a config.
@@ -11981,121 +11681,18 @@ print(json.dumps(result))
     ):
         """Handle tournament completion - update cycle state and trigger next iteration.
 
-        This closes the feedback loop by:
-        1. Updating improvement cycle manager with evaluation result
-        2. Recording result to unified Elo database
-        3. Updating diversity metrics
-        4. Boosting selfplay for this config if model was promoted
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        try:
-            # 1. Update improvement cycle manager
-            if self.improvement_cycle_manager:
-                self.improvement_cycle_manager.handle_evaluation_complete(
-                    board_type, num_players, win_rate, new_model
-                )
-                logger.info(f"Updated improvement cycle for {board_type}_{num_players}p")
-
-            # 2. Record to unified Elo database
-            try:
-                from app.tournament import get_elo_database
-                db = get_elo_database()
-                # Rankings: 0 = winner, 1 = loser
-                rankings = [0, 1] if win_rate > 0.5 else [1, 0]
-                db.record_match_and_update(
-                    participant_ids=[new_model, baseline_model],
-                    rankings=rankings,
-                    board_type=board_type,
-                    num_players=num_players,
-                    tournament_id=tournament_id,
-                )
-                logger.info("Recorded tournament result to unified Elo DB")
-
-                # Trigger Elo sync to propagate to cluster
-                if HAS_ELO_SYNC and self.elo_sync_manager:
-                    asyncio.create_task(self._trigger_elo_sync_after_matches(1))
-            except Exception as e:  # noqa: BLE001
-                logger.info(f"Elo database update failed (non-fatal): {e}")
-
-            # 3. Update diversity metrics
-            if hasattr(self, 'diversity_metrics'):
-                self.diversity_metrics["tournament_runs"] = self.diversity_metrics.get("tournament_runs", 0) + 1
-                if promoted:
-                    self.diversity_metrics["promotions"] = self.diversity_metrics.get("promotions", 0) + 1
-
-            # 4. Record metrics for observability
-            self.record_metric(
-                "tournament_win_rate",
-                win_rate,
-                board_type=board_type,
-                num_players=num_players,
-                metadata={
-                    "new_model": new_model,
-                    "baseline_model": baseline_model,
-                    "promoted": promoted,
-                    "tournament_id": tournament_id,
-                },
-            )
-
-            # 5. Boost selfplay for this config if promoted (more data for next iteration)
-            if promoted:
-                asyncio.create_task(self._boost_selfplay_for_config(board_type, num_players))
-                # Alert on successful promotion
-                asyncio.create_task(self.notifier.send(
-                    title="Model Promoted",
-                    message=f"New model promoted for {board_type}_{num_players}p with {win_rate*100:.1f}% win rate",
-                    level="info",
-                    fields={"Model": new_model, "Win Rate": f"{win_rate*100:.1f}%"},
-                    node_id=self.node_id,
-                ))
-            elif win_rate < 0.5:
-                # Alert on failed promotion (new model lost)
-                asyncio.create_task(self.notifier.send(
-                    title="Model Promotion Failed",
-                    message=f"New model failed tournament for {board_type}_{num_players}p with only {win_rate*100:.1f}% win rate",
-                    level="warning",
-                    fields={
-                        "Model": new_model,
-                        "Win Rate": f"{win_rate*100:.1f}%",
-                        "Baseline": baseline_model,
-                    },
-                    node_id=self.node_id,
-                ))
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Tournament completion handler error: {e}")
-            asyncio.create_task(self.notifier.send(
-                title="Tournament Handler Error",
-                message=str(e),
-                level="error",
-                node_id=self.node_id,
-            ))
+        await self.tournament_manager.handle_tournament_completion(
+            tournament_id, board_type, num_players, new_model, baseline_model, win_rate, promoted
+        )
 
     async def _boost_selfplay_for_config(self, board_type: str, num_players: int):
         """Temporarily boost selfplay for a configuration after model promotion.
 
-        This accelerates data generation for the next training iteration.
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        try:
-            config_key = f"{board_type}_{num_players}p"
-            logger.info(f"Boosting selfplay for {config_key} after promotion")
-
-            # Schedule additional selfplay jobs for this configuration
-            # This will be picked up by the next job scheduling cycle
-            if hasattr(self, 'selfplay_boost_configs'):
-                self.selfplay_boost_configs[config_key] = {
-                    "boost_until": time.time() + 3600,  # Boost for 1 hour
-                    "multiplier": 1.5,  # 50% more jobs
-                }
-            else:
-                self.selfplay_boost_configs = {
-                    config_key: {
-                        "boost_until": time.time() + 3600,
-                        "multiplier": 1.5,
-                    }
-                }
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Selfplay boost error: {e}")
+        await self.tournament_manager.boost_selfplay_for_config(board_type, num_players)
 
     async def _propagate_cmaes_weights(
         self, board_type: str, num_players: int, weights: dict[str, float]
@@ -16582,244 +16179,53 @@ print(json.dumps({{
     # See scripts/p2p/loops/network_loops.py for implementation.
 
     async def _detect_nat_type(self):
+        """Detect NAT type using STUN-like probing.
+
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
         """
-        Detect NAT type using STUN-like probing.
-
-        NAT Types:
-        - Full Cone: Any external host can send packets to internal host
-        - Restricted Cone: Only hosts that internal has contacted can respond
-        - Port Restricted: Only hosts+ports that internal has contacted can respond
-        - Symmetric: Different external IP:port for each destination (breaks P2P)
-        """
-        external_ips = set()
-
-        # Probe multiple peers to detect if we get different external IPs
-        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
-        alive_peers = [p for p in self._peer_snapshot.get_snapshot().values() if p.is_alive() and p.node_id != self.node_id]
-
-        for peer in alive_peers[:5]:  # Probe up to 5 peers
-            try:
-                peer_scheme = getattr(peer, "scheme", "http") or "http"
-                async with aiohttp.ClientSession() as session, session.get(
-                    f"{peer_scheme}://{peer.host}:{peer.port}/health",
-                    timeout=aiohttp.ClientTimeout(total=5),
-                    headers=self._auth_headers()
-                ) as resp:
-                    if resp.status == 200:
-                        # The peer would report our external IP if we had an endpoint for it
-                        # For now, just track connectivity
-                        await resp.json()
-                        external_ips.add(peer.host)  # Track which peers we can reach
-            except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError):
-                continue
-
-        # If we see ourselves with different IPs from different vantage points,
-        # we likely have symmetric NAT
-        if len(external_ips) > 1:
-            self._nat_type = "symmetric"
-            logger.info("Detected symmetric NAT (multiple external IPs seen)")
-        elif len(external_ips) == 1:
-            self._nat_type = "cone"
-        else:
-            self._nat_type = "unknown"
+        self._nat_type = await self.recovery_manager.detect_nat_type()
 
     async def _probe_nat_blocked_peers(self):
-        """Probe NAT-blocked peers to see if they've become reachable."""
-        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
-        nat_blocked_peers = [
-            p for p in self._peer_snapshot.get_snapshot().values()
-            if p.nat_blocked and p.node_id != self.node_id
-        ]
+        """Probe NAT-blocked peers to see if they've become reachable.
 
-        for peer in nat_blocked_peers:
-            # Check if enough time has passed since blocking
-            blocked_duration = time.time() - (peer.nat_blocked_since or 0)
-            if blocked_duration < NAT_BLOCKED_RECOVERY_TIMEOUT:
-                continue
-
-            # Try to reach the peer
-            peer_scheme = getattr(peer, "scheme", "http") or "http"
-
-            # Try multiple endpoints
-            endpoints_to_try = [(peer.host, peer.port)]
-
-            # Add Tailscale IP
-            ts_ip = self._get_tailscale_ip_for_peer(peer.node_id)
-            if ts_ip and ts_ip != peer.host:
-                endpoints_to_try.insert(0, (ts_ip, peer.port))  # Prefer Tailscale
-
-            # Add reported endpoint
-            rh = str(getattr(peer, "reported_host", "") or "").strip()
-            rp = int(getattr(peer, "reported_port", 0) or 0)
-            if rh and rp:
-                endpoints_to_try.append((rh, rp))
-
-            for host, port in endpoints_to_try:
-                try:
-                    async with aiohttp.ClientSession() as session, session.get(
-                        f"{peer_scheme}://{host}:{port}/health",
-                        timeout=aiohttp.ClientTimeout(total=NAT_BLOCKED_PROBE_TIMEOUT),
-                        headers=self._auth_headers()
-                    ) as resp:
-                        if resp.status == 200:
-                            # Peer is reachable! Clear NAT-blocked status
-                            logger.info(f"NAT-blocked peer {peer.node_id} is now reachable at {host}:{port}")
-                            with self.peers_lock:
-                                if peer.node_id in self.peers:
-                                    self.peers[peer.node_id].nat_blocked = False
-                                    self.peers[peer.node_id].nat_blocked_since = 0.0
-                                    self.peers[peer.node_id].host = host  # Update to working endpoint
-                                    self.peers[peer.node_id].consecutive_failures = 0
-                            break
-                except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError):
-                    continue
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
+        """
+        await self.recovery_manager.probe_nat_blocked_peers()
 
     async def _update_relay_preferences(self):
-        """Update relay preferences based on connectivity patterns."""
-        # Identify peers that consistently fail direct connections
-        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
-        peers_needing_relay = [
-            p for p in self._peer_snapshot.get_snapshot().values()
-            if (getattr(p, "consecutive_failures", 0) or 0) >= NAT_RELAY_PREFERENCE_THRESHOLD
-            and not p.nat_blocked
-            and p.node_id != self.node_id
-        ]
+        """Update relay preferences based on connectivity patterns.
 
-        for peer in peers_needing_relay:
-            # Mark as preferring relay
-            if not peer.nat_blocked:
-                logger.info(f"Peer {peer.node_id} has {peer.consecutive_failures} consecutive failures, marking as NAT-blocked")
-                with self.peers_lock:
-                    if peer.node_id in self.peers:
-                        self.peers[peer.node_id].nat_blocked = True
-                        self.peers[peer.node_id].nat_blocked_since = time.time()
-                        # Set relay to best available relay node (with configured fallback)
-                        relay_node = self._select_best_relay(for_peer=peer.node_id)
-                        if relay_node:
-                            self.peers[peer.node_id].relay_via = relay_node
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
+        """
+        await self.recovery_manager.update_relay_preferences()
 
     async def _validate_relay_assignments(self) -> None:
         """Validate and update relay assignments for NAT-blocked peers.
 
-        December 30, 2025: Proactive relay health check. Detects when a relay
-        node has become unhealthy and automatically switches NAT-blocked peers
-        to a healthier relay.
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
         """
-        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
-        peers_snapshot = self._peer_snapshot.get_snapshot()
-        nat_blocked_peers = [
-            p for p in peers_snapshot.values()
-            if getattr(p, "nat_blocked", False)
-            and getattr(p, "relay_via", "")
-            and p.node_id != self.node_id
-        ]
-
-        for peer in nat_blocked_peers:
-            relay_id = str(getattr(peer, "relay_via", "") or "")
-            if not relay_id:
-                continue
-
-            # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
-            relay_peer = peers_snapshot.get(relay_id)
-
-            # Check if relay is healthy
-            relay_healthy = (
-                relay_peer is not None
-                and relay_peer.is_alive()
-                and not getattr(relay_peer, "nat_blocked", False)
-                and (getattr(relay_peer, "consecutive_failures", 0) or 0) < 2
-            )
-
-            if not relay_healthy:
-                # Find a new relay (with configured fallback)
-                new_relay = self._select_best_relay(for_peer=peer.node_id)
-                if new_relay and new_relay != relay_id:
-                    logger.info(
-                        f"[RelayHealthCheck] Relay {relay_id} unhealthy for {peer.node_id}, "
-                        f"switching to {new_relay}"
-                    )
-                    with self.peers_lock:
-                        if peer.node_id in self.peers:
-                            self.peers[peer.node_id].relay_via = new_relay
+        await self.recovery_manager.validate_relay_assignments()
 
     def _select_best_relay(self, for_peer: str = "") -> str:
         """Select the best relay node based on connectivity and load.
 
-        January 4, 2026: Multi-relay failover support. When for_peer is provided,
-        checks configured relay_primary/secondary/tertiary from distributed_hosts.yaml
-        before falling back to automatic selection. This ensures NAT-blocked nodes
-        have deterministic relay paths that survive leader changes.
-
-        Args:
-            for_peer: Optional peer node_id to look up configured relay preferences.
-
-        Returns:
-            Node ID of the best relay, or empty string if none available.
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
         """
-        # January 4, 2026: Check configured relay preferences for this peer
-        if for_peer:
-            configured_relays = self._get_configured_relays(for_peer)
-            for relay_id in configured_relays:
-                with self.peers_lock:
-                    relay_peer = self.peers.get(relay_id)
-                if relay_peer and self._is_valid_relay(relay_peer):
-                    return relay_id
-
-        # Fall back to automatic selection
-        with self.peers_lock:
-            candidates = [
-                p for p in self.peers.values()
-                if self._is_valid_relay(p)
-            ]
-
-        if not candidates:
-            return ""
-
-        # Prefer leader, then voters, then lowest load
-        leader_peer = next((p for p in candidates if p.node_id == self.leader_id), None)
-        if leader_peer:
-            return leader_peer.node_id
-
-        voter_peer = next((p for p in candidates if p.node_id in self.voter_node_ids), None)
-        if voter_peer:
-            return voter_peer.node_id
-
-        # Lowest load
-        candidates.sort(key=lambda p: getattr(p, "load_score", 100))
-        return candidates[0].node_id if candidates else ""
+        return self.recovery_manager.select_best_relay(for_peer)
 
     def _is_valid_relay(self, peer: "NodeInfo") -> bool:
-        """Check if a peer is a valid relay candidate."""
-        return (
-            peer.is_alive()
-            and not getattr(peer, "nat_blocked", False)
-            and peer.node_id != self.node_id
-            and (getattr(peer, "consecutive_failures", 0) or 0) < 2
-        )
+        """Check if a peer is a valid relay candidate.
+
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
+        """
+        return self.recovery_manager._is_valid_relay(peer)
 
     def _get_configured_relays(self, peer_id: str) -> list[str]:
         """Get configured relay nodes for a peer from distributed_hosts.yaml.
 
-        January 4, 2026: Multi-relay failover configuration.
-
-        Returns:
-            List of relay node IDs in priority order [primary, secondary, tertiary].
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
         """
-        try:
-            from app.config.cluster_config import load_cluster_config
-
-            config = load_cluster_config()
-            hosts_raw = getattr(config, "hosts_raw", {}) or {}
-            host_config = hosts_raw.get(peer_id, {})
-
-            relays = []
-            for key in ["relay_primary", "relay_secondary", "relay_tertiary"]:
-                relay_id = host_config.get(key, "")
-                if relay_id:
-                    relays.append(relay_id)
-            return relays
-        except (ImportError, AttributeError, KeyError, TypeError):
-            return []
+        return self.recovery_manager._get_configured_relays(peer_id)
 
     # NOTE: _manifest_collection_loop removed Dec 27, 2025
     # Now handled by ManifestCollectionLoop via LoopManager
@@ -16885,131 +16291,23 @@ print(json.dumps({{
     async def _probe_nat_blocked_peer(self, peer: NodeInfo) -> bool:
         """Probe a NAT-blocked peer to check if it's now directly reachable.
 
-        Returns True if peer is reachable and NAT-blocked status was cleared.
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
         """
-        if not peer.nat_blocked:
-            return False
-
-        now = time.time()
-        nat_blocked_since = float(getattr(peer, "nat_blocked_since", 0.0) or 0.0)
-        last_probe = float(getattr(peer, "last_nat_probe", 0.0) or 0.0)
-
-        # Don't probe too frequently
-        if now - last_probe < NAT_BLOCKED_PROBE_INTERVAL:
-            return False
-
-        # Don't probe if not blocked long enough
-        if nat_blocked_since > 0 and (now - nat_blocked_since) < NAT_BLOCKED_RECOVERY_TIMEOUT:
-            return False
-
-        # Update last probe time
-        with self.peers_lock:
-            existing = self.peers.get(peer.node_id)
-            if existing:
-                existing.last_nat_probe = now
-
-        try:
-            url = self._url_for_peer(peer, "/status")
-            timeout = ClientTimeout(total=NAT_BLOCKED_PROBE_TIMEOUT)
-            async with get_client_session(timeout) as session:
-                async with session.get(url, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        # Peer is reachable! Clear NAT-blocked status
-                        with self.peers_lock:
-                            existing = self.peers.get(peer.node_id)
-                            if existing and existing.nat_blocked:
-                                existing.nat_blocked = False
-                                existing.nat_blocked_since = 0.0
-                                existing.relay_via = ""
-                                logger.info(f"NAT recovery: {peer.node_id} is now directly reachable")
-                                return True
-        except (aiohttp.ClientError, asyncio.TimeoutError, AttributeError) as e:
-            # Probe failed - peer still not reachable (expected for NAT-blocked nodes)
-            logger.debug(f"NAT recovery probe failed for {peer.node_id}: {type(e).__name__}")
-
-        return False
+        return await self.recovery_manager.probe_nat_blocked_peer(peer)
 
     async def _sweep_nat_recovery(self) -> int:
         """Periodically probe NAT-blocked peers to check if they've become reachable.
 
-        Returns the number of peers that recovered from NAT-blocked state.
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
         """
-        recovered = 0
-        # Jan 12, 2026: Use lock-free PeerSnapshot for read-only access
-        nat_blocked_peers = [
-            p for p in self._peer_snapshot.get_snapshot().values()
-            if p.nat_blocked and p.is_alive()
-        ]
-
-        if not nat_blocked_peers:
-            return 0
-
-        # Probe in parallel but limit concurrency
-        tasks = [self._probe_nat_blocked_peer(p) for p in nat_blocked_peers[:10]]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                peer_id = nat_blocked_peers[i].node_id if i < len(nat_blocked_peers) else "unknown"
-                logger.debug(f"NAT probe failed for {peer_id}: {result}")
-            elif result is True:
-                recovered += 1
-
-        if recovered > 0:
-            logger.info(f"NAT recovery sweep: {recovered} peer(s) recovered")
-
-        return recovered
+        return await self.recovery_manager.sweep_nat_recovery()
 
     def _compute_connectivity_score(self, peer: NodeInfo) -> float:
         """Compute connectivity score for leader eligibility ranking.
 
-        Jan 2, 2026: Added to support leader eligibility refinement.
-
-        Score components (0.0 to 1.0):
-        - 0.4: Direct reachability (not NAT-blocked, not force_relay)
-        - 0.3: Transport success rate (based on consecutive_failures)
-        - 0.2: Connected peers (based on visible_peers if available)
-        - 0.1: Role weight (leaders get slight boost)
-
-        Returns:
-            float: Connectivity score between 0.0 and 1.0
+        Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition).
         """
-        score = 0.0
-
-        # Direct reachability: 0.4 points
-        nat_blocked = getattr(peer, "nat_blocked", False)
-        force_relay = getattr(peer, "force_relay_mode", False)
-        if not nat_blocked and not force_relay:
-            score += 0.4
-        elif not nat_blocked:
-            # Force relay but not NAT blocked - partial credit
-            score += 0.2
-
-        # Transport success rate: 0.3 points
-        failures = int(getattr(peer, "consecutive_failures", 0) or 0)
-        if failures == 0:
-            score += 0.3
-        elif failures < 3:
-            score += 0.2
-        elif failures < MAX_CONSECUTIVE_FAILURES:
-            score += 0.1
-
-        # Connected peers: 0.2 points
-        visible_peers = int(getattr(peer, "visible_peers", 0) or 0)
-        if visible_peers >= 10:
-            score += 0.2
-        elif visible_peers >= 5:
-            score += 0.15
-        elif visible_peers >= 2:
-            score += 0.1
-
-        # Role weight: 0.1 points
-        if peer.role == NodeRole.LEADER:
-            score += 0.1
-        elif peer.role == NodeRole.FOLLOWER:
-            score += 0.05
-
-        return min(1.0, score)
+        return self.recovery_manager.compute_connectivity_score(peer)
 
     def _is_leader_eligible(
         self,
@@ -18907,187 +18205,8 @@ print(json.dumps({{
             self._record_sync_result_for_adaptive("training_db", False)  # ADAPTIVE: record failure
             self.sync_in_progress = False
 
-    async def _gossip_state_to_peers(self):
-        """DECENTRALIZED: Share node state with random peers using gossip protocol.
-
-        GOSSIP PROTOCOL: Instead of relying solely on leader to collect state,
-        nodes share information with neighbors, and it propagates through the cluster.
-
-        Benefits:
-        - Faster state propagation (O(log N) instead of O(N))
-        - Works without a leader
-        - Resilient to network partitions (state eventually converges)
-        - Reduces load on leader
-
-        Implementation:
-        1. Each node maintains local state (jobs, resources, health)
-        2. Periodically send state to K random peers (fanout)
-        3. Receive state from peers and update local view
-        4. Include version/timestamp to handle conflicts (last-write-wins)
-        """
-        now = time.time()
-
-        # Rate limit: gossip every 30 seconds
-        last_gossip = getattr(self, "_last_gossip_time", 0)
-        if now - last_gossip < 30:
-            return
-        self._last_gossip_time = now
-
-        # Prepare our state to share
-        self._update_self_info()
-        local_state = {
-            "node_id": self.node_id,
-            "timestamp": now,
-            "version": int(now * 1000),  # Millisecond version for conflict resolution
-            "role": self.role.value if hasattr(self.role, "value") else str(self.role),
-            "leader_id": self.leader_id,
-            "leader_lease_expires": getattr(self, "leader_lease_expires", 0),
-            "selfplay_jobs": getattr(self.self_info, "selfplay_jobs", 0),
-            "training_jobs": getattr(self.self_info, "training_jobs", 0),
-            "gpu_percent": getattr(self.self_info, "gpu_percent", 0),
-            "cpu_percent": getattr(self.self_info, "cpu_percent", 0),
-            "memory_percent": getattr(self.self_info, "memory_percent", 0),
-            "disk_percent": getattr(self.self_info, "disk_percent", 0),
-            "has_gpu": getattr(self.self_info, "has_gpu", False),
-            "gpu_name": getattr(self.self_info, "gpu_name", ""),
-            "voter_quorum_ok": self._has_voter_quorum(),
-            # Jan 25, 2026: Include visible_peers for gossip convergence
-            # This allows nodes to have accurate connectivity info about remote peers
-            "visible_peers": getattr(self.self_info, "visible_peers", 0),
-            # Jan 25, 2026: Include effective_timeout so all nodes agree on when to mark us dead
-            "effective_timeout": getattr(self.self_info, "effective_timeout", 0.0),
-        }
-
-        # DISTRIBUTED TRAINING COORDINATION: Include active training configs
-        # This allows nodes to coordinate training without a leader
-        local_state["active_training_configs"] = self._get_local_active_training_configs()
-
-        # DISTRIBUTED ELO: Include ELO summary for cluster-wide visibility
-        local_state["elo_summary"] = self._get_local_elo_summary()
-
-        # GOSSIP-BASED LEADER HINTS: Share leader preference for faster elections
-        local_state["leader_hint"] = self._get_leader_hint()
-
-        # PEER REPUTATION: Share peer reliability scores
-        local_state["peer_reputation"] = self._get_peer_reputation_summary()
-
-        # DISTRIBUTED TOURNAMENT: Share tournament proposals and active tournaments
-        local_state["tournament"] = self._get_tournament_gossip_state()
-
-        # Include manifest summary if available
-        local_manifest = getattr(self, "local_data_manifest", None)
-        if local_manifest:
-            local_state["manifest_summary"] = {
-                "total_files": getattr(local_manifest, "total_files", 0),
-                "selfplay_games": getattr(local_manifest, "selfplay_games", 0),
-                "collected_at": getattr(local_manifest, "collected_at", 0),
-            }
-
-        # Jan 11, 2026: Phase 6 - Dynamic gossip fanout based on peer failures
-        # When detecting many peer failures, increase fanout for faster convergence
-        with self.peers_lock:
-            all_peers = list(self.peers.values())
-            alive_peers = [
-                p for p in all_peers
-                if p.is_alive() and not getattr(p, "retired", False)
-            ]
-
-        if not alive_peers:
-            return
-
-        # Count recent failures (peers that became dead within last 2 minutes)
-        now = time.time()
-        recent_failures = sum(
-            1 for p in all_peers
-            if not p.is_alive() and not getattr(p, "retired", False)
-            and now - p.last_heartbeat < 120
-        )
-
-        # Dynamic fanout: base 5, increase when failures detected
-        base_fanout = 5
-        if recent_failures > 5:
-            # Emergency mode: 5 + 5 = 10 fanout (limited to 15)
-            gossip_fanout = min(15, base_fanout + 5)
-        elif recent_failures > 2:
-            # Elevated mode: 5 + 3 = 8 fanout (limited to 12)
-            gossip_fanout = min(12, base_fanout + 3)
-        else:
-            gossip_fanout = base_fanout
-
-        import random
-        peers_to_gossip = random.sample(alive_peers, min(gossip_fanout, len(alive_peers)))
-
-        # Send gossip to selected peers
-        timeout = ClientTimeout(total=5)
-        async with get_client_session(timeout) as session:
-            for peer in peers_to_gossip:
-                try:
-                    # Include known state about other nodes (propagation)
-                    gossip_payload = {
-                        "sender": self.node_id,
-                        "sender_state": local_state,
-                        "known_states": self._get_gossip_known_states(),
-                        # Phase 28: Peer-of-peer discovery - share peer endpoints
-                        "peer_endpoints": self._get_peer_endpoints_for_gossip(),
-                        # Phase 29: Cluster epoch for split-brain resolution
-                        "cluster_epoch": self._cluster_epoch,
-                    }
-
-                    # GOSSIP COMPRESSION: Compress payload with gzip to reduce network transfer
-                    json_bytes = json.dumps(gossip_payload).encode("utf-8")
-                    original_size = len(json_bytes)
-                    compressed_bytes = gzip.compress(json_bytes, compresslevel=6)
-                    compressed_size = len(compressed_bytes)
-
-                    # Track compression metrics
-                    self._record_gossip_compression(original_size, compressed_size)
-
-                    start_time = time.time()
-                    for url in self._urls_for_peer(peer, "/gossip"):
-                        try:
-                            headers = self._auth_headers()
-                            headers["Content-Encoding"] = "gzip"
-                            headers["Content-Type"] = "application/json"
-                            async with session.post(url, data=compressed_bytes, headers=headers) as resp:
-                                if resp.status == 200:
-                                    # Process response (peer shares their state back)
-                                    # Check if response is compressed
-                                    content_encoding = resp.headers.get("Content-Encoding", "")
-                                    if content_encoding == "gzip":
-                                        response_bytes = await resp.read()
-                                        try:
-                                            decompressed = gzip.decompress(response_bytes)
-                                            payload_bytes = decompressed
-                                        except OSError as e:
-                                            logger.debug(
-                                                f"[Gossip] Gzip decode failed from {peer.node_id}: {e}. "
-                                                "Falling back to plain JSON."
-                                            )
-                                            payload_bytes = response_bytes
-                                        response_data = json.loads(payload_bytes.decode("utf-8"))
-                                    else:
-                                        response_data = await resp.json()
-                                    self._process_gossip_response(response_data)
-                                    # Record metrics
-                                    latency_ms = (time.time() - start_time) * 1000
-                                    self._record_gossip_metrics("sent", peer.node_id)
-                                    self._record_gossip_metrics("latency", peer.node_id, latency_ms)
-                                    break
-                        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, AttributeError):
-                            continue
-                except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, AttributeError):
-                    pass
-
-    def _get_gossip_known_states(self) -> dict[str, dict]:
-        """Get known states about other nodes to propagate via gossip."""
-        known = {}
-        gossip_states = getattr(self, "_gossip_peer_states", {})
-        # Only share recent states (last 5 minutes)
-        cutoff = time.time() - 300
-        for node_id, state in gossip_states.items():
-            if state.get("timestamp", 0) > cutoff:
-                known[node_id] = state
-        return known
+    # Jan 27, 2026: Gossip methods delegated to GossipProtocolMixin (Phase 13 decomposition)
+    # _gossip_state_to_peers(), _get_gossip_known_states() are inherited from mixin
 
     def _get_peer_endpoints_for_gossip(self) -> list[dict[str, Any]]:
         """Phase 28: Get peer endpoints to share via gossip for peer-of-peer discovery.
@@ -19877,176 +18996,16 @@ print(json.dumps({{
     # =========================================================================
 
     async def _check_node_recovery(self):
-        """DECENTRALIZED: Detect and recover stuck nodes via gossip.
-
-        AUTOMATIC NODE RECOVERY: Uses gossip to detect nodes that are:
-        - Unresponsive (stale gossip timestamp)
-        - Stuck (high failure count, no job progress)
-        - Resource-exhausted (high disk/memory)
-
-        Recovery actions:
-        - SSH to node and restart the ringrift-p2p service
-        - Only leader attempts recovery to avoid duplicate restarts
-        - Rate limit recovery attempts (one per node per 10 minutes)
-        """
-        # Only leader performs recovery to avoid duplicate restarts
-        if self.role != NodeRole.LEADER:
-            return
-
-        now = time.time()
-
-        # Rate limit: check every 2 minutes
-        last_check = getattr(self, "_last_node_recovery_check", 0)
-        if now - last_check < 120:
-            return
-        self._last_node_recovery_check = now
-
-        # Initialize recovery tracking
-        if not hasattr(self, "_node_recovery_attempts"):
-            self._node_recovery_attempts = {}  # node_id -> last_attempt_time
-        if not hasattr(self, "_node_recovery_metrics"):
-            self._node_recovery_metrics = {"attempts": 0, "successes": 0, "failures": 0}
-
-        # Check each peer for health issues
-        gossip_states = getattr(self, "_gossip_peer_states", {})
-        nodes_to_recover = []
-
-        with self.peers_lock:
-            for node_id, peer in self.peers.items():
-                if node_id == self.node_id:
-                    continue
-
-                # Skip recently recovered nodes (10 minute cooldown)
-                last_attempt = self._node_recovery_attempts.get(node_id, 0)
-                if now - last_attempt < 600:
-                    continue
-
-                # Check for unhealthy indicators
-                needs_recovery = False
-                reason = ""
-
-                # 1. Peer not alive (no recent heartbeat)
-                if not peer.is_alive():
-                    needs_recovery = True
-                    reason = "not responding to heartbeat"
-
-                # 2. Stale gossip state (no updates in 5 minutes)
-                elif node_id in gossip_states:
-                    state = gossip_states[node_id]
-                    state_age = now - state.get("timestamp", 0)
-                    if state_age > 300:
-                        needs_recovery = True
-                        reason = f"stale gossip ({int(state_age)}s old)"
-
-                # 3. High consecutive failures
-                elif getattr(peer, "consecutive_failures", 0) >= 5:
-                    needs_recovery = True
-                    reason = f"high failure count ({peer.consecutive_failures})"
-
-                # 4. Disk nearly full (>95%)
-                elif getattr(peer, "disk_percent", 0) > 95:
-                    needs_recovery = True
-                    reason = f"disk full ({peer.disk_percent}%)"
-
-                if needs_recovery:
-                    nodes_to_recover.append((node_id, peer, reason))
-
-        # Attempt recovery for identified nodes (max 2 per cycle)
-        for node_id, peer, reason in nodes_to_recover[:2]:
-            logger.info(f"NODE RECOVERY: Attempting to recover {node_id} ({reason})")
-            self._node_recovery_attempts[node_id] = now
-            self._node_recovery_metrics["attempts"] += 1
-
-            # ALERTING: Notify on node recovery attempt
-            asyncio.create_task(self.notifier.send(
-                title="Node Recovery Initiated",
-                message=f"Attempting to recover node {node_id}: {reason}",
-                level="warning",
-                fields={
-                    "Node": node_id,
-                    "Reason": reason,
-                    "Host": getattr(peer, "host", "unknown"),
-                },
-                node_id=self.node_id,
-            ))
-
-            success = await self._attempt_node_recovery(node_id, peer)
-            if success:
-                self._node_recovery_metrics["successes"] += 1
-                logger.info(f"NODE RECOVERY: Successfully restarted {node_id}")
-                # ALERTING: Notify on successful recovery
-                asyncio.create_task(self.notifier.send(
-                    title="Node Recovery Success",
-                    message=f"Successfully recovered node {node_id}",
-                    level="info",
-                    fields={"Node": node_id, "Reason": reason},
-                    node_id=self.node_id,
-                ))
-            else:
-                self._node_recovery_metrics["failures"] += 1
-                logger.info(f"NODE RECOVERY: Failed to restart {node_id}")
-                # ALERTING: Notify on failed recovery
-                asyncio.create_task(self.notifier.send(
-                    title="Node Recovery Failed",
-                    message=f"Failed to recover node {node_id} ({reason})",
-                    level="error",
-                    fields={
-                        "Node": node_id,
-                        "Reason": reason,
-                        "Action": "Manual intervention may be required",
-                    },
-                    node_id=self.node_id,
-                ))
+        """Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition)."""
+        await self.recovery_manager.check_node_recovery()
 
     async def _attempt_node_recovery(self, node_id: str, peer) -> bool:
-        """Attempt to recover a node by restarting its service via SSH.
-
-        Returns True if recovery command succeeded, False otherwise.
-        """
-        host = getattr(peer, "host", None)
-        if not host:
-            return False
-
-        try:
-            pass
-
-            # Try to restart the service via SSH
-            cmd = f"timeout 30 ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no {host} 'sudo systemctl restart ringrift-p2p'"
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=45)
-
-            if proc.returncode == 0:
-                return True
-            else:
-                logger.info(f"NODE RECOVERY: SSH failed for {node_id}: {stderr.decode()[:100]}")
-                return False
-
-        except asyncio.TimeoutError:
-            logger.info(f"NODE RECOVERY: SSH timeout for {node_id}")
-            return False
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"NODE RECOVERY: Error recovering {node_id}: {e}")
-            return False
+        """Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition)."""
+        return await self.recovery_manager.attempt_node_recovery(node_id, peer)
 
     def _get_node_recovery_metrics(self) -> dict:
-        """Get node recovery metrics for /status endpoint."""
-        metrics = getattr(self, "_node_recovery_metrics", {"attempts": 0, "successes": 0, "failures": 0})
-        attempts = getattr(self, "_node_recovery_attempts", {})
-        now = time.time()
-
-        # Count nodes in recovery cooldown
-        in_cooldown = sum(1 for t in attempts.values() if now - t < 600)
-
-        return {
-            "total_attempts": metrics.get("attempts", 0),
-            "successes": metrics.get("successes", 0),
-            "failures": metrics.get("failures", 0),
-            "nodes_in_cooldown": in_cooldown,
-        }
+        """Jan 2026: Delegated to RecoveryManager (Phase 12 decomposition)."""
+        return self.recovery_manager.get_node_recovery_metrics()
 
     # =========================================================================
     # STABILITY CONTROLLER CALLBACKS (Jan 2026 - Self-Healing Architecture)
@@ -21200,229 +20159,50 @@ print(json.dumps({{
     # ============================================================================
     # Allows tournaments to be scheduled and coordinated via gossip protocol
     # without requiring a leader. Uses consensus to elect tournament coordinator.
+    # Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
     # ============================================================================
 
     def _init_distributed_tournament_scheduling(self):
-        """Initialize distributed tournament scheduling state."""
-        self._tournament_proposals: dict[str, dict] = {}  # proposal_id -> proposal
-        self._tournament_votes: dict[str, dict[str, str]] = {}  # proposal_id -> {node_id: vote}
-        self._active_tournaments_gossip: dict[str, dict] = {}  # tournament_id -> state
-        self._last_tournament_check = 0
-        self._tournament_coordination_lock = threading.Lock()
+        """Initialize distributed tournament scheduling state.
 
-    # NOTE: _propose_tournament, _vote_on_tournament_proposal removed Dec 27, 2025 (dead code, never called)
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
+        """
+        self.tournament_manager.init_distributed_tournament_scheduling()
 
     def _get_tournament_gossip_state(self) -> dict:
         """Get tournament state for gossip propagation.
 
-        TOURNAMENT GOSSIP: Share active tournament info via gossip so nodes
-        can coordinate without leader.
-
-        Returns:
-            Dict with proposals and active tournaments
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        if not hasattr(self, "_tournament_proposals"):
-            self._init_distributed_tournament_scheduling()
-
-        now = time.time()
-
-        with self._tournament_coordination_lock:
-            # Only share recent proposals (last 10 min)
-            active_proposals = {
-                pid: p for pid, p in self._tournament_proposals.items()
-                if now - p.get("proposed_at", 0) < 600 and p.get("status") == "proposed"
-            }
-
-        # Get active distributed tournaments
-        active_tournaments = {}
-        for tid, state in getattr(self, "distributed_tournament_state", {}).items():
-            if hasattr(state, "status") and state.status == "running":
-                active_tournaments[tid] = {
-                    "job_id": tid,
-                    "coordinator": self.node_id,  # We're coordinating if we have it
-                    "progress": state.completed_matches / max(1, state.total_matches),
-                    "status": state.status,
-                }
-
-        return {
-            "proposals": list(active_proposals.values()),
-            "active": active_tournaments,
-            "last_update": now,
-        }
+        return self.tournament_manager.get_tournament_gossip_state()
 
     def _process_tournament_gossip(self, node_id: str, tournament_state: dict):
         """Process tournament info received via gossip.
 
-        GOSSIP PROCESSING: When receiving tournament state from peers,
-        - Record their proposals and votes
-        - Check if any proposals reached consensus
-        - Start tournaments that we're elected to coordinate
-
-        Args:
-            node_id: ID of node that sent this state
-            tournament_state: Tournament state from gossip
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        if not hasattr(self, "_tournament_proposals"):
-            self._init_distributed_tournament_scheduling()
-
-        if not tournament_state or not isinstance(tournament_state, dict):
-            return
-
-        time.time()
-
-        # Process proposals from gossip
-        for proposal in tournament_state.get("proposals", []):
-            if not isinstance(proposal, dict):
-                continue
-
-            proposal_id = proposal.get("proposal_id")
-            if not proposal_id:
-                continue
-
-            with self._tournament_coordination_lock:
-                if proposal_id not in self._tournament_proposals:
-                    # New proposal from peer - add it and auto-approve
-                    self._tournament_proposals[proposal_id] = proposal.copy()
-                    self._tournament_proposals[proposal_id]["votes"][self.node_id] = "approve"
-                else:
-                    # Merge votes
-                    existing = self._tournament_proposals[proposal_id]
-                    for voter, vote in proposal.get("votes", {}).items():
-                        if voter not in existing["votes"]:
-                            existing["votes"][voter] = vote
+        self.tournament_manager.process_tournament_gossip(node_id, tournament_state)
 
     def _check_tournament_consensus(self):
         """Check if any tournament proposals have reached consensus.
 
-        CONSENSUS CHECK: A proposal is approved when majority of alive peers approve.
-        The coordinator is elected as the highest-ID approving voter node.
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        if not hasattr(self, "_tournament_proposals"):
-            return
-
-        now = time.time()
-
-        # Get alive peer count for quorum
-        with self.peers_lock:
-            alive_peers = [p for p in self.peers.values() if p.is_alive()]
-        alive_count = len(alive_peers) + 1  # +1 for self
-
-        quorum = (alive_count // 2) + 1
-
-        with self._tournament_coordination_lock:
-            for proposal_id, proposal in list(self._tournament_proposals.items()):
-                if proposal.get("status") != "proposed":
-                    continue
-
-                # Count votes
-                approve_votes = [
-                    voter for voter, vote in proposal.get("votes", {}).items()
-                    if vote == "approve"
-                ]
-
-                if len(approve_votes) >= quorum:
-                    # Consensus reached! Elect coordinator (highest ID)
-                    coordinator = max(approve_votes)
-                    proposal["status"] = "approved"
-                    proposal["coordinator"] = coordinator
-
-                    logger.info(f"TOURNAMENT: Proposal {proposal_id} approved! "
-                          f"Coordinator: {coordinator} ({len(approve_votes)}/{alive_count} votes)")
-
-                    # If we're the coordinator, start the tournament
-                    if coordinator == self.node_id:
-                        asyncio.create_task(self._start_tournament_from_proposal(proposal))
-
-                # Expire old proposals
-                elif now - proposal.get("proposed_at", 0) > 600:
-                    proposal["status"] = "expired"
+        self.tournament_manager.check_tournament_consensus()
 
     async def _start_tournament_from_proposal(self, proposal: dict):
         """Start a tournament from an approved proposal.
 
-        COORDINATOR DUTIES: When elected as coordinator, start the tournament
-        and manage match distribution to workers.
-
-        Args:
-            proposal: Approved proposal dict
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
         """
-        import uuid
-
-        job_id = f"tournament_{uuid.uuid4().hex[:8]}"
-        agent_ids = proposal.get("agent_ids", [])
-
-        if len(agent_ids) < 2:
-            logger.info("TOURNAMENT: Cannot start - need at least 2 agents")
-            return
-
-        # Create round-robin pairings
-        pairings = []
-        for i, a1 in enumerate(agent_ids):
-            for a2 in agent_ids[i+1:]:
-                for game_num in range(proposal.get("games_per_pairing", 2)):
-                    pairings.append({
-                        "agent1": a1,
-                        "agent2": a2,
-                        "game_num": game_num,
-                        "status": "pending",
-                    })
-
-        state = DistributedTournamentState(
-            job_id=job_id,
-            board_type=proposal.get("board_type", "square8"),
-            num_players=proposal.get("num_players", 2),
-            agent_ids=agent_ids,
-            games_per_pairing=proposal.get("games_per_pairing", 2),
-            total_matches=len(pairings),
-            pending_matches=pairings,
-            status="running",
-            started_at=time.time(),
-            last_update=time.time(),
-        )
-
-        # Find workers
-        with self.peers_lock:
-            workers = [p.node_id for p in self.peers.values() if p.is_healthy()]
-        state.worker_nodes = workers
-
-        if not state.worker_nodes:
-            logger.info(f"TOURNAMENT: No workers available for {job_id}")
-            return
-
-        self.distributed_tournament_state[job_id] = state
-
-        logger.info(f"TOURNAMENT: Started {job_id} from proposal {proposal.get('proposal_id')}: "
-              f"{len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
-
-        # Launch coordinator task
-        asyncio.create_task(self.job_manager.run_distributed_tournament(job_id))
+        await self.tournament_manager.start_tournament_from_proposal(proposal)
 
     def _get_distributed_tournament_summary(self) -> dict:
-        """Get summary of distributed tournament scheduling for status endpoint."""
-        if not hasattr(self, "_tournament_proposals"):
-            self._init_distributed_tournament_scheduling()
+        """Get summary of distributed tournament scheduling for status endpoint.
 
-        with self._tournament_coordination_lock:
-            pending_proposals = sum(
-                1 for p in self._tournament_proposals.values()
-                if p.get("status") == "proposed"
-            )
-            approved_proposals = sum(
-                1 for p in self._tournament_proposals.values()
-                if p.get("status") == "approved"
-            )
-
-        active_tournaments = sum(
-            1 for s in getattr(self, "distributed_tournament_state", {}).values()
-            if hasattr(s, "status") and s.status == "running"
-        )
-
-        return {
-            "pending_proposals": pending_proposals,
-            "approved_proposals": approved_proposals,
-            "active_tournaments": active_tournaments,
-            "enabled": True,
-        }
+        Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
+        """
+        return self.tournament_manager.get_distributed_tournament_summary()
 
     async def _start_monitoring_if_leader(self):
         """Start Prometheus/Grafana when we become leader (P2P monitoring resilience)."""

@@ -118,6 +118,11 @@ class SelfplayHealthMonitorMixin:
         self._host_offline_timestamps: dict[str, float] = {}
         self._host_offline_recovery_seconds: float = 1800.0  # 30 minutes
 
+        # Jan 2026 P1: Stall escalation tracking for progressive intervention
+        # Level 0: No stall, Level 1: 6h (1.5x), Level 2: 48h (2.0x), Level 3: 96h+ (3.0x)
+        self._stall_escalation_level: dict[str, int] = {}
+        self._stall_start_times: dict[str, float] = {}
+
     def _get_health_event_subscriptions(self) -> dict[str, Callable]:
         """Return event subscriptions for health monitoring.
 
@@ -735,23 +740,54 @@ class SelfplayHealthMonitorMixin:
     # Progress Event Handlers
     # =========================================================================
 
-    def _on_progress_stall(self, event: Any) -> None:
-        """Handle PROGRESS_STALL_DETECTED - boost selfplay for stalled config.
+    def _get_stall_escalation_level(self, stall_duration_hours: float) -> int:
+        """Determine escalation level based on stall duration.
 
-        Dec 29, 2025: Subscribe to progress stall events for 48h autonomous operation.
-        When a config's Elo progress stalls, boost selfplay priority to generate
-        more training data and help break through the plateau.
+        Jan 2026 P1: Tiered escalation for progressive intervention.
+
+        | Level | Duration | Multiplier | Additional Actions |
+        |-------|----------|------------|-------------------|
+        | 0     | <6h      | 1.0x       | None              |
+        | 1     | 6-48h    | 1.5x       | Priority boost    |
+        | 2     | 48-96h   | 2.0x       | + Diversity injection |
+        | 3     | 96h+     | 3.0x       | + Architecture exploration |
 
         Args:
-            event: Event with payload containing config_key, boost_multiplier, etc.
+            stall_duration_hours: How long the config has been stalled.
+
+        Returns:
+            Escalation level 0-3.
+        """
+        if stall_duration_hours < 6:
+            return 0
+        elif stall_duration_hours < 48:
+            return 1
+        elif stall_duration_hours < 96:
+            return 2
+        else:
+            return 3
+
+    def _get_escalation_multiplier(self, level: int) -> float:
+        """Get priority multiplier for escalation level."""
+        multipliers = {0: 1.0, 1: 1.5, 2: 2.0, 3: 3.0}
+        return multipliers.get(level, 1.0)
+
+    def _on_progress_stall(self, event: Any) -> None:
+        """Handle PROGRESS_STALL_DETECTED - tiered escalation for stalled configs.
+
+        Jan 2026 P1: Implements progressive intervention based on stall duration:
+        - Level 1 (6h): 1.5x priority boost
+        - Level 2 (48h): 2.0x boost + emit OPPONENT_DIVERSITY_NEEDED
+        - Level 3 (96h+): 3.0x boost + emit ARCHITECTURE_EXPLORATION_NEEDED
+
+        Args:
+            event: Event with payload containing config_key, stall_duration_hours, etc.
         """
         try:
-            # Import here to avoid circular dependency
             from app.coordination.event_handler_utils import extract_config_key
 
             payload = event.payload if hasattr(event, "payload") else event
             config_key = extract_config_key(payload)
-            boost_multiplier = payload.get("boost_multiplier", 2.0)
             stall_duration = payload.get("stall_duration_hours", 0.0)
 
             if not config_key:
@@ -764,31 +800,116 @@ class SelfplayHealthMonitorMixin:
 
             priority = config_priorities[config_key]
 
-            # Apply exploration boost to help break through plateau
-            priority.exploration_boost = max(priority.exploration_boost, boost_multiplier)
+            # Determine escalation level based on stall duration
+            new_level = self._get_stall_escalation_level(stall_duration)
+            old_level = self._stall_escalation_level.get(config_key, 0)
+
+            # Track stall start time if not already tracking
+            if config_key not in self._stall_start_times:
+                self._stall_start_times[config_key] = time.time()
+
+            # Update escalation level
+            self._stall_escalation_level[config_key] = new_level
+
+            # Apply escalation multiplier to exploration boost
+            multiplier = self._get_escalation_multiplier(new_level)
+            priority.exploration_boost = max(priority.exploration_boost, multiplier)
 
             # Increase staleness to prioritize this config
             priority.staleness_hours = max(priority.staleness_hours, stall_duration * 2.0)
 
-            logger.warning(
-                f"[SelfplayScheduler] Progress stall detected for {config_key} "
-                f"(stalled {stall_duration:.1f}h). Boosting exploration by {boost_multiplier}x"
-            )
+            # Log escalation
+            level_changed = new_level > old_level
+            if level_changed:
+                logger.warning(
+                    f"[SelfplayScheduler] Stall ESCALATED for {config_key}: "
+                    f"level {old_level} -> {new_level} (stalled {stall_duration:.1f}h, {multiplier}x boost)"
+                )
+            else:
+                logger.info(
+                    f"[SelfplayScheduler] Progress stall for {config_key}: "
+                    f"level {new_level} (stalled {stall_duration:.1f}h, {multiplier}x boost)"
+                )
+
+            # Emit additional events at higher escalation levels
+            if new_level >= 2 and (level_changed or old_level < 2):
+                self._emit_opponent_diversity_needed(config_key, stall_duration)
+
+            if new_level >= 3 and (level_changed or old_level < 3):
+                self._emit_architecture_exploration_needed(config_key, stall_duration)
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling progress stall: {e}")
 
-    def _on_progress_recovered(self, event: Any) -> None:
-        """Handle PROGRESS_RECOVERED - reset boost for recovered config.
+    def _emit_opponent_diversity_needed(self, config_key: str, stall_duration: float) -> None:
+        """Emit OPPONENT_DIVERSITY_NEEDED to trigger curriculum diversity injection.
 
-        Dec 29, 2025: When a config recovers from a stall, reset the exploration
-        boost to normal levels to allow other configs to get resources.
+        Jan 2026 P1: At escalation level 2 (48h+ stall), inject opponent diversity
+        to help break through local optimum.
+        """
+        try:
+            from app.coordination.safe_event_emit import safe_emit_event
+
+            safe_emit_event(
+                "OPPONENT_DIVERSITY_NEEDED",
+                {
+                    "config_key": config_key,
+                    "stall_duration_hours": stall_duration,
+                    "escalation_level": 2,
+                    "suggested_mix": {
+                        "best": 0.30,
+                        "previous": 0.40,
+                        "heuristic": 0.20,
+                        "random": 0.10,
+                    },
+                },
+            )
+            logger.info(
+                f"[SelfplayScheduler] Emitted OPPONENT_DIVERSITY_NEEDED for {config_key}"
+            )
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error emitting diversity event: {e}")
+
+    def _emit_architecture_exploration_needed(self, config_key: str, stall_duration: float) -> None:
+        """Emit ARCHITECTURE_EXPLORATION_NEEDED for severe stalls.
+
+        Jan 2026 P1: At escalation level 3 (96h+ stall), signal that architecture
+        changes may be needed to break through the plateau.
+        """
+        try:
+            from app.coordination.safe_event_emit import safe_emit_event
+
+            safe_emit_event(
+                "ARCHITECTURE_EXPLORATION_NEEDED",
+                {
+                    "config_key": config_key,
+                    "stall_duration_hours": stall_duration,
+                    "escalation_level": 3,
+                    "suggested_actions": [
+                        "Try different model architecture",
+                        "Increase model capacity",
+                        "Adjust learning rate schedule",
+                        "Consider transfer learning from similar config",
+                    ],
+                },
+            )
+            logger.warning(
+                f"[SelfplayScheduler] Emitted ARCHITECTURE_EXPLORATION_NEEDED for {config_key} "
+                f"(stalled {stall_duration:.1f}h - severe)"
+            )
+        except Exception as e:
+            logger.debug(f"[SelfplayScheduler] Error emitting architecture event: {e}")
+
+    def _on_progress_recovered(self, event: Any) -> None:
+        """Handle PROGRESS_RECOVERED - reset boost and escalation for recovered config.
+
+        Jan 2026 P1: When a config recovers from a stall, reset the exploration
+        boost and clear escalation tracking to allow other configs to get resources.
 
         Args:
             event: Event with payload containing config_key, velocity, etc.
         """
         try:
-            # Import here to avoid circular dependency
             from app.coordination.event_handler_utils import extract_config_key
 
             payload = event.payload if hasattr(event, "payload") else event
@@ -805,13 +926,27 @@ class SelfplayHealthMonitorMixin:
 
             priority = config_priorities[config_key]
 
+            # Get previous escalation level for logging
+            old_level = self._stall_escalation_level.get(config_key, 0)
+
             # Reset exploration boost to normal
             priority.exploration_boost = 1.0
 
-            logger.info(
-                f"[SelfplayScheduler] Progress recovered for {config_key} "
-                f"(velocity: {new_velocity:.2f} Elo/hour). Reset exploration boost."
-            )
+            # Clear escalation tracking
+            self._stall_escalation_level.pop(config_key, None)
+            self._stall_start_times.pop(config_key, None)
+
+            if old_level > 0:
+                logger.warning(
+                    f"[SelfplayScheduler] Progress RECOVERED for {config_key}: "
+                    f"was at escalation level {old_level}, now reset "
+                    f"(velocity: {new_velocity:.2f} Elo/hour)"
+                )
+            else:
+                logger.info(
+                    f"[SelfplayScheduler] Progress recovered for {config_key} "
+                    f"(velocity: {new_velocity:.2f} Elo/hour). Reset exploration boost."
+                )
 
         except Exception as e:
             logger.debug(f"[SelfplayScheduler] Error handling progress recovered: {e}")

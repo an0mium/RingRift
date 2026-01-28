@@ -1632,10 +1632,15 @@ class UnifiedDataRegistry:
             return -1
         return time.time() - self._cluster_manifest_received_at
 
-    async def refresh_cluster_manifest(self, leader_url: str | None = None) -> bool:
-        """Query leader for fresh cluster manifest.
+    async def refresh_cluster_manifest(
+        self,
+        leader_url: str | None = None,
+        max_retries: int = 3,
+    ) -> bool:
+        """Query leader for fresh cluster manifest with retry logic.
 
         Jan 16, 2026: Added for on-demand cluster data queries.
+        Jan 27, 2026 (Session 17.45): Enhanced with retry logic and exponential backoff.
 
         This method queries the P2P leader's /data/request_manifest endpoint
         to get fresh cluster-wide game counts without waiting for the periodic
@@ -1644,6 +1649,7 @@ class UnifiedDataRegistry:
         Args:
             leader_url: URL of P2P leader (e.g., "http://192.168.1.10:8770").
                        If not provided, attempts to discover via local P2P node.
+            max_retries: Maximum retry attempts with exponential backoff (default: 3).
 
         Returns:
             True if refresh succeeded, False otherwise.
@@ -1656,54 +1662,100 @@ class UnifiedDataRegistry:
             logger.warning("[UnifiedDataRegistry] aiohttp not available for manifest refresh")
             return False
 
-        # Discover leader URL if not provided
-        if not leader_url:
-            leader_url = await self._discover_leader_url()
+        for attempt in range(max_retries):
+            # Discover leader URL if not provided or if previous attempt had redirect
             if not leader_url:
-                logger.debug("[UnifiedDataRegistry] Could not discover leader URL")
-                return False
+                leader_url = await self._discover_leader_url()
+                if not leader_url:
+                    logger.warning(
+                        f"[UnifiedDataRegistry] Could not discover leader URL "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    continue
 
+            try:
+                async with aiohttp.ClientSession() as session:
+                    url = f"{leader_url.rstrip('/')}/data/request_manifest"
+                    logger.debug(f"[UnifiedDataRegistry] Requesting manifest from {url}")
+
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            manifest = data.get("cluster_manifest")
+                            if manifest:
+                                self._cluster_manifest = manifest
+                                self._cluster_manifest_received_at = time.time()
+                                logger.info(
+                                    f"[UnifiedDataRegistry] Refreshed cluster manifest from {leader_url}: "
+                                    f"{len(manifest.get('by_board_type', {}))} configs"
+                                )
+                                return True
+                            logger.debug("[UnifiedDataRegistry] Leader returned empty manifest")
+                            # Try to trigger manifest collection on leader
+                            await self._request_manifest_collection(leader_url)
+
+                        elif resp.status == 404:
+                            # Leader may redirect to another node
+                            data = await resp.json()
+                            if "leader_url" in data and data["leader_url"]:
+                                logger.debug(
+                                    f"[UnifiedDataRegistry] Redirecting to leader: {data['leader_url']}"
+                                )
+                                leader_url = data["leader_url"]
+                                continue  # Retry with new leader URL
+                            logger.debug("[UnifiedDataRegistry] Leader has no manifest yet")
+                            # Request manifest collection
+                            await self._request_manifest_collection(leader_url)
+
+                        else:
+                            logger.warning(
+                                f"[UnifiedDataRegistry] Failed to refresh manifest: HTTP {resp.status}"
+                            )
+
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[UnifiedDataRegistry] Manifest refresh timeout "
+                    f"(attempt {attempt + 1}/{max_retries})"
+                )
+            except aiohttp.ClientError as e:
+                logger.warning(
+                    f"[UnifiedDataRegistry] Manifest refresh failed: {e} "
+                    f"(attempt {attempt + 1}/{max_retries})"
+                )
+            except Exception as e:
+                logger.debug(
+                    f"[UnifiedDataRegistry] Unexpected error refreshing manifest: {e} "
+                    f"(attempt {attempt + 1}/{max_retries})"
+                )
+
+            # Exponential backoff before retry
+            if attempt < max_retries - 1:
+                backoff = 2 ** attempt
+                logger.debug(f"[UnifiedDataRegistry] Retrying in {backoff}s...")
+                await asyncio.sleep(backoff)
+                leader_url = None  # Re-discover leader on retry
+
+        logger.warning(
+            f"[UnifiedDataRegistry] Failed to refresh manifest after {max_retries} attempts"
+        )
+        return False
+
+    async def _request_manifest_collection(self, leader_url: str) -> None:
+        """Request leader to collect fresh manifest.
+
+        Session 17.45 (Jan 27, 2026): Added to trigger on-demand manifest collection.
+        """
         try:
+            import aiohttp
             async with aiohttp.ClientSession() as session:
-                url = f"{leader_url.rstrip('/')}/data/request_manifest"
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                url = f"{leader_url.rstrip('/')}/refresh_manifest"
+                async with session.post(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
-                        data = await resp.json()
-                        manifest = data.get("cluster_manifest")
-                        if manifest:
-                            self._cluster_manifest = manifest
-                            self._cluster_manifest_received_at = time.time()
-                            logger.info(
-                                f"[UnifiedDataRegistry] Refreshed cluster manifest from {leader_url}: "
-                                f"{len(manifest.get('by_board_type', {}))} configs"
-                            )
-                            return True
-                        logger.debug("[UnifiedDataRegistry] Leader returned empty manifest")
-                        return False
-                    elif resp.status == 404:
-                        # Leader may redirect to another node
-                        data = await resp.json()
-                        if "leader_url" in data and data["leader_url"]:
-                            logger.debug(
-                                f"[UnifiedDataRegistry] Redirecting to leader: {data['leader_url']}"
-                            )
-                            return await self.refresh_cluster_manifest(data["leader_url"])
-                        logger.debug("[UnifiedDataRegistry] Leader has no manifest yet")
-                        return False
-                    else:
-                        logger.warning(
-                            f"[UnifiedDataRegistry] Failed to refresh manifest: HTTP {resp.status}"
-                        )
-                        return False
-        except asyncio.TimeoutError:
-            logger.warning(f"[UnifiedDataRegistry] Manifest refresh timeout from {leader_url}")
-            return False
-        except aiohttp.ClientError as e:
-            logger.warning(f"[UnifiedDataRegistry] Manifest refresh failed: {e}")
-            return False
+                        logger.info("[UnifiedDataRegistry] Triggered manifest collection on leader")
         except Exception as e:
-            logger.debug(f"[UnifiedDataRegistry] Unexpected error refreshing manifest: {e}")
-            return False
+            logger.debug(f"[UnifiedDataRegistry] Failed to trigger manifest collection: {e}")
 
     async def _discover_leader_url(self) -> str | None:
         """Discover P2P leader URL from local node status.

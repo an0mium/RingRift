@@ -76,6 +76,18 @@ class RollbackThresholds:
     min_games_for_evaluation: int = 50  # Minimum games before evaluating
 
 
+@dataclass
+class RollbackResult:
+    """Result of a rollback operation.
+
+    Session 17.45 (Jan 27, 2026): Added for structured return from rollback().
+    """
+    success: bool
+    rolled_back_to: int | None = None
+    from_version: int | None = None
+    error: str | None = None
+
+
 class RollbackManager:
     """Manages model rollbacks with automatic detection and history tracking."""
 
@@ -385,6 +397,34 @@ class RollbackManager:
             result["error"] = error_msg
 
         return result
+
+    def rollback(
+        self,
+        model_id: str,
+        reason: str = "Manual rollback",
+        to_version: int | None = None,
+    ) -> "RollbackResult":
+        """Alias for rollback_model() that returns a structured result.
+
+        Session 17.45 (Jan 27, 2026): Added for compatibility with
+        training_coordinator.py which expects this signature.
+
+        Returns:
+            RollbackResult with success, rolled_back_to, and error attributes.
+        """
+        result_dict = self.rollback_model(
+            model_id=model_id,
+            to_version=to_version,
+            reason=reason,
+            triggered_by="training_coordinator",
+        )
+
+        return RollbackResult(
+            success=result_dict.get("success", False),
+            rolled_back_to=result_dict.get("to_version"),
+            from_version=result_dict.get("from_version"),
+            error=result_dict.get("error"),
+        )
 
     def _emit_rollback_metric(self, model_id: str, triggered_by: str):
         """Emit Prometheus metric for rollback event."""
@@ -922,6 +962,37 @@ class AutoRollbackHandler:
 
 # Singleton and wiring functions
 _auto_handler: AutoRollbackHandler | None = None
+_rollback_manager: RollbackManager | None = None
+
+
+def get_rollback_manager() -> RollbackManager | None:
+    """Get the global RollbackManager singleton.
+
+    Returns None if not initialized. Call initialize_rollback_manager() first
+    or use wire_regression_to_rollback() which initializes it.
+
+    Session 17.45 (Jan 27, 2026): Added to fix missing function that
+    training_coordinator.py was calling.
+    """
+    return _rollback_manager
+
+
+def initialize_rollback_manager(registry) -> RollbackManager:
+    """Initialize the global RollbackManager singleton.
+
+    Args:
+        registry: ModelRegistry instance
+
+    Returns:
+        RollbackManager singleton instance
+    """
+    global _rollback_manager
+
+    if _rollback_manager is None:
+        _rollback_manager = RollbackManager(registry)
+        logger.info("[initialize_rollback_manager] RollbackManager singleton initialized")
+
+    return _rollback_manager
 
 
 def wire_regression_to_rollback(
@@ -945,13 +1016,14 @@ def wire_regression_to_rollback(
     Returns:
         AutoRollbackHandler instance
     """
-    global _auto_handler
+    global _auto_handler, _rollback_manager
 
     try:
         from app.training.regression_detector import get_regression_detector
 
-        # Create managers
+        # Create managers and set global singleton
         rollback_mgr = RollbackManager(registry)
+        _rollback_manager = rollback_mgr  # Set global for get_rollback_manager()
         _auto_handler = AutoRollbackHandler(
             rollback_mgr,
             auto_rollback_enabled=auto_rollback_enabled,

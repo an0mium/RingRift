@@ -534,10 +534,10 @@ def get_budget_for_difficulty(difficulty: int) -> int:
 # use difficulty=6 or lower to get THROUGHPUT/STANDARD budgets.
 
 BUDGET_BY_BOARD_TYPE = {
-    "hex8": 1600,       # Small hex - ULTIMATE for quality (was 400)
-    "square8": 1600,    # Small square - ULTIMATE for quality (was 600)
-    "square19": 2400,   # Large square - between ULTIMATE and MASTER
-    "hexagonal": 2400,  # Large hex - between ULTIMATE and MASTER
+    "hex8": 2400,       # Small hex - boost for 1600+ Elo configs (was 1600)
+    "square8": 2400,    # Small square - boost for 1600+ Elo configs (was 1600)
+    "square19": 3200,   # Large square - MASTER tier for 2000 Elo target (was 2400)
+    "hexagonal": 3200,  # Large hex - MASTER tier for 2000 Elo target (was 2400)
 }
 
 # Throughput-optimized budgets for fast iteration (use when bootstrapping)

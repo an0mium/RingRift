@@ -826,6 +826,9 @@ def get_training_config_for_board(
         config.learning_rate = 2e-3  # Slightly higher LR
         config.max_moves_per_game = 10000  # Allow games to complete naturally
         config.model_id = "ringrift_v5_sq8_2p_2xh100"
+        # Jan 27, 2026: Board-specific epochs for optimal convergence
+        config.epochs_per_iter = 35
+        config.early_stopping_patience = 5
 
     elif board_type == BoardType.SQUARE19:
         # 19x19 board: large action space (~67k), requires smaller batch for stability
@@ -837,6 +840,9 @@ def get_training_config_for_board(
         config.learning_rate = 5e-4  # Lower LR for stability
         config.max_moves_per_game = 10000  # Allow games to complete naturally
         config.model_id = "ringrift_v4_sq19_2p"
+        # Jan 27, 2026: Large boards need more epochs for convergence (361 cells)
+        config.epochs_per_iter = 60
+        config.early_stopping_patience = 10
 
     elif board_type == BoardType.HEX8:
         # Hex8 board: smaller hex (radius-4, 61 cells), parallel to square8
@@ -848,6 +854,9 @@ def get_training_config_for_board(
         config.learning_rate = 2e-3  # Slightly higher LR like square8
         config.max_moves_per_game = 10000  # Allow games to complete naturally
         config.model_id = "ringrift_v5_hex8_2p"
+        # Jan 27, 2026: Board-specific epochs for optimal convergence
+        config.epochs_per_iter = 30
+        config.early_stopping_patience = 5
 
     elif board_type == BoardType.HEXAGONAL:
         # Hex board: largest action space (~92k), requires careful tuning
@@ -859,6 +868,9 @@ def get_training_config_for_board(
         config.learning_rate = 5e-4  # Lower LR for stability
         config.max_moves_per_game = 10000  # Allow games to complete naturally
         config.model_id = "ringrift_v4_hex_2p"
+        # Jan 27, 2026: Large boards need more epochs for convergence (469 cells)
+        config.epochs_per_iter = 60
+        config.early_stopping_patience = 10
 
     else:
         # Unknown board type: use defaults
