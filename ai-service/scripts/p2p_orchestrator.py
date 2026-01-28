@@ -4459,7 +4459,7 @@ class P2POrchestrator(
                     "timestamp": time.time(),
                     "is_leadership_claim": True,  # Flag to indicate this is proactive
                 }
-                tasks.append(self._send_heartbeat_to_peer(url, payload, peer_id))
+                tasks.append(self._broadcast_leader_claim_to_peer(url, payload, peer_id))
 
             if tasks:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -4468,8 +4468,13 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[LeaderReconciliation] Failed to broadcast leadership claim: {e}")
 
-    async def _send_heartbeat_to_peer(self, url: str, payload: dict, peer_id: str) -> bool:
-        """Send heartbeat to a single peer."""
+    async def _broadcast_leader_claim_to_peer(self, url: str, payload: dict, peer_id: str) -> bool:
+        """Broadcast leadership claim to a single peer via HTTP POST.
+
+        Jan 27, 2026: Renamed from _send_heartbeat_to_peer to fix shadowing bug.
+        This is a simple broadcast helper distinct from the full heartbeat exchange
+        in HeartbeatManager.send_heartbeat_to_peer().
+        """
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as response:
@@ -7095,23 +7100,7 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[P2P] Failed to emit HOST_OFFLINE for {node_id}: {e}")
 
-    def _emit_host_offline_sync(self, node_id: str, reason: str, last_heartbeat: float | None) -> None:
-        """Sync version of _emit_host_offline for non-async contexts."""
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
-
-            emit_event(DataEventType.HOST_OFFLINE.value, {
-                "node_id": node_id,
-                "reason": reason,
-                "last_heartbeat": last_heartbeat,
-                "source": "peer_retirement_sync",
-            })
-            logger.debug(f"[P2P] Emitted HOST_OFFLINE (sync) for peer: {node_id} (reason={reason})")
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug(f"[P2P] Failed to emit HOST_OFFLINE (sync) for {node_id}: {e}")
+    # Jan 27, 2026: Phase 17 - Removed _emit_host_offline_sync (never called)
 
     async def _emit_node_dead(self, node_id: str, reason: str, last_heartbeat: float | None, dead_for: float) -> None:
         """Emit P2P_NODE_DEAD event for a dead peer."""
@@ -7132,24 +7121,7 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[P2P] Failed to emit P2P_NODE_DEAD for {node_id}: {e}")
 
-    def _emit_node_dead_sync(self, node_id: str, reason: str, last_heartbeat: float | None, dead_for: float) -> None:
-        """Sync version of _emit_node_dead for non-async contexts."""
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
-
-            emit_event(DataEventType.P2P_NODE_DEAD.value, {
-                "node_id": node_id,
-                "reason": reason,
-                "last_heartbeat": last_heartbeat,
-                "dead_for_seconds": dead_for,
-                "source": "peer_timeout_sync",
-            })
-            logger.debug(f"[P2P] Emitted P2P_NODE_DEAD (sync) for peer: {node_id} (dead_for={dead_for:.0f}s)")
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug(f"[P2P] Failed to emit P2P_NODE_DEAD (sync) for {node_id}: {e}")
+    # Jan 27, 2026: Phase 17 - Removed _emit_node_dead_sync (never called)
 
     async def _emit_cluster_capacity_changed(
         self,
@@ -7180,33 +7152,7 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[P2P] Failed to emit CLUSTER_CAPACITY_CHANGED: {e}")
 
-    def _emit_cluster_capacity_changed_sync(
-        self,
-        change_type: str,
-        node_id: str,
-        total_nodes: int,
-        gpu_nodes: int,
-        reason: str,
-    ) -> None:
-        """Sync version of _emit_cluster_capacity_changed for non-async contexts."""
-        try:
-            from app.distributed.data_events import DataEventType
-            from app.coordination.event_router import emit_event
-
-            emit_event(DataEventType.CLUSTER_CAPACITY_CHANGED.value, {
-                "total_nodes": total_nodes,
-                "alive_nodes": total_nodes,  # Sync version has less info
-                "gpu_nodes": gpu_nodes,
-                "training_nodes": 0,  # Not tracked in sync version
-                "change_type": change_type,
-                "change_details": {"node_id": node_id, "reason": reason},
-                "source": "peer_management_sync",
-            })
-            logger.debug(f"[P2P] Emitted CLUSTER_CAPACITY_CHANGED (sync): {change_type}, node={node_id}")
-        except ImportError:
-            pass
-        except Exception as e:
-            logger.debug(f"[P2P] Failed to emit CLUSTER_CAPACITY_CHANGED (sync): {e}")
+    # Jan 27, 2026: Phase 17 - Removed _emit_cluster_capacity_changed_sync (never called)
 
     def _safe_emit_p2p_event(self, event_type: Any, payload: dict) -> None:
         """Safely emit a P2P-related event via the event router.
@@ -8735,21 +8681,9 @@ class P2POrchestrator(
         return await self.ip_discovery_manager.force_ip_refresh_all_sources()
 
     # Jan 2026: IP update loops moved to IPDiscoveryManager
-    # These are now deprecated thin wrappers for backward compatibility
-
-    async def _vast_ip_update_loop(self):
-        """DEPRECATED: Use ip_discovery_manager.vast_ip_update_loop()."""
-        return await self.ip_discovery_manager.vast_ip_update_loop()
-
-    async def _aws_ip_update_loop(self):
-        """DEPRECATED: Use ip_discovery_manager.aws_ip_update_loop()."""
-        return await self.ip_discovery_manager.aws_ip_update_loop()
-
-    async def _tailscale_ip_update_loop(self):
-        """DEPRECATED: Use ip_discovery_manager.tailscale_ip_update_loop()."""
-        return await self.ip_discovery_manager.tailscale_ip_update_loop()
-
-    # Jan 2026: _tailscale_peer_recovery_loop removed (113 LOC)
+    # Jan 27, 2026: Phase 17A - Deprecated wrappers removed (14 LOC)
+    # _vast_ip_update_loop, _aws_ip_update_loop, _tailscale_ip_update_loop deleted
+    # _tailscale_peer_recovery_loop removed (113 LOC)
     # Now runs via LoopManager as TailscalePeerDiscoveryLoop in scripts/p2p/loops/network_loops.py
 
     async def _discover_tailscale_peers(self):
@@ -14644,90 +14578,9 @@ print(json.dumps({{
     async def _send_relay_heartbeat(self, relay_url: str) -> dict[str, Any]:
         """Send heartbeat via relay endpoint for NAT-blocked nodes.
 
-        This is used when the peer URL is HTTPS (indicating a relay/proxy endpoint)
-        or when direct heartbeats fail consistently.
-
-        Returns dict with:
-        - success: bool
-        - peers: dict of all cluster peers
-        - leader_id: current leader
+        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
         """
-        try:
-            self._update_self_info()
-
-            timeout = ClientTimeout(total=15)
-            async with get_client_session(timeout) as session:
-                # Use /relay/heartbeat endpoint
-                url = f"{relay_url.rstrip('/')}/relay/heartbeat"
-                payload = self.self_info.to_dict()
-                if self.pending_relay_acks:
-                    payload["relay_ack"] = sorted(self.pending_relay_acks)
-                if self.pending_relay_results:
-                    payload["relay_results"] = list(self.pending_relay_results)
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status != 200:
-                        return {"success": False, "error": f"HTTP {resp.status}"}
-
-                    data = await resp.json()
-                    if not data.get("success"):
-                        return {"success": False, "error": data.get("error", "Unknown error")}
-
-                    incoming_voters = data.get("voter_node_ids") or data.get("voters") or None
-                    if incoming_voters:
-                        voters_list: list[str] = []
-                        if isinstance(incoming_voters, list):
-                            voters_list = [str(v).strip() for v in incoming_voters if str(v).strip()]
-                        elif isinstance(incoming_voters, str):
-                            voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
-                        if voters_list:
-                            self._maybe_adopt_voter_node_ids(voters_list, source="learned")
-
-                    # Clear pending acks/results only after a successful round-trip.
-                    self.pending_relay_acks.clear()
-                    self.pending_relay_results.clear()
-
-                    # Update our peer list with all peers from relay
-                    peers_data = data.get("peers", {})
-                    with self.peers_lock:
-                        for node_id, peer_dict in peers_data.items():
-                            if node_id != self.node_id:
-                                peer_info = NodeInfo.from_dict(peer_dict)
-                                existing = self.peers.get(node_id)
-                                if existing:
-                                    if getattr(existing, "nat_blocked", False) and not getattr(peer_info, "nat_blocked", False):
-                                        peer_info.nat_blocked = True
-                                        peer_info.nat_blocked_since = float(getattr(existing, "nat_blocked_since", 0.0) or 0.0) or time.time()
-                                        peer_info.last_nat_probe = float(getattr(existing, "last_nat_probe", 0.0) or 0.0)
-                                    if (getattr(existing, "relay_via", "") or "") and not (getattr(peer_info, "relay_via", "") or ""):
-                                        peer_info.relay_via = str(getattr(existing, "relay_via", "") or "")
-                                    if getattr(existing, "retired", False):
-                                        peer_info.retired = True
-                                        peer_info.retired_at = float(getattr(existing, "retired_at", 0.0) or 0.0)
-                                    peer_info.consecutive_failures = int(getattr(existing, "consecutive_failures", 0) or 0)
-                                    peer_info.last_failure_time = float(getattr(existing, "last_failure_time", 0.0) or 0.0)
-                                self.peers[node_id] = peer_info
-
-                    # Execute any queued commands addressed to us.
-                    commands = data.get("commands") or []
-                    if isinstance(commands, list) and commands:
-                        await self._execute_relay_commands(commands)
-
-                    # Update leader if provided
-                    leader_id = data.get("leader_id")
-                    if leader_id and leader_id != self.node_id:
-                        if self.leader_id != leader_id:
-                            logger.info(f"Adopted leader from relay: {leader_id}")
-                        # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
-                        self._set_leader(leader_id, reason="relay_poll_adopt_leader", save_state=False)
-
-                    return {
-                        "success": True,
-                        "peers_received": len(peers_data) if isinstance(peers_data, dict) else 0,
-                        "leader_id": leader_id,
-                        "commands_received": len(commands) if isinstance(commands, list) else 0,
-                    }
-        except Exception as e:  # noqa: BLE001
-            return {"success": False, "error": str(e)}
+        return await self.heartbeat_manager.send_relay_heartbeat(relay_url)
 
     async def _send_initial_relay_heartbeats(self) -> None:
         """Send immediate relay heartbeats on startup for NAT-blocked nodes.
@@ -15719,41 +15572,11 @@ print(json.dumps({{
             await asyncio.sleep(15)
 
     async def _send_voter_heartbeat(self, voter_peer) -> bool:
-        """Send a heartbeat to a voter peer with shorter timeout."""
-        try:
-            peer_scheme = getattr(voter_peer, "scheme", "http") or "http"
+        """Send a heartbeat to a voter peer with shorter timeout.
 
-            # Use Tailscale IP if available (more reliable for cross-provider)
-            target_host = voter_peer.host
-            ts_ip = self._get_tailscale_ip_for_peer(voter_peer.node_id)
-            if ts_ip:
-                target_host = ts_ip
-
-            info = await self._send_heartbeat_to_peer(
-                target_host,
-                voter_peer.port,
-                scheme=peer_scheme,
-                timeout=VOTER_HEARTBEAT_TIMEOUT
-            )
-
-            if info:
-                with self.peers_lock:
-                    info.last_heartbeat = time.time()
-                    info.consecutive_failures = 0
-                    self.peers[info.node_id] = info
-
-                # Update leader if this voter claims leadership
-                if info.role == NodeRole.LEADER and info.node_id != self.node_id and self.leader_id != info.node_id:
-                    logger.info(f"Discovered leader from voter heartbeat: {info.node_id}")
-                    # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
-                    self._set_leader(info.node_id, reason="voter_heartbeat_discover_leader", save_state=False)
-                    self.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
-
-                return True
-        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError, KeyError, AttributeError) as e:
-            # Log voter coordination failures for debugging cluster connectivity issues
-            logger.debug(f"Voter heartbeat failed for {voter_peer.node_id if voter_peer else 'unknown'}: {type(e).__name__}: {e}")
-        return False
+        Jan 27, 2026: Phase 16A - Delegates to HeartbeatManager.
+        """
+        return await self.heartbeat_manager.send_voter_heartbeat(voter_peer)
 
     async def _try_voter_alternative_endpoints(self, voter_peer) -> bool:
         """Try alternative endpoints for a voter peer."""
@@ -20527,106 +20350,9 @@ print(json.dumps({{
     async def _schedule_diverse_selfplay_on_node(self, node_id: str) -> dict | None:
         """Schedule a diverse selfplay job on a specific node.
 
-        Job type is selected based on GPU capabilities (Dec 2025 fix):
-        - High-end GPUs (GH200, H100, A100, 5090, 4090): 50% GUMBEL / 50% GPU_SELFPLAY
-        - Mid-tier GPUs: HYBRID mode (CPU rules + GPU eval) for rule fidelity
-        Rotates through all board/player configurations for diversity.
+        Jan 27, 2026: Phase 16C - Delegates to JobCoordinationManager.
         """
-        with self.peers_lock:
-            peer = self.peers.get(node_id)
-        if not peer or not peer.is_alive():
-            return None
-
-        # Policy check: ensure selfplay is allowed on this node
-        try:
-            from app.coordination.node_policies import is_work_allowed
-            if not is_work_allowed(node_id, "selfplay"):
-                logger.debug(f"Selfplay not allowed on {node_id} by policy")
-                return None
-        except ImportError:
-            pass
-
-        # Rotate through diverse configurations with priority-based weighting
-        # Uses board_priority_overrides from config (0=CRITICAL, 1=HIGH, 2=MEDIUM, 3=LOW)
-        board_priority_overrides = get_board_priority_overrides()
-
-        diverse_configs = [
-            ("hexagonal", 2), ("hexagonal", 3), ("hexagonal", 4),
-            ("square19", 3), ("square19", 4), ("square19", 2),
-            ("hex8", 2), ("hex8", 3), ("hex8", 4),
-            ("square8", 3), ("square8", 4), ("square8", 2),
-        ]
-
-        # Build weighted list based on priority overrides
-        # Lower priority value = more weight (0=CRITICAL gets 4x, 3=LOW gets 1x)
-        weighted_configs = []
-        for board_type, num_players in diverse_configs:
-            config_key = f"{board_type}_{num_players}p"
-            priority = board_priority_overrides.get(config_key, 3)  # Default LOW
-            weight = 4 - priority  # 0->4, 1->3, 2->2, 3->1
-            weighted_configs.extend([(board_type, num_players)] * weight)
-
-        # Round-robin through weighted list based on node-specific counter
-        counter_key = f"_diverse_config_counter_{node_id}"
-        counter = getattr(self, counter_key, 0)
-        setattr(self, counter_key, counter + 1)
-        board_type, num_players = weighted_configs[counter % len(weighted_configs)]
-
-        # Determine job type based on node GPU capabilities (Dec 2025 fix)
-        # High-end GPUs should use GUMBEL_SELFPLAY (50%) or GPU_SELFPLAY (50%)
-        # Mid-tier GPUs use HYBRID mode for 100% rule fidelity
-        gpu_name = (peer.gpu_name or "").upper()
-        has_gpu = bool(peer.has_gpu)
-
-        # Session 17.50: YAML fallback when runtime GPU detection fails
-        if not has_gpu or not gpu_name:
-            yaml_has_gpu, yaml_gpu_name, _ = self._check_yaml_gpu_config(node_id)
-            if yaml_has_gpu:
-                has_gpu = True
-                if yaml_gpu_name:
-                    gpu_name = yaml_gpu_name.upper()
-
-        is_high_end_gpu = any(tag in gpu_name for tag in ("H100", "H200", "GH200", "A100", "5090", "4090"))
-        is_apple_gpu = "MPS" in gpu_name or "APPLE" in gpu_name
-
-        if has_gpu and is_high_end_gpu and not is_apple_gpu:
-            # High-end GPUs: 50% GUMBEL (quality) / 50% GPU_SELFPLAY (volume)
-            import random
-            if random.random() < 0.5:
-                job_type = "gumbel_selfplay"
-                engine_mode = "gumbel-mcts"
-            else:
-                job_type = "gpu_selfplay"
-                engine_mode = "gpu"
-        else:
-            # Mid-tier or no GPU: HYBRID mode for rule fidelity
-            job_type = "hybrid_selfplay"
-            engine_mode = "mixed"
-
-        try:
-            timeout = ClientTimeout(total=30)
-            async with get_client_session(timeout) as session:
-                url = self._url_for_peer(peer, "/selfplay/start")
-                payload = {
-                    "board_type": board_type,
-                    "num_players": num_players,
-                    "num_games": 200,  # Smaller batches for diversity
-                    "engine_mode": engine_mode,
-                    "auto_scaled": True,
-                    "job_type": job_type,
-                }
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        logger.info(f"Started diverse selfplay on {node_id}: {board_type} {num_players}p")
-                        return data
-                    else:
-                        error = await resp.text()
-                        logger.info(f"Diverse selfplay start failed on {node_id}: {error}")
-                        return None
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to schedule diverse selfplay on {node_id}: {e}")
-            return None
+        return await self.job_coordination_manager.schedule_diverse_selfplay_on_node(node_id)
 
     # Backward compatibility alias (GPU selfplay now redirects to diverse/hybrid)
     _schedule_gpu_selfplay_on_node = _schedule_diverse_selfplay_on_node
