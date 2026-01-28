@@ -1054,6 +1054,218 @@ class SyncPlanner(EventSubscriptionMixin):
         return manifest
 
     # ============================================
+    # Pull Request Handling
+    # ============================================
+
+    async def handle_sync_pull_request(
+        self,
+        source_host: str,
+        source_port: int,
+        source_node_id: str,
+        files: list[str],
+        source_reported_host: str | None = None,
+        source_reported_port: int | None = None,
+        *,
+        data_dir: Path | None = None,
+        auth_headers_fn: Callable[[], dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Handle incoming request to pull files from a source node.
+
+        Pulls files over the P2P HTTP channel to avoid SSH/rsync dependencies.
+        Uses configurable data directory to support both disk and ramdrive storage.
+
+        Jan 28, 2026: Phase 18A - Migrated from p2p_orchestrator.py.
+
+        Args:
+            source_host: Source host IP or hostname
+            source_port: Source port (typically 8770)
+            source_node_id: Source node ID for logging
+            files: List of relative file paths to pull
+            source_reported_host: Alternative host (e.g., Tailscale IP)
+            source_reported_port: Alternative port
+            data_dir: Target data directory (defaults to orchestrator's data dir)
+            auth_headers_fn: Function to get auth headers (defaults to orchestrator's)
+
+        Returns:
+            Dict with success status, bytes_transferred, files_completed, and error if any
+        """
+        try:
+            from scripts.p2p.network import get_client_session
+            from aiohttp import ClientTimeout
+        except ImportError:
+            return {
+                "success": False,
+                "error": "aiohttp not available",
+                "bytes_transferred": 0,
+                "files_completed": 0,
+            }
+
+        # Check disk capacity before pulling files
+        try:
+            from scripts.p2p.utils import check_disk_has_capacity, MAX_DISK_USAGE_PERCENT
+            has_capacity, disk_percent = check_disk_has_capacity()
+        except ImportError:
+            # Fallback: assume we have capacity
+            has_capacity, disk_percent = True, 0.0
+            MAX_DISK_USAGE_PERCENT = 90
+
+        if not has_capacity:
+            return {
+                "success": False,
+                "error": f"Disk full ({disk_percent:.1f}% >= {MAX_DISK_USAGE_PERCENT}%)",
+                "disk_percent": disk_percent,
+                "bytes_transferred": 0,
+                "files_completed": 0,
+            }
+
+        # Get data directory
+        if data_dir is None and self._orchestrator:
+            data_dir = self._orchestrator.get_data_directory()
+        if data_dir is None:
+            data_dir = Path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get auth headers function
+        if auth_headers_fn is None and self._orchestrator:
+            auth_headers_fn = self._orchestrator._auth_headers
+        if auth_headers_fn is None:
+            auth_headers_fn = lambda: {}
+
+        bytes_transferred = 0
+        files_completed = 0
+        errors: list[str] = []
+
+        # Multi-path sources: prefer observed endpoint but allow a self-reported
+        # endpoint (e.g. Tailscale) when the public route fails
+        candidate_sources: list[tuple[str, int]] = []
+        seen_sources: set[tuple[str, int]] = set()
+
+        def _add_source(host: str | None, port: int | None) -> None:
+            if not host:
+                return
+            h = str(host).strip()
+            if not h:
+                return
+            try:
+                p = int(port or 0)
+            except ValueError:
+                return
+            if p <= 0:
+                return
+            key = (h, p)
+            if key in seen_sources:
+                return
+            seen_sources.add(key)
+            candidate_sources.append(key)
+
+        _add_source(source_host, source_port)
+        _add_source(source_reported_host, source_reported_port)
+
+        # Constants
+        try:
+            from scripts.p2p.constants import HTTP_CONNECT_TIMEOUT, DEFAULT_PORT
+        except ImportError:
+            HTTP_CONNECT_TIMEOUT = 30
+            DEFAULT_PORT = 8770
+
+        timeout = ClientTimeout(total=None, sock_connect=HTTP_CONNECT_TIMEOUT, sock_read=600)
+
+        async with get_client_session(timeout) as session:
+            for rel_path in files:
+                rel_path = (rel_path or "").lstrip("/")
+                if not rel_path:
+                    errors.append("empty_path")
+                    continue
+
+                # Security: keep all writes within data directory
+                dest_path = (data_dir / rel_path)
+                try:
+                    data_root = data_dir.resolve()
+                    dest_resolved = dest_path.resolve()
+                    dest_resolved.relative_to(data_root)
+                except (AttributeError, ValueError):
+                    errors.append(f"invalid_path:{rel_path}")
+                    continue
+
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = dest_path.with_name(dest_path.name + ".partial")
+
+                last_err: str | None = None
+                success = False
+
+                for host, base_port in candidate_sources:
+                    # Back-compat: if caller passed an SSH-like port (22), try DEFAULT_PORT too
+                    ports_to_try: list[int] = []
+                    try:
+                        ports_to_try.append(int(base_port))
+                    except (ValueError, AttributeError):
+                        ports_to_try.append(DEFAULT_PORT)
+                    if DEFAULT_PORT not in ports_to_try:
+                        ports_to_try.append(DEFAULT_PORT)
+
+                    for port in ports_to_try:
+                        url = f"http://{host}:{port}/sync/file"
+                        try:
+                            async with session.get(
+                                url,
+                                params={"path": rel_path},
+                                headers=auth_headers_fn(),
+                            ) as resp:
+                                if resp.status != 200:
+                                    text = ""
+                                    try:
+                                        text = (await resp.text())[:200]
+                                    except (KeyError, IndexError, AttributeError):
+                                        text = ""
+                                    last_err = f"{resp.status} {text}".strip()
+                                    continue
+
+                                with open(tmp_path, "wb") as out_f:
+                                    async for chunk in resp.content.iter_chunked(1024 * 1024):
+                                        out_f.write(chunk)
+                                        bytes_transferred += len(chunk)
+
+                                tmp_path.replace(dest_path)
+                                files_completed += 1
+                                success = True
+                                break
+
+                        except Exception as e:  # noqa: BLE001
+                            last_err = str(e)
+                            continue
+                    if success:
+                        break
+
+                if not success:
+                    errors.append(f"{rel_path}: {last_err or 'download_failed'}")
+                    try:
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+                    except OSError:
+                        pass
+
+        # Update stats
+        self.stats.bytes_synced += bytes_transferred
+        if files_completed > 0:
+            self.stats.sync_jobs_completed += 1
+        if errors:
+            self.stats.sync_jobs_failed += 1
+
+        if errors:
+            return {
+                "success": False,
+                "files_completed": files_completed,
+                "bytes_transferred": bytes_transferred,
+                "error": "; ".join(errors[:5]),
+            }
+
+        return {
+            "success": True,
+            "files_completed": files_completed,
+            "bytes_transferred": bytes_transferred,
+        }
+
+    # ============================================
     # Selfplay to Training Nodes Sync
     # ============================================
 

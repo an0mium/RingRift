@@ -263,6 +263,106 @@ class JobCoordinationManager:
             return self._orchestrator._check_yaml_gpu_config()
         return False
 
+    def _pick_weighted_config(self) -> dict | None:
+        """Pick a weighted selfplay config from the scheduler.
+
+        Returns:
+            Config dict with board_type and num_players, or None if unavailable.
+        """
+        scheduler = self._selfplay_scheduler
+        if scheduler and hasattr(scheduler, "pick_weighted_config"):
+            return scheduler.pick_weighted_config(self._self_info)
+        return None
+
+    async def _start_local_job(
+        self,
+        job_type: str,
+        board_type: str,
+        num_players: int,
+        engine_mode: str | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Start a local job via orchestrator.
+
+        Args:
+            job_type: Type of job (gumbel_selfplay, gpu_selfplay, hybrid_selfplay, etc.)
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players (2, 3, 4)
+            engine_mode: Engine mode (gumbel-mcts, gpu, mixed, etc.)
+            **kwargs: Additional job parameters
+
+        Returns:
+            Job object if started, None otherwise.
+        """
+        if not self._orchestrator:
+            return None
+
+        # Convert string job_type to JobType enum if needed
+        try:
+            from scripts.p2p.models import JobType
+            if isinstance(job_type, str):
+                job_type_map = {
+                    "gumbel_selfplay": JobType.GUMBEL_SELFPLAY,
+                    "gpu_selfplay": JobType.GPU_SELFPLAY,
+                    "hybrid_selfplay": JobType.HYBRID_SELFPLAY,
+                    "selfplay": JobType.SELFPLAY,
+                }
+                job_type_enum = job_type_map.get(job_type.lower(), JobType.SELFPLAY)
+            else:
+                job_type_enum = job_type
+        except ImportError:
+            job_type_enum = job_type
+
+        if hasattr(self._orchestrator, "_start_local_job"):
+            return await self._orchestrator._start_local_job(
+                job_type_enum,
+                board_type=board_type,
+                num_players=num_players,
+                engine_mode=engine_mode,
+                **kwargs,
+            )
+        return None
+
+    async def _emit_batch_scheduled(
+        self,
+        batch_id: str,
+        batch_type: str,
+        config_key: str,
+        job_count: int,
+        target_nodes: list[str],
+        reason: str,
+    ) -> None:
+        """Emit BATCH_SCHEDULED event via orchestrator."""
+        if self._orchestrator and hasattr(self._orchestrator, "_emit_batch_scheduled"):
+            await self._orchestrator._emit_batch_scheduled(
+                batch_id=batch_id,
+                batch_type=batch_type,
+                config_key=config_key,
+                job_count=job_count,
+                target_nodes=target_nodes,
+                reason=reason,
+            )
+
+    async def _emit_batch_dispatched(
+        self,
+        batch_id: str,
+        batch_type: str,
+        config_key: str,
+        jobs_dispatched: int,
+        jobs_failed: int,
+        target_nodes: list[str],
+    ) -> None:
+        """Emit BATCH_DISPATCHED event via orchestrator."""
+        if self._orchestrator and hasattr(self._orchestrator, "_emit_batch_dispatched"):
+            await self._orchestrator._emit_batch_dispatched(
+                batch_id=batch_id,
+                batch_type=batch_type,
+                config_key=config_key,
+                jobs_dispatched=jobs_dispatched,
+                jobs_failed=jobs_failed,
+                target_nodes=target_nodes,
+            )
+
     # =========================================================================
     # Local Job Management (Decentralized)
     # =========================================================================
@@ -284,17 +384,156 @@ class JobCoordinationManager:
             await self._orchestrator._manage_local_jobs_decentralized()
             self._stats.local_job_cycles += 1
 
-    async def local_gpu_auto_scale(self) -> None:
-        """DECENTRALIZED: Optimize GPU utilization on this node.
+    async def local_gpu_auto_scale(self) -> int:
+        """DECENTRALIZED: Each GPU node manages its own GPU utilization.
 
-        Monitors GPU utilization and adjusts job count to maintain
-        target utilization range (60-80%).
+        Runs on ALL GPU nodes to ensure optimal GPU usage without leader.
+        Targets 60-80% GPU utilization by starting/stopping GPU selfplay jobs.
 
-        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 15).
+        Returns:
+            Number of GPU jobs started
+
+        Jan 28, 2026: Phase 18A - Full implementation migrated from p2p_orchestrator.py.
         """
-        if self._orchestrator and hasattr(self._orchestrator, "_local_gpu_auto_scale"):
-            await self._orchestrator._local_gpu_auto_scale()
+        started = 0
+        now = time.time()
+
+        # Rate limit: check every 2 minutes
+        if now - self._last_local_gpu_scale < 120:
+            return 0
+        self._last_local_gpu_scale = now
+
+        node = self._self_info
+        if not node:
+            return 0
+
+        # Skip if not a GPU node
+        if not getattr(node, "has_gpu", False):
+            return 0
+
+        # Skip if training is running (training uses GPU)
+        training_jobs = int(getattr(node, "training_jobs", 0) or 0)
+        if training_jobs > 0:
+            return 0
+
+        # Skip if memory is critical
+        memory_percent = float(getattr(node, "memory_percent", 0) or 0)
+        if memory_percent >= self.config.memory_warning_threshold:
+            logger.info(f"LOCAL: Memory at {memory_percent:.0f}% - skipping GPU auto-scale")
+            return 0
+
+        # DECENTRALIZED: Always allow local GPU scaling
+        # Leader manages cluster-wide coordination, but each node optimizes its own GPU
+        # Use smaller batches when leader is present to avoid conflicts
+        from scripts.p2p.models import NodeRole
+        has_leader = bool(self._leader_id or self._role == NodeRole.LEADER)
+        max_jobs_per_cycle = 1 if has_leader else 3
+
+        TARGET_GPU_MIN = 60.0
+        TARGET_GPU_MAX = 80.0
+        MIN_IDLE_TIME = 120 if has_leader else 60  # Faster response when leaderless
+
+        gpu_percent = float(getattr(node, "gpu_percent", 0) or 0)
+        gpu_name = (getattr(node, "gpu_name", "") or "").lower()
+
+        # YAML fallback when runtime GPU detection fails
+        if not gpu_name:
+            yaml_has_gpu, yaml_gpu_name = self._check_yaml_gpu_config_for_node(self._node_id)
+            if yaml_has_gpu and yaml_gpu_name:
+                gpu_name = yaml_gpu_name.lower()
+                logger.debug(f"LOCAL: Using YAML GPU name: {yaml_gpu_name}")
+
+        # Track GPU idle time
+        if gpu_percent < TARGET_GPU_MIN:
+            if self._local_gpu_idle_since == 0:
+                self._local_gpu_idle_since = now
+            elif now - self._local_gpu_idle_since > MIN_IDLE_TIME:
+                # Calculate new jobs to add
+                gpu_headroom = TARGET_GPU_MAX - gpu_percent
+                is_high_end_gpu = any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090", "a100", "4090"))
+                if any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090")):
+                    jobs_per_10_percent = 2
+                elif any(tag in gpu_name for tag in ("a100", "4090", "3090")):
+                    jobs_per_10_percent = 1.5
+                else:
+                    jobs_per_10_percent = 1
+
+                new_jobs = max(1, int(gpu_headroom / 10 * jobs_per_10_percent))
+                new_jobs = min(new_jobs, max_jobs_per_cycle)
+
+                # Use GUMBEL/GPU_SELFPLAY for high-end GPUs
+                job_type_str = "GUMBEL/GPU" if is_high_end_gpu else "diverse/hybrid"
+                logger.info(f"LOCAL: {gpu_percent:.0f}% GPU util, starting {new_jobs} {job_type_str} selfplay job(s)")
+
+                # Generate batch ID and emit BATCH_SCHEDULED
+                batch_id = f"gpu_selfplay_{self._node_id}_{int(time.time())}"
+                first_config = self._pick_weighted_config()
+                config_key = f"{first_config['board_type']}_{first_config['num_players']}p" if first_config else "mixed"
+                await self._emit_batch_scheduled(
+                    batch_id=batch_id,
+                    batch_type="selfplay",
+                    config_key=config_key,
+                    job_count=new_jobs,
+                    target_nodes=[self._node_id],
+                    reason="gpu_auto_scale",
+                )
+
+                gpu_jobs_dispatched = 0
+                gpu_jobs_failed = 0
+                for _ in range(new_jobs):
+                    try:
+                        config = self._pick_weighted_config()
+                        if config:
+                            # Select job type based on GPU capabilities
+                            if is_high_end_gpu:
+                                # High-end GPUs: 50% GUMBEL (quality) / 50% GPU_SELFPLAY (volume)
+                                if random.random() < 0.5:
+                                    job_type = "gumbel_selfplay"
+                                    engine_mode = "gumbel-mcts"
+                                else:
+                                    job_type = "gpu_selfplay"
+                                    engine_mode = "gpu"
+                            else:
+                                # Mid-tier GPUs: HYBRID mode for rule fidelity
+                                job_type = "hybrid_selfplay"
+                                engine_mode = "mixed"
+
+                            job = await self._start_local_job(
+                                job_type=job_type,
+                                board_type=config["board_type"],
+                                num_players=config["num_players"],
+                                engine_mode=engine_mode,
+                            )
+                            if job:
+                                started += 1
+                                gpu_jobs_dispatched += 1
+                            else:
+                                gpu_jobs_failed += 1
+                    except Exception as e:  # noqa: BLE001
+                        logger.info(f"LOCAL: Failed to start selfplay: {e}")
+                        gpu_jobs_failed += 1
+                        break
+
+                # Emit BATCH_DISPATCHED after loop completes
+                await self._emit_batch_dispatched(
+                    batch_id=batch_id,
+                    batch_type="selfplay",
+                    config_key=config_key,
+                    jobs_dispatched=gpu_jobs_dispatched,
+                    jobs_failed=gpu_jobs_failed,
+                    target_nodes=[self._node_id],
+                )
+
+                self._local_gpu_idle_since = now  # Reset after action
+        else:
+            self._local_gpu_idle_since = 0  # GPU is busy, reset
+
+        if started > 0:
+            logger.info(f"LOCAL GPU auto-scale: started {started} job(s)")
             self._stats.gpu_scaling_adjustments += 1
+            self._stats.jobs_started += started
+
+        return started
 
     async def local_resource_cleanup(self) -> None:
         """DECENTRALIZED: Each node handles its own resource pressure.
@@ -496,25 +735,137 @@ class JobCoordinationManager:
             logger.error(f"Error dispatching work to {getattr(peer, 'node_id', 'unknown')}: {e}")
             return False
 
-    async def schedule_diverse_selfplay_on_node(
-        self,
-        node: Any,
-        num_jobs: int = 1,
-    ) -> int:
-        """Schedule diverse selfplay jobs on a node.
+    async def schedule_diverse_selfplay_on_node(self, node_id: str) -> dict | None:
+        """Schedule a diverse selfplay job on a specific node.
+
+        Job type is selected based on GPU capabilities:
+        - High-end GPUs (GH200, H100, A100, 5090, 4090): 50% GUMBEL / 50% GPU_SELFPLAY
+        - Mid-tier GPUs: HYBRID mode (CPU rules + GPU eval) for rule fidelity
+        Rotates through all board/player configurations for diversity.
 
         Args:
-            node: The target node.
-            num_jobs: Number of jobs to schedule.
+            node_id: Target node ID.
 
         Returns:
-            Number of jobs successfully scheduled.
+            Response dict if successful, None otherwise.
 
-        Jan 27, 2026: Migrated from p2p_orchestrator.py (Phase 15).
+        Jan 27, 2026: Phase 16C - Full implementation migrated from p2p_orchestrator.py.
         """
-        if self._orchestrator and hasattr(self._orchestrator, "_schedule_diverse_selfplay_on_node"):
-            return await self._orchestrator._schedule_diverse_selfplay_on_node(node, num_jobs)
-        return 0
+        if aiohttp is None:
+            return None
+
+        from scripts.p2p.network import get_client_session
+
+        try:
+            from app.config.coordination_defaults import get_board_priority_overrides
+        except ImportError:
+            def get_board_priority_overrides() -> dict:
+                return {}
+
+        # Get peer from orchestrator's peers dict
+        peer = None
+        if self._peers_lock:
+            with self._peers_lock:
+                peer = self._peers.get(node_id)
+        if not peer or not peer.is_alive():
+            return None
+
+        # Policy check: ensure selfplay is allowed on this node
+        try:
+            from app.coordination.node_policies import is_work_allowed
+            if not is_work_allowed(node_id, "selfplay"):
+                logger.debug(f"Selfplay not allowed on {node_id} by policy")
+                return None
+        except ImportError:
+            pass
+
+        # Rotate through diverse configurations with priority-based weighting
+        board_priority_overrides = get_board_priority_overrides()
+
+        diverse_configs = [
+            ("hexagonal", 2), ("hexagonal", 3), ("hexagonal", 4),
+            ("square19", 3), ("square19", 4), ("square19", 2),
+            ("hex8", 2), ("hex8", 3), ("hex8", 4),
+            ("square8", 3), ("square8", 4), ("square8", 2),
+        ]
+
+        # Build weighted list based on priority overrides
+        # Lower priority value = more weight (0=CRITICAL gets 4x, 3=LOW gets 1x)
+        weighted_configs = []
+        for board_type, num_players in diverse_configs:
+            config_key = f"{board_type}_{num_players}p"
+            priority = board_priority_overrides.get(config_key, 3)  # Default LOW
+            weight = 4 - priority  # 0->4, 1->3, 2->2, 3->1
+            weighted_configs.extend([(board_type, num_players)] * weight)
+
+        # Round-robin through weighted list based on node-specific counter
+        counter = self._diverse_config_counter.get(node_id, 0)
+        self._diverse_config_counter[node_id] = counter + 1
+        board_type, num_players = weighted_configs[counter % len(weighted_configs)]
+
+        # Determine job type based on node GPU capabilities
+        gpu_name = (getattr(peer, "gpu_name", "") or "").upper()
+        has_gpu = bool(getattr(peer, "has_gpu", False))
+
+        # YAML fallback when runtime GPU detection fails
+        if not has_gpu or not gpu_name:
+            yaml_has_gpu, yaml_gpu_name = self._check_yaml_gpu_config_for_node(node_id)
+            if yaml_has_gpu:
+                has_gpu = True
+                if yaml_gpu_name:
+                    gpu_name = yaml_gpu_name.upper()
+
+        is_high_end_gpu = any(tag in gpu_name for tag in ("H100", "H200", "GH200", "A100", "5090", "4090"))
+        is_apple_gpu = "MPS" in gpu_name or "APPLE" in gpu_name
+
+        if has_gpu and is_high_end_gpu and not is_apple_gpu:
+            # High-end GPUs: 50% GUMBEL (quality) / 50% GPU_SELFPLAY (volume)
+            if random.random() < 0.5:
+                job_type = "gumbel_selfplay"
+                engine_mode = "gumbel-mcts"
+            else:
+                job_type = "gpu_selfplay"
+                engine_mode = "gpu"
+        else:
+            # Mid-tier or no GPU: HYBRID mode for rule fidelity
+            job_type = "hybrid_selfplay"
+            engine_mode = "mixed"
+
+        try:
+            timeout = ClientTimeout(total=30)
+            async with get_client_session(timeout) as session:
+                url = self._url_for_peer(peer, "/selfplay/start")
+                payload = {
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "num_games": 200,  # Smaller batches for diversity
+                    "engine_mode": engine_mode,
+                    "auto_scaled": True,
+                    "job_type": job_type,
+                }
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        logger.info(f"Started diverse selfplay on {node_id}: {board_type} {num_players}p")
+                        return data
+                    else:
+                        error = await resp.text()
+                        logger.info(f"Diverse selfplay start failed on {node_id}: {error}")
+                        return None
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Failed to schedule diverse selfplay on {node_id}: {e}")
+            return None
+
+    def _check_yaml_gpu_config_for_node(self, node_id: str) -> tuple[bool, str | None]:
+        """Check YAML config for GPU info when runtime detection fails.
+
+        Delegates to orchestrator's implementation.
+        """
+        if self._orchestrator and hasattr(self._orchestrator, "_check_yaml_gpu_config"):
+            result = self._orchestrator._check_yaml_gpu_config(node_id)
+            if isinstance(result, tuple) and len(result) >= 2:
+                return result[0], result[1]
+        return False, None
 
     async def check_cluster_balance(self) -> None:
         """LEADER ONLY: Check and rebalance cluster load.

@@ -2925,6 +2925,197 @@ class SelfplayScheduler(EventSubscriptionMixin):
         except Exception as e:
             self._log_warning(f"Failed to auto-dispatch quality selfplay for {config_key}: {e}")
 
+    async def auto_start_selfplay(self, peer: Any, idle_duration: float) -> None:
+        """Auto-start diverse hybrid selfplay on an idle node.
+
+        Works with both NodeInfo (P2P peers) and DiscoveredNode (unified inventory).
+        Uses diverse profiles for high-quality training data:
+        - Multiple engine modes (gumbel-mcts, nnue-guided, policy-only, mcts)
+        - Multiple board types (hex8, square8, square19)
+        - Multiple player counts (2, 3, 4)
+        - Multiple heuristic profiles (balanced, aggressive, territorial, defensive)
+
+        Jan 28, 2026: Phase 18A - Migrated from p2p_orchestrator.py.
+
+        Args:
+            peer: NodeInfo or DiscoveredNode representing the idle node
+            idle_duration: How long the node has been idle (seconds)
+        """
+        # Check for GPU - works with both NodeInfo and DiscoveredNode
+        gpu_name = getattr(peer, "gpu_name", "") or ""
+
+        # Don't auto-start on nodes that aren't GPU nodes
+        has_gpu = bool(gpu_name) or getattr(peer, "has_gpu", False)
+        is_gpu_node_fn = getattr(peer, "is_gpu_node", lambda: has_gpu)
+        is_gpu_node = is_gpu_node_fn() if callable(is_gpu_node_fn) else is_gpu_node_fn
+        if not has_gpu and not is_gpu_node:
+            return
+
+        # GPU selfplay uses batch processing - scale based on GPU power
+        # Jan 7, 2026: Reduced games_per_process to prevent 1-hour timeouts
+        gpu_upper = gpu_name.upper()
+        if "GH200" in gpu_upper or "H100" in gpu_upper or "H200" in gpu_upper:
+            num_processes = 4
+            games_per_process = 500
+            gpu_tier = "high"
+        elif "A100" in gpu_upper or "A40" in gpu_upper:
+            num_processes = 3
+            games_per_process = 300
+            gpu_tier = "high"
+        elif "4090" in gpu_upper or "5090" in gpu_upper:
+            num_processes = 3
+            games_per_process = 300
+            gpu_tier = "mid"
+        elif "4080" in gpu_upper or "5080" in gpu_upper or "5070" in gpu_upper:
+            num_processes = 2
+            games_per_process = 200
+            gpu_tier = "mid"
+        elif "3090" in gpu_upper or "4070" in gpu_upper:
+            num_processes = 2
+            games_per_process = 200
+            gpu_tier = "mid"
+        else:
+            num_processes = 2
+            games_per_process = 100
+            gpu_tier = "low"
+
+        peer_node_id = getattr(peer, "node_id", "unknown")
+        self._log_info(
+            f"Auto-starting {num_processes} diverse selfplay processes on idle node {peer_node_id} "
+            f"(GPU={gpu_name}, tier={gpu_tier}, {games_per_process} games each, idle for {idle_duration:.0f}s)"
+        )
+
+        # Send parallel requests to /selfplay/start endpoint
+        try:
+            # Get orchestrator for HTTP calls
+            if not hasattr(self, "_orchestrator") or not self._orchestrator:
+                self._log_warning(f"No orchestrator available for auto_start_selfplay on {peer_node_id}")
+                return
+
+            url = self._orchestrator._url_for_peer(peer, "/selfplay/start")
+            try:
+                from aiohttp import ClientTimeout
+            except ImportError:
+                self._log_warning("aiohttp not available for auto_start_selfplay")
+                return
+
+            timeout = ClientTimeout(total=30)
+
+            # Import profile selector
+            try:
+                from scripts.p2p.config.selfplay_job_configs import select_diverse_profiles
+            except ImportError:
+                # Fallback: use simple profile selection
+                def select_diverse_profiles(k: int) -> list[dict]:
+                    return [
+                        {"board_type": "hex8", "num_players": 2, "engine_mode": "gumbel-mcts", "profile": "balanced", "description": "default"},
+                    ] * k
+
+            selected_profiles = select_diverse_profiles(k=num_processes)
+
+            # Build job configs from selected profiles
+            job_configs = []
+            for i, profile in enumerate(selected_profiles):
+                job_configs.append({
+                    "board_type": profile["board_type"],
+                    "num_players": profile["num_players"],
+                    "num_games": games_per_process,
+                    "engine_mode": profile["engine_mode"],
+                    "heuristic_profile": profile.get("profile", "balanced"),
+                    "auto_assigned": True,
+                    "reason": f"auto_idle_{profile['engine_mode']}_{profile['board_type']}_{profile['num_players']}p_{int(idle_duration)}s",
+                })
+                self._log_debug(f"  Process {i}: {profile.get('description', profile['engine_mode'])}")
+
+            # NAT-blocked node detection and work queue routing
+            is_nat_blocked = getattr(peer, "nat_blocked", False)
+            if is_nat_blocked:
+                try:
+                    from app.coordination.work_queue import WorkItem, WorkType, get_work_queue
+                    wq = get_work_queue()
+                    if wq is not None:
+                        queued_count = 0
+                        for cfg in job_configs:
+                            work_item = WorkItem(
+                                work_type=WorkType.SELFPLAY,
+                                priority=50,  # Normal priority for auto-idle work
+                                config={
+                                    **cfg,
+                                    "target_node": peer_node_id,
+                                    "target_node_expires_at": time.time() + 600,  # 10 min expiration
+                                    "nat_blocked_dispatch": True,
+                                },
+                                timeout_seconds=3600.0,
+                            )
+                            wq.add_work(work_item)
+                            queued_count += 1
+
+                        from collections import Counter
+                        engine_counts = Counter(cfg["engine_mode"] for cfg in job_configs)
+                        board_counts = Counter(cfg["board_type"] for cfg in job_configs)
+                        profile_summary = ", ".join(f"{k}:{v}" for k, v in engine_counts.items())
+                        board_summary = ", ".join(f"{k}:{v}" for k, v in board_counts.items())
+
+                        self._log_info(
+                            f"NAT-blocked node {peer_node_id}: Queued {queued_count} selfplay jobs "
+                            f"[engines: {profile_summary}] [boards: {board_summary}] "
+                            f"(idle for {idle_duration:.0f}s, WorkerPullLoop will claim)"
+                        )
+                        return
+                    else:
+                        self._log_warning(f"NAT-blocked node {peer_node_id}: Work queue unavailable, cannot dispatch")
+                        return
+                except Exception as e:
+                    self._log_warning(f"NAT-blocked node {peer_node_id}: Failed to queue work: {e}")
+                    return
+
+            # Non-NAT-blocked nodes: Direct HTTP push to /selfplay/start endpoint
+            try:
+                from scripts.p2p.network import get_client_session
+            except ImportError:
+                self._log_warning("get_client_session not available for auto_start_selfplay")
+                return
+
+            async def send_selfplay_request(session: Any, payload: dict) -> bool:
+                """Send a single selfplay start request."""
+                async with session.post(url, json=payload, headers=self._orchestrator._auth_headers()) as resp:
+                    if resp.status == 200:
+                        return True
+                    else:
+                        body = await resp.text()
+                        self._log_warning(f"Failed selfplay request on {peer_node_id}: {resp.status} {body[:100]}")
+                        return False
+
+            async with get_client_session(timeout) as session:
+                import asyncio
+                tasks = [send_selfplay_request(session, cfg) for cfg in job_configs]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                started = 0
+                failed = 0
+                for r in results:
+                    if isinstance(r, Exception):
+                        failed += 1
+                        self._log_debug(f"Selfplay request failed with exception: {r}")
+                    elif r is True:
+                        started += 1
+                if failed > 0:
+                    self._log_warning(f"Auto-start on {peer_node_id}: {failed}/{len(results)} requests failed")
+
+                # Log profile distribution
+                from collections import Counter
+                engine_counts = Counter(cfg["engine_mode"] for cfg in job_configs)
+                board_counts = Counter(cfg["board_type"] for cfg in job_configs)
+                profile_summary = ", ".join(f"{k}:{v}" for k, v in engine_counts.items())
+                board_summary = ", ".join(f"{k}:{v}" for k, v in board_counts.items())
+
+                self._log_info(
+                    f"Auto-started {started}/{num_processes} diverse selfplay on {peer_node_id} "
+                    f"[engines: {profile_summary}] [boards: {board_summary}]"
+                )
+
+        except Exception as e:  # noqa: BLE001
+            self._log_warning(f"Auto-start request failed for {peer_node_id}: {e}")
+
     def _emit_selfplay_target_updated(
         self,
         config_key: str,
