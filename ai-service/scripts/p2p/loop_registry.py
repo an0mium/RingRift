@@ -1151,32 +1151,31 @@ def _register_relay_health(
 
         def _get_relay_nodes_for_loop() -> list[str]:
             relay_nodes = []
-            try:
-                hosts = orchestrator.cluster_config.get("hosts", {})
+            # Use getattr with None fallback to safely access cached cluster config
+            cluster_config = getattr(orchestrator, "_cluster_config", None)
+            if cluster_config:
+                hosts = cluster_config.get("hosts", {})
                 for node_id, config in hosts.items():
                     if config.get("relay_capable", False) and config.get("status") == "active":
                         relay_nodes.append(node_id)
-            except Exception:
-                pass
             return relay_nodes or ["hetzner-cpu1", "hetzner-cpu2", "hetzner-cpu3"]
 
         def _get_node_info_for_relay(node_id: str) -> dict[str, Any] | None:
-            try:
-                hosts = orchestrator.cluster_config.get("hosts", {})
+            cluster_config = getattr(orchestrator, "_cluster_config", None)
+            if cluster_config:
+                hosts = cluster_config.get("hosts", {})
                 return hosts.get(node_id)
-            except Exception:
-                return None
+            return None
 
         def _get_nat_blocked_peers_for_relay() -> dict[str, str]:
             result: dict[str, str] = {}
-            try:
-                hosts = orchestrator.cluster_config.get("hosts", {})
+            cluster_config = getattr(orchestrator, "_cluster_config", None)
+            if cluster_config:
+                hosts = cluster_config.get("hosts", {})
                 for node_id, config in hosts.items():
                     relay_primary = config.get("relay_primary")
                     if relay_primary and config.get("status") == "active":
                         result[node_id] = relay_primary
-            except Exception:
-                pass
             return result
 
         async def _trigger_relay_failover_for_loop(

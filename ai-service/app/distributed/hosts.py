@@ -179,6 +179,32 @@ class HostConfig:
             return f"{self.ssh_user}@{self.cloudflare_tunnel}"
         return self.cloudflare_tunnel
 
+    @property
+    def best_ip(self) -> str | None:
+        """Get best IP for connection (prefer Tailscale).
+
+        Returns the best IP address for connecting to this host:
+        1. Prefers tailscale_ip if available
+        2. Falls back to ssh_host
+        3. Handles user@host format by extracting just the host part
+        4. Returns None if neither is available
+
+        This property matches the ClusterNode.best_ip interface, allowing
+        HostConfig and ClusterNode to be used interchangeably where IP
+        addresses are needed.
+        """
+        for candidate in (self.tailscale_ip, self.ssh_host):
+            if not candidate:
+                continue
+            host = str(candidate).strip()
+            if not host:
+                continue
+            # Handle user@host format
+            if "@" in host:
+                host = host.split("@", 1)[1]
+            return host
+        return None
+
 
 # Global host configuration cache
 _HOST_CONFIG_CACHE: dict[str, HostConfig] = {}

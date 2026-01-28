@@ -1836,6 +1836,10 @@ class P2POrchestrator(
         # This mapping translates between them.
         self._ip_to_node_map: dict[str, str] = self._build_ip_to_node_map()
 
+        # Jan 27, 2026: Cache cluster config from distributed_hosts.yaml
+        # Used by loop_registry.py and autonomous_queue_loop.py for relay/selfplay config
+        self._cluster_config: dict[str, Any] = self._load_cluster_config_raw()
+
         # Node state
         self.role = NodeRole.FOLLOWER
         self.leader_id: str | None = None
@@ -2578,6 +2582,30 @@ class P2POrchestrator(
         )
         logger.info("[P2P] JobLifecycleManager initialized")
 
+        # January 2026: Aggressive Decomposition Phase 9 - Health Metrics Manager
+        # Handles health scoring, peer health tracking, and monitoring loops
+        from scripts.p2p.managers.health_metrics_manager import (
+            create_health_metrics_manager,
+            HealthMetricsConfig,
+        )
+        self.health_metrics_manager = create_health_metrics_manager(
+            config=HealthMetricsConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] HealthMetricsManager initialized")
+
+        # January 2026: Aggressive Decomposition Phase 10 - Memory Disk Manager
+        # Handles memory pressure, disk cleanup, and selfplay job reduction
+        from scripts.p2p.managers.memory_disk_manager import (
+            create_memory_disk_manager,
+            MemoryDiskConfig,
+        )
+        self.memory_disk_manager = create_memory_disk_manager(
+            config=MemoryDiskConfig(),
+            orchestrator=self,
+        )
+        logger.info("[P2P] MemoryDiskManager initialized")
+
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
         self._initialize_work_discovery_manager()
@@ -3303,141 +3331,9 @@ class P2POrchestrator(
     def _validate_manager_health(self) -> dict[str, Any]:
         """Validate health of all P2P managers at startup.
 
-        December 28, 2025: Checks that all 8 managers initialized correctly and
-        are healthy. This catches initialization issues early rather than
-        at first use, improving debuggability.
-
-        Managers validated:
-        - state_manager: SQLite persistence and cluster epoch tracking
-        - node_selector: Node ranking for job dispatch
-        - sync_planner: Manifest collection and sync planning
-        - selfplay_scheduler: Priority-based config selection
-        - job_manager: Job spawning and lifecycle management
-        - training_coordinator: Training dispatch and model promotion
-        - loop_manager: Background loop orchestration (Dec 2025)
-        - job_orchestration: Job spawning, scaling, cluster coordination (Jan 2026)
-
-        Returns:
-            dict with manager health status and overall healthy flag
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        managers = [
-            ("state_manager", self.state_manager),
-            ("node_selector", self.node_selector),
-            ("sync_planner", self.sync_planner),
-            ("selfplay_scheduler", self.selfplay_scheduler),
-            ("job_manager", self.job_manager),
-            ("training_coordinator", self.training_coordinator),
-            # December 2025: Include LoopManager in health validation
-            ("loop_manager", self._get_loop_manager()),
-            # January 2026: Phase 1 Decomposition - JobOrchestrationManager
-            ("job_orchestration", getattr(self, "job_orchestration", None)),
-        ]
-
-        status = {
-            "managers": {},
-            "all_healthy": True,
-            "unhealthy_count": 0,
-            "timestamp": time.time(),
-        }
-
-        # Jan 2026: Startup grace period - during first STARTUP_GRACE_PERIOD seconds,
-        # treat unhealthy managers as "starting" instead of failing. This prevents
-        # false alarms during initialization when managers are still subscribing to
-        # events, connecting to databases, or waiting for first sync.
-        uptime = time.time() - getattr(self, "start_time", time.time())
-        in_grace_period = uptime < STARTUP_GRACE_PERIOD
-        if in_grace_period:
-            status["in_startup_grace_period"] = True
-            status["grace_period_remaining"] = round(STARTUP_GRACE_PERIOD - uptime, 1)
-
-        # Jan 22, 2026: Add timeout protection to individual manager health checks
-        # to prevent event loop blocking when a manager's health_check() is slow
-        from concurrent.futures import TimeoutError as FuturesTimeout
-        MANAGER_HEALTH_TIMEOUT = 2.0  # 2 second timeout per manager
-
-        def _safe_health_check(manager):
-            """Call health_check with timeout protection."""
-            return manager.health_check()
-
-        for name, manager in managers:
-            try:
-                if manager is None:
-                    status["managers"][name] = {"status": "not_initialized", "error": "Manager is None"}
-                    status["all_healthy"] = False
-                    status["unhealthy_count"] += 1
-                elif hasattr(manager, "health_check"):
-                    # Jan 22, 2026: Use ThreadPoolExecutor with timeout to prevent blocking
-                    # Jan 23, 2026: Use singleton executor instead of creating new one each cycle
-                    # This reduces thread churn from ~2 executor creates per second to zero
-                    try:
-                        future = self._health_check_executor.submit(_safe_health_check, manager)
-                        health = future.result(timeout=MANAGER_HEALTH_TIMEOUT)
-                    except FuturesTimeout:
-                        logger.warning(f"[P2P] Manager {name} health check timed out after {MANAGER_HEALTH_TIMEOUT}s")
-                        status["managers"][name] = {"status": "timeout", "error": f"Health check timed out after {MANAGER_HEALTH_TIMEOUT}s"}
-                        status["all_healthy"] = False
-                        status["unhealthy_count"] += 1
-                        continue
-                    # Handle both dict and HealthCheckResult return types
-                    # Jan 2026: Fixed to accept "running" status from managers (CoordinatorStatus.RUNNING)
-                    # Jan 2026: Added "starting" and "initializing" for startup grace period
-                    healthy_statuses = ("healthy", "ready", "running", "starting", "initializing")
-                    if hasattr(health, "status"):
-                        is_healthy = str(health.status).lower() in healthy_statuses
-                        health_status = str(health.status)
-                    else:
-                        is_healthy = health.get("status") in healthy_statuses
-                        health_status = health.get("status", "unknown")
-                    status["managers"][name] = {
-                        "status": health_status,
-                        "operations": health.get("operations_count", 0) if isinstance(health, dict) else 0,
-                        "errors": health.get("errors_count", 0) if isinstance(health, dict) else 0,
-                    }
-                    if not is_healthy:
-                        # Jan 2026: During startup grace period, treat unhealthy as "starting"
-                        # Managers may still be initializing - give them time to become healthy
-                        if in_grace_period:
-                            status["managers"][name]["status"] = "starting"
-                            status["managers"][name]["original_status"] = health_status
-                            # Don't mark all_healthy=False during grace period
-                        else:
-                            status["all_healthy"] = False
-                            status["unhealthy_count"] += 1
-                else:
-                    # Manager initialized but no health_check method
-                    status["managers"][name] = {"status": "initialized", "health_check": "not_available"}
-            except Exception as e:  # noqa: BLE001
-                logger.error(
-                    f"[P2P] Manager {name} health check failed: {type(e).__name__}: {e}",
-                    exc_info=True
-                )
-                status["managers"][name] = {
-                    "status": "error",
-                    "error": str(e),
-                    "exception_type": type(e).__name__
-                }
-                status["all_healthy"] = False
-                status["unhealthy_count"] += 1
-
-        # Log results
-        manager_count = len(managers)
-        if status["all_healthy"]:
-            if in_grace_period:
-                starting = [n for n, s in status["managers"].items() if s.get("status") == "starting"]
-                if starting:
-                    logger.info(
-                        f"[P2P] Manager health: {manager_count - len(starting)}/{manager_count} healthy, "
-                        f"{len(starting)} starting (grace period: {status.get('grace_period_remaining', 0):.0f}s remaining)"
-                    )
-                else:
-                    logger.info(f"[P2P] Manager health: all {manager_count} managers healthy ✓")
-            else:
-                logger.info(f"[P2P] Manager health: all {manager_count} managers healthy ✓")
-        else:
-            unhealthy = [n for n, s in status["managers"].items() if s.get("status") not in ("healthy", "initialized", "ready", "running", "starting")]
-            logger.warning(f"[P2P] Manager health: {len(unhealthy)}/{manager_count} unhealthy: {unhealthy}")
-
-        return status
+        return self.health_metrics_manager.validate_manager_health()
 
     def health_check(self) -> "HealthCheckResult":
         """Return health check result for daemon protocol compliance.
@@ -5442,6 +5338,26 @@ class P2POrchestrator(
         self.voter_config_source = "none"
         return []
 
+    def _load_cluster_config_raw(self) -> dict[str, Any]:
+        """Load raw cluster config from distributed_hosts.yaml.
+
+        Returns the raw YAML dict for use by loops that need to access
+        host configuration (relay nodes, selfplay settings, etc.).
+
+        January 27, 2026: Added to support loop_registry.py relay health loop
+        and autonomous_queue_loop.py selfplay configuration.
+        """
+        cfg_path = Path(self._get_ai_service_path()) / "config" / "distributed_hosts.yaml"
+        if not cfg_path.exists():
+            return {}
+
+        try:
+            import yaml
+            return yaml.safe_load(cfg_path.read_text()) or {}
+        except (OSError, yaml.YAMLError) as e:
+            logger.debug(f"[P2P] Failed to load cluster config: {e}")
+            return {}
+
     # NOTE: _build_voter_ip_mapping() moved to LeadershipHealthMixin (Jan 26, 2026)
 
     def _build_ip_to_node_map(self) -> dict[str, str]:
@@ -5681,85 +5597,16 @@ class P2POrchestrator(
     async def _cluster_health_snapshot_loop(self) -> None:
         """Periodically log cluster health snapshots for debugging.
 
-        Jan 22, 2026: Added as part of Phase 2 P2P stability instrumentation.
-        Provides real-time visibility into peer discovery and voter health.
-
-        Interval: 60 seconds
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        SNAPSHOT_INTERVAL = 60  # seconds
-        await asyncio.sleep(30)  # Initial delay to let cluster stabilize
-
-        while True:
-            try:
-                self._log_cluster_health_snapshot()
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[ClusterHealth] Snapshot loop error: {e}")
-
-            await asyncio.sleep(SNAPSHOT_INTERVAL)
+        await self.health_metrics_manager.cluster_health_snapshot_loop()
 
     async def _event_loop_latency_monitor(self) -> None:
         """Monitor event loop responsiveness to detect blocking operations.
 
-        Jan 23, 2026: Added to diagnose event loop blocking issues that cause
-        HTTP endpoints to become unresponsive while the process is still running.
-
-        When asyncio.sleep(0.1) takes significantly longer than 100ms, it indicates
-        the event loop was blocked by a synchronous operation (e.g., SQLite I/O).
-
-        Logs warnings when latency exceeds 1 second, errors when exceeds 5 seconds.
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        EXPECTED_SLEEP = 0.1  # 100ms
-        WARNING_THRESHOLD = 1.0  # 1 second
-        ERROR_THRESHOLD = 5.0  # 5 seconds
-        CHECK_INTERVAL = 5.0  # Check every 5 seconds
-
-        await asyncio.sleep(10)  # Initial delay to let startup complete
-
-        consecutive_blocks = 0
-        while True:
-            try:
-                start = time.monotonic()
-                await asyncio.sleep(EXPECTED_SLEEP)
-                actual = time.monotonic() - start
-                latency = actual - EXPECTED_SLEEP
-
-                if latency > ERROR_THRESHOLD:
-                    consecutive_blocks += 1
-                    logger.error(
-                        f"[EventLoop] CRITICAL: Event loop blocked for {latency:.2f}s "
-                        f"(expected {EXPECTED_SLEEP}s, actual {actual:.2f}s). "
-                        f"Consecutive blocks: {consecutive_blocks}. "
-                        f"Likely cause: synchronous SQLite or file I/O."
-                    )
-                    # Emit event for external monitoring
-                    try:
-                        self._safe_emit_event("EVENT_LOOP_BLOCKED", {
-                            "node_id": self.node_id,
-                            "latency_seconds": latency,
-                            "consecutive_blocks": consecutive_blocks,
-                            "severity": "critical",
-                        })
-                    except Exception:  # noqa: BLE001
-                        pass
-                elif latency > WARNING_THRESHOLD:
-                    consecutive_blocks += 1
-                    logger.warning(
-                        f"[EventLoop] Event loop blocked for {latency:.2f}s "
-                        f"(expected {EXPECTED_SLEEP}s, actual {actual:.2f}s). "
-                        f"May indicate synchronous I/O operation."
-                    )
-                else:
-                    # Reset consecutive counter on healthy iteration
-                    if consecutive_blocks > 0:
-                        logger.info(f"[EventLoop] Recovered after {consecutive_blocks} blocked iterations")
-                    consecutive_blocks = 0
-
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:  # noqa: BLE001
-                logger.debug(f"[EventLoop] Monitor error: {e}")
-
-            await asyncio.sleep(CHECK_INTERVAL)
+        await self.health_metrics_manager.event_loop_latency_monitor()
 
     def _maybe_adopt_voter_node_ids(self, voter_node_ids: list[str], *, source: str) -> bool:
         """Adopt/override the voter set when it's not explicitly configured.
@@ -6647,135 +6494,16 @@ class P2POrchestrator(
     def _apply_loaded_peer_health(self, peer_health_states: dict) -> None:
         """Apply loaded peer health state to circuit breakers and gossip tracker.
 
-        Dec 28, 2025 (Phase 7): Restores peer health history after restart.
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        try:
-            # Try to get node circuit breaker for restoring circuit states
-            from app.coordination.node_circuit_breaker import get_node_circuit_breaker
-
-            breaker = get_node_circuit_breaker("health_check")
-            restored_circuits = 0
-
-            for node_id, health_state in peer_health_states.items():
-                if node_id == self.node_id:
-                    continue
-
-                # Restore circuit breaker state if circuit was open
-                if health_state.circuit_state == "open":
-                    breaker.force_open(node_id)
-                    restored_circuits += 1
-                    logger.debug(
-                        f"[P2P] Restored open circuit for {node_id} "
-                        f"(failures: {health_state.failure_count})"
-                    )
-
-                # Update peer's last_seen if we have fresh data
-                if node_id in self.peers and health_state.last_seen > 0:
-                    peer = self.peers[node_id]
-                    if hasattr(peer, "last_heartbeat"):
-                        # Only update if our persisted data is fresher
-                        if health_state.last_seen > (peer.last_heartbeat or 0):
-                            peer.last_heartbeat = health_state.last_seen
-
-            if restored_circuits > 0:
-                logger.info(f"[P2P] Restored {restored_circuits} open circuit breakers from state")
-
-            # Restore gossip health tracker state if available
-            if hasattr(self, "_gossip_health_tracker"):
-                for node_id, health_state in peer_health_states.items():
-                    if health_state.gossip_failure_count >= 5:
-                        # Mark as suspected in gossip tracker
-                        for _ in range(health_state.gossip_failure_count):
-                            self._gossip_health_tracker.record_gossip_failure(node_id)
-
-        except ImportError:
-            logger.debug("[P2P] Node circuit breaker not available for health state restoration")
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"[P2P] Error applying peer health state: {e}")
+        self.health_metrics_manager.apply_loaded_peer_health(peer_health_states)
 
     def _collect_peer_health_states(self) -> list:
         """Collect peer health states from circuit breakers and gossip tracker.
 
-        Dec 28, 2025 (Phase 7): Gathers health state for persistence.
-
-        Returns:
-            List of PeerHealthState objects to persist
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        from scripts.p2p.managers.state_manager import PeerHealthState
-
-        health_states = []
-
-        # Get circuit breaker states
-        circuit_states = {}
-        try:
-            from app.coordination.node_circuit_breaker import get_node_circuit_breaker
-
-            breaker = get_node_circuit_breaker("health_check")
-            for node_id, status in breaker.get_all_states().items():
-                circuit_states[node_id] = {
-                    "state": status.state.value,
-                    "failure_count": status.failure_count,
-                    "opened_at": status.opened_at or 0.0,
-                    "last_failure": status.last_failure_time or 0.0,
-                }
-        except ImportError:
-            pass
-        except Exception as e:  # noqa: BLE001
-            if self.verbose:
-                logger.debug(f"[P2P] Error collecting circuit states: {e}")
-
-        # Get gossip health tracker states
-        gossip_failures = {}
-        try:
-            if hasattr(self, "_gossip_health_tracker"):
-                tracker = self._gossip_health_tracker
-                for node_id in tracker.get_suspected_peers():
-                    gossip_failures[node_id] = tracker.get_failure_count(node_id)
-        except Exception as e:  # noqa: BLE001
-            if self.verbose:
-                logger.debug(f"[P2P] Error collecting gossip states: {e}")
-
-        # Jan 2026: Use lock-free PeerSnapshot for read-only access
-        peers_snapshot = self._peer_snapshot.get_snapshot()
-
-        # Process snapshot outside lock to avoid blocking other operations
-        for node_id, peer in peers_snapshot.items():
-            if node_id == self.node_id:
-                continue
-
-            # Determine peer state
-            is_retired = getattr(peer, "retired", False)
-            is_alive = peer.is_alive() if hasattr(peer, "is_alive") else True
-
-            if is_retired:
-                peer_state = "retired"
-            elif not is_alive:
-                peer_state = "dead"
-            else:
-                peer_state = "alive"
-
-            # Get circuit info
-            circuit_info = circuit_states.get(node_id, {})
-            gossip_fail_count = gossip_failures.get(node_id, 0)
-
-            # Adjust state if circuit is open
-            if circuit_info.get("state") == "open" and peer_state == "alive":
-                peer_state = "suspect"
-
-            health_states.append(
-                PeerHealthState(
-                    node_id=node_id,
-                    state=peer_state,
-                    failure_count=circuit_info.get("failure_count", 0),
-                    gossip_failure_count=gossip_fail_count,
-                    last_seen=getattr(peer, "last_heartbeat", 0.0) or 0.0,
-                    last_failure=circuit_info.get("last_failure", 0.0),
-                    circuit_state=circuit_info.get("state", "closed"),
-                    circuit_opened_at=circuit_info.get("opened_at", 0.0),
-                )
-            )
-
-        return health_states
+        return self.health_metrics_manager.collect_peer_health_states()
 
     def _save_state(self):
         """Save current state to database.
@@ -18759,121 +18487,16 @@ print(json.dumps({{
     def _get_peer_health_score(self, peer_id: str) -> float:
         """Calculate health score for a peer (0-100, higher is healthier).
 
-        HEALTH-BASED PEER SELECTION: Considers multiple factors to pick
-        the best peer for data sync, avoiding overloaded or unreliable nodes.
-
-        Jan 3, 2026: Updated to use PeerHealthScore for composite tracking and
-        PeerCircuitBreaker for fine-grained failure isolation.
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        with self.peers_lock:
-            peer = self.peers.get(peer_id)
-        if not peer or not peer.is_alive():
-            return 0.0
-
-        # Check per-peer circuit breaker first (Jan 3, 2026)
-        breaker = self._peer_circuit_breakers.get(peer_id)
-        if breaker and not breaker.should_allow_request():
-            return 0.0  # Circuit is open, don't use this peer
-
-        # Use PeerHealthScore if available (Jan 3, 2026)
-        health_score = self._peer_health_scores.get(peer_id)
-        if health_score:
-            # Convert composite score (0-1) to (0-100) and apply resource penalties
-            base_score = health_score.composite_score * 100.0
-        else:
-            base_score = 100.0
-
-        score = base_score
-
-        # Penalize high resource usage
-        cpu = float(getattr(peer, "cpu_percent", 0) or 0)
-        memory = float(getattr(peer, "memory_percent", 0) or 0)
-        disk = float(getattr(peer, "disk_percent", 0) or 0)
-
-        score -= cpu * 0.3  # CPU impact
-        score -= memory * 0.2  # Memory impact
-        score -= max(0, disk - 50) * 0.5  # Disk penalty above 50%
-
-        # Penalize consecutive failures (circuit breaker input)
-        failures = int(getattr(peer, "consecutive_failures", 0) or 0)
-        score -= failures * 10
-
-        # Penalize NAT-blocked peers (slower sync)
-        if getattr(peer, "nat_blocked", False):
-            score -= 20
-
-        # Bonus for GPU nodes (typically more powerful)
-        if getattr(peer, "has_gpu", False):
-            score += 10
-
-        # Legacy circuit breaker check (for backward compatibility)
-        circuit_breaker = getattr(self, "_p2p_circuit_breaker", {})
-        breaker_info = circuit_breaker.get(peer_id, {})
-        if breaker_info.get("open_until", 0) > time.time():
-            score = 0  # Circuit is open, don't use this peer
-
-        return max(0.0, min(100.0, score))
+        return self.health_metrics_manager.get_peer_health_score(peer_id)
 
     def _record_p2p_sync_result(self, peer_id: str, success: bool, latency_ms: float = 0.0):
         """Record P2P sync result for circuit breaker, metrics, and reputation.
 
-        CIRCUIT BREAKER: After 3 consecutive failures, open circuit for 5 minutes.
-        This prevents wasting time on unreliable peers.
-
-        PEER REPUTATION: Also records sync result for reputation tracking.
-
-        Jan 3, 2026: Updated to use PeerCircuitBreaker and PeerHealthScore classes
-        for fine-grained tracking. Legacy dict-based breaker kept for compatibility.
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        if not hasattr(self, "_p2p_circuit_breaker"):
-            self._p2p_circuit_breaker = {}
-        if not hasattr(self, "_p2p_sync_metrics"):
-            self._p2p_sync_metrics = {"success": 0, "failure": 0, "bytes": 0}
-
-        # Jan 3, 2026: Use new PeerCircuitBreaker class
-        if peer_id not in self._peer_circuit_breakers:
-            self._peer_circuit_breakers[peer_id] = PeerCircuitBreaker(peer_id=peer_id)
-        peer_breaker = self._peer_circuit_breakers[peer_id]
-
-        # Jan 3, 2026: Use new PeerHealthScore class
-        if peer_id not in self._peer_health_scores:
-            self._peer_health_scores[peer_id] = PeerHealthScore(peer_id=peer_id)
-        health_score = self._peer_health_scores[peer_id]
-
-        # Record for new classes
-        health_score.record_request(success=success, latency_ms=latency_ms)
-        if success:
-            peer_breaker.record_success()
-        else:
-            peer_breaker.record_failure()
-
-        # Legacy dict-based breaker (for backward compatibility)
-        breaker = self._p2p_circuit_breaker.get(peer_id, {"failures": 0, "open_until": 0})
-
-        # Record for reputation tracking
-        self._record_peer_interaction(peer_id, success, "sync")
-
-        if success:
-            breaker["failures"] = 0
-            breaker["open_until"] = 0
-            self._p2p_sync_metrics["success"] += 1
-        else:
-            breaker["failures"] = breaker.get("failures", 0) + 1
-            self._p2p_sync_metrics["failure"] += 1
-
-            # Open circuit after 3 failures
-            if breaker["failures"] >= 3:
-                breaker["open_until"] = time.time() + 300  # 5 minute cooldown
-                logger.info(f"CIRCUIT BREAKER: Opening circuit for {peer_id} (3 failures)")
-
-        self._p2p_circuit_breaker[peer_id] = breaker
-
-        # Jan 3, 2026: Log if peer health is degraded
-        if health_score.is_degraded():
-            logger.warning(
-                f"PEER_HEALTH_DEGRADED: {peer_id} score={health_score.composite_score:.2f}, "
-                f"success_rate={health_score.success_rate:.2f}"
-            )
+        self.health_metrics_manager.record_p2p_sync_result(peer_id, success, latency_ms)
 
     async def _p2p_data_sync(self):
         """DECENTRALIZED: Nodes sync data directly with peers without leader coordination.
@@ -21478,62 +21101,9 @@ print(json.dumps({{
     def _get_peer_health_summary(self) -> dict[str, Any]:
         """Get peer health summary for P2P stability monitoring.
 
-        January 25, 2026: Added for Phase 3 instrumentation - provides lightweight
-        visibility into peer state transitions, flapping, and timeout disagreements.
-
-        Returns:
-            Dict with:
-            - transitions_5min: Count of state transitions in last 5 minutes
-            - flapping_peers: List of currently flapping peer IDs
-            - suspected_count: Number of peers currently in SUSPECTED state
-            - timeout_disagreements: Peers with effective_timeout significantly different from ours
+        Jan 2026: Delegated to HealthMetricsManager (Phase 9 decomposition).
         """
-        result: dict[str, Any] = {
-            "transitions_5min": 0,
-            "flapping_peers": [],
-            "suspected_count": 0,
-            "timeout_disagreements": [],
-        }
-
-        # Get diagnostics from peer state tracker
-        if self._peer_state_tracker:
-            try:
-                diagnostics = self._peer_state_tracker.get_diagnostics()
-                result["transitions_5min"] = diagnostics.get("total_transitions_5min", 0)
-                result["flapping_peers"] = diagnostics.get("flapping_peers", [])
-                # Count suspected peers
-                from scripts.p2p.diagnostics.peer_state_tracker import PeerState
-                suspected_count = 0
-                for node_id, state in getattr(self._peer_state_tracker, "_current_state", {}).items():
-                    if state == PeerState.SUSPECTED:
-                        suspected_count += 1
-                result["suspected_count"] = suspected_count
-            except Exception as e:  # noqa: BLE001
-                result["tracker_error"] = str(e)
-
-        # Check for timeout disagreements (significant difference from our effective_timeout)
-        try:
-            my_timeout = getattr(self.self_info, "effective_timeout", 0.0) or 180.0
-            disagreements = []
-            for peer in self.peers.values():
-                if not peer.is_alive():
-                    continue
-                peer_timeout = getattr(peer, "effective_timeout", 0.0)
-                if peer_timeout > 0:
-                    # Flag if difference > 30% (significant disagreement)
-                    ratio = peer_timeout / my_timeout if my_timeout > 0 else 1.0
-                    if ratio > 1.3 or ratio < 0.7:
-                        disagreements.append({
-                            "node_id": peer.node_id,
-                            "their_timeout": round(peer_timeout, 1),
-                            "our_timeout": round(my_timeout, 1),
-                            "ratio": round(ratio, 2),
-                        })
-            result["timeout_disagreements"] = disagreements
-        except Exception as e:  # noqa: BLE001
-            result["timeout_error"] = str(e)
-
-        return result
+        return self.health_metrics_manager.get_peer_health_summary()
 
     def _get_fallback_status(self) -> dict[str, Any]:
         """Get fallback mechanism status for debugging partition issues.
@@ -23615,298 +23185,37 @@ print(json.dumps({{
     def _emergency_memory_cleanup(self) -> None:
         """Emergency memory cleanup when memory is critical.
 
-        Jan 10, 2026: Clears gossip caches and triggers garbage collection
-        to free memory when above MEMORY_CRITICAL_THRESHOLD (90%).
+        Jan 2026: Delegated to MemoryDiskManager (Phase 10 decomposition).
         """
-        import gc
-
-        # Clear gossip state caches
-        gossip_states = getattr(self, "_gossip_peer_states", None)
-        gossip_manifests = getattr(self, "_gossip_peer_manifests", None)
-
-        states_cleared = 0
-        manifests_cleared = 0
-
-        if gossip_states:
-            states_cleared = len(gossip_states)
-            gossip_states.clear()
-
-        if gossip_manifests:
-            manifests_cleared = len(gossip_manifests)
-            gossip_manifests.clear()
-
-        # Force garbage collection
-        gc.collect()
-
-        logger.info(
-            f"Emergency memory cleanup: cleared {states_cleared} gossip states, "
-            f"{manifests_cleared} manifests, ran gc.collect()"
-        )
+        self.memory_disk_manager.emergency_memory_cleanup()
 
     async def _cleanup_local_disk(self):
         """Clean up disk space on local node.
 
-        LEARNED LESSONS - Automatically archive old data:
-        - Remove deprecated selfplay databases
-        - Compress and archive old logs
-        - Clear /tmp files older than 24h
-
-        Jan 25, 2026: Fixed event loop blocking by wrapping subprocess.run()
-        in asyncio.to_thread(). Previously, the 300s timeout subprocess call
-        would block the entire event loop, causing heartbeat timeouts and
-        false-positive node deaths.
+        Jan 2026: Delegated to MemoryDiskManager (Phase 10 decomposition).
         """
-        logger.info("Running local disk cleanup...")
-        try:
-            # Prefer the shared disk monitor (used by cron/resilience) for consistent cleanup policy.
-            disk_monitor = Path(self._get_ai_service_path()) / "scripts" / "disk_monitor.py"
-            if disk_monitor.exists():
-                # Jan 25, 2026: Wrap in asyncio.to_thread() to avoid blocking event loop
-                usage = await asyncio.to_thread(self._get_resource_usage)
-                disk_percent = float(usage.get("disk_percent", 0.0) or 0.0)
-                cmd = [
-                    sys.executable,  # Use venv Python
-                    str(disk_monitor),
-                    "--threshold",
-                    str(DISK_CLEANUP_THRESHOLD),
-                    "--ringrift-path",
-                    str(self.ringrift_path),
-                    "--aggressive",
-                ]
-                if disk_percent >= DISK_CRITICAL_THRESHOLD:
-                    cmd.append("--force")
-
-                # Jan 25, 2026: CRITICAL FIX - wrap in asyncio.to_thread() to prevent
-                # event loop blocking. This was causing 8+ second blocks during cleanup.
-                def _run_cleanup():
-                    return subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=300,
-                        cwd=str(Path(self._get_ai_service_path())),
-                    )
-
-                out = await asyncio.to_thread(_run_cleanup)
-                if out.returncode == 0:
-                    logger.info("Disk monitor cleanup completed")
-                else:
-                    logger.info(f"Disk monitor cleanup failed: {out.stderr[:200]}")
-            else:
-                # Minimal fallback: clear old logs if disk monitor isn't available.
-                # Jan 25, 2026: Also wrap in asyncio.to_thread() for file I/O
-                def _cleanup_old_logs():
-                    log_dir = Path(self._get_ai_service_path()) / "logs"
-                    cleaned = []
-                    if log_dir.exists():
-                        for logfile in log_dir.rglob("*.log"):
-                            if time.time() - logfile.stat().st_mtime > 7 * 86400:  # 7 days
-                                logfile.unlink()
-                                cleaned.append(str(logfile))
-                    return cleaned
-
-                cleaned = await asyncio.to_thread(_cleanup_old_logs)
-                for logfile in cleaned:
-                    logger.info(f"Cleaned old log: {logfile}")
-
-        except Exception as e:  # noqa: BLE001
-            logger.info(f"Disk cleanup error: {e}")
+        await self.memory_disk_manager.cleanup_local_disk()
 
     async def _request_remote_cleanup(self, node: NodeInfo):
-        """Request a remote node to clean up disk space."""
-        try:
-            if getattr(node, "nat_blocked", False):
-                cmd_id = await self._enqueue_relay_command_for_peer(node, "cleanup", {})
-                if cmd_id:
-                    logger.info(f"Enqueued relay cleanup for {node.node_id}")
-                else:
-                    logger.info(f"Relay queue full; skipping cleanup enqueue for {node.node_id}")
-                return
-            timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
-            async with get_client_session(timeout) as session:
-                last_err: str | None = None
-                for url in self._urls_for_peer(node, "/cleanup"):
-                    try:
-                        async with session.post(url, json={}, headers=self._auth_headers()) as resp:
-                            if resp.status == 200:
-                                logger.info(f"Cleanup requested on {node.node_id}")
-                                return
-                            last_err = f"http_{resp.status}"
-                    except Exception as e:  # noqa: BLE001
-                        last_err = str(e)
-                        continue
-                if last_err:
-                    logger.info(f"Cleanup request failed on {node.node_id}: {last_err}")
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to request cleanup from {node.node_id}: {e}")
+        """Request a remote node to clean up disk space.
+
+        Jan 2026: Delegated to MemoryDiskManager (Phase 10 decomposition).
+        """
+        await self.memory_disk_manager.request_remote_cleanup_via_orchestrator(node)
 
     async def _reduce_local_selfplay_jobs(self, target_selfplay_jobs: int, *, reason: str) -> dict[str, Any]:
         """Best-effort: stop excess selfplay jobs on this node (load shedding).
 
-        Used when disk/memory pressure is high: we want the node to recover and
-        avoid OOM/disk-full scenarios, even if it means reducing throughput.
-
-        Jan 2026: Uses asyncio.to_thread() for blocking calls to avoid event loop stalls.
+        Jan 2026: Delegated to MemoryDiskManager (Phase 10 decomposition).
         """
-        try:
-            target = max(0, int(target_selfplay_jobs))
-        except (ValueError):
-            target = 0
-
-        # First, get an overall count using the same mechanism used for cluster
-        # reporting (includes untracked processes).
-        # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
-        try:
-            selfplay_before, _training_before = await asyncio.to_thread(self._count_local_jobs)
-        except (AttributeError):
-            selfplay_before = 0
-
-        # Hard shedding (target=0): reuse the existing restart sweep, which
-        # kills both tracked and untracked selfplay processes.
-        if target <= 0:
-            await self._restart_local_stuck_jobs()
-            try:
-                selfplay_after, _training_after = await asyncio.to_thread(self._count_local_jobs)
-            except (AttributeError):
-                selfplay_after = 0
-            return {
-                "running_before": int(selfplay_before),
-                "running_after": int(selfplay_after),
-                "stopped": max(0, int(selfplay_before) - int(selfplay_after)),
-                "target": 0,
-                "reason": reason,
-            }
-
-        with self.jobs_lock:
-            running: list[tuple[str, ClusterJob]] = [
-                (job_id, job)
-                for job_id, job in self.local_jobs.items()
-                if job.status == "running"
-                and job.job_type in (JobType.SELFPLAY, JobType.GPU_SELFPLAY, JobType.HYBRID_SELFPLAY, JobType.CPU_SELFPLAY, JobType.GUMBEL_SELFPLAY)
-            ]
-
-        if selfplay_before <= target and len(running) <= target:
-            return {
-                "running_before": int(selfplay_before),
-                "running_after": int(selfplay_before),
-                "stopped": 0,
-                "target": target,
-                "reason": reason,
-            }
-
-        # Stop newest-first to avoid killing long-running jobs near completion.
-        running.sort(key=lambda pair: float(getattr(pair[1], "started_at", 0.0) or 0.0), reverse=True)
-        to_stop = running[target:]
-
-        stopped = 0
-        with self.jobs_lock:
-            for _job_id, job in to_stop:
-                try:
-                    if job.pid:
-                        os.kill(int(job.pid), signal.SIGTERM)
-                    job.status = "stopped"
-                    stopped += 1
-                except (ValueError, AttributeError):
-                    continue
-
-        # If job tracking was lost, we may still have a large number of
-        # untracked selfplay processes. Best-effort kill enough to hit target.
-        # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
-        try:
-            selfplay_mid, _training_mid = await asyncio.to_thread(self._count_local_jobs)
-        except (AttributeError):
-            selfplay_mid = max(0, int(selfplay_before) - stopped)
-
-        if selfplay_mid > target:
-            try:
-                import shutil
-
-                if shutil.which("pgrep"):
-                    pids: list[int] = []
-                    # December 2025: Added selfplay.py - unified entry point
-                    # Jan 2026: Use async subprocess helper to avoid blocking event loop
-                    for pattern in (
-                        "selfplay.py",
-                        "run_self_play_soak.py",
-                        "run_gpu_selfplay.py",
-                        "run_hybrid_selfplay.py",
-                        "run_random_selfplay.py",
-                    ):
-                        returncode, stdout, _stderr = await self._run_subprocess_async(
-                            ["pgrep", "-f", pattern], timeout=5
-                        )
-                        if returncode == 0 and stdout.strip():
-                            for token in stdout.strip().split():
-                                try:
-                                    pids.append(int(token))
-                                except (ValueError, AttributeError):
-                                    continue
-
-                    # Kill newest-ish (highest PID) first.
-                    pids = sorted(set(pids), reverse=True)
-                    excess = int(selfplay_mid) - int(target)
-                    killed = 0
-                    for pid in pids:
-                        if killed >= excess:
-                            break
-                        try:
-                            os.kill(pid, signal.SIGTERM)
-                            killed += 1
-                        except (AttributeError):
-                            continue
-                    stopped += killed
-            except (AttributeError):
-                pass
-
-        if stopped:
-            self._save_state()
-
-        # Jan 2026: Use asyncio.to_thread() to avoid blocking event loop
-        try:
-            selfplay_after, _training_after = await asyncio.to_thread(self._count_local_jobs)
-        except (AttributeError):
-            selfplay_after = max(0, int(selfplay_before) - stopped)
-
-        return {
-            "running_before": int(selfplay_before),
-            "running_after": int(selfplay_after),
-            "stopped": int(max(0, int(selfplay_before) - int(selfplay_after))),
-            "target": target,
-            "reason": reason,
-        }
+        return await self.memory_disk_manager.reduce_local_selfplay_jobs(target_selfplay_jobs, reason=reason)
 
     async def _request_reduce_selfplay(self, node: NodeInfo, target_selfplay_jobs: int, *, reason: str) -> None:
-        """Ask a node to shed excess selfplay (used for memory/disk pressure)."""
-        try:
-            target = max(0, int(target_selfplay_jobs))
-        except (ValueError):
-            target = 0
+        """Ask a node to shed excess selfplay (used for memory/disk pressure).
 
-        if getattr(node, "nat_blocked", False):
-            payload = {"target_selfplay_jobs": target, "reason": reason}
-            cmd_id = await self._enqueue_relay_command_for_peer(node, "reduce_selfplay", payload)
-            if cmd_id:
-                logger.info(f"Enqueued relay reduce_selfplay for {node.node_id} (target={target}, reason={reason})")
-            else:
-                logger.info(f"Relay queue full for {node.node_id}; skipping reduce_selfplay enqueue")
-            return
-
-        timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
-        async with get_client_session(timeout) as session:
-            last_err: str | None = None
-            payload = {"target_selfplay_jobs": target, "reason": reason}
-            for url in self._urls_for_peer(node, "/reduce_selfplay"):
-                try:
-                    async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                        if resp.status == 200:
-                            logger.info(f"Requested load shedding on {node.node_id} (target={target}, reason={reason})")
-                            return
-                        last_err = f"http_{resp.status}"
-                except Exception as e:  # noqa: BLE001
-                    last_err = str(e)
-                    continue
-            if last_err:
-                logger.info(f"reduce_selfplay request failed on {node.node_id}: {last_err}")
+        Jan 2026: Delegated to MemoryDiskManager (Phase 10 decomposition).
+        """
+        await self.memory_disk_manager.request_reduce_selfplay(node, target_selfplay_jobs, reason=reason)
 
     async def _restart_local_stuck_jobs(self):
         """Kill stuck selfplay processes and let job management restart them.
