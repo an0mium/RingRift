@@ -6808,7 +6808,7 @@ class P2POrchestrator(
         # Dec 2025: RINGRIFT_IS_COORDINATOR=true restricts to coordinator-only
         # Dec 29, 2025: Also check distributed_hosts.yaml for role/enabled flags
         is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
-        logger.debug(f"[P2P] is_coordinator from env: {is_coordinator}")
+        logger.info(f"[P2P] COORDINATOR CHECK 1: env var -> is_coordinator={is_coordinator}")
 
         # Check YAML config for this node's settings
         if not is_coordinator:
@@ -6818,7 +6818,7 @@ class P2POrchestrator(
                 # ClusterConfig stores hosts in hosts_raw attribute
                 nodes = getattr(config, "hosts_raw", {}) or {}
                 node_cfg = nodes.get(self.node_id, {})
-                logger.debug(f"[P2P] node_cfg for {self.node_id}: role={node_cfg.get('role')}, selfplay={node_cfg.get('selfplay_enabled')}, training={node_cfg.get('training_enabled')}")
+                logger.info(f"[P2P] COORDINATOR CHECK 2: node_cfg for {self.node_id}: role={node_cfg.get('role')}, selfplay={node_cfg.get('selfplay_enabled')}, training={node_cfg.get('training_enabled')}")
                 # Check role or explicit enabled flags
                 if node_cfg.get("role") == "coordinator":
                     is_coordinator = True
@@ -6827,9 +6827,9 @@ class P2POrchestrator(
                     is_coordinator = True
                     logger.info(f"[P2P] Node {self.node_id} has selfplay/training disabled (from YAML)")
             except Exception as e:
-                logger.debug(f"[P2P] Could not load cluster config: {e}")
+                logger.info(f"[P2P] COORDINATOR CHECK 3: Could not load cluster config: {e}")
 
-        logger.debug(f"[P2P] Final is_coordinator={is_coordinator} before capability assignment")
+        logger.info(f"[P2P] COORDINATOR CHECK 4: Final is_coordinator={is_coordinator} before capability assignment")
         if is_coordinator:
             # Dec 30, 2025: Warn if GPU node is misconfigured as coordinator
             if has_gpu:
@@ -19888,147 +19888,9 @@ print(json.dumps({{
     async def _local_gpu_auto_scale(self) -> int:
         """DECENTRALIZED: Each GPU node manages its own GPU utilization.
 
-        Runs on ALL GPU nodes to ensure optimal GPU usage without leader.
-        Targets 60-80% GPU utilization by starting/stopping GPU selfplay jobs.
-
-        Returns:
-            Number of GPU jobs started
+        Jan 28, 2026: Phase 18A - Delegates to JobCoordinationManager.
         """
-        started = 0
-        now = time.time()
-
-        # Rate limit: check every 2 minutes
-        last_check = getattr(self, "_last_local_gpu_scale", 0)
-        if now - last_check < 120:
-            return 0
-        self._last_local_gpu_scale = now
-
-        # Skip if not a GPU node
-        if not getattr(self.self_info, "has_gpu", False):
-            return 0
-
-        # Skip if training is running (training uses GPU)
-        training_jobs = int(getattr(self.self_info, "training_jobs", 0) or 0)
-        if training_jobs > 0:
-            return 0
-
-        # Skip if memory is critical (consistent with _local_selfplay_management)
-        memory_percent = float(getattr(self.self_info, "memory_percent", 0) or 0)
-        if memory_percent >= MEMORY_WARNING_THRESHOLD:
-            logger.info(f"LOCAL: Memory at {memory_percent:.0f}% - skipping GPU auto-scale")
-            return 0
-
-        # DECENTRALIZED: Always allow local GPU scaling
-        # Leader manages cluster-wide coordination, but each node optimizes its own GPU
-        # Use smaller batches when leader is present to avoid conflicts
-        has_leader = bool(self.leader_id or self.role == NodeRole.LEADER)
-        max_jobs_per_cycle = 1 if has_leader else 3
-
-        TARGET_GPU_MIN = 60.0
-        TARGET_GPU_MAX = 80.0
-        MIN_IDLE_TIME = 120 if has_leader else 60  # Faster response when leaderless
-
-        gpu_percent = float(getattr(self.self_info, "gpu_percent", 0) or 0)
-        int(getattr(self.self_info, "selfplay_jobs", 0) or 0)
-        gpu_name = (getattr(self.self_info, "gpu_name", "") or "").lower()
-
-        # Session 17.50: YAML fallback when runtime GPU detection fails
-        if not gpu_name:
-            yaml_has_gpu, yaml_gpu_name, _ = self._check_yaml_gpu_config()
-            if yaml_has_gpu and yaml_gpu_name:
-                gpu_name = yaml_gpu_name.lower()
-                logger.debug(f"LOCAL: Using YAML GPU name: {yaml_gpu_name}")
-
-        # Track GPU idle time
-        if gpu_percent < TARGET_GPU_MIN:
-            idle_since = getattr(self, "_local_gpu_idle_since", 0)
-            if idle_since == 0:
-                self._local_gpu_idle_since = now
-            elif now - idle_since > MIN_IDLE_TIME:
-                # Calculate new jobs to add
-                gpu_headroom = TARGET_GPU_MAX - gpu_percent
-                is_high_end_gpu = any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090", "a100", "4090"))
-                if any(tag in gpu_name for tag in ("h100", "h200", "gh200", "5090")):
-                    jobs_per_10_percent = 2
-                elif any(tag in gpu_name for tag in ("a100", "4090", "3090")):
-                    jobs_per_10_percent = 1.5
-                else:
-                    jobs_per_10_percent = 1
-
-                new_jobs = max(1, int(gpu_headroom / 10 * jobs_per_10_percent))
-                new_jobs = min(new_jobs, max_jobs_per_cycle)  # Cap based on leader presence
-
-                # Dec 2025 fix: Use GUMBEL/GPU_SELFPLAY for high-end GPUs
-                job_type_str = "GUMBEL/GPU" if is_high_end_gpu else "diverse/hybrid"
-                logger.info(f"LOCAL: {gpu_percent:.0f}% GPU util, starting {new_jobs} {job_type_str} selfplay job(s)")
-
-                # Dec 27, 2025: Generate batch ID and emit BATCH_SCHEDULED
-                batch_id = f"gpu_selfplay_{self.node_id}_{int(time.time())}"
-                first_config = self.selfplay_scheduler.pick_weighted_config(self.self_info)
-                config_key = f"{first_config['board_type']}_{first_config['num_players']}p" if first_config else "mixed"
-                await self._emit_batch_scheduled(
-                    batch_id=batch_id,
-                    batch_type="selfplay",
-                    config_key=config_key,
-                    job_count=new_jobs,
-                    target_nodes=[self.node_id],
-                    reason="gpu_auto_scale",
-                )
-
-                gpu_jobs_dispatched = 0
-                gpu_jobs_failed = 0
-                for _ in range(new_jobs):
-                    try:
-                        config = self.selfplay_scheduler.pick_weighted_config(self.self_info)
-                        if config:
-                            # Dec 2025 fix: Select job type based on GPU capabilities
-                            if is_high_end_gpu:
-                                # High-end GPUs: 50% GUMBEL (quality) / 50% GPU_SELFPLAY (volume)
-                                import random
-                                if random.random() < 0.5:
-                                    job_type = JobType.GUMBEL_SELFPLAY
-                                    engine_mode = "gumbel-mcts"
-                                else:
-                                    job_type = JobType.GPU_SELFPLAY
-                                    engine_mode = "gpu"
-                            else:
-                                # Mid-tier GPUs: HYBRID mode for rule fidelity
-                                job_type = JobType.HYBRID_SELFPLAY
-                                engine_mode = "mixed"
-
-                            job = await self._start_local_job(
-                                job_type,
-                                board_type=config["board_type"],
-                                num_players=config["num_players"],
-                                engine_mode=engine_mode,
-                            )
-                            if job:
-                                started += 1
-                                gpu_jobs_dispatched += 1
-                            else:
-                                gpu_jobs_failed += 1
-                    except Exception as e:  # noqa: BLE001
-                        logger.info(f"LOCAL: Failed to start selfplay: {e}")
-                        gpu_jobs_failed += 1
-                        break
-
-                # Dec 27, 2025: Emit BATCH_DISPATCHED after loop completes
-                await self._emit_batch_dispatched(
-                    batch_id=batch_id,
-                    batch_type="selfplay",
-                    config_key=config_key,
-                    jobs_dispatched=gpu_jobs_dispatched,
-                    jobs_failed=gpu_jobs_failed,
-                    target_nodes=[self.node_id],
-                )
-
-                self._local_gpu_idle_since = now  # Reset after action
-        else:
-            self._local_gpu_idle_since = 0  # GPU is busy, reset
-
-        if started > 0:
-            logger.info(f"LOCAL GPU auto-scale: started {started} job(s)")
-        return started
+        return await self.job_coordination_manager.local_gpu_auto_scale()
 
     async def _local_resource_cleanup(self):
         """DECENTRALIZED: Each node handles its own resource pressure.
