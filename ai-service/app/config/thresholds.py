@@ -1594,9 +1594,12 @@ NODE_ROLES = ["training", "selfplay", "coordinator", "ephemeral", "cpu_only"]
 EPHEMERAL_NODE_PATTERNS = ["vast-", "runpod-", "spot-", "ephemeral-"]
 
 # Minimum resources for task scheduling
+# Session 17.48 (Jan 27, 2026): Reduced selfplay/gauntlet requirements - these are
+# lightweight inference tasks that can run with much less VRAM than training.
+# Previous 16GB requirement was causing mass rejections on RTX 4090 (24GB) nodes.
 MIN_MEMORY_GB_FOR_TRAINING = 32
-MIN_MEMORY_GB_FOR_SELFPLAY = 16
-MIN_MEMORY_GB_FOR_GAUNTLET = 16
+MIN_MEMORY_GB_FOR_SELFPLAY = 4  # Down from 16 - selfplay is lightweight inference
+MIN_MEMORY_GB_FOR_GAUNTLET = 8  # Down from 16 - gauntlet is lightweight inference
 
 
 def get_gpu_weight(gpu_type: str) -> float:

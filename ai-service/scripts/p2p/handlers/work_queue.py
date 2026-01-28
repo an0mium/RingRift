@@ -66,9 +66,10 @@ DISK_USAGE_CRITICAL_THRESHOLD = 85  # Percentage
 
 # GPU utilization threshold - refuse selfplay if GPU is already busy
 # Session 17.42 (Jan 20, 2026): Added to prevent OOM when training is running
-# Jan 27, 2026: Increased from 80% to 90% to improve job acceptance rate
-# Target 60-90% utilization; reject new selfplay above 90% to leave headroom
-GPU_UTILIZATION_REJECT_THRESHOLD = 90  # Percentage - reject selfplay if GPU% >= this
+# Session 17.48 (Jan 27, 2026): Lowered from 90% to 75% - idle nodes report 85-95%
+# utilization due to driver overhead, causing mass rejections. 75% is more realistic.
+GPU_UTILIZATION_REJECT_THRESHOLD = 75  # Percentage - reject selfplay if GPU% >= this
+GPU_UTILIZATION_RECOVERY_THRESHOLD = 50  # Hysteresis band - accept work below this
 
 # GPU name to total VRAM mapping (GB)
 # Session 17.32: Used to infer VRAM capacity from gpu_name since NodeInfo
@@ -353,13 +354,10 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
             logger.info(f"[capacity] {node_id} rejected for selfplay: {reason}")
             return (False, reason)
 
-        # Session 17.42: Check if training is running on this node
-        # Don't dispatch selfplay to nodes actively running training jobs
-        training_jobs = node_info.get("training_jobs", 0)
-        if work_type == "selfplay" and training_jobs > 0:
-            reason = f"node has {training_jobs} active training job(s), rejecting selfplay"
-            logger.info(f"[capacity] {node_id} rejected: {reason}")
-            return (False, reason)
+        # Session 17.42: REMOVED - training_jobs field is never updated (always 0)
+        # The GPU utilization check above is sufficient proxy for "training running"
+        # Removed in Session 17.48 (Jan 27, 2026) - this dead code was causing
+        # confusion about why selfplay was being rejected.
 
         # Check GPU VRAM
         # NodeInfo has gpu_memory_percent (percentage used) and gpu_name
@@ -391,11 +389,16 @@ class WorkQueueHandlersMixin(BaseP2PHandler):
         return (True, "")
 
     def _insufficient_capacity_response(self, reason: str) -> web.Response:
-        """Return response when node has insufficient capacity."""
+        """Return response when node has insufficient capacity.
+
+        Session 17.48 (Jan 27, 2026): Changed from HTTP 200 to HTTP 429.
+        Previously, workers treated HTTP 200 as success and stopped retrying.
+        HTTP 429 (Too Many Requests) properly signals "node busy, try again later".
+        """
         return self.json_response({
             "status": "insufficient_capacity",
             "reason": reason,
-        })
+        }, status=429)
 
     async def _forward_to_leader(
         self,
