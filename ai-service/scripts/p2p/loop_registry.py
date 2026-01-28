@@ -141,6 +141,8 @@ def register_all_loops(
         loops_registered += _register_voter_config_sync(orchestrator, manager, loops_failed)
         loops_registered += _register_stability_controller(orchestrator, manager, loops_failed)
         loops_registered += _register_peer_recovery(orchestrator, manager, loops_failed)
+        loops_registered += _register_git_update(orchestrator, manager, loops_failed)
+        loops_registered += _register_voter_heartbeat(orchestrator, manager, loops_failed)
 
         logger.info(f"LoopRegistry: registered {loops_registered} loops")
         if loops_failed:
@@ -1939,4 +1941,124 @@ def _register_peer_recovery(
     except (ImportError, TypeError) as e:
         logger.debug(f"PeerRecoveryLoop: not available: {e}")
         failed.append("PeerRecoveryLoop")
+        return 0
+
+
+def _register_git_update(
+    orchestrator: "P2POrchestrator",
+    manager: "LoopManager",
+    failed: list[str],
+) -> int:
+    """Register GitUpdateLoop.
+
+    January 2026: Replaces inline _git_update_loop in p2p_orchestrator.py (~42 LOC saved).
+    """
+    try:
+        from scripts.p2p.loops.maintenance_loops import GitUpdateLoop, GitUpdateConfig
+
+        git_update = GitUpdateLoop(
+            check_for_updates=orchestrator._check_for_updates,
+            perform_update=orchestrator._perform_git_update,
+            restart_orchestrator=orchestrator._restart_orchestrator,
+            get_commits_behind=orchestrator._get_commits_behind,
+            config=GitUpdateConfig(),
+        )
+        manager.register(git_update)
+        orchestrator._git_update_loop = git_update
+        logger.info("[LoopRegistry] GitUpdateLoop registered")
+        return 1
+    except (ImportError, TypeError) as e:
+        logger.debug(f"GitUpdateLoop: not available: {e}")
+        failed.append("GitUpdateLoop")
+        return 0
+
+
+def _register_voter_heartbeat(
+    orchestrator: "P2POrchestrator",
+    manager: "LoopManager",
+    failed: list[str],
+) -> int:
+    """Register VoterHeartbeatLoop.
+
+    January 2026: Replaces inline _voter_heartbeat_loop in p2p_orchestrator.py (~101 LOC saved).
+    """
+    try:
+        from scripts.p2p.loops.network_loops import VoterHeartbeatLoop, VoterHeartbeatConfig
+
+        # Cache for voter_id -> peer_key mapping
+        _voter_peer_keys: dict[str, str] = {}
+
+        def _get_voter_node_ids() -> list[str]:
+            return list(orchestrator.voter_node_ids)
+
+        def _get_node_id() -> str:
+            return orchestrator.node_id
+
+        def _get_peer(voter_id: str):
+            # Use quorum_manager to find voter peer by IP mapping
+            # Cache the peer_key for later use by clear_nat_blocked/increment_failures
+            with orchestrator.peers_lock:
+                peer_key, peer = orchestrator.quorum_manager.find_voter_peer_by_ip(voter_id)
+                if peer_key:
+                    _voter_peer_keys[voter_id] = peer_key
+            return peer
+
+        async def _send_voter_heartbeat(voter_peer) -> bool:
+            return await orchestrator._send_voter_heartbeat(voter_peer)
+
+        async def _try_alternative_endpoints(voter_peer) -> bool:
+            return await orchestrator._try_voter_alternative_endpoints(voter_peer)
+
+        async def _discover_voter_peer(voter_id: str) -> None:
+            await orchestrator._discover_voter_peer(voter_id)
+
+        async def _refresh_voter_mesh() -> None:
+            await orchestrator._refresh_voter_mesh()
+
+        async def _clear_nat_blocked(voter_id: str) -> None:
+            # Look up the peer_key from the voter_id (cached during _get_peer)
+            peer_key = _voter_peer_keys.get(voter_id)
+            if not peer_key:
+                # Try to find it again
+                with orchestrator.peers_lock:
+                    peer_key, _ = orchestrator.quorum_manager.find_voter_peer_by_ip(voter_id)
+            if peer_key:
+                with orchestrator.peers_lock:
+                    if peer_key in orchestrator.peers:
+                        orchestrator.peers[peer_key].nat_blocked = False
+                        orchestrator.peers[peer_key].nat_blocked_since = 0.0
+                        orchestrator.peers[peer_key].consecutive_failures = 0
+
+        def _increment_failures(voter_id: str) -> None:
+            # Look up the peer_key from the voter_id (cached during _get_peer)
+            peer_key = _voter_peer_keys.get(voter_id)
+            if not peer_key:
+                # Try to find it again
+                with orchestrator.peers_lock:
+                    peer_key, _ = orchestrator.quorum_manager.find_voter_peer_by_ip(voter_id)
+            if peer_key:
+                with orchestrator.peers_lock:
+                    if peer_key in orchestrator.peers:
+                        orchestrator.peers[peer_key].consecutive_failures = \
+                            int(getattr(orchestrator.peers[peer_key], "consecutive_failures", 0) or 0) + 1
+
+        voter_heartbeat = VoterHeartbeatLoop(
+            get_voter_node_ids=_get_voter_node_ids,
+            get_node_id=_get_node_id,
+            get_peer=_get_peer,
+            send_voter_heartbeat=_send_voter_heartbeat,
+            try_alternative_endpoints=_try_alternative_endpoints,
+            discover_voter_peer=_discover_voter_peer,
+            refresh_voter_mesh=_refresh_voter_mesh,
+            clear_nat_blocked=_clear_nat_blocked,
+            increment_failures=_increment_failures,
+            config=VoterHeartbeatConfig(),
+        )
+        manager.register(voter_heartbeat)
+        orchestrator._voter_heartbeat_loop = voter_heartbeat
+        logger.info("[LoopRegistry] VoterHeartbeatLoop registered")
+        return 1
+    except (ImportError, TypeError) as e:
+        logger.debug(f"VoterHeartbeatLoop: not available: {e}")
+        failed.append("VoterHeartbeatLoop")
         return 0

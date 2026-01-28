@@ -8625,47 +8625,8 @@ class P2POrchestrator(
         # Use exec to replace current process
         os.execv(sys.executable, [sys.executable, str(script_path), *args])
 
-    async def _git_update_loop(self):
-        """Background loop to periodically check for and apply updates.
-
-        Jan 2026: Uses asyncio.to_thread() for git operations to avoid blocking.
-        """
-        if not AUTO_UPDATE_ENABLED:
-            logger.info("Auto-update disabled")
-            return
-
-        logger.info(f"Git auto-update loop started (interval: {GIT_UPDATE_CHECK_INTERVAL}s)")
-
-        while self.running:
-            try:
-                await asyncio.sleep(GIT_UPDATE_CHECK_INTERVAL)
-
-                if not self.running:
-                    break
-
-                # Check for updates (Jan 19, 2026: methods are now async)
-                has_updates, local_commit, remote_commit = await self._check_for_updates()
-
-                if has_updates and local_commit and remote_commit:
-                    commits_behind = await self._get_commits_behind(local_commit, remote_commit)
-                    logger.info(f"Update available: {commits_behind} commits behind")
-                    logger.info(f"Local:  {local_commit[:8]}")
-                    logger.info(f"Remote: {remote_commit[:8]}")
-
-                    # Perform update
-                    success, message = await self._perform_git_update()
-
-                    if success:
-                        logger.info("Update successful, restarting...")
-                        await self._restart_orchestrator()
-                    else:
-                        logger.info(f"Update failed: {message}")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:  # noqa: BLE001
-                logger.info(f"Git update loop error: {e}")
-                await asyncio.sleep(60)  # Wait before retry on error
+    # Jan 28, 2026: _git_update_loop() moved to GitUpdateLoop in loop_registry.py (~42 LOC)
+    # See scripts/p2p/loops/maintenance_loops.py and scripts/p2p/loop_registry.py
 
     # ============================================
     # HTTP API Handlers
@@ -14093,107 +14054,8 @@ print(json.dumps({{
 
             await asyncio.sleep(HEARTBEAT_INTERVAL)
 
-    async def _voter_heartbeat_loop(self):
-        """
-        Dedicated high-frequency heartbeat loop for voter nodes.
-
-        IMPROVEMENTS:
-        - Faster heartbeat interval (10s vs 30s) for voter nodes
-        - Aggressively clears NAT-blocked status on successful heartbeats
-        - Maintains full mesh connectivity between all voters
-        - Propagates voter list to ensure consistent quorum
-        """
-        # Only run if this node is a voter
-        if self.node_id not in self.voter_node_ids:
-            return
-
-        logger.info(f"Starting voter heartbeat loop (interval={VOTER_HEARTBEAT_INTERVAL}s)")
-        last_voter_mesh_refresh = 0.0
-
-        while self.running:
-            try:
-                now = time.time()
-
-                # Get all other voters
-                other_voters = [v for v in self.voter_node_ids if v != self.node_id]
-
-                # Jan 12, 2026: Consolidate peer updates to reduce lock contention
-                # Collect all peer updates, then apply in a single lock acquisition
-                peer_updates: dict[str, dict] = {}
-
-                for voter_id in other_voters:
-                    # Find voter peer info by IP mapping (Jan 2, 2026 fix)
-                    # Peers dict uses IP:port keys from SWIM, not friendly node_ids
-                    # Jan 2026: Delegated to QuorumManager.
-                    async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                        peer_key, voter_peer = self.quorum_manager.find_voter_peer_by_ip(voter_id)
-
-                    if not voter_peer:
-                        # Try to discover voter from known peers
-                        await self._discover_voter_peer(voter_id)
-                        # Jan 13, 2026: Add brief sleep to prevent busy loop when many voters unavailable
-                        await asyncio.sleep(0.1)
-                        continue
-
-                    # Attempt heartbeat to voter
-                    success = await self._send_voter_heartbeat(voter_peer)
-
-                    if success:
-                        # AGGRESSIVE NAT RECOVERY: Clear NAT-blocked immediately on success
-                        if VOTER_NAT_RECOVERY_AGGRESSIVE and voter_peer.nat_blocked:
-                            logger.info(f"Voter {voter_id} (key={peer_key}) NAT-blocked status cleared (heartbeat succeeded)")
-                            # Collect update instead of acquiring lock here
-                            if peer_key:
-                                peer_updates[peer_key] = {
-                                    "nat_blocked": False,
-                                    "nat_blocked_since": 0.0,
-                                    "consecutive_failures": 0,
-                                }
-                    else:
-                        # Try alternative endpoints
-                        success = await self._try_voter_alternative_endpoints(voter_peer)
-
-                        if not success:
-                            # Collect failure update instead of acquiring lock here
-                            if peer_key:
-                                peer_updates[peer_key] = {"inc_failures": True}
-
-                # Apply all peer updates in a single lock acquisition
-                if peer_updates:
-                    async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
-                        for key, updates in peer_updates.items():
-                            if key in self.peers:
-                                if "nat_blocked" in updates:
-                                    self.peers[key].nat_blocked = updates["nat_blocked"]
-                                    self.peers[key].nat_blocked_since = updates["nat_blocked_since"]
-                                    self.peers[key].consecutive_failures = updates["consecutive_failures"]
-                                elif updates.get("inc_failures"):
-                                    self.peers[key].consecutive_failures = \
-                                        int(getattr(self.peers[key], "consecutive_failures", 0) or 0) + 1
-
-                # Periodic voter mesh refresh - ensure all voters know about each other
-                if now - last_voter_mesh_refresh > VOTER_MESH_REFRESH_INTERVAL:
-                    last_voter_mesh_refresh = now
-                    await self._refresh_voter_mesh()
-
-                # Jan 2, 2026: Voter health monitoring - check and log voter status
-                # This runs every heartbeat cycle for proactive alerting
-                health = self._check_voter_health()
-                if not health.get("quorum_ok"):
-                    logger.error(
-                        f"[VoterHealth] QUORUM LOST: {health['voters_alive']}/{health['voters_total']} "
-                        f"voters alive, need {health['quorum_size']}"
-                    )
-                elif health.get("quorum_threatened"):
-                    logger.warning(
-                        f"[VoterHealth] QUORUM THREATENED: {health['voters_alive']}/{health['voters_total']} "
-                        f"voters alive (at threshold of {health['quorum_size']})"
-                    )
-
-            except Exception as e:  # noqa: BLE001
-                logger.info(f"Voter heartbeat error: {e}")
-
-            await asyncio.sleep(VOTER_HEARTBEAT_INTERVAL)
+    # Jan 28, 2026: _voter_heartbeat_loop() moved to VoterHeartbeatLoop in loop_registry.py (~101 LOC)
+    # See scripts/p2p/loops/network_loops.py and scripts/p2p/loop_registry.py
 
     async def _reconnect_dead_peers_loop(self) -> None:
         """Attempt to reconnect dead (but not retired) peers with exponential backoff.
