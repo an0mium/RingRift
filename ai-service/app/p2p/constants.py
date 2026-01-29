@@ -74,7 +74,10 @@ HEARTBEAT_INTERVAL = int(os.environ.get("RINGRIFT_P2P_HEARTBEAT_INTERVAL", "15")
 # Jan 27, 2026: Aligned to 150s to match PEER_DEAD_TIMEOUT and thresholds.py
 # Creates sequence: SUSPECT(60s) → PEER_TIMEOUT(150s) → RETIRE(210s).
 # With 10s heartbeat, 15 missed = DEAD. ±5% jitter = 142-158s (16s window).
-PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "150") or 150)
+# Jan 28, 2026: Increased from 150s to 180s to handle DERP relay latency.
+# Tailscale DERP relays (Helsinki, etc.) add 126ms+ RTT with occasional spikes.
+# 180s = 12 missed 15s heartbeats, provides margin for relay congestion.
+PEER_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_PEER_TIMEOUT", "180") or 180)
 # Jan 23, 2026: UNIFIED - All node types now use the same timeout (90s) for consistency.
 # Role-based timeouts caused different nodes to disagree on peer liveness, breaking gossip.
 # NAT-blocked nodes compensate via retry/relay, not longer timeouts.
@@ -562,7 +565,8 @@ GOSSIP_MAX_PEER_ENDPOINTS = int(
 # Rollback: RINGRIFT_USE_LEGACY_TIMEOUTS=true
 # Jan 25, 2026: Increased from 180s to 210s to maintain 60s gap with PEER_TIMEOUT=150s.
 # Jan 25, 2026 (later): Increased from 210s to 240s to maintain 60s gap with PEER_TIMEOUT=180s.
-# Sequence: SUSPECT(60s) → DEAD(180s) → RETIRE(240s).
+# Jan 28, 2026: Kept at 240s with PEER_TIMEOUT=180s. 60s gap handles DERP relay reconnects.
+# Sequence: SUSPECT(90s) → DEAD(180s) → RETIRE(240s).
 PEER_RETIRE_AFTER_SECONDS = int(os.environ.get("RINGRIFT_P2P_PEER_RETIRE_AFTER_SECONDS", "240") or 240)
 # Renamed from RETRY_RETIRED_NODE_INTERVAL to PEER_RECOVERY_RETRY_INTERVAL for clarity
 PEER_RECOVERY_RETRY_INTERVAL = int(os.environ.get("RINGRIFT_P2P_PEER_RECOVERY_INTERVAL", "120") or 120)
@@ -605,7 +609,9 @@ VOTER_HEARTBEAT_INTERVAL = 10
 # Jan 19, 2026: CRITICAL FIX - Timeout was 10s but HEARTBEAT_INTERVAL is 15s!
 # This caused voters to be marked unhealthy before they could send heartbeats.
 # Timeout should be >= HEARTBEAT_INTERVAL * 3 to tolerate network jitter and CPU load.
-VOTER_HEARTBEAT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_VOTER_HEARTBEAT_TIMEOUT", "45") or 45)
+# Jan 28, 2026: Increased from 45s to 60s to handle DERP relay latency to Hetzner voters.
+# With 10s voter heartbeat interval, 60s = 6 missed heartbeats before marked unhealthy.
+VOTER_HEARTBEAT_TIMEOUT = int(os.environ.get("RINGRIFT_P2P_VOTER_HEARTBEAT_TIMEOUT", "60") or 60)
 VOTER_MESH_REFRESH_INTERVAL = 30
 VOTER_NAT_RECOVERY_AGGRESSIVE = True
 

@@ -8624,7 +8624,7 @@ class P2POrchestrator(
             _safe_metric("gossip_metrics", self._get_gossip_metrics_summary),
             _safe_metric("distributed_training", self._get_distributed_training_summary),
             _safe_metric("cluster_elo", self._get_cluster_elo_summary),
-            _safe_metric("node_recovery", self._get_node_recovery_metrics),
+            # Jan 28, 2026: node_recovery metrics removed (method deleted)
             _safe_metric("leader_consensus", self._get_cluster_leader_consensus),
             _safe_metric("peer_reputation", self._get_cluster_peer_reputation),
             _safe_metric("sync_intervals", self._get_sync_interval_summary),

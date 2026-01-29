@@ -919,7 +919,8 @@ HEARTBEAT_INTERVAL = 30
 
 # Peer timeout - no heartbeat means dead (seconds)
 # Jan 27, 2026: Aligned to 150s to match PEER_DEAD_TIMEOUT in loop_constants.py
-PEER_TIMEOUT = 150
+# Jan 28, 2026: Increased to 180s for Tailscale DERP relay latency tolerance
+PEER_TIMEOUT = 180
 
 # Election timeout for leader election (seconds)
 ELECTION_TIMEOUT = 10

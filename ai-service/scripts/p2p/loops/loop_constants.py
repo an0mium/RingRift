@@ -206,7 +206,8 @@ class LoopTimeouts:
     # Jan 25, 2026: Further increased to 120.0 to match actual PEER_TIMEOUT (120s) in constants.py
     # The 30s mismatch caused nodes to be marked dead too quickly, leading to network instability
     # Jan 25, 2026 (PM): Increased to 150.0 to match new PEER_TIMEOUT=150s for stable 20+ node connectivity
-    PEER_DEAD_TIMEOUT: float = 150.0         # Peer considered dead after this (matches PEER_TIMEOUT=150s)
+    # Jan 28, 2026: Increased to 180.0 to handle DERP relay latency (126ms+ to Helsinki)
+    PEER_DEAD_TIMEOUT: float = 180.0         # Peer considered dead after this (matches PEER_TIMEOUT=180s)
 
     # Sync and transfer
     SYNC_LOCK: float = 120.0                 # Sync operation lock
