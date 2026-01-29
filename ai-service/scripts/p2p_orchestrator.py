@@ -733,6 +733,7 @@ from scripts.p2p.handlers import (
     CanonicalGateHandlersMixin,
     CMAESHandlersMixin,
     DeliveryHandlersMixin,
+    DiagnosticsHandlersMixin,  # January 2026 - Diagnostics handlers extraction
     ElectionHandlersMixin,
     EloSyncHandlersMixin,
     GauntletHandlersMixin,
@@ -1611,6 +1612,7 @@ class P2POrchestrator(
     PipelineHandlersMixin,       # Pipeline phase handlers (Jan 2026 - P2P Modularization Phase 6)
     SerfHandlersMixin,           # Serf event handlers (Jan 2026 - P2P Modularization Phase 7)
     AnalyticsHandlersMixin,      # Analytics handlers (Jan 2026 - P2P Modularization Phase 8)
+    DiagnosticsHandlersMixin,    # Diagnostics handlers (Jan 2026 - P2P Modularization Phase 8f)
     NetworkHealthMixin,          # Network health endpoints (Dec 30, 2025)
     NetworkUtilsMixin,
     PeerManagerMixin,
@@ -9006,147 +9008,14 @@ class P2POrchestrator(
             "peer_health_summary": self.health_metrics_manager.get_peer_health_summary(),
         })
 
-    @with_request_timeout(10.0)
-    async def handle_progress(self, request: web.Request) -> web.Response:
-        """GET /progress - Return Elo progress report for demonstrating iterative improvement.
-
-        January 16, 2026: Added to provide visibility into NN strength improvement.
-
-        Query parameters:
-            config: Optional config filter (e.g., "hex8_2p")
-            days: Lookback period in days (default: 30)
-
-        Returns JSON with:
-            - configs: Per-config progress data (starting_elo, current_elo, delta, iterations)
-            - overall: Summary stats (total_iterations, configs_improving, avg_elo_gain)
-            - generated_at: Timestamp
-        """
-        config_filter = request.query.get("config")
-        try:
-            days = float(request.query.get("days", "30"))
-        except ValueError:
-            days = 30.0
-
-        try:
-            # Import progress report logic
-            import sys
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from scripts.elo_progress_report import get_full_report
-            from dataclasses import asdict
-
-            report = get_full_report(days=days, config_filter=config_filter)
-
-            # Convert to JSON-serializable dict
-            data = {
-                "configs": {k: asdict(v) for k, v in report.configs.items()},
-                "overall": asdict(report.overall),
-                "generated_at": report.generated_at,
-            }
-
-            return web.json_response(data)
-
-        except ImportError as e:
-            logger.warning(f"[handle_progress] Import error: {e}")
-            return web.json_response({
-                "error": "progress_report_unavailable",
-                "detail": str(e),
-            }, status=500)
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"[handle_progress] Error generating progress report: {e}")
-            return web.json_response({
-                "error": "internal_error",
-                "detail": str(e),
-            }, status=500)
+    # NOTE: handle_progress moved to DiagnosticsHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8f)
 
     # -------------------------------------------------------------------------
-    # Stability Controller Handlers (January 2026 - Self-Healing Architecture)
+    # Stability Controller Handlers - EXTRACTED to scripts/p2p/handlers/diagnostics.py
+    # January 2026 - P2P Modularization Phase 8f
+    # Provides: handle_progress, handle_stability, handle_p2p_diagnostics, handle_swim_status
+    # See DiagnosticsHandlersMixin
     # -------------------------------------------------------------------------
-
-    async def handle_stability(self, request: web.Request) -> web.Response:
-        """GET /stability - Return stability controller status.
-
-        January 2026: Added as part of P2P Self-Healing Architecture.
-
-        Returns JSON with:
-            - controller: StabilityController status (symptoms, actions, running state)
-            - adaptive_timeouts: Per-node adaptive timeouts
-            - effectiveness: Recovery action effectiveness tracking
-            - metrics: Current stability metrics
-        """
-        response: dict[str, Any] = {
-            "node_id": self.node_id,
-            "timestamp": time.time(),
-        }
-
-        # Stability controller status
-        if self._stability_controller:
-            response["controller"] = self._stability_controller.get_status()
-        else:
-            response["controller"] = {"enabled": False, "reason": "not_initialized"}
-
-        # Adaptive timeout status
-        if self._adaptive_timeouts:
-            response["adaptive_timeouts"] = self._adaptive_timeouts.get_status()
-        else:
-            response["adaptive_timeouts"] = {"enabled": False}
-
-        # Effectiveness tracking status
-        if self._effectiveness_tracker:
-            response["effectiveness"] = self._effectiveness_tracker.get_status()
-        else:
-            response["effectiveness"] = {"enabled": False}
-
-        # Current stability metrics
-        try:
-            response["metrics"] = self._get_stability_metrics()
-        except Exception as e:
-            response["metrics"] = {"error": str(e)}
-
-        return web.json_response(response)
-
-    async def handle_p2p_diagnostics(self, request: web.Request) -> web.Response:
-        """GET /p2p/diagnostics - Return P2P diagnostic tracker data.
-
-        January 2026: Phase 0 diagnostic instrumentation endpoint.
-
-        Returns JSON with:
-            - peer_state: Peer state transition tracking (flapping, death reasons)
-            - connection_failures: Connection failure tracking by type/transport
-            - probe_effectiveness: Probe success rates and false positives
-        """
-        response: dict[str, Any] = {
-            "node_id": self.node_id,
-            "timestamp": time.time(),
-        }
-
-        # Peer state tracker
-        if self._peer_state_tracker:
-            try:
-                response["peer_state"] = self._peer_state_tracker.get_diagnostics()
-            except Exception as e:
-                response["peer_state"] = {"error": str(e)}
-        else:
-            response["peer_state"] = {"enabled": False}
-
-        # Connection failure tracker
-        if self._conn_failure_tracker:
-            try:
-                response["connection_failures"] = self._conn_failure_tracker.get_diagnostics()
-            except Exception as e:
-                response["connection_failures"] = {"error": str(e)}
-        else:
-            response["connection_failures"] = {"enabled": False}
-
-        # Probe effectiveness tracker
-        if self._probe_tracker:
-            try:
-                response["probe_effectiveness"] = self._probe_tracker.get_diagnostics()
-            except Exception as e:
-                response["probe_effectiveness"] = {"error": str(e)}
-        else:
-            response["probe_effectiveness"] = {"enabled": False}
-
-        return web.json_response(response)
 
     # -------------------------------------------------------------------------
     # Peer Health Handlers - EXTRACTED to scripts/p2p/handlers/status.py
@@ -9176,41 +9045,7 @@ class P2POrchestrator(
     # SWIM Native Integration - swim-p2p membership status
     # ============================================================
 
-    async def handle_swim_status(self, request: web.Request) -> web.Response:
-        """GET /swim/status - Return SWIM membership protocol status.
-
-        SWIM provides leaderless gossip-based membership with:
-        - O(1) bandwidth per node (constant message complexity)
-        - <5 second failure detection (vs 60+ seconds with heartbeats)
-        - Suspicion mechanism to reduce false positives
-        """
-        try:
-            if not self._swim_manager:
-                return web.json_response({
-                    "status": "disabled",
-                    "reason": "swim-p2p not installed or SWIM adapter not available",
-                    "node_id": self.node_id,
-                    "fallback": "http_heartbeats",
-                })
-
-            summary = self._swim_manager.get_membership_summary()
-            alive_peers = self._swim_manager.get_alive_peers() if self._swim_started else []
-
-            return web.json_response({
-                "status": "enabled" if self._swim_started else "initialized",
-                "node_id": self.node_id,
-                "swim": summary,
-                "alive_peers": alive_peers,
-                "peer_count": len(alive_peers),
-            })
-
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Error getting SWIM status: {e}")
-            return web.json_response({
-                "status": "error",
-                "error": str(e),
-                "node_id": self.node_id,
-            }, status=500)
+    # NOTE: handle_swim_status moved to DiagnosticsHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8f)
 
     async def _swim_membership_loop(self) -> None:
         """Background task that integrates SWIM membership with P2P peer tracking.

@@ -85,6 +85,7 @@ from .admin import AdminHandlersMixin
 from .analytics import AnalyticsHandlersMixin
 from .canonical_gate import CanonicalGateHandlersMixin
 from .delivery import DeliveryHandlersMixin
+from .diagnostics import DiagnosticsHandlersMixin
 from .network_discovery import NetworkDiscoveryMixin
 from .cmaes import CMAESHandlersMixin
 from .election import ElectionHandlersMixin
@@ -133,6 +134,7 @@ __all__ = [
     "CanonicalGateHandlersMixin",
     "CMAESHandlersMixin",
     "DeliveryHandlersMixin",
+    "DiagnosticsHandlersMixin",
     "ElectionHandlersMixin",
     "EloSyncHandlersMixin",
     "GauntletHandlersMixin",
