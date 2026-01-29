@@ -15791,12 +15791,18 @@ print(json.dumps({{
     async def _manage_cluster_jobs(self):
         """Manage jobs across the cluster (leader only).
 
+        Jan 29, 2026: Delegated to ProcessSpawnerOrchestrator.
         LEARNED LESSONS incorporated:
         - Check disk space BEFORE starting jobs (Vast.ai 91-93% disk issue)
         - Check memory to prevent OOM (AWS instance crashed at 31GB+)
         - Trigger cleanup when approaching limits
         - Use is_healthy() not just is_alive()
         """
+        # Jan 29, 2026: Delegate to ProcessSpawnerOrchestrator
+        if hasattr(self, "process_spawner") and self.process_spawner is not None:
+            return await self.process_spawner.manage_cluster_jobs()
+
+        # Fallback: inline implementation (legacy)
         logger.info("Leader: Managing cluster jobs...")
 
         # Track cluster management run via JobOrchestrationManager (Jan 2026)

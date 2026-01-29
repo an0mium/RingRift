@@ -1025,3 +1025,357 @@ class ProcessSpawnerOrchestrator(BaseOrchestrator):
         except Exception as e:
             self._log_error(f"Error monitoring process {job_id}: {e}")
             self._local_jobs_failed += 1
+
+    # =========================================================================
+    # Cluster Job Management (Leader Only)
+    # =========================================================================
+
+    async def manage_cluster_jobs(self) -> None:
+        """Manage jobs across the cluster (leader only).
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._manage_cluster_jobs().
+
+        LEARNED LESSONS incorporated:
+        - Check disk space BEFORE starting jobs (Vast.ai 91-93% disk issue)
+        - Check memory to prevent OOM (AWS instance crashed at 31GB+)
+        - Trigger cleanup when approaching limits
+        - Use is_healthy() not just is_alive()
+        """
+        # Import constants lazily to avoid circular imports
+        try:
+            from scripts.p2p.config.p2p_constants import (
+                DISK_CLEANUP_THRESHOLD,
+                DISK_CRITICAL_THRESHOLD,
+                DISK_WARNING_THRESHOLD,
+                GPU_IDLE_RESTART_TIMEOUT,
+                GPU_IDLE_THRESHOLD,
+                LOAD_MAX_FOR_NEW_JOBS,
+                MEMORY_CRITICAL_THRESHOLD,
+                MEMORY_WARNING_THRESHOLD,
+                RUNAWAY_SELFPLAY_PROCESS_THRESHOLD,
+            )
+        except ImportError:
+            # Fallback defaults
+            DISK_CLEANUP_THRESHOLD = 85
+            DISK_CRITICAL_THRESHOLD = 95
+            DISK_WARNING_THRESHOLD = 80
+            GPU_IDLE_RESTART_TIMEOUT = 600
+            GPU_IDLE_THRESHOLD = 5
+            LOAD_MAX_FOR_NEW_JOBS = 90
+            MEMORY_CRITICAL_THRESHOLD = 90
+            MEMORY_WARNING_THRESHOLD = 80
+            RUNAWAY_SELFPLAY_PROCESS_THRESHOLD = 128
+
+        # Import selfplay config helpers
+        try:
+            from scripts.p2p.config.selfplay_job_configs import (
+                get_filtered_configs,
+                get_unique_configs,
+                get_weighted_configs,
+            )
+            HAS_CONFIG_HELPERS = True
+        except ImportError:
+            HAS_CONFIG_HELPERS = False
+
+        self._log_info("Leader: Managing cluster jobs...")
+
+        # Track cluster management run
+        job_orchestration = getattr(self._p2p, "job_orchestration", None)
+        if job_orchestration is not None:
+            job_orchestration.record_cluster_management_run()
+
+        # Gather cluster state
+        peers_lock = getattr(self._p2p, "peers_lock", None)
+        peers = getattr(self._p2p, "peers", {})
+        if peers_lock is not None:
+            with peers_lock:
+                alive_peers = [p for p in peers.values() if p.is_alive()]
+        else:
+            alive_peers = [p for p in peers.values() if p.is_alive()]
+
+        # Add self
+        if hasattr(self._p2p, "_update_self_info"):
+            self._p2p._update_self_info()
+        self_info = getattr(self._p2p, "self_info", None)
+        all_nodes = [*alive_peers]
+        if self_info is not None:
+            all_nodes.append(self_info)
+
+        # Phase 1: Handle resource warnings and cleanup
+        for node in all_nodes:
+            if node.disk_percent >= DISK_CLEANUP_THRESHOLD:
+                self._log_info(f"{node.node_id}: Disk at {node.disk_percent:.0f}% - triggering cleanup")
+                if node.node_id == self.node_id:
+                    if hasattr(self._p2p, "_cleanup_local_disk"):
+                        await self._p2p._cleanup_local_disk()
+                else:
+                    if hasattr(self._p2p, "_request_remote_cleanup"):
+                        await self._p2p._request_remote_cleanup(node)
+                continue
+
+            # Load shedding
+            pressure_reasons: list[str] = []
+            if node.memory_percent >= MEMORY_WARNING_THRESHOLD:
+                pressure_reasons.append("memory")
+            if node.disk_percent >= DISK_WARNING_THRESHOLD:
+                pressure_reasons.append("disk")
+
+            if pressure_reasons:
+                selfplay_scheduler = getattr(self._p2p, "selfplay_scheduler", None)
+                desired = selfplay_scheduler.get_target_jobs_for_node(node) if selfplay_scheduler else 0
+                if node.memory_percent >= MEMORY_CRITICAL_THRESHOLD or node.disk_percent >= DISK_CRITICAL_THRESHOLD:
+                    desired = 0
+
+                if node.selfplay_jobs > desired:
+                    reason = "+".join(pressure_reasons)
+                    self._log_info(
+                        f"{node.node_id}: Load shedding (reason={reason}) "
+                        f"{node.selfplay_jobs}->{desired} selfplay jobs"
+                    )
+                    if node.node_id == self.node_id:
+                        if hasattr(self._p2p, "_reduce_local_selfplay_jobs"):
+                            await self._p2p._reduce_local_selfplay_jobs(desired, reason=reason)
+                    else:
+                        if hasattr(self._p2p, "_request_reduce_selfplay"):
+                            await self._p2p._request_reduce_selfplay(node, desired, reason=reason)
+
+        # Phase 1.5: Detect stuck jobs (GPU idle with running processes)
+        gpu_idle_since = getattr(self._p2p, "gpu_idle_since", {})
+        for node in all_nodes:
+            if not node.has_gpu or node.selfplay_jobs <= 0:
+                if node.node_id in gpu_idle_since:
+                    del gpu_idle_since[node.node_id]
+                continue
+
+            gpu_name = (node.gpu_name or "").upper()
+            is_cuda_gpu = "MPS" not in gpu_name and "APPLE" not in gpu_name
+            if not is_cuda_gpu:
+                continue
+
+            if node.gpu_percent < GPU_IDLE_THRESHOLD:
+                if node.node_id not in gpu_idle_since:
+                    gpu_idle_since[node.node_id] = time.time()
+                    self._log_info(f"{node.node_id}: GPU idle ({node.gpu_percent:.0f}%) with {node.selfplay_jobs} jobs - monitoring")
+                else:
+                    idle_duration = time.time() - gpu_idle_since[node.node_id]
+                    if idle_duration >= GPU_IDLE_RESTART_TIMEOUT:
+                        self._log_info(f"{node.node_id}: STUCK! GPU idle for {idle_duration:.0f}s with {node.selfplay_jobs} jobs")
+                        self._log_info(f"{node.node_id}: Requesting job restart...")
+                        if node.node_id == self.node_id:
+                            if hasattr(self._p2p, "_restart_local_stuck_jobs"):
+                                await self._p2p._restart_local_stuck_jobs()
+                        else:
+                            if hasattr(self._p2p, "_request_job_restart"):
+                                await self._p2p._request_job_restart(node)
+                        del gpu_idle_since[node.node_id]
+            else:
+                if node.node_id in gpu_idle_since:
+                    del gpu_idle_since[node.node_id]
+
+        # Phase 1.6: Detect runaway selfplay processes
+        selfplay_scheduler = getattr(self._p2p, "selfplay_scheduler", None)
+        for node in all_nodes:
+            try:
+                target = selfplay_scheduler.get_target_jobs_for_node(node) if selfplay_scheduler else 8
+                dynamic_threshold = max(16, target * 3)
+                runaway_threshold = (
+                    int(RUNAWAY_SELFPLAY_PROCESS_THRESHOLD)
+                    if int(RUNAWAY_SELFPLAY_PROCESS_THRESHOLD) > 0
+                    else int(dynamic_threshold)
+                )
+                if int(getattr(node, "selfplay_jobs", 0) or 0) < runaway_threshold:
+                    continue
+            except (ValueError, AttributeError):
+                continue
+
+            self._log_info(
+                f"{node.node_id}: RUNAWAY selfplay count ({node.selfplay_jobs}) "
+                f">= {runaway_threshold} — requesting restart sweep"
+            )
+            if node.node_id == self.node_id:
+                if hasattr(self._p2p, "_restart_local_stuck_jobs"):
+                    await self._p2p._restart_local_stuck_jobs()
+            else:
+                if hasattr(self._p2p, "_request_job_restart"):
+                    await self._p2p._request_job_restart(node)
+
+        # Phase 2: Calculate desired job distribution for healthy nodes
+        healthy_nodes = [n for n in all_nodes if n.is_healthy()]
+        healthy_nodes.sort(key=lambda n: n.get_load_score())
+
+        if healthy_nodes:
+            load_summary = ", ".join(
+                f"{n.node_id[:12]}={n.get_load_score():.0f}%"
+                for n in healthy_nodes[:5]
+            )
+            self._log_info(f"Load balancing: {load_summary}")
+
+        for node in healthy_nodes:
+            load_score = node.get_load_score()
+            if load_score >= LOAD_MAX_FOR_NEW_JOBS:
+                self._log_info(f"{node.node_id}: Load {load_score:.0f}% - skipping new job starts")
+                continue
+
+            # Get hybrid job targets
+            if selfplay_scheduler is None:
+                continue
+            hybrid_targets = selfplay_scheduler.get_hybrid_job_targets(node)
+            gpu_job_target = hybrid_targets.get("gpu_jobs", 0)
+            cpu_only_target = hybrid_targets.get("cpu_only_jobs", 0)
+            total_target = hybrid_targets.get("total_jobs", gpu_job_target)
+            target_selfplay = total_target
+
+            # Check if node needs more jobs
+            if node.selfplay_jobs >= target_selfplay:
+                continue
+
+            needed = target_selfplay - node.selfplay_jobs
+            self._log_info(f"{node.node_id} needs {needed} more selfplay jobs")
+
+            # Get configs
+            if HAS_CONFIG_HELPERS:
+                node_mem = int(getattr(node, "memory_gb", 0) or 0)
+                filtered_configs = get_filtered_configs(node_memory_gb=node_mem)
+                weighted_configs = get_weighted_configs(filtered_configs)
+                unique_configs = get_unique_configs(filtered_configs)
+            else:
+                unique_configs = [{"board_type": "hex8", "num_players": 2, "engine_mode": "gumbel-mcts"}]
+                weighted_configs = unique_configs
+
+            jobs_to_start = min(needed, 10)
+
+            # Calculate GPU vs CPU-only slots
+            current_gpu_jobs = min(node.selfplay_jobs, gpu_job_target)
+            remaining_gpu_slots = max(0, gpu_job_target - current_gpu_jobs)
+            remaining_cpu_slots = max(0, cpu_only_target)
+            should_use_cpu_only = (
+                selfplay_scheduler.should_spawn_cpu_only_jobs(node) and cpu_only_target > 0
+            )
+
+            for i in range(jobs_to_start):
+                # Determine job type based on GPU capabilities
+                gpu_name = (node.gpu_name or "").upper()
+                node_has_gpu = bool(node.has_gpu)
+
+                # YAML fallback when runtime GPU detection fails
+                if not node_has_gpu or not gpu_name:
+                    if hasattr(self._p2p, "_check_yaml_gpu_config"):
+                        yaml_has_gpu, yaml_gpu_name, _ = self._p2p._check_yaml_gpu_config(node.node_id)
+                        if yaml_has_gpu:
+                            node_has_gpu = True
+                            if yaml_gpu_name:
+                                gpu_name = yaml_gpu_name.upper()
+
+                is_high_end_gpu = any(tag in gpu_name for tag in ("H100", "H200", "GH200", "A100", "5090", "4090"))
+                is_apple_gpu = "MPS" in gpu_name or "APPLE" in gpu_name
+
+                # GPU unavailability check
+                gpu_percent = getattr(node, "gpu_percent", 0) or 0
+                gpu_job_count = getattr(node, "gpu_job_count", 0) or 0
+                gpu_failure_count = getattr(node, "gpu_failure_count", 0) or 0
+                last_gpu_failure = getattr(node, "last_gpu_job_failure", 0) or 0
+                gpu_seems_unavailable = (
+                    node_has_gpu
+                    and not is_apple_gpu
+                    and (
+                        (gpu_job_count >= 2 and gpu_percent < 1)
+                        or (gpu_failure_count >= 3 and time.time() - last_gpu_failure < 300)
+                    )
+                )
+
+                # Role-based job preference
+                job_preference = "both"
+                if hasattr(self._p2p, "_get_node_job_preference"):
+                    job_preference = self._p2p._get_node_job_preference(node.node_id)
+
+                if job_preference == "training_only":
+                    continue
+                elif job_preference == "cpu_only":
+                    spawn_cpu_only = True
+                    if remaining_cpu_slots > 0:
+                        remaining_cpu_slots -= 1
+                    else:
+                        continue
+                elif job_preference == "gpu_only" and node_has_gpu and not gpu_seems_unavailable:
+                    if remaining_gpu_slots > 0:
+                        remaining_gpu_slots -= 1
+                        spawn_cpu_only = False
+                    else:
+                        continue
+                else:
+                    spawn_cpu_only = False
+                    if remaining_gpu_slots > 0 and not gpu_seems_unavailable:
+                        remaining_gpu_slots -= 1
+                    elif should_use_cpu_only and remaining_cpu_slots > 0:
+                        spawn_cpu_only = True
+                        remaining_cpu_slots -= 1
+                    elif gpu_seems_unavailable:
+                        spawn_cpu_only = True
+
+                # Determine job type
+                if spawn_cpu_only:
+                    job_type_enum = self._get_job_type("cpu_selfplay")
+                    task_type_str = "CPU-only (hybrid mode)"
+                elif node.has_gpu and is_high_end_gpu and not is_apple_gpu and not gpu_seems_unavailable:
+                    import random
+                    if random.random() < 0.5:
+                        job_type_enum = self._get_job_type("gumbel_selfplay")
+                        task_type_str = "GUMBEL (high-quality)"
+                    else:
+                        job_type_enum = self._get_job_type("gpu_selfplay")
+                        task_type_str = "GPU (high-parity)"
+                elif node.has_gpu and not is_apple_gpu and not gpu_seems_unavailable:
+                    job_type_enum = self._get_job_type("hybrid_selfplay")
+                    task_type_str = "HYBRID (accel)"
+                else:
+                    job_type_enum = self._get_job_type("selfplay")
+                    task_type_str = "CPU-only"
+
+                gpu_info = f"gpu={node.gpu_name or 'none'}, gpu%={getattr(node, 'gpu_percent', 0):.0f}" if node.has_gpu else "no-gpu"
+                self._log_info(f"Assigning {task_type_str} task to {node.node_id} ({gpu_info}, load={node.get_load_score():.0f}%)")
+
+                # Config selection
+                improvement_cycle = getattr(self._p2p, "improvement_cycle_manager", None)
+                if improvement_cycle and hasattr(improvement_cycle, "get_next_selfplay_config_for_node"):
+                    node_gpu_power = node.gpu_power_score() if hasattr(node, "gpu_power_score") else 0
+                    node_memory = int(getattr(node, "memory_gb", 0) or 0)
+                    cluster_data = getattr(self._p2p, "cluster_data_manifest", None)
+                    config = improvement_cycle.get_next_selfplay_config_for_node(
+                        node_gpu_power=node_gpu_power,
+                        node_memory_gb=node_memory,
+                        cluster_data=cluster_data,
+                    )
+                else:
+                    config_idx = i % len(unique_configs)
+                    config = unique_configs[config_idx]
+
+                # Track diversity
+                if selfplay_scheduler is not None:
+                    selfplay_scheduler.track_diversity(config)
+
+                # Dispatch job
+                if node.node_id == self.node_id:
+                    await self.start_local_job(
+                        job_type_enum,
+                        board_type=config["board_type"],
+                        num_players=config["num_players"],
+                        engine_mode=config["engine_mode"],
+                    )
+                else:
+                    if hasattr(self._p2p, "_request_remote_job"):
+                        await self._p2p._request_remote_job(
+                            node, job_type_enum,
+                            board_type=config["board_type"],
+                            num_players=config["num_players"],
+                            engine_mode=config["engine_mode"],
+                        )
+                self._cluster_jobs_dispatched += 1
+
+    def _get_job_type(self, name: str) -> Any:
+        """Get a JobType enum value by name."""
+        if HAS_JOB_TYPES and JobType is not None:
+            name_upper = name.upper()
+            for member in JobType:
+                if member.name == name_upper or member.value == name:
+                    return member
+        return name
