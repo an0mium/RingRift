@@ -12004,7 +12004,13 @@ print(json.dumps({{
         cascade failures. When 5+ nodes are busy, ALL nodes would mark ALL of them
         dead simultaneously, causing gossip storms and further instability.
         Now max PEER_DEATH_RATE_LIMIT peers can be retired per check cycle.
+
+        January 29, 2026: Delegated to PeerNetworkOrchestrator.check_dead_peers_async().
         """
+        # Delegate to PeerNetworkOrchestrator if available
+        if hasattr(self, "network") and self.network is not None:
+            return await self.network.check_dead_peers_async()
+
         now = time.time()
         dead_peers = []
         peers_to_purge = []

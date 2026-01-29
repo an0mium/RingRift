@@ -15,6 +15,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -945,3 +946,349 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
             local_ips.add(ts_ip)
 
         return local_ips
+
+    # =========================================================================
+    # Dead Peer Detection and Lifecycle
+    # =========================================================================
+
+    async def check_dead_peers_async(self) -> None:
+        """Check for peers that have stopped responding (async version).
+
+        Jan 29, 2026: Extracted from P2POrchestrator._check_dead_peers_async().
+
+        This version uses NonBlockingAsyncLockWrapper to avoid blocking the
+        event loop when acquiring the peers_lock.
+
+        January 12, 2026: Refactored to move event emissions outside the lock
+        to prevent deadlock risk when event handlers need the same lock.
+
+        January 19, 2026: Added rate limiting (PEER_DEATH_RATE_LIMIT) to prevent
+        cascade failures. When 5+ nodes are busy, ALL nodes would mark ALL of them
+        dead simultaneously, causing gossip storms and further instability.
+        Now max PEER_DEATH_RATE_LIMIT peers can be retired per check cycle.
+        """
+        # Import constants lazily to avoid circular imports
+        try:
+            from scripts.p2p.config.p2p_constants import (
+                PEER_DEATH_RATE_LIMIT,
+                PEER_PURGE_AFTER_SECONDS,
+                PEER_RETIRE_AFTER_SECONDS,
+                PEER_TIMEOUT,
+                PROVISIONAL_LEADER_INITIAL_PROBABILITY,
+            )
+        except ImportError:
+            PEER_DEATH_RATE_LIMIT = 3
+            PEER_PURGE_AFTER_SECONDS = 3600
+            PEER_RETIRE_AFTER_SECONDS = 300
+            PEER_TIMEOUT = 60
+            PROVISIONAL_LEADER_INITIAL_PROBABILITY = 0.05
+
+        try:
+            from scripts.p2p.lock_utils import NonBlockingAsyncLockWrapper
+        except ImportError:
+            # Fallback: use a simple async context manager
+            from contextlib import asynccontextmanager
+
+            @asynccontextmanager
+            async def NonBlockingAsyncLockWrapper(lock, name="", timeout=5.0):
+                lock.acquire()
+                try:
+                    yield
+                finally:
+                    lock.release()
+
+        p2p = self._p2p
+        now = time.time()
+        dead_peers: list[str] = []
+        peers_to_purge: list[str] = []
+
+        # Jan 12, 2026: Collect event data inside lock, emit outside
+        # This prevents deadlocks when event handlers need peers_lock
+        retired_peers: list[tuple[str, float | None, float]] = []  # (node_id, last_hb, dead_for)
+        recovered_peers: list[tuple[str, list[str]]] = []  # (node_id, capabilities)
+
+        # Jan 19, 2026: Track candidates for retirement with their dead_for time
+        # so we can sort by longest-dead and rate-limit retirements
+        retirement_candidates: list[tuple[str, float, float | None]] = []  # (node_id, dead_for, last_hb)
+
+        async with NonBlockingAsyncLockWrapper(p2p.peers_lock, "peers_lock", timeout=5.0):
+            for node_id, info in p2p.peers.items():
+                if not info.is_alive() and node_id != p2p.node_id:
+                    dead_peers.append(node_id)
+                    # Check if peer should be retired (long-dead)
+                    try:
+                        dead_for = now - float(getattr(info, "last_heartbeat", 0.0) or 0.0)
+                    except (ValueError, AttributeError):
+                        dead_for = float("inf")
+                    if not getattr(info, "retired", False) and dead_for >= PEER_RETIRE_AFTER_SECONDS:
+                        # Jan 19, 2026: Collect candidates instead of immediately retiring
+                        last_hb = getattr(info, "last_heartbeat", None)
+                        retirement_candidates.append((node_id, dead_for, last_hb))
+                elif info.is_alive() and getattr(info, "retired", False):
+                    # Peer came back: clear retirement and remove from dead tracking.
+                    info.retired = False
+                    info.retired_at = 0.0
+                    # Jan 20, 2026: Clear cooldown on recovery
+                    cooldown_mgr = getattr(p2p, "_cooldown_manager", None)
+                    if cooldown_mgr:
+                        cooldown_mgr.clear_cooldown(node_id)
+                    else:
+                        dead_ts = getattr(p2p, "_dead_peer_timestamps", {})
+                        dead_ts.pop(node_id, None)
+                    # Collect data for event emission outside lock
+                    caps: list[str] = []
+                    if hasattr(info, "gpu_type") and info.gpu_type:
+                        caps.append(f"gpu:{info.gpu_type}")
+                    recovered_peers.append((node_id, caps))
+                    logger.info(f"Peer {node_id} recovered from retirement")
+
+                    # Jan 21, 2026: Track state transition for diagnostics
+                    # Jan 22, 2026: Use record_recovery() to clear SUSPECTED state
+                    peer_tracker = getattr(p2p, "_peer_state_tracker", None)
+                    if peer_tracker:
+                        try:
+                            peer_tracker.record_recovery(
+                                node_id=node_id,
+                                details={"recovery_type": "retirement_cleared"},
+                            )
+                        except Exception:
+                            pass  # Graceful degradation
+
+            for node_id in dead_peers:
+                info = p2p.peers.get(node_id)
+                if info and getattr(info, "retired", False):
+                    continue
+                logger.info(f"Peer {node_id} is dead (no heartbeat for {PEER_TIMEOUT}s)")
+
+            # Auto-purge very old retired peers
+            for node_id, info in p2p.peers.items():
+                if getattr(info, "retired", False):
+                    retired_at = getattr(info, "retired_at", 0.0) or 0.0
+                    if retired_at > 0 and (now - retired_at) >= PEER_PURGE_AFTER_SECONDS:
+                        peers_to_purge.append(node_id)
+
+            for node_id in peers_to_purge:
+                del p2p.peers[node_id]
+                logger.info(f"Auto-purged stale peer: {node_id} (retired for >{PEER_PURGE_AFTER_SECONDS}s)")
+
+            # December 2025: Emit cluster health event if state changed
+            # This enables pipeline coordination to pause/resume based on cluster health
+            final_alive_count = sum(
+                1 for p in p2p.peers.values()
+                if p.is_alive() and not getattr(p, "retired", False)
+            )
+            final_node_count = len([
+                p for p in p2p.peers.values()
+                if not getattr(p, "retired", False)
+            ])
+            # Add self if not in peers
+            if p2p.node_id not in p2p.peers:
+                final_alive_count += 1
+                final_node_count += 1
+            # Dec 28, 2025: Fixed signature mismatch - pass correct parameters
+            is_healthy = final_alive_count > 0
+            quorum_met = p2p._has_voter_quorum() if hasattr(p2p, '_has_voter_quorum') else True
+            p2p._emit_cluster_health_event_sync(is_healthy, final_alive_count, quorum_met)
+
+            # Jan 12, 2026: Sync to lock-free snapshot after peer retirement/purge
+            if hasattr(p2p, "_sync_peer_snapshot"):
+                p2p._sync_peer_snapshot()
+
+            # Capture final counts for capacity events (inside lock for consistency)
+            # Jan 27, 2026: Using PeerQueryBuilder for consistent counting (Phase 3.2)
+            peer_query = getattr(p2p, "_peer_query", None)
+            capacity_total = len(p2p.peers)
+            if peer_query:
+                capacity_alive = peer_query.alive_non_retired_count(exclude_self=False).unwrap_or(0)
+                capacity_gpu = peer_query.alive_gpu_count(exclude_self=False).unwrap_or(0)
+                capacity_training = peer_query.training_enabled_count(exclude_self=False).unwrap_or(0)
+            else:
+                capacity_alive = final_alive_count
+                capacity_gpu = 0
+                capacity_training = 0
+
+        # Jan 19, 2026: Apply rate limiting to peer retirements
+        # Sort by longest-dead first, then only retire up to PEER_DEATH_RATE_LIMIT peers
+        if retirement_candidates:
+            # Sort by dead_for descending (longest-dead first)
+            retirement_candidates.sort(key=lambda x: x[1], reverse=True)
+
+            # Rate-limit: only retire the top N peers this cycle
+            to_retire = retirement_candidates[:PEER_DEATH_RATE_LIMIT]
+            skipped = len(retirement_candidates) - len(to_retire)
+
+            if skipped > 0:
+                logger.warning(
+                    f"Rate-limiting peer retirement: retiring {len(to_retire)}/{len(retirement_candidates)} "
+                    f"candidates this cycle (skipped {skipped} to prevent cascade)"
+                )
+
+            # Now actually retire these peers (need brief lock acquisition)
+            async with NonBlockingAsyncLockWrapper(p2p.peers_lock, "peers_lock", timeout=5.0):
+                for node_id, dead_for, last_hb in to_retire:
+                    info = p2p.peers.get(node_id)
+                    if info and not getattr(info, "retired", False):
+                        info.retired = True
+                        info.retired_at = now
+                        # Jan 20, 2026: Use adaptive cooldown manager
+                        cooldown_mgr = getattr(p2p, "_cooldown_manager", None)
+                        if cooldown_mgr:
+                            cooldown_mgr.record_death(node_id)
+                        else:
+                            dead_ts = getattr(p2p, "_dead_peer_timestamps", {})
+                            dead_ts[node_id] = now
+                        retired_peers.append((node_id, last_hb, dead_for))
+                        logger.info(f"Retired peer {node_id} (dead for {dead_for:.0f}s)")
+
+                        # Jan 25, 2026: Log timeout disagreement warning for diagnostics
+                        self_info = getattr(p2p, "self_info", None)
+                        my_timeout = getattr(self_info, "effective_timeout", 0.0) or 180.0 if self_info else 180.0
+                        peer_timeout = getattr(info, "effective_timeout", 0.0)
+                        if peer_timeout > 0:
+                            ratio = peer_timeout / my_timeout if my_timeout > 0 else 1.0
+                            if ratio > 1.3 or ratio < 0.7:
+                                logger.warning(
+                                    f"[P2P] Timeout disagreement retiring {node_id}: "
+                                    f"our_timeout={my_timeout:.1f}s, their_timeout={peer_timeout:.1f}s, "
+                                    f"ratio={ratio:.2f}"
+                                )
+
+                        # Jan 21, 2026: Track state transition for diagnostics
+                        # Jan 22, 2026: Use record_probe_failure() for SUSPECTED grace period
+                        peer_tracker = getattr(p2p, "_peer_state_tracker", None)
+                        if peer_tracker:
+                            try:
+                                from scripts.p2p.diagnostics import DeathReason
+                                peer_tracker.record_probe_failure(
+                                    node_id=node_id,
+                                    reason=DeathReason.HEARTBEAT_TIMEOUT,
+                                    details={"dead_for": dead_for, "last_heartbeat": last_hb},
+                                )
+                            except Exception:
+                                pass  # Graceful degradation
+
+        # Jan 12, 2026: Emit events OUTSIDE the lock to prevent deadlocks
+        # Event handlers may need to acquire peers_lock themselves
+        for node_id, last_hb, dead_for in retired_peers:
+            asyncio.create_task(p2p._emit_host_offline(node_id, "retired", last_hb))
+            asyncio.create_task(p2p._emit_node_dead(node_id, "retired", last_hb, dead_for))
+            asyncio.create_task(p2p._emit_cluster_capacity_changed(
+                total_nodes=capacity_total,
+                alive_nodes=capacity_alive,
+                gpu_nodes=capacity_gpu,
+                training_nodes=capacity_training,
+                change_type="node_removed",
+                change_details={"node_id": node_id, "reason": "peer_timeout"},
+            ))
+
+        for node_id, caps in recovered_peers:
+            asyncio.create_task(p2p._emit_host_online(node_id, caps))
+            asyncio.create_task(p2p._emit_cluster_capacity_changed(
+                total_nodes=capacity_total,
+                alive_nodes=capacity_alive,
+                gpu_nodes=capacity_gpu,
+                training_nodes=capacity_training,
+                change_type="node_added",
+                change_details={"node_id": node_id, "reason": "peer_recovered"},
+            ))
+
+        # Clear stale leader IDs after restarts/partitions
+        if p2p.leader_id and not p2p._is_leader_lease_valid():
+            old_leader_id = p2p.leader_id
+            is_self_leader = (old_leader_id == p2p.node_id)
+            logger.info(f"Clearing stale/expired leader lease: leader_id={old_leader_id}, is_self={is_self_leader}")
+
+            if is_self_leader:
+                # Jan 2026: Our own lease expired - use ULSM for broadcast-before-mutation
+                try:
+                    from scripts.p2p.leadership_state_machine import TransitionReason
+                    await p2p._complete_step_down_async(TransitionReason.LEASE_EXPIRED)
+                except ImportError:
+                    # Fallback: direct clear
+                    p2p._set_leader(None, reason="stale_self_lease", save_state=False)
+                    p2p.leader_lease_id = ""
+                    p2p.leader_lease_expires = 0.0
+                    p2p.last_lease_renewal = 0.0
+            else:
+                # Another node's stale lease - just clear locally, no broadcast needed
+                # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
+                p2p._set_leader(None, reason="stale_remote_lease", save_state=False)
+                p2p.leader_lease_id = ""
+                p2p.leader_lease_expires = 0.0
+                p2p.last_lease_renewal = 0.0
+                # Dec 31, 2025: Set invalidation window to prevent gossip from re-setting stale leader
+                # Window = 60 seconds - enough time for election to complete
+                p2p._leader_invalidation_until = time.time() + 60.0
+                # Emit LEADER_LOST before starting election (Dec 2025 fix)
+                await p2p._emit_leader_lost(old_leader_id, "lease_expired")
+                # CRITICAL: Check quorum before starting election to prevent quorum bypass
+                if getattr(p2p, "voter_node_ids", []) and not p2p._has_voter_quorum():
+                    logger.warning("Skipping election after stale lease clear: no voter quorum available")
+                else:
+                    asyncio.create_task(p2p._start_election())
+
+        # If leader is dead, start election
+        if p2p.leader_id and p2p.leader_id != p2p.node_id:
+            async with NonBlockingAsyncLockWrapper(p2p.peers_lock, "peers_lock", timeout=5.0):
+                leader = p2p.peers.get(p2p.leader_id)
+                peers_snapshot = [p for p in p2p.peers.values() if p.node_id != p2p.node_id]
+            if leader:
+                conflict_keys = p2p._endpoint_conflict_keys([p2p.self_info, *peers_snapshot])
+                if not p2p._is_leader_eligible(leader, conflict_keys):
+                    reason = "dead" if not leader.is_alive() else "ineligible"
+                    logger.info(f"Leader {p2p.leader_id} is {reason}, starting election")
+                    # Dec 2025: Emit LEADER_LOST before clearing leader_id
+                    old_leader_id = p2p.leader_id
+                    # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
+                    p2p._set_leader(None, reason=f"leader_{reason}", save_state=False)
+                    p2p.leader_lease_id = ""
+                    p2p.leader_lease_expires = 0.0
+                    p2p.last_lease_renewal = 0.0
+                    # Dec 31, 2025: Set invalidation window to prevent gossip from re-setting dead leader
+                    p2p._leader_invalidation_until = time.time() + 60.0
+                    asyncio.create_task(p2p._emit_leader_lost(old_leader_id, reason))
+                    # CRITICAL: Check quorum before starting election to prevent quorum bypass
+                    if getattr(p2p, "voter_node_ids", []) and not p2p._has_voter_quorum():
+                        logger.warning(f"Skipping election after leader {reason}: no voter quorum available")
+                    else:
+                        asyncio.create_task(p2p._start_election())
+            else:
+                # Dec 31, 2025: Leader not in peers dict - unknown/unreachable leader
+                # This can happen if leader gossip propagated but peer discovery hasn't caught up
+                # Clear the leader and allow election
+                logger.warning(f"Leader {p2p.leader_id} not found in peers dict, clearing stale leader")
+                old_leader_id = p2p.leader_id
+                # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
+                p2p._set_leader(None, reason="leader_unknown_peer", save_state=False)
+                p2p.leader_lease_id = ""
+                p2p.leader_lease_expires = 0.0
+                p2p.last_lease_renewal = 0.0
+                p2p._leader_invalidation_until = time.time() + 60.0
+                asyncio.create_task(p2p._emit_leader_lost(old_leader_id, "unknown_peer"))
+
+        # If we're leaderless, periodically retry elections with adaptive backoff
+        # December 29, 2025: Improved backoff to start faster then slow down
+        if not p2p.leader_id and not p2p.election_in_progress:
+            now_ts = time.time()
+            retry_count = int(getattr(p2p, "_election_retry_count", 0) or 0)
+            # Adaptive backoff: 15s, 30s, 60s, 90s (capped)
+            backoff_intervals = [15, 30, 60, 90]
+            backoff_seconds = backoff_intervals[min(retry_count, len(backoff_intervals) - 1)]
+            last_attempt = float(getattr(p2p, "last_election_attempt", 0.0) or 0.0)
+            if now_ts - last_attempt >= backoff_seconds:
+                p2p.last_election_attempt = now_ts
+                p2p._election_retry_count = retry_count + 1
+                # CRITICAL: Check quorum before starting election to prevent quorum bypass
+                if getattr(p2p, "voter_node_ids", []) and not p2p._has_voter_quorum():
+                    logger.warning(f"Skipping periodic election retry {retry_count + 1}: no voter quorum available")
+                    # Jan 1, 2026: Check probabilistic fallback leadership when quorum unavailable
+                    # This prevents indefinite cluster stalls when voters are unreachable
+                    asyncio.create_task(p2p._check_probabilistic_leadership(now_ts))
+                else:
+                    logger.info(f"Triggering election retry {retry_count + 1} after {backoff_seconds}s leaderless")
+                    asyncio.create_task(p2p._start_election())
+        elif p2p.leader_id:
+            # Reset retry count when we have a leader
+            p2p._election_retry_count = 0
+            # Jan 1, 2026: Reset probabilistic claim probability when we have a leader
+            p2p._provisional_claim_probability = PROVISIONAL_LEADER_INITIAL_PROBABILITY
