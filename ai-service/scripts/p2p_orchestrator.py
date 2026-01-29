@@ -2513,6 +2513,7 @@ class P2POrchestrator(
             JobOrchestrator,
             LeadershipOrchestrator,
             PeerNetworkOrchestrator,
+            ProcessSpawnerOrchestrator,
             SyncOrchestrator,
         )
 
@@ -2528,10 +2529,14 @@ class P2POrchestrator(
         self.jobs = JobOrchestrator(self)
         logger.info("[P2P] JobOrchestrator initialized")
 
-        # All orchestrators initialized:
+        self.process_spawner = ProcessSpawnerOrchestrator(self)
+        logger.info("[P2P] ProcessSpawnerOrchestrator initialized")
+
+        # All orchestrators initialized (5 total):
         # self.network = PeerNetworkOrchestrator(self)
-        # self.sync = SyncOrchestrator(self)
+        # self.sync_orch = SyncOrchestrator(self)
         # self.jobs = JobOrchestrator(self)
+        # self.process_spawner = ProcessSpawnerOrchestrator(self)
 
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
@@ -16246,8 +16251,23 @@ print(json.dumps({{
     ) -> ClusterJob | None:
         """Start a job on the local node.
 
+        Jan 29, 2026: Delegated to ProcessSpawnerOrchestrator.
         SAFEGUARD: Checks coordination safeguards before spawning.
         """
+        # Jan 29, 2026: Delegate to ProcessSpawnerOrchestrator
+        if hasattr(self, "process_spawner") and self.process_spawner is not None:
+            return await self.process_spawner.start_local_job(
+                job_type=job_type,
+                board_type=board_type,
+                num_players=num_players,
+                engine_mode=engine_mode,
+                job_id=job_id,
+                cuda_visible_devices=cuda_visible_devices,
+                export_params=export_params,
+                simulation_budget=simulation_budget,
+            )
+
+        # Fallback: inline implementation (legacy)
         try:
             # SAFEGUARD: Check safeguards before spawning
             if HAS_SAFEGUARDS and _safeguards:
