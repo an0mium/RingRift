@@ -82,6 +82,7 @@ from .handlers_utils import (
 )
 from .abtest import ABTestHandlersMixin
 from .admin import AdminHandlersMixin
+from .analytics import AnalyticsHandlersMixin
 from .canonical_gate import CanonicalGateHandlersMixin
 from .delivery import DeliveryHandlersMixin
 from .network_discovery import NetworkDiscoveryMixin
@@ -128,6 +129,7 @@ __all__ = [
     # Handler mixins
     "ABTestHandlersMixin",
     "AdminHandlersMixin",
+    "AnalyticsHandlersMixin",
     "CanonicalGateHandlersMixin",
     "CMAESHandlersMixin",
     "DeliveryHandlersMixin",
