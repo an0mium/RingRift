@@ -515,6 +515,33 @@ class LeadershipOrchestrator(BaseOrchestrator):
         """
         return self.check_is_leader()
 
+    def is_leader_lease_valid(self) -> bool:
+        """Check if the current leader's lease is still valid.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._is_leader_lease_valid().
+
+        Returns:
+            True if the leader lease is valid.
+        """
+        leader_id = getattr(self._p2p, "leader_id", None)
+        if not leader_id:
+            return False
+
+        # Reject proxy_only leaders - they should never have been elected
+        # This forces a re-election if a proxy_only node somehow became leader
+        if hasattr(self._p2p, "_is_node_proxy_only"):
+            if self._p2p._is_node_proxy_only(leader_id):
+                self._log_warning(
+                    f"[LeaderValidation] Current leader {leader_id} is proxy_only - invalidating lease"
+                )
+                return False
+
+        # Use symmetric grace period for both leader and followers
+        # CRITICAL: Same grace for everyone to prevent split-brain.
+        lease_expires = getattr(self._p2p, "leader_lease_expires", 0)
+        grace = 30  # Same grace for leader and followers
+        return time.time() < lease_expires + grace
+
     def get_leader_id(self) -> str | None:
         """Get the current leader's node ID.
 
@@ -1131,14 +1158,55 @@ class LeadershipOrchestrator(BaseOrchestrator):
     # =========================================================================
 
     def get_leader_hint(self) -> dict[str, Any]:
-        """Get leader hint information for peer responses.
+        """Get this node's leader hint for gossip propagation.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._get_leader_hint().
+
+        LEADER HINTS: Share information about preferred leader candidates to
+        enable faster convergence during elections. Hints include:
+        - Current known leader and lease expiry
+        - Preferred successor (highest-priority eligible node)
+        - This node's priority rank
 
         Returns:
-            Dictionary with leader_id and other hints.
+            Dictionary with leader hint information.
         """
-        if hasattr(self._p2p, "_get_leader_hint"):
-            return self._p2p._get_leader_hint()
-        return {"leader_id": self.get_leader_id()}
+        leader_id = getattr(self._p2p, "leader_id", None)
+        node_id = getattr(self._p2p, "node_id", "")
+
+        hint = {
+            "current_leader": leader_id,
+            "lease_expires": getattr(self._p2p, "leader_lease_expires", 0),
+            "preferred_successor": None,
+            "my_priority": 0,
+        }
+
+        # Calculate this node's priority (lower is better for Bully algorithm)
+        # But we want to express it as a score (higher is better)
+        peers_lock = getattr(self._p2p, "peers_lock", None)
+        peers = getattr(self._p2p, "peers", {})
+
+        if peers_lock is not None:
+            with peers_lock:
+                all_nodes = [node_id] + [p.node_id for p in peers.values() if p.is_alive()]
+        else:
+            all_nodes = [node_id]
+
+        all_nodes_sorted = sorted(all_nodes, reverse=True)  # Bully: higher ID wins
+        if node_id in all_nodes_sorted:
+            hint["my_priority"] = len(all_nodes_sorted) - all_nodes_sorted.index(node_id)
+
+        # Find preferred successor (highest priority eligible node that's not current leader)
+        voter_ids = list(getattr(self._p2p, "voter_node_ids", []) or [])
+        for nid in all_nodes_sorted:
+            if nid == leader_id:
+                continue
+            if voter_ids and nid not in voter_ids:
+                continue
+            hint["preferred_successor"] = nid
+            break
+
+        return hint
 
     def get_cluster_leader_consensus(self) -> dict[str, Any]:
         """Get cluster-wide leader consensus information.

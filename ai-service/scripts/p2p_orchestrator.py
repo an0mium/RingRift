@@ -14365,12 +14365,12 @@ print(json.dumps({{
     def _get_leader_hint(self) -> dict:
         """Get this node's leader hint for gossip propagation.
 
-        LEADER HINTS: Share information about preferred leader candidates to
-        enable faster convergence during elections. Hints include:
-        - Current known leader and lease expiry
-        - Preferred successor (highest-priority eligible node)
-        - This node's priority rank
+        Jan 29, 2026: Delegates to LeadershipOrchestrator.get_leader_hint().
         """
+        if hasattr(self, "leadership") and self.leadership is not None:
+            return self.leadership.get_leader_hint()
+
+        # Fallback: original implementation for when orchestrator not available
         hint = {
             "current_leader": self.leader_id,
             "lease_expires": getattr(self, "leader_lease_expires", 0),
@@ -15473,12 +15473,18 @@ print(json.dumps({{
             logger.info(f"Lease renewal error: {e}")
 
     def _is_leader_lease_valid(self) -> bool:
-        """Check if the current leader's lease is still valid."""
+        """Check if the current leader's lease is still valid.
+
+        Jan 29, 2026: Delegates to LeadershipOrchestrator.is_leader_lease_valid().
+        """
+        if hasattr(self, "leadership") and self.leadership is not None:
+            return self.leadership.is_leader_lease_valid()
+
+        # Fallback: original implementation for when orchestrator not available
         if not self.leader_id:
             return False
 
         # Jan 13, 2026: Reject proxy_only leaders - they should never have been elected
-        # This forces a re-election if a proxy_only node somehow became leader
         if self._is_node_proxy_only(self.leader_id):
             logger.warning(
                 f"[LeaderValidation] Current leader {self.leader_id} is proxy_only - invalidating lease"
@@ -15486,12 +15492,6 @@ print(json.dumps({{
             return False
 
         # Jan 19, 2026: Use symmetric grace period for both leader and followers
-        # CRITICAL FIX: Previous code used strict check for leader (no grace) but
-        # lenient check for followers (+90s grace). This caused 90s split-brain window:
-        # - Leader steps down at t=180
-        # - Followers still see leader valid until t=270
-        # - During t=180-270: leader="none" on leader, leader=old on followers
-        # Now using consistent 30s grace for everyone to prevent split-brain.
         grace = 30  # Same grace for leader and followers
         return time.time() < self.leader_lease_expires + grace
 
