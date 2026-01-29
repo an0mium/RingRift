@@ -2510,6 +2510,7 @@ class P2POrchestrator(
         # These orchestrators handle specific domains and delegate to managers
         # =====================================================================
         from scripts.p2p.orchestrators import (
+            JobOrchestrator,
             LeadershipOrchestrator,
             PeerNetworkOrchestrator,
             SyncOrchestrator,
@@ -2524,7 +2525,10 @@ class P2POrchestrator(
         self.sync_orch = SyncOrchestrator(self)
         logger.info("[P2P] SyncOrchestrator initialized")
 
-        # Future orchestrators (to be added):
+        self.jobs = JobOrchestrator(self)
+        logger.info("[P2P] JobOrchestrator initialized")
+
+        # All orchestrators initialized:
         # self.network = PeerNetworkOrchestrator(self)
         # self.sync = SyncOrchestrator(self)
         # self.jobs = JobOrchestrator(self)

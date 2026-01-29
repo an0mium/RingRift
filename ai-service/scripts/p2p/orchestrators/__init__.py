@@ -16,6 +16,7 @@ from scripts.p2p.orchestrators.base_orchestrator import (
     BaseOrchestrator,
     HealthCheckResult,
 )
+from scripts.p2p.orchestrators.job_orchestrator import JobOrchestrator
 from scripts.p2p.orchestrators.leadership_orchestrator import LeadershipOrchestrator
 from scripts.p2p.orchestrators.peer_network_orchestrator import PeerNetworkOrchestrator
 from scripts.p2p.orchestrators.sync_orchestrator import SyncOrchestrator
@@ -23,9 +24,8 @@ from scripts.p2p.orchestrators.sync_orchestrator import SyncOrchestrator
 __all__ = [
     "BaseOrchestrator",
     "HealthCheckResult",
+    "JobOrchestrator",
     "LeadershipOrchestrator",
     "PeerNetworkOrchestrator",
     "SyncOrchestrator",
-    # Future exports:
-    # "JobOrchestrator",
 ]
