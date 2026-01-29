@@ -60,10 +60,11 @@ _event_bridge = get_event_bridge()
 
 # Import constants
 try:
-    from scripts.p2p.constants import LEADER_LEASE_DURATION
+    from scripts.p2p.constants import LEADER_LEASE_DURATION, VOTER_MIN_QUORUM
 except ImportError:
     # Jan 5, 2026: Reduced from 180s to 90s for faster failover (210s → 120s total)
     LEADER_LEASE_DURATION = 90
+    VOTER_MIN_QUORUM = 3
 
 # Import types
 try:
@@ -996,3 +997,99 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 "leader_seen": getattr(self, "leader_id", None),
                 "reason": f"error:{e}",
             }, status=500)
+
+    @handler_timeout(HANDLER_TIMEOUT_GOSSIP)
+    async def handle_coordinator(self, request: web.Request) -> web.Response:
+        """Handle coordinator announcement from new leader.
+
+        LEARNED LESSONS - Only accept leadership from higher-priority nodes (Bully algorithm).
+        Also handles lease-based leadership updates.
+
+        January 2026: Moved from p2p_orchestrator.py to ElectionHandlersMixin.
+        """
+        try:
+            # Jan 23, 2026: Use async version to avoid blocking event loop
+            await self._update_self_info_async()
+            data = await request.json()
+            new_leader_raw = data.get("leader_id")
+            if not new_leader_raw:
+                return self.json_response(
+                    {"accepted": False, "reason": "missing_leader_id"},
+                    status=400,
+                )
+            new_leader = str(new_leader_raw)
+            lease_id = data.get("lease_id", "")
+            lease_expires = data.get("lease_expires", 0)
+            is_renewal = data.get("lease_renewal", False)
+            incoming_voters = data.get("voter_node_ids") or data.get("voters") or None
+            if incoming_voters:
+                voters_list: list[str] = []
+                if isinstance(incoming_voters, list):
+                    voters_list = [str(v).strip() for v in incoming_voters if str(v).strip()]
+                elif isinstance(incoming_voters, str):
+                    voters_list = [t.strip() for t in incoming_voters.split(",") if t.strip()]
+                if voters_list:
+                    if self.quorum_manager.maybe_adopt_voter_node_ids(voters_list, source="learned"):
+                        # Sync adopted state back to orchestrator attributes
+                        self.voter_node_ids = self.quorum_manager.voter_node_ids
+                        self.voter_config_source = self.quorum_manager.voter_config_source
+                        self.voter_quorum_size = min(VOTER_MIN_QUORUM, len(self.voter_node_ids)) if self.voter_node_ids else 0
+
+            voters = list(getattr(self, "voter_node_ids", []) or [])
+            if voters and new_leader not in voters:
+                return self.json_response(
+                    {"accepted": False, "reason": "leader_not_voter", "voters": voters},
+                    status=403,
+                )
+
+            # Voter-side safety: if we've granted a still-valid lease to a different leader,
+            # do not accept a conflicting coordinator announcement. This prevents a voter
+            # from "following" a non-quorum leader during transient partitions.
+            if voters and self.node_id in voters:
+                grant_leader = str(getattr(self, "voter_grant_leader_id", "") or "")
+                grant_expires = float(getattr(self, "voter_grant_expires", 0.0) or 0.0)
+                if grant_leader and grant_expires > time.time() and grant_leader != new_leader:
+                    return self.json_response(
+                        {
+                            "accepted": False,
+                            "reason": "voter_lease_conflict",
+                            "granted_to": grant_leader,
+                            "granted_until": grant_expires,
+                        },
+                        status=409,
+                    )
+
+            # If quorum gating is not configured, fall back to bully ordering
+            # (lexicographically highest node_id wins).
+            if not voters and self.role == NodeRole.LEADER and new_leader < self.node_id:
+                # Exception: accept if our lease has expired
+                if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
+                    logger.info(f"Our lease expired, accepting leader: {new_leader}")
+                else:
+                    logger.info(f"Rejecting leader announcement from lower-priority node: {new_leader} < {self.node_id}")
+                    return self.json_response({"accepted": False, "reason": "lower_priority"})
+
+            # Reject leadership from nodes that are not directly reachable / uniquely addressable.
+            if new_leader != self.node_id:
+                with self.peers_lock:
+                    peer = self.peers.get(new_leader)
+                    peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
+                if peer:
+                    conflict_keys = self._endpoint_conflict_keys([self.self_info, *peers_snapshot])
+                    if not self._is_leader_eligible(peer, conflict_keys, require_alive=False):
+                        return self.json_response({"accepted": False, "reason": "leader_ineligible"})
+
+            if is_renewal and new_leader == self.leader_id:
+                self.leader_lease_expires = lease_expires
+                self.leader_lease_id = lease_id
+                return self.json_response({"accepted": True})
+
+            logger.info(f"Accepting leader announcement: {new_leader}")
+            # Jan 3, 2026: Use _set_leader() for atomic leadership assignment (Phase 4)
+            self._set_leader(new_leader, reason="accept_coordinator_announcement", save_state=True)
+            self.leader_lease_id = lease_id
+            self.leader_lease_expires = lease_expires if lease_expires else time.time() + LEADER_LEASE_DURATION
+
+            return self.json_response({"accepted": True})
+        except Exception as e:  # noqa: BLE001
+            return self.json_response({"error": str(e)}, status=400)
