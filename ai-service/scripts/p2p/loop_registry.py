@@ -144,6 +144,7 @@ def register_all_loops(
         loops_registered += _register_git_update(orchestrator, manager, loops_failed)
         loops_registered += _register_voter_heartbeat(orchestrator, manager, loops_failed)
         loops_registered += _register_reconnect_dead_peers(orchestrator, manager, loops_failed)
+        loops_registered += _register_swim_membership(orchestrator, manager, loops_failed)
 
         logger.info(f"LoopRegistry: registered {loops_registered} loops")
         if loops_failed:
@@ -2132,4 +2133,58 @@ def _register_reconnect_dead_peers(
     except (ImportError, TypeError) as e:
         logger.debug(f"ReconnectDeadPeersLoop: not available: {e}")
         failed.append("ReconnectDeadPeersLoop")
+        return 0
+
+
+def _register_swim_membership(
+    orchestrator: "P2POrchestrator",
+    manager: "LoopManager",
+    failed: list[str],
+) -> int:
+    """Register SwimMembershipLoop.
+
+    January 2026: Replaces inline _swim_membership_loop in p2p_orchestrator.py (~92 LOC saved).
+    """
+    try:
+        from scripts.p2p.loops.swim_membership_loop import SwimMembershipLoop, SwimMembershipConfig
+
+        def _get_swim_manager() -> Any:
+            return getattr(orchestrator, "_swim_manager", None)
+
+        def _get_peers() -> dict[str, Any]:
+            return orchestrator.peers
+
+        def _get_peers_lock() -> Any:
+            return orchestrator.peers_lock
+
+        def _try_raft_init() -> None:
+            try:
+                from scripts.p2p.constants import RAFT_ENABLED
+                if (
+                    RAFT_ENABLED
+                    and not getattr(orchestrator, "_raft_initialized", False)
+                    and hasattr(orchestrator, "try_deferred_raft_init")
+                ):
+                    orchestrator.try_deferred_raft_init()
+            except Exception:
+                pass
+
+        def _get_raft_initialized() -> bool:
+            return getattr(orchestrator, "_raft_initialized", False)
+
+        swim_loop = SwimMembershipLoop(
+            get_swim_manager=_get_swim_manager,
+            get_peers=_get_peers,
+            get_peers_lock=_get_peers_lock,
+            config=SwimMembershipConfig(),
+            try_raft_init=_try_raft_init,
+            get_raft_initialized=_get_raft_initialized,
+        )
+        manager.register(swim_loop)
+        orchestrator._swim_membership_loop = swim_loop
+        logger.info("[LoopRegistry] SwimMembershipLoop registered")
+        return 1
+    except (ImportError, TypeError) as e:
+        logger.debug(f"SwimMembershipLoop: not available: {e}")
+        failed.append("SwimMembershipLoop")
         return 0

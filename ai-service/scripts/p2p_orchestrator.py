@@ -9047,98 +9047,8 @@ class P2POrchestrator(
 
     # NOTE: handle_swim_status moved to DiagnosticsHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8f)
 
-    async def _swim_membership_loop(self) -> None:
-        """Background task that integrates SWIM membership with P2P peer tracking.
-
-        This task:
-        1. Starts the SWIM manager if available
-        2. Periodically syncs SWIM membership with our peers dict
-        3. Uses SWIM failure detection to mark peers as failed faster
-        """
-        if not self._swim_manager:
-            logger.info("SWIM membership loop: disabled (swim-p2p not available)")
-            return
-
-        try:
-            # Start SWIM manager
-            started = await self._swim_manager.start()
-            if not started:
-                logger.warning("SWIM membership loop: failed to start SWIM manager")
-                return
-
-            self._swim_started = True
-            logger.info("SWIM membership loop: started successfully")
-
-            # Sync SWIM membership with our peer tracking every 10 seconds
-            while self.running:
-                try:
-                    alive_peers = self._swim_manager.get_alive_peers()
-
-                    # Update peers from SWIM detection
-                    now = time.time()
-                    with self.peers_lock:
-                        for peer_id in alive_peers:
-                            # Jan 7, 2026 Session 17.43: Filter SWIM protocol entries (IP:7947 format)
-                            # SWIM peer IDs like "100.126.21.102:7947" should NOT be added to self.peers
-                            # They pollute VoterHealth, Elo sync, and other peer iteration points
-                            # Proper peers are discovered via HTTP gossip with node names or IP:8770
-                            if ":" in peer_id:
-                                _, port_str = peer_id.rsplit(":", 1)
-                                if port_str == "7947":
-                                    # Skip SWIM-format peer IDs - they'll be discovered via HTTP gossip
-                                    continue
-
-                            if peer_id not in self.peers:
-                                # New peer detected by SWIM - convert to HTTP format
-                                # peer_id format is typically "host:port" from SWIM
-                                host, port_str = (peer_id.rsplit(":", 1) + ["8770"])[:2] if ":" in peer_id else (peer_id, "8770")
-                                try:
-                                    port_int = int(port_str)
-                                except ValueError:
-                                    port_int = 8770  # Use P2P port, not SWIM port
-                                # SWIM detection creates a minimal NodeInfo; HTTP handshake fills details
-                                self.peers[peer_id] = NodeInfo(
-                                    node_id=peer_id,
-                                    host=host or "unknown",
-                                    port=8770,  # P2P API port (SWIM uses 7947)
-                                    last_heartbeat=now,
-                                )
-                            else:
-                                # Update existing peer's heartbeat
-                                peer = self.peers[peer_id]
-                                if isinstance(peer, NodeInfo):
-                                    peer.last_heartbeat = now
-
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"SWIM sync error: {e}")
-
-                # Dec 30, 2025: Try deferred Raft initialization after peers discovered
-                # Raft needs peer addresses which aren't available at startup
-                try:
-                    from scripts.p2p.constants import RAFT_ENABLED
-                    if (
-                        RAFT_ENABLED
-                        and not getattr(self, "_raft_initialized", False)
-                        and hasattr(self, "try_deferred_raft_init")
-                    ):
-                        self.try_deferred_raft_init()
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Deferred Raft init attempt: {e}")
-
-                await asyncio.sleep(10)  # Sync every 10 seconds
-
-        except asyncio.CancelledError:
-            logger.info("SWIM membership loop: cancelled")
-            raise
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"SWIM membership loop error: {e}", exc_info=True)
-        finally:
-            if self._swim_manager and self._swim_started:
-                try:
-                    await self._swim_manager.stop()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"Error stopping SWIM manager: {e}")
-                self._swim_started = False
+    # Jan 28, 2026: _swim_membership_loop() moved to SwimMembershipLoop in loop_registry.py (~92 LOC)
+    # Now registered and started via LoopManager. See scripts/p2p/loops/swim_membership_loop.py.
 
     # NOTE: handle_coordinator moved to ElectionHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8e)
 
@@ -19271,6 +19181,8 @@ print(json.dumps({{
         # CRITICAL FIX (Dec 2025): Each task is wrapped to prevent cascade failures.
         # Previously, a single exception in any task would crash all 18+ tasks.
         # Dec 2025 Update: Added factory functions for auto-restart on critical tasks.
+        # Jan 28, 2026: voter_heartbeat, reconnect_dead_peers, swim_membership, git_update
+        # moved to LoopManager (see loop_registry.py).
         tasks = [
             # Critical heartbeat loop - auto-restart on failure
             self._create_safe_task(
@@ -19284,26 +19196,12 @@ print(json.dumps({{
             self._create_safe_task(
                 self._discovery_loop(), "discovery", factory=self._discovery_loop
             ),
-            # IMPROVED: Dedicated voter heartbeat loop for reliable leader election - auto-restart
-            self._create_safe_task(
-                self._voter_heartbeat_loop(), "voter_heartbeat", factory=self._voter_heartbeat_loop
-            ),
-            # Jan 11, 2026: Dead peer reconnection loop (Phase 1 P2P stability fix)
-            # Actively probes dead peers with exponential backoff to prevent cluster fragmentation
-            self._create_safe_task(
-                self._reconnect_dead_peers_loop(), "dead_peer_reconnect", factory=self._reconnect_dead_peers_loop
-            ),
-            # SWIM gossip membership for leaderless failure detection (<5s vs 60s+)
-            self._create_safe_task(
-                self._swim_membership_loop(), "swim_membership", factory=self._swim_membership_loop
-            ),
+            # NOTE: The following loops are now managed by LoopManager:
+            # - VoterHeartbeatLoop (moved to loop_registry.py)
+            # - ReconnectDeadPeersLoop (moved to loop_registry.py)
+            # - SwimMembershipLoop (moved to loop_registry.py)
+            # - GitUpdateLoop (moved to loop_registry.py)
         ]
-
-        # Add git update loop if enabled
-        if AUTO_UPDATE_ENABLED:
-            tasks.append(self._create_safe_task(
-                self._git_update_loop(), "git_update", factory=self._git_update_loop
-            ))
 
         # Add cloud IP refresh loops (best-effort; no-op if not configured).
         # Jan 2026: Delegated to IPDiscoveryManager for better modularity
