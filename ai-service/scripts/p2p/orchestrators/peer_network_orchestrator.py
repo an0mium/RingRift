@@ -392,6 +392,99 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
 
         return total, alive
 
+    def manage_dynamic_voters(self) -> bool:
+        """Manage dynamic voter pool - promote/demote voters as needed.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._manage_dynamic_voters().
+
+        Returns:
+            True if voter set was changed.
+        """
+        import os
+
+        # Import constants - do it here to avoid circular imports at module level
+        try:
+            from scripts.p2p.constants import (
+                DYNAMIC_VOTER_ENABLED,
+                DYNAMIC_VOTER_TARGET,
+                VOTER_DEMOTION_FAILURES,
+                VOTER_MIN_QUORUM,
+            )
+        except ImportError:
+            self._log_warning("Cannot manage dynamic voters: constants not available")
+            return False
+
+        if not DYNAMIC_VOTER_ENABLED:
+            return False
+
+        # Don't override env-configured voters
+        if (os.environ.get("RINGRIFT_P2P_VOTERS") or "").strip():
+            return False
+
+        current_voters = list(getattr(self._p2p, "voter_node_ids", []) or [])
+        eligible = self.get_eligible_voters()
+
+        # Get peer snapshot for health checks
+        peer_snapshot = getattr(self._p2p, "_peer_snapshot", None)
+        if peer_snapshot is None:
+            return False
+
+        peers = peer_snapshot.get_snapshot()
+        node_id = getattr(self._p2p, "node_id", "")
+
+        healthy_voters = []
+        unhealthy_voters = []
+
+        for voter_id in current_voters:
+            if voter_id == node_id:
+                healthy_voters.append(voter_id)
+                continue
+            peer = peers.get(voter_id)
+            if peer and peer.is_alive():
+                failures = getattr(peer, "consecutive_failures", 0)
+                if failures < VOTER_DEMOTION_FAILURES:
+                    healthy_voters.append(voter_id)
+                else:
+                    unhealthy_voters.append(voter_id)
+            else:
+                unhealthy_voters.append(voter_id)
+
+        changed = False
+        new_voters = healthy_voters.copy()
+
+        # Demote unhealthy voters
+        if unhealthy_voters:
+            self._log_info(f"Dynamic voters: demoting unhealthy voters: {unhealthy_voters}")
+            changed = True
+
+        # Promote new voters if below target
+        if len(new_voters) < DYNAMIC_VOTER_TARGET:
+            candidates = [n for n in eligible if n not in new_voters]
+            # Sort by reliability (fewer failures = better)
+            candidates.sort(
+                key=lambda n: getattr(peers.get(n), "consecutive_failures", 0) if peers.get(n) else 999
+            )
+
+            needed = DYNAMIC_VOTER_TARGET - len(new_voters)
+            for candidate in candidates[:needed]:
+                new_voters.append(candidate)
+                self._log_info(f"Dynamic voters: promoting {candidate} to voter")
+                changed = True
+
+        if changed and new_voters:
+            new_voters = sorted(set(new_voters))
+            self._p2p.voter_node_ids = new_voters
+            # SIMPLIFIED QUORUM: Fixed at 3 voters (or less if fewer voters exist)
+            self._p2p.voter_quorum_size = min(VOTER_MIN_QUORUM, len(new_voters))
+            self._p2p.voter_config_source = "dynamic"
+            print(
+                f"[P2P] Dynamic voter set updated: {len(new_voters)} voters, "
+                f"quorum={self._p2p.voter_quorum_size} ({', '.join(new_voters)})"
+            )
+            return True
+
+        return False
+
     # =========================================================================
     # Address Collection
     # =========================================================================

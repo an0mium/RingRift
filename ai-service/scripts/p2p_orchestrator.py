@@ -4933,8 +4933,14 @@ class P2POrchestrator(
     def _manage_dynamic_voters(self) -> bool:
         """Manage dynamic voter pool - promote/demote voters as needed.
 
+        Jan 29, 2026: Delegates to PeerNetworkOrchestrator.manage_dynamic_voters().
+
         Returns True if voter set was changed.
         """
+        if hasattr(self, "network") and self.network is not None:
+            return self.network.manage_dynamic_voters()
+
+        # Fallback: original implementation for when orchestrator not available
         if not DYNAMIC_VOTER_ENABLED:
             return False
 
