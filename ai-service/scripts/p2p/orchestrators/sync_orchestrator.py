@@ -337,3 +337,180 @@ class SyncOrchestrator(BaseOrchestrator):
             self._log_error(f"Failed to cleanup files on {node_id}: {e}")
 
         return False
+
+    # =========================================================================
+    # Elo Summary
+    # =========================================================================
+
+    def get_local_elo_summary(self) -> dict[str, Any]:
+        """Get summary of local ELO ratings for gossip propagation.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._get_local_elo_summary().
+
+        DISTRIBUTED ELO: Share top models and their ratings via gossip so all
+        nodes have visibility into model performance without querying the DB.
+
+        LAZY LOADING: Defers ELO query until after startup (60s) to avoid
+        slowing node initialization. Uses 10-minute cache to reduce DB load.
+
+        Returns:
+            Dict with top_models, total_models, last_update
+        """
+        import sqlite3
+
+        now = time.time()
+        cache_key = "_elo_summary_cache"
+        cache_time_key = "_elo_summary_cache_time"
+        startup_key = "_elo_startup_time"
+        cached = getattr(self, cache_key, None)
+        cached_time = getattr(self, cache_time_key, 0)
+
+        # Track startup time for lazy loading
+        if not hasattr(self, startup_key):
+            setattr(self, startup_key, now)
+
+        startup_time = getattr(self, startup_key, now)
+
+        # LAZY LOADING: Don't query ELO during first 60s of startup
+        if now - startup_time < 60:
+            return {"top_models": [], "total_models": 0, "last_update": 0, "deferred": True}
+
+        # Use 10-minute cache to reduce DB load
+        if cached and now - cached_time < 600:
+            return cached
+
+        summary: dict[str, Any] = {
+            "top_models": [],
+            "total_models": 0,
+            "last_update": 0,
+        }
+
+        try:
+            from app.tournament import get_elo_database
+            db = get_elo_database()
+
+            # Get top 5 models by ELO (single optimized query)
+            with db._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT participant_id, rating, games_played, last_update,
+                           (SELECT COUNT(*) FROM elo_ratings) as total,
+                           (SELECT MAX(last_update) FROM elo_ratings) as max_updated
+                    FROM elo_ratings
+                    ORDER BY rating DESC
+                    LIMIT 5
+                """)
+                rows = cursor.fetchall()
+
+                if rows:
+                    summary["total_models"] = rows[0][4] if rows[0][4] else 0
+                    summary["last_update"] = rows[0][5] if rows[0][5] else 0
+
+                for row in rows:
+                    summary["top_models"].append({
+                        "model": row[0],
+                        "elo": round(row[1]),
+                        "games": row[2],
+                    })
+
+        except (KeyError, IndexError, AttributeError, ImportError, sqlite3.OperationalError):
+            # Silently fail - ELO summary is optional
+            pass
+
+        # Cache the result
+        setattr(self, cache_key, summary)
+        setattr(self, cache_time_key, now)
+
+        return summary
+
+    # =========================================================================
+    # Cluster Observability
+    # =========================================================================
+
+    def get_cluster_observability(self) -> dict[str, Any]:
+        """Get cluster observability metrics for debugging.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._get_cluster_observability().
+
+        December 30, 2025: Added to help diagnose idle GPU nodes and
+        peer visibility discrepancies across the cluster.
+
+        Returns:
+            Dict with unhealthy_nodes, gossip_discovered_peers, cluster_job_distribution
+        """
+        result: dict[str, Any] = {}
+
+        # 1. Unhealthy nodes from node_selector
+        try:
+            node_selector = getattr(self._p2p, "node_selector", None)
+            if node_selector:
+                unhealthy_set = getattr(node_selector, "_unhealthy_nodes", set())
+                unhealthy_reasons = getattr(node_selector, "_unhealthy_reasons", {})
+                result["unhealthy_nodes"] = {
+                    "count": len(unhealthy_set),
+                    "node_ids": list(unhealthy_set),
+                    "reasons": dict(unhealthy_reasons),
+                }
+            else:
+                result["unhealthy_nodes"] = {"error": "node_selector not available"}
+        except Exception as e:  # noqa: BLE001
+            result["unhealthy_nodes"] = {"error": str(e)}
+
+        # 2. Gossip-discovered peers
+        try:
+            gossip_endpoints = getattr(self._p2p, "_gossip_learned_endpoints", {})
+            result["gossip_discovered_peers"] = {
+                "count": len(gossip_endpoints),
+                "node_ids": list(gossip_endpoints.keys()),
+            }
+        except Exception as e:  # noqa: BLE001
+            result["gossip_discovered_peers"] = {"error": str(e)}
+
+        # 3. Cluster job distribution (for balance analysis)
+        try:
+            peers_lock = getattr(self._p2p, "peers_lock", None)
+            peers = getattr(self._p2p, "peers", {})
+            node_id = getattr(self._p2p, "node_id", "")
+            self_info = getattr(self._p2p, "self_info", None)
+
+            if peers_lock:
+                with peers_lock:
+                    job_distribution = {}
+                    for pid, peer in peers.items():
+                        if peer.is_alive():
+                            job_distribution[pid] = {
+                                "selfplay_jobs": int(getattr(peer, "selfplay_jobs", 0) or 0),
+                                "training_jobs": int(getattr(peer, "training_jobs", 0) or 0),
+                                "gpu_percent": float(getattr(peer, "gpu_percent", 0) or 0),
+                            }
+                    # Add self
+                    if self_info:
+                        job_distribution[node_id] = {
+                            "selfplay_jobs": int(getattr(self_info, "selfplay_jobs", 0) or 0),
+                            "training_jobs": int(getattr(self_info, "training_jobs", 0) or 0),
+                            "gpu_percent": float(getattr(self_info, "gpu_percent", 0) or 0),
+                        }
+
+                # Compute summary stats
+                if job_distribution:
+                    all_jobs = [d["selfplay_jobs"] for d in job_distribution.values()]
+                    avg_jobs = sum(all_jobs) / len(all_jobs) if all_jobs else 0
+                    max_jobs = max(all_jobs) if all_jobs else 0
+                    min_jobs = min(all_jobs) if all_jobs else 0
+                    idle_count = sum(1 for j in all_jobs if j == 0)
+                    result["cluster_job_distribution"] = {
+                        "node_count": len(job_distribution),
+                        "avg_selfplay_jobs": round(avg_jobs, 1),
+                        "max_selfplay_jobs": max_jobs,
+                        "min_selfplay_jobs": min_jobs,
+                        "idle_nodes": idle_count,
+                        "per_node": job_distribution,
+                    }
+                else:
+                    result["cluster_job_distribution"] = {"error": "no peers available"}
+            else:
+                result["cluster_job_distribution"] = {"error": "peers_lock not available"}
+        except Exception as e:  # noqa: BLE001
+            result["cluster_job_distribution"] = {"error": str(e)}
+
+        return result
