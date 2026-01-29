@@ -15,6 +15,7 @@ Responsibilities:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -132,9 +133,379 @@ class LeadershipOrchestrator(BaseOrchestrator):
             )
 
     # =========================================================================
-    # Leadership State - Delegated to P2POrchestrator for now
-    # These will be migrated incrementally
+    # Core Leadership Methods
+    # Jan 29, 2026: Moved from P2POrchestrator
     # =========================================================================
+
+    def set_leader(
+        self,
+        new_leader_id: str | None,
+        reason: str = "unknown",
+        *,
+        sync_to_ulsm: bool = True,
+        save_state: bool = True,
+    ) -> bool:
+        """Atomically set the leader and role to ensure consistency.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._set_leader().
+
+        This is the CANONICAL method for modifying leader_id and role.
+        Using this method ensures both tracking systems (direct fields and ULSM)
+        stay synchronized and prevents the leader self-recognition desync bug.
+
+        Args:
+            new_leader_id: The new leader ID (None to clear leader)
+            reason: Human-readable reason for logging/debugging
+            sync_to_ulsm: Whether to sync state to LeadershipStateMachine
+            save_state: Whether to persist state after change
+
+        Returns:
+            True if this node is now the leader
+        """
+        try:
+            from scripts.p2p.node_info import NodeRole
+        except ImportError:
+            self._log_warning("Cannot set leader: NodeRole not available")
+            return False
+
+        # C1 fix: Acquire lock to prevent race conditions during leader transitions
+        leader_state_lock = getattr(self._p2p, "leader_state_lock", None)
+        if leader_state_lock is None:
+            self._log_warning("No leader_state_lock available, proceeding without lock")
+            return self._set_leader_unlocked(new_leader_id, reason, sync_to_ulsm, save_state)
+
+        with leader_state_lock:
+            return self._set_leader_unlocked(new_leader_id, reason, sync_to_ulsm, save_state)
+
+    def _set_leader_unlocked(
+        self,
+        new_leader_id: str | None,
+        reason: str,
+        sync_to_ulsm: bool,
+        save_state: bool,
+    ) -> bool:
+        """Internal implementation of set_leader (called with lock held).
+
+        Jan 29, 2026: Helper for set_leader().
+        """
+        try:
+            from scripts.p2p.node_info import NodeRole
+        except ImportError:
+            return False
+
+        old_leader_id = getattr(self._p2p, "leader_id", None)
+        old_role = getattr(self._p2p, "role", None)
+        node_id = getattr(self._p2p, "node_id", "")
+
+        # Determine new role based on leader_id
+        if new_leader_id is None:
+            new_role = NodeRole.FOLLOWER
+            is_now_leader = False
+        elif new_leader_id == node_id:
+            new_role = NodeRole.LEADER
+            is_now_leader = True
+        else:
+            new_role = NodeRole.FOLLOWER
+            is_now_leader = False
+
+        # Atomic update of both fields
+        self._p2p.leader_id = new_leader_id
+        self._p2p.role = new_role
+
+        # Sync to ULSM (Unified Leadership State Machine) if enabled
+        if sync_to_ulsm:
+            leadership_sm = getattr(self._p2p, "_leadership_sm", None)
+            if leadership_sm is not None:
+                try:
+                    from scripts.p2p.leadership_state_machine import LeaderState
+
+                    leadership_sm._leader_id = new_leader_id
+                    leadership_sm._state = (
+                        LeaderState.LEADER if is_now_leader else LeaderState.FOLLOWER
+                    )
+                except (ImportError, AttributeError) as e:
+                    self._log_debug(f"[LeaderSet] ULSM sync skipped: {e}")
+
+        # Log if changed
+        if old_leader_id != new_leader_id or old_role != new_role:
+            self._log_info(
+                f"[LeaderSet] {old_role.value if hasattr(old_role, 'value') else old_role}->"
+                f"{new_role.value if hasattr(new_role, 'value') else new_role}, "
+                f"leader_id={old_leader_id}->{new_leader_id}, reason={reason}"
+            )
+
+        # Persist state if requested
+        if save_state and (old_leader_id != new_leader_id or old_role != new_role):
+            if hasattr(self._p2p, "_save_state"):
+                self._p2p._save_state()
+
+        return is_now_leader
+
+    def check_is_leader(self) -> bool:
+        """Check if this node is the current cluster leader with valid lease.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._is_leader().
+
+        Routes through Raft consensus when enabled, with fallback chain:
+        1. consensus_mixin.is_raft_leader() - Deferred Raft init
+        2. HybridCoordinator.is_leader() - May fall back to Bully
+        3. Bully algorithm - Legacy fallback
+
+        Returns:
+            True if this node is the leader with a valid lease.
+        """
+        try:
+            from scripts.p2p.node_info import NodeRole
+        except ImportError:
+            return False
+
+        node_id = getattr(self._p2p, "node_id", "")
+
+        # Check forced leader override first - bypasses all consensus checks
+        if getattr(self._p2p, "_forced_leader_override", False):
+            if time.time() < getattr(self._p2p, "leader_lease_expires", 0):
+                return True
+            else:
+                self._p2p._forced_leader_override = False
+                self._log_info("[ForcedLeader] Forced leadership lease expired, clearing override")
+
+        # First check consensus_mixin's Raft (supports deferred initialization)
+        if getattr(self._p2p, "_raft_initialized", False):
+            try:
+                if hasattr(self._p2p, "is_raft_leader"):
+                    is_raft_leader = self._p2p.is_raft_leader()
+                    if is_raft_leader and getattr(self._p2p, "leader_id", None) != node_id:
+                        self._log_info("[Raft] Syncing orchestrator state: consensus_mixin Raft says we're leader")
+                        leader_state_lock = getattr(self._p2p, "leader_state_lock", None)
+                        if leader_state_lock:
+                            with leader_state_lock:
+                                self._p2p.leader_id = node_id
+                                self._p2p.role = NodeRole.LEADER
+                    elif not is_raft_leader and getattr(self._p2p, "leader_id", None) == node_id:
+                        self._log_debug("[Raft] consensus_mixin Raft says we're not leader")
+                    return is_raft_leader
+            except Exception as e:
+                self._log_debug(f"[Raft] consensus_mixin.is_raft_leader() failed: {e}")
+
+        # Route through HybridCoordinator if available
+        hybrid_coordinator = getattr(self._p2p, "_hybrid_coordinator", None)
+        if hybrid_coordinator is not None:
+            try:
+                is_raft_leader = hybrid_coordinator.is_leader()
+                if is_raft_leader and getattr(self._p2p, "leader_id", None) != node_id:
+                    self._log_info("[Raft] Syncing orchestrator state: HybridCoordinator says we're leader")
+                    leader_state_lock = getattr(self._p2p, "leader_state_lock", None)
+                    if leader_state_lock:
+                        with leader_state_lock:
+                            self._p2p.leader_id = node_id
+                            self._p2p.role = NodeRole.LEADER
+                elif not is_raft_leader and getattr(self._p2p, "leader_id", None) == node_id:
+                    self._log_debug("[Raft] HybridCoordinator says we're not leader")
+                return is_raft_leader
+            except Exception as e:
+                self._log_warning(f"[Raft] HybridCoordinator.is_leader() failed, falling back to Bully: {e}")
+
+        # Bully algorithm fallback
+        return self._check_is_leader_bully()
+
+    def _check_is_leader_bully(self) -> bool:
+        """Check leadership using Bully algorithm (legacy fallback).
+
+        Jan 29, 2026: Extracted from _is_leader() for clarity.
+        """
+        try:
+            from scripts.p2p.node_info import NodeRole
+        except ImportError:
+            return False
+
+        node_id = getattr(self._p2p, "node_id", "")
+        leader_id = getattr(self._p2p, "leader_id", None)
+        role = getattr(self._p2p, "role", None)
+
+        # Consistency check: we should never claim role=leader while leader_id points elsewhere
+        if leader_id != node_id:
+            self._log_debug(
+                f"[LeaderCheck] Not leader: leader_id={leader_id}, "
+                f"self.node_id={node_id}, role={role.value if hasattr(role, 'value') else role}"
+            )
+            if role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER):
+                self._log_info("Inconsistent leadership state (role=leader but leader_id!=self); stepping down")
+                self._handle_leadership_inconsistency_step_down()
+            return False
+
+        # Consistency check: we should never claim leader_id=self while being a follower/candidate
+        if role not in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER):
+            self._log_info("Inconsistent leadership state (leader_id=self but role!=leader/provisional); clearing leader_id")
+            self._handle_leadership_inconsistency_clear()
+            return False
+
+        # Must have valid lease to act as leader
+        leader_lease_expires = getattr(self._p2p, "leader_lease_expires", 0)
+        if leader_lease_expires > 0 and time.time() >= leader_lease_expires:
+            self._log_info("Leadership lease expired, stepping down via ULSM")
+            self._handle_lease_expired()
+            return False
+
+        # Check voter quorum
+        voter_node_ids = getattr(self._p2p, "voter_node_ids", [])
+        if voter_node_ids and hasattr(self._p2p, "_has_voter_quorum") and not self._p2p._has_voter_quorum():
+            if not self._handle_quorum_check_failure():
+                return False
+
+        return True
+
+    def _handle_leadership_inconsistency_step_down(self) -> None:
+        """Handle case where role=leader but leader_id!=self.
+
+        Jan 29, 2026: Extracted from _is_leader() for clarity.
+        """
+        try:
+            from scripts.p2p.node_info import NodeRole
+        except ImportError:
+            return
+
+        leader_state_lock = getattr(self._p2p, "leader_state_lock", None)
+        if leader_state_lock:
+            with leader_state_lock:
+                self._p2p.role = NodeRole.FOLLOWER
+                self._p2p.last_lease_renewal = 0.0
+                if not getattr(self._p2p, "leader_id", None):
+                    self._p2p.leader_lease_id = ""
+                    self._p2p.leader_lease_expires = 0.0
+
+        if hasattr(self._p2p, "_release_voter_grant_if_self"):
+            self._p2p._release_voter_grant_if_self()
+        if hasattr(self._p2p, "_save_state"):
+            self._p2p._save_state()
+
+        # Start election if no known leader and we have quorum
+        if not getattr(self._p2p, "leader_id", None):
+            voter_node_ids = getattr(self._p2p, "voter_node_ids", [])
+            has_quorum = not voter_node_ids or (hasattr(self._p2p, "_has_voter_quorum") and self._p2p._has_voter_quorum())
+            if has_quorum:
+                self._schedule_election()
+            else:
+                self._log_warning("Skipping election: no voter quorum available")
+
+    def _handle_leadership_inconsistency_clear(self) -> None:
+        """Handle case where leader_id=self but role!=leader.
+
+        Jan 29, 2026: Extracted from _is_leader() for clarity.
+        """
+        try:
+            from scripts.p2p.node_info import NodeRole
+        except ImportError:
+            return
+
+        leader_state_lock = getattr(self._p2p, "leader_state_lock", None)
+        if leader_state_lock:
+            with leader_state_lock:
+                self._p2p.role = NodeRole.FOLLOWER
+                self._p2p.leader_id = None
+                self._p2p.leader_lease_id = ""
+                self._p2p.leader_lease_expires = 0.0
+                self._p2p.last_lease_renewal = 0.0
+
+        if hasattr(self._p2p, "_release_voter_grant_if_self"):
+            self._p2p._release_voter_grant_if_self()
+        if hasattr(self._p2p, "_save_state"):
+            self._p2p._save_state()
+
+        # Start election if we have quorum
+        voter_node_ids = getattr(self._p2p, "voter_node_ids", [])
+        has_quorum = not voter_node_ids or (hasattr(self._p2p, "_has_voter_quorum") and self._p2p._has_voter_quorum())
+        if has_quorum:
+            self._schedule_election()
+        else:
+            self._log_warning("Skipping election after inconsistent state: no voter quorum available")
+
+    def _handle_lease_expired(self) -> None:
+        """Handle leadership lease expiration.
+
+        Jan 29, 2026: Extracted from _is_leader() for clarity.
+        """
+        if hasattr(self._p2p, "_schedule_step_down_sync"):
+            try:
+                from scripts.p2p.leadership_state_machine import TransitionReason
+                self._p2p._schedule_step_down_sync(TransitionReason.LEASE_EXPIRED)
+            except ImportError:
+                pass
+
+    def _handle_quorum_check_failure(self) -> bool:
+        """Handle voter quorum check failure.
+
+        Jan 29, 2026: Extracted from _is_leader() for clarity.
+
+        Returns:
+            True if we should continue as leader, False if we should step down.
+        """
+        voters_alive = 0
+        if hasattr(self._p2p, "_count_alive_voters"):
+            voters_alive = self._p2p._count_alive_voters()
+        quorum_size = getattr(self._p2p, "voter_quorum_size", 0)
+
+        # Use ULSM QuorumHealth for unified tracking
+        leadership_sm = getattr(self._p2p, "_leadership_sm", None)
+        if leadership_sm is None or not hasattr(leadership_sm, "quorum_health"):
+            # No ULSM, just log and continue
+            self._log_debug(f"[LeaderCheck] Quorum check failed: voters_alive={voters_alive}, quorum_size={quorum_size}")
+            return True
+
+        threshold_exceeded = leadership_sm.quorum_health.record_failure(voters_alive)
+        fail_count = leadership_sm.quorum_health.consecutive_failures
+        threshold = leadership_sm.quorum_health.failure_threshold
+        self._log_debug(
+            f"[LeaderCheck] Quorum check failed ({fail_count}/{threshold}): "
+            f"voters_alive={voters_alive}, quorum_size={quorum_size}"
+        )
+
+        if threshold_exceeded:
+            self._log_info(f"Leadership without voter quorum ({threshold} consecutive failures), stepping down via ULSM")
+            if hasattr(self._p2p, "_schedule_step_down_sync"):
+                try:
+                    from scripts.p2p.leadership_state_machine import TransitionReason
+                    self._p2p._schedule_step_down_sync(TransitionReason.QUORUM_LOST)
+                except ImportError:
+                    pass
+            self._log_warning("Skipping election after quorum loss: no voter quorum available")
+
+            # Trigger aggressive peer discovery during quorum crisis
+            quorum_crisis_loop = getattr(self._p2p, "_quorum_crisis_loop", None)
+            if quorum_crisis_loop:
+                quorum_crisis_loop.enter_crisis_mode(reason="quorum_lost")
+            return False
+
+        return True
+
+    def _record_quorum_success(self) -> None:
+        """Record successful quorum check.
+
+        Jan 29, 2026: Extracted from _is_leader() for clarity.
+        """
+        leadership_sm = getattr(self._p2p, "_leadership_sm", None)
+        if leadership_sm is not None and hasattr(leadership_sm, "quorum_health"):
+            voters_alive = 0
+            if hasattr(self._p2p, "_count_alive_voters"):
+                voters_alive = self._p2p._count_alive_voters()
+            leadership_sm.quorum_health.record_success(voters_alive)
+
+            # Exit crisis mode when quorum is restored
+            quorum_crisis_loop = getattr(self._p2p, "_quorum_crisis_loop", None)
+            if quorum_crisis_loop and quorum_crisis_loop.in_crisis_mode:
+                quorum_crisis_loop.exit_crisis_mode(reason="quorum_restored")
+
+    def _schedule_election(self) -> None:
+        """Schedule an election via the event loop.
+
+        Jan 29, 2026: Helper method for consistency.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            if hasattr(self._p2p, "_start_election"):
+                with contextlib.suppress(RuntimeError):
+                    loop.create_task(self._p2p._start_election())
+        except RuntimeError:
+            pass  # No running event loop
 
     def is_leader(self) -> bool:
         """Check if this node is the current cluster leader.
@@ -142,9 +513,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
         Returns:
             True if this node is the leader with a valid lease.
         """
-        if hasattr(self._p2p, "is_leader") and callable(self._p2p.is_leader):
-            return self._p2p.is_leader()
-        return getattr(self._p2p, "is_leader", False)
+        return self.check_is_leader()
 
     def get_leader_id(self) -> str | None:
         """Get the current leader's node ID.

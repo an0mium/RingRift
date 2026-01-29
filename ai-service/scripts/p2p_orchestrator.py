@@ -3784,15 +3784,7 @@ class P2POrchestrator(
     ) -> bool:
         """Atomically set the leader and role to ensure consistency.
 
-        This is the CANONICAL method for modifying self.leader_id and self.role.
-        Using this method ensures both tracking systems (direct fields and ULSM)
-        stay synchronized and prevents the leader self-recognition desync bug.
-
-        Jan 3, 2026: Created to fix critical bug where leader node didn't recognize
-        itself as leader due to divergent state between leader_id and role fields.
-
-        Jan 12, 2026: C1 fix - Added leader_state_lock to prevent race conditions
-        during concurrent leader elections and state transitions.
+        Jan 29, 2026: Delegates to self.leadership orchestrator.
 
         Args:
             new_leader_id: The new leader ID (None to clear leader)
@@ -3803,207 +3795,19 @@ class P2POrchestrator(
         Returns:
             True if this node is now the leader
         """
-        # C1 fix: Acquire lock to prevent race conditions during leader transitions
-        with self.leader_state_lock:
-            old_leader_id = self.leader_id
-            old_role = self.role
-
-            # Determine new role based on leader_id
-            if new_leader_id is None:
-                new_role = NodeRole.FOLLOWER
-                is_now_leader = False
-            elif new_leader_id == self.node_id:
-                new_role = NodeRole.LEADER
-                is_now_leader = True
-            else:
-                new_role = NodeRole.FOLLOWER
-                is_now_leader = False
-
-            # Atomic update of both fields
-            self.leader_id = new_leader_id
-            self.role = new_role
-
-            # Sync to ULSM (Unified Leadership State Machine) if enabled
-            if sync_to_ulsm and hasattr(self, "_leadership_sm") and self._leadership_sm is not None:
-                try:
-                    from scripts.p2p.leadership_state_machine import LeaderState
-
-                    self._leadership_sm._leader_id = new_leader_id
-                    self._leadership_sm._state = (
-                        LeaderState.LEADER if is_now_leader else LeaderState.FOLLOWER
-                    )
-                except (ImportError, AttributeError) as e:
-                    logger.debug(f"[LeaderSet] ULSM sync skipped: {e}")
-
-            # Log if changed
-            if old_leader_id != new_leader_id or old_role != new_role:
-                logger.info(
-                    f"[LeaderSet] {old_role.value if hasattr(old_role, 'value') else old_role}->"
-                    f"{new_role.value if hasattr(new_role, 'value') else new_role}, "
-                    f"leader_id={old_leader_id}->{new_leader_id}, reason={reason}"
-                )
-
-            # Persist state if requested
-            if save_state and (old_leader_id != new_leader_id or old_role != new_role):
-                self._save_state()
-
-            return is_now_leader
+        return self.leadership.set_leader(
+            new_leader_id, reason, sync_to_ulsm=sync_to_ulsm, save_state=save_state
+        )
 
     def _is_leader(self) -> bool:
         """Check if this node is the current cluster leader with valid lease.
 
-        Jan 23, 2026: Routes through Raft consensus when enabled, with fallback chain:
-        1. consensus_mixin.is_raft_leader() - Deferred Raft init, works after peer discovery
-        2. HybridCoordinator.is_leader() - May fall back to Bully
-        3. Bully algorithm - Legacy fallback
+        Jan 29, 2026: Delegates to self.leadership orchestrator.
 
-        Jan 25, 2026: Added _forced_leader_override to bypass consensus checks when
-        leadership is forced via /election/force_leader endpoint. This fixes the
-        is_leader desync issue where work queue showed is_leader=False despite
-        main status showing this node as leader.
+        Returns:
+            True if this node is the leader with a valid lease.
         """
-        # Jan 25, 2026: Check forced leader override first - bypasses all consensus checks
-        # This ensures force_leader actually works for work queue operations
-        if getattr(self, "_forced_leader_override", False):
-            # Verify lease is still valid
-            if time.time() < getattr(self, "leader_lease_expires", 0):
-                return True
-            else:
-                # Lease expired, clear the override
-                self._forced_leader_override = False
-                logger.info("[ForcedLeader] Forced leadership lease expired, clearing override")
-
-        # Jan 23, 2026: First check consensus_mixin's Raft (supports deferred initialization)
-        # This is the preferred path because it initializes AFTER peers are discovered.
-        if hasattr(self, "_raft_initialized") and self._raft_initialized:
-            try:
-                is_raft_leader = self.is_raft_leader()
-                # Sync orchestrator state with Raft's view if we are leader
-                if is_raft_leader and self.leader_id != self.node_id:
-                    logger.info(f"[Raft] Syncing orchestrator state: consensus_mixin Raft says we're leader")
-                    with self.leader_state_lock:
-                        self.leader_id = self.node_id
-                        self.role = NodeRole.LEADER
-                elif not is_raft_leader and self.leader_id == self.node_id:
-                    logger.debug(f"[Raft] consensus_mixin Raft says we're not leader")
-                return is_raft_leader
-            except Exception as e:
-                logger.debug(f"[Raft] consensus_mixin.is_raft_leader() failed: {e}")
-                # Fall through to HybridCoordinator
-
-        # Route through HybridCoordinator if available (supports Raft)
-        if self._hybrid_coordinator is not None:
-            try:
-                is_raft_leader = self._hybrid_coordinator.is_leader()
-                # Sync orchestrator state with Raft's view if we are leader
-                if is_raft_leader and self.leader_id != self.node_id:
-                    logger.info(f"[Raft] Syncing orchestrator state: HybridCoordinator says we're leader")
-                    with self.leader_state_lock:
-                        self.leader_id = self.node_id
-                        self.role = NodeRole.LEADER
-                elif not is_raft_leader and self.leader_id == self.node_id:
-                    logger.debug(f"[Raft] HybridCoordinator says we're not leader")
-                return is_raft_leader
-            except Exception as e:
-                logger.warning(f"[Raft] HybridCoordinator.is_leader() failed, falling back to Bully: {e}")
-                # Fall through to Bully algorithm as fallback
-
-        # Dec 31, 2025: Enhanced logging for leader self-recognition debugging
-        if self.leader_id != self.node_id:
-            logger.debug(
-                f"[LeaderCheck] Not leader: leader_id={self.leader_id}, "
-                f"self.node_id={self.node_id}, role={self.role.value if hasattr(self.role, 'value') else self.role}"
-            )
-            # Consistency: we should never claim role=leader/provisional while leader_id points elsewhere (or is None).
-            # Jan 1, 2026: Also check PROVISIONAL_LEADER for consistency
-            if self.role in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER):
-                logger.info("Inconsistent leadership state (role=leader but leader_id!=self); stepping down")
-                # C1 fix: Use leader_state_lock for role changes
-                with self.leader_state_lock:
-                    self.role = NodeRole.FOLLOWER
-                    self.last_lease_renewal = 0.0
-                    if not self.leader_id:
-                        self.leader_lease_id = ""
-                        self.leader_lease_expires = 0.0
-                self._release_voter_grant_if_self()
-                self._save_state()
-                # Only force an election when we have no known leader; otherwise we
-                # may already be following a healthy leader and shouldn't flap.
-                if not self.leader_id:
-                    # CRITICAL: Check quorum before starting election to prevent quorum bypass
-                    if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-                        logger.warning("Skipping election: no voter quorum available")
-                    else:
-                        with contextlib.suppress(RuntimeError):
-                            asyncio.get_running_loop().create_task(self._start_election())
-            return False
-        # Consistency: we should never claim leader_id=self while being a follower/candidate.
-        # Jan 1, 2026: PROVISIONAL_LEADER is also valid for dispatching work (fallback leadership)
-        if self.role not in (NodeRole.LEADER, NodeRole.PROVISIONAL_LEADER):
-            logger.info("Inconsistent leadership state (leader_id=self but role!=leader/provisional); clearing leader_id")
-            # C1 fix: Use leader_state_lock for role/leader_id changes
-            with self.leader_state_lock:
-                self.role = NodeRole.FOLLOWER
-                self.leader_id = None
-                self.leader_lease_id = ""
-                self.leader_lease_expires = 0.0
-                self.last_lease_renewal = 0.0
-            self._release_voter_grant_if_self()
-            self._save_state()
-            # CRITICAL: Check quorum before starting election to prevent quorum bypass
-            if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-                logger.warning("Skipping election after inconsistent state: no voter quorum available")
-            else:
-                with contextlib.suppress(RuntimeError):
-                    asyncio.get_running_loop().create_task(self._start_election())
-            return False
-
-        # LEARNED LESSONS - Lease-based leadership prevents split-brain
-        # Must have valid lease to act as leader
-        if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
-            logger.info("Leadership lease expired, stepping down via ULSM")
-            # Jan 2026: Use ULSM step-down which broadcasts to peers BEFORE local mutation
-            # This ensures peers learn about step-down immediately, preventing split-brain
-            self._schedule_step_down_sync(TransitionReason.LEASE_EXPIRED)
-            # Note: Election is triggered after step-down completes (in _complete_step_down_async)
-            # if quorum is available
-            return False
-        # Dec 31, 2025: Add grace period for quorum failures in _is_leader() too
-        # This prevents rapid step-downs from transient network issues
-        # Jan 2026: Use ULSM QuorumHealth for unified quorum tracking
-        if getattr(self, "voter_node_ids", []) and not self._has_voter_quorum():
-            # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
-            voters_alive = self._count_alive_voters()
-            quorum_size = getattr(self, "voter_quorum_size", 0)
-            # Use ULSM QuorumHealth for unified tracking (threshold=5 vs old 3)
-            threshold_exceeded = self._leadership_sm.quorum_health.record_failure(voters_alive)
-            fail_count = self._leadership_sm.quorum_health.consecutive_failures
-            threshold = self._leadership_sm.quorum_health.failure_threshold
-            logger.debug(
-                f"[LeaderCheck] Quorum check failed ({fail_count}/{threshold}): "
-                f"voters_alive={voters_alive}, quorum_size={quorum_size}"
-            )
-            if threshold_exceeded:
-                logger.info(f"Leadership without voter quorum ({threshold} consecutive failures), stepping down via ULSM")
-                # Jan 2026: Use ULSM step-down which broadcasts to peers BEFORE local mutation
-                self._schedule_step_down_sync(TransitionReason.QUORUM_LOST)
-                # NOTE: Don't start election here - we just lost quorum, so election would fail
-                # Wait for quorum to be restored before attempting election
-                logger.warning("Skipping election after quorum loss: no voter quorum available")
-                # Jan 2026: Trigger aggressive peer discovery during quorum crisis
-                if hasattr(self, "_quorum_crisis_loop") and self._quorum_crisis_loop:
-                    self._quorum_crisis_loop.enter_crisis_mode(reason="quorum_lost")
-            return False
-        else:
-            # Reset quorum health counter on success
-            # Jan 2, 2026: Use _count_alive_voters() to check IP:port matches
-            voters_alive = self._count_alive_voters()
-            self._leadership_sm.quorum_health.record_success(voters_alive)
-            # Jan 2026: Exit crisis mode when quorum is restored
-            if hasattr(self, "_quorum_crisis_loop") and self._quorum_crisis_loop:
-                if self._quorum_crisis_loop.in_crisis_mode:
-                    self._quorum_crisis_loop.exit_crisis_mode(reason="quorum_restored")
-        return True
+        return self.leadership.check_is_leader()
 
     @property
     def is_leader(self) -> bool:
