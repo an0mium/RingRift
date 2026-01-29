@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:
-    from scripts.p2p.node_info import NodeInfo
+    from scripts.p2p.models import NodeInfo
 
 logger = logging.getLogger(__name__)
 

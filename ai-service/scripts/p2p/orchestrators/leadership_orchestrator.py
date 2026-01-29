@@ -163,7 +163,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
             True if this node is now the leader
         """
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             self._log_warning("Cannot set leader: NodeRole not available")
             return False
@@ -189,7 +189,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
         Jan 29, 2026: Helper for set_leader().
         """
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             return False
 
@@ -255,7 +255,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
             True if this node is the leader with a valid lease.
         """
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             return False
 
@@ -314,7 +314,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
         Jan 29, 2026: Extracted from _is_leader() for clarity.
         """
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             return False
 
@@ -360,7 +360,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
         Jan 29, 2026: Extracted from _is_leader() for clarity.
         """
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             return
 
@@ -393,7 +393,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
         Jan 29, 2026: Extracted from _is_leader() for clarity.
         """
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             return
 
@@ -533,7 +533,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
         """
         # Try NodeRole import for role check
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
             if getattr(self._p2p, "role", None) != NodeRole.LEADER:
                 return ""
         except ImportError:
@@ -631,7 +631,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
             LeaderState = None
 
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             NodeRole = None
 
@@ -710,7 +710,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
             True if recovery action was taken, False if state was consistent.
         """
         try:
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             self._log_warning("Cannot recover desync: NodeRole not available")
             return False
@@ -777,7 +777,7 @@ class LeadershipOrchestrator(BaseOrchestrator):
 
         try:
             from scripts.p2p.leadership_state_machine import LeaderState
-            from scripts.p2p.node_info import NodeRole
+            from scripts.p2p.types import NodeRole
         except ImportError:
             return False
 
