@@ -2505,6 +2505,20 @@ class P2POrchestrator(
         )
         logger.info("[P2P] JobCoordinationManager initialized")
 
+        # =====================================================================
+        # January 28, 2026: Sub-Orchestrators (Composition Pattern)
+        # These orchestrators handle specific domains and delegate to managers
+        # =====================================================================
+        from scripts.p2p.orchestrators import LeadershipOrchestrator
+
+        self.leadership = LeadershipOrchestrator(self)
+        logger.info("[P2P] LeadershipOrchestrator initialized")
+
+        # Future orchestrators (to be added):
+        # self.network = PeerNetworkOrchestrator(self)
+        # self.sync = SyncOrchestrator(self)
+        # self.jobs = JobOrchestrator(self)
+
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
         self._initialize_work_discovery_manager()
