@@ -10173,56 +10173,11 @@ class P2POrchestrator(
     # handle_elo_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
     # handle_nodes_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
 
-    # NOTE: Analytics cache methods moved to AnalyticsCacheManager (Jan 26, 2026)
-    # Thin wrappers kept for backward compatibility
-
-    async def _get_victory_type_stats(self) -> dict[tuple[str, int, str], int]:
-        """Aggregate victory types from recent game data. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_victory_type_stats()
-
-    async def _get_game_analytics_cached(self) -> dict[str, Any]:
-        """Get game analytics with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_game_analytics_cached()
-
-    async def _get_training_metrics_cached(self) -> dict[str, Any]:
-        """Get training metrics with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_training_metrics_cached()
-
-    async def _get_holdout_metrics_cached(self) -> dict[str, Any]:
-        """Get holdout validation metrics with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_holdout_metrics_cached()
-
-    async def _get_mcts_stats_cached(self) -> dict[str, Any]:
-        """Get MCTS search statistics with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_mcts_stats_cached()
-
-    async def _get_matchup_matrix_cached(self) -> dict[str, Any]:
-        """Get head-to-head matchup statistics with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_matchup_matrix_cached()
-
-    # =========================================================================
-    # Feature 2: Model Lineage Tracking
-    # =========================================================================
-
-    async def _get_model_lineage_cached(self) -> dict[str, Any]:
-        """Get model lineage and ancestry with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_model_lineage_cached()
-
-    # =========================================================================
-    # Feature 3: Data Quality Metrics
-    # =========================================================================
-
-    async def _get_data_quality_cached(self) -> dict[str, Any]:
-        """Get data quality metrics with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_data_quality_cached()
-
-    # =========================================================================
-    # Feature 4: Training Efficiency Dashboard
-    # =========================================================================
-
-    async def _get_training_efficiency_cached(self) -> dict[str, Any]:
-        """Get training efficiency metrics with caching. Delegates to AnalyticsCacheManager."""
-        return await self.analytics_cache_manager.get_training_efficiency_cached()
+    # Jan 28, 2026: Analytics cache wrapper methods removed (~48 LOC)
+    # Handlers now use self.analytics_cache_manager.* directly.
+    # Removed: _get_victory_type_stats, _get_game_analytics_cached, _get_training_metrics_cached,
+    # _get_holdout_metrics_cached, _get_mcts_stats_cached, _get_matchup_matrix_cached,
+    # _get_model_lineage_cached, _get_data_quality_cached, _get_training_efficiency_cached
 
     # =========================================================================
     # Feature 5: Automated Model Rollback
@@ -10303,7 +10258,7 @@ class P2POrchestrator(
             }
 
             # Get game generation throughput
-            analytics = await self._get_game_analytics_cached()
+            analytics = await self.analytics_cache_manager.get_game_analytics_cached()
             total_throughput = sum(c.get("throughput_per_hour", 0) for c in analytics.get("configs", {}).values())
 
             autoscale["current_state"]["games_per_hour"] = round(total_throughput, 1)
@@ -10351,7 +10306,7 @@ class P2POrchestrator(
                 })
 
             # Cost optimization recommendation
-            efficiency = await self._get_training_efficiency_cached()
+            efficiency = await self.analytics_cache_manager.get_training_efficiency_cached()
             elo_per_hour = efficiency.get("summary", {}).get("overall_elo_per_gpu_hour", 0)
             if elo_per_hour < 1 and total_nodes > 2:
                 autoscale["recommendations"].append({

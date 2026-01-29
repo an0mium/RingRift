@@ -53,13 +53,7 @@ class AnalyticsHandlersMixin:
     """Mixin providing analytics HTTP handlers.
 
     Must be mixed into a class that provides:
-    - self._get_holdout_metrics_cached()
-    - self._get_mcts_stats_cached()
-    - self._get_matchup_matrix_cached()
-    - self._get_model_lineage_cached()
-    - self._get_data_quality_cached()
-    - self._get_training_efficiency_cached()
-    - self._get_autoscaling_metrics()
+    - self.analytics_cache_manager (AnalyticsCacheManager instance)
     - self.get_metrics_summary()
     - self.get_metrics_history()
     - self.notifier
@@ -67,6 +61,7 @@ class AnalyticsHandlersMixin:
     - self._get_ai_service_path()
 
     January 2026: Moved from p2p_orchestrator.py to AnalyticsHandlersMixin.
+    January 2026: Updated to use analytics_cache_manager directly (-30 LOC from orchestrator).
     """
 
     async def handle_holdout_metrics(self, request: web.Request) -> web.Response:
@@ -80,7 +75,7 @@ class AnalyticsHandlersMixin:
         """
         try:
             config_filter = request.query.get("config")
-            metrics = await self._get_holdout_metrics_cached()
+            metrics = await self.analytics_cache_manager.get_holdout_metrics_cached()
 
             if config_filter:
                 # Filter to specific config
@@ -104,7 +99,7 @@ class AnalyticsHandlersMixin:
         January 2026: Moved from p2p_orchestrator.py to AnalyticsHandlersMixin.
         """
         try:
-            stats = await self._get_mcts_stats_cached()
+            stats = await self.analytics_cache_manager.get_mcts_stats_cached()
             return web.json_response(stats)
 
         except Exception as e:  # noqa: BLE001
@@ -116,7 +111,7 @@ class AnalyticsHandlersMixin:
         January 2026: Moved from p2p_orchestrator.py to AnalyticsHandlersMixin.
         """
         try:
-            matrix = await self._get_matchup_matrix_cached()
+            matrix = await self.analytics_cache_manager.get_matchup_matrix_cached()
             return web.json_response(matrix)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)})
@@ -127,7 +122,7 @@ class AnalyticsHandlersMixin:
         January 2026: Moved from p2p_orchestrator.py to AnalyticsHandlersMixin.
         """
         try:
-            lineage = await self._get_model_lineage_cached()
+            lineage = await self.analytics_cache_manager.get_model_lineage_cached()
             return web.json_response(lineage)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)})
@@ -138,7 +133,7 @@ class AnalyticsHandlersMixin:
         January 2026: Moved from p2p_orchestrator.py to AnalyticsHandlersMixin.
         """
         try:
-            quality = await self._get_data_quality_cached()
+            quality = await self.analytics_cache_manager.get_data_quality_cached()
             return web.json_response(quality)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)})
@@ -149,7 +144,7 @@ class AnalyticsHandlersMixin:
         January 2026: Moved from p2p_orchestrator.py to AnalyticsHandlersMixin.
         """
         try:
-            efficiency = await self._get_training_efficiency_cached()
+            efficiency = await self.analytics_cache_manager.get_training_efficiency_cached()
             return web.json_response(efficiency)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)})
@@ -160,7 +155,7 @@ class AnalyticsHandlersMixin:
         January 2026: Moved from p2p_orchestrator.py to AnalyticsHandlersMixin.
         """
         try:
-            metrics = await self._get_autoscaling_metrics()
+            metrics = await self.analytics_cache_manager.get_autoscaling_metrics()
             return web.json_response(metrics)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)})

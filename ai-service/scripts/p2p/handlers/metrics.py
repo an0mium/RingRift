@@ -63,10 +63,11 @@ class MetricsHandlersMixin:
     - self.cost_metrics, self.promotion_metrics
     - self.improvement_cycle_manager
     - self.is_leader, self.start_time
-    - Various async metrics methods (_get_victory_type_stats, etc.)
+    - self.analytics_cache_manager (AnalyticsCacheManager instance)
     """
 
     # Required attributes (provided by orchestrator)
+    analytics_cache_manager: Any  # AnalyticsCacheManager
     peers_lock: Any
     peers: dict
     jobs_lock: Any
@@ -455,7 +456,7 @@ class MetricsHandlersMixin:
             lines.append("# HELP ringrift_victory_type_total Games won by victory type")
             lines.append("# TYPE ringrift_victory_type_total counter")
             try:
-                victory_stats = await self._get_victory_type_stats()
+                victory_stats = await self.analytics_cache_manager.get_victory_type_stats()
                 for (board_type, num_players, victory_type), count in victory_stats.items():
                     lines.append(
                         f'ringrift_victory_type_total{{board_type="{board_type}",num_players="{num_players}",victory_type="{victory_type}"}} {count}'
@@ -472,7 +473,7 @@ class MetricsHandlersMixin:
             lines.append("# TYPE ringrift_opening_diversity gauge")
             try:
                 # Use cached analytics if available
-                analytics = await self._get_game_analytics_cached()
+                analytics = await self.analytics_cache_manager.get_game_analytics_cached()
                 for config, stats in analytics.get("configs", {}).items():
                     parts = config.rsplit("_", 1)
                     if len(parts) == 2:
@@ -521,7 +522,7 @@ class MetricsHandlersMixin:
             lines.append("# HELP ringrift_training_epoch Current training epoch")
             lines.append("# TYPE ringrift_training_epoch gauge")
             try:
-                training_metrics = await self._get_training_metrics_cached()
+                training_metrics = await self.analytics_cache_manager.get_training_metrics_cached()
                 for config, data in training_metrics.get("configs", {}).items():
                     parts = config.rsplit("_", 1)
                     if len(parts) == 2 and data.get("latest_loss"):
@@ -544,7 +545,7 @@ class MetricsHandlersMixin:
             lines.append("# HELP ringrift_overfit_gap Gap between holdout and training loss (positive = overfitting)")
             lines.append("# TYPE ringrift_overfit_gap gauge")
             try:
-                holdout_metrics = await self._get_holdout_metrics_cached()
+                holdout_metrics = await self.analytics_cache_manager.get_holdout_metrics_cached()
                 for config, data in holdout_metrics.get("configs", {}).items():
                     parts = config.rsplit("_", 1)
                     if len(parts) == 2:
@@ -573,7 +574,7 @@ class MetricsHandlersMixin:
             lines.append("# HELP ringrift_mcts_avg_time Average time per MCTS move (seconds)")
             lines.append("# TYPE ringrift_mcts_avg_time gauge")
             try:
-                mcts_stats = await self._get_mcts_stats_cached()
+                mcts_stats = await self.analytics_cache_manager.get_mcts_stats_cached()
                 summary = mcts_stats.get("summary", {})
                 if summary.get("avg_nodes_per_move"):
                     lines.append(f'ringrift_mcts_avg_nodes {summary["avg_nodes_per_move"]:.0f}')
@@ -674,7 +675,7 @@ class MetricsHandlersMixin:
             lines.append("# HELP ringrift_cluster_games_per_hour Current cluster-wide game generation rate")
             lines.append("# TYPE ringrift_cluster_games_per_hour gauge")
             try:
-                autoscale = await self._get_autoscaling_metrics()
+                autoscale = await self.analytics_cache_manager.get_autoscaling_metrics()
                 state = autoscale.get("current_state", {})
                 lines.append(f'ringrift_cluster_games_per_hour {state.get("games_per_hour", 0)}')
                 recs = autoscale.get("recommendations", [])

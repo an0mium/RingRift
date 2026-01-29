@@ -260,7 +260,7 @@ class TableHandlersMixin(BaseP2PHandler):
         Returns holdout metrics as flat table rows.
         """
         try:
-            metrics = await self._get_holdout_metrics_cached()
+            metrics = await self.analytics_cache_manager.get_holdout_metrics_cached()
 
             table_data = []
             for config, data in metrics.get("configs", {}).items():
@@ -291,7 +291,7 @@ class TableHandlersMixin(BaseP2PHandler):
         Returns MCTS statistics as flat table rows.
         """
         try:
-            stats = await self._get_mcts_stats_cached()
+            stats = await self.analytics_cache_manager.get_mcts_stats_cached()
 
             table_data = []
             # Add summary row
@@ -330,7 +330,7 @@ class TableHandlersMixin(BaseP2PHandler):
     async def handle_matchup_table(self, request: web.Request) -> web.Response:
         """GET /matchups/table - Matchups in table format for Grafana Infinity."""
         try:
-            matrix = await self._get_matchup_matrix_cached()
+            matrix = await self.analytics_cache_manager.get_matchup_matrix_cached()
             table_data = []
             for matchup in matrix.get("matchups", []):
                 table_data.append({
@@ -641,7 +641,7 @@ class TableHandlersMixin(BaseP2PHandler):
                 except ValueError:
                     num_players_filter = None
 
-            stats = await self._get_victory_type_stats()
+            stats = await self.analytics_cache_manager.get_victory_type_stats()
 
             # Group by config for table display
             config_stats: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
