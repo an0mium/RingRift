@@ -23,7 +23,10 @@ Auto-Update:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import shutil
+import subprocess
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -760,3 +763,124 @@ class AdminHandlersMixin(BaseP2PHandler):
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error in handle_admin_deduplicate: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    @handler_timeout(HANDLER_TIMEOUT_ADMIN)
+    async def handle_process_kill(self, request: web.Request) -> web.Response:
+        """Kill processes matching a pattern on this node.
+
+        Jan 21, 2026: Added to fix zombie process accumulation.
+        This endpoint enables remote cleanup of stuck/zombie processes.
+        Jan 28, 2026: Moved from p2p_orchestrator.py to AdminHandlersMixin.
+
+        Request JSON:
+            pattern: str - Process pattern to match (e.g., "selfplay", "gpu_selfplay")
+            signal: str - Signal to send (default: "SIGKILL")
+
+        Returns:
+            JSON with killed count and details
+        """
+        try:
+            data = await request.json()
+            pattern = data.get("pattern", "")
+            signal_name = data.get("signal", "SIGKILL").upper()
+
+            if not pattern:
+                return self.json_response(
+                    {"error": "missing pattern", "killed": 0},
+                    status=400,
+                )
+
+            # Validate signal
+            signal_map = {
+                "SIGTERM": "-15",
+                "SIGKILL": "-9",
+                "SIGHUP": "-1",
+            }
+            signal_flag = signal_map.get(signal_name, "-9")
+
+            # Safety: only allow certain patterns to prevent accidents
+            allowed_patterns = [
+                "selfplay", "gpu_selfplay", "gumbel", "train", "gauntlet",
+                "tournament", "export", "run_self_play", "run_gpu_selfplay",
+                "run_hybrid_selfplay", "policy_only", "nnue",
+            ]
+            if not any(allowed in pattern.lower() for allowed in allowed_patterns):
+                return self.json_response(
+                    {"error": f"pattern not allowed: {pattern}", "killed": 0},
+                    status=403,
+                )
+
+            if not shutil.which("pgrep") or not shutil.which("pkill"):
+                return self.json_response(
+                    {"error": "pgrep/pkill not available", "killed": 0},
+                    status=500,
+                )
+
+            # Count matching processes first
+            try:
+                pgrep_result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["pgrep", "-f", pattern],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if pgrep_result.returncode == 0 and pgrep_result.stdout.strip():
+                    pids = [p.strip() for p in pgrep_result.stdout.strip().split() if p.strip()]
+                    pid_count = len(pids)
+                else:
+                    pid_count = 0
+                    pids = []
+            except subprocess.TimeoutExpired:
+                return self.json_response(
+                    {"error": "pgrep timeout", "killed": 0},
+                    status=500,
+                )
+
+            if pid_count == 0:
+                return self.json_response({
+                    "killed": 0,
+                    "pattern": pattern,
+                    "message": "no matching processes",
+                })
+
+            # Kill matching processes
+            try:
+                pkill_result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["pkill", signal_flag, "-f", pattern],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                )
+                # pkill returns 0 if processes were killed, 1 if none matched
+                killed = pid_count if pkill_result.returncode == 0 else 0
+            except subprocess.TimeoutExpired:
+                return self.json_response(
+                    {"error": "pkill timeout", "killed": 0},
+                    status=500,
+                )
+
+            logger.info(
+                f"[ProcessKill] Killed {killed} processes matching '{pattern}' "
+                f"with {signal_name} (pids: {pids[:10]}{'...' if len(pids) > 10 else ''})"
+            )
+
+            return self.json_response({
+                "killed": killed,
+                "pattern": pattern,
+                "signal": signal_name,
+                "pids": pids[:20],  # Limit returned PIDs
+            })
+
+        except json.JSONDecodeError:
+            return self.json_response(
+                {"error": "invalid JSON", "killed": 0},
+                status=400,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[ProcessKill] Error: {e}")
+            return self.json_response(
+                {"error": str(e), "killed": 0},
+                status=500,
+            )
