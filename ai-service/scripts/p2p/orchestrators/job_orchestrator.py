@@ -298,3 +298,171 @@ class JobOrchestrator(BaseOrchestrator):
                 status["queue_size"] = job_manager.get_queue_size()
 
         return status
+
+    # =========================================================================
+    # Job Spawning
+    # =========================================================================
+
+    def spawn_and_track_job(
+        self,
+        job_id: str,
+        job_type: Any,
+        board_type: str,
+        num_players: int,
+        engine_mode: str,
+        cmd: list[str],
+        output_dir: Any,
+        log_filename: str = "run.log",
+        cuda_visible_devices: str | None = None,
+        extra_env: dict[str, str] | None = None,
+        safeguard_reason: str | None = None,
+    ) -> tuple[Any, Any] | None:
+        """Spawn a subprocess job and track it in local_jobs.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._spawn_and_track_job().
+
+        Args:
+            job_id: Unique job identifier
+            job_type: Type of job (SELFPLAY, GPU_SELFPLAY, etc.)
+            board_type: Board type (hex8, square8, etc.)
+            num_players: Number of players
+            engine_mode: Engine mode for the job
+            cmd: Command to execute
+            output_dir: Directory for output files
+            log_filename: Name of log file in output_dir
+            cuda_visible_devices: CUDA_VISIBLE_DEVICES value (None = inherit, "" = disable)
+            extra_env: Additional environment variables
+            safeguard_reason: Reason for safeguard check (default: job_type-board_type-Np)
+
+        Returns:
+            Tuple of (ClusterJob, Popen) if successful, None if blocked or failed
+        """
+        import os
+        import subprocess
+
+        # Get job_type value (handle enum or string)
+        job_type_val = job_type.value if hasattr(job_type, "value") else str(job_type)
+
+        # Build safeguard check reason
+        if safeguard_reason is None:
+            safeguard_reason = f"{job_type_val}-{board_type}-{num_players}p"
+
+        # SAFEGUARD: Final check before spawning
+        can_spawn, spawn_reason = self.can_spawn_process(safeguard_reason)
+        if not can_spawn:
+            self._log_info(f"BLOCKED {job_type_val} spawn: {spawn_reason}")
+            return None
+
+        # Build environment
+        env = os.environ.copy()
+
+        # Get AI service path from P2P
+        ai_service_path = ""
+        if hasattr(self._p2p, "_get_ai_service_path"):
+            ai_service_path = self._p2p._get_ai_service_path()
+        elif hasattr(self._p2p, "ringrift_path"):
+            ai_service_path = str(self._p2p.ringrift_path / "ai-service")
+
+        env["PYTHONPATH"] = ai_service_path
+        env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+        env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
+
+        # Handle CUDA_VISIBLE_DEVICES
+        if cuda_visible_devices is not None:
+            env["CUDA_VISIBLE_DEVICES"] = str(cuda_visible_devices).strip()
+
+        # Apply extra environment variables
+        if extra_env:
+            env.update(extra_env)
+
+        # Ensure output directory exists
+        from pathlib import Path
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        log_path = output_dir / log_filename
+
+        # Get ringrift_path from P2P
+        ringrift_path = getattr(self._p2p, "ringrift_path", None)
+
+        # Spawn subprocess
+        try:
+            log_handle = open(log_path, "a")  # noqa: SIM115
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    cwd=ringrift_path,
+                )
+                self.record_spawn()
+            finally:
+                log_handle.close()
+        except (OSError, subprocess.SubprocessError) as e:
+            self._log_error(f"Failed to spawn {job_type_val}: {e}")
+            return None
+
+        # Create ClusterJob - get class from P2P
+        node_id = getattr(self._p2p, "node_id", "unknown")
+
+        # Try to get ClusterJob class
+        ClusterJob = None
+        if hasattr(self._p2p, "ClusterJob"):
+            ClusterJob = self._p2p.ClusterJob
+        else:
+            # Import from scripts.p2p if available
+            try:
+                from scripts.p2p.job_types import ClusterJob
+            except ImportError:
+                # Fallback: create a simple namedtuple-like dict
+                pass
+
+        if ClusterJob is not None:
+            job = ClusterJob(
+                job_id=job_id,
+                job_type=job_type,
+                node_id=node_id,
+                board_type=board_type,
+                num_players=num_players,
+                engine_mode=engine_mode,
+                pid=proc.pid,
+                started_at=time.time(),
+                status="running",
+            )
+        else:
+            # Simple dict fallback
+            job = {
+                "job_id": job_id,
+                "job_type": job_type_val,
+                "node_id": node_id,
+                "board_type": board_type,
+                "num_players": num_players,
+                "engine_mode": engine_mode,
+                "pid": proc.pid,
+                "started_at": time.time(),
+                "status": "running",
+            }
+
+        # Track in local_jobs
+        jobs_lock = getattr(self._p2p, "jobs_lock", None)
+        local_jobs = getattr(self._p2p, "local_jobs", {})
+
+        if jobs_lock is not None:
+            with jobs_lock:
+                local_jobs[job_id] = job
+        else:
+            local_jobs[job_id] = job
+
+        self._log_info(f"Started {job_type_val} job {job_id} (PID {proc.pid})")
+
+        # Save state
+        if hasattr(self._p2p, "_save_state"):
+            self._p2p._save_state()
+
+        # Track via JobOrchestrationManager
+        job_orchestration = getattr(self._p2p, "job_orchestration", None)
+        if job_orchestration is not None:
+            if hasattr(job_orchestration, "record_job_started"):
+                job_orchestration.record_job_started(job_type_val)
+
+        return job, proc

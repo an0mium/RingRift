@@ -4154,7 +4154,7 @@ class P2POrchestrator(
     ) -> tuple[ClusterJob, subprocess.Popen] | None:
         """Spawn a subprocess job and track it in local_jobs.
 
-        January 2026: Extracted common job spawning logic to reduce duplication.
+        Jan 29, 2026: Delegates to JobOrchestrator.spawn_and_track_job().
 
         Args:
             job_id: Unique job identifier
@@ -4172,6 +4172,22 @@ class P2POrchestrator(
         Returns:
             Tuple of (ClusterJob, Popen) if successful, None if blocked or failed
         """
+        if hasattr(self, "jobs") and self.jobs is not None:
+            return self.jobs.spawn_and_track_job(
+                job_id=job_id,
+                job_type=job_type,
+                board_type=board_type,
+                num_players=num_players,
+                engine_mode=engine_mode,
+                cmd=cmd,
+                output_dir=output_dir,
+                log_filename=log_filename,
+                cuda_visible_devices=cuda_visible_devices,
+                extra_env=extra_env,
+                safeguard_reason=safeguard_reason,
+            )
+
+        # Fallback: original implementation for when orchestrator not available
         # Build safeguard check reason
         if safeguard_reason is None:
             safeguard_reason = f"{job_type.value}-{board_type}-{num_players}p"
