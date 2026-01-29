@@ -370,6 +370,78 @@ class JobOrchestrator(BaseOrchestrator):
         return status
 
     # =========================================================================
+    # Work Discovery
+    # =========================================================================
+
+    def initialize_work_discovery_manager(self) -> bool:
+        """Initialize WorkDiscoveryManager for multi-channel work discovery.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._initialize_work_discovery_manager().
+
+        January 4, 2026: Phase 5 of P2P Cluster Resilience.
+        Enables workers to find work through multiple channels:
+        1. Leader work queue (fastest)
+        2. Peer discovery (query other peers)
+        3. Autonomous queue (from AutonomousQueueLoop)
+        4. Direct selfplay (last resort)
+
+        Returns:
+            True if initialization succeeded, False otherwise.
+        """
+        try:
+            from scripts.p2p.managers.work_discovery_manager import (
+                WorkDiscoveryManager,
+                WorkDiscoveryConfig,
+                set_work_discovery_manager,
+            )
+
+            # Get callback functions from P2P orchestrator
+            get_leader_id = lambda: getattr(self._p2p, "leader_id", None)
+
+            claim_from_leader = getattr(self._p2p, "_claim_work_from_leader", None)
+
+            # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
+            def get_alive_peers() -> list[str]:
+                peer_snapshot = getattr(self._p2p, "_peer_snapshot", None)
+                if peer_snapshot is None:
+                    return []
+                return [
+                    p.node_id for p in peer_snapshot.get_snapshot().values() if p.is_alive()
+                ]
+
+            query_peer_work = getattr(self._p2p, "_query_peer_for_work", None)
+            pop_autonomous_work = getattr(self._p2p, "_pop_autonomous_queue_work", None)
+            create_direct_selfplay_work = getattr(self._p2p, "_create_direct_selfplay_work", None)
+
+            # Create manager with callbacks to the orchestrator
+            manager = WorkDiscoveryManager(
+                # Channel 1: Leader
+                get_leader_id=get_leader_id,
+                claim_from_leader=claim_from_leader,
+                # Channel 2: Peer discovery
+                get_alive_peers=get_alive_peers,
+                query_peer_work=query_peer_work,
+                # Channel 3: Autonomous queue
+                pop_autonomous_work=pop_autonomous_work,
+                # Channel 4: Direct selfplay
+                create_direct_selfplay_work=create_direct_selfplay_work,
+                # Config from environment
+                config=WorkDiscoveryConfig.from_env(),
+            )
+
+            # Set as singleton for WorkerPullLoop access
+            set_work_discovery_manager(manager)
+            self._log_info("WorkDiscoveryManager: initialized with 4 discovery channels")
+            return True
+
+        except ImportError as e:
+            self._log_debug(f"WorkDiscoveryManager: not available: {e}")
+            return False
+        except Exception as e:  # noqa: BLE001
+            self._log_warning(f"WorkDiscoveryManager: initialization failed: {e}")
+            return False
+
+    # =========================================================================
     # Job Spawning
     # =========================================================================
 

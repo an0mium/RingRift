@@ -3129,6 +3129,8 @@ class P2POrchestrator(
     def _initialize_work_discovery_manager(self) -> bool:
         """Initialize WorkDiscoveryManager for multi-channel work discovery.
 
+        Jan 29, 2026: Delegated to JobOrchestrator.
+
         January 4, 2026: Phase 5 of P2P Cluster Resilience.
         Enables workers to find work through multiple channels:
         1. Leader work queue (fastest)
@@ -3138,43 +3140,12 @@ class P2POrchestrator(
 
         Returns True if initialization succeeded, False otherwise.
         """
-        try:
-            from scripts.p2p.managers.work_discovery_manager import (
-                WorkDiscoveryManager,
-                WorkDiscoveryConfig,
-                set_work_discovery_manager,
-            )
-
-            # Create manager with callbacks to this orchestrator
-            manager = WorkDiscoveryManager(
-                # Channel 1: Leader
-                get_leader_id=lambda: self.leader_id,
-                claim_from_leader=self._claim_work_from_leader,
-                # Channel 2: Peer discovery
-                # Jan 22, 2026: Use lock-free snapshot to prevent race conditions
-                get_alive_peers=lambda: [
-                    p.node_id for p in self._peer_snapshot.get_snapshot().values() if p.is_alive()
-                ],
-                query_peer_work=self._query_peer_for_work,
-                # Channel 3: Autonomous queue
-                pop_autonomous_work=self._pop_autonomous_queue_work,
-                # Channel 4: Direct selfplay
-                create_direct_selfplay_work=self._create_direct_selfplay_work,
-                # Config from environment
-                config=WorkDiscoveryConfig.from_env(),
-            )
-
-            # Set as singleton for WorkerPullLoop access
-            set_work_discovery_manager(manager)
-            logger.info("WorkDiscoveryManager: initialized with 4 discovery channels")
-            return True
-
-        except ImportError as e:
-            logger.debug(f"WorkDiscoveryManager: not available: {e}")
-            return False
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"WorkDiscoveryManager: initialization failed: {e}")
-            return False
+        # Delegate to JobOrchestrator
+        if hasattr(self, "jobs") and self.jobs is not None:
+            return self.jobs.initialize_work_discovery_manager()
+        # Fallback - minimal implementation
+        logger.debug("WorkDiscoveryManager: JobOrchestrator not available")
+        return False
 
     async def _query_peer_for_work(
         self, peer_id: str, capabilities: list[str]
