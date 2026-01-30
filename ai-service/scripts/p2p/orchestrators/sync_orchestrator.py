@@ -14,6 +14,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -590,3 +591,238 @@ class SyncOrchestrator(BaseOrchestrator):
             factor *= 1.5
 
         return max(0.5, min(2.0, factor))
+
+    # =========================================================================
+    # Decentralized P2P Data Sync
+    # =========================================================================
+
+    async def p2p_data_sync(self) -> None:
+        """DECENTRALIZED: Nodes sync data directly with peers without leader coordination.
+
+        Jan 29, 2026: Extracted from P2POrchestrator._p2p_data_sync().
+
+        P2P DATA SYNC with enhancements:
+        - Health-based peer selection (avoids overloaded nodes)
+        - Circuit breaker (skips unreliable peers)
+        - Delta sync (only syncs files newer than last sync)
+        - Model file prioritization (syncs models first)
+        - ADAPTIVE INTERVALS: adjusts based on cluster activity and success rate
+        """
+        try:
+            from scripts.p2p.node_info import NodeRole
+        except ImportError:
+            NodeRole = None
+
+        p2p = self._p2p
+        now = time.time()
+
+        # ADAPTIVE INTERVAL: Uses activity-aware interval instead of fixed 5 min
+        if hasattr(p2p, "_get_adaptive_sync_interval"):
+            interval = p2p._get_adaptive_sync_interval("data")
+        else:
+            interval = 300  # 5 min default
+        last_check = getattr(p2p, "_last_p2p_sync_check", 0)
+        if now - last_check < interval:
+            return
+        p2p._last_p2p_sync_check = now
+
+        # Skip if leader is actively managing sync (avoid conflicts)
+        if NodeRole is not None and getattr(p2p, "role", None) == NodeRole.LEADER:
+            return  # Leader uses centralized sync
+
+        # Skip if a sync is already in progress
+        if getattr(p2p, "sync_in_progress", False):
+            return
+
+        # Skip if under disk pressure
+        self_info = getattr(p2p, "self_info", None)
+        if self_info and getattr(self_info, "disk_percent", 0) > 85:
+            return
+
+        # Get our local manifest (use cache for speed)
+        local_manifest = getattr(p2p, "local_data_manifest", None)
+        if not local_manifest:
+            try:
+                sync_planner = getattr(p2p, "sync_planner", None)
+                if sync_planner is None:
+                    return
+                # Jan 23, 2026: Wrap in asyncio.to_thread() to prevent event loop blocking
+                # collect_local_manifest_cached() does file I/O and SQLite operations
+                local_manifest = await asyncio.to_thread(
+                    sync_planner.collect_local_manifest_cached, max_cache_age=600
+                )
+                manifest_lock = getattr(p2p, "manifest_lock", None)
+                if manifest_lock:
+                    with manifest_lock:
+                        p2p.local_data_manifest = local_manifest
+                else:
+                    p2p.local_data_manifest = local_manifest
+            except AttributeError:
+                return
+
+        # Get local file set with timestamps for delta sync
+        local_files: dict[str, float] = {}
+        for file_info in getattr(local_manifest, "files", []) or []:
+            rel_path = getattr(file_info, "relative_path", "")
+            if rel_path:
+                local_files[rel_path] = getattr(file_info, "modified_at", 0)
+
+        # Check peer manifests from gossip cache
+        peer_manifests = getattr(p2p, "_gossip_peer_manifests", {})
+        if not peer_manifests:
+            return
+
+        # Find files we're missing that peers have (with prioritization)
+        files_to_sync: dict[str, list[tuple]] = {}  # peer_id -> [(file, priority)]
+        file_hashes: dict[str, str] = {}  # file_path -> hash (for dedup tracking)
+        last_sync_time = getattr(p2p, "_last_successful_p2p_sync", 0)
+
+        for peer_id, peer_manifest in peer_manifests.items():
+            if peer_id == p2p.node_id:
+                continue
+
+            # Check circuit breaker
+            health = p2p._get_peer_health_score(peer_id) if hasattr(p2p, "_get_peer_health_score") else 50
+            if health <= 0:
+                continue
+
+            peer_files = getattr(peer_manifest, "files", []) or []
+            for file_info in peer_files:
+                rel_path = getattr(file_info, "relative_path", "")
+                modified_at = getattr(file_info, "modified_at", 0)
+                file_hash = getattr(file_info, "file_hash", "")
+                file_size = getattr(file_info, "size_bytes", 0)
+
+                if not rel_path:
+                    continue
+
+                # Skip if we have this file with same or newer timestamp
+                if rel_path in local_files and local_files[rel_path] >= modified_at:
+                    continue
+
+                # Skip if file is older than last sync (delta optimization)
+                if modified_at < last_sync_time and rel_path in local_files:
+                    continue
+
+                # DATA DEDUPLICATION: Skip if we already synced this file (by hash)
+                if file_hash and hasattr(p2p, "_is_file_already_synced") and p2p._is_file_already_synced(file_hash):
+                    if hasattr(p2p, "_record_dedup_skip"):
+                        p2p._record_dedup_skip(file_count=1, bytes_saved=file_size)
+                    continue
+
+                # Calculate priority (models > ELO/training DBs > training data > selfplay)
+                priority = 0
+                if "models/" in rel_path or rel_path.endswith(".pt") or rel_path.endswith(".onnx"):
+                    priority = 100  # Highest priority for models
+                elif rel_path.endswith(".db") and ("unified_elo" in rel_path or "elo_ratings" in rel_path):
+                    priority = 90  # Very high priority for ELO database
+                elif rel_path.endswith(".db") and ("canonical_" in rel_path or "consolidated_training" in rel_path or "training_pool" in rel_path):
+                    priority = 80  # High priority for training databases
+                elif "training/" in rel_path:
+                    priority = 50
+                elif rel_path.endswith(".db"):
+                    priority = 30  # Medium priority for other databases
+                else:
+                    priority = 10
+
+                if peer_id not in files_to_sync:
+                    files_to_sync[peer_id] = []
+                files_to_sync[peer_id].append((rel_path, priority, health))
+
+                # Track hash for dedup recording after sync
+                if file_hash:
+                    file_hashes[rel_path] = file_hash
+
+        if not files_to_sync:
+            return
+
+        # Select best peer using health score AND file count
+        def peer_score(pid: str) -> float:
+            files = files_to_sync[pid]
+            h = p2p._get_peer_health_score(pid) if hasattr(p2p, "_get_peer_health_score") else 50
+            file_score = sum(f[1] for f in files)  # Sum of priorities
+            return h * 0.4 + file_score * 0.6
+
+        best_peer = max(files_to_sync.keys(), key=peer_score)
+        files_with_priority = files_to_sync[best_peer]
+
+        # Sort by priority (highest first) and take top 10
+        files_with_priority.sort(key=lambda x: x[1], reverse=True)
+        files_to_request = [f[0] for f in files_with_priority[:10]]
+
+        # Check if peer is alive
+        peers_lock = getattr(p2p, "peers_lock", None)
+        peers = getattr(p2p, "peers", {})
+        if peers_lock:
+            with peers_lock:
+                peer = peers.get(best_peer)
+        else:
+            peer = peers.get(best_peer)
+
+        if not peer or not peer.is_alive():
+            return
+
+        # Log and initiate sync
+        total_missing = sum(len(f) for f in files_to_sync.values())
+        model_files = sum(1 for f in files_to_request if "models/" in f or f.endswith(".pt"))
+        peer_health = p2p._get_peer_health_score(best_peer) if hasattr(p2p, "_get_peer_health_score") else 0
+        logger.info(
+            f"P2P SYNC: Missing {total_missing} files, requesting {len(files_to_request)} "
+            f"({model_files} models) from {best_peer} (health={peer_health:.0f})"
+        )
+
+        try:
+            import uuid as uuid_mod
+            # Import DataSyncJob from P2P
+            try:
+                from scripts.p2p.sync_types import DataSyncJob
+            except ImportError:
+                # Fallback: try to get it from p2p module
+                DataSyncJob = getattr(p2p, "DataSyncJob", None)
+                if DataSyncJob is None:
+                    logger.debug("P2P SYNC: DataSyncJob not available, skipping")
+                    return
+
+            job = DataSyncJob(
+                job_id=f"p2p_{uuid_mod.uuid4().hex[:8]}",
+                source_node=best_peer,
+                target_node=p2p.node_id,
+                files=files_to_request,
+            )
+
+            p2p.sync_in_progress = True
+            try:
+                success = await p2p._request_node_sync(job)
+                if hasattr(p2p, "_record_p2p_sync_result"):
+                    p2p._record_p2p_sync_result(best_peer, success)
+                if hasattr(p2p, "_record_sync_result_for_adaptive"):
+                    p2p._record_sync_result_for_adaptive("data", success)  # ADAPTIVE INTERVAL
+
+                if success:
+                    logger.info(f"P2P SYNC: Completed {len(files_to_request)} files from {best_peer}")
+                    p2p._last_successful_p2p_sync = now
+                    # Invalidate manifest cache
+                    sync_planner = getattr(p2p, "sync_planner", None)
+                    if sync_planner:
+                        cache_path = sync_planner.get_manifest_cache_path()
+                        if cache_path.exists():
+                            cache_path.unlink()
+                    # Update metrics
+                    if hasattr(p2p, "_p2p_sync_metrics"):
+                        p2p._p2p_sync_metrics["bytes"] += job.bytes_transferred
+                    # DATA DEDUPLICATION: Record synced file hashes
+                    for fpath in files_to_request:
+                        if fpath in file_hashes and hasattr(p2p, "_record_synced_file"):
+                            p2p._record_synced_file(file_hashes[fpath], 0)
+                else:
+                    logger.info(f"P2P SYNC: Failed from {best_peer}: {job.error_message}")
+            finally:
+                p2p.sync_in_progress = False
+
+        except Exception as e:  # noqa: BLE001
+            logger.info(f"P2P SYNC: Error: {e}")
+            if hasattr(p2p, "_record_sync_result_for_adaptive"):
+                p2p._record_sync_result_for_adaptive("data", False)  # ADAPTIVE: record failure
+            if hasattr(p2p, "_record_p2p_sync_result"):
+                p2p._record_p2p_sync_result(best_peer, False)
+            p2p.sync_in_progress = False

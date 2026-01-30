@@ -13213,7 +13213,13 @@ print(json.dumps({{
         - Delta sync (only syncs files newer than last sync)
         - Model file prioritization (syncs models first)
         - ADAPTIVE INTERVALS: adjusts based on cluster activity and success rate
+
+        January 29, 2026: Delegated to SyncOrchestrator.p2p_data_sync().
         """
+        # Delegate to SyncOrchestrator if available
+        if hasattr(self, "sync") and self.sync is not None:
+            return await self.sync.p2p_data_sync()
+
         now = time.time()
 
         # ADAPTIVE INTERVAL: Uses activity-aware interval instead of fixed 5 min
