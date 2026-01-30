@@ -49,6 +49,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Jan 29, 2026: Leader forwarding for work items
+# When the coordinator (which creates work) is not the leader (which serves claims),
+# work items must be forwarded to the leader via HTTP POST /work/add.
+_leader_forward_session = None
+
 # Lazy imports to avoid circular dependencies
 _work_queue = None
 _WorkItem = None
@@ -116,6 +121,122 @@ class WorkDistributor:
         if self._queue is None:
             self._queue = _get_work_queue()
         return self._queue is not None
+
+    async def _forward_to_leader(
+        self,
+        work_type: str,
+        priority: int,
+        config: dict[str, Any],
+        timeout_seconds: float = 3600.0,
+        depends_on: list[str] | None = None,
+    ) -> str | None:
+        """Forward a work item to the leader's work queue via HTTP.
+
+        Jan 29, 2026: Work items are stored locally AND forwarded to the leader.
+        This ensures gauntlet/training/selfplay jobs are available for claiming
+        even when the coordinator is not the leader.
+
+        Returns:
+            Work ID from the leader, or None if forwarding failed.
+        """
+        try:
+            import aiohttp
+
+            # Get leader URL from P2P orchestrator
+            leader_url = self._get_leader_url()
+            if not leader_url:
+                logger.debug("[WorkDistributor] No leader URL, skipping forward")
+                return None
+
+            payload = {
+                "work_type": work_type,
+                "priority": priority,
+                "config": config,
+                "timeout_seconds": timeout_seconds,
+                "depends_on": depends_on or [],
+                "force": True,  # Bypass backpressure since coordinator already validated
+            }
+
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                url = f"{leader_url}/work/add"
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        remote_id = data.get("work_id")
+                        logger.info(
+                            f"[WorkDistributor] Forwarded {work_type} to leader: {remote_id}"
+                        )
+                        return remote_id
+                    elif resp.status == 403:
+                        # Leader changed or not leader anymore
+                        logger.debug("[WorkDistributor] Leader rejected forward (403)")
+                    elif resp.status == 429:
+                        logger.debug("[WorkDistributor] Leader backpressure (429)")
+                    else:
+                        body = await resp.text()
+                        logger.warning(
+                            f"[WorkDistributor] Forward failed ({resp.status}): {body[:200]}"
+                        )
+        except ImportError:
+            logger.debug("[WorkDistributor] aiohttp not available for leader forwarding")
+        except Exception as e:
+            logger.debug(f"[WorkDistributor] Leader forward failed: {e}")
+
+        return None
+
+    def _get_leader_url(self) -> str | None:
+        """Get the leader's HTTP base URL from P2P state.
+
+        Jan 29, 2026: Used to forward work items to the leader node.
+        Checks local P2P status endpoint for leader info, and skips
+        forwarding if this node IS the leader.
+        """
+        try:
+            # Check environment override first
+            leader_url = os.environ.get("RINGRIFT_LEADER_URL")
+            if leader_url:
+                return leader_url
+        except Exception:
+            pass
+
+        try:
+            # Read from local P2P status endpoint
+            import urllib.request
+            import json
+
+            req = urllib.request.Request(
+                "http://localhost:8770/status",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read())
+
+                # Don't forward if we ARE the leader
+                role = data.get("role", "")
+                if role == "leader":
+                    return None
+
+                leader_id = data.get("leader_id")
+                if not leader_id:
+                    return None
+
+                # Get leader's address from peers
+                peers = data.get("peers", {})
+                if leader_id in peers:
+                    peer = peers[leader_id]
+                    if isinstance(peer, dict):
+                        ip = peer.get("address", peer.get("ip", peer.get("tailscale_ip", "")))
+                        port = peer.get("port", 8770)
+                        if ip:
+                            return f"http://{ip}:{port}"
+
+                # Fallback: try leader_id as hostname
+                return f"http://{leader_id}:8770"
+        except Exception:
+            pass
+
+        return None
 
     # =========================================================================
     # Training Submission
@@ -196,6 +317,14 @@ class WorkDistributor:
             "config": work_config,
         }
 
+        # Jan 29, 2026: Forward to leader so GPU nodes can claim it
+        await self._forward_to_leader(
+            work_type="training",
+            priority=priority,
+            config=work_config,
+            timeout_seconds=config.timeout_seconds,
+        )
+
         # Emit event
         await self._emit_work_submitted(work_id, "training", work_config)
 
@@ -269,6 +398,14 @@ class WorkDistributor:
         }
 
         await self._emit_work_submitted(work_id, evaluation_type, work_config)
+
+        # Jan 29, 2026: Forward to leader so GPU nodes can claim it
+        await self._forward_to_leader(
+            work_type=work_type.value if hasattr(work_type, "value") else str(work_type),
+            priority=config.priority,
+            config=work_config,
+            timeout_seconds=config.timeout_seconds,
+        )
 
         return work_id
 
