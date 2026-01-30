@@ -1184,3 +1184,106 @@ class SyncOrchestrator(BaseOrchestrator):
             self._log_info(f"TRAINING DB SYNC: Error: {e}")
             p2p._record_sync_result_for_adaptive("training_db", False)
             p2p.sync_in_progress = False
+
+    async def p2p_model_sync(self) -> None:
+        """DECENTRALIZED: Sync model files via P2P for faster model distribution.
+
+        Jan 30, 2026: Moved from P2POrchestrator._p2p_model_sync().
+
+        MODEL P2P SYNC: Ensures all nodes have access to latest trained models
+        without relying on leader-coordinated sync. Prioritizes:
+        - Newer models (by timestamp)
+        - Models for active board configurations
+        - NNUE models (smaller, faster to sync)
+        - ADAPTIVE INTERVALS: faster during training, slower when idle
+        """
+        import time
+        from scripts.p2p.protocols import DataSyncJob
+
+        p2p = self._p2p
+        now = time.time()
+
+        # ADAPTIVE INTERVAL: Uses activity-aware interval (faster during training)
+        interval = p2p._get_adaptive_sync_interval("model")
+        last_check = getattr(p2p, "_last_p2p_model_sync", 0)
+        if now - last_check < interval:
+            return
+        p2p._last_p2p_model_sync = now
+
+        # Skip if sync in progress
+        if getattr(p2p, "sync_in_progress", False):
+            return
+
+        # Get model files from local manifest
+        local_manifest = getattr(p2p, "local_data_manifest", None)
+        if not local_manifest:
+            return
+
+        local_models = set()
+        for file_info in getattr(local_manifest, "files", []) or []:
+            rel_path = getattr(file_info, "relative_path", "")
+            if rel_path and ("models/" in rel_path or rel_path.endswith((".pt", ".onnx", ".bin"))):
+                local_models.add(rel_path)
+
+        # Check peer manifests for models we're missing
+        peer_manifests = getattr(p2p, "_gossip_peer_manifests", {})
+        missing_models: dict[str, list[str]] = {}
+
+        for peer_id, peer_manifest in peer_manifests.items():
+            if peer_id == p2p.node_id:
+                continue
+
+            health = p2p._get_peer_health_score(peer_id)
+            if health <= 0:
+                continue
+
+            peer_files = getattr(peer_manifest, "files", []) or []
+            for file_info in peer_files:
+                rel_path = getattr(file_info, "relative_path", "")
+                if not rel_path:
+                    continue
+                if not ("models/" in rel_path or rel_path.endswith((".pt", ".onnx", ".bin"))):
+                    continue
+                if rel_path in local_models:
+                    continue
+
+                if peer_id not in missing_models:
+                    missing_models[peer_id] = []
+                missing_models[peer_id].append(rel_path)
+
+        if not missing_models:
+            return
+
+        # Pick healthiest peer with models
+        best_peer = max(missing_models.keys(), key=lambda pid: p2p._get_peer_health_score(pid))
+        models_to_sync = missing_models[best_peer][:5]  # Max 5 models per cycle
+
+        with p2p.peers_lock:
+            peer = p2p.peers.get(best_peer)
+        if not peer or not peer.is_alive():
+            return
+
+        self._log_info(f"MODEL SYNC: Requesting {len(models_to_sync)} models from {best_peer}")
+
+        try:
+            import uuid
+            job = DataSyncJob(
+                job_id=f"model_{uuid.uuid4().hex[:8]}",
+                source_node=best_peer,
+                target_node=p2p.node_id,
+                files=models_to_sync,
+            )
+
+            p2p.sync_in_progress = True
+            try:
+                success = await p2p._request_node_sync(job)
+                p2p._record_p2p_sync_result(best_peer, success)
+                p2p._record_sync_result_for_adaptive("model", success)
+                if success:
+                    self._log_info(f"MODEL SYNC: Got {len(models_to_sync)} models from {best_peer}")
+            finally:
+                p2p.sync_in_progress = False
+        except Exception as e:
+            self._log_info(f"MODEL SYNC: Error: {e}")
+            p2p._record_sync_result_for_adaptive("model", False)
+            p2p.sync_in_progress = False
