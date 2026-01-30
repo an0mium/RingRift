@@ -903,3 +903,138 @@ class JobOrchestrator(BaseOrchestrator):
             self._log_info(f"Stale process cleanup: killed {killed_count} processes")
 
         return killed_count
+
+    async def auto_rebalance_from_work_queue(self) -> int:
+        """Auto-rebalance: assign queued work to idle GPU nodes.
+
+        Jan 29, 2026: Moved from P2POrchestrator._auto_rebalance_from_work_queue().
+
+        When idle GPU-heavy nodes are detected, check the work queue for pending
+        high-priority work and dispatch it. This ensures queued work gets done
+        before falling back to selfplay auto-scaling.
+
+        Returns:
+            Number of work items dispatched
+        """
+        import time
+        from app.coordination.work_queue import get_work_queue
+
+        GPU_IDLE_THRESHOLD = 10.0  # Node is idle if GPU < 10%
+        MIN_IDLE_TIME = 60  # Seconds of idle before assigning work
+        GPU_HEAVY_TAGS = ['gh200', 'h100', 'h200', 'a100', '4090', '5090']
+
+        p2p = self._p2p
+        dispatched = 0
+        now = time.time()
+
+        # Rate limit rebalancing (once per minute)
+        last_rebalance = getattr(p2p, "_last_work_queue_rebalance", 0)
+        if now - last_rebalance < 60:
+            return 0
+
+        # Check if work queue is available
+        wq = get_work_queue()
+        if wq is None:
+            return 0
+
+        # Get queue status
+        queue_status = wq.get_queue_status()
+        pending_count = queue_status.get("by_status", {}).get("pending", 0)
+        if pending_count == 0:
+            return 0  # No work to dispatch
+
+        # Find idle GPU-heavy nodes
+        idle_nodes = []
+
+        with p2p.peers_lock:
+            peers_snapshot = list(p2p.peers.values())
+
+        for peer in peers_snapshot:
+            if not peer.is_alive() or peer.retired:
+                continue
+
+            has_gpu = bool(getattr(peer, "has_gpu", False))
+            if not has_gpu:
+                continue
+
+            gpu_name = (getattr(peer, "gpu_name", "") or "").upper()
+            is_gpu_heavy = any(tag.upper() in gpu_name for tag in GPU_HEAVY_TAGS)
+            if not is_gpu_heavy:
+                continue
+
+            gpu_percent = float(getattr(peer, "gpu_percent", 0) or 0)
+            training_jobs = int(getattr(peer, "training_jobs", 0) or 0)
+            selfplay_jobs = int(getattr(peer, "selfplay_jobs", 0) or 0)
+
+            # Skip if already busy
+            if training_jobs > 0:
+                continue
+
+            # Check if truly idle
+            if gpu_percent < GPU_IDLE_THRESHOLD:
+                # Track how long it's been idle
+                idle_key = f"_wq_idle_since_{peer.node_id}"
+                idle_since = getattr(p2p, idle_key, 0)
+                if idle_since == 0:
+                    setattr(p2p, idle_key, now)
+                elif now - idle_since > MIN_IDLE_TIME:
+                    # Get allowed work types for this node
+                    try:
+                        from app.coordination.node_policies import get_policy_manager
+                        pm = get_policy_manager()
+                        allowed = list(pm.get_allowed_work_types(peer.node_id))
+                    except ImportError:
+                        allowed = ["training", "gpu_cmaes", "tournament", "selfplay"]
+
+                    idle_nodes.append({
+                        "node_id": peer.node_id,
+                        "peer": peer,
+                        "gpu_percent": gpu_percent,
+                        "gpu_name": gpu_name,
+                        "allowed": allowed,
+                        "selfplay_jobs": selfplay_jobs,
+                    })
+            else:
+                # Not idle, reset timer
+                idle_key = f"_wq_idle_since_{peer.node_id}"
+                setattr(p2p, idle_key, 0)
+
+        # Dispatch work to idle nodes
+        for node_info in idle_nodes[:5]:  # Max 5 nodes per cycle
+            node_id = node_info["node_id"]
+            allowed = node_info["allowed"]
+
+            # Try to claim work for this node using Raft or SQLite based on consensus mode
+            work_item = p2p.claim_work_distributed(node_id, allowed)
+            if work_item is None:
+                continue
+
+            # Get work_type - may be string or WorkType enum
+            work_type_str = work_item.get("work_type", "unknown")
+            if hasattr(work_type_str, "value"):
+                work_type_str = work_type_str.value
+            work_id = work_item.get("work_id", "unknown")
+
+            print(
+                f"[P2P] Work queue rebalance: {node_id} idle at {node_info['gpu_percent']:.0f}% GPU, "
+                f"assigning {work_type_str} work ({work_id})"
+            )
+
+            # Dispatch work to the node
+            success = await p2p.job_coordination_manager.dispatch_queued_work(node_info["peer"], work_item)
+            if success:
+                # Mark work as started using distributed method for Raft consistency
+                p2p.start_work_distributed(work_id)
+                dispatched += 1
+                # Reset idle timer since we assigned work
+                idle_key = f"_wq_idle_since_{node_id}"
+                setattr(p2p, idle_key, 0)
+            else:
+                # Failed to dispatch, reset work status for retry
+                p2p.fail_work_distributed(work_id, "dispatch_failed")
+
+        if dispatched > 0:
+            p2p._last_work_queue_rebalance = now
+            self._log_info(f"Work queue rebalance: dispatched {dispatched} work item(s) to idle nodes")
+
+        return dispatched
