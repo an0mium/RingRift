@@ -1375,3 +1375,50 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
         Jan 29, 2026: Implementation moved from P2POrchestrator._get_tailscale_priority_mode().
         """
         return getattr(self._p2p, "_tailscale_priority", False)
+
+    def resolve_raft_address_to_node_id(self, raft_address: str) -> str | None:
+        """Resolve a Raft address (ip:port) to a node_id.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._resolve_raft_address_to_node_id().
+
+        Args:
+            raft_address: The Raft address in "ip:port" format
+
+        Returns:
+            The node_id if found, or None if not resolvable
+        """
+        p2p = self._p2p
+        try:
+            # Parse the address
+            ip, port_str = raft_address.rsplit(":", 1)
+
+            # First, check if this is our own address
+            if ip in (p2p.host, p2p.public_host, getattr(p2p, 'tailscale_ip', None)):
+                return p2p.node_id
+
+            # Check our IP-to-node mapping
+            if hasattr(p2p, '_ip_to_node_map') and ip in p2p._ip_to_node_map:
+                return p2p._ip_to_node_map[ip]
+
+            # Check peer list for matching IP
+            with p2p.peers_lock:
+                for node_id, peer_info in p2p.peers.items():
+                    peer_host = getattr(peer_info, 'host', '') or ''
+                    peer_tailscale = getattr(peer_info, 'tailscale_ip', '') or ''
+                    if ip in (peer_host, peer_tailscale):
+                        return node_id
+
+            # Fallback: Check cluster config
+            try:
+                from app.config.cluster_config import get_cluster_nodes
+                for node in get_cluster_nodes():
+                    node_ip = getattr(node, 'tailscale_ip', '') or getattr(node, 'ssh_host', '')
+                    if node_ip == ip:
+                        return node.name
+            except ImportError:
+                pass
+
+        except (ValueError, AttributeError) as e:
+            self._log_debug(f"Failed to parse address {raft_address}: {e}")
+
+        return None

@@ -8799,6 +8799,14 @@ class P2POrchestrator(
             self.last_work_from_leader = self.worker_pull_controller.last_work_from_leader
         return result
 
+    async def _report_work_result(self, work_item: dict[str, Any], success: bool) -> None:
+        """Report work completion/failure to the leader.
+
+        Jan 29, 2026: Re-added wrapper for loop_registry compatibility.
+        Delegated to WorkerPullController.
+        """
+        await self.worker_pull_controller.report_work_result(work_item, success)
+
     async def _execute_claimed_work(self, work_item: dict[str, Any]) -> bool:
         """Execute a claimed work item locally."""
         work_type = work_item.get("work_type", "")
@@ -9110,9 +9118,6 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error executing work {work_id}: {e}")
             return False
-
-    # NOTE: _report_work_result() removed Jan 28, 2026 (~6 LOC, dead code)
-    # Use self.worker_pull_controller.report_work_result() directly if needed.
 
     # Dec 2025: Work queue and idle detection loops moved to LoopManager (170 LOC)
 
@@ -10296,48 +10301,8 @@ print(json.dumps({{
             )
 
     def _resolve_raft_address_to_node_id(self, raft_address: str) -> str | None:
-        """Resolve a Raft address (ip:port) to a node_id.
-
-        Args:
-            raft_address: The Raft address in "ip:port" format
-
-        Returns:
-            The node_id if found, or None if not resolvable
-        """
-        try:
-            # Parse the address
-            ip, port_str = raft_address.rsplit(":", 1)
-
-            # First, check if this is our own address
-            if ip in (self.host, self.public_host, getattr(self, 'tailscale_ip', None)):
-                return self.node_id
-
-            # Check our IP-to-node mapping
-            if hasattr(self, '_ip_to_node_map') and ip in self._ip_to_node_map:
-                return self._ip_to_node_map[ip]
-
-            # Check peer list for matching IP
-            with self.peers_lock:
-                for node_id, peer_info in self.peers.items():
-                    peer_host = getattr(peer_info, 'host', '') or ''
-                    peer_tailscale = getattr(peer_info, 'tailscale_ip', '') or ''
-                    if ip in (peer_host, peer_tailscale):
-                        return node_id
-
-            # Fallback: Check cluster config
-            try:
-                from app.config.cluster_config import get_cluster_nodes
-                for node in get_cluster_nodes():
-                    node_ip = getattr(node, 'tailscale_ip', '') or getattr(node, 'ssh_host', '')
-                    if node_ip == ip:
-                        return node.name
-            except ImportError:
-                pass
-
-        except (ValueError, AttributeError) as e:
-            logger.debug(f"[Raft] Failed to parse address {raft_address}: {e}")
-
-        return None
+        """Jan 29, 2026: Delegated to PeerNetworkOrchestrator.resolve_raft_address_to_node_id()."""
+        return self.network.resolve_raft_address_to_node_id(raft_address)
 
     async def _send_startup_peer_announcements(self) -> None:
         """Send immediate announcements to all known peers on startup.
