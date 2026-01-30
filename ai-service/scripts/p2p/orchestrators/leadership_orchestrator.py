@@ -1433,3 +1433,103 @@ class LeadershipOrchestrator(BaseOrchestrator):
                 self._log_info(f"Partition healed: restored original voters {', '.join(original)}")
                 return True
         return False
+
+    def step_down_from_provisional(self) -> None:
+        """Step down from provisional leadership (lost to challenger).
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._step_down_from_provisional().
+
+        Uses ULSM for broadcast-before-mutation pattern. Clears provisional-specific
+        state, schedules step-down via ULSM, and notifies voters of lease revocation.
+        """
+        p2p = self._p2p
+
+        self._log_info("Stepping down from provisional leadership via ULSM")
+
+        # Clear provisional-specific state first (ULSM doesn't know about these)
+        p2p._provisional_leader_claimed_at = 0.0
+        p2p._provisional_leader_acks.clear()
+        p2p._provisional_leader_challengers.clear()
+
+        # Use ULSM step-down (broadcasts to peers, then clears leader state)
+        try:
+            from scripts.p2p.constants import TransitionReason
+            p2p._schedule_step_down_sync(TransitionReason.ARBITER_OVERRIDE)
+        except ImportError:
+            # Fallback if constants not available
+            p2p._schedule_step_down_sync("arbiter_override")
+
+        # Notify voters of lease revocation
+        try:
+            asyncio.create_task(p2p._notify_voters_lease_revoked())
+        except RuntimeError:
+            # Not in async context, schedule on event loop if available
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(p2p._notify_voters_lease_revoked(), loop)
+
+    async def request_election_from_voters(self, reason: str = "non_voter_request") -> bool:
+        """Non-voters can request that voters start an election.
+
+        Jan 29, 2026: Implementation moved from P2POrchestrator._request_election_from_voters().
+
+        Instead of silently returning when a non-voter tries to start an election,
+        this method sends requests to known voters to have them start one.
+
+        Args:
+            reason: Why the election is being requested
+
+        Returns:
+            True if at least one voter accepted the request
+        """
+        import aiohttp
+
+        p2p = self._p2p
+        voter_node_ids = list(getattr(p2p, "voter_node_ids", []) or [])
+        if not voter_node_ids:
+            return False
+
+        self._log_info(f"Non-voter {self.node_id} requesting election from voters: {reason}")
+
+        # Rate limit election requests to avoid spamming
+        now = time.time()
+        last_request = getattr(p2p, "_last_election_request", 0.0)
+        if now - last_request < 30:  # At most once per 30 seconds
+            logger.debug("Skipping election request: rate limited")
+            return False
+        p2p._last_election_request = now
+
+        accepted = False
+        # Jan 12, 2026: Copy-on-write - single snapshot instead of lock-per-voter
+        with p2p.peers_lock:
+            peers_snapshot = dict(p2p.peers)
+
+        async with aiohttp.ClientSession() as session:
+            for voter_id in voter_node_ids[:3]:  # Limit to 3 voters
+                voter = peers_snapshot.get(voter_id)
+                if not voter or not voter.is_alive():
+                    continue
+
+                try:
+                    url = p2p._url_for_peer(voter, "/election/request")
+                    async with session.post(
+                        url,
+                        json={"requester_id": self.node_id, "reason": reason},
+                        headers=p2p._auth_headers(),
+                        timeout=aiohttp.ClientTimeout(total=5.0),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data.get("accepted"):
+                                self._log_info(
+                                    f"Voter {voter_id} accepted election request: {data.get('action')}"
+                                )
+                                accepted = True
+                                break  # One voter accepting is enough
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    logger.debug(f"Failed to request election from {voter_id}: {e}")
+                    continue
+
+        if not accepted:
+            logger.warning(f"No voters accepted election request from {self.node_id}")
+        return accepted
