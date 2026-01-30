@@ -1056,3 +1056,131 @@ class SyncOrchestrator(BaseOrchestrator):
         )
 
         return cluster_manifest
+
+    async def p2p_training_db_sync(self) -> None:
+        """DECENTRALIZED: Sync training databases via P2P for improved training diversity.
+
+        Jan 29, 2026: Moved from P2POrchestrator._p2p_training_db_sync().
+
+        TRAINING DB P2P SYNC: Ensures all nodes have access to consolidated training
+        data without relying on leader-coordinated sync. Prioritizes:
+        - canonical_*.db (canonical training data)
+        - consolidated_training*.db (merged training data)
+        - training_pool*.db (training pool databases)
+
+        ADAPTIVE INTERVALS: faster during training, slower when idle.
+        """
+        import time
+        from scripts.p2p.protocols import DataSyncJob
+
+        p2p = self._p2p
+        now = time.time()
+
+        # ADAPTIVE INTERVAL: Uses activity-aware interval (faster during training)
+        interval = p2p._get_adaptive_sync_interval("training_db")
+        last_check = getattr(p2p, "_last_p2p_training_db_sync", 0)
+        if now - last_check < interval:
+            return
+        p2p._last_p2p_training_db_sync = now
+
+        # Skip if sync is in progress
+        if getattr(p2p, "sync_in_progress", False):
+            return
+
+        # Skip if under disk pressure
+        if getattr(p2p.self_info, "disk_percent", 0) > 80:
+            return
+
+        # Get our local files
+        local_manifest = getattr(p2p, "local_data_manifest", None)
+        if not local_manifest:
+            return
+
+        local_dbs = set()
+        local_db_sizes = {}
+        for file_info in getattr(local_manifest, "files", []) or []:
+            rel_path = getattr(file_info, "relative_path", "")
+            if rel_path.endswith(".db"):
+                local_dbs.add(rel_path)
+                local_db_sizes[rel_path] = getattr(file_info, "size_bytes", 0)
+
+        # Check peer manifests for training databases
+        peer_manifests = getattr(p2p, "_gossip_peer_manifests", {})
+        if not peer_manifests:
+            return
+
+        # Find training databases we're missing or have smaller versions of
+        missing_dbs: dict[str, list[tuple]] = {}
+
+        for peer_id, peer_manifest in peer_manifests.items():
+            if peer_id == p2p.node_id:
+                continue
+
+            # Check circuit breaker
+            health = p2p._get_peer_health_score(peer_id)
+            if health <= 0:
+                continue
+
+            peer_files = getattr(peer_manifest, "files", []) or []
+            for file_info in peer_files:
+                rel_path = getattr(file_info, "relative_path", "")
+                size = getattr(file_info, "size_bytes", 0)
+
+                # Only sync training-related databases and ELO database
+                if not rel_path.endswith(".db"):
+                    continue
+                if not ("canonical_" in rel_path or "consolidated_training" in rel_path or
+                        "training_pool" in rel_path or "unified_elo" in rel_path or
+                        "elo_ratings" in rel_path):
+                    continue
+
+                # Skip empty databases
+                if size < 1024:
+                    continue
+
+                # Check if we don't have it or have a smaller version
+                local_size = local_db_sizes.get(rel_path, 0)
+                if local_size >= size:
+                    continue
+
+                if peer_id not in missing_dbs:
+                    missing_dbs[peer_id] = []
+                missing_dbs[peer_id].append((rel_path, size, health))
+
+        if not missing_dbs:
+            return
+
+        # Pick healthiest peer with training DBs
+        best_peer = max(missing_dbs.keys(), key=lambda pid: p2p._get_peer_health_score(pid))
+        dbs_to_sync = [db[0] for db in missing_dbs[best_peer][:3]]
+
+        # Check if peer is alive
+        with p2p.peers_lock:
+            peer = p2p.peers.get(best_peer)
+        if not peer or not peer.is_alive():
+            return
+
+        self._log_info(f"TRAINING DB SYNC: Requesting {len(dbs_to_sync)} training DBs from {best_peer}")
+
+        try:
+            import uuid
+            job = DataSyncJob(
+                job_id=f"traindb_{uuid.uuid4().hex[:8]}",
+                source_node=best_peer,
+                target_node=p2p.node_id,
+                files=dbs_to_sync,
+            )
+
+            p2p.sync_in_progress = True
+            try:
+                success = await p2p._request_node_sync(job)
+                p2p._record_p2p_sync_result(best_peer, success)
+                p2p._record_sync_result_for_adaptive("training_db", success)
+                if success:
+                    self._log_info(f"TRAINING DB SYNC: Got {len(dbs_to_sync)} training DBs from {best_peer}")
+            finally:
+                p2p.sync_in_progress = False
+        except Exception as e:
+            self._log_info(f"TRAINING DB SYNC: Error: {e}")
+            p2p._record_sync_result_for_adaptive("training_db", False)
+            p2p.sync_in_progress = False
