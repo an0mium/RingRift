@@ -20,6 +20,9 @@ scrape_configs:
   # P2P orchestrator on all nodes
   - job_name: 'ringrift-p2p'
     static_configs:
+      - targets: ['100.94.174.19:9091']
+        labels:
+          node="hetzner-cpu1"
       - targets: ['100.67.131.72:9091']
         labels:
           node="hetzner-cpu2"
@@ -38,27 +41,18 @@ scrape_configs:
       - targets: ['100.83.177.16:9091']
         labels:
           node="lambda-gh200-5"
-      - targets: ['100.68.208.43:9091']
-        labels:
-          node="lambda-gh200-training"
-      - targets: ['100.77.186.124:9091']
-        labels:
-          node="lambda-gh200-4"
       - targets: ['160.250.70.26:9091']
         labels:
           node="vast-30274242"
-      - targets: ['100.106.87.89:9091']
+      - targets: ['192.222.50.48:9091']
         labels:
           node="lambda-gh200-11"
-      - targets: ['100.127.168.116:9091']
-        labels:
-          node="lambda-gh200-9"
       - targets: ['100.100.19.96:9091']
         labels:
           node="lambda-gh200-10"
-      - targets: ['100.121.230.110:9091']
+      - targets: ['100.109.195.71:9091']
         labels:
-          node="lambda-gh200-8"
+          node="nebius-h100-3"
       - targets: ['211.72.13.201:9091']
         labels:
           node="vast-5090-4x"
@@ -71,6 +65,9 @@ scrape_configs:
       - targets: ['76.66.207.49:9091']
         labels:
           node="vast-4060ti"
+      - targets: ['100.107.168.125:9091']
+        labels:
+          node="mac-studio"
       - targets: ['localhost:8770']
         labels:
           node="local-mac", role="leader"
@@ -78,6 +75,9 @@ scrape_configs:
   # Node exporter on all nodes
   - job_name: 'node_exporter'
     static_configs:
+      - targets: ['100.94.174.19:9100']
+        labels:
+          node="hetzner-cpu1"
       - targets: ['100.67.131.72:9100']
         labels:
           node="hetzner-cpu2"
@@ -96,27 +96,18 @@ scrape_configs:
       - targets: ['100.83.177.16:9100']
         labels:
           node="lambda-gh200-5"
-      - targets: ['100.68.208.43:9100']
-        labels:
-          node="lambda-gh200-training"
-      - targets: ['100.77.186.124:9100']
-        labels:
-          node="lambda-gh200-4"
       - targets: ['160.250.70.26:9100']
         labels:
           node="vast-30274242"
-      - targets: ['100.106.87.89:9100']
+      - targets: ['192.222.50.48:9100']
         labels:
           node="lambda-gh200-11"
-      - targets: ['100.127.168.116:9100']
-        labels:
-          node="lambda-gh200-9"
       - targets: ['100.100.19.96:9100']
         labels:
           node="lambda-gh200-10"
-      - targets: ['100.121.230.110:9100']
+      - targets: ['100.109.195.71:9100']
         labels:
-          node="lambda-gh200-8"
+          node="nebius-h100-3"
       - targets: ['211.72.13.201:9100']
         labels:
           node="vast-5090-4x"
@@ -129,6 +120,9 @@ scrape_configs:
       - targets: ['76.66.207.49:9100']
         labels:
           node="vast-4060ti"
+      - targets: ['100.107.168.125:9100']
+        labels:
+          node="mac-studio"
       - targets: ['localhost:9100']
         labels:
           node="local-mac", role="leader"
