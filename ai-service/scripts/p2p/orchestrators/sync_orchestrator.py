@@ -958,3 +958,101 @@ class SyncOrchestrator(BaseOrchestrator):
                 dst_conn.commit()
 
         return imported
+
+    async def collect_cluster_manifest(self):
+        """Leader-only: Collect manifests from all peers and build cluster view.
+
+        Jan 29, 2026: Moved from P2POrchestrator._collect_cluster_manifest().
+
+        Returns:
+            ClusterDataManifest with aggregated cluster data state
+        """
+        import asyncio
+        import time
+        from scripts.p2p.protocols import ClusterDataManifest, NodeDataManifest
+
+        p2p = self._p2p
+        cluster_manifest = ClusterDataManifest(
+            collected_at=time.time(),
+        )
+
+        # Collect from self
+        local_manifest = await asyncio.to_thread(p2p._collect_local_data_manifest)
+        with p2p.manifest_lock:
+            p2p.local_data_manifest = local_manifest
+        cluster_manifest.node_manifests[p2p.node_id] = local_manifest
+
+        # Collect from peers in parallel.
+        # Only probe peers that are currently alive and not retired; terminated
+        # or long-dead nodes should not stall manifest collection. NAT-blocked
+        # peers can't accept inbound /data_manifest, so they are excluded too.
+        peers_snapshot = p2p._peer_snapshot.get_snapshot()
+        peers = [
+            p
+            for p in peers_snapshot.values()
+            if p.is_alive()
+            and not bool(getattr(p, "retired", False))
+            and not bool(getattr(p, "nat_blocked", False))
+        ]
+
+        tasks = [p2p._request_peer_manifest(peer) for peer in peers]
+        # Add timeout to prevent hang if peers are unresponsive
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=45.0
+            )
+        except asyncio.TimeoutError:
+            self._log_warning(
+                f"Manifest collection timed out after 45s collecting from {len(peers)} peers. "
+                "Proceeding with partial data."
+            )
+            results = []
+
+        for peer, result in zip(peers, results, strict=False):
+            if isinstance(result, NodeDataManifest):
+                cluster_manifest.node_manifests[peer.node_id] = result
+
+        # Compute cluster-wide statistics
+        cluster_manifest.total_nodes = len(cluster_manifest.node_manifests)
+
+        all_files: set[str] = set()
+        for node_id, node_manifest in cluster_manifest.node_manifests.items():
+            cluster_manifest.total_files += node_manifest.total_files
+            cluster_manifest.total_size_bytes += node_manifest.total_size_bytes
+            cluster_manifest.total_selfplay_games += node_manifest.selfplay_games
+            cluster_manifest.files_by_node[node_id] = node_manifest.total_files
+
+            for file_info in node_manifest.files:
+                all_files.add(file_info.path)
+
+        cluster_manifest.unique_files = all_files
+
+        # Find files missing from nodes (for sync planning)
+        for file_path in all_files:
+            nodes_with_file = []
+            nodes_without_file = []
+            for node_id, node_manifest in cluster_manifest.node_manifests.items():
+                file_paths = {f.path for f in node_manifest.files}
+                if file_path in file_paths:
+                    nodes_with_file.append(node_id)
+                else:
+                    nodes_without_file.append(node_id)
+
+            if nodes_without_file:
+                cluster_manifest.missing_from_nodes[file_path] = nodes_without_file
+
+        # Collect external storage metadata (OWC drive, S3 bucket)
+        try:
+            external_storage = await p2p._collect_external_storage_metadata()
+            cluster_manifest.external_storage = external_storage
+        except Exception as e:
+            self._log_debug(f"External storage scan skipped: {e}")
+
+        self._log_info(
+            f"Cluster manifest: {cluster_manifest.total_nodes} nodes, "
+            f"{len(cluster_manifest.unique_files)} unique files, "
+            f"{cluster_manifest.total_selfplay_games} total games"
+        )
+
+        return cluster_manifest
