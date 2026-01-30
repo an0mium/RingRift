@@ -4593,12 +4593,49 @@ class P2POrchestrator(
     def _cache_local_ips(self) -> set[str]:
         """Cache all local IPs at startup to avoid DNS blocking in health endpoints.
 
-        Jan 29, 2026: Delegated to PeerNetworkOrchestrator.
+        Jan 29, 2026: Delegate to PeerNetworkOrchestrator if available,
+        otherwise inline basic IP detection (called during early __init__
+        before self.network is set).
 
         Jan 26, 2026: Called once at initialization and cached.
         """
-        # Delegate to PeerNetworkOrchestrator
-        return self.network.cache_local_ips()
+        if hasattr(self, "network") and self.network is not None:
+            return self.network.cache_local_ips()
+
+        # Fallback: inline basic IP detection for early __init__ call
+        import socket
+        import subprocess
+
+        local_ips: set[str] = set()
+        try:
+            hostname = socket.gethostname()
+            for addr in socket.getaddrinfo(hostname, None):
+                local_ips.add(addr[4][0])
+        except (socket.gaierror, socket.herror, OSError, UnicodeError):
+            pass
+        try:
+            for addr in socket.getaddrinfo("localhost", None):
+                local_ips.add(addr[4][0])
+        except (socket.gaierror, socket.herror, OSError):
+            pass
+        try:
+            result = subprocess.run(
+                ["hostname", "-I"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                for ip in result.stdout.strip().split():
+                    local_ips.add(ip.strip())
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            pass
+        # Always include loopback
+        local_ips.add("127.0.0.1")
+        local_ips.add("::1")
+        if hasattr(self, "advertise_host") and self.advertise_host:
+            local_ips.add(self.advertise_host)
+        if hasattr(self, "tailscale_ip") and self.tailscale_ip:
+            local_ips.add(self.tailscale_ip)
+        return local_ips
 
     # NOTE: _is_self_voter(), _check_voter_health(), _log_cluster_health_snapshot()
     # moved to LeadershipHealthMixin (Jan 26, 2026)
