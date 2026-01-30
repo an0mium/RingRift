@@ -5468,159 +5468,20 @@ class P2POrchestrator(
                 conn.close()
 
     def _create_self_info(self) -> NodeInfo:
-        """Create NodeInfo for this node."""
-        # Detect GPU
-        has_gpu, gpu_name = self._detect_gpu()
+        """Create NodeInfo for this node.
 
-        cpu_count = int(os.cpu_count() or 0)
-
-        # Detect memory
-        memory_gb = self._detect_memory()
-
-        # Detect capabilities based on hardware
-        # Dec 2025: RINGRIFT_IS_COORDINATOR=true restricts to coordinator-only
-        # Dec 29, 2025: Also check distributed_hosts.yaml for role/enabled flags
-        is_coordinator = os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() in ("true", "1", "yes")
-
-        # Check YAML config for this node's settings
-        if not is_coordinator:
-            try:
-                from app.config.cluster_config import load_cluster_config
-                config = load_cluster_config()
-                # ClusterConfig stores hosts in hosts_raw attribute
-                nodes = getattr(config, "hosts_raw", {}) or {}
-                node_cfg = nodes.get(self.node_id, {})
-                # Check role or explicit enabled flags
-                if node_cfg.get("role") == "coordinator":
-                    is_coordinator = True
-                    logger.info(f"[P2P] Node {self.node_id} is coordinator (from YAML)")
-                elif node_cfg.get("selfplay_enabled") is False and node_cfg.get("training_enabled") is False:
-                    is_coordinator = True
-                    logger.info(f"[P2P] Node {self.node_id} has selfplay/training disabled (from YAML)")
-            except Exception as e:
-                logger.debug(f"[P2P] Could not load cluster config: {e}")
-        if is_coordinator:
-            # Dec 30, 2025: Warn if GPU node is misconfigured as coordinator
-            if has_gpu:
-                logger.warning(
-                    f"[P2P] GPU node {self.node_id} is marked as coordinator - "
-                    f"this may be a misconfiguration. GPU: {gpu_name}. "
-                    "Unset RINGRIFT_IS_COORDINATOR or remove role:coordinator from YAML "
-                    "to enable training capabilities."
-                )
-            capabilities = []  # Coordinator nodes don't run compute tasks
-            logger.info("[P2P] Coordinator-only mode: no selfplay/training/cmaes capabilities")
-        else:
-            capabilities = ["selfplay"]
-            if has_gpu:
-                capabilities.extend(["training", "cmaes", "gauntlet", "tournament"])
-            if memory_gb >= 64:
-                capabilities.append("large_boards")
-
-        info = NodeInfo(
-            node_id=self.node_id,
-            host=self.advertise_host,
-            port=self.advertise_port,
-            role=self.role,
-            last_heartbeat=time.time(),
-            cpu_count=cpu_count,
-            has_gpu=has_gpu,
-            gpu_name=gpu_name,
-            memory_gb=memory_gb,
-            capabilities=capabilities,
-            version=self.build_version,
-        )
-        # Advertise an alternate mesh endpoint (Tailscale) for NAT traversal and
-        # multi-path retries. Peers persist the observed reachable endpoint in
-        # `host`/`port` but keep our `reported_host`/`reported_port` as an
-        # additional candidate (see `_heartbeat_loop` multi-path retry).
-        ts_ip = self._get_tailscale_ip()
-        if ts_ip and ts_ip != info.host:
-            info.reported_host = ts_ip
-            # Use the actual listening port for mesh endpoints (port-mapped
-            # advertise ports may not be reachable inside overlays).
-            info.reported_port = int(self.port)
-
-        # Jan 2026: Populate alternate_ips with all reachable IPs for partition healing
-        # Peers can try multiple IPs to reach us, improving mesh resilience
-        info.alternate_ips = self._discover_all_ips(exclude_primary=info.host)
-
-        # Jan 13, 2026: Multi-address advertisement for voter counting fix
-        # Nodes advertise ALL addresses they're reachable at in heartbeats.
-        # This fixes voter quorum issues where voters are listed by config name
-        # but peers report via Tailscale/public IPs that don't match.
-        info.tailscale_ip = ts_ip or ""
-        info.addresses = self._collect_all_addresses(ts_ip, info.host)
-
-        # Jan 24, 2026: Populate visible_peers for connectivity scoring
-        # Used by _compute_connectivity_score() to determine leader eligibility
-        info.visible_peers = len([p for p in self.peers.values() if p.is_alive()])
-
-        # Jan 25, 2026: Compute effective_timeout for broadcast to peers
-        # This tells other nodes how long to wait before marking us dead
-        try:
-            from app.p2p.constants import PEER_TIMEOUT, get_cpu_adaptive_timeout
-            from app.config.provider_timeouts import ProviderTimeouts
-            cpu_load = info.cpu_percent / 100.0 if info.cpu_percent > 0 else 0.0
-            base_timeout = get_cpu_adaptive_timeout(PEER_TIMEOUT, cpu_load)
-            provider_mult = ProviderTimeouts.get_multiplier(self.node_id) if ProviderTimeouts else 1.0
-            info.effective_timeout = base_timeout * provider_mult
-        except Exception:
-            info.effective_timeout = 180.0  # Fallback to default
-
-        return info
+        Jan 29, 2026: Delegated to MonitoringOrchestrator.create_self_info().
+        """
+        return self.monitoring.create_self_info()
 
     def _collect_all_addresses(
         self, tailscale_ip: str | None, primary_host: str
     ) -> list[str]:
         """Collect all addresses this node is reachable at.
 
-        Jan 13, 2026: For multi-address advertisement to fix voter counting.
-
-        Returns addresses in priority order:
-        1. Tailscale IP (100.x.x.x) - most reliable for P2P mesh
-        2. Primary host (advertise_host) - what we're currently advertising
-        3. SSH host from config - public/direct access
-        4. Local interface IP - same-network access
-
-        Args:
-            tailscale_ip: Tailscale VPN IP if available
-            primary_host: Current advertise_host
-
-        Returns:
-            List of addresses, deduplicated, in priority order
+        Jan 29, 2026: Delegated to MonitoringOrchestrator._collect_all_addresses().
         """
-        addresses: list[str] = []
-        seen: set[str] = set()
-
-        def add_if_new(addr: str | None) -> None:
-            if addr and addr not in seen and addr not in ("", "0.0.0.0", "127.0.0.1"):
-                addresses.append(addr)
-                seen.add(addr)
-
-        # Priority 1: Tailscale IP (best for mesh)
-        add_if_new(tailscale_ip)
-
-        # Priority 2: Current advertise host
-        add_if_new(primary_host)
-
-        # Priority 3: SSH host from config (may be public IP)
-        try:
-            from app.config.cluster_config import load_cluster_config
-            config = load_cluster_config()
-            nodes = getattr(config, "hosts_raw", {}) or {}
-            node_cfg = nodes.get(self.node_id, {})
-            if node_cfg:
-                add_if_new(node_cfg.get("ssh_host"))
-                add_if_new(node_cfg.get("tailscale_ip"))
-        except Exception:
-            pass
-
-        # Priority 4: Local interface IPs
-        for ip in self._discover_all_ips(exclude_primary=None):
-            add_if_new(ip)
-
-        return addresses
+        return self.monitoring._collect_all_addresses(tailscale_ip, primary_host)
 
     # NOTE: _detect_gpu, _detect_memory, _get_local_ip, _get_tailscale_ip
     # delegated to ResourceDetectorMixin (Dec 28, 2025). ~75 LOC removed.
