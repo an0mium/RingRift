@@ -2512,6 +2512,7 @@ class P2POrchestrator(
         from scripts.p2p.orchestrators import (
             JobOrchestrator,
             LeadershipOrchestrator,
+            MonitoringOrchestrator,
             PeerNetworkOrchestrator,
             ProcessSpawnerOrchestrator,
             SyncOrchestrator,
@@ -2532,11 +2533,16 @@ class P2POrchestrator(
         self.process_spawner = ProcessSpawnerOrchestrator(self)
         logger.info("[P2P] ProcessSpawnerOrchestrator initialized")
 
-        # All orchestrators initialized (5 total):
+        self.monitoring = MonitoringOrchestrator(self)
+        logger.info("[P2P] MonitoringOrchestrator initialized")
+
+        # All orchestrators initialized (6 total):
+        # self.leadership = LeadershipOrchestrator(self)
         # self.network = PeerNetworkOrchestrator(self)
         # self.sync = SyncOrchestrator(self)
         # self.jobs = JobOrchestrator(self)
         # self.process_spawner = ProcessSpawnerOrchestrator(self)
+        # self.monitoring = MonitoringOrchestrator(self)
 
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
@@ -15256,200 +15262,11 @@ print(json.dumps({{
 
         December 2025: Added to address silent fallback behavior
         where operators couldn't tell if SWIM/Raft was running.
+
+        January 29, 2026: Delegated to MonitoringOrchestrator.validate_critical_subsystems().
         """
-        from app.p2p.constants import (
-            SWIM_ENABLED, RAFT_ENABLED, MEMBERSHIP_MODE, CONSENSUS_MODE
-        )
+        return self.monitoring.validate_critical_subsystems()
 
-        status = {
-            "protocols": {
-                "membership_mode": MEMBERSHIP_MODE,
-                "consensus_mode": CONSENSUS_MODE,
-                "swim_enabled": SWIM_ENABLED,
-                "raft_enabled": RAFT_ENABLED,
-            },
-            "managers": {},
-            "warnings": [],
-            "errors": [],
-        }
-
-        # Check SWIM availability
-        try:
-            from app.p2p.swim_adapter import SWIM_AVAILABLE
-            status["protocols"]["swim_available"] = SWIM_AVAILABLE
-            if SWIM_ENABLED and not SWIM_AVAILABLE:
-                msg = "SWIM_ENABLED=true but swim-p2p not installed. Install: pip install swim-p2p>=1.2.0"
-                status["warnings"].append(msg)
-                logger.warning(f"[Startup Validation] {msg}")
-            elif SWIM_AVAILABLE:
-                logger.info(f"[Startup Validation] SWIM protocol available (membership_mode={MEMBERSHIP_MODE})")
-        except ImportError:
-            status["protocols"]["swim_available"] = False
-            if SWIM_ENABLED:
-                status["warnings"].append("swim_adapter import failed")
-
-        # Check Raft availability
-        try:
-            from app.p2p.raft_state import PYSYNCOBJ_AVAILABLE
-            status["protocols"]["raft_available"] = PYSYNCOBJ_AVAILABLE
-            if RAFT_ENABLED and not PYSYNCOBJ_AVAILABLE:
-                msg = "RAFT_ENABLED=true but pysyncobj not installed. Install: pip install pysyncobj>=0.3.14"
-                status["warnings"].append(msg)
-                logger.warning(f"[Startup Validation] {msg}")
-            elif PYSYNCOBJ_AVAILABLE:
-                logger.info(f"[Startup Validation] Raft protocol available (consensus_mode={CONSENSUS_MODE})")
-        except ImportError:
-            status["protocols"]["raft_available"] = False
-            if RAFT_ENABLED:
-                status["warnings"].append("raft_state import failed")
-
-        # Log active protocol configuration
-        logger.info(
-            f"[Startup Validation] Protocol config: membership={MEMBERSHIP_MODE}, consensus={CONSENSUS_MODE}"
-        )
-
-        # Check critical managers (lazy load check - don't fail, just report)
-        manager_checks = [
-            ("work_queue", "app.coordination.work_queue", "get_work_queue"),
-            ("health_manager", "app.coordination.unified_health_manager", "get_unified_health_manager"),
-            ("sync_router", "app.coordination.sync_router", "get_sync_router"),
-        ]
-
-        for name, module_path, getter_name in manager_checks:
-            try:
-                module = importlib.import_module(module_path)
-                getter = getattr(module, getter_name, None)
-                status["managers"][name] = getter is not None
-                if getter:
-                    logger.debug(f"[Startup Validation] Manager {name} available")
-            except ImportError as e:
-                status["managers"][name] = False
-                status["warnings"].append(f"{name} import failed: {e}")
-                logger.warning(f"[Startup Validation] Manager {name} unavailable: {e}")
-
-        # December 2025: P2P voter connectivity validation
-        # Check that at least quorum voters are reachable before starting
-        status["voters"] = {
-            "configured": len(self.voter_node_ids),
-            "quorum": self.voter_quorum_size,
-            "reachable": 0,
-            "unreachable": [],
-        }
-
-        if self.voter_node_ids:
-            import socket
-            import contextlib
-
-            reachable_count = 0
-            for voter_id in self.voter_node_ids:
-                # Try to resolve voter IP from config
-                try:
-                    from app.config.cluster_config import get_cluster_nodes
-                    nodes = get_cluster_nodes()
-                    node = nodes.get(voter_id)
-                    if node:
-                        voter_ip = node.best_ip
-                        if voter_ip:
-                            # Quick TCP connect test to P2P port
-                            with contextlib.suppress(Exception):
-                                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                                sock.settimeout(2.0)
-                                result = sock.connect_ex((voter_ip, self.port))
-                                sock.close()
-                                if result == 0:
-                                    reachable_count += 1
-                                    continue
-                    status["voters"]["unreachable"].append(voter_id)
-                except (socket.error, socket.timeout, OSError, TimeoutError, ConnectionRefusedError):
-                    status["voters"]["unreachable"].append(voter_id)
-
-            status["voters"]["reachable"] = reachable_count
-
-            # Log voter connectivity status
-            if reachable_count < self.voter_quorum_size:
-                msg = (
-                    f"Only {reachable_count}/{len(self.voter_node_ids)} voters reachable, "
-                    f"need {self.voter_quorum_size} for quorum. Unreachable: {status['voters']['unreachable']}"
-                )
-                status["warnings"].append(msg)
-                logger.warning(f"[Startup Validation] {msg}")
-                # January 4, 2026: Emit QUORUM_VALIDATION_FAILED event for monitoring.
-                # This enables dashboards and alert systems to track pre-startup quorum issues.
-                try:
-                    from app.distributed.data_events import DataEventType, get_event_bus
-                    get_event_bus().emit(
-                        DataEventType.QUORUM_VALIDATION_FAILED,
-                        {
-                            "node_id": self.node_id,
-                            "reachable_voters": reachable_count,
-                            "total_voters": len(self.voter_node_ids),
-                            "quorum_required": self.voter_quorum_size,
-                            "unreachable": status["voters"]["unreachable"],
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        },
-                    )
-                except (ImportError, Exception) as e:
-                    logger.debug(f"[Startup Validation] Could not emit quorum validation event: {e}")
-            else:
-                logger.info(
-                    f"[Startup Validation] Voter quorum OK: "
-                    f"{reachable_count}/{len(self.voter_node_ids)} voters reachable"
-                )
-        else:
-            logger.info("[Startup Validation] No voters configured - quorum checks disabled")
-
-        # Jan 9, 2026: PyTorch CUDA validation - detect CPU-only PyTorch on GPU nodes
-        # Root cause of lambda-gh200-10 running at 0% GPU utilization
-        try:
-            pytorch_status = self._resource_detector.validate_pytorch_cuda()
-            status["pytorch"] = pytorch_status
-
-            if pytorch_status.get("warning"):
-                status["warnings"].append(pytorch_status["warning"])
-                logger.warning(f"[Startup Validation] {pytorch_status['warning']}")
-
-                # Emit event for monitoring and dashboards
-                try:
-                    from app.distributed.data_events import DataEventType, get_event_bus
-
-                    get_event_bus().emit(
-                        DataEventType.PYTORCH_CUDA_MISMATCH,
-                        {
-                            "node_id": self.node_id,
-                            "warning": pytorch_status["warning"],
-                            "gpu_detected": pytorch_status.get("gpu_detected", False),
-                            "pytorch_cuda_available": pytorch_status.get("pytorch_cuda_available", False),
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        },
-                    )
-                except (ImportError, Exception) as e:
-                    logger.debug(f"[Startup Validation] Could not emit PyTorch CUDA event: {e}")
-            elif pytorch_status.get("pytorch_cuda_available"):
-                logger.info(
-                    f"[Startup Validation] PyTorch CUDA OK: "
-                    f"version={pytorch_status.get('pytorch_cuda_version')}, "
-                    f"devices={pytorch_status.get('cuda_device_count')}"
-                )
-            elif pytorch_status.get("error"):
-                logger.debug(f"[Startup Validation] PyTorch not installed: {pytorch_status.get('error')}")
-        except Exception as e:
-            logger.debug(f"[Startup Validation] PyTorch validation failed: {e}")
-
-        # Summary log
-        available_count = sum(1 for v in status["managers"].values() if v)
-        total_count = len(status["managers"])
-        if status["warnings"]:
-            logger.warning(
-                f"[Startup Validation] Completed with {len(status['warnings'])} warnings. "
-                f"Managers: {available_count}/{total_count} available"
-            )
-        else:
-            logger.info(
-                f"[Startup Validation] All checks passed. "
-                f"Managers: {available_count}/{total_count} available"
-            )
-
-        return status
 
     def _start_isolated_health_server(self) -> None:
         """Start a lightweight health HTTP server in a separate thread.
@@ -15459,98 +15276,18 @@ print(json.dumps({{
         is blocked by background tasks.
 
         The isolated server:
-        - Listens on port 8771 (one above the main P2P port)
+        - Listens on port + 2 (8772 for P2P on 8770)
         - Only serves /health and /ready endpoints
         - Does not access any state that requires the main event loop
         - Responds within 100ms even under heavy load
 
         This fixes the "zombie P2P" issue where the main HTTP server stops
         responding due to event loop blocking, but the process remains alive.
+
+        January 29, 2026: Delegated to MonitoringOrchestrator.start_isolated_health_server().
         """
-        orchestrator = self  # Capture self for the inner function
-        # Use port + 2 for isolated health server (8772 for P2P on 8770)
-        # Port + 1 (8771) is used by daemon_manager's isolated health server
-        health_port = self.port + 2
+        return self.monitoring.start_isolated_health_server()
 
-        def _run_health_server_in_thread() -> None:
-            """Run the health server in a separate thread with its own event loop."""
-            import asyncio as thread_asyncio
-
-            async def handle_health(request: web.Request) -> web.Response:
-                """Liveness probe - returns 200 if P2P process is alive.
-
-                This is a lightweight check that doesn't access heavy state.
-                """
-                uptime = time.time() - getattr(orchestrator, "start_time", time.time())
-                return web.json_response({
-                    "alive": True,
-                    "node_id": orchestrator.node_id,
-                    "role": orchestrator.role.value if hasattr(orchestrator.role, 'value') else str(orchestrator.role),
-                    "uptime_seconds": uptime,
-                    "main_port": orchestrator.port,
-                    "isolated_health_server": True,
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-
-            async def handle_ready(request: web.Request) -> web.Response:
-                """Readiness probe - returns 200 if P2P has started up.
-
-                Checks minimal state without blocking.
-                """
-                uptime = time.time() - getattr(orchestrator, "start_time", time.time())
-                # Consider ready after 30 seconds of uptime
-                is_ready = uptime >= 30.0
-                return web.json_response({
-                    "ready": is_ready,
-                    "node_id": orchestrator.node_id,
-                    "uptime_seconds": uptime,
-                    "startup_complete": is_ready,
-                    "timestamp": datetime.utcnow().isoformat(),
-                }, status=200 if is_ready else 503)
-
-            async def run_server() -> None:
-                """Set up and run the health server."""
-                app = web.Application()
-                app.router.add_get('/health', handle_health)
-                app.router.add_get('/ready', handle_ready)
-
-                runner = web.AppRunner(app)
-                await runner.setup()
-
-                try:
-                    site = web.TCPSite(runner, '0.0.0.0', health_port, reuse_address=True)
-                    await site.start()
-                    logger.info(f"Isolated health server started on 0.0.0.0:{health_port}")
-
-                    # Keep the server running forever
-                    while True:
-                        await thread_asyncio.sleep(3600)
-                except OSError as e:
-                    if "Address already in use" in str(e):
-                        logger.warning(f"Isolated health server port {health_port} in use, skipping")
-                    else:
-                        logger.error(f"Isolated health server failed: {e}")
-                except Exception as e:
-                    logger.error(f"Isolated health server error: {e}")
-
-            # Create and run a new event loop in this thread
-            loop = thread_asyncio.new_event_loop()
-            thread_asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(run_server())
-            except Exception as e:
-                logger.error(f"Isolated health server thread failed: {e}")
-            finally:
-                loop.close()
-
-        # Start the health server in a daemon thread
-        health_thread = threading.Thread(
-            target=_run_health_server_in_thread,
-            name="isolated-health-server",
-            daemon=True,
-        )
-        health_thread.start()
-        logger.info(f"Started isolated health server thread (port {health_port})")
 
     async def restart_http_server(self) -> bool:
         """Restart the HTTP server gracefully without terminating the process.
