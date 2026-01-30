@@ -1422,3 +1422,131 @@ class PeerNetworkOrchestrator(BaseOrchestrator):
             self._log_debug(f"Failed to parse address {raft_address}: {e}")
 
         return None
+
+    # =========================================================================
+    # PEER REPUTATION TRACKING
+    # Jan 29, 2026: Moved from P2POrchestrator (Phase 5 Session 2)
+    # Track peer reliability over time for better peer selection in P2P sync,
+    # gossip, and other distributed operations.
+    # =========================================================================
+
+    def record_peer_interaction(
+        self, peer_id: str, success: bool, interaction_type: str = "general"
+    ) -> None:
+        """Record a peer interaction for reputation tracking.
+
+        Jan 29, 2026: Moved from P2POrchestrator._record_peer_interaction().
+
+        PEER REPUTATION: Track success/failure rates for different interaction types:
+        - sync: File sync operations
+        - gossip: Gossip message exchanges
+        - heartbeat: Heartbeat responses
+        - command: Remote command executions
+        """
+        import time
+
+        p2p = self._p2p
+        if not hasattr(p2p, "_peer_reputation"):
+            p2p._peer_reputation = {}
+
+        if peer_id not in p2p._peer_reputation:
+            p2p._peer_reputation[peer_id] = {
+                "total_success": 0,
+                "total_failure": 0,
+                "recent_success": 0,
+                "recent_failure": 0,
+                "last_success": 0,
+                "last_failure": 0,
+                "last_reset": time.time(),
+                "by_type": {},
+            }
+
+        rep = p2p._peer_reputation[peer_id]
+        now = time.time()
+
+        # Reset recent counters every hour
+        if now - rep["last_reset"] > 3600:
+            rep["recent_success"] = 0
+            rep["recent_failure"] = 0
+            rep["last_reset"] = now
+
+        if success:
+            rep["total_success"] += 1
+            rep["recent_success"] += 1
+            rep["last_success"] = now
+        else:
+            rep["total_failure"] += 1
+            rep["recent_failure"] += 1
+            rep["last_failure"] = now
+
+        # Track by type
+        if interaction_type not in rep["by_type"]:
+            rep["by_type"][interaction_type] = {"success": 0, "failure": 0}
+        if success:
+            rep["by_type"][interaction_type]["success"] += 1
+        else:
+            rep["by_type"][interaction_type]["failure"] += 1
+
+    def get_peer_reputation_score(self, peer_id: str) -> float:
+        """Get reputation score for a peer (0-100, higher is better).
+
+        Jan 29, 2026: Moved from P2POrchestrator._get_peer_reputation_score().
+
+        PEER REPUTATION SCORE: Combines multiple factors:
+        - Recent success rate (70% weight) - last hour
+        - Historical success rate (20% weight) - all time
+        - Recency bonus (10% weight) - recent activity
+        """
+        import time
+
+        p2p = self._p2p
+        if not hasattr(p2p, "_peer_reputation"):
+            return 50.0  # Default neutral score
+
+        rep = p2p._peer_reputation.get(peer_id)
+        if not rep:
+            return 50.0
+
+        now = time.time()
+
+        # Recent success rate (last hour)
+        recent_total = rep["recent_success"] + rep["recent_failure"]
+        recent_rate = rep["recent_success"] / max(1, recent_total)
+
+        # Historical success rate
+        total = rep["total_success"] + rep["total_failure"]
+        historical_rate = rep["total_success"] / max(1, total)
+
+        # Recency bonus (active peers get a boost)
+        last_interaction = max(rep["last_success"], rep["last_failure"])
+        recency_hours = (now - last_interaction) / 3600 if last_interaction > 0 else 24
+        recency_score = max(0, 1.0 - (recency_hours / 24))  # Decays over 24 hours
+
+        # Weighted score
+        score = (recent_rate * 70) + (historical_rate * 20) + (recency_score * 10)
+
+        return min(100.0, max(0.0, score))
+
+    def get_peer_reputation_summary(self) -> dict:
+        """Get summary of peer reputation for gossip propagation.
+
+        Jan 29, 2026: Moved from P2POrchestrator._get_peer_reputation_summary().
+
+        Share top/bottom peers by reputation to help cluster converge on
+        reliable peer selection.
+        """
+        p2p = self._p2p
+        if not hasattr(p2p, "_peer_reputation"):
+            return {"reliable_peers": [], "unreliable_peers": []}
+
+        scores = []
+        for peer_id in p2p._peer_reputation:
+            score = self.get_peer_reputation_score(peer_id)
+            scores.append((peer_id, score))
+
+        scores.sort(key=lambda x: x[1], reverse=True)
+
+        return {
+            "reliable_peers": [{"peer": p, "score": round(s)} for p, s in scores[:5] if s >= 70],
+            "unreliable_peers": [{"peer": p, "score": round(s)} for p, s in scores[-3:] if s < 30],
+        }
