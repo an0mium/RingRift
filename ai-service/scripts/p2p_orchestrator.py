@@ -1769,7 +1769,7 @@ class P2POrchestrator(
                 },
             )
             # Wire effectiveness tracker to get metrics
-            self._effectiveness_tracker.set_metrics_callback(self._get_stability_metrics)
+            self._effectiveness_tracker.set_metrics_callback(self.monitoring.get_stability_metrics)
             logger.info("[P2P] Stability controller enabled (Self-Healing Architecture)")
         except ImportError as e:
             logger.warning(f"[P2P] Stability controller unavailable: {e}")
@@ -4655,35 +4655,9 @@ class P2POrchestrator(
     # _has_voter_quorum: Provided by LeaderElectionMixin
     # _release_voter_grant_if_self: Provided by LeaderElectionMixin
 
-    def _enable_partition_local_election(self) -> bool:
-        """Enable local leader election for partitioned nodes.
-
-        Jan 29, 2026: Delegated to LeadershipOrchestrator.enable_partition_local_election().
-        """
-        return self.leadership.enable_partition_local_election()
-
-    def _restore_original_voters(self) -> bool:
-        """Restore original voter configuration after partition heals.
-
-        Jan 29, 2026: Delegated to LeadershipOrchestrator.restore_original_voters().
-        """
-        return self.leadership.restore_original_voters()
-
-    def _get_eligible_voters(self) -> list[str]:
-        """Get list of nodes eligible to be voters (GPU nodes with good health).
-
-        Jan 29, 2026: Delegates to PeerNetworkOrchestrator.get_eligible_voters().
-        """
-        return self.network.get_eligible_voters()
-
-    def _manage_dynamic_voters(self) -> bool:
-        """Manage dynamic voter pool - promote/demote voters as needed.
-
-        Jan 29, 2026: Delegates to PeerNetworkOrchestrator.manage_dynamic_voters().
-
-        Returns True if voter set was changed.
-        """
-        return self.network.manage_dynamic_voters()
+    # Jan 30, 2026: Removed wrappers _enable_partition_local_election, _restore_original_voters,
+    # _get_eligible_voters, _manage_dynamic_voters
+    # Callers now use self.leadership.X() / self.network.X() directly
 
     # NOTE: _check_leader_health() moved to LeadershipHealthMixin (Jan 26, 2026)
 
@@ -4816,21 +4790,10 @@ class P2POrchestrator(
     # =========================================================================
     # Phase 15.1.1: Fence Token Helpers (December 29, 2025)
     # Jan 28, 2026: Delegated to LeadershipOrchestrator
-    # =========================================================================
-
-    def get_fence_token(self) -> str:
-        """Get fence token. Jan 28, 2026: Delegates to self.leadership."""
-        return self.leadership.get_fence_token()
-
-    def get_lease_epoch(self) -> int:
-        """Get lease epoch. Jan 28, 2026: Delegates to self.leadership."""
-        return self.leadership.get_lease_epoch()
-
-    def validate_fence_token(self, token: str) -> tuple[bool, str]:
-        """Validate fence token. Jan 28, 2026: Delegates to self.leadership."""
-        return self.leadership.validate_fence_token(token)
-
+    # Jan 30, 2026: Removed dead wrappers get_fence_token, get_lease_epoch, validate_fence_token
+    # Callers should use self.leadership.get_fence_token() etc. directly
     # NOTE: update_fence_token_from_leader() moved to LeadershipHealthMixin (Jan 26, 2026)
+    # =========================================================================
 
     async def _determine_leased_leader_from_voters(self) -> str | None:
         """Return the current lease-holder as reported by a quorum of voters.
@@ -4987,7 +4950,7 @@ class P2POrchestrator(
                     and self._is_leader_eligible(peer, conflict_keys)
                 ):
                     # Jan 8, 2026: Validate consensus - check that other peers agree
-                    consensus_count = self._count_peers_reporting_leader(leader_id, peers_snapshot)
+                    consensus_count = self.leadership.count_peers_reporting_leader(leader_id, peers_snapshot)
                     if consensus_count < 2 and len(peers_snapshot) >= 3:
                         # Low consensus - log warning but still return leader
                         logger.warning(
@@ -5005,23 +4968,8 @@ class P2POrchestrator(
 
         return None
 
-    def _count_peers_reporting_leader(
-        self, leader_id: str, peers_snapshot: list[NodeInfo] | None = None
-    ) -> int:
-        """Count how many peers report the same leader_id.
-
-        Jan 8, 2026: Added for leader consensus validation.
-        Jan 29, 2026: Delegated to LeadershipOrchestrator.
-
-        Args:
-            leader_id: The leader ID to check for consensus
-            peers_snapshot: List of peer NodeInfo objects (optional)
-
-        Returns:
-            Number of peers reporting this leader_id
-        """
-        # Delegate to LeadershipOrchestrator
-        return self.leadership.count_peers_reporting_leader(leader_id, peers_snapshot)
+    # Jan 30, 2026: Removed wrapper _count_peers_reporting_leader
+    # Callers now use self.leadership.count_peers_reporting_leader() directly
 
     async def _proxy_to_leader(self, request: web.Request) -> web.StreamResponse:
         """Best-effort proxy for leader-only APIs when the dashboard hits a follower."""
@@ -7161,7 +7109,7 @@ class P2POrchestrator(
             _safe_metric("tournament_scheduling", self.tournament_manager.get_distributed_tournament_summary),
             _safe_metric("data_dedup", self._get_dedup_summary),
             # Jan 19, 2026: Added these to parallel gather (were sequential before)
-            _safe_metric("swim_raft", self._get_swim_raft_status),
+            _safe_metric("swim_raft", self.network.get_swim_raft_status),
             _safe_metric("partition", self.get_partition_status),
             _safe_metric("background_loops", _get_loop_manager_status),
             _safe_metric("voter_health", self._check_voter_health),
@@ -7297,7 +7245,7 @@ class P2POrchestrator(
             "partition": partition_status,
             "background_loops": background_loops,
             # December 30, 2025: Cluster observability for debugging idle nodes
-            "cluster_observability": self._get_cluster_observability(),
+            "cluster_observability": self.sync.get_cluster_observability(),
             # Session 17.41 (Jan 6, 2026): Fallback mechanism status for partition debugging
             "fallback_status": self._get_fallback_status(),
             # December 30, 2025: Lock acquisition status for debugging
@@ -10632,7 +10580,7 @@ print(json.dumps({{
                     self._enable_tailscale_priority()
                     # Also enable partition-local election if no voters reachable
                     if not self._has_voter_quorum():
-                        self._enable_partition_local_election()
+                        self.leadership.enable_partition_local_election()
                     # Force refresh all IP sources to discover alternative paths
                     last_refresh = getattr(self, "_last_partition_ip_refresh", 0)
                     if time.time() - last_refresh > 60:  # Refresh at most once per minute
@@ -10681,12 +10629,12 @@ print(json.dumps({{
 
                 # Self-healing: check if partition healed and restore original voters
                 if hasattr(self, "_original_voters"):
-                    self._restore_original_voters()
+                    self.leadership.restore_original_voters()
 
                 # Dynamic voter management: promote/demote voters based on health
                 # Only the leader manages voters to ensure consistency
                 if self.role == NodeRole.LEADER:
-                    self._manage_dynamic_voters()
+                    self.network.manage_dynamic_voters()
 
                 # Health-based leadership: step down if we can't reach enough peers
                 if self.role == NodeRole.LEADER and not self._check_leader_health():
@@ -11876,28 +11824,8 @@ print(json.dumps({{
         """
         self.health_metrics_manager.record_p2p_sync_result(peer_id, success, latency_ms)
 
-    async def _p2p_data_sync(self):
-        """DECENTRALIZED: Nodes sync data directly with peers without leader coordination.
-
-        P2P DATA SYNC with enhancements:
-        - Health-based peer selection (avoids overloaded nodes)
-        - Circuit breaker (skips unreliable peers)
-        - Delta sync (only syncs files newer than last sync)
-        - Model file prioritization (syncs models first)
-        - ADAPTIVE INTERVALS: adjusts based on cluster activity and success rate
-
-        January 29, 2026: Delegated to SyncOrchestrator.p2p_data_sync().
-        """
-        # Delegate to SyncOrchestrator if available
-        return await self.sync.p2p_data_sync()
-
-    async def _p2p_model_sync(self):
-        """Jan 30, 2026: Delegated to SyncOrchestrator.p2p_model_sync()."""
-        return await self.sync.p2p_model_sync()
-
-    async def _p2p_training_db_sync(self):
-        """Jan 30, 2026: Delegated to SyncOrchestrator.p2p_training_db_sync()."""
-        return await self.sync.p2p_training_db_sync()
+    # Jan 30, 2026: Removed wrappers _p2p_data_sync, _p2p_model_sync, _p2p_training_db_sync
+    # Callers now use self.sync.p2p_data_sync() etc. directly
 
     # Jan 27, 2026: Gossip methods delegated to GossipProtocolMixin (Phase 13 decomposition)
     # _gossip_state_to_peers(), _get_gossip_known_states() are inherited from mixin
@@ -12135,16 +12063,8 @@ print(json.dumps({{
     # requiring every node to query the ELO database directly.
     # =========================================================================
 
-    def _get_local_elo_summary(self) -> dict:
-        """Get summary of local ELO ratings for gossip propagation.
-
-        Jan 29, 2026: Delegated to SyncOrchestrator.
-
-        DISTRIBUTED ELO: Share top models and their ratings via gossip so all
-        nodes have visibility into model performance without querying the DB.
-        """
-        # Delegate to SyncOrchestrator
-        return self.sync.get_local_elo_summary()
+    # Jan 30, 2026: Removed wrapper _get_local_elo_summary
+    # Callers now use self.sync.get_local_elo_summary() directly
 
     def _get_cluster_elo_summary(self) -> dict:
         """Get cluster-wide ELO summary from gossip state.
@@ -12157,7 +12077,7 @@ print(json.dumps({{
         now = time.time()
 
         # Include our own ELO summary
-        local_summary = self._get_local_elo_summary()
+        local_summary = self.sync.get_local_elo_summary()
         for model_info in local_summary.get("top_models", []):
             model_name = model_info.get("model", "")
             if model_name:
@@ -12217,12 +12137,8 @@ print(json.dumps({{
     # are detected. Each callback records effectiveness for feedback loop.
     # =========================================================================
 
-    def _get_stability_metrics(self) -> dict:
-        """Get current stability metrics for effectiveness tracking.
-
-        Jan 29, 2026: Delegated to MonitoringOrchestrator.get_stability_metrics().
-        """
-        return self.monitoring.get_stability_metrics()
+    # Jan 30, 2026: Removed wrapper _get_stability_metrics
+    # Callers now use self.monitoring.get_stability_metrics() directly
 
     async def _action_increase_timeout(
         self, nodes: list[str], symptom: Any
@@ -12445,9 +12361,8 @@ print(json.dumps({{
         """Jan 29, 2026: Delegated to PeerNetworkOrchestrator.record_peer_interaction()."""
         return self.network.record_peer_interaction(peer_id, success, interaction_type)
 
-    def _get_peer_reputation_score(self, peer_id: str) -> float:
-        """Jan 29, 2026: Delegated to PeerNetworkOrchestrator.get_peer_reputation_score()."""
-        return self.network.get_peer_reputation_score(peer_id)
+    # Jan 30, 2026: Removed dead wrapper _get_peer_reputation_score
+    # Callers should use self.network.get_peer_reputation_score() directly
 
     def _get_peer_reputation_summary(self) -> dict:
         """Jan 29, 2026: Delegated to PeerNetworkOrchestrator.get_peer_reputation_summary()."""
@@ -12537,7 +12452,7 @@ print(json.dumps({{
         current = self._adaptive_intervals.get(sync_type, P2P_DATA_SYNC_BASE)
 
         # Apply activity-based adjustment
-        activity_factor = self._calculate_cluster_activity_factor()
+        activity_factor = self.sync.calculate_cluster_activity_factor()
 
         # Get bounds for this sync type
         if sync_type == "data":
@@ -12559,18 +12474,8 @@ print(json.dumps({{
         # Clamp to bounds
         return max(min_interval, min(max_interval, adjusted))
 
-    def _calculate_cluster_activity_factor(self) -> float:
-        """Calculate cluster activity factor for sync interval adjustment.
-
-        Jan 29, 2026: Delegated to SyncOrchestrator.
-
-        CLUSTER ACTIVITY FACTOR:
-        - < 1.0: Active cluster (training, selfplay) = faster sync
-        - 1.0: Normal activity
-        - > 1.0: Idle cluster = slower sync
-        """
-        # Delegate to SyncOrchestrator
-        return self.sync.calculate_cluster_activity_factor()
+    # Jan 30, 2026: Removed wrapper _calculate_cluster_activity_factor
+    # Callers now use self.sync.calculate_cluster_activity_factor() directly
 
     def _record_sync_result_for_adaptive(self, sync_type: str, success: bool):
         """Record sync result to adjust adaptive intervals.
@@ -12632,7 +12537,7 @@ print(json.dumps({{
             "data_interval": round(self._get_adaptive_sync_interval("data")),
             "model_interval": round(self._get_adaptive_sync_interval("model")),
             "training_db_interval": round(self._get_adaptive_sync_interval("training_db")),
-            "activity_factor": round(self._calculate_cluster_activity_factor(), 2),
+            "activity_factor": round(self.sync.calculate_cluster_activity_factor(), 2),
             "data_streak": {
                 "success": self._sync_success_streak.get("data", 0),
                 "failure": self._sync_failure_streak.get("data", 0),
@@ -12731,28 +12636,8 @@ print(json.dumps({{
                 "known_game_ids": len(self._known_game_ids),
             }
 
-    def _get_swim_raft_status(self) -> dict[str, Any]:
-        """Get SWIM/Raft protocol status summary.
-
-        Jan 29, 2026: Delegated to PeerNetworkOrchestrator.
-
-        Returns status of the new P2P protocols (Phase 5, Dec 26, 2025):
-        - SWIM: Gossip-based membership with 5s failure detection
-        - Raft: Replicated work queue with sub-second failover
-        """
-        # Delegate to PeerNetworkOrchestrator
-        return self.network.get_swim_raft_status()
-
-    def _get_cluster_observability(self) -> dict[str, Any]:
-        """Get cluster observability metrics for debugging.
-
-        Jan 29, 2026: Delegated to SyncOrchestrator.
-
-        December 30, 2025: Added to help diagnose idle GPU nodes and
-        peer visibility discrepancies across the cluster.
-        """
-        # Delegate to SyncOrchestrator
-        return self.sync.get_cluster_observability()
+    # Jan 30, 2026: Removed wrappers _get_swim_raft_status, _get_cluster_observability
+    # Callers now use self.network.get_swim_raft_status() and self.sync.get_cluster_observability()
 
     def _get_data_summary_cached(self) -> dict[str, Any]:
         """Get cached data summary for /status endpoint.
@@ -13202,13 +13087,13 @@ print(json.dumps({{
                 await self._check_emergency_coordinator_fallback()
 
                 # P2P data sync: nodes can sync data directly without leader
-                await self._p2p_data_sync()
+                await self.sync.p2p_data_sync()
 
                 # P2P model sync: dedicated model distribution (more frequent)
-                await self._p2p_model_sync()
+                await self.sync.p2p_model_sync()
 
                 # P2P training DB sync: sync training databases for diversity
-                await self._p2p_training_db_sync()
+                await self.sync.p2p_training_db_sync()
 
                 # Gossip protocol: share state with random peers
                 await self._gossip_state_to_peers()
@@ -14061,40 +13946,8 @@ print(json.dumps({{
 
             await asyncio.sleep(DISCOVERY_INTERVAL)
 
-    def _validate_critical_subsystems(self) -> dict:
-        """Validate critical subsystems at startup.
-
-        Returns a status dict with protocol and manager availability.
-        Logs clear messages about which protocols are active.
-
-        December 2025: Added to address silent fallback behavior
-        where operators couldn't tell if SWIM/Raft was running.
-
-        January 29, 2026: Delegated to MonitoringOrchestrator.validate_critical_subsystems().
-        """
-        return self.monitoring.validate_critical_subsystems()
-
-
-    def _start_isolated_health_server(self) -> None:
-        """Start a lightweight health HTTP server in a separate thread.
-
-        January 2026: This server runs in its own thread with its own event loop,
-        guaranteeing that /health endpoints respond even when the main event loop
-        is blocked by background tasks.
-
-        The isolated server:
-        - Listens on port + 2 (8772 for P2P on 8770)
-        - Only serves /health and /ready endpoints
-        - Does not access any state that requires the main event loop
-        - Responds within 100ms even under heavy load
-
-        This fixes the "zombie P2P" issue where the main HTTP server stops
-        responding due to event loop blocking, but the process remains alive.
-
-        January 29, 2026: Delegated to MonitoringOrchestrator.start_isolated_health_server().
-        """
-        return self.monitoring.start_isolated_health_server()
-
+    # Jan 30, 2026: Removed wrappers _validate_critical_subsystems, _start_isolated_health_server
+    # Callers now use self.monitoring.validate_critical_subsystems() etc. directly
 
     async def restart_http_server(self) -> bool:
         """Restart the HTTP server gracefully without terminating the process.
@@ -14174,10 +14027,10 @@ print(json.dumps({{
 
         # Start isolated health server FIRST (January 2026)
         # This ensures /health endpoint is always responsive even if main loop blocks
-        self._start_isolated_health_server()
+        self.monitoring.start_isolated_health_server()
 
         # Validate critical subsystems before starting (December 2025)
-        self._startup_validation = self._validate_critical_subsystems()
+        self._startup_validation = self.monitoring.validate_critical_subsystems()
 
         # Set up HTTP server
         @web.middleware
