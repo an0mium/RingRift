@@ -3810,12 +3810,8 @@ class P2POrchestrator(
         """Property alias for _is_leader() - required by WorkQueueHandlersMixin."""
         return self._is_leader()
 
-    def _get_leadership_consistency_metrics(self) -> dict:
-        """Jan 28, 2026: Delegates to self.leadership."""
-        return self.leadership.get_consistency_metrics()
-
-    # Jan 30, 2026: Removed wrappers _recover_leadership_desync, _reconcile_leadership_state,
-    # _broadcast_leadership_claim, _async_broadcast_leader_claim
+    # Jan 30, 2026: Removed wrappers _get_leadership_consistency_metrics, _recover_leadership_desync,
+    # _reconcile_leadership_state, _broadcast_leadership_claim, _async_broadcast_leader_claim
     # Callers now use self.leadership.X() directly
 
     def _get_config_version(self) -> dict:
@@ -4557,14 +4553,7 @@ class P2POrchestrator(
 
     # NOTE: _build_voter_ip_mapping() moved to LeadershipHealthMixin (Jan 26, 2026)
     # NOTE: _build_ip_to_node_map() removed - delegated to QuorumManager (Jan 2026 Phase 1)
-
-    def _get_cached_peer_snapshot(self, max_age_seconds: float = 1.0) -> list:
-        """Get cached peer snapshot to reduce lock acquisitions.
-
-        Jan 29, 2026: Delegates to self.network orchestrator.
-        """
-        return self.network.get_cached_peer_snapshot(max_age_seconds)
-
+    # NOTE: _get_cached_peer_snapshot() removed - use self.network.get_cached_peer_snapshot() (Jan 30, 2026)
     # NOTE: _find_voter_peer_by_ip() removed - delegated to QuorumManager (Jan 2026 Phase 1)
     # NOTE: _count_alive_voters(), _is_peer_alive(), _is_swim_peer_id()
     # moved to LeadershipHealthMixin (Jan 26, 2026)
@@ -5712,27 +5701,9 @@ class P2POrchestrator(
 
     # _get_tailscale_ip_for_peer: Provided by NetworkUtilsMixin
 
-    def _detect_network_partition(self) -> bool:
-        """Detect if we're in a network partition (>50% peers unreachable via primary IP).
-
-        Jan 29, 2026: Delegates to PeerNetworkOrchestrator.detect_network_partition().
-
-        Returns:
-            True if partition detected (majority of peers unreachable)
-        """
-        return self.network.detect_network_partition()
-
-    def _get_tailscale_priority_mode(self) -> bool:
-        """Jan 29, 2026: Delegated to PeerNetworkOrchestrator.get_tailscale_priority_mode()."""
-        return self.network.get_tailscale_priority_mode()
-
-    def _enable_tailscale_priority(self) -> None:
-        """Jan 29, 2026: Delegated to PeerNetworkOrchestrator.enable_tailscale_priority()."""
-        return self.network.enable_tailscale_priority()
-
-    def _disable_tailscale_priority(self) -> None:
-        """Jan 29, 2026: Delegated to PeerNetworkOrchestrator.disable_tailscale_priority()."""
-        return self.network.disable_tailscale_priority()
+    # Jan 30, 2026: Removed wrappers _detect_network_partition, _get_tailscale_priority_mode,
+    # _enable_tailscale_priority, _disable_tailscale_priority
+    # Callers now use self.network.* directly
 
     # =========================================================================
     # Network Health Methods (December 30, 2025)
@@ -7258,7 +7229,8 @@ class P2POrchestrator(
             # Jan 3, 2026: Leadership consistency metrics for monitoring desync issues
             # This enables detection of the leader self-recognition bug where leader_id
             # is set correctly but role doesn't match.
-            "leadership_consistency": self._get_leadership_consistency_metrics(),
+            # Jan 30, 2026: Use leadership orchestrator directly
+            "leadership_consistency": self.leadership.get_consistency_metrics(),
             "is_leader": self._is_leader(),  # Explicit field for quick checks
             # Jan 13, 2026: Config version for drift detection (P2P Cluster Stability Plan Phase 1)
             "config_version": self._get_config_version(),
@@ -10431,7 +10403,8 @@ print(json.dumps({{
 
                 # Send to discovered peers (skip NAT-blocked peers and ambiguous endpoints).
                 # Jan 12, 2026: Use cached snapshot to reduce lock contention (1s staleness OK for heartbeat)
-                peers_snapshot = self._get_cached_peer_snapshot(max_age_seconds=1.0)
+                # Jan 30, 2026: Use network orchestrator directly
+                peers_snapshot = self.network.get_cached_peer_snapshot(max_age_seconds=1.0)
                 conflict_keys = self._endpoint_conflict_keys([self.self_info, *peers_snapshot])
                 peer_list = [
                     p for p in peers_snapshot
@@ -10564,8 +10537,9 @@ print(json.dumps({{
                         logger.warning(f"Error in retired peer probe: {e}")
 
                 # Self-healing: detect network partition and trigger Tailscale-priority mode
-                if self._detect_network_partition():
-                    self._enable_tailscale_priority()
+                # Jan 30, 2026: Use network orchestrator directly
+                if self.network.detect_network_partition():
+                    self.network.enable_tailscale_priority()
                     # Also enable partition-local election if no voters reachable
                     if not self._has_voter_quorum():
                         self.leadership.enable_partition_local_election()
@@ -10613,7 +10587,7 @@ print(json.dumps({{
                         # Check if connectivity recovered
                         alive_count = self._peer_query.alive_count().unwrap_or(0)
                         if alive_count > 0:
-                            self._disable_tailscale_priority()
+                            self.network.disable_tailscale_priority()
 
                 # Self-healing: check if partition healed and restore original voters
                 if hasattr(self, "_original_voters"):
@@ -10925,20 +10899,7 @@ print(json.dumps({{
         return not (key and key in conflict_keys)
 
     # Jan 27, 2026: Phase 17B - Removed _register_peer_with_dedup (never called)
-
-    def _deduplicate_peers(self) -> int:
-        """Periodic deduplication of peers dict.
-
-        Jan 29, 2026: Delegated to PeerNetworkOrchestrator.
-
-        Dec 29, 2025: Scans for any duplicate entries and merges them.
-        Keeps the most recently active node per IP.
-
-        Returns:
-            Number of duplicates removed
-        """
-        # Delegate to PeerNetworkOrchestrator
-        return self.network.deduplicate_peers()
+    # Jan 30, 2026: Removed _deduplicate_peers - callers use self.network.deduplicate_peers() directly
 
     def _maybe_adopt_leader_from_peers(self) -> bool:
         """Jan 29, 2026: Delegated to LeadershipOrchestrator.maybe_adopt_leader_from_peers()."""

@@ -749,7 +749,8 @@ class AdminHandlersMixin(BaseP2PHandler):
                     })
                 else:
                     # Actually run deduplication
-                    removed_count = self._deduplicate_peers()
+                    # Jan 30, 2026: Use network orchestrator directly
+                    removed_count = self.network.deduplicate_peers()
                     return web.json_response({
                         "success": True,
                         "dry_run": False,
@@ -757,7 +758,7 @@ class AdminHandlersMixin(BaseP2PHandler):
                     })
             else:
                 return web.json_response({
-                    "error": "_deduplicate_peers method not found",
+                    "error": "network.deduplicate_peers method not found",
                 }, status=500)
 
         except Exception as e:  # noqa: BLE001
