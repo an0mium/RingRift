@@ -1642,14 +1642,16 @@ class WorkQueue:
             # Sort by priority (descending)
             claimable.sort(key=lambda x: -x.priority)
 
-            # Track which work_ids we've tried to claim to avoid duplicates
-            claimed_work_ids: set[str] = set()
+            # Session 17.50 (Jan 30, 2026): Optimized batch claiming
+            # First pass: filter candidates (no DB operations)
+            candidates: list[str] = []
+            candidate_items: dict[str, WorkItem] = {}
 
             for item in claimable:
-                if len(claimed_items) >= max_items:
+                if len(candidates) >= max_items:
                     break
 
-                if item.work_id in claimed_work_ids:
+                if item.work_id in candidate_items:
                     continue
 
                 work_type = item.work_type.value
@@ -1694,20 +1696,27 @@ class WorkQueue:
                 if self.policy_manager and not self.policy_manager.is_work_allowed(node_id, work_type):
                     continue
 
-                # Attempt atomic claim via backend
+                # Item passes all filters - add to batch
+                candidates.append(item.work_id)
+                candidate_items[item.work_id] = item
+
+            # Second pass: batch claim via backend (single transaction)
+            if candidates:
                 claimed_at = time.time()
                 backend = self._get_backend_impl()
-                backend_result = backend.claim_item(item.work_id, node_id, claimed_at)
+                backend_result = backend.claim_items_batch(candidates, node_id, claimed_at)
 
                 if backend_result.success:
-                    # Update in-memory state
-                    item.status = WorkStatus.CLAIMED
-                    item.claimed_by = node_id
-                    item.claimed_at = claimed_at
-                    item.attempts += 1
-                    claimed_items.append(item)
-                    claimed_work_ids.add(item.work_id)
-                    logger.debug(f"Batch claim: {item.work_id} claimed by {node_id}")
+                    # Update in-memory state for successfully claimed items
+                    claimed_ids = backend_result.data.get("claimed_ids", [])
+                    for work_id in claimed_ids:
+                        item = candidate_items[work_id]
+                        item.status = WorkStatus.CLAIMED
+                        item.claimed_by = node_id
+                        item.claimed_at = claimed_at
+                        item.attempts += 1
+                        claimed_items.append(item)
+                        logger.debug(f"Batch claim: {work_id} claimed by {node_id}")
 
             if claimed_items:
                 logger.info(

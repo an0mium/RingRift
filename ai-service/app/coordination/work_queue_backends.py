@@ -121,6 +121,37 @@ class WorkQueueBackend(ABC):
         """
         ...
 
+    def claim_items_batch(
+        self,
+        work_ids: list[str],
+        node_id: str,
+        claimed_at: float | None = None,
+    ) -> BackendResult:
+        """Attempt to claim multiple work items in a single transaction.
+
+        Session 17.50 (Jan 30, 2026): Added to reduce database overhead when
+        batch claiming work. Default implementation calls claim_item() for each,
+        but subclasses can override for optimized single-transaction behavior.
+
+        Args:
+            work_ids: Work item IDs to claim
+            node_id: Node claiming the work
+            claimed_at: Timestamp of claim (defaults to now)
+
+        Returns:
+            BackendResult with data containing list of successfully claimed work_ids
+        """
+        # Default implementation: claim one at a time
+        claimed = []
+        for work_id in work_ids:
+            result = self.claim_item(work_id, node_id, claimed_at)
+            if result.success:
+                claimed.append(work_id)
+        return BackendResult(
+            success=len(claimed) > 0,
+            data={"claimed_ids": claimed, "node_id": node_id},
+        )
+
     @abstractmethod
     def get_pending_items(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get pending work items for claim consideration.
@@ -330,6 +361,64 @@ class SQLiteBackend(WorkQueueBackend):
         except sqlite3.Error as e:
             logger.error(f"[SQLiteBackend] Failed to claim {work_id}: {e}")
             return BackendResult(success=False, error=str(e))
+
+    def claim_items_batch(
+        self,
+        work_ids: list[str],
+        node_id: str,
+        claimed_at: float | None = None,
+    ) -> BackendResult:
+        """Claim multiple items in a single database transaction.
+
+        Session 17.50 (Jan 30, 2026): Optimized batch claiming to reduce
+        database round-trips. Instead of N transactions for N items, this
+        uses a single transaction with one UPDATE per item.
+
+        Args:
+            work_ids: Work item IDs to claim
+            node_id: Node claiming the work
+            claimed_at: Timestamp of claim (defaults to now)
+
+        Returns:
+            BackendResult with claimed_ids in data
+        """
+        if self._readonly_mode:
+            return BackendResult(success=False, error="Backend is readonly")
+
+        if not work_ids:
+            return BackendResult(success=False, data={"claimed_ids": []})
+
+        claimed_at = claimed_at or time.time()
+        claimed_ids = []
+
+        try:
+            conn = self._get_connection()
+            try:
+                cursor = conn.cursor()
+                # Use a single transaction for all claims
+                for work_id in work_ids:
+                    cursor.execute(
+                        """
+                        UPDATE work_items
+                        SET status = 'claimed', claimed_by = ?, claimed_at = ?, attempts = attempts + 1
+                        WHERE work_id = ? AND status = 'pending'
+                        """,
+                        (node_id, claimed_at, work_id),
+                    )
+                    if cursor.rowcount > 0:
+                        claimed_ids.append(work_id)
+
+                # Commit all claims at once
+                conn.commit()
+                return BackendResult(
+                    success=len(claimed_ids) > 0,
+                    data={"claimed_ids": claimed_ids, "node_id": node_id},
+                )
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            logger.error(f"[SQLiteBackend] Failed to batch claim {len(work_ids)} items: {e}")
+            return BackendResult(success=False, error=str(e), data={"claimed_ids": []})
 
     def get_pending_items(self, limit: int = 100) -> list[dict[str, Any]]:
         try:
@@ -625,6 +714,44 @@ class RaftBackend(WorkQueueBackend):
             return self._sqlite_backend.claim_item(work_id, node_id, claimed_at)
 
         return self._with_fallback(raft_op, sqlite_op, f"claim_item({work_id})")
+
+    def claim_items_batch(
+        self,
+        work_ids: list[str],
+        node_id: str,
+        claimed_at: float | None = None,
+    ) -> BackendResult:
+        """Batch claim items with Raft fallback to SQLite.
+
+        Session 17.50 (Jan 30, 2026): Added batch claiming support.
+        Raft doesn't have native batch claim, so we iterate and claim each.
+        Falls back to SQLite batch claim on Raft failure.
+
+        Args:
+            work_ids: Work item IDs to claim
+            node_id: Node claiming the work
+            claimed_at: Timestamp of claim (defaults to now)
+
+        Returns:
+            BackendResult with claimed_ids in data
+        """
+        def raft_op(raft_wq: Any) -> BackendResult:
+            claimed_ids = []
+            for work_id in work_ids:
+                try:
+                    if raft_wq.claim_work(work_id, node_id):
+                        claimed_ids.append(work_id)
+                except Exception as e:
+                    logger.debug(f"[RaftBackend] Batch claim {work_id} failed: {e}")
+            return BackendResult(
+                success=len(claimed_ids) > 0,
+                data={"claimed_ids": claimed_ids, "node_id": node_id},
+            )
+
+        def sqlite_op() -> BackendResult:
+            return self._sqlite_backend.claim_items_batch(work_ids, node_id, claimed_at)
+
+        return self._with_fallback(raft_op, sqlite_op, f"claim_items_batch({len(work_ids)} items)")
 
     def get_pending_items(self, limit: int = 100) -> list[dict[str, Any]]:
         raft_wq = self._get_raft_queue()
