@@ -1497,36 +1497,33 @@ class P2POrchestrator(
         self.host = host
         self.port = port
 
-        # Phase 26: Multi-seed bootstrap - merge CLI peers with hardcoded seeds
-        # Priority: CLI peers first, then hardcoded seeds
-        # Shuffle seeds to distribute load across bootstrap attempts
-        import random
-        cli_peers = known_peers or []
-        merged_seeds = list(cli_peers)  # CLI peers have highest priority
-        for seed in BOOTSTRAP_SEEDS:
-            if seed not in merged_seeds:
-                merged_seeds.append(seed)
-        # Shuffle only the hardcoded portion to avoid overloading any single seed
-        if len(merged_seeds) > len(cli_peers):
-            hardcoded_portion = merged_seeds[len(cli_peers):]
-            random.shuffle(hardcoded_portion)
-            merged_seeds = merged_seeds[:len(cli_peers)] + hardcoded_portion
-        self.known_peers = merged_seeds
-        self.bootstrap_seeds = list(BOOTSTRAP_SEEDS)  # Store original for reference
-        logger.info(f"Bootstrap seeds: {len(cli_peers)} CLI + {len(BOOTSTRAP_SEEDS)} hardcoded = {len(self.known_peers)} total")
-
-        # Peers that should always receive relay heartbeats (for NAT-blocked nodes)
-        self.relay_peers: set[str] = set(relay_peers or [])
+        # Jan 30, 2026: Detect ringrift path early for InitializationManager
         self.ringrift_path = ringrift_path or self._detect_ringrift_path()
 
-        # Jan 5, 2026: Force relay mode for NAT-blocked nodes
-        # NAT-blocked nodes should send ALL outbound heartbeats via relay to ensure
-        # other nodes can discover them (since direct inbound connections fail).
-        # This is loaded from distributed_hosts.yaml: `nat_blocked: true` or `force_relay_mode: true`
-        self._force_relay_mode: bool = self._load_force_relay_mode()
+        # Jan 30, 2026: Priority 2.1 Decomposition - Use InitializationManager for bootstrap
+        # Consolidates bootstrap, storage, and advertise host resolution logic
+        from scripts.p2p.managers.initialization_manager import (
+            InitializationManager,
+            InitializationConfig,
+        )
+        self._init_manager = InitializationManager(
+            config=InitializationConfig(),
+            node_id=node_id,
+            ringrift_path=self.ringrift_path,
+        )
+
+        # Phase 26: Multi-seed bootstrap - now delegated to InitializationManager
+        bootstrap_result = self._init_manager.resolve_bootstrap_config(
+            cli_peers=known_peers,
+            relay_peers=relay_peers,
+        )
+        self.known_peers = bootstrap_result.known_peers
+        self.bootstrap_seeds = bootstrap_result.bootstrap_seeds
+        self.relay_peers = bootstrap_result.relay_peers
+        self._force_relay_mode = bootstrap_result.force_relay_mode
 
         # Phase 29: Cluster epoch tracking for split-brain resolution
-        self._cluster_epoch: int = INITIAL_CLUSTER_EPOCH
+        self._cluster_epoch: int = bootstrap_result.cluster_epoch
         # P2P Health state tracking (Dec 2025)
         self._cluster_health_degraded: bool = False
         # Gossip-learned peer endpoints (Phase 28)
@@ -1540,26 +1537,12 @@ class P2POrchestrator(
         self._partition_check_interval: float = 30.0  # Check every 30 seconds
 
         # Storage configuration: "disk", "ramdrive", or "auto" (detected)
-        self.sync_to_disk_interval = sync_to_disk_interval
-        self.ramdrive_path = "/dev/shm/ringrift/data"  # Standard ramdrive location
+        # Jan 30, 2026: Delegated to InitializationManager
+        storage_result = self._init_manager.resolve_storage_config(storage_type=storage_type)
+        self.storage_type = storage_result.storage_type
+        self.sync_to_disk_interval = storage_result.sync_to_disk_interval
+        self.ramdrive_path = storage_result.ramdrive_path
         self.ramdrive_syncer: RamdriveSyncer | None = None
-
-        # Resolve "auto" storage type based on system resources
-        if storage_type == "auto":
-            resources = get_system_resources()
-            if should_use_ramdrive():
-                self.storage_type = "ramdrive"
-                logger.info(f"Auto-detected storage: RAMDRIVE "
-                      f"(RAM: {resources.total_ram_gb:.0f}GB, "
-                      f"Disk: {resources.free_disk_gb:.0f}GB free / {resources.disk_usage_percent:.0f}% used)")
-            else:
-                self.storage_type = "disk"
-                logger.info(f"Auto-detected storage: DISK "
-                      f"(RAM: {resources.total_ram_gb:.0f}GB, "
-                      f"Disk: {resources.free_disk_gb:.0f}GB free / {resources.disk_usage_percent:.0f}% used)")
-            log_storage_recommendation()
-        else:
-            self.storage_type = storage_type
         # Git 2.35+ enforces safe.directory for repos with different ownership.
         # Many nodes run the orchestrator as root against a checkout owned by
         # another user (e.g. ubuntu), so always provide a safe.directory override

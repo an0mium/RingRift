@@ -1,0 +1,229 @@
+# RingRift P2P Cluster Alerting Rules
+# Generated: Jan 30, 2026
+#
+# To enable, uncomment the rule_files line in prometheus.yml:
+#   rule_files:
+#     - /path/to/alerting-rules.yaml
+
+groups:
+  # ==========================================================================
+  # Cluster Health Alerts
+  # ==========================================================================
+  - name: cluster_health
+    interval: 30s
+    rules:
+      # Critical: Quorum lost - cluster cannot make progress
+      - alert: ClusterQuorumLost
+        expr: |
+          sum(up{job="ringrift-p2p", role=~"coordinator|cpu_selfplay"}) < 4
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: 'P2P cluster quorum lost'
+          description: 'Less than 4 voter nodes are alive. Cluster cannot elect leader or make consensus decisions.'
+          runbook_url: 'https://wiki.ringrift.ai/runbooks/quorum-lost'
+
+      # Critical: No cluster leader
+      - alert: LeaderUnavailable
+        expr: |
+          sum(ringrift_p2p_is_leader{job="ringrift-p2p"}) == 0
+        for: 100s
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: 'No cluster leader detected'
+          description: 'No P2P node reports being the leader for 100+ seconds. Work dispatch is stalled.'
+
+      # Warning: Leader flapping
+      - alert: LeaderFlapping
+        expr: |
+          changes(ringrift_p2p_leader_id{job="ringrift-p2p"}[10m]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: 'Cluster leader is flapping'
+          description: 'Leader has changed {{ $value }} times in the last 10 minutes. Indicates network instability.'
+
+      # Warning: Node offline
+      - alert: NodeOffline
+        expr: |
+          up{job="ringrift-p2p"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: 'P2P node {{ $labels.node }} is offline'
+          description: 'Node {{ $labels.node }} ({{ $labels.provider }}) has been unreachable for 5+ minutes.'
+
+  # ==========================================================================
+  # Training Pipeline Alerts
+  # ==========================================================================
+  - name: training_pipeline
+    interval: 60s
+    rules:
+      # Warning: Training stalled - no Elo gain
+      - alert: TrainingStalled
+        expr: |
+          increase(ringrift_elo_current{job="ringrift-elo-metrics"}[24h]) <= 0
+        for: 6h
+        labels:
+          severity: warning
+          team: ml
+        annotations:
+          summary: 'Training stalled for config {{ $labels.config }}'
+          description: 'No Elo improvement for {{ $labels.config }} in the last 24 hours.'
+
+      # Warning: No selfplay jobs running
+      - alert: SelfplayStalled
+        expr: |
+          sum(ringrift_p2p_selfplay_jobs{job="ringrift-p2p"}) == 0
+        for: 30m
+        labels:
+          severity: warning
+          team: ml
+        annotations:
+          summary: 'No selfplay jobs running cluster-wide'
+          description: 'No selfplay jobs detected across the cluster for 30+ minutes. Training data generation halted.'
+
+      # Warning: Training job failed
+      - alert: TrainingJobFailed
+        expr: |
+          increase(ringrift_training_failures_total[1h]) > 0
+        labels:
+          severity: warning
+          team: ml
+        annotations:
+          summary: 'Training job failed'
+          description: '{{ $value }} training job(s) failed in the last hour.'
+
+  # ==========================================================================
+  # Resource Alerts
+  # ==========================================================================
+  - name: resources
+    interval: 30s
+    rules:
+      # Critical: Memory pressure
+      - alert: MemoryCritical
+        expr: |
+          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: 'Critical memory pressure on {{ $labels.node }}'
+          description: 'Node {{ $labels.node }} has less than 15% available memory. Risk of OOM kills.'
+
+      # Warning: High memory usage
+      - alert: MemoryWarning
+        expr: |
+          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 30
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: 'High memory usage on {{ $labels.node }}'
+          description: 'Node {{ $labels.node }} has less than 30% available memory.'
+
+      # Warning: Disk space low
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: 'Low disk space on {{ $labels.node }}'
+          description: 'Node {{ $labels.node }} has less than 20% free disk space.'
+
+      # Critical: Disk space critical
+      - alert: DiskSpaceCritical
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: 'Critical disk space on {{ $labels.node }}'
+          description: 'Node {{ $labels.node }} has less than 10% free disk space. Immediate attention required.'
+
+  # ==========================================================================
+  # GPU Alerts (for nodes with GPU)
+  # ==========================================================================
+  - name: gpu_health
+    interval: 60s
+    rules:
+      # Warning: GPU idle on training node
+      - alert: GPUIdleOnTrainingNode
+        expr: |
+          ringrift_gpu_utilization{role=~"gpu_training.*"} < 10
+        for: 30m
+        labels:
+          severity: warning
+          team: ml
+        annotations:
+          summary: 'GPU idle on training node {{ $labels.node }}'
+          description: 'GPU utilization on {{ $labels.node }} has been below 10% for 30+ minutes. Jobs may be stuck.'
+
+      # Warning: GPU memory near limit
+      - alert: GPUMemoryHigh
+        expr: |
+          (ringrift_gpu_memory_used_bytes / ringrift_gpu_memory_total_bytes) * 100 > 90
+        for: 10m
+        labels:
+          severity: warning
+          team: ml
+        annotations:
+          summary: 'High GPU memory on {{ $labels.node }}'
+          description: 'GPU memory usage on {{ $labels.node }} is above 90%. Risk of OOM.'
+
+  # ==========================================================================
+  # Network Alerts
+  # ==========================================================================
+  - name: network
+    interval: 30s
+    rules:
+      # Warning: High peer failure rate
+      - alert: HighPeerFailureRate
+        expr: |
+          rate(ringrift_peer_failures_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: 'High peer failure rate'
+          description: 'Peer connection failures are elevated. Network issues may be present.'
+
+      # Warning: Network partition detected
+      - alert: NetworkPartitionDetected
+        expr: |
+          ringrift_p2p_partition_detected{job="ringrift-p2p"} == 1
+        for: 2m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: 'Network partition detected'
+          description: 'P2P cluster has detected a network partition. Split-brain risk.'
+
+      # Info: Relay transport in use (not ideal but not critical)
+      - alert: RelayTransportActive
+        expr: |
+          ringrift_transport_active{transport="relay"} == 1
+        for: 30m
+        labels:
+          severity: info
+          team: infrastructure
+        annotations:
+          summary: 'Relay transport active on {{ $labels.node }}'
+          description: 'Node {{ $labels.node }} is using relay transport. Direct connectivity may be impaired.'
