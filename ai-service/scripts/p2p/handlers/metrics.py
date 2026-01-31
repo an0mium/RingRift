@@ -727,8 +727,9 @@ class MetricsHandlersMixin:
             # Leader Consensus Metrics
             lines.append("# HELP ringrift_leader_agreement Nodes agreeing on current leader")
             lines.append("# TYPE ringrift_leader_agreement gauge")
+            # Jan 30, 2026: Use leadership orchestrator directly
             try:
-                consensus = self._get_cluster_leader_consensus()
+                consensus = self.leadership.get_cluster_leader_consensus()
                 lines.append(f'ringrift_leader_agreement {consensus.get("leader_agreement", 0)}')
             except (AttributeError):
                 pass

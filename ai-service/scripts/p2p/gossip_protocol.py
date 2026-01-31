@@ -2144,8 +2144,9 @@ class GossipProtocolMixin(P2PMixinBase):
             local_state["elo_summary"] = self._get_local_elo_summary()
 
         # GOSSIP-BASED LEADER HINTS: Share leader preference for faster elections
-        if hasattr(self, "_get_leader_hint"):
-            local_state["leader_hint"] = self._get_leader_hint()
+        # Jan 30, 2026: Use leadership orchestrator directly
+        if hasattr(self, "leadership") and self.leadership:
+            local_state["leader_hint"] = self.leadership.get_leader_hint()
 
         # PEER REPUTATION: Share peer reliability scores
         # Jan 30, 2026: Use network orchestrator directly

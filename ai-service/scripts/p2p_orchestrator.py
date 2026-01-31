@@ -12153,25 +12153,10 @@ print(json.dumps({{
     # Share leader preferences via gossip to enable faster leader elections.
     # When current leader fails, nodes can quickly converge on a new leader
     # based on hints from peers rather than running full election.
+    #
+    # Jan 30, 2026: Removed wrappers _get_leader_hint, _get_cluster_leader_consensus
+    # Callers now use self.leadership.get_leader_hint() and self.leadership.get_cluster_leader_consensus()
     # =========================================================================
-
-    def _get_leader_hint(self) -> dict:
-        """Get this node's leader hint for gossip propagation.
-
-        Jan 29, 2026: Delegates to LeadershipOrchestrator.get_leader_hint().
-        """
-        return self.leadership.get_leader_hint()
-
-    def _get_cluster_leader_consensus(self) -> dict:
-        """Get cluster consensus on leader from gossip hints.
-
-        Jan 29, 2026: Delegated to LeadershipOrchestrator.
-
-        LEADER CONSENSUS: Aggregate leader hints from all nodes to determine
-        if there's agreement on who the leader is/should be.
-        """
-        # Delegate to LeadershipOrchestrator
-        return self.leadership.get_cluster_leader_consensus()
 
     # =========================================================================
     # PEER REPUTATION TRACKING
