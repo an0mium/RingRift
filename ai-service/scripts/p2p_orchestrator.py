@@ -2550,7 +2550,8 @@ class P2POrchestrator(
 
         # January 4, 2026: Phase 5 - WorkDiscoveryManager for multi-channel work discovery
         # This enables workers to find work even during leader elections or partitions
-        self._initialize_work_discovery_manager()
+        # Jan 30, 2026: Use jobs orchestrator directly
+        self.jobs.initialize_work_discovery_manager()
 
         # December 2025: Wire feedback loops for self-improvement
         # This connects curriculum adjustments to Elo changes, evaluation results, etc.
@@ -3141,22 +3142,8 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Connection pool dynamic sizing unavailable: {e}")
 
-    def _initialize_work_discovery_manager(self) -> bool:
-        """Initialize WorkDiscoveryManager for multi-channel work discovery.
-
-        Jan 29, 2026: Delegated to JobOrchestrator.
-
-        January 4, 2026: Phase 5 of P2P Cluster Resilience.
-        Enables workers to find work through multiple channels:
-        1. Leader work queue (fastest)
-        2. Peer discovery (query other peers)
-        3. Autonomous queue (from AutonomousQueueLoop)
-        4. Direct selfplay (last resort)
-
-        Returns True if initialization succeeded, False otherwise.
-        """
-        # Delegate to JobOrchestrator
-        return self.jobs.initialize_work_discovery_manager()
+    # Jan 30, 2026: Removed _initialize_work_discovery_manager
+    # Callers use self.jobs.initialize_work_discovery_manager() directly
 
     async def _query_peer_for_work(
         self, peer_id: str, capabilities: list[str]
@@ -6131,12 +6118,7 @@ class P2POrchestrator(
         """
         return await asyncio.to_thread(self._run_subprocess_sync, cmd, timeout)
 
-    def _count_local_jobs(self) -> tuple[int, int]:
-        """Count running selfplay and training jobs on this node.
-
-        Jan 29, 2026: Delegated to JobOrchestrator.count_local_jobs().
-        """
-        return self.jobs.count_local_jobs()
+    # Jan 30, 2026: Removed _count_local_jobs - callers use self.jobs.count_local_jobs() directly
 
     def _get_max_selfplay_slots_for_node(self) -> int:
         """Get maximum selfplay slots based on GPU capability.
@@ -9407,7 +9389,8 @@ print(json.dumps({{
     def _update_self_info(self):
         """Update self info with current resource usage."""
         usage = self._get_resource_usage()
-        selfplay, training = self._count_local_jobs()
+        # Jan 30, 2026: Use jobs orchestrator directly
+        selfplay, training = self.jobs.count_local_jobs()
 
         # NAT/relay detection: if we haven't received any inbound heartbeats for a
         # while (but we do know about other peers), assume we're not reachable
