@@ -6982,69 +6982,22 @@ class P2POrchestrator(
         voters_alive = self._count_alive_voters()
 
         # Get P2P sync metrics (with error handling for new features)
-        # December 27, 2025: Wrapped all metric calls to prevent cascading 500 errors
-        # December 31, 2025: Added asyncio.wait_for() timeouts to prevent /status hangs
-        # January 12, 2026: CRITICAL FIX - Run all metric calls in PARALLEL instead of sequential
-        # Previous sequential approach took up to 24 seconds (10 calls × 2s timeout each).
-        # Parallel approach takes at most 2 seconds (max of all timeouts).
         p2p_sync_metrics = getattr(self, "_p2p_sync_metrics", {})
-        _STATUS_TIMEOUT = 5.0  # seconds for each blocking call (Jan 16, 2026: increased from 2.0)
 
-        # Define all metric gathering tasks
-        async def _safe_metric(name: str, func: callable) -> tuple[str, dict]:
-            """Wrapper to safely gather a metric with timeout and error handling."""
-            try:
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(func),
-                    timeout=_STATUS_TIMEOUT,
-                )
-                return name, result
-            except asyncio.TimeoutError:
-                logger.warning(f"handle_status: {name} timed out")
-                return name, {"error": "timeout"}
-            except Exception as e:  # noqa: BLE001
-                return name, {"error": str(e)}
+        # Jan 30, 2026: Priority 2.2 Decomposition - Use StatusMetricsCollector for parallel metric gathering
+        # Previously this was 70+ lines of inline code. Now delegated to the collector which:
+        # - Runs all metrics in parallel (asyncio.gather)
+        # - Applies 5s timeout per metric
+        # - Handles errors gracefully
+        from scripts.p2p.managers.status_metrics_collector import (
+            create_status_metrics_collector,
+        )
 
-        # Jan 19, 2026: Run ALL metric gathering calls in PARALLEL
-        # Previously some metrics (swim_raft, partition, background_loops, voter_health)
-        # were awaited sequentially after this gather, adding up to 20s latency.
-        # Now everything runs in parallel for <5s total latency.
-        def _get_loop_manager_status():
-            loop_manager = self._get_loop_manager()
-            if loop_manager is not None:
-                return loop_manager.get_all_status()
-            return {"error": "LoopManager not initialized"}
+        collector = create_status_metrics_collector(self)
+        collection_result = await collector.collect_all_metrics()
+        metrics_dict = collection_result.metrics
 
-        metric_tasks = [
-            _safe_metric("gossip_metrics", self._get_gossip_metrics_summary),
-            _safe_metric("distributed_training", self._get_distributed_training_summary),
-            _safe_metric("cluster_elo", self._get_cluster_elo_summary),
-            # Jan 28, 2026: node_recovery metrics removed (method deleted)
-            _safe_metric("leader_consensus", self.leadership.get_cluster_leader_consensus),
-            _safe_metric("peer_reputation", self._get_cluster_peer_reputation),
-            _safe_metric("sync_intervals", self.sync.get_sync_interval_summary),
-            # Jan 28, 2026: Uses tournament_manager directly
-            _safe_metric("tournament_scheduling", self.tournament_manager.get_distributed_tournament_summary),
-            _safe_metric("data_dedup", self._get_dedup_summary),
-            # Jan 19, 2026: Added these to parallel gather (were sequential before)
-            _safe_metric("swim_raft", self.network.get_swim_raft_status),
-            _safe_metric("partition", self.get_partition_status),
-            _safe_metric("background_loops", _get_loop_manager_status),
-            _safe_metric("voter_health", self._check_voter_health),
-        ]
-
-        # Gather all results in parallel
-        metric_results = await asyncio.gather(*metric_tasks, return_exceptions=True)
-
-        # Extract results into named variables
-        metrics_dict = {}
-        for result in metric_results:
-            if isinstance(result, tuple) and len(result) == 2:
-                name, value = result
-                metrics_dict[name] = value
-            elif isinstance(result, Exception):
-                logger.warning(f"handle_status: metric task failed with {result}")
-
+        # Extract results into named variables for backward compatibility
         gossip_metrics = metrics_dict.get("gossip_metrics", {"error": "not_collected"})
         distributed_training = metrics_dict.get("distributed_training", {"error": "not_collected"})
         cluster_elo = metrics_dict.get("cluster_elo", {"error": "not_collected"})
@@ -7054,7 +7007,6 @@ class P2POrchestrator(
         sync_intervals = metrics_dict.get("sync_intervals", {"error": "not_collected"})
         tournament_scheduling = metrics_dict.get("tournament_scheduling", {"error": "not_collected"})
         data_dedup = metrics_dict.get("data_dedup", {"error": "not_collected"})
-        # Jan 19, 2026: These were previously sequential - now parallel
         swim_raft_status = metrics_dict.get("swim_raft", {"error": "not_collected"})
         partition_status = metrics_dict.get("partition", {"error": "not_collected"})
         background_loops = metrics_dict.get("background_loops", {"error": "not_collected"})
