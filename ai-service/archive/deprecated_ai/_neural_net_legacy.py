@@ -5639,6 +5639,35 @@ class NeuralNetAI(BaseAI):
 
         assert globals_input is not None
 
+        # Feb 2026: Extract heuristic features for v5_heavy models
+        # v5_heavy models expect heuristics as a third parameter but were receiving zeros
+        # because the forward call didn't pass them. This caused 38% win rate vs heuristic
+        # instead of the expected 60%+ (model was effectively crippled during inference).
+        heuristics_input: torch.Tensor | None = None
+        if self.model is not None and hasattr(self.model, 'num_heuristics'):
+            num_heuristics = getattr(self.model, 'num_heuristics', 0)
+            if num_heuristics > 0 and game_states:
+                try:
+                    # Use full 49-feature extraction if model expects it, else fast 21-feature
+                    if num_heuristics >= 49:
+                        from app.training.fast_heuristic_features import extract_full_heuristic_features
+                        heuristics_list = []
+                        for state in game_states:
+                            player = state.current_player if hasattr(state, 'current_player') else 1
+                            h = extract_full_heuristic_features(state, player, normalize=True)
+                            heuristics_list.append(h)
+                    else:
+                        from app.training.fast_heuristic_features import extract_heuristic_features
+                        heuristics_list = []
+                        for state in game_states:
+                            player = state.current_player if hasattr(state, 'current_player') else 1
+                            h = extract_heuristic_features(state, player, normalize=True)
+                            heuristics_list.append(h)
+                    heuristics_input = torch.FloatTensor(np.array(heuristics_list)).to(self.device)
+                except Exception as e:
+                    logger.warning(f"Failed to extract heuristics for v5_heavy model: {e}")
+                    heuristics_input = None
+
         use_autocast = False
         device = self.device
         if isinstance(device, str):
@@ -5654,10 +5683,14 @@ class NeuralNetAI(BaseAI):
             assert self.model is not None
             # Jan 2026: Add FP32 fallback for models with extreme weights (V4)
             # that overflow FP16 range (±65504) during autocast
+            # Feb 2026: Pass heuristics to v5_heavy models
             if use_autocast:
                 try:
                     with torch.amp.autocast('cuda'):
-                        out = self.model(tensor_input, globals_input)
+                        if heuristics_input is not None:
+                            out = self.model(tensor_input, globals_input, heuristics_input)
+                        else:
+                            out = self.model(tensor_input, globals_input)
                 except (RuntimeError, ValueError) as e:
                     # FP16 overflow - fall back to FP32 and remember for future calls
                     error_str = str(e).lower()
@@ -5668,11 +5701,17 @@ class NeuralNetAI(BaseAI):
                         if self.loaded_checkpoint_path:
                             NeuralNetAI._fp16_failed_models[self.loaded_checkpoint_path] = True
                             logger.info(f"Added {self.loaded_checkpoint_path} to FP16 failure cache")
-                        out = self.model(tensor_input.float(), globals_input.float())
+                        if heuristics_input is not None:
+                            out = self.model(tensor_input.float(), globals_input.float(), heuristics_input.float())
+                        else:
+                            out = self.model(tensor_input.float(), globals_input.float())
                     else:
                         raise
             else:
-                out = self.model(tensor_input, globals_input)
+                if heuristics_input is not None:
+                    out = self.model(tensor_input, globals_input, heuristics_input)
+                else:
+                    out = self.model(tensor_input, globals_input)
             # V3 models return (values, policy_logits, rank_dist). Keep the
             # rank distribution for training-only use and ignore it here.
             if isinstance(out, tuple) and len(out) == 3:
