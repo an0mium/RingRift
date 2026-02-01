@@ -69,9 +69,13 @@ PLAYER_COUNT_MULTIPLIERS: dict[int, float] = {
 }
 
 # Elo tier thresholds for budget selection
-ELO_TIER_MASTER = 2000     # 2000+ Elo: master tier
-ELO_TIER_ULTIMATE = 1800   # 1800+ Elo: ultimate tier
-ELO_TIER_QUALITY = 1500    # 1500+ Elo: quality tier
+# Feb 2026: Lowered MASTER from 2000 to 1800 - configs at 1835-1851 Elo
+# need maximum quality selfplay data (3200 sims) to break through to 2000.
+# The previous 1600-sim ULTIMATE tier wasn't producing enough signal for
+# late-stage training improvements.
+ELO_TIER_MASTER = 1800     # 1800+ Elo: master tier (3200 sims)
+ELO_TIER_ULTIMATE = 1600   # 1600+ Elo: ultimate tier (1600 sims)
+ELO_TIER_QUALITY = 1400    # 1400+ Elo: quality tier (800 sims)
 
 # Target Elo for training completion
 TARGET_ELO_THRESHOLD = 1900
@@ -157,11 +161,11 @@ def get_adaptive_budget_for_elo(elo: float) -> int:
     Higher Elo models benefit from deeper search. Scale budget with
     Elo tier to maximize training data quality.
 
-    Tiers:
-    - 2000+ Elo: MASTER tier (3200 budget) - maximum quality
-    - 1800+ Elo: ULTIMATE tier (1600 budget) - high quality
-    - 1500+ Elo: QUALITY tier (800 budget) - standard quality
-    - <1500 Elo: STANDARD tier (800 budget) - baseline
+    Tiers (Feb 2026 - lowered thresholds for late-stage training):
+    - 1800+ Elo: MASTER tier (3200 budget) - maximum quality for 2000 push
+    - 1600+ Elo: ULTIMATE tier (1600 budget) - high quality
+    - 1400+ Elo: QUALITY tier (800 budget) - standard quality
+    - <1400 Elo: STANDARD tier (800 budget) - baseline
 
     Args:
         elo: Current Elo rating for the config
@@ -173,9 +177,9 @@ def get_adaptive_budget_for_elo(elo: float) -> int:
         >>> get_adaptive_budget_for_elo(2100)
         3200
         >>> get_adaptive_budget_for_elo(1850)
+        3200
+        >>> get_adaptive_budget_for_elo(1650)
         1600
-        >>> get_adaptive_budget_for_elo(1600)
-        800
     """
     if elo >= ELO_TIER_MASTER:
         return GUMBEL_BUDGET_MASTER  # 3200 - master tier
@@ -215,7 +219,7 @@ def get_adaptive_budget_for_games(game_count: int, elo: float) -> int:
         >>> get_adaptive_budget_for_games(750, 1450)  # Bootstrap tier 3
         200
         >>> get_adaptive_budget_for_games(2000, 1800) # Mature - uses Elo-based
-        1600
+        3200
     """
     # Bootstrap phase: prioritize game generation speed
     if game_count < BOOTSTRAP_TIER1_GAME_THRESHOLD:

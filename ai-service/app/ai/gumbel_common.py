@@ -654,8 +654,9 @@ def get_elo_adaptive_budget(
     # Scale up with training epoch (up to 2x at epoch 100+)
     epoch_multiplier = min(2.0, 1.0 + training_epoch / 100)
 
-    # Cap at ULTIMATE budget
-    return min(GUMBEL_BUDGET_ULTIMATE, int(base * epoch_multiplier))
+    # Cap at MASTER budget (Feb 2026: was incorrectly capped at ULTIMATE,
+    # preventing MASTER tier from ever exceeding 1600)
+    return min(GUMBEL_BUDGET_MASTER, int(base * epoch_multiplier))
 
 
 # =============================================================================
