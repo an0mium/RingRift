@@ -1664,12 +1664,14 @@ def apply_single_chain_capture(
     # snapshot. The snapshot was taken at function entry, but in chain captures, the
     # previous capture may have already eliminated the target. Using the live tensor
     # ensures we find the CURRENT first stack along the ray.
+    # Feb 2026: Pre-extract row to CPU to avoid per-step GPU→CPU sync from .item()
+    stack_owner_row = state.stack_owner[game_idx].cpu().numpy()
     target_y = None
     target_x = None
     for step in range(1, dist):
         check_y = from_y + dy * step
         check_x = from_x + dx * step
-        if state.stack_owner[game_idx, check_y, check_x].item() != 0:
+        if stack_owner_row[check_y, check_x] != 0:
             target_y = check_y
             target_x = check_x
             break

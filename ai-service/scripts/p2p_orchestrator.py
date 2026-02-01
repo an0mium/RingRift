@@ -9330,7 +9330,13 @@ print(json.dumps({{
     # ============================================
 
     def _update_self_info(self):
-        """Update self info with current resource usage."""
+        """Update self info with current resource usage.
+
+        WARNING: This is a BLOCKING method that acquires locks and does I/O.
+        In async contexts, use `await asyncio.to_thread(self._update_self_info)`
+        to avoid blocking the event loop. See _update_self_info_async() for the
+        fully async version.
+        """
         usage = self._get_resource_usage()
         # Jan 30, 2026: Use jobs orchestrator directly
         selfplay, training = self.jobs.count_local_jobs()
@@ -10570,7 +10576,8 @@ print(json.dumps({{
                 if HAS_NEW_COORDINATION and get_resource_optimizer is not None:
                     try:
                         optimizer = get_resource_optimizer()
-                        self._update_self_info()
+                        # Jan 31, 2026: Run in thread to avoid blocking event loop
+                        await asyncio.to_thread(self._update_self_info)
                         node_resources = NodeResources(
                             node_id=self.node_id,
                             cpu_percent=self.self_info.cpu_percent,
@@ -10885,7 +10892,8 @@ print(json.dumps({{
             logger.debug(f"[Election] Skipping after jitter: leader {self.leader_id} emerged")
             return
 
-        self._update_self_info()
+        # Jan 31, 2026: Run in thread to avoid blocking event loop
+        await asyncio.to_thread(self._update_self_info)
 
         # NAT-blocked nodes cannot act as a leader because peers can't reach them.
         if getattr(self.self_info, "nat_blocked", False):
@@ -11053,7 +11061,8 @@ print(json.dumps({{
 
     async def _become_leader(self):
         """Become the cluster leader with lease-based leadership."""
-        self._update_self_info()
+        # Jan 31, 2026: Run in thread to avoid blocking event loop
+        await asyncio.to_thread(self._update_self_info)
         if getattr(self.self_info, "nat_blocked", False):
             logger.info(f"Refusing leadership while NAT-blocked: {self.node_id}")
             return
@@ -11183,7 +11192,8 @@ print(json.dumps({{
             return
 
         # Check if we're eligible (not NAT-blocked, preferably GPU node)
-        self._update_self_info()
+        # Jan 31, 2026: Run in thread to avoid blocking event loop
+        await asyncio.to_thread(self._update_self_info)
         if getattr(self.self_info, "nat_blocked", False):
             logger.debug("Skipping probabilistic leadership: NAT-blocked")
             return
@@ -11480,7 +11490,8 @@ print(json.dumps({{
             return
 
         # Check if we're eligible (must be GPU node, not NAT-blocked)
-        self._update_self_info()
+        # Jan 31, 2026: Run in thread to avoid blocking event loop
+        await asyncio.to_thread(self._update_self_info)
         if not getattr(self.self_info, "has_gpu", False):
             return
         if getattr(self.self_info, "nat_blocked", False):

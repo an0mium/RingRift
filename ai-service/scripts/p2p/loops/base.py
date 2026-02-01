@@ -304,8 +304,9 @@ class BaseLoop(ABC):
                 try:
                     # Feb 2026: Wrap _run_once() with timeout protection
                     # This prevents zombie processes when operations hang indefinitely
-                    async with asyncio.timeout(self.run_timeout):
-                        await self._run_once()
+                    # Note: Using asyncio.wait_for() for Python 3.10 compatibility
+                    # (asyncio.timeout was added in Python 3.11)
+                    await asyncio.wait_for(self._run_once(), timeout=self.run_timeout)
 
                     # Success - update stats
                     run_duration = time.time() - run_start

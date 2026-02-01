@@ -1352,13 +1352,14 @@ def apply_movement_moves_batch_vectorized(
     dy = torch.sign(to_y - from_y)
     dx = torch.sign(to_x - from_x)
     dist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))
-    max_dist = dist.max().item() if n_games > 0 else 0
 
+    # Feb 2026: Use board_size upper bound to avoid GPU→CPU sync from .item()
+    # The valid_path mask handles per-game distances correctly.
     # Process markers along path (flip opposing markers)
-    # Create path positions for all games: (n_games, max_dist-1)
-    if max_dist > 1:
-        steps = torch.arange(1, max_dist, device=device).view(1, -1)  # (1, max_dist-1)
-        path_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps  # (n_games, max_dist-1)
+    # Create path positions for all games: (n_games, board_size-1) with masking
+    if n_games > 0:
+        steps = torch.arange(1, board_size, device=device).view(1, -1)  # (1, board_size-1)
+        path_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps  # (n_games, board_size-1)
         path_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps
 
         # Mask for valid path positions (step < dist, so we don't include destination)
@@ -1369,11 +1370,11 @@ def apply_movement_moves_batch_vectorized(
         path_x_safe = torch.clamp(path_x, 0, board_size - 1).long()
 
         # Get marker owners along path
-        game_indices_exp = game_indices.unsqueeze(1).expand(-1, max_dist - 1)
+        game_indices_exp = game_indices.unsqueeze(1).expand(-1, board_size - 1)
         path_marker_owners = state.marker_owner[game_indices_exp, path_y_safe, path_x_safe]
 
         # Find opponent markers to flip (not 0 and not player)
-        players_exp = players.unsqueeze(1).expand(-1, max_dist - 1)
+        players_exp = players.unsqueeze(1).expand(-1, board_size - 1)
         is_opponent_marker = (path_marker_owners != 0) & (path_marker_owners != players_exp) & valid_path
 
         # Flip opponent markers
@@ -1716,16 +1717,16 @@ def apply_capture_moves_batch_vectorized(
     dy_hist = torch.sign(to_y - from_y)
     dx_hist = torch.sign(to_x - from_x)
     dist_hist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))
-    max_dist_hist = dist_hist.max().item() if n_games > 0 else 0
-    if max_dist_hist > 0:
-        steps_hist = torch.arange(1, max_dist_hist + 1, device=device).view(1, -1)
+    # Feb 2026: Use board_size upper bound to avoid GPU→CPU sync from .item()
+    if n_games > 0:
+        steps_hist = torch.arange(1, board_size, device=device).view(1, -1)
         ray_y_hist = from_y.unsqueeze(1) + dy_hist.unsqueeze(1) * steps_hist
         ray_x_hist = from_x.unsqueeze(1) + dx_hist.unsqueeze(1) * steps_hist
         ray_y_safe_hist = torch.clamp(ray_y_hist, 0, board_size - 1).long()
         ray_x_safe_hist = torch.clamp(ray_x_hist, 0, board_size - 1).long()
-        game_indices_exp_hist = game_indices.unsqueeze(1).expand(-1, max_dist_hist)
+        game_indices_exp_hist = game_indices.unsqueeze(1).expand(-1, board_size - 1)
         ray_owners_hist = state.stack_owner[game_indices_exp_hist, ray_y_safe_hist, ray_x_safe_hist]
-        dist_exp_hist = dist_hist.unsqueeze(1).expand(-1, max_dist_hist)
+        dist_exp_hist = dist_hist.unsqueeze(1).expand(-1, board_size - 1)
         within_landing_hist = steps_hist < dist_exp_hist
         ray_has_stack_hist = (ray_owners_hist != 0) & within_landing_hist
         # BUG FIX 2025-12-25: argmax returns 0 when all elements are False,
@@ -1774,25 +1775,25 @@ def apply_capture_moves_batch_vectorized(
     dy = torch.sign(to_y - from_y)
     dx = torch.sign(to_x - from_x)
     dist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))
-    max_dist = dist.max().item() if n_games > 0 else 0
 
+    # Feb 2026: Use board_size upper bound to avoid GPU→CPU sync from .item()
     # === BUGFIX 2025-12-17: Find actual target by scanning ray from->to ===
     # Move generation stores landing position in `to`, but target is the first
     # non-empty stack along the ray between from and landing.
-    if max_dist > 0:
-        steps = torch.arange(1, max_dist + 1, device=device).view(1, -1)  # (1, max_dist)
-        ray_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps  # (n_games, max_dist)
-        ray_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps  # (n_games, max_dist)
+    if n_games > 0:
+        steps = torch.arange(1, board_size, device=device).view(1, -1)  # (1, board_size-1)
+        ray_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps  # (n_games, board_size-1)
+        ray_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps  # (n_games, board_size-1)
 
         # Clamp for safe indexing
         ray_y_safe = torch.clamp(ray_y, 0, board_size - 1).long()
         ray_x_safe = torch.clamp(ray_x, 0, board_size - 1).long()
 
-        game_indices_exp = game_indices.unsqueeze(1).expand(-1, max_dist)
+        game_indices_exp = game_indices.unsqueeze(1).expand(-1, board_size - 1)
         ray_owners = state.stack_owner[game_indices_exp, ray_y_safe, ray_x_safe]
 
         # Steps within landing distance (exclusive of landing itself)
-        dist_exp = dist.unsqueeze(1).expand(-1, max_dist)
+        dist_exp = dist.unsqueeze(1).expand(-1, board_size - 1)
         within_landing = steps < dist_exp
 
         # Find first non-zero stack along ray before landing
@@ -1820,8 +1821,9 @@ def apply_capture_moves_batch_vectorized(
     defender_ring_under = state.ring_under_cap[game_indices, target_y, target_x]
 
     # Process markers along path (flip opposing markers)
-    if max_dist > 1:
-        steps = torch.arange(1, max_dist, device=device).view(1, -1)
+    # Feb 2026: Reuse steps from ray scanning above (board_size upper bound)
+    if n_games > 0:
+        # Note: 'steps' tensor already exists from ray scanning above
         path_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps
         path_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps
 
@@ -1830,10 +1832,10 @@ def apply_capture_moves_batch_vectorized(
         path_y_safe = torch.clamp(path_y, 0, board_size - 1).long()
         path_x_safe = torch.clamp(path_x, 0, board_size - 1).long()
 
-        game_indices_exp_markers = game_indices.unsqueeze(1).expand(-1, max_dist - 1)
+        game_indices_exp_markers = game_indices.unsqueeze(1).expand(-1, board_size - 1)
         path_marker_owners = state.marker_owner[game_indices_exp_markers, path_y_safe, path_x_safe]
 
-        players_exp = players.unsqueeze(1).expand(-1, max_dist - 1)
+        players_exp = players.unsqueeze(1).expand(-1, board_size - 1)
         is_opponent_marker = (path_marker_owners != 0) & (path_marker_owners != players_exp) & valid_path
 
         if is_opponent_marker.any():
@@ -1928,9 +1930,12 @@ def apply_capture_moves_batch_vectorized(
     # Track captured ring as buried for target owner
     target_owner_nonzero = defender_owner != 0
     if target_owner_nonzero.any():
+        # Feb 2026: Use shape from boolean-indexed tensor to avoid GPU→CPU sync from .item()
+        tnz_game_indices = game_indices[target_owner_nonzero]
+        tnz_defender_owners = defender_owner[target_owner_nonzero].long()
         state.buried_rings.index_put_(
-            (game_indices[target_owner_nonzero], defender_owner[target_owner_nonzero].long()),
-            torch.ones(int(target_owner_nonzero.sum().item()), dtype=state.buried_rings.dtype, device=device),
+            (tnz_game_indices, tnz_defender_owners),
+            torch.ones(tnz_game_indices.shape[0], dtype=state.buried_rings.dtype, device=device),
             accumulate=True
         )
         # Track buried ring count at landing (December 2025 - recovery fix)

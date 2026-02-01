@@ -680,14 +680,26 @@ class JobOrchestrator(BaseOrchestrator):
             pass
 
         try:
-            jobs_lock = getattr(self._p2p, "jobs_lock", None)
-            local_jobs = getattr(self._p2p, "local_jobs", {})
+            # Jan 31, 2026: Use lock-free JobSnapshot for reads to avoid blocking event loop
+            # JobSnapshot uses copy-on-write pattern - get_snapshot() returns instantly
+            job_snapshot_obj = getattr(self._p2p, "_job_snapshot", None)
+            jobs_lock = None  # Only used for stale job cleanup in fallback path
+            local_jobs = {}
 
-            if jobs_lock is not None:
-                with jobs_lock:
-                    jobs_snapshot = list(local_jobs.items())
+            if job_snapshot_obj is not None:
+                # Lock-free path: get immutable snapshot
+                snapshot_dict = job_snapshot_obj.get_snapshot()
+                # Convert dict values to (job_id, job) tuples for processing
+                jobs_snapshot = [(job_id, job_dict) for job_id, job_dict in snapshot_dict.items()]
             else:
-                jobs_snapshot = list(local_jobs.items())
+                # Fallback: use old lock-based approach if JobSnapshot not available
+                jobs_lock = getattr(self._p2p, "jobs_lock", None)
+                local_jobs = getattr(self._p2p, "local_jobs", {})
+                if jobs_lock is not None:
+                    with jobs_lock:
+                        jobs_snapshot = list(local_jobs.items())
+                else:
+                    jobs_snapshot = list(local_jobs.items())
 
             for job_id, job in jobs_snapshot:
                 if getattr(job, "status", None) != "running":
