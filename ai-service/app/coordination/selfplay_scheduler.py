@@ -1523,6 +1523,19 @@ class SelfplayScheduler(
             # Allocate to available nodes
             additional_allocation = self._allocate_to_nodes(config_key, shortfall)
 
+            # Feb 2026: If no nodes available with strict filtering, retry with
+            # circuit breakers ignored. Starving configs must get allocation even
+            # if nodes had recent failures - those nodes may have recovered.
+            if not additional_allocation and level in ("ULTRA", "EMERGENCY", "CRITICAL"):
+                logger.warning(
+                    f"[SelfplayScheduler] Starvation floor: {config_key} "
+                    f"({level}, {game_count} games) - no nodes available with "
+                    f"strict filtering, retrying with CB nodes included"
+                )
+                additional_allocation = self._allocate_to_nodes(
+                    config_key, shortfall, ignore_circuit_breakers=True,
+                )
+
             if additional_allocation:
                 if config_key not in allocation:
                     allocation[config_key] = {}
@@ -1539,6 +1552,22 @@ class SelfplayScheduler(
                 logger.warning(
                     f"[SelfplayScheduler] Starvation floor: {config_key} "
                     f"({level}, {game_count} games) allocated +{shortfall} games"
+                )
+            elif level in ("ULTRA", "EMERGENCY"):
+                # Feb 2026: Emit event for unresolvable starvation
+                logger.error(
+                    f"[SelfplayScheduler] STARVATION UNRESOLVED: {config_key} "
+                    f"({level}, {game_count} games) - no nodes available even "
+                    f"with relaxed filters. Manual intervention may be needed."
+                )
+                self._safe_emit_event(
+                    "STARVATION_UNRESOLVED",
+                    {
+                        "config_key": config_key,
+                        "level": level,
+                        "game_count": game_count,
+                        "shortfall": shortfall,
+                    },
                 )
 
         if added_configs:
@@ -1710,6 +1739,8 @@ class SelfplayScheduler(
         self,
         config_key: str,
         total_games: int,
+        *,
+        ignore_circuit_breakers: bool = False,
     ) -> dict[str, int]:
         """Allocate games for a config across available nodes.
 
@@ -1720,9 +1751,15 @@ class SelfplayScheduler(
         December 2025 - P2P Integration: Excludes unhealthy nodes and applies
         cluster health factor to allocation.
 
+        Feb 2026: Added ignore_circuit_breakers for starvation floor fallback.
+        When starving configs can't find any nodes, we retry with CB nodes
+        included rather than leaving the config with zero allocation.
+
         Args:
             config_key: Configuration key
             total_games: Total games to allocate
+            ignore_circuit_breakers: If True, include circuit-broken nodes in
+                allocation (used by starvation floor as fallback).
 
         Returns:
             Dict mapping node_id to num_games
@@ -1776,7 +1813,7 @@ class SelfplayScheduler(
                 n for n in self._node_capabilities.values()
                 if n.available_capacity > 0.1
                 and n.node_id not in unhealthy_nodes  # Exclude unhealthy nodes
-                and n.node_id not in circuit_broken_nodes  # Phase 7.4: Exclude CB nodes
+                and (ignore_circuit_breakers or n.node_id not in circuit_broken_nodes)
                 and n.node_id not in training_only_nodes  # Jan 2026: Exclude training-only nodes
             ],
             key=lambda n: (-n.available_capacity, n.data_lag_seconds),
@@ -1821,7 +1858,9 @@ class SelfplayScheduler(
                     )
                 else:
                     # Reduce for long jobs (risk of termination)
-                    node_games = int(node_games * 0.5)
+                    # Feb 2026: Relaxed from 0.5 to 0.75 - 50% penalty was too
+                    # harsh and contributed to square19/hexagonal starvation
+                    node_games = int(node_games * 0.75)
                     logger.debug(
                         f"[SelfplayScheduler] Reduced {node.node_id} (ephemeral) "
                         f"for long job {config_key}"
