@@ -126,6 +126,7 @@ from app.coordination.budget_calculator import (
     get_budget_with_intensity as _get_budget_with_intensity,  # Sprint 10
     compute_target_games as _compute_target,
     parse_config_key,
+    get_board_adjusted_budget,  # Jan 2026: Large board budget caps
 )
 from app.coordination.protocols import HealthCheckResult
 from app.coordination.handler_base import HandlerBase
@@ -657,6 +658,9 @@ class SelfplayScheduler(
                 game_count = priority.game_count
                 # Sprint 10: Use intensity-coupled budget calculation
                 new_budget = self._get_budget_with_intensity(game_count, current_elo, config_key)
+                # Jan 2026: Apply large board budget caps for faster bootstrap
+                board_type = config_key.split("_")[0]  # e.g., "hexagonal" from "hexagonal_2p"
+                new_budget = get_board_adjusted_budget(board_type, new_budget, game_count)
                 old_budget = priority.search_budget
                 if new_budget != old_budget:
                     priority.search_budget = new_budget
@@ -2358,6 +2362,10 @@ class SelfplayScheduler(
                 # Dec 28 2025: Apply search budget from velocity feedback
                 if search_budget > 0 and reason == "velocity_feedback":
                     old_budget = getattr(priority, "search_budget", 400)
+                    # Jan 2026: Apply large board budget caps
+                    board_type = config_key.split("_")[0]
+                    game_count = getattr(priority, "game_count", 0)
+                    search_budget = get_board_adjusted_budget(board_type, search_budget, game_count)
                     priority.search_budget = search_budget
                     logger.info(
                         f"[SelfplayScheduler] Updating {config_key} search budget: "
