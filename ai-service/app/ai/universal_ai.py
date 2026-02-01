@@ -305,9 +305,12 @@ class UniversalAI(BaseAI):
                         try:
                             num_h = model.num_heuristics
                             player = game_state.current_player if hasattr(game_state, 'current_player') else 1
-                            if num_h >= 49:
+                            # Use full extraction and truncate to model's expected dimension
+                            # (HEURISTIC_WEIGHT_KEYS may have grown since model was trained)
+                            if num_h >= 21:
                                 from app.training.fast_heuristic_features import extract_full_heuristic_features
                                 h = extract_full_heuristic_features(game_state, player, normalize=True)
+                                h = h[:num_h]  # Truncate to model's expected dimension
                             else:
                                 from app.training.fast_heuristic_features import extract_heuristic_features
                                 h = extract_heuristic_features(game_state, player, normalize=True)

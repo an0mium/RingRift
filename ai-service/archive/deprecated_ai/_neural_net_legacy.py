@@ -5648,13 +5648,15 @@ class NeuralNetAI(BaseAI):
             num_heuristics = getattr(self.model, 'num_heuristics', 0)
             if num_heuristics > 0 and game_states:
                 try:
-                    # Use full 49-feature extraction if model expects it, else fast 21-feature
-                    if num_heuristics >= 49:
+                    # Use full extraction and truncate to model's expected dimension
+                    # (HEURISTIC_WEIGHT_KEYS may have grown since model was trained)
+                    if num_heuristics >= 21:
                         from app.training.fast_heuristic_features import extract_full_heuristic_features
                         heuristics_list = []
                         for state in game_states:
                             player = state.current_player if hasattr(state, 'current_player') else 1
                             h = extract_full_heuristic_features(state, player, normalize=True)
+                            h = h[:num_heuristics]  # Truncate to model's expected dimension
                             heuristics_list.append(h)
                     else:
                         from app.training.fast_heuristic_features import extract_heuristic_features
