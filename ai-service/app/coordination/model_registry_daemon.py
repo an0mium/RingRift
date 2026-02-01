@@ -562,9 +562,9 @@ def reset_model_registry_daemon() -> None:
         if _daemon_instance is not None:
             # Stop if running
             if _daemon_instance._running:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                try:
+                    asyncio.get_running_loop()
                     asyncio.create_task(_daemon_instance.stop())
-                else:
-                    loop.run_until_complete(_daemon_instance.stop())
+                except RuntimeError:
+                    asyncio.run(_daemon_instance.stop())
             _daemon_instance = None

@@ -245,8 +245,7 @@ class CascadeTrainingOrchestrator(HandlerBase):
 
         try:
             # Run transfer in executor to avoid blocking
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None,
                 self._run_transfer_sync,
                 source_model,

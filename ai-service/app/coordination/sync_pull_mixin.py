@@ -601,8 +601,7 @@ class SyncPullMixin(SyncMixinBase):
             remote_file = f"{remote_path}/{db_name}"
 
             # Run in thread pool since robust_pull is synchronous
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
+            result = await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: robust_pull(ssh_host, 22, remote_file, local_path, config),
             )

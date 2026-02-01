@@ -530,8 +530,7 @@ class SyncPushMixin(SyncMixinBase):
             remote_path = f"{games_path}/synced/{source.name}"
 
             # Run in thread pool since robust_push is synchronous
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
+            result = await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: robust_push(source, target["host"], 22, remote_path, config),
             )

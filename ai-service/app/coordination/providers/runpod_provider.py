@@ -599,9 +599,9 @@ class RunPodProvider(CloudProvider):
         timeout: int = 300,
     ) -> Instance | None:
         """Wait for a pod to be ready."""
-        start_time = asyncio.get_event_loop().time()
+        start_time = asyncio.get_running_loop().time()
 
-        while asyncio.get_event_loop().time() - start_time < timeout:
+        while asyncio.get_running_loop().time() - start_time < timeout:
             instance = await self.get_instance(instance_id)
             if instance and instance.status == InstanceStatus.RUNNING:
                 return instance

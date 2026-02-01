@@ -1639,23 +1639,17 @@ def _restore_event_subscriptions() -> dict[str, Any]:
         router = get_router()
 
         # Restore subscriptions from persistent store
+        import asyncio
+        from app.utils.async_utils import fire_and_forget
         try:
-            import asyncio
-            from app.utils.async_utils import fire_and_forget
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Create task if we're in async context with error handling
-                fire_and_forget(router.restore_subscriptions(), name="restore_subscriptions")
-                # Can't await in sync function, log that it will complete async
-                logger.debug(
-                    "[Bootstrap] Subscription restoration scheduled (async context)"
-                )
-            else:
-                results["subscriptions_restored"] = loop.run_until_complete(
-                    router.restore_subscriptions()
-                )
+            asyncio.get_running_loop()
+            # We're in async context - schedule as task
+            fire_and_forget(router.restore_subscriptions(), name="restore_subscriptions")
+            logger.debug(
+                "[Bootstrap] Subscription restoration scheduled (async context)"
+            )
         except RuntimeError:
-            # No event loop - create one
+            # No running loop - run synchronously
             results["subscriptions_restored"] = asyncio.run(
                 router.restore_subscriptions()
             )
@@ -1666,29 +1660,27 @@ def _restore_event_subscriptions() -> dict[str, Any]:
             results["dlq_events_replayed"] = 0
         else:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                try:
+                    asyncio.get_running_loop()
                     fire_and_forget(router.replay_stale_dlq_events(), name="replay_stale_dlq")
                     logger.debug("[Bootstrap] DLQ replay scheduled (async context)")
-                else:
-                    results["dlq_events_replayed"] = loop.run_until_complete(
+                except RuntimeError:
+                    results["dlq_events_replayed"] = asyncio.run(
                         router.replay_stale_dlq_events()
                     )
-            except RuntimeError:
-                results["dlq_events_replayed"] = asyncio.run(
-                    router.replay_stale_dlq_events()
-                )
+            except Exception as e:
+                logger.debug(f"[Bootstrap] DLQ replay failed: {e}")
 
         # Emit alerts for stale DLQ events
         try:
             from app.coordination.subscription_store import get_subscription_store
 
             store = get_subscription_store()
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
+            try:
+                asyncio.get_running_loop()
                 fire_and_forget(store.emit_stale_dlq_alerts(), name="emit_stale_dlq_alerts")
-            else:
-                results["stale_alerts_emitted"] = loop.run_until_complete(
+            except RuntimeError:
+                results["stale_alerts_emitted"] = asyncio.run(
                     store.emit_stale_dlq_alerts()
                 )
         except ImportError:

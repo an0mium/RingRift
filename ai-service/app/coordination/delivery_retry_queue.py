@@ -460,9 +460,8 @@ def reset_delivery_retry_queue() -> None:
     if _retry_queue_instance is not None:
         # Try to stop if running
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(_retry_queue_instance.stop())
+            asyncio.get_running_loop()
+            asyncio.create_task(_retry_queue_instance.stop())
         except RuntimeError:
             pass
     _retry_queue_instance = None

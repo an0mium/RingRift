@@ -2921,16 +2921,15 @@ def wire_health_events(
     # Start via asyncio if loop available, otherwise just get instance
     import asyncio
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # Schedule start in running loop
-            asyncio.create_task(manager.start())
-        else:
-            # Run synchronously
-            loop.run_until_complete(manager.start())
+        asyncio.get_running_loop()
+        # We're in async context - schedule start as task
+        asyncio.create_task(manager.start())
     except RuntimeError:
-        # No event loop, log warning
-        logger.warning("[UnifiedHealthManager] No event loop available for wire_health_events")
+        # No running loop - try running synchronously
+        try:
+            asyncio.run(manager.start())
+        except RuntimeError:
+            logger.warning("[UnifiedHealthManager] No event loop available for wire_health_events")
 
     return manager
 

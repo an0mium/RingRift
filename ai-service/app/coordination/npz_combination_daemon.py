@@ -227,8 +227,7 @@ class NPZCombinationDaemon(SingletonMixin, HandlerBase):
         )
 
         # Run combination (this is sync but may take a while)
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
+        result = await asyncio.get_running_loop().run_in_executor(
             None,
             lambda: discover_and_combine_for_config(
                 config_key=config_key,

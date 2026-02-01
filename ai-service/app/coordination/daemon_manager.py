@@ -2617,7 +2617,6 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
 
         try:
             health_method = info.instance.health_check
-            loop = asyncio.get_event_loop()
 
             # Check if health_check is a coroutine function (async def)
             if asyncio.iscoroutinefunction(health_method):
@@ -2633,7 +2632,7 @@ class DaemonManager(SingletonMixin["DaemonManager"]):
             else:
                 try:
                     health_result = await asyncio.wait_for(
-                        loop.run_in_executor(None, health_method),
+                        asyncio.get_running_loop().run_in_executor(None, health_method),
                         timeout=health_check_timeout
                     )
                 except asyncio.TimeoutError:

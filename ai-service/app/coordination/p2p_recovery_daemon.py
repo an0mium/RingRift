@@ -1406,7 +1406,7 @@ class P2PRecoveryDaemon(HandlerBase, StatePersistenceMixin):
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     sock.settimeout(self.config.tcp_ping_timeout)
                     try:
-                        result = await asyncio.get_event_loop().run_in_executor(
+                        result = await asyncio.get_running_loop().run_in_executor(
                             None,
                             lambda: sock.connect_ex((ip, p2p_port))
                         )
