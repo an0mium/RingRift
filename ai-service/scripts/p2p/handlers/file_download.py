@@ -13,6 +13,8 @@ December 2025: Created as alternative to SSH-based sync.
 January 2026: Added upload endpoint for Vast.ai nodes.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 from pathlib import Path
