@@ -1751,8 +1751,10 @@ class P2POrchestrator(
                     RecoveryAction.EMIT_ALERT: self._action_emit_alert,
                 },
             )
-            # Wire effectiveness tracker to get metrics
-            self._effectiveness_tracker.set_metrics_callback(self.monitoring.get_stability_metrics)
+            # Wire effectiveness tracker to get metrics (deferred - monitoring may not exist yet)
+            self._effectiveness_tracker.set_metrics_callback(
+                lambda: self.monitoring.get_stability_metrics() if hasattr(self, 'monitoring') and self.monitoring else {}
+            )
             logger.info("[P2P] Stability controller enabled (Self-Healing Architecture)")
         except ImportError as e:
             logger.warning(f"[P2P] Stability controller unavailable: {e}")

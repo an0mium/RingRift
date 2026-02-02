@@ -132,6 +132,35 @@ from app.p2p.constants import (
 
 
 # ============================================
+# Raft Storage Path Helper
+# ============================================
+
+
+def _get_raft_storage_path(prefix: str, node_id: str, extension: str) -> str:
+    """Get persistent Raft storage path under data/raft/ directory.
+
+    Uses persistent storage instead of volatile /tmp to prevent:
+    - State loss on system reboot (macOS clears /tmp)
+    - "Failed to store full dump" pysyncobj warnings
+    - Inconsistent Raft snapshots after restart
+
+    Feb 2026: Migrated from /tmp/raft_* to data/raft/* for persistence.
+    Pattern from scripts/p2p/consensus_mixin.py.
+
+    Args:
+        prefix: Component name (e.g., "work_queue", "job_assignments", "elo_store")
+        node_id: Node identifier for multi-node disambiguation
+        extension: File extension ("bin" for dump, "journal" for log)
+
+    Returns:
+        Absolute path string suitable for SyncObjConf fullDumpFile/journalFile
+    """
+    raft_dir = Path("data") / "raft"
+    raft_dir.mkdir(parents=True, exist_ok=True)
+    return str(raft_dir / f"{prefix}_{node_id}.{extension}")
+
+
+# ============================================
 # Data Classes
 # ============================================
 
@@ -443,8 +472,8 @@ class ReplicatedWorkQueue(SyncObj):
             raftMaxTimeout=2.0,
             commandsWaitLeader=True,
             compactionMinEntries=compaction_min_entries,
-            fullDumpFile=f"/tmp/raft_work_queue_{node_id}.bin",
-            journalFile=f"/tmp/raft_work_queue_{node_id}.journal",
+            fullDumpFile=_get_raft_storage_path("work_queue", node_id, "bin"),
+            journalFile=_get_raft_storage_path("work_queue", node_id, "journal"),
             onReady=self._handle_ready,
             onLeaderChanged=self._handle_leader_change,
         )
@@ -917,8 +946,8 @@ class ReplicatedJobAssignments(SyncObj):
             raftMaxTimeout=2.0,
             commandsWaitLeader=True,
             compactionMinEntries=compaction_min_entries,
-            fullDumpFile=f"/tmp/raft_job_assignments_{node_id}.bin",
-            journalFile=f"/tmp/raft_job_assignments_{node_id}.journal",
+            fullDumpFile=_get_raft_storage_path("job_assignments", node_id, "bin"),
+            journalFile=_get_raft_storage_path("job_assignments", node_id, "journal"),
             onReady=self._handle_ready,
             onLeaderChanged=self._handle_leader_change,
         )
@@ -1401,8 +1430,8 @@ class ReplicatedEloStore(SyncObj):
             raftMaxTimeout=2.0,
             commandsWaitLeader=True,
             compactionMinEntries=compaction_min_entries,
-            fullDumpFile=f"/tmp/raft_elo_store_{node_id}.bin",
-            journalFile=f"/tmp/raft_elo_store_{node_id}.journal",
+            fullDumpFile=_get_raft_storage_path("elo_store", node_id, "bin"),
+            journalFile=_get_raft_storage_path("elo_store", node_id, "journal"),
             onReady=self._handle_ready,
             onLeaderChanged=self._handle_leader_change,
         )
