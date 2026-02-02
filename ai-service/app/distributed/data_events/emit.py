@@ -181,11 +181,13 @@ async def emit_elo_updated(
     elo_change = new_elo - old_elo
 
     # Emit the standard Elo update event
+    # Feb 2026: Include both "elo" and "new_elo" for handler compatibility
     await get_event_bus().publish(DataEvent(
         event_type=DataEventType.ELO_UPDATED,
         payload={
             "config": config,
             "model_id": model_id,
+            "elo": new_elo,  # Alias for handlers using payload.get("elo")
             "new_elo": new_elo,
             "old_elo": old_elo,
             "elo_change": elo_change,
@@ -245,11 +247,13 @@ def emit_elo_updated_sync(
     try:
         bus = get_event_bus()
         if bus:
+            # Feb 2026: Include both "elo" and "new_elo" for handler compatibility
             bus.publish_sync(DataEvent(
                 event_type=DataEventType.ELO_UPDATED,
                 payload={
                     "config": config,
                     "model_id": model_id,
+                    "elo": new_elo,  # Alias for handlers using payload.get("elo")
                     "new_elo": new_elo,
                     "old_elo": old_elo,
                     "elo_change": elo_change,
