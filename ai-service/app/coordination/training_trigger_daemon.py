@@ -104,6 +104,13 @@ from app.coordination.training_retry_manager import (
     get_adaptive_max_data_age,
     RetryQueueConfig,
 )
+# Feb 2026: Pure decision functions extracted to training_decision_engine.py
+from app.coordination.training_decision_engine import (
+    compute_velocity_adjusted_cooldown,
+    compute_dynamic_sample_threshold,
+    check_confidence_early_trigger as check_confidence_early_trigger_fn,
+    compute_adaptive_max_data_age,
+)
 from app.utils.retry import RetryConfig
 
 logger = logging.getLogger(__name__)
@@ -505,194 +512,14 @@ class TrainingTriggerDaemon(HandlerBase):
                 task.cancel()
                 logger.info(f"[TrainingTriggerDaemon] Cancelled training for {config_key}")
 
-    def _get_training_params_for_intensity(
-        self, intensity: str
-    ) -> tuple[int, int, float]:
-        """Map training intensity to (epochs, batch_size, lr_multiplier).
+    # _get_training_params_for_intensity: Feb 2026 - Moved to training_architecture_selector.py
+    # Use: get_training_params_for_intensity(intensity, default_epochs, default_batch_size)
 
-        December 2025: Fixes Gap 2 - training_intensity was defined but never consumed.
-        The FeedbackLoopController sets intensity based on quality score:
-          - hot_path (quality >= 0.90): Fast iteration, high LR
-          - accelerated (quality >= 0.80): Increased training, moderate LR boost
-          - normal (quality >= 0.65): Default parameters
-          - reduced (quality >= 0.50): More epochs at lower LR for struggling configs
-          - paused: Skip training entirely (handled in _maybe_trigger_training)
+    # _select_architecture_for_training: Feb 2026 - Moved to training_architecture_selector.py
+    # Use: select_architecture_for_training(board_type, num_players)
 
-        Returns:
-            Tuple of (epochs, batch_size, learning_rate_multiplier)
-        """
-        intensity_params = {
-            # hot_path: Fast iteration with larger batches, higher LR
-            "hot_path": (30, 1024, 1.5),
-            # accelerated: More aggressive training
-            "accelerated": (40, 768, 1.2),
-            # normal: Default parameters
-            "normal": (self.config.default_epochs, self.config.default_batch_size, 1.0),
-            # reduced: Slower, more careful training for struggling configs
-            "reduced": (60, 256, 0.8),
-            # paused: Should not reach here, but use minimal params
-            "paused": (10, 128, 0.5),
-        }
-
-        params = intensity_params.get(intensity)
-        if params is None:
-            logger.warning(
-                f"[TrainingTriggerDaemon] Unknown intensity '{intensity}', using 'normal'"
-            )
-            params = intensity_params["normal"]
-
-        return params
-
-    def _select_architecture_for_training(
-        self,
-        board_type: str,
-        num_players: int,
-    ) -> str:
-        """Select architecture version for training based on Elo performance.
-
-        Session 17.22: Closes the architecture selection feedback loop.
-        Uses ArchitectureTracker's compute_allocation_weights() to select
-        architectures biased toward better Elo performance.
-
-        Args:
-            board_type: Board type (hex8, square8, etc.)
-            num_players: Number of players (2, 3, or 4)
-
-        Returns:
-            Architecture version string (e.g., "v5", "v2", "v5-heavy").
-            Falls back to "v5" if tracker unavailable or no weights exist.
-        """
-        import random
-
-        default_arch = "v5"
-
-        try:
-            from app.training.architecture_tracker import get_allocation_weights
-        except ImportError:
-            logger.debug(
-                "[TrainingTriggerDaemon] ArchitectureTracker not available, "
-                f"using default: {default_arch}"
-            )
-            return default_arch
-
-        try:
-            weights = get_allocation_weights(
-                board_type=board_type,
-                num_players=num_players,
-                temperature=0.5,  # Balance exploration vs exploitation
-            )
-
-            if not weights:
-                logger.debug(
-                    f"[TrainingTriggerDaemon] No architecture weights for "
-                    f"{board_type}_{num_players}p, using default: {default_arch}"
-                )
-                return default_arch
-
-            # Weighted random selection based on Elo performance
-            architectures = list(weights.keys())
-            arch_weights = list(weights.values())
-            selected_arch = random.choices(architectures, weights=arch_weights, k=1)[0]
-
-            logger.info(
-                f"[TrainingTriggerDaemon] Architecture selection for "
-                f"{board_type}_{num_players}p: {selected_arch} (weights: {weights})"
-            )
-            return selected_arch
-
-        except (KeyError, ValueError, TypeError) as e:
-            logger.debug(
-                f"[TrainingTriggerDaemon] Error selecting architecture for "
-                f"{board_type}_{num_players}p: {e}, using default: {default_arch}"
-            )
-            return default_arch
-
-    def _apply_velocity_amplification(
-        self,
-        base_params: tuple[int, int, float],
-        elo_velocity: float,
-        velocity_trend: str,
-    ) -> tuple[int, int, float]:
-        """Apply Elo velocity-based amplification to training parameters.
-
-        January 3, 2026: Sprint 12 P1 improvement - Wire Elo velocity to training
-        intensity for dynamic parameter adjustment based on improvement rate.
-
-        Velocity thresholds:
-          - velocity > 2.0: Fast improvement → increase epochs/batch for momentum
-          - velocity > 1.0: Good progress → slight boost
-          - velocity < 0.5: Slow improvement → reduce LR for more careful updates
-          - velocity < 0.0: Regression → even lower LR, more epochs
-
-        The velocity_trend ("accelerating", "stable", "decelerating", "plateauing")
-        provides secondary signal for fine-tuning.
-
-        Args:
-            base_params: (epochs, batch_size, lr_multiplier) from intensity mapping
-            elo_velocity: Elo gain per hour (can be negative during regression)
-            velocity_trend: Trend indicator from Elo tracking
-
-        Returns:
-            Adjusted (epochs, batch_size, lr_multiplier)
-        """
-        epochs, batch_size, lr_mult = base_params
-
-        # Fast improvement: Capitalize on momentum with more aggressive training
-        if elo_velocity > 2.0:
-            # High velocity: 1.5x epochs, bump batch size to 512+, 1.3x LR
-            epochs = int(epochs * 1.5)
-            batch_size = max(batch_size, 512)
-            lr_mult = lr_mult * 1.3
-            logger.debug(
-                f"[TrainingTriggerDaemon] Velocity amplification (fast): "
-                f"velocity={elo_velocity:.2f} → epochs={epochs}, batch={batch_size}, lr_mult={lr_mult:.2f}"
-            )
-
-        elif elo_velocity > 1.0:
-            # Good velocity: 1.2x epochs, slight batch boost
-            epochs = int(epochs * 1.2)
-            batch_size = max(batch_size, 384)
-            lr_mult = lr_mult * 1.1
-            logger.debug(
-                f"[TrainingTriggerDaemon] Velocity amplification (good): "
-                f"velocity={elo_velocity:.2f} → epochs={epochs}, batch={batch_size}, lr_mult={lr_mult:.2f}"
-            )
-
-        elif elo_velocity < 0.0:
-            # Negative velocity (regression): Very careful training
-            # More epochs but lower LR to avoid overcorrection
-            epochs = int(epochs * 1.3)
-            lr_mult = lr_mult * 0.6
-            logger.debug(
-                f"[TrainingTriggerDaemon] Velocity amplification (regression): "
-                f"velocity={elo_velocity:.2f} → epochs={epochs}, lr_mult={lr_mult:.2f}"
-            )
-
-        elif elo_velocity < 0.5:
-            # Slow improvement: Reduce LR for more careful updates
-            lr_mult = lr_mult * 0.8
-            logger.debug(
-                f"[TrainingTriggerDaemon] Velocity amplification (slow): "
-                f"velocity={elo_velocity:.2f} → lr_mult={lr_mult:.2f}"
-            )
-
-        # Secondary adjustment based on trend
-        if velocity_trend == "accelerating" and elo_velocity > 0.5:
-            # Accelerating improvement: slight LR boost to maintain momentum
-            lr_mult = lr_mult * 1.05
-        elif velocity_trend == "plateauing":
-            # Plateauing: increase epochs to break through
-            epochs = int(epochs * 1.15)
-        elif velocity_trend == "decelerating" and elo_velocity > 0.5:
-            # Slowing down but still positive: be slightly more conservative
-            lr_mult = lr_mult * 0.95
-
-        # Clamp to reasonable bounds
-        epochs = max(10, min(epochs, 150))  # 10-150 epochs
-        batch_size = max(128, min(batch_size, 2048))  # 128-2048 batch
-        lr_mult = max(0.3, min(lr_mult, 2.5))  # 0.3x-2.5x LR multiplier
-
-        return epochs, batch_size, lr_mult
+    # _apply_velocity_amplification: Feb 2026 - Moved to training_architecture_selector.py
+    # Use: apply_velocity_amplification(base_params, elo_velocity, velocity_trend)
 
     def _get_game_aggregator(self):
         """Get or create the UnifiedGameAggregator instance.
@@ -740,199 +567,11 @@ class TrainingTriggerDaemon(HandlerBase):
         except Exception as e:
             logger.debug(f"[TrainingTriggerDaemon] Failed to get aggregated counts: {e}")
 
-    def _get_dynamic_sample_threshold(self, config_key: str) -> int:
-        """Get dynamically adjusted sample threshold for training.
+    # _get_dynamic_sample_threshold: Feb 2026 - Moved to training_decision_engine.py
+    # Use: compute_dynamic_sample_threshold(config_key, num_players, base_threshold)
 
-        Phase 5 (Dec 2025): Uses ImprovementOptimizer to adjust thresholds
-        based on training success patterns:
-        - On promotion streak: Lower threshold → faster iteration
-        - Struggling/regression: Higher threshold → more conservative
-
-        Dec 30, 2025: Added player-count-based threshold reduction.
-        3p/4p configs get lower thresholds since they generate fewer games.
-
-        Jan 3, 2026: Added game-count-based graduated thresholds for bootstrap.
-        Configs with limited training data get lower thresholds to enable faster
-        iteration during the bootstrap phase.
-
-        Args:
-            config_key: Configuration identifier
-
-        Returns:
-            Minimum sample count required to trigger training
-        """
-        # Extract player count from config_key using utility (Dec 30, 2025)
-        player_count = 2  # Default
-        parsed = parse_config_key(config_key)
-        if parsed:
-            player_count = parsed.num_players
-
-        # Jan 3, 2026: Game-count-based graduated thresholds for bootstrap configs
-        # This enables faster training iteration for configs with limited data
-        try:
-            from app.utils.game_discovery import count_games_for_config
-
-            if parsed:
-                game_count = count_games_for_config(parsed.board_type, parsed.num_players)
-
-                # Graduated thresholds based on available game data
-                # Enables faster iteration during bootstrap while maintaining quality
-                if game_count < 500:
-                    threshold = 500
-                    logger.debug(
-                        f"[TrainingTriggerDaemon] {config_key}: bootstrap tier 1 "
-                        f"({game_count} games → {threshold} samples)"
-                    )
-                    return threshold
-                elif game_count < 1000:
-                    threshold = 1000
-                    logger.debug(
-                        f"[TrainingTriggerDaemon] {config_key}: bootstrap tier 2 "
-                        f"({game_count} games → {threshold} samples)"
-                    )
-                    return threshold
-                elif game_count < 2000:
-                    threshold = 2000
-                    logger.debug(
-                        f"[TrainingTriggerDaemon] {config_key}: bootstrap tier 3 "
-                        f"({game_count} games → {threshold} samples)"
-                    )
-                    return threshold
-                elif game_count < 5000:
-                    threshold = 3000
-                    logger.debug(
-                        f"[TrainingTriggerDaemon] {config_key}: bootstrap tier 4 "
-                        f"({game_count} games → {threshold} samples)"
-                    )
-                    return threshold
-                # else: fall through to normal threshold logic (≥5000 games)
-
-        except (ImportError, ValueError, OSError) as e:
-            logger.debug(f"[TrainingTriggerDaemon] Game count check failed: {e}")
-
-        # Dec 30, 2025: Player-count-based threshold multipliers
-        # Multiplayer configs (3p, 4p) generate fewer games, so we lower the threshold
-        # to allow training to proceed with less data
-        player_count_multipliers = {
-            2: 1.0,    # 2p: Full threshold (5000 samples)
-            3: 0.6,    # 3p: 60% threshold (3000 samples)
-            4: 0.4,    # 4p: 40% threshold (2000 samples)
-        }
-
-        multiplier = player_count_multipliers.get(player_count, 1.0)
-        base_threshold = self.config.min_samples_threshold
-
-        try:
-            from app.training.improvement_optimizer import get_dynamic_threshold
-
-            dynamic_threshold = get_dynamic_threshold(config_key)
-
-            # Apply player count multiplier to dynamic threshold
-            adjusted_threshold = int(dynamic_threshold * multiplier)
-
-            # Log significant deviations from base threshold
-            if adjusted_threshold != base_threshold:
-                logger.debug(
-                    f"[TrainingTriggerDaemon] Dynamic threshold for {config_key}: "
-                    f"{adjusted_threshold} (base: {base_threshold}, "
-                    f"dynamic: {dynamic_threshold}, multiplier: {multiplier})"
-                )
-
-            return adjusted_threshold
-
-        except ImportError:
-            logger.debug("[TrainingTriggerDaemon] improvement_optimizer not available")
-        except Exception as e:
-            logger.debug(f"[TrainingTriggerDaemon] Error getting dynamic threshold: {e}")
-
-        # Fallback: Apply player count multiplier to static config threshold
-        adjusted_threshold = int(base_threshold * multiplier)
-        if multiplier != 1.0:
-            logger.debug(
-                f"[TrainingTriggerDaemon] Player-adjusted threshold for {config_key}: "
-                f"{adjusted_threshold} ({player_count}p config, multiplier: {multiplier})"
-            )
-        return adjusted_threshold
-
-    def _check_confidence_early_trigger(
-        self, config_key: str, sample_count: int
-    ) -> tuple[bool, str]:
-        """Check if confidence-based early trigger conditions are met.
-
-        Dec 29, 2025: Implements confidence-based training thresholds.
-        Allows training to start earlier than min_samples_threshold when
-        statistical confidence in training data is high enough.
-
-        The confidence is estimated using the formula for 95% CI width:
-            CI_width = 2 * 1.96 * sqrt(variance / n)
-
-        For win rate estimates with variance ~0.25 (binary outcome):
-            CI_width ≈ 0.98 / sqrt(n)
-
-        To achieve target_ci_width of 0.05 (±2.5%):
-            n = (0.98 / 0.05)^2 ≈ 384 samples
-
-        But we use the actual quality variance when available for more
-        accurate confidence estimation.
-
-        Args:
-            config_key: Configuration identifier
-            sample_count: Current number of training samples
-
-        Returns:
-            Tuple of (should_trigger, reason)
-        """
-        if not self.config.confidence_early_trigger_enabled:
-            return False, "confidence early trigger disabled"
-
-        # Safety floor: never trigger with fewer than confidence_min_samples
-        if sample_count < self.config.confidence_min_samples:
-            return False, f"below safety floor ({sample_count} < {self.config.confidence_min_samples})"
-
-        # Estimate confidence interval width
-        # For binary outcomes (win/loss), variance is p*(1-p) ≤ 0.25
-        # Using 0.25 as conservative estimate
-        variance = 0.25
-        z_score = 1.96  # 95% confidence
-
-        # Try to get actual variance from quality monitor
-        try:
-            from app.coordination.quality_monitor_daemon import get_quality_monitor_daemon
-            qm = get_quality_monitor_daemon()
-            if qm and hasattr(qm, 'get_quality_metrics'):
-                metrics = qm.get_quality_metrics(config_key)
-                if metrics and 'variance' in metrics:
-                    variance = min(0.25, metrics['variance'])  # Cap at 0.25
-        except (ImportError, AttributeError, KeyError, TypeError, ValueError):
-            pass  # Use default variance if quality monitor unavailable
-
-        # Calculate CI width: 2 * z * sqrt(variance / n)
-        ci_width = 2 * z_score * math.sqrt(variance / sample_count)
-
-        # January 2026 Sprint 10: Log CI width and sample variance for all cases
-        # Expected improvement: +5-8 Elo from better confidence threshold tuning
-        logger.debug(
-            f"[TrainingTriggerDaemon] {config_key} CI validation: "
-            f"CI_width={ci_width:.4f}, variance={variance:.4f}, samples={sample_count}, "
-            f"target_CI={self.config.confidence_target_ci_width:.4f}"
-        )
-
-        # Check if confidence is high enough
-        if ci_width <= self.config.confidence_target_ci_width:
-            logger.info(
-                f"[TrainingTriggerDaemon] Confidence early trigger for {config_key}: "
-                f"CI_width={ci_width:.4f} ≤ target={self.config.confidence_target_ci_width:.4f}, "
-                f"samples={sample_count}, variance={variance:.4f}"
-            )
-            return True, f"confidence threshold met (CI={ci_width:.4f})"
-
-        # Log rejection with variance info for threshold tuning
-        logger.debug(
-            f"[TrainingTriggerDaemon] {config_key} confidence not met: "
-            f"CI_width={ci_width:.4f} > target={self.config.confidence_target_ci_width:.4f}, "
-            f"samples_needed≈{int((2 * z_score / self.config.confidence_target_ci_width) ** 2 * variance)}"
-        )
-        return False, f"confidence not met (CI={ci_width:.4f} > target={self.config.confidence_target_ci_width:.4f})"
+    # _check_confidence_early_trigger: Feb 2026 - Moved to training_decision_engine.py
+    # Use: check_confidence_early_trigger_fn(config_key, sample_count, ...)
 
     async def _on_npz_export_complete(self, result: Any) -> None:
         """Handle NPZ export completion - immediate training trigger."""
@@ -1040,78 +679,9 @@ class TrainingTriggerDaemon(HandlerBase):
         except Exception as e:
             logger.error(f"[TrainingTriggerDaemon] Error handling training completion: {e}")
 
-    def _compute_quality_confidence(self, games_assessed: int) -> float:
-        """Compute confidence factor based on number of games assessed.
-
-        Jan 4, 2026 - Sprint 17.9: Delegates to training_quality_gates.py.
-        See compute_quality_confidence() for tier definitions.
-
-        Args:
-            games_assessed: Number of games used in quality assessment
-
-        Returns:
-            Confidence factor between 0.5 and 1.0
-        """
-        return compute_quality_confidence(games_assessed)
-
-    def _apply_confidence_weighting(
-        self, quality_score: float, games_assessed: int
-    ) -> float:
-        """Apply confidence weighting to quality score.
-
-        Jan 4, 2026 - Sprint 17.9: Delegates to training_quality_gates.py.
-        See apply_confidence_weighting() for formula.
-
-        Args:
-            quality_score: Raw quality score (0.0-1.0)
-            games_assessed: Number of games used in assessment
-
-        Returns:
-            Confidence-adjusted quality score
-        """
-        return apply_confidence_weighting(quality_score, games_assessed)
-
-    def _get_decayed_quality_score(
-        self, state: ConfigTrainingState, current_time: float | None = None
-    ) -> float:
-        """Apply confidence decay to stored quality score.
-
-        Jan 4, 2026 - Sprint 17.9: Delegates to training_quality_gates.py.
-        See compute_decayed_quality_score() for decay formula.
-
-        Args:
-            state: The config's training state containing quality score and timestamp
-            current_time: Current timestamp (defaults to time.time())
-
-        Returns:
-            Decayed quality score (never below quality_decay_floor)
-        """
-        current_time = current_time or time.time()
-        return compute_decayed_quality_score(
-            last_quality_score=state.last_quality_score,
-            last_quality_update=state.last_quality_update,
-            current_time=current_time,
-            decay_enabled=self.config.quality_decay_enabled,
-            half_life_hours=self.config.quality_decay_half_life_hours,
-            decay_floor=self.config.quality_decay_floor,
-        )
-
-    def _intensity_from_quality(
-        self, quality_score: float, config_key: str | None = None
-    ) -> str:
-        """Map quality scores to training intensity.
-
-        Jan 4, 2026 - Sprint 17.9: Delegates to training_quality_gates.py.
-        See intensity_from_quality() for threshold mapping.
-
-        Args:
-            quality_score: The data quality score (0.0 to 1.0)
-            config_key: Optional config key (e.g., "hex8_4p") for per-config thresholds
-
-        Returns:
-            Training intensity: "hot_path", "accelerated", "normal", "reduced", or "paused"
-        """
-        return intensity_from_quality(quality_score, config_key)
+    # Feb 2026: Quality wrapper methods (_compute_quality_confidence,
+    # _apply_confidence_weighting, _get_decayed_quality_score, _intensity_from_quality)
+    # removed - call sites now use imported functions from training_quality_gates.py directly.
 
     async def _on_training_threshold_reached(self, event: Any) -> None:
         """Handle training threshold reached events from master_loop."""
@@ -1172,7 +742,7 @@ class TrainingTriggerDaemon(HandlerBase):
             # Sprint 12 Session 8: Apply confidence weighting based on sample size
             # Small samples are biased toward neutral (0.5) to avoid overconfident decisions
             if games_assessed > 0:
-                adjusted_quality = self._apply_confidence_weighting(
+                adjusted_quality = apply_confidence_weighting(
                     raw_quality_score, games_assessed
                 )
             else:
@@ -1183,12 +753,12 @@ class TrainingTriggerDaemon(HandlerBase):
             state.last_quality_update = time.time()
             state.games_assessed = games_assessed
 
-            new_intensity = self._intensity_from_quality(
+            new_intensity = intensity_from_quality(
                 adjusted_quality, config_key
             )
             state.training_intensity = new_intensity
 
-            confidence = self._compute_quality_confidence(games_assessed)
+            confidence = compute_quality_confidence(games_assessed)
             logger.debug(
                 f"[TrainingTriggerDaemon] {config_key}: "
                 f"raw_quality={raw_quality_score:.2f}, games={games_assessed}, "
@@ -1391,8 +961,15 @@ class TrainingTriggerDaemon(HandlerBase):
 
             if quality_ok:
                 # Quality improved - update intensity and log success
-                decayed_quality = self._get_decayed_quality_score(state)
-                new_intensity = self._intensity_from_quality(decayed_quality, config_key)
+                decayed_quality = compute_decayed_quality_score(
+                    last_quality_score=state.last_quality_score,
+                    last_quality_update=state.last_quality_update,
+                    current_time=time.time(),
+                    decay_enabled=self.config.quality_decay_enabled,
+                    half_life_hours=self.config.quality_decay_half_life_hours,
+                    decay_floor=self.config.quality_decay_floor,
+                )
+                new_intensity = intensity_from_quality(decayed_quality, config_key)
                 state.training_intensity = new_intensity
 
                 logger.info(
@@ -2073,106 +1650,9 @@ class TrainingTriggerDaemon(HandlerBase):
                     f"[TrainingTriggerDaemon] Retry deferred for {config_key}: {reason}"
                 )
 
-    def _get_velocity_adjusted_cooldown(self, state: ConfigTrainingState) -> float:
-        """Get training cooldown adjusted for Elo velocity.
-
-        December 29, 2025: Implements velocity-based cooldown modulation.
-        Configs with positive velocity get shorter cooldowns to capitalize on momentum.
-        Configs with negative velocity get longer cooldowns to avoid wasteful training.
-
-        Returns:
-            Adjusted cooldown in seconds
-        """
-        base_cooldown = self.config.training_cooldown_hours * 3600
-
-        # Velocity-based multipliers
-        velocity_multipliers = {
-            "accelerating": 0.5,    # 50% cooldown - train faster
-            "stable": 1.0,          # Normal cooldown
-            "decelerating": 1.5,    # 150% cooldown - train slower
-            # January 3, 2026: Fixed plateauing multiplier - should train MORE aggressively
-            # to break the plateau, not slower. This was backwards before.
-            "plateauing": 0.6,      # 60% cooldown - train faster to break plateau
-        }
-
-        multiplier = velocity_multipliers.get(state.elo_velocity_trend, 1.0)
-
-        # Additional adjustment based on actual velocity value
-        if state.elo_velocity > 20.0:
-            # Very rapid improvement - train even faster
-            multiplier *= 0.7
-        elif state.elo_velocity < -10.0:
-            # Significant regression - slow down more
-            multiplier *= 1.3
-
-        return base_cooldown * multiplier
-
-    def _get_adaptive_max_data_age(self, state: ConfigTrainingState) -> float:
-        """Get adaptive max data age based on velocity trend (January 3, 2026).
-
-        Stalled/plateauing configs should be more lenient on data freshness
-        to allow training with whatever data is available and break the plateau.
-        Accelerating configs should be stricter to maintain training quality.
-
-        January 5, 2026 (Session 17.27): Added game count-based freshness for
-        starved configs (< 500 games). These configs use 168h (1 week) threshold
-        to ensure training can proceed with any available data.
-
-        Args:
-            state: Current training state for the config
-
-        Returns:
-            Adaptive max data age in hours
-        """
-        base_max_age = self.config.max_data_age_hours
-
-        # January 5, 2026: Game count-based freshness for starved configs
-        # Configs with < 500 games get 168h threshold (1 week) to allow training
-        # with any available data. This helps bootstrap new configs.
-        try:
-            from app.utils.game_discovery import count_games_for_config
-            # Use parse_config_key from event_utils (imported at top of file)
-            # NOT canonical_naming which returns a tuple instead of ParsedConfigKey
-
-            parsed = parse_config_key(state.config_key)
-            if parsed:
-                game_count = count_games_for_config(parsed.board_type, parsed.num_players)
-                if game_count < 500:
-                    # Starved config: use 168h (1 week) threshold
-                    logger.debug(
-                        f"[TrainingTriggerDaemon] {state.config_key}: starved config "
-                        f"({game_count} games < 500), using 168h freshness threshold"
-                    )
-                    return 168.0  # 1 week for starved configs
-        except (ImportError, ValueError, OSError) as e:
-            logger.debug(f"[TrainingTriggerDaemon] Game count check failed: {e}")
-
-        # Trend-based multipliers for data freshness
-        # Higher multiplier = more lenient (accepts older data)
-        freshness_multipliers = {
-            "accelerating": 0.5,    # Stricter - need fresh data for quality
-            "stable": 1.0,          # Normal threshold
-            "decelerating": 1.5,    # Slightly lenient
-            "plateauing": 3.0,      # Very lenient - accept older data to break stall
-        }
-
-        multiplier = freshness_multipliers.get(state.elo_velocity_trend, 1.0)
-
-        # Also consider time since last successful training
-        # If config hasn't been trained in a long time, be more lenient
-        time_since_training = time.time() - state.last_training_time
-        if time_since_training > 86400:  # >24h since last training
-            multiplier *= 1.5
-        elif time_since_training > 172800:  # >48h since last training
-            multiplier *= 2.0
-
-        adaptive_age = base_max_age * multiplier
-        logger.debug(
-            f"[TrainingTriggerDaemon] {state.config_key}: adaptive_max_data_age="
-            f"{adaptive_age:.1f}h (base={base_max_age:.1f}h, trend={state.elo_velocity_trend}, mult={multiplier:.2f})"
-        )
-
-        return adaptive_age
+    # Feb 2026: _get_velocity_adjusted_cooldown and _get_adaptive_max_data_age
+    # removed - now using compute_velocity_adjusted_cooldown() and
+    # compute_adaptive_max_data_age() from training_decision_engine.py
 
     async def _trigger_priority_sync(
         self, config_key: str, board_type: str, num_players: int
@@ -2459,7 +1939,9 @@ class TrainingTriggerDaemon(HandlerBase):
         # 2. Check training cooldown (December 29, 2025: velocity-adjusted)
         time_since_training = time.time() - state.last_training_time
         # Use velocity-adjusted cooldown instead of fixed cooldown
-        cooldown_seconds = self._get_velocity_adjusted_cooldown(state)
+        cooldown_seconds = compute_velocity_adjusted_cooldown(
+            self.config.training_cooldown_hours, state.elo_velocity, state.elo_velocity_trend,
+        )
         if time_since_training < cooldown_seconds:
             remaining = (cooldown_seconds - time_since_training) / 3600
             trend_info = f", velocity_trend={state.elo_velocity_trend}" if state.elo_velocity_trend != "stable" else ""
@@ -2471,7 +1953,19 @@ class TrainingTriggerDaemon(HandlerBase):
         # - Plateauing configs get 3x threshold (more lenient) to break stalls
         # - Accelerating configs get 0.5x threshold (stricter) to maintain quality
         data_age_hours = (time.time() - state.last_npz_update) / 3600
-        adaptive_max_age = self._get_adaptive_max_data_age(state)
+        # Feb 2026: Compute game_count for starved config detection in adaptive age
+        _game_count_for_age = None
+        try:
+            from app.utils.game_discovery import count_games_for_config as _cgfc
+            parsed_ck = parse_config_key(config_key)
+            if parsed_ck:
+                _game_count_for_age = _cgfc(parsed_ck.board_type, parsed_ck.num_players)
+        except (ImportError, ValueError, OSError):
+            pass
+        adaptive_max_age = compute_adaptive_max_data_age(
+            self.config.max_data_age_hours, state.elo_velocity_trend,
+            state.last_training_time, time.time(), game_count=_game_count_for_age,
+        )
         if data_age_hours > adaptive_max_age:
             # December 29, 2025: Strict mode - fail immediately without sync attempt
             if self.config.strict_freshness_mode:
@@ -2547,8 +2041,11 @@ class TrainingTriggerDaemon(HandlerBase):
         # Dec 29, 2025: Try confidence-based early trigger first
         # This allows training to start earlier when statistical confidence is high
         if state.npz_sample_count >= self.config.confidence_min_samples:
-            early_trigger, early_reason = self._check_confidence_early_trigger(
-                config_key, state.npz_sample_count
+            early_trigger, early_reason = check_confidence_early_trigger_fn(
+                config_key, state.npz_sample_count,
+                min_samples=self.config.confidence_min_samples,
+                target_ci_width=self.config.confidence_target_ci_width,
+                confidence_enabled=self.config.confidence_early_trigger_enabled,
             )
             if early_trigger:
                 logger.info(
@@ -2558,12 +2055,18 @@ class TrainingTriggerDaemon(HandlerBase):
             else:
                 # Fall back to dynamic threshold from ImprovementOptimizer
                 # Phase 5 (Dec 2025): Lower when on promotion streak, higher when struggling
-                min_samples = self._get_dynamic_sample_threshold(config_key)
+                min_samples = compute_dynamic_sample_threshold(
+                    config_key, state.num_players or 2,
+                    base_threshold=self.config.min_samples_threshold,
+                )
                 if state.npz_sample_count < min_samples:
                     return False, f"insufficient samples ({state.npz_sample_count} < {min_samples}), {early_reason}"
         else:
             # Below confidence minimum - use dynamic threshold
-            min_samples = self._get_dynamic_sample_threshold(config_key)
+            min_samples = compute_dynamic_sample_threshold(
+                config_key, state.num_players or 2,
+                base_threshold=self.config.min_samples_threshold,
+            )
             if state.npz_sample_count < min_samples:
                 return False, f"insufficient samples ({state.npz_sample_count} < {min_samples})"
 
@@ -2619,12 +2122,17 @@ class TrainingTriggerDaemon(HandlerBase):
 
         # Calculate all condition values
         time_since_training = time.time() - state.last_training_time
-        cooldown_seconds = self._get_velocity_adjusted_cooldown(state)
+        cooldown_seconds = compute_velocity_adjusted_cooldown(
+            self.config.training_cooldown_hours, state.elo_velocity, state.elo_velocity_trend,
+        )
         cooldown_remaining = max(0, cooldown_seconds - time_since_training) / 3600
 
         data_age_hours = (time.time() - state.last_npz_update) / 3600
 
-        min_samples = self._get_dynamic_sample_threshold(config_key)
+        min_samples = compute_dynamic_sample_threshold(
+            config_key, state.num_players or 2,
+            base_threshold=self.config.min_samples_threshold,
+        )
 
         active_count = sum(
             1 for s in self._training_states.values() if s.training_in_progress
@@ -2749,7 +2257,14 @@ class TrainingTriggerDaemon(HandlerBase):
                     # Jan 3, 2026: No fresh quality data - try decayed stored quality
                     state = self._training_states.get(config_key)
                     if state and state.last_quality_update > 0:
-                        decayed_quality = self._get_decayed_quality_score(state)
+                        decayed_quality = compute_decayed_quality_score(
+                            last_quality_score=state.last_quality_score,
+                            last_quality_update=state.last_quality_update,
+                            current_time=time.time(),
+                            decay_enabled=self.config.quality_decay_enabled,
+                            half_life_hours=self.config.quality_decay_half_life_hours,
+                            decay_floor=self.config.quality_decay_floor,
+                        )
                         logger.debug(
                             f"[TrainingTriggerDaemon] {config_key}: using decayed quality "
                             f"{decayed_quality:.2f} (original: {state.last_quality_score:.2f})"
@@ -3207,8 +2722,10 @@ class TrainingTriggerDaemon(HandlerBase):
             distributor = get_work_distributor()
 
             # Get intensity-adjusted training parameters
-            epochs, batch_size, lr_mult = self._get_training_params_for_intensity(
-                state.training_intensity
+            epochs, batch_size, lr_mult = get_training_params_for_intensity(
+                state.training_intensity,
+                default_epochs=self.config.default_epochs,
+                default_batch_size=self.config.default_batch_size,
             )
 
             # Apply architecture-specific overrides if provided
@@ -3221,7 +2738,7 @@ class TrainingTriggerDaemon(HandlerBase):
                     batch_size = arch.batch_size
             else:
                 # No explicit arch - use ArchitectureTracker for performance-based selection
-                arch_name = self._select_architecture_for_training(
+                arch_name = select_architecture_for_training(
                     board_type=state.board_type,
                     num_players=state.num_players,
                 )
@@ -3368,14 +2885,16 @@ class TrainingTriggerDaemon(HandlerBase):
 
             try:
                 # Get intensity-adjusted training parameters
-                epochs, batch_size, lr_mult = self._get_training_params_for_intensity(
-                    state.training_intensity
+                epochs, batch_size, lr_mult = get_training_params_for_intensity(
+                    state.training_intensity,
+                    default_epochs=self.config.default_epochs,
+                    default_batch_size=self.config.default_batch_size,
                 )
 
                 # January 3, 2026 (Sprint 12): Apply Elo velocity-based amplification
                 # High velocity configs get more aggressive training to capitalize on momentum
                 # Low velocity configs get more conservative LR to avoid overshooting
-                epochs, batch_size, lr_mult = self._apply_velocity_amplification(
+                epochs, batch_size, lr_mult = apply_velocity_amplification(
                     (epochs, batch_size, lr_mult),
                     state.elo_velocity,
                     state.elo_velocity_trend,

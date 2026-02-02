@@ -881,9 +881,20 @@ class EvaluationDaemon(BaseEventHandler):
             min_nodes = DistributionDefaults.MIN_NODES_FOR_EVALUATION
             timeout = 120.0  # 2 minutes for pre-eval check
 
+            # February 2026: Count local node if model exists locally
+            import os
+            local_count = 1 if os.path.exists(model_path) else 0
+            if local_count >= min_nodes:
+                logger.debug(
+                    f"[EvaluationDaemon] Model {model_path} available locally "
+                    f"(min_nodes={min_nodes}), skipping distribution check"
+                )
+                return (True, local_count)
+
             # First quick check
             success, count = await verify_model_distribution(model_path, min_nodes)
-            if success:
+            count = max(count, local_count)  # Include local node
+            if success or count >= min_nodes:
                 logger.debug(
                     f"[EvaluationDaemon] Model {model_path} available on {count} nodes"
                 )
@@ -1042,10 +1053,12 @@ class EvaluationDaemon(BaseEventHandler):
             )
             return
 
-        # January 27, 2026: Check if this node should run gauntlets locally
-        # Coordinators dispatch to cluster nodes instead of running locally
+        # February 2026: Check if this node should run gauntlets locally
+        # Allow env var override to bypass cached_property on coordinator
+        import os
+        gauntlet_override = os.environ.get("RINGRIFT_GAUNTLET_ENABLED", "").lower()
         from app.config.env import env
-        if not env.gauntlet_enabled:
+        if gauntlet_override not in ("1", "true", "yes") and not env.gauntlet_enabled:
             logger.info(
                 f"[EvaluationDaemon] Gauntlet disabled on this node, dispatching to cluster: {model_path}"
             )
@@ -1111,7 +1124,7 @@ class EvaluationDaemon(BaseEventHandler):
                 opp.get("games_played", 0)
                 for opp in result.get("opponent_results", {}).values()
             )
-            self._eval_stats.total_games_played += total_games
+            self._eval_stats.games_played += total_games
 
             # Emit evaluation completed event
             await self._emit_evaluation_completed(
@@ -1880,13 +1893,13 @@ class EvaluationDaemon(BaseEventHandler):
         """Update running average of evaluation time."""
         n = self._eval_stats.evaluations_completed
         if n == 1:
-            self._eval_stats.average_evaluation_time = elapsed
+            self._eval_stats.avg_evaluation_duration = elapsed
         else:
             # Exponential moving average
             alpha = 0.2
-            self._eval_stats.average_evaluation_time = (
+            self._eval_stats.avg_evaluation_duration = (
                 alpha * elapsed +
-                (1 - alpha) * self._eval_stats.average_evaluation_time
+                (1 - alpha) * self._eval_stats.avg_evaluation_duration
             )
 
     def _queue_for_retry(

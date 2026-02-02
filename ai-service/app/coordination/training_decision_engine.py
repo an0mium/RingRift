@@ -437,6 +437,7 @@ def compute_adaptive_max_data_age(
     velocity_trend: str,
     last_training_time: float,
     current_time: float,
+    game_count: int | None = None,
 ) -> float:
     """Compute adaptive max data age based on velocity trend.
 
@@ -445,11 +446,15 @@ def compute_adaptive_max_data_age(
     break the plateau. Accelerating configs should be stricter to maintain
     training quality.
 
+    February 2026: Added game_count parameter. Starved configs (<500 games)
+    get 168h (1 week) threshold to ensure training can proceed with any data.
+
     Args:
         base_max_age_hours: Base max data age from config
         velocity_trend: Current Elo velocity trend
         last_training_time: Timestamp of last training
         current_time: Current timestamp
+        game_count: Optional game count for starved config detection
 
     Returns:
         Adaptive max data age in hours
@@ -457,7 +462,12 @@ def compute_adaptive_max_data_age(
     Example:
         >>> compute_adaptive_max_data_age(4.0, "plateauing", 0, 100000)
         24.0  # 4h * 3.0 (trend) * 2.0 (>48h since training)
+        >>> compute_adaptive_max_data_age(4.0, "stable", 0, 100000, game_count=200)
+        168.0  # Starved config override
     """
+    # Starved configs get very lenient freshness threshold
+    if game_count is not None and game_count < 500:
+        return 168.0  # 1 week for starved configs
     # Trend-based multipliers for data freshness
     # Higher multiplier = more lenient (accepts older data)
     freshness_multipliers = {

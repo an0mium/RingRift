@@ -37,13 +37,13 @@ class TestTrainingTriggerConfig:
         config = TrainingTriggerConfig()
         assert config.enabled is True
         assert config.min_samples_threshold == 5000
-        # December 29, 2025: Reduced from 1.0 to 0.083 (5 min) for faster iteration
-        assert config.training_cooldown_hours == 0.083
+        # Jan 5, 2026 (Session 17.24): Reduced from 0.083 to 0.033 (~2 min)
+        assert config.training_cooldown_hours == 0.033
         # December 30, 2025: Increased from 10 to 20 for larger cluster capacity
         assert config.max_concurrent_training == 20
         assert config.gpu_idle_threshold_percent == 20.0
-        # December 29, 2025: Reduced from 120s to 30s for faster detection
-        assert config.scan_interval_seconds == 30
+        # Jan 5, 2026 (Session 17.24): Reduced from 30s to 15s
+        assert config.scan_interval_seconds == 15
         assert config.default_epochs == 50
         assert config.default_batch_size == 512
         assert config.model_version == "v2"
@@ -273,93 +273,88 @@ class TestDeduplication:
 
 
 class TestIntensityMapping:
-    """Tests for training intensity mapping."""
+    """Tests for training intensity mapping.
+
+    Feb 2026: Updated to use module-level functions after extraction from daemon.
+    - intensity_from_quality → training_quality_gates.py
+    - get_training_params_for_intensity → training_architecture_selector.py
+    """
 
     def test_intensity_from_quality_hot_path(self):
         """Test hot_path intensity for high quality."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
-            daemon = TrainingTriggerDaemon(config=config)
+        from app.coordination.training_quality_gates import intensity_from_quality
 
-            assert daemon._intensity_from_quality(0.95) == "hot_path"
-            assert daemon._intensity_from_quality(0.90) == "hot_path"
+        assert intensity_from_quality(0.95) == "hot_path"
+        assert intensity_from_quality(0.90) == "hot_path"
 
     def test_intensity_from_quality_accelerated(self):
         """Test accelerated intensity for good quality."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
-            daemon = TrainingTriggerDaemon(config=config)
+        from app.coordination.training_quality_gates import intensity_from_quality
 
-            assert daemon._intensity_from_quality(0.85) == "accelerated"
-            assert daemon._intensity_from_quality(0.80) == "accelerated"
+        assert intensity_from_quality(0.85) == "accelerated"
+        assert intensity_from_quality(0.80) == "accelerated"
 
     def test_intensity_from_quality_normal(self):
         """Test normal intensity for average quality."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
-            daemon = TrainingTriggerDaemon(config=config)
+        from app.coordination.training_quality_gates import intensity_from_quality
 
-            assert daemon._intensity_from_quality(0.70) == "normal"
-            assert daemon._intensity_from_quality(0.65) == "normal"
+        assert intensity_from_quality(0.70) == "normal"
+        assert intensity_from_quality(0.65) == "normal"
 
     def test_intensity_from_quality_reduced(self):
         """Test reduced intensity for poor quality."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
-            daemon = TrainingTriggerDaemon(config=config)
+        from app.coordination.training_quality_gates import intensity_from_quality
 
-            assert daemon._intensity_from_quality(0.55) == "reduced"
-            assert daemon._intensity_from_quality(0.50) == "reduced"
+        assert intensity_from_quality(0.55) == "reduced"
+        assert intensity_from_quality(0.50) == "reduced"
 
     def test_intensity_from_quality_paused(self):
         """Test paused intensity for very poor quality."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
-            daemon = TrainingTriggerDaemon(config=config)
+        from app.coordination.training_quality_gates import intensity_from_quality
 
-            assert daemon._intensity_from_quality(0.45) == "paused"
-            assert daemon._intensity_from_quality(0.0) == "paused"
+        assert intensity_from_quality(0.45) == "paused"
+        assert intensity_from_quality(0.0) == "paused"
 
     def test_training_params_for_intensity(self):
         """Test training parameters for each intensity level."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
-            daemon = TrainingTriggerDaemon(config=config)
+        from app.coordination.training_architecture_selector import (
+            get_training_params_for_intensity,
+        )
 
-            # hot_path: fast iteration
-            epochs, batch, lr = daemon._get_training_params_for_intensity("hot_path")
-            assert epochs == 30
-            assert batch == 1024
-            assert lr == 1.5
+        # hot_path: fast iteration
+        epochs, batch, lr = get_training_params_for_intensity("hot_path")
+        assert epochs == 30
+        assert batch == 1024
+        assert lr == 1.5
 
-            # accelerated
-            epochs, batch, lr = daemon._get_training_params_for_intensity("accelerated")
-            assert epochs == 40
-            assert batch == 768
-            assert lr == 1.2
+        # accelerated
+        epochs, batch, lr = get_training_params_for_intensity("accelerated")
+        assert epochs == 40
+        assert batch == 768
+        assert lr == 1.2
 
-            # normal
-            epochs, batch, lr = daemon._get_training_params_for_intensity("normal")
-            assert epochs == config.default_epochs
-            assert batch == config.default_batch_size
-            assert lr == 1.0
+        # normal (uses default_epochs=50, default_batch_size=512)
+        epochs, batch, lr = get_training_params_for_intensity("normal")
+        assert epochs == 50
+        assert batch == 512
+        assert lr == 1.0
 
-            # reduced
-            epochs, batch, lr = daemon._get_training_params_for_intensity("reduced")
-            assert epochs == 60
-            assert batch == 256
-            assert lr == 0.8
+        # reduced
+        epochs, batch, lr = get_training_params_for_intensity("reduced")
+        assert epochs == 60
+        assert batch == 256
+        assert lr == 0.8
 
     def test_unknown_intensity_fallback(self):
         """Test fallback to normal for unknown intensity."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(state_db_path=f"{tmpdir}/state.db")
-            daemon = TrainingTriggerDaemon(config=config)
+        from app.coordination.training_architecture_selector import (
+            get_training_params_for_intensity,
+        )
 
-            epochs, batch, lr = daemon._get_training_params_for_intensity("unknown")
-            assert epochs == config.default_epochs
-            assert batch == config.default_batch_size
-            assert lr == 1.0
+        epochs, batch, lr = get_training_params_for_intensity("unknown")
+        assert epochs == 50  # default_epochs
+        assert batch == 512  # default_batch_size
+        assert lr == 1.0
 
 
 class TestBackpressure:
@@ -687,62 +682,57 @@ class TestEventHandlers:
 
 
 class TestDynamicThreshold:
-    """Tests for dynamic sample threshold calculation."""
+    """Tests for dynamic sample threshold calculation.
+
+    Feb 2026: Updated to use module-level compute_dynamic_sample_threshold()
+    after extraction from daemon to training_decision_engine.py.
+    """
 
     def test_fallback_on_exception(self):
-        """Test fallback when get_dynamic_threshold raises Exception."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(
-                state_db_path=f"{tmpdir}/state.db",
-                min_samples_threshold=5000,
-            )
-            daemon = TrainingTriggerDaemon(config=config)
+        """Test fallback when dynamic_threshold_getter raises Exception."""
+        from app.coordination.training_decision_engine import (
+            compute_dynamic_sample_threshold,
+        )
 
-            # Patch get_dynamic_threshold to raise RuntimeError
-            with patch(
-                "app.training.improvement_optimizer.get_dynamic_threshold",
-                side_effect=RuntimeError("Optimizer error"),
-            ):
-                threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
+        def raising_getter(_config_key: str) -> int:
+            raise RuntimeError("Optimizer error")
 
-            # Should return the configured threshold (fallback)
-            assert threshold == 5000
+        threshold = compute_dynamic_sample_threshold(
+            "hex8_2p", num_players=2, base_threshold=5000,
+            dynamic_threshold_getter=raising_getter,
+        )
 
-    def test_dynamic_threshold_from_optimizer(self):
-        """Test that dynamic threshold is returned when optimizer available."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(
-                state_db_path=f"{tmpdir}/state.db",
-                min_samples_threshold=5000,
-            )
-            daemon = TrainingTriggerDaemon(config=config)
+        # Should return the configured threshold (fallback)
+        assert threshold == 5000
 
-            # Without mocking, the optimizer should be available
-            # and return some dynamic threshold (likely different from 5000)
-            threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
+    def test_dynamic_threshold_from_module(self):
+        """Test that dynamic threshold is returned without getter."""
+        from app.coordination.training_decision_engine import (
+            compute_dynamic_sample_threshold,
+        )
 
-            # Should be a positive integer
-            assert isinstance(threshold, int)
-            assert threshold > 0
+        # Without getter, should use base_threshold with player multiplier
+        threshold = compute_dynamic_sample_threshold(
+            "hex8_2p", num_players=2, base_threshold=5000
+        )
+
+        # Should be a positive integer
+        assert isinstance(threshold, int)
+        assert threshold > 0
 
     def test_dynamic_threshold_with_mock_value(self):
-        """Test that dynamic threshold uses optimizer's value."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = TrainingTriggerConfig(
-                state_db_path=f"{tmpdir}/state.db",
-                min_samples_threshold=5000,
-            )
-            daemon = TrainingTriggerDaemon(config=config)
+        """Test that dynamic threshold uses getter's value."""
+        from app.coordination.training_decision_engine import (
+            compute_dynamic_sample_threshold,
+        )
 
-            # Patch to return specific value
-            with patch(
-                "app.training.improvement_optimizer.get_dynamic_threshold",
-                return_value=2500,
-            ):
-                threshold = daemon._get_dynamic_sample_threshold("hex8_2p")
+        threshold = compute_dynamic_sample_threshold(
+            "hex8_2p", num_players=2, base_threshold=5000,
+            dynamic_threshold_getter=lambda _: 2500,
+        )
 
-            # Should return the mocked value
-            assert threshold == 2500
+        # Should return the getter value (2500 * 1.0 for 2p)
+        assert threshold == 2500
 
 
 # Run with: pytest tests/unit/coordination/test_training_trigger_daemon.py -v
