@@ -41,7 +41,8 @@ logger = logging.getLogger(__name__)
 MAINTENANCE_INTERVAL = 30.0
 
 # Grace period after startup before forcing leadership
-STARTUP_GRACE_PERIOD = 60.0
+# Keep short - lease renewal is critical and must start quickly
+STARTUP_GRACE_PERIOD = 15.0
 
 
 class LeaderMaintenanceLoop(BaseLoop):
@@ -139,18 +140,24 @@ class LeaderMaintenanceLoop(BaseLoop):
         return self._is_primary_voter
 
     def _is_currently_leader(self) -> bool:
-        """Check if this node is currently the leader."""
-        try:
-            # Use the orchestrator's _is_leader method which now checks
-            # _forced_leader_override first
-            is_leader = getattr(self._orchestrator, "_is_leader", None)
-            if callable(is_leader):
-                return bool(is_leader())
+        """Check if this node is currently the leader.
 
-            # Fallback to checking the role directly
+        Uses a simple role + leader_id check instead of the full _is_leader()
+        method, which has complex side effects (e.g., clearing forced override
+        flags, triggering step-downs). We just want to know if we THINK we're
+        the leader for lease renewal purposes.
+        """
+        try:
             from scripts.p2p.types import NodeRole
+            node_id = getattr(self._orchestrator, "node_id", None)
+            leader_id = getattr(self._orchestrator, "leader_id", None)
             role = getattr(self._orchestrator, "role", None)
-            return role == NodeRole.LEADER
+            # Simple check: we're leader if role=LEADER and leader_id=us
+            return (
+                role == NodeRole.LEADER
+                and leader_id == node_id
+                and node_id is not None
+            )
         except (AttributeError, TypeError, ImportError):
             return False
 
@@ -246,32 +253,31 @@ class LeaderMaintenanceLoop(BaseLoop):
             )
             return
 
-        # Only run on the designated primary leader node
-        if not self._is_primary_leader_node():
-            logger.debug("[LeaderMaintenance] Not the primary leader node, skipping")
-            return
-
-        # Check if we're currently the leader
+        # ALWAYS renew lease if we're currently the leader (regardless of voter status)
+        # This is critical: lease renewal must happen for ANY leader, not just
+        # the "primary voter". Without this, the bully algorithm step-down
+        # check in _is_leader() expires our lease and gossip takes over.
         if self._is_currently_leader():
-            # Renew our lease to prevent it from expiring
-            # Without this, the lease expires after LEADER_LEASE_DURATION
-            # and gossip can then override our leadership
             try:
                 from app.p2p.constants import LEADER_LEASE_DURATION
                 lease_expires = getattr(self._orchestrator, "leader_lease_expires", 0)
                 remaining = lease_expires - time.time()
-                # Renew when less than 50% of lease remaining
-                if remaining < LEADER_LEASE_DURATION * 0.5:
+                # Renew when less than 75% of lease remaining (aggressive)
+                if remaining < LEADER_LEASE_DURATION * 0.75:
                     self._orchestrator.leader_lease_expires = time.time() + LEADER_LEASE_DURATION
                     self._orchestrator.last_leader_seen = time.time()
                     if hasattr(self._orchestrator, "_save_state"):
                         self._orchestrator._save_state()
-                    logger.debug(
+                    logger.info(
                         f"[LeaderMaintenance] Renewed lease "
                         f"(was {remaining:.0f}s remaining, now {LEADER_LEASE_DURATION}s)"
                     )
             except (ImportError, AttributeError) as e:
-                logger.debug(f"[LeaderMaintenance] Lease renewal skipped: {e}")
+                logger.warning(f"[LeaderMaintenance] Lease renewal failed: {e}")
+            return
+
+        # Only the primary voter node should try to recover lost leadership
+        if not self._is_primary_leader_node():
             return
 
         # We should be leader but we're not - gossip has overwritten us
