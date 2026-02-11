@@ -3602,6 +3602,8 @@ def train_model(
         total_samples = sum(
             get_sample_count(p) for p in data_paths if os.path.exists(p)
         )
+        _total_samples = total_samples
+        _num_data_files = len(data_paths)
 
         if total_samples == 0:
             if not distributed or is_main_process():
@@ -4146,6 +4148,8 @@ def train_model(
     _training_exception: Exception | None = None
     _training_start_time = time.time()
     _final_checkpoint_path: str | None = None  # Track for event emission
+    _total_samples: int = 0  # Track for generation tracking
+    _num_data_files: int = 0  # Track for generation tracking
 
     # Define config_label unconditionally (used for metrics and event logging)
     config_label = f"{config.board_type.value}_{num_players}p"
@@ -6441,6 +6445,9 @@ def train_model(
                             "model_path": str(save_path),
                             # policy_accuracy for evaluation trigger threshold check
                             "policy_accuracy": float(avg_policy_accuracy),
+                            # Feb 2026: Include training data stats for generation tracking
+                            "training_samples": total_samples,
+                            "training_games": len(data_paths),
                         }
                         # Add reanalysis and distillation stats to event payload
                         if enhancements_manager is not None:
@@ -6537,6 +6544,9 @@ def train_model(
                         # policy_accuracy for evaluation trigger threshold check
                         # Jan 2026: Fixed - use proper None check instead of 'in dir()'
                         "policy_accuracy": float(avg_policy_accuracy) if avg_policy_accuracy is not None else 0.0,
+                        # Feb 2026: Include training data stats for generation tracking
+                        "training_samples": _total_samples,
+                        "training_games": _num_data_files,
                     }
                     # Include checkpoint_path if available (for auto-evaluation)
                     if _final_checkpoint_path:

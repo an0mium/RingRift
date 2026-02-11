@@ -1761,13 +1761,14 @@ class EloService:
                 with self._transaction() as conn:
                     conn.execute("""
                         INSERT INTO match_history
-                        (game_id, participant_ids, winner_id, game_length, duration_sec,
+                        (game_id, participant_ids, winner, winner_id, game_length, duration_sec,
                          board_type, num_players, timestamp, elo_before, elo_after,
                          tournament_id, metadata, harness_type)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         match_id,
                         json.dumps([participant_a, participant_b]),
+                        winner,
                         winner,
                         game_length,
                         duration_sec,
@@ -1926,13 +1927,14 @@ class EloService:
             # Jan 11, 2026: Added harness_type column for multi-harness evaluation tracking
             conn.execute("""
                 INSERT INTO match_history
-                (game_id, participant_ids, winner_id, game_length, duration_sec,
+                (game_id, participant_ids, winner, winner_id, game_length, duration_sec,
                  board_type, num_players, timestamp, elo_before, elo_after,
                  tournament_id, metadata, harness_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 match_id,
                 json.dumps([participant_a, participant_b]),
+                winner,
                 winner,
                 game_length,
                 duration_sec,
