@@ -503,29 +503,30 @@ class SyncPushMixin(SyncMixinBase):
         Returns:
             Sync result dict with success, bytes_transferred, duration, error
         """
-        # Feb 2026: Guard against OOM from transferring multi-GB database files.
-        # rsync was already tried as the primary method and failed. The fallback
-        # chain (scp → base64) can cause OOM for files > 2GB because base64_push
-        # reads the entire file into memory. Skip fallback for very large files.
-        max_fallback_size = 2 * 1024 * 1024 * 1024  # 2GB
+        # Feb 2026: For large files, use HTTP pull instead of push to avoid OOM.
+        # The coordinator's P2P server streams files in 1MB chunks via
+        # GET /files/data/*, so the remote node can pull without either side
+        # loading the entire file into memory.
+        http_pull_threshold = 500 * 1024 * 1024  # 500MB
         try:
             file_size = source.stat().st_size
         except OSError:
             file_size = 0
 
-        if file_size > max_fallback_size:
-            logger.warning(
-                f"[AutoSyncDaemon] Skipping fallback for {source.name} "
-                f"({file_size / 1024 / 1024 / 1024:.1f}GB > 2GB limit) "
-                f"to {target['node_id']} - rsync is the only safe method for files this large"
+        if file_size > http_pull_threshold:
+            http_result = await self._http_pull_fallback(
+                source, target, ssh_user, games_path, start_time
             )
-            return {
-                "source": str(source),
-                "target": target["node_id"],
-                "success": False,
-                "duration_seconds": time.time() - start_time,
-                "error": f"File too large for fallback transfer ({file_size / 1024 / 1024 / 1024:.1f}GB)",
-            }
+            if http_result.get("success"):
+                return http_result
+            # If HTTP pull also failed, don't try robust_push for huge files
+            if file_size > 2 * 1024 * 1024 * 1024:  # >2GB
+                logger.warning(
+                    f"[AutoSyncDaemon] HTTP pull failed and file too large for push fallback "
+                    f"({file_size / 1024 / 1024 / 1024:.1f}GB) to {target['node_id']}"
+                )
+                return http_result
+            # For 500MB-2GB, fall through to robust_push (which uses chunked, not base64)
 
         try:
             from scripts.lib.transfer import robust_push, TransferConfig
@@ -603,6 +604,181 @@ class SyncPushMixin(SyncMixinBase):
                 "success": False,
                 "duration_seconds": time.time() - start_time,
                 "error": str(e),
+            }
+
+    async def _http_pull_fallback(
+        self,
+        source: Path,
+        target: dict[str, Any],
+        ssh_user: str,
+        games_path: str,
+        start_time: float,
+    ) -> dict[str, Any]:
+        """Fallback: tell remote node to pull file via HTTP from coordinator.
+
+        February 2026: Added to avoid OOM from push-based transfers of large
+        database files. The coordinator's P2P server streams files in 1MB chunks
+        via GET /files/data/*, so neither side loads the entire file into memory.
+
+        Flow:
+        1. Determine coordinator's accessible IP (Tailscale or SSH host)
+        2. SSH to remote node
+        3. Remote runs: curl -o <dest> http://<coordinator>:8770/files/data/games/<file>
+        4. Verify file size matches
+        """
+        try:
+            # Get coordinator's IP accessible from the remote node
+            coordinator_ip = None
+            try:
+                from app.config.node_identity import get_tailscale_ip
+                coordinator_ip = get_tailscale_ip()
+            except ImportError:
+                pass
+
+            if not coordinator_ip:
+                return {
+                    "source": str(source),
+                    "target": target["node_id"],
+                    "success": False,
+                    "duration_seconds": time.time() - start_time,
+                    "error": "Cannot determine coordinator IP for HTTP pull",
+                }
+
+            from app.config.ports import P2P_DEFAULT_PORT
+
+            # Build the relative path for the /files/data/ endpoint
+            # source is like /path/to/ai-service/data/games/canonical_hex8_2p.db
+            # The endpoint serves from data/ dir, so we need games/<filename>
+            data_rel_path = f"games/{source.name}"
+            pull_url = f"http://{coordinator_ip}:{P2P_DEFAULT_PORT}/files/data/{data_rel_path}"
+
+            file_size = source.stat().st_size
+            remote_dest = f"{games_path}/synced/{source.name}"
+
+            logger.info(
+                f"[AutoSyncDaemon] HTTP pull fallback: {target['node_id']} pulling "
+                f"{source.name} ({file_size / 1024 / 1024:.0f}MB) from {pull_url}"
+            )
+
+            # Get SSH key from cluster config
+            ssh_key = "~/.ssh/id_cluster"
+            try:
+                from app.config.cluster_config import get_cluster_nodes
+                cluster_nodes = get_cluster_nodes()
+                node_config = cluster_nodes.get(target["node_id"])
+                if node_config and node_config.ssh_key:
+                    ssh_key = node_config.ssh_key
+            except ImportError:
+                pass
+
+            # Build SSH command to run curl on the remote node
+            ssh_opts = [
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=10",
+            ]
+            import os
+            key_path = os.path.expanduser(ssh_key)
+            if os.path.exists(key_path):
+                ssh_opts.extend(["-i", key_path])
+
+            # curl with: create dirs, timeout 30min, retry 2x, output to dest
+            curl_cmd = (
+                f"mkdir -p $(dirname '{remote_dest}') && "
+                f"curl -sS --fail --retry 2 --max-time 1800 "
+                f"-o '{remote_dest}' '{pull_url}'"
+            )
+
+            ssh_cmd = [
+                "ssh", *ssh_opts,
+                f"{ssh_user}@{target['host']}",
+                curl_cmd,
+            ]
+
+            # Run in thread pool (blocking subprocess)
+            def _run_pull():
+                return subprocess.run(
+                    ssh_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=1860,  # 31 minutes (slightly more than curl's 30min)
+                )
+
+            proc_result = await asyncio.get_running_loop().run_in_executor(
+                None, _run_pull
+            )
+
+            if proc_result.returncode == 0:
+                # Verify size on remote
+                size_cmd = [
+                    "ssh", *ssh_opts,
+                    f"{ssh_user}@{target['host']}",
+                    f"stat -c%s '{remote_dest}' 2>/dev/null || stat -f%z '{remote_dest}'",
+                ]
+                size_result = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda: subprocess.run(
+                        size_cmd, capture_output=True, text=True, timeout=30
+                    ),
+                )
+                remote_size = 0
+                try:
+                    remote_size = int(size_result.stdout.strip())
+                except (ValueError, AttributeError):
+                    pass
+
+                if remote_size == file_size:
+                    duration = time.time() - start_time
+                    logger.info(
+                        f"[AutoSyncDaemon] HTTP pull succeeded: {source.name} -> "
+                        f"{target['node_id']} ({file_size / 1024 / 1024:.0f}MB in {duration:.1f}s)"
+                    )
+                    return {
+                        "source": str(source),
+                        "target": target["node_id"],
+                        "success": True,
+                        "bytes_transferred": file_size,
+                        "duration_seconds": duration,
+                        "method": "http_pull",
+                    }
+                else:
+                    error = f"Size mismatch after HTTP pull: local={file_size}, remote={remote_size}"
+                    logger.warning(f"[AutoSyncDaemon] {error}")
+                    return {
+                        "source": str(source),
+                        "target": target["node_id"],
+                        "success": False,
+                        "duration_seconds": time.time() - start_time,
+                        "error": error,
+                    }
+            else:
+                stderr = proc_result.stderr.strip()[:200] if proc_result.stderr else "Unknown"
+                error = f"HTTP pull failed (rc={proc_result.returncode}): {stderr}"
+                logger.warning(f"[AutoSyncDaemon] {error}")
+                return {
+                    "source": str(source),
+                    "target": target["node_id"],
+                    "success": False,
+                    "duration_seconds": time.time() - start_time,
+                    "error": error,
+                }
+
+        except subprocess.TimeoutExpired:
+            return {
+                "source": str(source),
+                "target": target["node_id"],
+                "success": False,
+                "duration_seconds": time.time() - start_time,
+                "error": "HTTP pull timed out (31 minutes)",
+            }
+        except Exception as e:
+            logger.warning(f"[AutoSyncDaemon] HTTP pull error: {e}")
+            return {
+                "source": str(source),
+                "target": target["node_id"],
+                "success": False,
+                "duration_seconds": time.time() - start_time,
+                "error": f"HTTP pull error: {e}",
             }
 
     async def cleanup_stale_partials(self, max_age_hours: int = 24) -> int:
