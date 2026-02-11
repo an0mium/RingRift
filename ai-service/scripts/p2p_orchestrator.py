@@ -2013,6 +2013,15 @@ class P2POrchestrator(
         # Updates via _job_snapshot.update(self.local_jobs) after mutations
         self._job_snapshot = JobSnapshot()
 
+        # Feb 2026: Response cache for /status endpoint to prevent event loop blocking.
+        # When 7+ master_loop daemons call /status concurrently, each request collects
+        # 13+ metrics. The cache ensures only one computation runs per interval, and
+        # concurrent callers get the cached result instead of blocking.
+        self._status_cache: dict | None = None
+        self._status_cache_time: float = 0.0
+        self._status_cache_lock: asyncio.Lock = asyncio.Lock()
+        self._status_cache_ttl: float = 5.0  # seconds
+
         # Jan 27, 2026: Query builder for peer collection queries (Phase 3.2)
         # Consolidates _get_* methods with thread-safe access and consistent error handling
         self._peer_query = PeerQueryBuilder(self.peers, self.peers_lock, self.node_id)
@@ -6850,6 +6859,7 @@ class P2POrchestrator(
         Query parameters:
             alive_only: If "true" (default), only show alive peers. Set to "false" to include dead/stale peers.
             include_stale_jobs: If "false" (default), dead peers show 0 jobs. Set to "true" to show stale job counts.
+            no_cache: If "true", bypass cache and force fresh computation.
 
         December 30, 2025: Made non-blocking with timeout-based lock acquisition.
         If locks can't be acquired within 2 seconds, returns partial status with
@@ -6862,7 +6872,32 @@ class P2POrchestrator(
         Jan 16, 2026: Added @with_request_timeout(30.0) decorator to prevent overall
         handler timeout. Individual metric timeouts are 2s, but other operations
         (voter health, partition status, etc.) can hang without protection.
+
+        Feb 2026: Added response caching (5s TTL) with request deduplication. When
+        multiple master_loop daemons call /status concurrently (7+ callers observed),
+        only one computation runs and all callers get the cached result. This prevents
+        the event loop from blocking for 10-60+ seconds under concurrent load.
         """
+        # Feb 2026: Response cache - return cached result if fresh enough
+        now = time.time()
+        no_cache = request.query.get("no_cache", "false").lower() == "true"
+        if not no_cache and self._status_cache is not None and (now - self._status_cache_time) < self._status_cache_ttl:
+            return web.json_response(self._status_cache)
+
+        # Deduplicate concurrent requests: only one computation at a time
+        async with self._status_cache_lock:
+            # Double-check after acquiring lock - another request may have populated cache
+            now = time.time()
+            if not no_cache and self._status_cache is not None and (now - self._status_cache_time) < self._status_cache_ttl:
+                return web.json_response(self._status_cache)
+
+            result = await self._compute_status(request)
+            self._status_cache = result
+            self._status_cache_time = time.time()
+            return web.json_response(result)
+
+    async def _compute_status(self, request: web.Request) -> dict:
+        """Compute full cluster status dict. Called by handle_status with cache."""
         # Jan 12, 2026: Non-blocking mode - schedule background refresh, use cached data
         try:
             asyncio.create_task(self._update_self_info_async())
@@ -7090,7 +7125,7 @@ class P2POrchestrator(
         except Exception:  # noqa: BLE001
             peer_health_summary = {"error": "unavailable"}
 
-        return web.json_response({
+        return {
             "node_id": self.node_id,
             "role": self.role.value,
             "leader_id": self.leader_id,
@@ -7181,7 +7216,9 @@ class P2POrchestrator(
             # Jan 25, 2026: Peer health summary for P2P stability monitoring (Phase 3)
             # Feb 4, 2026: Now pre-computed with fallback to avoid blocking
             "peer_health_summary": peer_health_summary,
-        })
+            # Feb 2026: Cache metadata
+            "_cache_time": time.time(),
+        }
 
     # NOTE: handle_progress moved to DiagnosticsHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8f)
 

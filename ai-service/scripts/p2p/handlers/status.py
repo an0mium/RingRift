@@ -148,9 +148,8 @@ class StatusHandlersMixin:
             # Calculate uptime and leader status
             uptime_seconds = time.time() - getattr(self, "start_time", time.time())
             leader_last_seen = time.time() - getattr(self, "last_leader_seen", time.time())
-            # Jan 12, 2026: Copy-on-write - snapshot for thread-safe iteration
-            with self.peers_lock:
-                peers_snapshot = list(self.peers.values())
+            # Feb 2026: Use lock-free peer snapshot instead of peers_lock to avoid blocking
+            peers_snapshot = list(self._peer_snapshot.get_snapshot().values())
             active_peers = sum(1 for p in peers_snapshot
                              if time.time() - p.last_heartbeat < 120)
 
