@@ -40,7 +40,7 @@ auto_sync:
   interval_seconds: 60
   gossip_interval_seconds: 15
   skip_nfs_sync: true
-  max_concurrent_syncs: 12
+  max_concurrent_syncs: 1 # Feb 2026: 12 → 1 to prevent OOM from parallel rsync
   min_games_to_sync: 10
   bandwidth_limit_mbps: 100
   exclude_hosts: []

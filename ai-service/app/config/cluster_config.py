@@ -140,7 +140,7 @@ class AutoSyncConfig:
     interval_seconds: int = 60
     gossip_interval_seconds: int = 15
     skip_nfs_sync: bool = True
-    max_concurrent_syncs: int = 8
+    max_concurrent_syncs: int = 1  # Feb 2026: Limited to 1 to prevent OOM from parallel rsyncs
     min_games_to_sync: int = 10
     bandwidth_limit_mbps: int = 100
     exclude_hosts: list[str] = field(default_factory=list)
@@ -154,7 +154,7 @@ class AutoSyncConfig:
             interval_seconds=data.get("interval_seconds", 60),
             gossip_interval_seconds=data.get("gossip_interval_seconds", 15),
             skip_nfs_sync=data.get("skip_nfs_sync", True),
-            max_concurrent_syncs=data.get("max_concurrent_syncs", 8),
+            max_concurrent_syncs=data.get("max_concurrent_syncs", 1),
             min_games_to_sync=data.get("min_games_to_sync", 10),
             bandwidth_limit_mbps=data.get("bandwidth_limit_mbps", 100),
             exclude_hosts=data.get("exclude_hosts", []),

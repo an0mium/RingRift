@@ -124,11 +124,13 @@ class SyncDefaults:
     # Sync lock timeout (seconds)
     LOCK_TIMEOUT: int = _env_int("RINGRIFT_SYNC_LOCK_TIMEOUT", 120)
 
-    # Maximum concurrent syncs per host (Jan 2026: 2 → 4 for better parallelism)
-    MAX_CONCURRENT_PER_HOST: int = _env_int("RINGRIFT_MAX_SYNCS_PER_HOST", 4)
+    # Maximum concurrent syncs per host
+    # Feb 2026: 4 → 1 to prevent OOM from parallel rsync processes
+    MAX_CONCURRENT_PER_HOST: int = _env_int("RINGRIFT_MAX_SYNCS_PER_HOST", 1)
 
-    # Maximum concurrent syncs cluster-wide (Jan 2026: 10 → 16 for throughput)
-    MAX_CONCURRENT_CLUSTER: int = _env_int("RINGRIFT_MAX_SYNCS_CLUSTER", 16)
+    # Maximum concurrent syncs cluster-wide
+    # Feb 2026: 16 → 1 to prevent OOM from parallel rsync processes
+    MAX_CONCURRENT_CLUSTER: int = _env_int("RINGRIFT_MAX_SYNCS_CLUSTER", 1)
 
     # Data sync interval (seconds) (Dec 2025: 300 → 120 for faster availability)
     DATA_SYNC_INTERVAL: float = _env_float("RINGRIFT_DATA_SYNC_INTERVAL", 120.0)
@@ -682,7 +684,8 @@ class BandwidthDefaults:
     Used by: app/coordination/bandwidth_manager.py
     """
     # Maximum concurrent transfers per host
-    MAX_CONCURRENT_TRANSFERS: int = _env_int("RINGRIFT_MAX_CONCURRENT_TRANSFERS", 3)
+    # Feb 2026: 3 → 1 to prevent OOM from parallel rsync processes
+    MAX_CONCURRENT_TRANSFERS: int = _env_int("RINGRIFT_MAX_CONCURRENT_TRANSFERS", 1)
 
     # Bandwidth measurement window (seconds)
     MEASUREMENT_WINDOW: int = _env_int("RINGRIFT_BANDWIDTH_MEASUREMENT_WINDOW", 300)

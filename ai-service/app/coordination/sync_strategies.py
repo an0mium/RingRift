@@ -98,8 +98,8 @@ class AutoSyncConfig:
     gossip_interval_seconds: int = 30  # December 2025: Reduced from 60s for faster replication
     exclude_hosts: list[str] = field(default_factory=list)
     skip_nfs_sync: bool = True
-    # Dec 2025: Increased for faster parallel sync (was 4)
-    max_concurrent_syncs: int = int(os.getenv("RINGRIFT_AUTO_SYNC_MAX_CONCURRENT", "6"))
+    # Feb 2026: Limited to 1 to prevent OOM from parallel rsyncs
+    max_concurrent_syncs: int = int(os.getenv("RINGRIFT_AUTO_SYNC_MAX_CONCURRENT", "1"))
     min_games_to_sync: int = 10
     bandwidth_limit_mbps: int = 20
     # Disk usage thresholds (from sync_routing)

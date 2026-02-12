@@ -537,7 +537,7 @@ class StreamingDataCollector:
 
         # Phase 3: Sync hosts with new data (increased concurrency for faster ingestion)
         total_new = 0
-        max_concurrent_syncs = 10  # Increased from 4 for 2.5x faster data ingestion
+        max_concurrent_syncs = 1  # Limited to 1 to prevent OOM from parallel rsyncs
 
         semaphore = asyncio.Semaphore(max_concurrent_syncs)
 

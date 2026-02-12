@@ -163,9 +163,10 @@ class OWCSyncConfig:
     bandwidth_limit_kbps: int = 50000  # 50 MB/s
 
     # Concurrency
+    # Feb 2026: 5 → 1 to prevent OOM from parallel rsync processes
     max_concurrent_syncs: int = field(
         default_factory=lambda: int(
-            os.environ.get("RINGRIFT_OWC_SYNC_MAX_CONCURRENT", "5")
+            os.environ.get("RINGRIFT_OWC_SYNC_MAX_CONCURRENT", "1")
         )
     )
 

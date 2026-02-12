@@ -83,7 +83,7 @@ class ClusterConsolidationConfig:
 
     # Sync settings
     sync_timeout_seconds: int = 120  # Per-node sync timeout
-    max_concurrent_syncs: int = 5  # Max parallel node syncs
+    max_concurrent_syncs: int = 1  # Feb 2026: 5 → 1 to prevent OOM
     remote_db_path: str = "ringrift/ai-service/data/games/selfplay.db"
 
     # Merge settings
@@ -106,7 +106,7 @@ class ClusterConsolidationConfig:
             cycle_interval_seconds=int(os.getenv("RINGRIFT_CLUSTER_CONSOLIDATION_INTERVAL", "300")),
             synced_dir=Path(os.getenv("RINGRIFT_CLUSTER_SYNCED_DIR", "data/games/cluster_synced")),
             canonical_dir=Path(os.getenv("RINGRIFT_CANONICAL_DIR", "data/games")),
-            max_concurrent_syncs=int(os.getenv("RINGRIFT_CLUSTER_MAX_CONCURRENT_SYNCS", "5")),
+            max_concurrent_syncs=int(os.getenv("RINGRIFT_CLUSTER_MAX_CONCURRENT_SYNCS", "1")),
             coordinator_only=os.getenv("RINGRIFT_CLUSTER_CONSOLIDATION_COORDINATOR_ONLY", "true").lower() == "true",
         )
 

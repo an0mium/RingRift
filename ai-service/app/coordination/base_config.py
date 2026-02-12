@@ -254,7 +254,7 @@ class SyncDaemonConfig(BaseCoordinationConfig):
 
     # Sync-specific fields
     sync_timeout_seconds: float = 300.0
-    max_concurrent_syncs: int = 3
+    max_concurrent_syncs: int = 1  # Feb 2026: 3 → 1 to prevent OOM
     retry_count: int = 3
     retry_delay_seconds: float = 5.0
 

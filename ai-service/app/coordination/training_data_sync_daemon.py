@@ -131,9 +131,8 @@ class TrainingDataSyncConfig:
     emit_events: bool = True
 
     # Maximum concurrent sync operations
-    # January 5, 2026: Added for parallel sync to reduce training latency.
-    # Default 5 balances throughput vs network saturation.
-    max_concurrent_syncs: int = 5
+    # Feb 2026: 5 → 1 to prevent OOM from parallel rsync processes
+    max_concurrent_syncs: int = 1
 
     @classmethod
     def from_env(cls) -> "TrainingDataSyncConfig":
@@ -149,7 +148,7 @@ class TrainingDataSyncConfig:
                 os.environ.get("RINGRIFT_DATA_SYNC_TIMEOUT", "1800")
             ),
             max_concurrent_syncs=int(
-                os.environ.get("RINGRIFT_DATA_SYNC_MAX_CONCURRENT", "5")
+                os.environ.get("RINGRIFT_DATA_SYNC_MAX_CONCURRENT", "1")
             ),
         )
 

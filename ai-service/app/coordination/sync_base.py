@@ -228,15 +228,14 @@ class SyncManagerBase(ABC):
 
     async def sync_with_cluster(
         self,
-        max_concurrent: int = 5,
+        max_concurrent: int = 1,
     ) -> dict[str, bool]:
         """Sync with all nodes in the cluster.
 
-        December 29, 2025: Parallelized sync operations for improved throughput.
         Uses asyncio.gather with semaphore to limit concurrent connections.
 
         Args:
-            max_concurrent: Maximum concurrent sync operations (default 5)
+            max_concurrent: Maximum concurrent sync operations (Feb 2026: 5 → 1 to prevent OOM)
 
         Returns:
             Dict mapping node -> success status

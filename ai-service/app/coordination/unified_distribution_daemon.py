@@ -157,7 +157,7 @@ class DistributionConfig:
     use_http_distribution: bool = True
     http_port: int = 8767
     http_timeout_seconds: float = 120.0
-    http_concurrent_uploads: int = 5
+    http_concurrent_uploads: int = 1  # Feb 2026: 5 → 1 to prevent OOM
     fallback_to_rsync: bool = True
 
     # Checksum verification

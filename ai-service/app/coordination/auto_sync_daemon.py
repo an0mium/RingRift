@@ -1050,8 +1050,8 @@ class AutoSyncDaemon(
                 logger.debug(f"[AutoSyncDaemon] No databases to sync to {node_id}")
                 return True  # No data to sync is not a failure
 
-            # December 29, 2025: Sync databases in parallel with limited concurrency
-            max_concurrent = 3  # Limit concurrent transfers to avoid overloading node
+            # Feb 2026: 3 → 1 to prevent OOM from parallel rsync processes
+            max_concurrent = 1
             semaphore = asyncio.Semaphore(max_concurrent)
 
             async def sync_db_with_limit(db: Path) -> bool:

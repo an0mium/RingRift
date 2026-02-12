@@ -130,9 +130,9 @@ class SyncPlannerConfig:
     # Dec 28, 2025: Use centralized PeerDefaults.SUSPECT_TIMEOUT (30s)
     # Doubled to 60s for clock skew tolerance
     sync_mtime_tolerance_seconds: int = int(PeerDefaults.SUSPECT_TIMEOUT * 2)
-    # Jan 2026: Limit concurrent rsync operations to prevent memory pressure
-    # Each rsync can consume 7-10% RAM for large DBs; default of 2 keeps usage ~15-20%
-    max_concurrent_syncs: int = int(os.environ.get("RINGRIFT_MAX_CONCURRENT_SYNCS", "2"))
+    # Feb 2026: Limited to 1 to prevent OOM from parallel rsyncs
+    # Each rsync can consume 7-10% RAM for large DBs; sequential keeps usage minimal
+    max_concurrent_syncs: int = int(os.environ.get("RINGRIFT_MAX_CONCURRENT_SYNCS", "1"))
     # Jan 2026: Stagger large DB syncs by this many seconds
     large_db_sync_stagger_seconds: float = float(os.environ.get("RINGRIFT_LARGE_DB_SYNC_STAGGER", "60"))
 

@@ -110,7 +110,7 @@ class DataPlaneConfig:
     # Sync settings
     min_replication_factor: int = 3
     target_replication_factor: int = 5
-    max_concurrent_syncs: int = 5
+    max_concurrent_syncs: int = 1  # Feb 2026: 5 → 1 to prevent OOM
 
     # S3 backup settings
     s3_enabled: bool = False
