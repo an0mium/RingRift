@@ -292,7 +292,8 @@ class StatusHandlersMixin:
 
         Also identifies misrouted nodes (GPU nodes running CPU-bound work).
         """
-        self._update_self_info()
+        # Feb 2026: Use to_thread to avoid blocking event loop (subprocess.run in count_local_jobs)
+        await asyncio.to_thread(self._update_self_info)
 
         async with NonBlockingAsyncLockWrapper(self.peers_lock, "peers_lock", timeout=5.0):
             peers_snapshot = list(self.peers.values())

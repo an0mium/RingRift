@@ -82,8 +82,10 @@ class ClusterApiHandlersMixin:
                     return proxied
 
             # Ensure local resource stats are fresh for dashboard consumers.
+            # Feb 2026: Use asyncio.to_thread to avoid blocking the event loop
+            # (_update_self_info calls subprocess.run for pgrep which blocks).
             with contextlib.suppress(Exception):
-                self._update_self_info()
+                await asyncio.to_thread(self._update_self_info)
 
             is_leader = self._is_leader()
             effective_leader = self._get_leader_peer()
@@ -391,7 +393,7 @@ class ClusterApiHandlersMixin:
             if not self._is_leader():
                 return await self._proxy_to_leader(request)
 
-            self._update_self_info()
+            await asyncio.to_thread(self._update_self_info)
 
             # Collect health from all peers
             unhealthy_nodes = []

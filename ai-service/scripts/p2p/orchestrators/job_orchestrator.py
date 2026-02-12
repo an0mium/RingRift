@@ -647,14 +647,24 @@ class JobOrchestrator(BaseOrchestrator):
     # Local Job Counting
     # =========================================================================
 
+    _count_local_jobs_cache: tuple[int, int] = (0, 0)
+    _count_local_jobs_cache_time: float = 0.0
+    _COUNT_LOCAL_JOBS_CACHE_TTL: float = 10.0  # seconds
+
     def count_local_jobs(self) -> tuple[int, int]:
         """Count running selfplay and training jobs on this node.
 
         Jan 29, 2026: Implementation moved from P2POrchestrator._count_local_jobs().
+        Feb 12, 2026: Added 10s TTL cache to prevent blocking the async event loop.
+        The subprocess.run() calls for pgrep block for 50-200ms each, and this method
+        is called from multiple async HTTP handlers (status, cluster_api, gossip).
 
         Returns:
             Tuple of (selfplay_count, training_count).
         """
+        now = time.time()
+        if now - self._count_local_jobs_cache_time < self._COUNT_LOCAL_JOBS_CACHE_TTL:
+            return self._count_local_jobs_cache
         def _pid_alive(pid: int) -> bool:
             try:
                 os.kill(pid, 0)
@@ -810,7 +820,10 @@ class JobOrchestrator(BaseOrchestrator):
         except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError, KeyError, IndexError, AttributeError, ImportError):
             pass
 
-        return len(selfplay_pids), len(training_pids)
+        result = (len(selfplay_pids), len(training_pids))
+        self._count_local_jobs_cache = result
+        self._count_local_jobs_cache_time = time.time()
+        return result
 
     # =========================================================================
     # Stale Process Cleanup
