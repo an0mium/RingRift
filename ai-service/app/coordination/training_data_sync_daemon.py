@@ -674,6 +674,16 @@ class TrainingDataSyncDaemon(HandlerBase):
 
         Checks for pending training jobs and syncs data for each in parallel.
         """
+        # Feb 2026: Skip training data sync on coordinator nodes to prevent
+        # NPZ files from accumulating on local disk
+        try:
+            from app.config.env import env
+            if env.is_coordinator:
+                logger.debug("Training data sync disabled on coordinator node")
+                return
+        except ImportError:
+            pass
+
         try:
             # Check for pending training jobs
             pending = await self._get_pending_training_configs()

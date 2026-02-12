@@ -206,6 +206,16 @@ class DataConsolidationDaemon(HandlerBase):
         This is called by BaseDaemon's _protected_loop() with proper
         error handling and interval sleeping.
         """
+        # Feb 2026: Skip consolidation on coordinator nodes to prevent
+        # local disk from filling with canonical_*.db files (100GB+)
+        try:
+            from app.config.env import env
+            if not env.consolidation_enabled:
+                logger.debug("Consolidation disabled on this node (coordinator mode)")
+                return
+        except ImportError:
+            pass
+
         await self._process_pending_consolidations()
 
     async def _subscribe_to_events(self) -> None:

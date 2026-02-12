@@ -503,6 +503,16 @@ class DistributedNNGauntlet:
         Returns:
             GauntletResult with evaluation outcomes
         """
+        # Feb 2026: Skip gauntlet on coordinator nodes to prevent
+        # tournament_*.db and gauntlet_*.db from accumulating locally
+        try:
+            from app.config.env import env
+            if not env.gauntlet_enabled:
+                logger.warning("Gauntlet disabled on coordinator node")
+                return GauntletResult(config_key=config_key, status="skipped")
+        except ImportError:
+            pass
+
         self._init_gauntlet_tables()
 
         # Clean up any stale runs before starting (prevents deadlock)

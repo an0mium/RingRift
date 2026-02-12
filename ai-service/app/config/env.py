@@ -412,6 +412,22 @@ class RingRiftEnv:
             return False
         return self._get_node_config_bool("export_enabled", default=True)
 
+    @cached_property
+    def consolidation_enabled(self) -> bool:
+        """Whether data consolidation is enabled on this node.
+
+        Coordinators should NOT consolidate data locally as it creates
+        large canonical_*.db files that fill up disk space.
+        """
+        explicit = os.environ.get("RINGRIFT_CONSOLIDATION_ENABLED", "").lower()
+        if explicit in ("0", "false", "no"):
+            return False
+        if explicit in ("1", "true", "yes"):
+            return True
+        if self.is_coordinator:
+            return False
+        return self._get_node_config_bool("consolidation_enabled", default=True)
+
     def _check_coordinator_from_config(self) -> bool:
         """Check distributed_hosts.yaml for coordinator role."""
         try:

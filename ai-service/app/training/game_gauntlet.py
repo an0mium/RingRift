@@ -2134,6 +2134,20 @@ def run_baseline_gauntlet(
     """
     if model_path is None and model_getter is None:
         raise ValueError("Must provide either model_path or model_getter")
+
+    # Feb 2026: Skip gauntlet on coordinator nodes to prevent gauntlet_*.db
+    # files from accumulating on local disk (60GB+ observed)
+    try:
+        from app.config.env import env
+        if not env.gauntlet_enabled:
+            logger.warning("[gauntlet] Gauntlet disabled on this node (coordinator mode)")
+            result = GauntletResult()
+            result.passed = False
+            result.failure_reason = "Gauntlet disabled on coordinator node"
+            return result
+    except ImportError:
+        pass
+
     _ensure_game_modules()
 
     # Jan 2026: Default to parallel execution if not specified
