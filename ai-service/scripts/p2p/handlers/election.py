@@ -552,6 +552,15 @@ class ElectionHandlersMixin(BaseP2PHandler):
                 # This fixes the is_leader desync where work queue showed is_leader=False
                 self._forced_leader_override = True
 
+                # Feb 2026: Sync ULSM state machine to prevent reconciliation desync
+                if hasattr(self, "_leadership_sm") and self._leadership_sm:
+                    try:
+                        from scripts.p2p.leadership_state_machine import LeaderState
+                        self._leadership_sm._state = LeaderState.LEADER
+                        self._leadership_sm._leader_id = self.node_id
+                    except ImportError:
+                        pass
+
                 self._increment_cluster_epoch()
                 self._save_state()
 
@@ -927,6 +936,16 @@ class ElectionHandlersMixin(BaseP2PHandler):
                     f"epoch {epoch} < current {current_epoch}"
                 )
                 return self.json_response({"accepted": False, "reason": "stale_epoch"})
+
+            # Feb 2026: Don't adopt a different leader if forced override is active
+            forced_override = getattr(self, "_forced_leader_override", False)
+            lease_valid = time.time() < getattr(self, "leader_lease_expires", 0)
+            if forced_override and lease_valid and leader_id != self.node_id:
+                logger.warning(
+                    f"[Election] Rejecting leader announcement for {leader_id} "
+                    f"(forced leader override active for {self.node_id})"
+                )
+                return self.json_response({"accepted": False, "reason": "forced_override_active"})
 
             # Update leader immediately
             self.leader_id = leader_id

@@ -945,6 +945,18 @@ class LeadershipOrchestrator(BaseOrchestrator):
 
         # Case 2: ULSM says leader, gossip disagrees
         if ulsm_state == LeaderState.LEADER and consensus_leader and consensus_leader != node_id:
+            # Feb 2026: Don't step down if forced leader override is active with valid lease
+            forced_override = getattr(self._p2p, "_forced_leader_override", False)
+            lease_valid = time.time() < getattr(self._p2p, "leader_lease_expires", 0)
+            if forced_override and lease_valid:
+                self._log_info(
+                    f"[LeaderReconciliation] Gossip says {consensus_leader} is leader "
+                    f"(agreement={agreement}/{total_voters}={consensus_ratio:.0%}) "
+                    f"but forced leader override active — ignoring consensus, broadcasting claim"
+                )
+                self.broadcast_leadership_claim()
+                return False
+
             self._log_warning(
                 f"[LeaderReconciliation] Gossip says {consensus_leader} is leader "
                 f"(agreement={agreement}/{total_voters}={consensus_ratio:.0%}); stepping down"

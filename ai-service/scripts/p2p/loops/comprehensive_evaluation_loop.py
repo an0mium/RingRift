@@ -304,7 +304,23 @@ class ComprehensiveEvaluationLoop(BaseLoop):
                     result.job_id = f"eval_{combo.model_hash}_{combo.harness}"
                     return result
 
-            # Fallback: run locally via gauntlet
+            # Coordinators must not run evaluations locally - they block the
+            # event loop and ultimately fail anyway since game_gauntlet refuses
+            # to run on coordinator nodes.
+            try:
+                from app.config.env import env
+
+                if env.is_coordinator:
+                    result.error = "Coordinator node - local evaluation skipped"
+                    logger.debug(
+                        f"[{self.name}] Skipping local evaluation on coordinator: "
+                        f"{combo.model_path}"
+                    )
+                    return result
+            except ImportError:
+                pass
+
+            # Fallback: run locally via gauntlet (non-coordinator GPU nodes only)
             gauntlet = self._get_gauntlet()
 
             # Extract board_type and num_players from config_key
