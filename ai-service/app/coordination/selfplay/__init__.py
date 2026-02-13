@@ -43,6 +43,11 @@ from app.coordination.selfplay.node_targeting import NodeTargetingMixin
 from app.coordination.selfplay.idle_injection import IdleWorkInjectionMixin
 from app.coordination.selfplay.architecture_tracker_mixin import ArchitectureTrackerMixin
 
+# February 2026: Additional mixin extractions
+from app.coordination.selfplay.freshness_fetcher import FreshnessFetcherMixin
+from app.coordination.selfplay.core_event_mixin import CoreEventHandlerMixin
+from app.coordination.selfplay.allocation_mixin import AllocationMixin
+
 # Event handler documentation and registry
 from app.coordination.selfplay.event_handlers import (
     CORE_EVENTS,
@@ -123,6 +128,10 @@ __all__ = [
     "NodeTargetingMixin",
     "IdleWorkInjectionMixin",
     "ArchitectureTrackerMixin",
+    # Mixins (Feb 2026)
+    "FreshnessFetcherMixin",
+    "CoreEventHandlerMixin",
+    "AllocationMixin",
     # Event registry (Sprint 17.3)
     "CORE_EVENTS",
     "QUALITY_EVENTS",

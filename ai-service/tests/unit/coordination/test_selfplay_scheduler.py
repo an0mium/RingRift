@@ -327,7 +327,7 @@ class TestTrainingOnlyNodes:
 
         scheduler = get_selfplay_scheduler()
         with patch(
-            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            "app.coordination.selfplay.node_targeting.get_cluster_nodes",
             return_value=mock_nodes,
         ):
             assert scheduler._is_selfplay_enabled("training-only-node") is False
@@ -339,7 +339,7 @@ class TestTrainingOnlyNodes:
         """Test that config errors default to allowing selfplay."""
         scheduler = get_selfplay_scheduler()
         with patch(
-            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            "app.coordination.selfplay.node_targeting.get_cluster_nodes",
             side_effect=Exception("Config error"),
         ):
             # Should return True (allow selfplay) on error
@@ -360,7 +360,7 @@ class TestTrainingOnlyNodes:
         }
 
         with patch(
-            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            "app.coordination.selfplay.node_targeting.get_cluster_nodes",
             return_value=mock_cluster_nodes,
         ):
             # Check selfplay enabled status for each node
@@ -396,7 +396,7 @@ class TestTrainingOnlyNodes:
         }
 
         with patch(
-            "app.coordination.selfplay_scheduler.get_cluster_nodes",
+            "app.coordination.selfplay.node_targeting.get_cluster_nodes",
             return_value=mock_cluster_nodes,
         ):
             # Build the set manually to verify
