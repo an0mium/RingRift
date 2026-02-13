@@ -153,14 +153,17 @@ def load_agent(agent_id: str, player_idx: int, board_type: str, num_players: int
         return HeuristicAI(player_idx, config=config)
     elif agent_id.startswith('heuristic:'):
         weight_str = agent_id.split(':')[1]
-        weights = [float(w) for w in weight_str.split(',')]
-        weight_names = [
-            "material_weight", "ring_count_weight", "stack_height_weight",
-            "center_control_weight", "territory_weight", "mobility_weight",
-            "line_potential_weight", "defensive_weight",
-        ]
-        weight_dict = dict(zip(weight_names, weights))
-        config.heuristic_weights = weight_dict
+        try:
+            weights = [float(w) for w in weight_str.split(',')]
+            weight_names = [
+                "material_weight", "ring_count_weight", "stack_height_weight",
+                "center_control_weight", "territory_weight", "mobility_weight",
+                "line_potential_weight", "defensive_weight",
+            ]
+            weight_dict = dict(zip(weight_names, weights))
+            config.heuristic_weights = weight_dict
+        except (ValueError, TypeError):
+            pass  # Fall through with default heuristic weights
         return HeuristicAI(player_idx, config=config)
     elif agent_id.startswith('model:') or agent_id.startswith('canonical_'):
         return HeuristicAI(player_idx, config=config)

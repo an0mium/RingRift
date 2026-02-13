@@ -8769,7 +8769,10 @@ class P2POrchestrator(
                     if Path(canonical_path).exists():
                         agent_ids = [canonical_path]
                     # Add heuristic baseline for comparison
-                    agent_ids.append(f"heuristic:{config_key}")
+                    # Note: use plain "heuristic" not "heuristic:config_key" - the
+                    # colon-prefixed form expects comma-separated float weights, not
+                    # a config key. Board type and num_players are passed separately.
+                    agent_ids.append("heuristic")
 
                 if len(agent_ids) < 2:
                     logger.warning(
