@@ -103,21 +103,25 @@ MAX_TARGET_GAMES = 500_000
 # More players = longer games = need lower budget to keep game duration sane.
 
 LARGE_BOARD_BUDGET_CAPS: dict[str, dict[str, int]] = {
-    "square19": {"bootstrap": 100, "mature": 300},   # 361 cells
+    "square19": {"bootstrap": 200, "mature": 500},   # 361 cells (raised from 100/300)
     "hexagonal": {"bootstrap": 64, "mature": 200},   # 469 cells
 }
 
 # Player count scaling for budget caps.
 # More players = exponentially more moves per game = need lower budget.
 # 4p hexagonal averages 1233 moves vs ~300 for 2p.
+# Feb 2026: Raised 4p from 0.5→0.65 - budget 50 was too low for meaningful
+# MCTS search on square19_4p, producing near-random training data.
 PLAYER_BUDGET_SCALING: dict[int, float] = {
     2: 1.0,    # 2-player: baseline
     3: 0.67,   # 3-player: ~50% more moves per game
-    4: 0.5,    # 4-player: ~4x more moves per game
+    4: 0.65,   # 4-player: ~4x more moves per game (raised from 0.5)
 }
 
 # Game count threshold for "mature" vs "bootstrap" phase
-LARGE_BOARD_MATURITY_THRESHOLD = 2000
+# Feb 2026: Lowered from 2000→500. square19 configs were permanently stuck
+# in bootstrap mode because they couldn't accumulate 2000 games at low budgets.
+LARGE_BOARD_MATURITY_THRESHOLD = 500
 
 
 def get_board_adjusted_budget(
@@ -145,11 +149,11 @@ def get_board_adjusted_budget(
         >>> get_board_adjusted_budget("hexagonal", 300, 150, 2)  # 2p bootstrap
         64
         >>> get_board_adjusted_budget("hexagonal", 300, 150, 4)  # 4p bootstrap
-        32
+        41
         >>> get_board_adjusted_budget("hexagonal", 800, 3000, 2)  # 2p mature
         200
         >>> get_board_adjusted_budget("hexagonal", 800, 3000, 4)  # 4p mature
-        100
+        130
         >>> get_board_adjusted_budget("hex8", 3200, 150, 4)  # Small board, no cap
         3200
     """
