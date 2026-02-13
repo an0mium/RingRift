@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from scripts.p2p.db_helpers import p2p_db_connection
+
 if TYPE_CHECKING:
     pass
 
@@ -309,21 +311,19 @@ class DataSyncCoordinator:
                         continue
 
                     # Quick game count query
-                    conn = sqlite3.connect(str(db_file), timeout=5.0)
-                    try:
-                        cursor = conn.execute(
-                            "SELECT COUNT(*) FROM games WHERE status = 'completed'"
-                        )
-                        count = cursor.fetchone()[0]
-                        games_by_config[config_key] = (
-                            games_by_config.get(config_key, 0) + count
-                        )
-                        total_games += count
-                    except sqlite3.OperationalError:
-                        # Table doesn't exist or different schema
-                        pass
-                    finally:
-                        conn.close()
+                    with p2p_db_connection(db_file, timeout=5.0) as conn:
+                        try:
+                            cursor = conn.execute(
+                                "SELECT COUNT(*) FROM games WHERE status = 'completed'"
+                            )
+                            count = cursor.fetchone()[0]
+                            games_by_config[config_key] = (
+                                games_by_config.get(config_key, 0) + count
+                            )
+                            total_games += count
+                        except sqlite3.OperationalError:
+                            # Table doesn't exist or different schema
+                            pass
                 except Exception:
                     continue
 

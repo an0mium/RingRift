@@ -1785,12 +1785,13 @@ class UnifiedDataRegistry:
                         # Get leader URL from peers
                         peers = status.get("peers", {})
                         leader_peer = peers.get(leader_id, {})
-                        leader_url = leader_peer.get("http_url") or leader_peer.get("url")
-                        if leader_url:
-                            return leader_url
-                        # Fallback: construct from leader_id if it looks like an IP
-                        if leader_id and "." in leader_id:
-                            return f"http://{leader_id}:8770"
+                        # Construct URL from host/port/scheme fields
+                        # (P2P status returns these as separate fields, not a pre-built URL)
+                        host = leader_peer.get("host")
+                        if host:
+                            port = leader_peer.get("port", 8770)
+                            scheme = leader_peer.get("scheme", "http")
+                            return f"{scheme}://{host}:{port}"
         except Exception as e:
             logger.debug(f"[UnifiedDataRegistry] Failed to discover leader from local P2P: {e}")
 

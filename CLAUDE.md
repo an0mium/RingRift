@@ -76,46 +76,8 @@ This orchestrates:
 
 - **SelfplayScheduler**: Priority-based selfplay allocation (staleness, Elo velocity, curriculum weights)
 - **DaemonManager**: 132 daemon types for sync, training, evaluation (116 active, 16 deprecated)
-- **HandlerBase**: Unified daemon lifecycle (100% coverage, all daemon files migrated)
 - **FeedbackLoopController**: Training feedback signals and curriculum adjustments
-- **DataPipelineOrchestrator**: Export → training → evaluation → promotion
-
-**Sprint 17.9 Status (Jan 5, 2026 - Session 17.23):**
-
-- P2P Network: A- (94/100) - 22 P2P loops with health_check(), 11 recovery daemons
-- Training Loop: A (95/100) - All 5 feedback loops wired, architecture selection complete
-- Code Quality: 341 modules, 984 tests, 99.5% coverage, all async SQLite wrapped
-- Event Emission: UNIFIED - 270+ calls migrated to safe_emit_event
-- 48h Autonomous: VERIFIED - All critical infrastructure operational
-
-**Session 17.4 Deep Assessment (Jan 4, 2026):**
-
-| Component     | Grade       | Key Metrics                                                              |
-| ------------- | ----------- | ------------------------------------------------------------------------ |
-| P2P Network   | A- (91/100) | 24 P2P + 233 coordination health checks, 9 CB types, 70s leader recovery |
-| Training Loop | A (95/100)  | 7 stages, 5 feedback loops, 100% critical event coverage                 |
-| Consolidation | 95-98%      | 330 modules, 75 HandlerBase classes, 15 daemons pending migration        |
-
-**Key Infrastructure Improvements:**
-
-- **LeaderProbeLoop**: 10s probes → 60s failover (down from 60-180s gossip timeout)
-- **Quorum Health Levels**: HEALTHY/DEGRADED/MINIMUM/LOST for graceful degradation
-- **Pull Training Endpoint**: `/work/claim_training` for GPU worker job claiming
-- **AutonomousQueueLoop**: Proper BaseLoop inheritance for lifecycle management
-
-**Session 17.23 Verification Results:**
-
-All high-priority improvements from exploration agents were found to be **already implemented**:
-
-- ✅ Blocking SQLite calls: All wrapped in `asyncio.to_thread()` (275 usages across 76 files)
-- ✅ QUALITY_SCORE_UPDATED: Event exists at `data_events.py:219`, emitters in 4+ files, subscribers in 5+ files
-- ✅ Architecture Selection: Complete with `get_allocation_weights()` and tracker-informed selection
-
-**Lower Priority Improvements** (deferred):
-
-- Large file decomposition (selfplay_scheduler, feedback_loop_controller already well-structured)
-- Custom health_check() for 6 P2P loops (base class provides sufficient coverage)
-- Circuit breaker preemptive recovery (already 94% complete)
+- **DataPipelineOrchestrator**: Export -> training -> evaluation -> promotion
 
 ## Board Configurations
 
@@ -180,35 +142,17 @@ python scripts/check_ts_python_replay_parity.py --db data/games/my_games.db
 
 ## Cluster Infrastructure
 
-RingRift uses a P2P mesh network for distributed training across ~41 configured nodes.
+RingRift uses a P2P mesh network for distributed training across ~41 configured nodes, ~1.5TB GPU memory.
 
-**Infrastructure Status (Verified Jan 4, 2026 - Session 17.10):**
-
-- P2P Network: GREEN - All 11 Lambda GH200 nodes online via Tailscale
-- Training Loop: GREEN - All 12 canonical models trained, 7-stage pipeline operational
-- Work Queue: HEALTHY - Hybrid push/pull model, /work/claim_training endpoint active
-- Recovery: 11 recovery daemons, <2.5 min MTTR, LeaderProbeLoop providing 70s failover
-
-### Active Cluster (Verified Jan 4, 2026 via Lambda API + Tailscale)
-
-| Provider     | Nodes | GPUs                                        | Status  |
-| ------------ | ----- | ------------------------------------------- | ------- |
-| Lambda GH200 | 11    | GH200 96GB × 11 (all online via Tailscale)  | Active  |
-| Vast.ai      | 14    | RTX 5090/5080, 4090, 3090, A40, 3060/4060Ti | Mixed   |
-| RunPod       | 6     | H100, A100 (4x), L40S                       | Partial |
-| Nebius       | 3     | H100 80GB (2x), L40S backbone               | Active  |
-| Vultr        | 2     | A100 20GB vGPU                              | Active  |
-| Hetzner      | 3     | CPU only (P2P voters)                       | Active  |
-| Local        | 2     | Mac Studio M3 (coordinator)                 | Active  |
-
-**Total**: ~41 configured nodes, ~1.5TB GPU memory
-
-**Lambda GH200 Roles** (per `distributed_hosts.yaml`):
-
-- GH200-1, GH200-2: Selfplay-only (`role: gpu_selfplay`)
-- GH200-3 through GH200-11, GH200-training: Selfplay + Training (`role: gpu_training_primary`)
-
-### Cluster Management
+| Provider     | Nodes | GPUs                        | Status |
+| ------------ | ----- | --------------------------- | ------ |
+| Lambda GH200 | 11    | GH200 96GB x 11             | Active |
+| Vast.ai      | 14    | RTX 5090/4090/3090, A40     | Mixed  |
+| RunPod       | 6     | H100, A100x5, L40S          | Active |
+| Nebius       | 3     | H100 80GBx2, L40S           | Active |
+| Vultr        | 2     | A100 20GB vGPU              | Active |
+| Hetzner      | 3     | CPU only (P2P voters)       | Active |
+| Local        | 2     | Mac Studio M3 (coordinator) | Active |
 
 ```bash
 # Check cluster status via P2P
@@ -217,31 +161,9 @@ curl -s http://localhost:8770/status | python3 -c 'import sys,json; d=json.load(
 # Or use the monitor
 cd ai-service && python -m app.distributed.cluster_monitor
 
-# Update all nodes to latest code (NEW - Dec 2025)
+# Update all nodes to latest code
 cd ai-service && python scripts/update_all_nodes.py --restart-p2p
 ```
-
-**Update Script** - Update all nodes in parallel:
-
-```bash
-# Update all nodes
-python scripts/update_all_nodes.py
-
-# With P2P restart
-python scripts/update_all_nodes.py --restart-p2p
-
-# Dry run preview
-python scripts/update_all_nodes.py --dry-run
-```
-
-**P2P Stability Fixes** (commits 1270b64, dade90f, 6649601):
-
-- Pre-flight dependency validation (aiohttp, psutil, yaml)
-- Gzip magic byte detection in gossip handler
-- 120s startup grace period for slow state loading
-- SystemExit handling in task wrapper
-- /dev/shm fallback for macOS compatibility
-- Clear port binding error messages
 
 See `ai-service/config/distributed_hosts.yaml` for full cluster configuration.
 
@@ -254,8 +176,6 @@ See `ai-service/config/distributed_hosts.yaml` for full cluster configuration.
 | `v5-heavy`       | ~8-12M     | Wider with heuristic features (49 inputs) |
 | `v5-heavy-large` | ~25-35M    | Scaled v5-heavy for complex boards        |
 
-**Note**: "v6" was a deprecated alias for v5-heavy-large and has been removed (Dec 2025).
-
 ## Key Features
 
 - **GPU Selfplay**: Vectorized game simulation on CUDA (`app/ai/gpu_parallel_games.py`)
@@ -263,8 +183,9 @@ See `ai-service/config/distributed_hosts.yaml` for full cluster configuration.
 - **Transfer Learning**: Train 4-player models from 2-player checkpoints
 - **Parity Testing**: Verify Python engine matches TypeScript rules
 - **48-Hour Autonomous Operation**: Cluster runs unattended with automatic recovery
+- **5 Feedback Loops**: Quality->Training, Elo->Selfplay, Regression->Curriculum, Loss->Exploration, Promotion->Curriculum
 
-## 48-Hour Autonomous Operation (Jan 2026)
+## 48-Hour Autonomous Operation
 
 The cluster runs 48+ hours unattended with comprehensive resilience:
 
@@ -276,22 +197,12 @@ The cluster runs 48+ hours unattended with comprehensive resilience:
 | `MEMORY_MONITOR`    | Prevents OOM via proactive GPU VRAM tracking |
 | `LeaderProbeLoop`   | Fast leader failure detection (70s recovery) |
 
-**Key Improvements (Jan 4, 2026 - Session 17.4):**
-
-- **LeaderProbeLoop**: 10s probes, 6 consecutive failures = 60s → forced election
-- **Degraded-Mode Training**: QuorumHealthLevel allows training in MINIMUM/DEGRADED states
-- **Pull-Based Training Jobs**: `/work/claim_training` endpoint for GPU worker resilience
-- **AutonomousQueueLoop**: Proper BaseLoop inheritance with lifecycle management
-- 257+ health check mechanisms (24 P2P + 233 coordination layer)
-- 5 feedback loops: Quality→Training, Elo→Selfplay, Regression→Curriculum, Loss→Exploration, Promotion→Curriculum
-
 **Resilience Features:**
 
 - Adaptive circuit breaker cascade prevention (9 CB types with 4-tier escalation)
 - Graceful degradation with stale training data after sync failures
-- Multi-transport failover (Tailscale → SSH → Base64 → HTTP)
+- Multi-transport failover (Tailscale -> SSH -> Base64 -> HTTP)
 - Automatic parity gate bypass on cluster nodes without Node.js
-- Partition healing with gossip state injection and convergence validation
 
 ## Known Issues
 
@@ -315,4 +226,6 @@ python scripts/check_ts_python_replay_parity.py --db data/games/canonical_hex8.d
 
 - `ai-service/CLAUDE.md` - Detailed AI service context
 - `ai-service/AGENTS.md` - Coding guidelines for AI service
+- `ai-service/docs/architecture/` - Architecture documentation
+- `ai-service/docs/QUICK_START_TRAINING.md` - Training quick-start guide
 - `AGENTS.md` - Root-level coding guidelines

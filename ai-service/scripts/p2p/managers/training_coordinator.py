@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from aiohttp import ClientTimeout, web
     from ..models import TrainingJob, TrainingThresholds, NodeInfo
 
+from scripts.p2p.db_helpers import p2p_db_connection
 from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
 
 logger = logging.getLogger(__name__)
@@ -1248,22 +1249,21 @@ class TrainingCoordinator(EventSubscriptionMixin):
         num_players = int(parts[1].rstrip("p"))
 
         try:
-            conn = sqlite3.connect(str(elo_db_path))
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT participant_id FROM elo_ratings
-                WHERE board_type = ? AND num_players = ? AND archived_at IS NULL
-                ORDER BY rating
-            """, (board_type, num_players))
-            rows = cursor.fetchall()
-            conn.close()
+            with p2p_db_connection(elo_db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT participant_id FROM elo_ratings
+                    WHERE board_type = ? AND num_players = ? AND archived_at IS NULL
+                    ORDER BY rating
+                """, (board_type, num_players))
+                rows = cursor.fetchall()
 
-            if not rows:
-                return None
+                if not rows:
+                    return None
 
-            # Return median model (middle of sorted list)
-            median_idx = len(rows) // 2
-            return rows[median_idx][0]
+                # Return median model (middle of sorted list)
+                median_idx = len(rows) // 2
+                return rows[median_idx][0]
         except Exception as e:
             logger.error(f"getting median model: {e}")
             return None
@@ -1283,14 +1283,13 @@ class TrainingCoordinator(EventSubscriptionMixin):
             return None
 
         try:
-            conn = sqlite3.connect(str(elo_db_path))
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT model_path FROM participants
-                WHERE participant_id = ?
-            """, (participant_id,))
-            row = cursor.fetchone()
-            conn.close()
+            with p2p_db_connection(elo_db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT model_path FROM participants
+                    WHERE participant_id = ?
+                """, (participant_id,))
+                row = cursor.fetchone()
 
             if row and row[0]:
                 model_path = row[0]
@@ -1503,15 +1502,14 @@ class TrainingCoordinator(EventSubscriptionMixin):
                 db_path: str, mid: str, bt: str, np: int, rsn: str
             ) -> None:
                 """Update archived status - runs in thread pool."""
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE elo_ratings
-                    SET archived_at = ?, archive_reason = ?
-                    WHERE participant_id = ? AND board_type = ? AND num_players = ?
-                """, (time.time(), rsn, mid, bt, np))
-                conn.commit()
-                conn.close()
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE elo_ratings
+                        SET archived_at = ?, archive_reason = ?
+                        WHERE participant_id = ? AND board_type = ? AND num_players = ?
+                    """, (time.time(), rsn, mid, bt, np))
+                    conn.commit()
 
             try:
                 await asyncio.to_thread(

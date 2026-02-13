@@ -122,6 +122,13 @@ from urllib.parse import urlparse
 # P2P Managers - Phase 1 Consolidation (Jan 2026)
 from scripts.p2p.managers.quorum_manager import QuorumManager, QuorumConfig
 from scripts.p2p.orchestrators.base_orchestrator import get_job_attr, set_job_attr
+from scripts.p2p.config.orchestrator_config import (
+    OrchestratorConfig,
+    SyncConfig,
+    TrainingConfig,
+    PartitionConfig,
+    SafeguardConfig,
+)
 
 if TYPE_CHECKING:
     from app.coordination.unified_queue_populator import UnifiedQueuePopulator as QueuePopulator
@@ -194,8 +201,6 @@ def get_work_queue():
 # Automation managers (lazy imports to avoid circular deps)
 _health_manager = None  # December 2025: Consolidated from recovery_manager
 _predictive_alerts = None
-# Dec 2025: Removed unused _tier_calibrator global (never used)
-# Dec 28, 2025: Removed unused get_auto_scaler() - never called
 
 def get_health_manager():
     """Get the health manager singleton (lazy load).
@@ -250,8 +255,6 @@ def get_predictive_alerts():
         except ImportError:
             _predictive_alerts = None
     return _predictive_alerts
-
-# Dec 2025: Removed unused get_tier_calibrator() function
 
 
 # SWIM membership manager for leaderless gossip-based membership
@@ -1264,9 +1267,6 @@ except ImportError:
     get_ssh_transport = None
     probe_vast_nodes_via_ssh = None
 
-# Improvement cycle manager for automated training
-# Note: ImprovementCycleManager is deprecated - unified_ai_loop.py is the new approach
-# Kept for backwards compatibility with older scripts
 try:
     from scripts.improvement_cycle_manager import ImprovementCycleManager
     HAS_IMPROVEMENT_MANAGER = True
@@ -1532,10 +1532,11 @@ class P2POrchestrator(
 
         # Phase 2.4 (Dec 29, 2025): Partition read-only mode
         # When in minority partition, pause job dispatch to prevent data divergence
-        self._partition_readonly_mode: bool = False
-        self._partition_readonly_since: float = 0.0
-        self._last_partition_check: float = 0.0
-        self._partition_check_interval: float = 30.0  # Check every 30 seconds
+        self._partition_config = PartitionConfig()
+        self._partition_readonly_mode: bool = self._partition_config.readonly_mode
+        self._partition_readonly_since: float = self._partition_config.readonly_since
+        self._last_partition_check: float = self._partition_config.last_check
+        self._partition_check_interval: float = self._partition_config.check_interval
 
         # Storage configuration: "disk", "ramdrive", or "auto" (detected)
         # Jan 30, 2026: Delegated to InitializationManager
@@ -1783,13 +1784,13 @@ class P2POrchestrator(
         self.distributed_tournament_state: dict[str, DistributedTournamentState] = {}
         self.ssh_tournament_runs: dict[str, SSHTournamentRun] = {}
         self.improvement_loop_state: dict[str, ImprovementLoopState] = {}
+        # Feb 2026: Centralized orchestrator config for general settings
+        # Must be initialized before any code that references it.
+        self._orch_config = OrchestratorConfig.from_env()
+
         # Limit CPU-heavy CMA-ES local evaluations to avoid runaway process
         # explosions that can starve the orchestrator (especially on relay hubs).
-        try:
-            raw = (os.environ.get("RINGRIFT_P2P_MAX_CONCURRENT_CMAES_EVALS", "") or "").strip()
-            self.max_concurrent_cmaes_evals = max(1, int(raw)) if raw else 2
-        except (ValueError, AttributeError):
-            self.max_concurrent_cmaes_evals = 2
+        self.max_concurrent_cmaes_evals = self._orch_config.max_concurrent_cmaes_evals
         self._cmaes_eval_semaphore = asyncio.Semaphore(int(self.max_concurrent_cmaes_evals))
 
         # Tournament match semaphore - limit concurrent Elo calibration matches to prevent OOM
@@ -1797,17 +1798,20 @@ class P2POrchestrator(
         # NOTE: Set to None here, created lazily in async context to avoid event loop issues
         self._tournament_match_semaphore: asyncio.Semaphore | None = None
 
+        # Feb 2026: Centralized sync config - must be before first use
+        self._sync_config = SyncConfig()
+
         # Phase 2: Distributed data sync state
         self.local_data_manifest: NodeDataManifest | None = None
         self.cluster_data_manifest: ClusterDataManifest | None = None  # Leader-only or received from broadcast
         self._cluster_manifest_received_at: float = 0.0  # When broadcast was received (followers)
-        self.manifest_collection_interval = 300.0  # Collect manifests every 5 minutes
+        self.manifest_collection_interval = self._sync_config.manifest_collection_interval
         self.last_manifest_collection = 0.0
 
         # Dashboard/selfplay stats history (leader-only). Stored in-memory to
         # enable lightweight throughput charts without adding DB migrations.
         self.selfplay_stats_history: list[dict[str, Any]] = []
-        self.selfplay_stats_history_max_samples: int = 288  # ~24h @ 5-min cadence
+        self.selfplay_stats_history_max_samples: int = self._orch_config.selfplay_stats_history_max_samples
 
         # Canonical gate jobs (leader-only): dashboard-triggered runs of
         # scripts/generate_canonical_selfplay.py.
@@ -1820,10 +1824,10 @@ class P2POrchestrator(
         self.pending_sync_requests: list[dict[str, Any]] = []  # Requests from non-leader nodes
         self.sync_in_progress = False
         self.last_sync_time = 0.0
-        self.auto_sync_interval = 600.0  # Auto-sync every 10 minutes when data is missing
+        self.auto_sync_interval = self._sync_config.auto_sync_interval
 
         # Training node priority sync state (leader-only)
-        self.training_sync_interval = TRAINING_SYNC_INTERVAL
+        self.training_sync_interval = self._sync_config.training_sync_interval
         self.last_training_sync_time = 0.0
         self.training_nodes_cache: list[str] = []  # Cached list of top GPU nodes
         self.training_nodes_cache_time = 0.0
@@ -1837,11 +1841,14 @@ class P2POrchestrator(
         self._peer_circuit_breakers: dict[str, PeerCircuitBreaker] = {}
         self._peer_health_scores: dict[str, PeerHealthScore] = {}
 
+        # Feb 2026: Centralized training config
+        self._training_config = TrainingConfig()
+
         # Phase 3: Training pipeline state (leader-only)
         self.training_jobs: dict[str, TrainingJob] = {}
         self.training_thresholds: TrainingThresholds = TrainingThresholds()
         self.last_training_check: float = 0.0
-        self.training_check_interval: float = 300.0  # Check every 5 minutes
+        self.training_check_interval: float = self._training_config.training_check_interval
         self.games_at_last_nnue_train: dict[str, int] = {}  # board_type -> game_count
         self.games_at_last_cmaes_train: dict[str, int] = {}
 
@@ -1872,7 +1879,7 @@ class P2POrchestrator(
             except Exception as e:  # noqa: BLE001
                 logger.error(f"Failed to initialize MonitoringManager: {e}")
         self._monitoring_was_leader = False  # Track leadership changes
-        self.improvement_cycle_check_interval: float = 600.0  # Check every 10 minutes
+        self.improvement_cycle_check_interval: float = self._training_config.improvement_cycle_check_interval
 
         # P2P Auto-Deployer (leader-only): ensures P2P runs on all cluster nodes
         self.p2p_auto_deployer: P2PAutoDeployer | None = None
@@ -2029,7 +2036,7 @@ class P2POrchestrator(
         self._status_cache: dict | None = None
         self._status_cache_time: float = 0.0
         self._status_cache_lock: asyncio.Lock = asyncio.Lock()
-        self._status_cache_ttl: float = 5.0  # seconds
+        self._status_cache_ttl: float = self._orch_config.status_cache_ttl
 
         # Jan 27, 2026: Query builder for peer collection queries (Phase 3.2)
         # Consolidates _get_* methods with thread-safe access and consistent error handling
@@ -2215,11 +2222,15 @@ class P2POrchestrator(
         self._background_tasks: list[asyncio.Task] = []
 
         # SAFEGUARDS - Rate limiting and coordinator integration (added 2025-12-15)
+        self._safeguard_config = SafeguardConfig(
+            agent_mode=AGENT_MODE_ENABLED,
+            coordinator_url=COORDINATOR_URL,
+        )
         self.spawn_timestamps: list[float] = []  # Timestamps of recent process spawns
-        self.agent_mode = AGENT_MODE_ENABLED
-        self.coordinator_url = COORDINATOR_URL
-        self.last_coordinator_check: float = 0.0
-        self.coordinator_available: bool = False
+        self.agent_mode = self._safeguard_config.agent_mode
+        self.coordinator_url = self._safeguard_config.coordinator_url
+        self.last_coordinator_check: float = self._safeguard_config.last_coordinator_check
+        self.coordinator_available: bool = self._safeguard_config.coordinator_available
         logger.info(f"Safeguards: rate_limit={SPAWN_RATE_LIMIT_PER_MINUTE}/min, "
               f"load_max={LOAD_AVERAGE_MAX_MULTIPLIER}x, agent_mode={self.agent_mode}")
 
@@ -2559,16 +2570,23 @@ class P2POrchestrator(
 
         # December 2025: Wire feedback loops for self-improvement
         # This connects curriculum adjustments to Elo changes, evaluation results, etc.
-        self._wire_feedback_loops()
+        # Feb 2026: Delegated to scripts/p2p/event_wiring.py
+        from scripts.p2p.event_wiring import (
+            wire_feedback_loops,
+            subscribe_to_daemon_events,
+            subscribe_to_feedback_signals,
+            subscribe_to_manager_events,
+        )
+        wire_feedback_loops(self)
 
         # December 2025: Subscribe to daemon status events for observability
-        daemon_events_ok = self._subscribe_to_daemon_events()
+        daemon_events_ok = subscribe_to_daemon_events(self)
 
         # December 2025: Subscribe to training feedback signals for dynamic orchestration
-        feedback_signals_ok = self._subscribe_to_feedback_signals()
+        feedback_signals_ok = subscribe_to_feedback_signals(self)
 
         # December 2025: Subscribe to manager lifecycle events for coordination
-        manager_events_ok = self._subscribe_to_manager_events()
+        manager_events_ok = subscribe_to_manager_events(self)
 
         # Dec 2025: Store subscription status for health checks via /status endpoint
         self._event_subscription_status = {
@@ -2714,11 +2732,6 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.error(f"LoopManager: failed to register loops: {e}")
             return False
-
-    # =========================================================================
-    # NOTE: ~1,530 lines of inline loop registration code was extracted to
-    # scripts/p2p/loop_registry.py in January 2026 decomposition.
-    # =========================================================================
 
     # =========================================================================
     # JobReaperLoop callbacks - December 27, 2025
@@ -3146,7 +3159,6 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.debug(f"Connection pool dynamic sizing unavailable: {e}")
 
-    # Jan 30, 2026: Removed _initialize_work_discovery_manager
     # Callers use self.jobs.initialize_work_discovery_manager() directly
 
     async def _query_peer_for_work(
@@ -3225,37 +3237,10 @@ class P2POrchestrator(
             return None
 
     def _wire_feedback_loops(self) -> bool:
-        """Wire curriculum feedback loops for self-improvement.
+        """Wire curriculum feedback loops. Feb 2026: Delegates to event_wiring module."""
+        from scripts.p2p.event_wiring import wire_feedback_loops
+        return wire_feedback_loops(self)
 
-        December 2025: Connects P2P orchestrator to the training feedback system:
-        - Curriculum weights adjust based on Elo velocity
-        - Weak configs get boosted/penalized based on evaluation results
-        - Quality scores influence exploration temperature
-        - Failed promotions reduce config priority
-
-        Returns True if wiring succeeded, False otherwise.
-        """
-        try:
-            from app.coordination.curriculum_integration import wire_all_feedback_loops
-
-            status = wire_all_feedback_loops()
-            if status.get("success", False):
-                wired_count = status.get("wired_count", 0)
-                logger.info(f"Feedback loops: wired {wired_count} bridges successfully")
-                return True
-            else:
-                error = status.get("error", "Unknown error")
-                logger.warning(f"Feedback loops: partial wiring - {error}")
-                return False
-        except ImportError as e:
-            logger.debug(f"Feedback loops: curriculum_integration not available: {e}")
-            return False
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Feedback loops: failed to wire: {e}")
-            return False
-
-    # NOTE: _validate_manager_health() removed Jan 28, 2026 (~5 LOC)
-    # Use self.health_metrics_manager.validate_manager_health() directly.
 
     def health_check(self) -> "HealthCheckResult":
         """Return health check result for daemon protocol compliance.
@@ -3317,445 +3302,19 @@ class P2POrchestrator(
         )
 
     def _subscribe_to_daemon_events(self) -> bool:
-        """Subscribe to daemon status events for observability.
-
-        December 2025: Receives DAEMON_STATUS_CHANGED events from daemon_manager
-        to track daemon health across the cluster. This enables:
-        - Tracking which daemons are running/crashed on each node
-        - Auto-recovery of critical daemons
-        - Cluster-wide daemon health reporting via /status endpoint
-
-        Returns True if subscription succeeded, False otherwise.
-        """
-        try:
-            from app.coordination.event_router import subscribe
-
-            def handle_daemon_status(event) -> None:
-                """Handle daemon status change events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    daemon_name = payload.get("daemon_name", "unknown")
-                    new_status = payload.get("new_status", "unknown")
-                    hostname = payload.get("hostname", "unknown")
-                    error = payload.get("error")
-
-                    # Track daemon states for cluster health reporting
-                    if not hasattr(self, "_daemon_states"):
-                        self._daemon_states = {}
-                    self._daemon_states[f"{hostname}:{daemon_name}"] = {
-                        "status": new_status,
-                        "last_update": time.time(),
-                        "error": error,
-                    }
-
-                    # Log critical daemon failures
-                    if new_status in ("crashed", "failed") and error:
-                        logger.warning(
-                            f"Daemon {daemon_name} on {hostname} {new_status}: {error}"
-                        )
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling daemon status event: {e}")
-
-            subscribe("DAEMON_STATUS_CHANGED", handle_daemon_status)
-            logger.info("Subscribed to daemon status events")
-            return True
-        except ImportError as e:
-            logger.debug(f"Daemon events: event_router not available: {e}")
-            return False
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Daemon events: failed to subscribe: {e}")
-            return False
+        """Subscribe to daemon events. Feb 2026: Delegates to event_wiring module."""
+        from scripts.p2p.event_wiring import subscribe_to_daemon_events
+        return subscribe_to_daemon_events(self)
 
     def _subscribe_to_feedback_signals(self) -> bool:
-        """Subscribe to training feedback signals for dynamic orchestration.
-
-        December 2025: Subscribes to key feedback events that should influence
-        cluster orchestration decisions:
-        - ELO_VELOCITY_CHANGED: Adjust selfplay allocation based on training velocity
-        - QUALITY_DEGRADED: Pause/slow selfplay when data quality drops
-        - EVALUATION_COMPLETED: Trigger model promotion decisions
-        - PROMOTION_FAILED: Revert curriculum weights if promotion fails
-        - PLATEAU_DETECTED: Trigger hyperparameter search or curriculum changes
-
-        Returns True if subscription succeeded, False otherwise.
-        """
-        try:
-            from app.coordination.event_router import subscribe
-
-            def handle_quality_degraded(event) -> None:
-                """Handle quality degradation events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", "unknown")
-                    quality_score = payload.get("quality_score", 0)
-                    threshold = payload.get("threshold", 0)
-
-                    logger.warning(
-                        f"Quality degraded for {config_key}: {quality_score:.2f} < {threshold:.2f}"
-                    )
-                    # Could pause selfplay for this config or trigger data cleanup
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling quality degraded event: {e}")
-
-            def handle_elo_velocity_changed(event) -> None:
-                """Handle Elo velocity change events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", "unknown")
-                    velocity = payload.get("velocity", 0)
-
-                    if velocity < -50:  # Significant regression
-                        logger.warning(f"Elo regression for {config_key}: velocity={velocity}")
-                    elif velocity > 50:  # Good progress
-                        logger.info(f"Elo progress for {config_key}: velocity={velocity}")
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling Elo velocity event: {e}")
-
-            def handle_evaluation_completed(event) -> None:
-                """Handle evaluation completion events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", "unknown")
-                    win_rate = payload.get("win_rate", 0)
-                    opponent = payload.get("opponent", "unknown")
-
-                    logger.info(
-                        f"Evaluation completed for {config_key}: {win_rate:.1%} vs {opponent}"
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling evaluation completed event: {e}")
-
-            def handle_plateau_detected(event) -> None:
-                """Handle training plateau detection events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", "unknown")
-                    epochs_stalled = payload.get("epochs_stalled", 0)
-
-                    logger.warning(
-                        f"Training plateau for {config_key}: stalled {epochs_stalled} epochs"
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling plateau detected event: {e}")
-
-            def handle_exploration_boost(event) -> None:
-                """Handle exploration boost events from training feedback.
-
-                P0.1 (Dec 2025): Added missing handler for EXPLORATION_BOOST events.
-                When training anomalies (loss spikes, stalls) are detected, this
-                signals that we should boost exploration in selfplay to generate
-                more diverse training data.
-                """
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", payload.get("config", "unknown"))
-                    boost_factor = payload.get("boost_factor", payload.get("boost", 1.0))
-                    reason = payload.get("reason", "training_anomaly")
-                    duration = payload.get("duration_seconds", 900)
-
-                    logger.info(
-                        f"Exploration boost for {config_key}: {boost_factor:.2f}x "
-                        f"(reason={reason}, duration={duration}s)"
-                    )
-
-                    # Forward to selfplay scheduler if available
-                    if hasattr(self, "selfplay_scheduler") and self.selfplay_scheduler:
-                        self.selfplay_scheduler.set_exploration_boost(
-                            config_key, boost_factor, duration
-                        )
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling exploration boost event: {e}")
-
-            def handle_promotion_failed(event) -> None:
-                """Handle model promotion failure events.
-
-                December 27, 2025: Added missing handler for PROMOTION_FAILED events.
-                When model promotion fails (gauntlet failure, threshold not met),
-                we should revert curriculum weights and potentially pause training
-                for that config until issues are resolved.
-                """
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", "unknown")
-                    model_path = payload.get("model_path", "unknown")
-                    reason = payload.get("reason", "unknown")
-                    win_rate = payload.get("win_rate", 0.0)
-
-                    logger.warning(
-                        f"[P2P] Promotion FAILED for {config_key}: {reason} "
-                        f"(model={model_path}, win_rate={win_rate:.1%})"
-                    )
-
-                    # Revert curriculum weights if selfplay scheduler available
-                    if hasattr(self, "selfplay_scheduler") and self.selfplay_scheduler:
-                        # Reduce priority for this config temporarily
-                        self.selfplay_scheduler.record_promotion_failure(config_key)
-                        logger.info(f"[P2P] Reduced selfplay priority for {config_key} after promotion failure")
-
-                    # Track failed promotions for monitoring
-                    if not hasattr(self, "_promotion_failures"):
-                        self._promotion_failures = {}
-                    if config_key not in self._promotion_failures:
-                        self._promotion_failures[config_key] = []
-                    self._promotion_failures[config_key].append({
-                        "timestamp": time.time(),
-                        "reason": reason,
-                        "win_rate": win_rate,
-                    })
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling promotion failed event: {e}")
-
-            def handle_handler_failed(event) -> None:
-                """Handle event handler failure events.
-
-                December 27, 2025: Added missing handler for HANDLER_FAILED events.
-                When a coordination event handler throws an exception, this event
-                is emitted. We need to track these for monitoring and potentially
-                trigger alerts for critical handler failures.
-                """
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    handler_name = payload.get("handler_name", "unknown")
-                    event_type = payload.get("event_type", "unknown")
-                    error = payload.get("error", "unknown")
-                    coordinator = payload.get("coordinator", "unknown")
-
-                    logger.error(
-                        f"[P2P] Handler FAILED: {handler_name} for {event_type} "
-                        f"in {coordinator}: {error}"
-                    )
-
-                    # Track handler failures for health monitoring
-                    if not hasattr(self, "_handler_failures"):
-                        self._handler_failures = {}
-                    failure_key = f"{coordinator}.{handler_name}"
-                    if failure_key not in self._handler_failures:
-                        self._handler_failures[failure_key] = []
-                    self._handler_failures[failure_key].append({
-                        "timestamp": time.time(),
-                        "event_type": event_type,
-                        "error": str(error)[:200],  # Truncate long errors
-                    })
-
-                    # Keep only last 10 failures per handler
-                    if len(self._handler_failures[failure_key]) > 10:
-                        self._handler_failures[failure_key] = self._handler_failures[failure_key][-10:]
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling handler failed event: {e}")
-
-            # Subscribe to all feedback signals
-            subscribe("QUALITY_DEGRADED", handle_quality_degraded)
-            subscribe("ELO_VELOCITY_CHANGED", handle_elo_velocity_changed)
-            subscribe("EVALUATION_COMPLETED", handle_evaluation_completed)
-            subscribe("PLATEAU_DETECTED", handle_plateau_detected)
-            subscribe("EXPLORATION_BOOST", handle_exploration_boost)
-            subscribe("PROMOTION_FAILED", handle_promotion_failed)
-            subscribe("HANDLER_FAILED", handle_handler_failed)
-
-            logger.info("Subscribed to training feedback signals")
-            return True
-        except ImportError as e:
-            logger.debug(f"Feedback signals: event_router not available: {e}")
-            return False
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Feedback signals: failed to subscribe: {e}")
-            return False
+        """Subscribe to feedback signals. Feb 2026: Delegates to event_wiring module."""
+        from scripts.p2p.event_wiring import subscribe_to_feedback_signals
+        return subscribe_to_feedback_signals(self)
 
     def _subscribe_to_manager_events(self) -> bool:
-        """Subscribe to manager lifecycle events for coordination.
-
-        December 2025: Subscribes to critical manager events that were previously
-        missing from P2P orchestrator integration:
-        - TRAINING_STARTED/COMPLETED: Coordinate training transitions
-        - TASK_SPAWNED/COMPLETED/FAILED: Track job lifecycle
-        - DATA_SYNC_STARTED/COMPLETED: Coordinate data freshness
-
-        Returns True if subscription succeeded, False otherwise.
-        """
-        try:
-            from app.coordination.event_router import subscribe
-
-            def handle_training_started(event) -> None:
-                """Handle training start events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", "unknown")
-                    node_id = payload.get("node_id", "unknown")
-                    logger.info(f"[P2P] Training started: {config_key} on {node_id}")
-                    # Track active training in cluster state
-                    if not hasattr(self, "_active_training"):
-                        self._active_training = {}
-                    self._active_training[config_key] = {
-                        "node_id": node_id,
-                        "started_at": time.time(),
-                    }
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling training started event: {e}")
-
-            def handle_training_completed(event) -> None:
-                """Handle training completion events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    config_key = payload.get("config_key", "unknown")
-                    model_path = payload.get("model_path", "")
-                    final_loss = payload.get("final_loss", 0)
-                    logger.info(
-                        f"[P2P] Training completed: {config_key} "
-                        f"(loss={final_loss:.4f}, model={model_path})"
-                    )
-                    # Clear from active training
-                    if hasattr(self, "_active_training"):
-                        self._active_training.pop(config_key, None)
-                    # Trigger selfplay allocation refresh
-                    if hasattr(self, "selfplay_scheduler"):
-                        self.selfplay_scheduler.on_training_complete(config_key)
-
-                    # Jan 3, 2026: Bridge to coordination event bus for EvaluationDaemon
-                    # This enables the Training → Evaluation → Promotion pipeline
-                    try:
-                        from app.coordination.event_router import emit_event
-                        from app.coordination.data_events import DataEventType
-                        emit_event(DataEventType.TRAINING_COMPLETED, {
-                            "config_key": config_key,
-                            "model_path": model_path,
-                            "final_loss": final_loss,
-                            "source": "p2p_bridge",
-                        })
-                        logger.debug(f"[P2P] Bridged TRAINING_COMPLETED to coordination bus")
-                    except Exception as bridge_err:  # noqa: BLE001
-                        logger.debug(f"Could not bridge TRAINING_COMPLETED: {bridge_err}")
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling training completed event: {e}")
-
-            def handle_task_spawned(event) -> None:
-                """Handle task spawn events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    job_id = payload.get("job_id", "unknown")
-                    job_type = payload.get("job_type", "unknown")
-                    node_id = payload.get("node_id", "unknown")
-                    logger.debug(f"[P2P] Task spawned: {job_type} {job_id} on {node_id}")
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling task spawned event: {e}")
-
-            def handle_task_completed(event) -> None:
-                """Handle task completion events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    job_id = payload.get("job_id", "unknown")
-                    job_type = payload.get("job_type", "unknown")
-                    duration = payload.get("duration", 0)
-                    logger.debug(f"[P2P] Task completed: {job_type} {job_id} ({duration:.1f}s)")
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling task completed event: {e}")
-
-            def handle_task_failed(event) -> None:
-                """Handle task failure events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    job_id = payload.get("job_id", "unknown")
-                    job_type = payload.get("job_type", "unknown")
-                    error = payload.get("error", "unknown error")
-                    logger.warning(f"[P2P] Task failed: {job_type} {job_id} - {error}")
-                    # Could trigger recovery or rebalancing here
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling task failed event: {e}")
-
-            def handle_data_sync_started(event) -> None:
-                """Handle data sync start events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    sync_type = payload.get("sync_type", "unknown")
-                    target_count = payload.get("target_nodes", 0)
-                    logger.info(f"[P2P] Data sync started: {sync_type} to {target_count} nodes")
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling data sync started event: {e}")
-
-            def handle_data_sync_completed(event) -> None:
-                """Handle data sync completion events."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    sync_type = payload.get("sync_type", "unknown")
-                    duration = payload.get("duration", 0)
-                    files_synced = payload.get("files_synced", 0)
-                    logger.info(
-                        f"[P2P] Data sync completed: {sync_type} "
-                        f"({files_synced} files in {duration:.1f}s)"
-                    )
-                    # Could trigger training readiness check here
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling data sync completed event: {e}")
-
-            # P2P Health event handlers (Dec 2025)
-            def handle_node_unhealthy(event) -> None:
-                """Handle NODE_UNHEALTHY events - pause jobs on unhealthy nodes."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    node_id = payload.get("node_id", "unknown")
-                    reason = payload.get("reason", "")
-                    logger.warning(f"[P2P] Node {node_id} unhealthy: {reason}")
-                    # Mark node as unhealthy for job routing
-                    if hasattr(self, "node_selector") and self.node_selector:
-                        self.node_selector.mark_node_unhealthy(node_id, reason)
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling node unhealthy event: {e}")
-
-            def handle_node_recovered(event) -> None:
-                """Handle NODE_RECOVERED events - resume jobs on recovered nodes."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    node_id = payload.get("node_id", "unknown")
-                    logger.info(f"[P2P] Node {node_id} recovered")
-                    # Mark node as healthy for job routing
-                    if hasattr(self, "node_selector") and self.node_selector:
-                        self.node_selector.mark_node_healthy(node_id)
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling node recovered event: {e}")
-
-            def handle_cluster_healthy(event) -> None:
-                """Handle P2P_CLUSTER_HEALTHY events."""
-                try:
-                    logger.info("[P2P] Cluster is healthy - resuming normal operations")
-                    self._cluster_health_degraded = False
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling cluster healthy event: {e}")
-
-            def handle_cluster_unhealthy(event) -> None:
-                """Handle P2P_CLUSTER_UNHEALTHY events - pause non-critical operations."""
-                try:
-                    payload = event.payload if hasattr(event, "payload") else event
-                    reason = payload.get("reason", "")
-                    alive_nodes = payload.get("alive_nodes", 0)
-                    logger.warning(
-                        f"[P2P] Cluster unhealthy: {reason} (alive_nodes={alive_nodes})"
-                    )
-                    self._cluster_health_degraded = True
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"Error handling cluster unhealthy event: {e}")
-
-            # Subscribe to all manager events
-            subscribe("TRAINING_STARTED", handle_training_started)
-            subscribe("TRAINING_COMPLETED", handle_training_completed)
-            subscribe("TASK_SPAWNED", handle_task_spawned)
-            subscribe("TASK_COMPLETED", handle_task_completed)
-            subscribe("TASK_FAILED", handle_task_failed)
-            subscribe("DATA_SYNC_STARTED", handle_data_sync_started)
-            subscribe("DATA_SYNC_COMPLETED", handle_data_sync_completed)
-
-            # Subscribe to health events (Dec 2025)
-            subscribe("NODE_UNHEALTHY", handle_node_unhealthy)
-            subscribe("NODE_RECOVERED", handle_node_recovered)
-            subscribe("P2P_CLUSTER_HEALTHY", handle_cluster_healthy)
-            subscribe("P2P_CLUSTER_UNHEALTHY", handle_cluster_unhealthy)
-
-            logger.info("Subscribed to manager lifecycle and health events")
-            return True
-        except ImportError as e:
-            logger.debug(f"Manager events: event_router not available: {e}")
-            return False
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"Manager events: failed to subscribe: {e}")
-            return False
+        """Subscribe to manager events. Feb 2026: Delegates to event_wiring module."""
+        from scripts.p2p.event_wiring import subscribe_to_manager_events
+        return subscribe_to_manager_events(self)
 
     # =========================================================================
     # Leadership State Management - Single Source of Truth (Jan 3, 2026)
@@ -3795,9 +3354,7 @@ class P2POrchestrator(
         """Property alias for _is_leader() - required by WorkQueueHandlersMixin."""
         return self.leadership.check_is_leader()
 
-    # Jan 30, 2026: Removed wrappers _get_leadership_consistency_metrics, _recover_leadership_desync,
     # _reconcile_leadership_state, _broadcast_leadership_claim, _async_broadcast_leader_claim
-    # Callers now use self.leadership.X() directly
 
     def _get_config_version(self) -> dict:
         """Get config file version info for drift detection.
@@ -3846,12 +3403,9 @@ class P2POrchestrator(
             "searched_paths": [str(p) for p in config_paths],
         }
 
-    # Jan 30, 2026: Removed wrappers _was_recently_leader, _in_incumbent_grace_period
-    # Callers now use self.leadership.X() directly
 
     # =========================================================================
     # UNIFIED LEADERSHIP STATE MACHINE (ULSM) - Jan 2026
-    # Jan 28, 2026: Broadcast methods delegated to LeadershipOrchestrator
     # =========================================================================
 
     async def _broadcast_leader_state_change(
@@ -3862,9 +3416,6 @@ class P2POrchestrator(
     ) -> None:
         """Jan 28, 2026: Delegates to self.leadership."""
         await self.leadership.broadcast_leader_state_change(new_state, epoch, reason)
-
-    # NOTE: _schedule_step_down_sync() and _complete_step_down_async()
-    # moved to LeadershipTransitionsMixin (Jan 26, 2026)
 
     # =========================================================================
     # TASK ISOLATION - Prevent single task failure from crashing all tasks
@@ -4413,11 +3964,6 @@ class P2POrchestrator(
 
         return int(self.port)
 
-    # NOTE: _validate_and_fix_advertise_host(), _periodic_ip_validation_loop(),
-    # _is_advertising_private_ip(), _try_get_tailscale_ip(), _safe_emit_private_ip_alert(),
-    # _discover_all_ips(), _select_primary_advertise_host(), _set_advertise_host(),
-    # _get_yaml_tailscale_ip() moved to AdvertiseValidationMixin (Jan 26, 2026)
-
     def _load_force_relay_mode(self) -> bool:
         """Load force_relay_mode from distributed_hosts.yaml for this node.
 
@@ -4514,8 +4060,6 @@ class P2POrchestrator(
         if prepopulated:
             logger.info(f"[P2P] Pre-populated {prepopulated} voter peers for gossip reachability")
 
-    # NOTE: _load_voter_node_ids() removed - delegated to QuorumManager (Jan 2026 Phase 1)
-
     def _load_cluster_config_raw(self) -> dict[str, Any]:
         """Load raw cluster config from distributed_hosts.yaml.
 
@@ -4536,12 +4080,6 @@ class P2POrchestrator(
             logger.debug(f"[P2P] Failed to load cluster config: {e}")
             return {}
 
-    # NOTE: _build_voter_ip_mapping() moved to LeadershipHealthMixin (Jan 26, 2026)
-    # NOTE: _build_ip_to_node_map() removed - delegated to QuorumManager (Jan 2026 Phase 1)
-    # NOTE: _get_cached_peer_snapshot() removed - use self.network.get_cached_peer_snapshot() (Jan 30, 2026)
-    # NOTE: _find_voter_peer_by_ip() removed - delegated to QuorumManager (Jan 2026 Phase 1)
-    # NOTE: _count_alive_voters(), _is_peer_alive(), _is_swim_peer_id()
-    # moved to LeadershipHealthMixin (Jan 26, 2026)
 
     def _on_swim_member_alive(self, member_id: str) -> None:
         """Handle SWIM member becoming alive - sync to gossip layer.
@@ -4603,25 +4141,6 @@ class P2POrchestrator(
         if hasattr(self, "tailscale_ip") and self.tailscale_ip:
             local_ips.add(self.tailscale_ip)
         return local_ips
-
-    # NOTE: _is_self_voter(), _check_voter_health(), _log_cluster_health_snapshot()
-    # moved to LeadershipHealthMixin (Jan 26, 2026)
-
-    # NOTE: _cluster_health_snapshot_loop() removed Jan 28, 2026 (~6 LOC)
-    # Use self.health_metrics_manager.cluster_health_snapshot_loop() directly.
-
-    # NOTE: _event_loop_latency_monitor() removed Jan 28, 2026 (~6 LOC)
-    # Use self.health_metrics_manager.event_loop_latency_monitor() directly.
-
-    # NOTE: _maybe_adopt_voter_node_ids() removed - delegated to QuorumManager (Jan 2026 Phase 1)
-    # _has_voter_quorum: Provided by LeaderElectionMixin
-    # _release_voter_grant_if_self: Provided by LeaderElectionMixin
-
-    # Jan 30, 2026: Removed wrappers _enable_partition_local_election, _restore_original_voters,
-    # _get_eligible_voters, _manage_dynamic_voters
-    # Callers now use self.leadership.X() / self.network.X() directly
-
-    # NOTE: _check_leader_health() moved to LeadershipHealthMixin (Jan 26, 2026)
 
     async def _acquire_voter_lease_quorum(self, lease_id: str, duration: int) -> float | None:
         """Acquire/renew an exclusive leader lease from a quorum of voters.
@@ -4751,10 +4270,6 @@ class P2POrchestrator(
 
     # =========================================================================
     # Phase 15.1.1: Fence Token Helpers (December 29, 2025)
-    # Jan 28, 2026: Delegated to LeadershipOrchestrator
-    # Jan 30, 2026: Removed dead wrappers get_fence_token, get_lease_epoch, validate_fence_token
-    # Callers should use self.leadership.get_fence_token() etc. directly
-    # NOTE: update_fence_token_from_leader() moved to LeadershipHealthMixin (Jan 26, 2026)
     # =========================================================================
 
     async def _determine_leased_leader_from_voters(self) -> str | None:
@@ -4930,8 +4445,6 @@ class P2POrchestrator(
 
         return None
 
-    # Jan 30, 2026: Removed wrapper _count_peers_reporting_leader
-    # Callers now use self.leadership.count_peers_reporting_leader() directly
 
     async def _proxy_to_leader(self, request: web.Request) -> web.StreamResponse:
         """Best-effort proxy for leader-only APIs when the dashboard hits a follower."""
@@ -5157,10 +4670,6 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.error(f"Failed to load state: {e}")
 
-    # NOTE: _apply_loaded_peer_health() removed Jan 28, 2026 (~5 LOC)
-    # Use self.health_metrics_manager.apply_loaded_peer_health() directly.
-
-    # NOTE: _collect_peer_health_states() inlined at call site (Jan 2026 Phase 2)
 
     def _save_state(self):
         """Save current state to database.
@@ -5224,10 +4733,6 @@ class P2POrchestrator(
     # =========================================================================
     # Phase 27: Peer Cache and Reputation Tracking
     # Provided by PeerManagerMixin:
-    # - _update_peer_reputation: EMA-based reputation updates
-    # - _save_peer_to_cache: SQLite peer persistence with pruning
-    # - _get_bootstrap_peers_by_reputation: Prioritized peer list for bootstrap
-    # - _get_cached_peer_count, _clear_peer_cache, _prune_stale_peers
     # =========================================================================
 
     # =========================================================================
@@ -5288,93 +4793,14 @@ class P2POrchestrator(
         hours: float = 24,
         limit: int = 1000,
     ) -> list[dict[str, Any]]:
-        """Get metrics history for a specific metric type."""
-        conn = None
-        try:
-            conn = sqlite3.connect(str(self.db_path), timeout=10.0)
-            cursor = conn.cursor()
-
-            since = time.time() - (hours * 3600)
-            query = """
-                SELECT timestamp, value, board_type, num_players, metadata
-                FROM metrics_history
-                WHERE metric_type = ? AND timestamp > ?
-            """
-            params: list[Any] = [metric_type, since]
-
-            if board_type:
-                query += " AND board_type = ?"
-                params.append(board_type)
-            if num_players:
-                query += " AND num_players = ?"
-                params.append(num_players)
-
-            query += " ORDER BY timestamp DESC LIMIT ?"
-            params.append(limit)
-
-            cursor.execute(query, params)
-            results = []
-            for row in cursor.fetchall():
-                results.append({
-                    "timestamp": row[0],
-                    "value": row[1],
-                    "board_type": row[2],
-                    "num_players": row[3],
-                    "metadata": json.loads(row[4]) if row[4] else None,
-                })
-            return results
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to get metrics history: {e}")
-            return []
-        finally:
-            if conn:
-                conn.close()
+        """Get metrics history. Feb 2026: Delegates to MetricsManager."""
+        return self.metrics_manager.get_history(
+            metric_type, board_type, num_players, hours, limit
+        )
 
     def get_metrics_summary(self, hours: float = 24) -> dict[str, Any]:
-        """Get summary of all metrics over the specified time period."""
-        conn = None
-        try:
-            conn = sqlite3.connect(str(self.db_path), timeout=10.0)
-            cursor = conn.cursor()
-
-            since = time.time() - (hours * 3600)
-
-            cursor.execute("""
-                SELECT metric_type, COUNT(*), AVG(value), MIN(value), MAX(value)
-                FROM metrics_history
-                WHERE timestamp > ?
-                GROUP BY metric_type
-            """, (since,))
-
-            summary: dict[str, Any] = {}
-            for row in cursor.fetchall():
-                summary[row[0]] = {
-                    "count": row[1],
-                    "avg": row[2],
-                    "min": row[3],
-                    "max": row[4],
-                }
-
-            cursor.execute("""
-                SELECT metric_type, value, timestamp
-                FROM metrics_history m1
-                WHERE timestamp = (
-                    SELECT MAX(timestamp) FROM metrics_history m2
-                    WHERE m2.metric_type = m1.metric_type
-                )
-            """)
-            for row in cursor.fetchall():
-                if row[0] in summary:
-                    summary[row[0]]["latest"] = row[1]
-                    summary[row[0]]["latest_time"] = row[2]
-
-            return {"period_hours": hours, "since": since, "metrics": summary}
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to get metrics summary: {e}")
-            return {}
-        finally:
-            if conn:
-                conn.close()
+        """Get metrics summary. Feb 2026: Delegates to MetricsManager."""
+        return self.metrics_manager.get_summary(hours)
 
     def _create_self_info(self) -> NodeInfo:
         """Create NodeInfo for this node.
@@ -5456,10 +4882,6 @@ class P2POrchestrator(
         """
         return self.monitoring._collect_all_addresses(tailscale_ip, primary_host)
 
-    # NOTE: _detect_gpu, _detect_memory, _get_local_ip, _get_tailscale_ip
-    # delegated to ResourceDetectorMixin (Dec 28, 2025). ~75 LOC removed.
-    # Use: self._detect_gpu(), self._detect_memory(), etc.
-
     @staticmethod
     def _infer_capabilities_from_hardware(
         has_gpu: bool,
@@ -5527,7 +4949,6 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[P2P] Failed to emit HOST_ONLINE for {node_id}: {e}")
 
-    # Jan 30, 2026: Removed _emit_host_online_sync - callers use self.network.emit_host_online_sync() directly
 
     async def _emit_host_offline(self, node_id: str, reason: str, last_heartbeat: float | None) -> None:
         """Emit HOST_OFFLINE event for a peer going offline."""
@@ -5547,7 +4968,6 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[P2P] Failed to emit HOST_OFFLINE for {node_id}: {e}")
 
-    # Jan 27, 2026: Phase 17 - Removed _emit_host_offline_sync (never called)
 
     async def _emit_node_dead(self, node_id: str, reason: str, last_heartbeat: float | None, dead_for: float) -> None:
         """Emit P2P_NODE_DEAD event for a dead peer."""
@@ -5568,7 +4988,6 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[P2P] Failed to emit P2P_NODE_DEAD for {node_id}: {e}")
 
-    # Jan 27, 2026: Phase 17 - Removed _emit_node_dead_sync (never called)
 
     async def _emit_cluster_capacity_changed(
         self,
@@ -5599,7 +5018,6 @@ class P2POrchestrator(
         except Exception as e:
             logger.debug(f"[P2P] Failed to emit CLUSTER_CAPACITY_CHANGED: {e}")
 
-    # Jan 27, 2026: Phase 17 - Removed _emit_cluster_capacity_changed_sync (never called)
 
     def _safe_emit_p2p_event(self, event_type: Any, payload: dict) -> None:
         """Safely emit a P2P-related event via the event router.
@@ -5678,11 +5096,8 @@ class P2POrchestrator(
         except (AttributeError):
             return False
 
-    # _get_tailscale_ip_for_peer: Provided by NetworkUtilsMixin
 
-    # Jan 30, 2026: Removed wrappers _detect_network_partition, _get_tailscale_priority_mode,
     # _enable_tailscale_priority, _disable_tailscale_priority
-    # Callers now use self.network.* directly
 
     # =========================================================================
     # Network Health Methods (December 30, 2025)
@@ -5907,8 +5322,6 @@ class P2POrchestrator(
 
         return result
 
-    # _tailscale_urls_for_voter: Provided by NetworkUtilsMixin
-    # Dec 2025: Resource/diversity methods delegated to mixins and selfplay_scheduler (~236 LOC)
     # NOTE: _get_db_game_count_sync() inlined at call site (Jan 2026 Phase 2)
 
     def _seed_selfplay_scheduler_game_counts_sync(self) -> dict[str, int]:
@@ -6087,7 +5500,6 @@ class P2POrchestrator(
 
             await asyncio.sleep(REFRESH_INTERVAL)
 
-    # Jan 27, 2026: Phase 17B - Removed _find_dbs_to_merge_sync (unused delegation wrapper)
 
     def _run_subprocess_sync(self, cmd: list, timeout: int = 10) -> tuple[int, str, str]:
         """Run subprocess synchronously.
@@ -6116,7 +5528,6 @@ class P2POrchestrator(
         """
         return await asyncio.to_thread(self._run_subprocess_sync, cmd, timeout)
 
-    # Jan 30, 2026: Removed _count_local_jobs - callers use self.jobs.count_local_jobs() directly
 
     def _get_max_selfplay_slots_for_node(self) -> int:
         """Get maximum selfplay slots based on GPU capability.
@@ -6255,15 +5666,7 @@ class P2POrchestrator(
             logger.error(f"requesting manifest from {peer_info.node_id}: {e}")
         return None
 
-    # =========================================================================
-    # Manifest Cache Methods - MOVED to SyncPlanner (Dec 2025)
-    # =========================================================================
-    # The following methods were moved to scripts/p2p/managers/sync_planner.py:
-    # - get_manifest_cache_path() - disk cache path
-    # - save_manifest_to_cache() - persist manifest
-    # - load_manifest_from_cache() - load cached manifest
-    # - collect_local_manifest_cached() - collect with disk caching
-    # Access via: self.sync_planner.<method_name>()
+
 
     async def _collect_cluster_manifest(self) -> ClusterDataManifest:
         """Jan 29, 2026: Delegated to SyncOrchestrator.collect_cluster_manifest()."""
@@ -6304,8 +5707,6 @@ class P2POrchestrator(
         """Extract config from path. Delegates to DataSyncCoordinator."""
         return self.data_sync_coordinator.extract_config_from_path(db_path)
 
-    # Jan 27, 2026: Phase 17B - Removed _get_s3_bucket_from_config (unused delegation wrapper)
-    # Jan 28, 2026: Phase 18 - Removed _scan_s3_metadata (unused delegation wrapper)
 
     # Phase 2: P2P Rsync Coordination - using SyncPlanner
 
@@ -6532,16 +5933,6 @@ class P2POrchestrator(
 
         return result
 
-    # Dec 2025: _training_sync_loop moved to LoopManager (TrainingSyncLoop)
-
-    # NOTE: _force_ip_refresh_all_sources() removed Jan 28, 2026 (~9 LOC)
-    # Use self.ip_discovery_manager.force_ip_refresh_all_sources() directly.
-
-    # Jan 2026: IP update loops moved to IPDiscoveryManager
-    # Jan 27, 2026: Phase 17A - Deprecated wrappers removed (14 LOC)
-    # _vast_ip_update_loop, _aws_ip_update_loop, _tailscale_ip_update_loop deleted
-    # _tailscale_peer_recovery_loop removed (113 LOC)
-    # Now runs via LoopManager as TailscalePeerDiscoveryLoop in scripts/p2p/loops/network_loops.py
 
     async def _discover_tailscale_peers(self):
         """One-shot Tailscale peer discovery for bootstrap fallback.
@@ -6572,9 +5963,6 @@ class P2POrchestrator(
             node_id=self.node_id,
         )
 
-    # NOTE: _convert_jsonl_to_db() removed Jan 28, 2026 (~6 LOC)
-    # Use self.data_pipeline_manager.convert_jsonl_to_db() directly.
-
     async def _convert_jsonl_to_npz_for_training(self, data_dir: Path, training_dir: Path) -> int:
         """Convert JSONL selfplay files directly to NPZ.
 
@@ -6583,11 +5971,6 @@ class P2POrchestrator(
         return await self.data_pipeline_manager.convert_jsonl_to_npz_for_training(
             data_dir, training_dir
         )
-
-    # Dec 2025: Data/model sync loops moved to LoopManager (323 LOC)
-
-    # NOTE: _consolidate_selfplay_data() removed Jan 28, 2026 (~8 LOC)
-    # Use self.data_pipeline_manager.consolidate_selfplay_data() directly.
 
     async def _start_auto_training(self, data_path: str):
         """Start automatic training job on local node."""
@@ -6823,7 +6206,6 @@ class P2POrchestrator(
         # Use exec to replace current process
         os.execv(sys.executable, [sys.executable, str(script_path), *args])
 
-    # Jan 28, 2026: _git_update_loop() moved to GitUpdateLoop in loop_registry.py (~42 LOC)
     # See scripts/p2p/loops/maintenance_loops.py and scripts/p2p/loop_registry.py
 
     # ============================================
@@ -7186,19 +6568,6 @@ class P2POrchestrator(
             "_cache_time": time.time(),
         }
 
-    # NOTE: handle_progress moved to DiagnosticsHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8f)
-
-    # -------------------------------------------------------------------------
-    # Stability Controller Handlers - EXTRACTED to scripts/p2p/handlers/diagnostics.py
-    # January 2026 - P2P Modularization Phase 8f
-    # Provides: handle_progress, handle_stability, handle_p2p_diagnostics, handle_swim_status
-    # See DiagnosticsHandlersMixin
-    # -------------------------------------------------------------------------
-
-    # -------------------------------------------------------------------------
-    # Loop Health Endpoint - Feb 2026
-    # -------------------------------------------------------------------------
-
     async def handle_loops_health(self, request: web.Request) -> web.Response:
         """Return health status of all background loops.
 
@@ -7226,55 +6595,6 @@ class P2POrchestrator(
             "manager_health": loop_manager.health_check(),
         })
 
-    # -------------------------------------------------------------------------
-    # Peer Health Handlers - EXTRACTED to scripts/p2p/handlers/status.py
-    # January 2026 - P2P Modularization Phase 6a
-    # Provides: handle_peer_health, handle_external_work
-    # See StatusHandlersMixin
-    # -------------------------------------------------------------------------
-
-    # Work Queue Handlers moved to scripts/p2p/handlers/work_queue.py
-    # Inherited from WorkQueueHandlersMixin: handle_work_*, handle_populator_status
-
-    # Election Handlers moved to scripts/p2p/handlers/election.py
-    # Inherited from ElectionHandlersMixin: handle_election, handle_lease_request,
-    # handle_voter_grant_status, handle_election_reset, handle_election_force_leader
-
-    # ============================================================
-    # SERF INTEGRATION - Battle-tested membership/failure detection
-    # ============================================================
-
-    # Jan 28, 2026: Serf event handlers moved to SerfHandlersMixin (~255 LOC)
-    # - handle_serf_event, _handle_serf_member_join, _handle_serf_member_leave
-    # - _handle_serf_member_failed, _handle_serf_member_update, _handle_serf_member_reap
-    # - _handle_serf_user_event
-    # See scripts/p2p/handlers/serf.py for implementation.
-
-    # ============================================================
-    # SWIM Native Integration - swim-p2p membership status
-    # ============================================================
-
-    # NOTE: handle_swim_status moved to DiagnosticsHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8f)
-
-    # Jan 28, 2026: _swim_membership_loop() moved to SwimMembershipLoop in loop_registry.py (~92 LOC)
-    # Now registered and started via LoopManager. See scripts/p2p/loops/swim_membership_loop.py.
-
-    # NOTE: handle_coordinator moved to ElectionHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8e)
-
-    # -------------------------------------------------------------------------
-    # Job Management Handlers - EXTRACTED to scripts/p2p/handlers/jobs_api.py
-    # January 2026 - P2P Modularization Phase 7a
-    # Provides: handle_start_job, handle_stop_job, handle_job_kill,
-    #           handle_cleanup, handle_restart_stuck_jobs, handle_cleanup_files
-    # See JobsApiHandlersMixin
-    # -------------------------------------------------------------------------
-
-    # NOTE: Peer admin handlers (handle_purge_retired_peers, handle_purge_stale_peers,
-    # handle_admin_unretire, handle_admin_reset_node_jobs) moved to AdminHandlersMixin
-    # in scripts/p2p/handlers/admin.py (Dec 28, 2025)
-
-    # NOTE: handle_process_kill moved to AdminHandlersMixin (Jan 28, 2026 - P2P Modularization Phase 8d)
-
     async def handle_training_sync(self, request: web.Request) -> web.Response:
         """Manually trigger sync of selfplay data to training nodes.
 
@@ -7285,101 +6605,6 @@ class P2POrchestrator(
             return web.json_response(result)
         except Exception as e:  # noqa: BLE001
             return web.json_response({"error": str(e)}, status=500)
-
-    # -------------------------------------------------------------------------
-    # Cluster Node Handlers - EXTRACTED to scripts/p2p/handlers/cluster_nodes.py
-    # January 2026 - P2P Modularization Phase 7b
-    # Provides: handle_gpu_rankings, handle_probe_vast_nodes
-    # See ClusterNodeHandlersMixin
-    # -------------------------------------------------------------------------
-
-    # -------------------------------------------------------------------------
-    # Status & Health Handlers - EXTRACTED to scripts/p2p/handlers/status.py
-    # January 2026 - P2P Modularization Phase 6a
-    # Provides: handle_health, handle_game_counts, handle_refresh_game_counts,
-    #           handle_loop_restart, handle_restart_stopped_loops, handle_loops_status,
-    #           handle_circuit_breaker_status, handle_transport_stats, handle_dispatch_stats
-    # See StatusHandlersMixin
-    # -------------------------------------------------------------------------
-
-
-    # Gauntlet Handlers moved to scripts/p2p/handlers/gauntlet.py
-    # Inherited from GauntletHandlersMixin: handle_gauntlet_execute, handle_gauntlet_status,
-    # handle_gauntlet_quick_eval, _execute_gauntlet_batch, _execute_single_gauntlet_game,
-    # _run_gauntlet_game_sync
-
-    # Admin/Git Handlers moved to scripts/p2p/handlers/admin.py
-    # Inherited from AdminHandlersMixin: handle_git_status, handle_git_update, handle_admin_restart
-
-    # Manifest handlers moved to scripts/p2p/handlers/manifest.py (Dec 28, 2025 - Phase 8)
-    # Inherited from ManifestHandlersMixin: handle_data_manifest, handle_cluster_data_manifest, handle_refresh_manifest
-
-    # CMA-ES Handlers moved to scripts/p2p/handlers/cmaes.py
-    # Inherited from CMAESHandlersMixin:
-    # - handle_cmaes_start, handle_cmaes_evaluate
-    # - handle_cmaes_status, handle_cmaes_result
-
-    # NOTE: _run_distributed_cmaes() removed Jan 28, 2026 (~4 LOC)
-    # Use self.cmaes_coordinator.run_distributed_cmaes() directly.
-
-    # NOTE: _evaluate_cmaes_weights_local removed Jan 28, 2026 (dead code)
-    # Use self.cmaes_coordinator.evaluate_weights_local() directly.
-
-    # NOTE: _evaluate_cmaes_weights() removed Jan 28, 2026 (~9 LOC)
-    # Use self.cmaes_coordinator.evaluate_weights() directly.
-
-    # Tournament Handlers moved to scripts/p2p/handlers/tournament.py
-    # Inherited from TournamentHandlersMixin:
-    # - handle_tournament_start, handle_tournament_match
-    # - handle_tournament_status, handle_tournament_result
-
-    # -------------------------------------------------------------------------
-    # Evaluation Play Handlers - EXTRACTED to scripts/p2p/handlers/evaluation_play.py
-    # January 2026 - P2P Modularization Phase 5a
-    # Provides: handle_play_elo_match, _play_elo_match_sync, _save_tournament_game_for_training
-    # See EvaluationPlayHandlersMixin
-    # -------------------------------------------------------------------------
-
-    # -------------------------------------------------------------------------
-    # SSH Tournament Handlers - EXTRACTED to scripts/p2p/handlers/ssh_tournament.py
-    # Provides: handle_ssh_tournament_start, handle_ssh_tournament_status,
-    #           handle_ssh_tournament_cancel, _monitor_ssh_tournament_process
-    # See SSHTournamentHandlersMixin
-    # -------------------------------------------------------------------------
-
-    # NOTE: _run_distributed_tournament() removed Dec 27, 2025 (~9 LOC)
-    # Use self.job_manager.run_distributed_tournament() directly.
-
-    # NOTE: _send_match_to_worker removed Jan 28, 2026 (dead code, never called)
-
-    # NOTE: _play_tournament_match() removed Jan 28, 2026 (~7 LOC)
-    # Use self.tournament_manager.play_tournament_match() directly.
-
-    # NOTE: _calculate_tournament_ratings removed Dec 27, 2025 (dead code, never called)
-    # Elo rating calculation is now handled in JobManager.run_distributed_tournament()
-
-    # =========================================================================
-    # NOTE: Improvement handlers moved to scripts/p2p/handlers/improvement.py (Dec 28, 2025 - Phase 8)
-    # Inherited from ImprovementHandlersMixin:
-    # - handle_improvement_start, handle_improvement_status, handle_improvement_phase_complete
-    # - handle_improvement_cycles_status, handle_improvement_cycles_leaderboard
-    # - handle_improvement_training_complete, handle_improvement_evaluation_complete
-    # =========================================================================
-
-    # =========================================================================
-    # NOTE: Sync handlers (handle_sync_*) extracted to SyncHandlersMixin
-    # See: scripts/p2p/handlers/sync.py (Dec 28, 2025 - Phase 8)
-    # Removed: handle_sync_start, handle_sync_status, handle_sync_push,
-    #          handle_sync_receipt, handle_sync_receipts_status, handle_sync_pull,
-    #          handle_sync_file, handle_sync_job_update (~625 LOC)
-    # =========================================================================
-
-    # -------------------------------------------------------------------------
-    # Event Management Handlers - EXTRACTED to scripts/p2p/handlers/event_management.py
-    # January 2026 - P2P Modularization Phase 5b
-    # Provides: handle_subscriptions
-    # See EventManagementHandlersMixin
-    # -------------------------------------------------------------------------
 
     async def _run_improvement_loop(self, job_id: str):
         """Main coordinator loop for AlphaZero-style improvement."""
@@ -7426,7 +6651,6 @@ class P2POrchestrator(
             if job_id in self.improvement_loop_state:
                 self.improvement_loop_state[job_id].status = f"error: {e}"
 
-    # Dec 2025: Training methods delegated to job_manager and training_coordinator
 
     async def _check_and_trigger_training(self):
         """Periodic check for training readiness (leader only)."""
@@ -7760,14 +6984,9 @@ class P2POrchestrator(
                 cycle_id, "idle", error_message=str(e)
             )
 
-    # NOTE: Training control handlers moved to TrainingControlHandlersMixin (Jan 2026 - P2P Modularization Phase 3a)
     # Includes: handle_training_start, handle_training_status, handle_training_progress, handle_training_update,
     #           handle_training_trigger, handle_training_trigger_decision, handle_training_trigger_configs, handle_nnue_start
 
-    # NOTE: _trigger_auto_cmaes() removed Jan 28, 2026 (~4 LOC)
-    # Use self.cmaes_coordinator.trigger_auto_cmaes() directly.
-
-    # NOTE: handle_cmaes_start_auto moved to CMAESHandlersMixin (Jan 2026 - P2P Modularization Phase 8c)
 
     def _get_training_timeout(self, job_id: str) -> int:
         """Get dynamic timeout based on job configuration.
@@ -7914,8 +7133,6 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.info(f"Training monitor error for {job_id}: {e}")
 
-    # NOTE: _monitor_gpu_selfplay_and_validate() removed Jan 28, 2026 (~17 LOC)
-    # Use self.job_coordination_manager.monitor_gpu_selfplay_and_validate() directly.
 
     async def _monitor_selfplay_process(
         self,
@@ -8032,14 +7249,6 @@ class P2POrchestrator(
                     set_job_attr(job, "completed_at", time.time())
                     set_job_attr(job, "error_message", str(e))
 
-    # NOTE: _schedule_model_comparison() removed Jan 28, 2026 (~6 LOC)
-    # Use self.tournament_manager.schedule_model_comparison() directly.
-
-    # NOTE: _run_model_comparison_tournament removed Jan 28, 2026 (dead code)
-    # Use self.tournament_manager.run_model_comparison_tournament() directly.
-
-    # NOTE: _promote_to_baseline removed Jan 28, 2026 (dead code)
-    # Use self.tournament_manager.promote_to_baseline() directly.
 
     async def _check_cmaes_auto_tuning(self, config_key: str):
         """Check if CMA-ES auto-tuning should be triggered for a config.
@@ -8125,16 +7334,6 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.error(f"[PFSP] Error updating stats: {e}")
 
-    # NOTE: _handle_tournament_completion removed Jan 28, 2026 (dead code)
-    # Use self.tournament_manager.handle_tournament_completion() directly.
-
-    # NOTE: _boost_selfplay_for_config() removed Jan 28, 2026 (~6 LOC)
-    # Use self.tournament_manager.boost_selfplay_for_config() directly (no callers found).
-
-    # NOTE: _propagate_cmaes_weights removed Jan 28, 2026 (dead code)
-    # Use self.cmaes_coordinator.propagate_weights() directly.
-
-    # NOTE: _stop_local_job() removed Jan 28, 2026 (~11 LOC, no callers found)
 
     async def _import_gpu_selfplay_to_canonical(
         self, validated_db: Path, board_type: str, num_players: int, game_count: int
@@ -8175,17 +7374,12 @@ class P2POrchestrator(
             import traceback
             traceback.print_exc()
 
-    # Jan 30, 2026: Removed _import_gpu_selfplay_sync (dead code - no callers)
-    # Use self.sync.import_gpu_selfplay_sync() directly if needed
 
     # =========================================================================
-    # NOTE: Improvement Cycle handlers moved to ImprovementHandlersMixin
     # See: scripts/p2p/handlers/improvement.py (Dec 28, 2025 - Phase 8)
     # =========================================================================
 
 
-    # handle_metrics moved to MetricsHandlersMixin (Jan 2026 - P2P Modularization Phase 4b)
-    # handle_metrics_prometheus moved to MetricsHandlersMixin (Jan 2026 - P2P Modularization)
     # handle_improvement_training_complete and handle_improvement_evaluation_complete
     # moved to ImprovementHandlersMixin (Dec 28, 2025 - Phase 8)
 
@@ -8382,10 +7576,6 @@ class P2POrchestrator(
     # Canonical Pipeline Integration (for pipeline_orchestrator.py)
     # =========================================================================
 
-    # Jan 28, 2026: Pipeline handlers moved to PipelineHandlersMixin (~244 LOC)
-    # - handle_pipeline_start, _start_canonical_selfplay_pipeline, _run_local_canonical_selfplay
-    # - _start_parity_validation_pipeline, _run_parity_validation
-    # - _start_npz_export_pipeline, _run_npz_export
     # See scripts/p2p/handlers/pipeline.py for implementation.
 
     def _get_auth_headers(self) -> dict[str, str]:
@@ -8397,23 +7587,14 @@ class P2POrchestrator(
     # =========================================================================
 
 
-    # NOTE: Cluster API handlers moved to ClusterApiHandlersMixin (Jan 2026 - P2P Modularization)
-    # - handle_api_cluster_status, handle_api_cluster_git_update
     # See scripts/p2p/handlers/cluster_api.py for implementation.
 
-    # NOTE: Dashboard handlers moved to DashboardHandlersMixin (Jan 2026 - P2P Modularization Phase 2a)
-    # - handle_root, handle_dashboard, handle_work_queue_dashboard, handle_resource_optimizer
     # See scripts/p2p/handlers/dashboard.py for implementation.
 
-    # handle_api_selfplay_stats moved to SelfplayHandlersMixin (Jan 2026 - P2P Modularization)
-    # handle_api_elo_leaderboard moved to EloAnalyticsHandlersMixin (Jan 2026 - P2P Modularization Phase 4a)
 
     # handle_elo_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
     # handle_nodes_table() moved to TableHandlersMixin (Dec 28, 2025 - Phase 8)
 
-    # Jan 28, 2026: Analytics cache wrapper methods removed (~48 LOC)
-    # Handlers now use self.analytics_cache_manager.* directly.
-    # Removed: _get_victory_type_stats, _get_game_analytics_cached, _get_training_metrics_cached,
     # _get_holdout_metrics_cached, _get_mcts_stats_cached, _get_matchup_matrix_cached,
     # _get_model_lineage_cached, _get_data_quality_cached, _get_training_efficiency_cached
 
@@ -8557,8 +7738,6 @@ class P2POrchestrator(
             pass
 
         return autoscale
-
-    # Dec 2025-Jan 2026: Handlers moved to mixins, loops moved to LoopManager
 
     async def _claim_work_from_leader(self, capabilities: list[str]) -> dict[str, Any] | None:
         """Claim work from the leader's work queue.
@@ -8963,7 +8142,6 @@ class P2POrchestrator(
             logger.error(f"Error executing work {work_id}: {e}")
             return False
 
-    # Dec 2025: Work queue and idle detection loops moved to LoopManager (170 LOC)
 
     async def _handle_zombie_detected(self, peer, zombie_duration: float) -> None:
         """Handle detection of zombie/stuck selfplay processes on a node.
@@ -9010,8 +8188,6 @@ class P2POrchestrator(
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Error killing zombie processes on {node_id}: {e}")
 
-    # NOTE: _auto_start_selfplay() removed Jan 28, 2026 (~6 LOC, no callers found)
-    # Use self.selfplay_scheduler.auto_start_selfplay() directly.
 
     # =========================================================================
     # PREDICTIVE SCALING HELPERS (January 2026 Sprint 6)
@@ -9131,25 +8307,13 @@ class P2POrchestrator(
             stale_seconds=120.0,
         ).unwrap_or([])
 
-    # Dec 2025: Automation loops (527 LOC) moved to LoopManager - see scripts/p2p/loops/
 
-    # Jan 28, 2026: handle_games_analytics() moved to MetricsHandlersMixin (~109 LOC)
-    # Jan 28, 2026: handle_training_metrics() moved to MetricsHandlersMixin (~75 LOC)
     # See scripts/p2p/handlers/metrics.py
 
-    # Jan 28, 2026: Analytics handlers moved to AnalyticsHandlersMixin (~75 LOC)
-    # - handle_holdout_metrics, handle_mcts_stats, handle_matchup_matrix
-    # - handle_model_lineage, handle_data_quality
     # See scripts/p2p/handlers/analytics.py
 
-    # Jan 28, 2026: More analytics handlers moved to AnalyticsHandlersMixin (~120 LOC)
-    # - handle_training_efficiency, handle_autoscale_metrics, handle_resource_utilization_history
-    # - handle_webhook_test, handle_trends_summary, handle_trends_history
     # See scripts/p2p/handlers/analytics.py
 
-    # NOTE: Rollback handlers moved to RecoveryHandlersMixin (Jan 2026 - P2P Modularization Phase 2b)
-    # - handle_rollback_status, handle_rollback_execute, handle_rollback_auto
-    # - handle_rollback_candidates was already moved to TableHandlersMixin
     # See scripts/p2p/handlers/recovery.py for implementation.
 
     # ==================== A/B Testing Framework ====================
@@ -9249,33 +8413,6 @@ class P2POrchestrator(
             }
         except Exception as e:  # noqa: BLE001
             return {"error": str(e)}
-
-    # A/B Test handlers moved to scripts/p2p/handlers/abtest.py (Dec 28, 2025 - Phase 8)
-    # Inherited from ABTestHandlersMixin:
-    # - handle_abtest_create, handle_abtest_result, handle_abtest_status
-    # - handle_abtest_list, handle_abtest_cancel, handle_abtest_run
-    # Note: handle_abtest_table() was previously moved to TableHandlersMixin
-
-    # Jan 28, 2026: handle_api_training_status() moved to AnalyticsHandlersMixin (~124 LOC)
-    # See scripts/p2p/handlers/analytics.py
-
-    # =========================================================================
-    # NOTE: Canonical gate handlers moved to scripts/p2p/handlers/canonical_gate.py (Dec 28, 2025 - Phase 8)
-    # Inherited from CanonicalGateHandlersMixin:
-    # - _canonical_slug_for_board, _canonical_gate_paths, _tail_text_file, _canonical_gate_log_dir
-    # - _monitor_canonical_gate_job
-    # - handle_api_canonical_health, handle_api_canonical_jobs_list, handle_api_canonical_job_get
-    # - handle_api_canonical_job_log, handle_api_canonical_logs_list, handle_api_canonical_log_tail
-    # - handle_api_canonical_generate, handle_api_canonical_job_cancel
-    # =========================================================================
-
-    # =========================================================================
-    # NOTE: Jobs API handlers moved to scripts/p2p/handlers/jobs_api.py (Dec 28, 2025 - Phase 8)
-    # Inherited from JobsApiHandlersMixin:
-    # - handle_api_jobs_list, handle_api_jobs_submit, handle_api_job_get, handle_api_job_cancel
-    # - _get_job_type_enum (helper for lazy JobType import)
-    # =========================================================================
-
 
     async def _run_evaluation(self, job_id: str):
         """Evaluate new model against current best.
@@ -9576,7 +8713,6 @@ print(json.dumps({{
         if self.self_info.port != self.advertise_port:
             self.self_info.port = self.advertise_port
 
-    # NOTE: _set_advertise_host() moved to AdvertiseValidationMixin (Jan 26, 2026)
 
     async def _update_self_info_async(self, cache_ttl: float = 5.0):
         """Async version of _update_self_info() to avoid blocking event loop.
@@ -9990,10 +9126,7 @@ print(json.dumps({{
             logger.debug(f"Could not load distributed hosts: {e}")
             return {"hosts": {}}
 
-    # NOTE: _follower_discovery_loop() removed Dec 2025 (75 LOC).
-    # Now runs via LoopManager as FollowerDiscoveryLoop.
     # See scripts/p2p/loops/discovery_loop.py for implementation.
-    # The loop uses callbacks: get_known_peers, query_peer_list, add_peer, is_leader.
 
     async def _send_relay_heartbeat(self, relay_url: str) -> dict[str, Any]:
         """Send heartbeat via relay endpoint for NAT-blocked nodes.
@@ -10152,7 +9285,6 @@ print(json.dumps({{
                 f"[Raft] Leader elected at {leader_address} but cannot resolve to node_id"
             )
 
-    # Jan 30, 2026: Removed _resolve_raft_address_to_node_id - callers use self.network.* directly
 
     async def _send_startup_peer_announcements(self) -> None:
         """Send immediate announcements to all known peers on startup.
@@ -10722,10 +9854,8 @@ print(json.dumps({{
 
             await asyncio.sleep(HEARTBEAT_INTERVAL)
 
-    # Jan 28, 2026: _voter_heartbeat_loop() moved to VoterHeartbeatLoop in loop_registry.py (~101 LOC)
     # See scripts/p2p/loops/network_loops.py and scripts/p2p/loop_registry.py
 
-    # Jan 28, 2026: _reconnect_dead_peers_loop() moved to ReconnectDeadPeersLoop in loop_registry.py (~138 LOC)
     # See scripts/p2p/loops/network_loops.py and scripts/p2p/loop_registry.py
 
     async def _send_voter_heartbeat(self, voter_peer) -> bool:
@@ -10808,32 +9938,12 @@ print(json.dumps({{
             for voter_id in missing_voters:
                 await self._discover_voter_peer(voter_id)
 
-    # NOTE: _nat_management_loop() removed Dec 2025 (32 LOC).
-    # Now runs via LoopManager as NATManagementLoop.
     # See scripts/p2p/loops/network_loops.py for implementation.
 
-    # NOTE: _detect_nat_type() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager.detect_nat_type() directly.
-
-    # NOTE: _probe_nat_blocked_peers() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager.probe_nat_blocked_peers() directly.
-
-    # NOTE: _update_relay_preferences() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager.update_relay_preferences() directly.
-
-    # NOTE: _validate_relay_assignments() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager.validate_relay_assignments() directly.
 
     # NOTE: _select_best_relay() inlined at call site (Jan 2026 Phase 2)
 
-    # NOTE: _is_valid_relay() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager._is_valid_relay() directly.
 
-    # NOTE: _get_configured_relays() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager._get_configured_relays() directly.
-
-    # NOTE: _manifest_collection_loop removed Dec 27, 2025
-    # Now handled by ManifestCollectionLoop via LoopManager
     # See scripts/p2p/loops/manifest_collection_loop.py
 
     def _record_selfplay_stats_sample(self, manifest: ClusterDataManifest) -> None:
@@ -10893,11 +10003,6 @@ print(json.dumps({{
             counts[key] = counts.get(key, 0) + 1
         return {k for k, v in counts.items() if v > 1}
 
-    # NOTE: _probe_nat_blocked_peer() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager.probe_nat_blocked_peer() directly.
-
-    # NOTE: _sweep_nat_recovery() removed Jan 28, 2026 (~6 LOC)
-    # Use self.recovery_manager.sweep_nat_recovery() directly.
 
     # NOTE: _compute_connectivity_score() inlined at call site (Jan 2026 Phase 2)
 
@@ -10939,8 +10044,6 @@ print(json.dumps({{
         key = self._endpoint_key(peer)
         return not (key and key in conflict_keys)
 
-    # Jan 27, 2026: Phase 17B - Removed _register_peer_with_dedup (never called)
-    # Jan 30, 2026: Removed _deduplicate_peers - callers use self.network.deduplicate_peers() directly
 
     def _maybe_adopt_leader_from_peers(self) -> bool:
         """Jan 29, 2026: Delegated to LeadershipOrchestrator.maybe_adopt_leader_from_peers()."""
@@ -10965,12 +10068,6 @@ print(json.dumps({{
         # Delegate to PeerNetworkOrchestrator if available
         return await self.network.check_dead_peers_async()
 
-    # Jan 30, 2026: _probe_retired_peers_async() moved to PeerNetworkOrchestrator
-    # Callers now use self.network.probe_retired_peers_async()
-
-    # NOTE: _check_dead_peers() sync method removed Jan 27, 2026 - Phase 3.2 cleanup
-    # The async version _check_dead_peers_async() is the only active implementation.
-    # Removed 206 lines of dead code (0 call sites confirmed via grep).
 
     async def _start_election(self):
         """Start leader election using Bully algorithm."""
@@ -11692,10 +10789,7 @@ print(json.dumps({{
         """
         self.health_metrics_manager.record_p2p_sync_result(peer_id, success, latency_ms)
 
-    # Jan 30, 2026: Removed wrappers _p2p_data_sync, _p2p_model_sync, _p2p_training_db_sync
-    # Callers now use self.sync.p2p_data_sync() etc. directly
 
-    # Jan 27, 2026: Gossip methods delegated to GossipProtocolMixin (Phase 13 decomposition)
     # _gossip_state_to_peers(), _get_gossip_known_states() are inherited from mixin
 
     def _get_peer_endpoints_for_gossip(self) -> list[dict[str, Any]]:
@@ -11707,12 +10801,6 @@ print(json.dumps({{
         Jan 27, 2026: Migrated to PeerQueryBuilder (Phase 3.2).
         """
         return self._peer_query.to_endpoint_dicts(limit=GOSSIP_MAX_PEER_ENDPOINTS).unwrap_or([])
-
-    # Jan 27, 2026: Phase 13 Gossip Protocol Cleanup - Inherited from GossipProtocolMixin:
-    # - _process_gossip_response, _process_gossip_peer_endpoints, _try_connect_gossip_peer
-    # - _handle_incoming_cluster_epoch, _gossip_anti_entropy_repair
-    # - _tcp_probe_peer, _wire_cooldown_manager_probe, _wire_connection_pool_dynamic_sizing
-    # - _get_cluster_size_for_pool, _is_peer_alive_for_circuit_breaker
 
     # =========================================================================
     # DISTRIBUTED TRAINING COORDINATION
@@ -11931,8 +11019,6 @@ print(json.dumps({{
     # requiring every node to query the ELO database directly.
     # =========================================================================
 
-    # Jan 30, 2026: Removed wrapper _get_local_elo_summary
-    # Callers now use self.sync.get_local_elo_summary() directly
 
     def _get_cluster_elo_summary(self) -> dict:
         """Get cluster-wide ELO summary from gossip state.
@@ -11989,14 +11075,6 @@ print(json.dumps({{
     # (service restart) to maintain cluster health without manual intervention.
     # =========================================================================
 
-    # NOTE: _check_node_recovery() removed Jan 28, 2026 (~3 LOC)
-    # Use self.recovery_manager.check_node_recovery() directly.
-
-    # NOTE: _attempt_node_recovery() removed Jan 28, 2026 (~3 LOC)
-    # Use self.recovery_manager.attempt_node_recovery() directly.
-
-    # NOTE: _get_node_recovery_metrics() removed Jan 28, 2026 (~5 LOC)
-    # Use self.recovery_manager.get_node_recovery_metrics() directly.
 
     # =========================================================================
     # STABILITY CONTROLLER CALLBACKS (Jan 2026 - Self-Healing Architecture)
@@ -12005,8 +11083,6 @@ print(json.dumps({{
     # are detected. Each callback records effectiveness for feedback loop.
     # =========================================================================
 
-    # Jan 30, 2026: Removed wrapper _get_stability_metrics
-    # Callers now use self.monitoring.get_stability_metrics() directly
 
     async def _action_increase_timeout(
         self, nodes: list[str], symptom: Any
@@ -12199,8 +11275,6 @@ print(json.dumps({{
     # When current leader fails, nodes can quickly converge on a new leader
     # based on hints from peers rather than running full election.
     #
-    # Jan 30, 2026: Removed wrappers _get_leader_hint, _get_cluster_leader_consensus
-    # Callers now use self.leadership.get_leader_hint() and self.leadership.get_cluster_leader_consensus()
     # =========================================================================
 
     # =========================================================================
@@ -12210,8 +11284,6 @@ print(json.dumps({{
     # gossip, and other distributed operations.
     # =========================================================================
 
-    # Jan 30, 2026: Removed wrappers _record_peer_interaction, _get_peer_reputation_summary
-    # Callers now use self.network.record_peer_interaction() and self.network.get_peer_reputation_summary() directly
 
     def _get_cluster_peer_reputation(self) -> dict:
         """Aggregate peer reputation from gossip for cluster-wide view."""
@@ -12250,15 +11322,6 @@ print(json.dumps({{
         }
 
     # ============================================================================
-    # ADAPTIVE SYNC INTERVAL MANAGEMENT
-    # ============================================================================
-    # Jan 30, 2026: Moved to SyncOrchestrator
-    # - _init_adaptive_sync_intervals() → self.sync._init_adaptive_sync_intervals()
-    # - _get_adaptive_sync_interval() → self.sync.get_adaptive_sync_interval()
-    # - _record_sync_result_for_adaptive() → self.sync.record_sync_result_for_adaptive()
-    # - _get_sync_interval_summary() → self.sync.get_sync_interval_summary()
-    # ============================================================================
-
     # ============================================================================
     # SELFPLAY DATA DEDUPLICATION
     # ============================================================================
@@ -12312,8 +11375,6 @@ print(json.dumps({{
         with self._dedup_lock:
             return file_hash in self._synced_file_hashes
 
-    # Jan 27, 2026: Phase 17B - Removed _record_game_ids (never called)
-    # NOTE: _filter_unknown_games removed Dec 27, 2025 (dead code, never called)
 
     def _record_dedup_skip(self, file_count: int = 0, game_count: int = 0, bytes_saved: int = 0):
         """Record deduplication skip for metrics.
@@ -12331,7 +11392,6 @@ print(json.dumps({{
             self._dedup_stats["games_skipped"] += game_count
             self._dedup_stats["bytes_saved"] += bytes_saved
 
-    # NOTE: _cleanup_dedup_cache removed Dec 27, 2025 (dead code, never called)
 
     def _get_dedup_summary(self) -> dict:
         """Get deduplication metrics summary."""
@@ -12347,8 +11407,6 @@ print(json.dumps({{
                 "known_game_ids": len(self._known_game_ids),
             }
 
-    # Jan 30, 2026: Removed wrappers _get_swim_raft_status, _get_cluster_observability
-    # Callers now use self.network.get_swim_raft_status() and self.sync.get_cluster_observability()
 
     def _get_data_summary_cached(self) -> dict[str, Any]:
         """Get cached data summary for /status endpoint.
@@ -12537,22 +11595,6 @@ print(json.dumps({{
     # Jan 2026: Delegated to TournamentManager (Phase 11 decomposition).
     # ============================================================================
 
-    # Jan 27, 2026: Phase 17B - Removed _init_distributed_tournament_scheduling (unused delegation wrapper)
-
-    # NOTE: _get_tournament_gossip_state() removed Jan 28, 2026 (~5 LOC)
-    # Use self.tournament_manager.get_tournament_gossip_state() directly.
-
-    # NOTE: _process_tournament_gossip() removed Jan 28, 2026 (~5 LOC)
-    # Use self.tournament_manager.process_tournament_gossip() directly.
-
-    # NOTE: _check_tournament_consensus() removed Jan 28, 2026 (~5 LOC)
-    # Use self.tournament_manager.check_tournament_consensus() directly.
-
-    # NOTE: _start_tournament_from_proposal removed Jan 28, 2026 (dead code)
-    # Use self.tournament_manager.start_tournament_from_proposal() directly.
-
-    # NOTE: _get_distributed_tournament_summary() removed Jan 28, 2026 (~5 LOC)
-    # Use self.tournament_manager.get_distributed_tournament_summary() directly.
 
     async def _start_monitoring_if_leader(self):
         """Start Prometheus/Grafana when we become leader (P2P monitoring resilience)."""
@@ -12865,14 +11907,6 @@ print(json.dumps({{
 
             await asyncio.sleep(JOB_CHECK_INTERVAL)
 
-    # NOTE: _check_and_kill_stuck_jobs() removed Jan 28, 2026 (~5 LOC)
-    # Use self.job_lifecycle_manager.check_and_kill_stuck_jobs() directly.
-
-    # NOTE: _check_local_stuck_jobs() removed Jan 28, 2026 (~5 LOC)
-    # Use self.job_lifecycle_manager.check_local_stuck_jobs() directly.
-
-    # NOTE: _remote_kill_stuck_job() removed Jan 28, 2026 (~7 LOC)
-    # Use self.job_lifecycle_manager.remote_kill_stuck_job() directly.
 
     async def _manage_local_jobs_decentralized(self) -> int:
         """DECENTRALIZED: Each node manages its own job count based on gossip state.
@@ -12896,13 +11930,6 @@ print(json.dumps({{
         # Delegate to ProcessSpawnerOrchestrator if available
         return await self.process_spawner.manage_local_jobs_decentralized()
 
-    # NOTE: _local_gpu_auto_scale() removed Jan 28, 2026 (~5 LOC)
-    # Use self.job_coordination_manager.local_gpu_auto_scale() directly.
-
-    # NOTE: _local_resource_cleanup() removed Jan 28, 2026 (~5 LOC)
-    # Use self.job_coordination_manager.local_resource_cleanup() directly.
-
-    # Dec 2025: Job/selfplay methods delegated to job_manager and selfplay_scheduler
 
     async def _auto_scale_gpu_utilization(self) -> int:
         """Auto-scale selfplay jobs to reach 60-80% GPU utilization.
@@ -13028,15 +12055,6 @@ print(json.dumps({{
         """Jan 29, 2026: Delegated to JobOrchestrator.auto_rebalance_from_work_queue()."""
         return await self.jobs.auto_rebalance_from_work_queue()
 
-    # NOTE: _dispatch_queued_work() removed Jan 28, 2026 (~5 LOC)
-    # Use self.job_coordination_manager.dispatch_queued_work() directly.
-
-    # NOTE: _schedule_diverse_selfplay_on_node() removed Jan 28, 2026 (~5 LOC)
-    # Use self.job_coordination_manager.schedule_diverse_selfplay_on_node() directly.
-
-    # NOTE: _schedule_gpu_selfplay_on_node alias removed Jan 28, 2026 (used same impl)
-
-    # Dec 2025: Selfplay target methods delegated to selfplay_scheduler
 
     async def _check_cluster_balance(self) -> dict[str, Any]:
         """Check and rebalance jobs across the cluster.
@@ -13176,8 +12194,6 @@ print(json.dumps({{
         # Jan 29, 2026: Delegate to ProcessSpawnerOrchestrator
         return await self.process_spawner.manage_cluster_jobs()
 
-    # NOTE: _emergency_memory_cleanup() removed Jan 28, 2026 (~5 LOC)
-    # Use self.memory_disk_manager.emergency_memory_cleanup() directly (no callers found).
 
     async def _cleanup_local_disk(self):
         """Clean up disk space on local node.
@@ -13677,8 +12693,6 @@ print(json.dumps({{
 
             await asyncio.sleep(DISCOVERY_INTERVAL)
 
-    # Jan 30, 2026: Removed wrappers _validate_critical_subsystems, _start_isolated_health_server
-    # Callers now use self.monitoring.validate_critical_subsystems() etc. directly
 
     async def restart_http_server(self) -> bool:
         """Restart the HTTP server gracefully without terminating the process.

@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.db_helpers import p2p_db_connection
 from scripts.p2p.handlers.base import BaseP2PHandler
 from scripts.p2p.handlers.timeout_decorator import handler_timeout, HANDLER_TIMEOUT_TOURNAMENT
 
@@ -110,25 +111,24 @@ class ABTestHandlersMixin(BaseP2PHandler):
             # Store in database - run blocking SQLite in thread pool
             def _insert_ab_test(db_path: str, data: dict[str, Any]) -> None:
                 """Blocking SQLite insert - runs in thread pool."""
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO ab_tests (
-                        test_id, name, description, board_type, num_players,
-                        model_a, model_b, target_games, confidence_threshold,
-                        status, winner, created_at, completed_at, metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    data["test_id"], data["name"], data["description"],
-                    data["board_type"], data["num_players"],
-                    data["model_a"], data["model_b"],
-                    data["target_games"], data["confidence_threshold"],
-                    data["status"], data["winner"],
-                    data["created_at"], data["completed_at"],
-                    data["metadata"],
-                ))
-                conn.commit()
-                conn.close()
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT INTO ab_tests (
+                            test_id, name, description, board_type, num_players,
+                            model_a, model_b, target_games, confidence_threshold,
+                            status, winner, created_at, completed_at, metadata
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        data["test_id"], data["name"], data["description"],
+                        data["board_type"], data["num_players"],
+                        data["model_a"], data["model_b"],
+                        data["target_games"], data["confidence_threshold"],
+                        data["status"], data["winner"],
+                        data["created_at"], data["completed_at"],
+                        data["metadata"],
+                    ))
+                    conn.commit()
 
             await asyncio.to_thread(_insert_ab_test, str(self.db_path), test_data)
 
@@ -201,29 +201,26 @@ class ABTestHandlersMixin(BaseP2PHandler):
                     (error_msg, test_status, target_games, confidence_threshold)
                     If error_msg is set, the other values should be ignored.
                 """
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT status, target_games, confidence_threshold FROM ab_tests WHERE test_id = ?",
-                    (tid,),
-                )
-                row = cursor.fetchone()
-                if not row:
-                    conn.close()
-                    return f"Test {tid} not found", None, None, None
-                status, target, confidence = row
-                if status != "running":
-                    conn.close()
-                    return f"Test {tid} is {status}, not running", None, None, None
-                cursor.execute("""
-                    INSERT INTO ab_test_games (
-                        test_id, game_id, model_a_result, model_a_score, model_b_score,
-                        game_length, played_at, metadata
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (tid, gid, result, a_score, b_score, length, played, meta))
-                conn.commit()
-                conn.close()
-                return None, status, target, confidence
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT status, target_games, confidence_threshold FROM ab_tests WHERE test_id = ?",
+                        (tid,),
+                    )
+                    row = cursor.fetchone()
+                    if not row:
+                        return f"Test {tid} not found", None, None, None
+                    status, target, confidence = row
+                    if status != "running":
+                        return f"Test {tid} is {status}, not running", None, None, None
+                    cursor.execute("""
+                        INSERT INTO ab_test_games (
+                            test_id, game_id, model_a_result, model_a_score, model_b_score,
+                            game_length, played_at, metadata
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (tid, gid, result, a_score, b_score, length, played, meta))
+                    conn.commit()
+                    return None, status, target, confidence
 
             error_msg, test_status, target_games, confidence_threshold = await asyncio.to_thread(
                 _verify_and_insert_game,
@@ -255,14 +252,13 @@ class ABTestHandlersMixin(BaseP2PHandler):
 
                 def _complete_test(db_path: str, tid: str, winner: str | None) -> None:
                     """Mark test as completed - runs in thread pool."""
-                    conn = sqlite3.connect(db_path)
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE ab_tests SET status = 'completed', winner = ?, completed_at = ?
-                        WHERE test_id = ?
-                    """, (winner, time.time(), tid))
-                    conn.commit()
-                    conn.close()
+                    with p2p_db_connection(db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE ab_tests SET status = 'completed', winner = ?, completed_at = ?
+                            WHERE test_id = ?
+                        """, (winner, time.time(), tid))
+                        conn.commit()
 
                 await asyncio.to_thread(_complete_test, str(self.db_path), test_id, winner_model)
 
@@ -297,12 +293,10 @@ class ABTestHandlersMixin(BaseP2PHandler):
 
             def _get_test_data(db_path: str, tid: str) -> tuple[Any, ...] | None:
                 """Fetch test data - runs in thread pool."""
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM ab_tests WHERE test_id = ?", (tid,))
-                row = cursor.fetchone()
-                conn.close()
-                return row
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT * FROM ab_tests WHERE test_id = ?", (tid,))
+                    return cursor.fetchone()
 
             row = await asyncio.to_thread(_get_test_data, str(self.db_path), test_id)
 
@@ -349,23 +343,21 @@ class ABTestHandlersMixin(BaseP2PHandler):
                 db_path: str, status: str | None, lim: int
             ) -> list[tuple[Any, ...]]:
                 """Fetch test list - runs in thread pool."""
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                if status:
-                    cursor.execute(
-                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                        "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT ?",
-                        (status, lim),
-                    )
-                else:
-                    cursor.execute(
-                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                        "FROM ab_tests ORDER BY created_at DESC LIMIT ?",
-                        (lim,),
-                    )
-                rows = cursor.fetchall()
-                conn.close()
-                return rows
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    if status:
+                        cursor.execute(
+                            "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                            "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                            (status, lim),
+                        )
+                    else:
+                        cursor.execute(
+                            "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                            "FROM ab_tests ORDER BY created_at DESC LIMIT ?",
+                            (lim,),
+                        )
+                    return cursor.fetchall()
 
             rows = await asyncio.to_thread(_list_tests, str(self.db_path), status_filter, limit)
 
@@ -413,27 +405,24 @@ class ABTestHandlersMixin(BaseP2PHandler):
                 Returns:
                     (error_msg, old_status) - error_msg is None on success
                 """
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT status FROM ab_tests WHERE test_id = ?", (tid,))
-                row = cursor.fetchone()
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT status FROM ab_tests WHERE test_id = ?", (tid,))
+                    row = cursor.fetchone()
 
-                if not row:
-                    conn.close()
-                    return f"Test {tid} not found", None
+                    if not row:
+                        return f"Test {tid} not found", None
 
-                old_status = row[0]
-                if old_status != "running":
-                    conn.close()
-                    return f"Test {tid} is already {old_status}", old_status
+                    old_status = row[0]
+                    if old_status != "running":
+                        return f"Test {tid} is already {old_status}", old_status
 
-                cursor.execute(
-                    "UPDATE ab_tests SET status = 'cancelled', completed_at = ? WHERE test_id = ?",
-                    (time.time(), tid),
-                )
-                conn.commit()
-                conn.close()
-                return None, old_status
+                    cursor.execute(
+                        "UPDATE ab_tests SET status = 'cancelled', completed_at = ? WHERE test_id = ?",
+                        (time.time(), tid),
+                    )
+                    conn.commit()
+                    return None, old_status
 
             error_msg, old_status = await asyncio.to_thread(_cancel_test, str(self.db_path), test_id)
 
@@ -467,16 +456,14 @@ class ABTestHandlersMixin(BaseP2PHandler):
                 db_path: str, tid: str
             ) -> tuple[Any, ...] | None:
                 """Fetch test info - runs in thread pool."""
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT board_type, num_players, model_a, model_b, target_games, status "
-                    "FROM ab_tests WHERE test_id = ?",
-                    (tid,),
-                )
-                row = cursor.fetchone()
-                conn.close()
-                return row
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT board_type, num_players, model_a, model_b, target_games, status "
+                        "FROM ab_tests WHERE test_id = ?",
+                        (tid,),
+                    )
+                    return cursor.fetchone()
 
             row = await asyncio.to_thread(_get_test_info, str(self.db_path), test_id)
 

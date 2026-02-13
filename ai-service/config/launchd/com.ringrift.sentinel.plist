@@ -48,6 +48,17 @@
     <key>LowPriorityIO</key>
     <true/>
 
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
+    </dict>
+
     <key>AbandonProcessGroup</key>
     <false/>
 </dict>

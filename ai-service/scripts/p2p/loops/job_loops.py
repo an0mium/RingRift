@@ -96,7 +96,6 @@ class JobReaperConfig:
             raise ValueError("stale_job_threshold_seconds must be > 0")
         if self.stuck_job_threshold_seconds <= 0:
             raise ValueError("stuck_job_threshold_seconds must be > 0")
-        # Removed: stale < stuck validation since stale thresholds are now per-type
         if self.max_jobs_to_reap_per_cycle <= 0:
             raise ValueError("max_jobs_to_reap_per_cycle must be > 0")
         if self.check_interval_seconds <= 0:

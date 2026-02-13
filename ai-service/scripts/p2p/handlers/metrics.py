@@ -21,25 +21,12 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.db_helpers import p2p_db_connection as safe_db_connection
+
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
-
-
-def safe_db_connection(db_path: Path):
-    """Context manager for safe database connections."""
-    import contextlib
-
-    @contextlib.contextmanager
-    def _connection():
-        conn = sqlite3.connect(str(db_path), timeout=5.0)
-        try:
-            yield conn
-        finally:
-            conn.close()
-
-    return _connection()
 
 
 # GPU hourly rates (Lambda Labs pricing as of Dec 2025)

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.db_helpers import p2p_db_connection
 from scripts.p2p.handlers.base import BaseP2PHandler
 from scripts.p2p.handlers.timeout_decorator import (
     handler_timeout,
@@ -212,17 +213,16 @@ class DeliveryHandlersMixin(BaseP2PHandler):
                 try:
                     def _validate_sqlite_db() -> tuple[list[str], int]:
                         """Blocking SQLite validation - runs in thread pool."""
-                        conn = sqlite3.connect(str(file_path))
-                        cursor = conn.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        )
-                        tables = [row[0] for row in cursor.fetchall()]
-                        game_count = 0
-                        if "games" in tables:
-                            cursor = conn.execute("SELECT COUNT(*) FROM games")
-                            game_count = cursor.fetchone()[0]
-                        conn.close()
-                        return tables, game_count
+                        with p2p_db_connection(file_path) as conn:
+                            cursor = conn.execute(
+                                "SELECT name FROM sqlite_master WHERE type='table'"
+                            )
+                            tables = [row[0] for row in cursor.fetchall()]
+                            game_count = 0
+                            if "games" in tables:
+                                cursor = conn.execute("SELECT COUNT(*) FROM games")
+                                game_count = cursor.fetchone()[0]
+                            return tables, game_count
 
                     # Run blocking SQLite in thread pool
                     tables, game_count = await asyncio.to_thread(_validate_sqlite_db)

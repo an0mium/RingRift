@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config.coordination_defaults import MetricsRetentionDefaults
+from scripts.p2p.db_helpers import p2p_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -74,26 +75,25 @@ class MetricsManager:
     def _ensure_table(self) -> None:
         """Create metrics_history table if it doesn't exist."""
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS metrics_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp REAL NOT NULL,
-                    metric_type TEXT NOT NULL,
-                    board_type TEXT,
-                    num_players INTEGER,
-                    value REAL NOT NULL,
-                    metadata TEXT,
-                    UNIQUE(timestamp, metric_type, board_type, num_players)
-                )
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_metrics_type_time
-                ON metrics_history(metric_type, timestamp DESC)
-            """)
-            conn.commit()
-            conn.close()
+            with p2p_db_connection(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS metrics_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL NOT NULL,
+                        metric_type TEXT NOT NULL,
+                        board_type TEXT,
+                        num_players INTEGER,
+                        value REAL NOT NULL,
+                        metadata TEXT,
+                        UNIQUE(timestamp, metric_type, board_type, num_players)
+                    )
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_metrics_type_time
+                    ON metrics_history(metric_type, timestamp DESC)
+                """)
+                conn.commit()
         except Exception as e:
             logger.warning(f"Could not ensure metrics table: {e}")
 
@@ -149,27 +149,23 @@ class MetricsManager:
             self._metrics_buffer.clear()
             self._metrics_last_flush = time.time()
 
-        conn = None
         flushed_count = 0
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
-            cursor.executemany(
-                """
-                INSERT OR IGNORE INTO metrics_history
-                (timestamp, metric_type, board_type, num_players, value, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """,
-                entries,
-            )
-            conn.commit()
-            flushed_count = len(entries)
+            with p2p_db_connection(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.executemany(
+                    """
+                    INSERT OR IGNORE INTO metrics_history
+                    (timestamp, metric_type, board_type, num_players, value, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                    entries,
+                )
+                conn.commit()
+                flushed_count = len(entries)
         except Exception as e:
             logger.error(f"Failed to flush metrics buffer ({len(entries)} entries): {e}")
             return 0
-        finally:
-            if conn:
-                conn.close()
 
         # January 2026: Trigger cleanup after successful flush
         self._cleanup_old_metrics()
@@ -196,62 +192,58 @@ class MetricsManager:
         self._last_cleanup = now
         retention_cutoff = now - (MetricsRetentionDefaults.RETENTION_HOURS * 3600)
 
-        conn = None
         total_deleted = 0
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with p2p_db_connection(self.db_path) as conn:
+                cursor = conn.cursor()
 
-            # Get current total row count for VACUUM threshold
-            cursor.execute("SELECT COUNT(*) FROM metrics_history")
-            self._total_row_count = cursor.fetchone()[0]
+                # Get current total row count for VACUUM threshold
+                cursor.execute("SELECT COUNT(*) FROM metrics_history")
+                self._total_row_count = cursor.fetchone()[0]
 
-            if self._total_row_count == 0:
-                return 0
+                if self._total_row_count == 0:
+                    return 0
 
-            # Delete in batches to avoid long transactions
-            batch_size = MetricsRetentionDefaults.CLEANUP_BATCH_SIZE
-            while True:
-                cursor.execute(
-                    """
-                    DELETE FROM metrics_history
-                    WHERE id IN (
-                        SELECT id FROM metrics_history
-                        WHERE timestamp < ?
-                        LIMIT ?
+                # Delete in batches to avoid long transactions
+                batch_size = MetricsRetentionDefaults.CLEANUP_BATCH_SIZE
+                while True:
+                    cursor.execute(
+                        """
+                        DELETE FROM metrics_history
+                        WHERE id IN (
+                            SELECT id FROM metrics_history
+                            WHERE timestamp < ?
+                            LIMIT ?
+                        )
+                        """,
+                        (retention_cutoff, batch_size),
                     )
-                    """,
-                    (retention_cutoff, batch_size),
-                )
-                deleted = cursor.rowcount
-                conn.commit()
-                total_deleted += deleted
+                    deleted = cursor.rowcount
+                    conn.commit()
+                    total_deleted += deleted
 
-                if deleted < batch_size:
-                    break
+                    if deleted < batch_size:
+                        break
 
-            # Run VACUUM if we deleted a significant portion
-            if self._total_row_count > 0:
-                deleted_percent = (total_deleted / self._total_row_count) * 100
-                if deleted_percent >= MetricsRetentionDefaults.VACUUM_THRESHOLD_PERCENT:
-                    logger.info(
-                        f"Metrics cleanup deleted {total_deleted} rows ({deleted_percent:.1f}%), "
-                        f"running VACUUM"
-                    )
-                    conn.execute("VACUUM")
-                elif total_deleted > 0:
-                    logger.debug(
-                        f"Metrics cleanup deleted {total_deleted} rows ({deleted_percent:.1f}%)"
-                    )
+                # Run VACUUM if we deleted a significant portion
+                if self._total_row_count > 0:
+                    deleted_percent = (total_deleted / self._total_row_count) * 100
+                    if deleted_percent >= MetricsRetentionDefaults.VACUUM_THRESHOLD_PERCENT:
+                        logger.info(
+                            f"Metrics cleanup deleted {total_deleted} rows ({deleted_percent:.1f}%), "
+                            f"running VACUUM"
+                        )
+                        conn.execute("VACUUM")
+                    elif total_deleted > 0:
+                        logger.debug(
+                            f"Metrics cleanup deleted {total_deleted} rows ({deleted_percent:.1f}%)"
+                        )
 
-            return total_deleted
+                return total_deleted
 
         except Exception as e:
             logger.warning(f"Metrics cleanup failed: {e}")
             return total_deleted
-        finally:
-            if conn:
-                conn.close()
 
     def get_history(
         self,
@@ -262,95 +254,87 @@ class MetricsManager:
         limit: int = 1000,
     ) -> list[dict[str, Any]]:
         """Get metrics history for a specific metric type."""
-        conn = None
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with p2p_db_connection(self.db_path) as conn:
+                cursor = conn.cursor()
 
-            since = time.time() - (hours * 3600)
-            query = """
-                SELECT timestamp, value, board_type, num_players, metadata
-                FROM metrics_history
-                WHERE metric_type = ? AND timestamp > ?
-            """
-            params: list[Any] = [metric_type, since]
+                since = time.time() - (hours * 3600)
+                query = """
+                    SELECT timestamp, value, board_type, num_players, metadata
+                    FROM metrics_history
+                    WHERE metric_type = ? AND timestamp > ?
+                """
+                params: list[Any] = [metric_type, since]
 
-            if board_type:
-                query += " AND board_type = ?"
-                params.append(board_type)
-            if num_players:
-                query += " AND num_players = ?"
-                params.append(num_players)
+                if board_type:
+                    query += " AND board_type = ?"
+                    params.append(board_type)
+                if num_players:
+                    query += " AND num_players = ?"
+                    params.append(num_players)
 
-            query += " ORDER BY timestamp DESC LIMIT ?"
-            params.append(limit)
+                query += " ORDER BY timestamp DESC LIMIT ?"
+                params.append(limit)
 
-            cursor.execute(query, params)
-            results = []
-            for row in cursor.fetchall():
-                results.append({
-                    "timestamp": row[0],
-                    "value": row[1],
-                    "board_type": row[2],
-                    "num_players": row[3],
-                    "metadata": json.loads(row[4]) if row[4] else None,
-                })
-            return results
+                cursor.execute(query, params)
+                results = []
+                for row in cursor.fetchall():
+                    results.append({
+                        "timestamp": row[0],
+                        "value": row[1],
+                        "board_type": row[2],
+                        "num_players": row[3],
+                        "metadata": json.loads(row[4]) if row[4] else None,
+                    })
+                return results
         except Exception as e:
             logger.error(f"Failed to get metrics history: {e}")
             return []
-        finally:
-            if conn:
-                conn.close()
 
     def get_summary(self, hours: float = 24) -> dict[str, Any]:
         """Get summary of all metrics over the specified time period."""
-        conn = None
         try:
-            conn = sqlite3.connect(str(self.db_path))
-            cursor = conn.cursor()
+            with p2p_db_connection(self.db_path) as conn:
+                cursor = conn.cursor()
 
-            since = time.time() - (hours * 3600)
+                since = time.time() - (hours * 3600)
 
-            cursor.execute(
-                """
-                SELECT metric_type, COUNT(*), AVG(value), MIN(value), MAX(value)
-                FROM metrics_history
-                WHERE timestamp > ?
-                GROUP BY metric_type
-            """,
-                (since,),
-            )
-
-            summary: dict[str, Any] = {}
-            for row in cursor.fetchall():
-                summary[row[0]] = {
-                    "count": row[1],
-                    "avg": row[2],
-                    "min": row[3],
-                    "max": row[4],
-                }
-
-            cursor.execute("""
-                SELECT metric_type, value, timestamp
-                FROM metrics_history m1
-                WHERE timestamp = (
-                    SELECT MAX(timestamp) FROM metrics_history m2
-                    WHERE m2.metric_type = m1.metric_type
+                cursor.execute(
+                    """
+                    SELECT metric_type, COUNT(*), AVG(value), MIN(value), MAX(value)
+                    FROM metrics_history
+                    WHERE timestamp > ?
+                    GROUP BY metric_type
+                """,
+                    (since,),
                 )
-            """)
-            for row in cursor.fetchall():
-                if row[0] in summary:
-                    summary[row[0]]["latest"] = row[1]
-                    summary[row[0]]["latest_time"] = row[2]
 
-            return {"period_hours": hours, "since": since, "metrics": summary}
+                summary: dict[str, Any] = {}
+                for row in cursor.fetchall():
+                    summary[row[0]] = {
+                        "count": row[1],
+                        "avg": row[2],
+                        "min": row[3],
+                        "max": row[4],
+                    }
+
+                cursor.execute("""
+                    SELECT metric_type, value, timestamp
+                    FROM metrics_history m1
+                    WHERE timestamp = (
+                        SELECT MAX(timestamp) FROM metrics_history m2
+                        WHERE m2.metric_type = m1.metric_type
+                    )
+                """)
+                for row in cursor.fetchall():
+                    if row[0] in summary:
+                        summary[row[0]]["latest"] = row[1]
+                        summary[row[0]]["latest_time"] = row[2]
+
+                return {"period_hours": hours, "since": since, "metrics": summary}
         except Exception as e:
             logger.error(f"Failed to get metrics summary: {e}")
             return {}
-        finally:
-            if conn:
-                conn.close()
 
     def get_pending_count(self) -> int:
         """Get count of pending (not yet flushed) metrics."""

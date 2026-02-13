@@ -53,6 +53,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from scripts.p2p.db_helpers import p2p_db_connection
+
 if TYPE_CHECKING:
     from typing import Callable
 
@@ -66,13 +68,13 @@ _analytics_cache_manager: AnalyticsCacheManager | None = None
 _manager_lock = threading.Lock()
 
 
-def safe_db_connection(db_path: Path) -> sqlite3.Connection:
-    """Create a SQLite connection with safe defaults.
+def safe_db_connection(db_path: Path):
+    """Create a SQLite connection with safe defaults via centralized limiter.
 
-    Uses check_same_thread=False for cross-thread access.
-    Caller is responsible for closing the connection.
+    Note: This is a thin wrapper around p2p_db_connection for backward compatibility.
+    Returns a context manager.
     """
-    return sqlite3.connect(str(db_path), check_same_thread=False, timeout=30.0)
+    return p2p_db_connection(db_path, timeout=30.0)
 
 
 def open_jsonl_file(path: Path):

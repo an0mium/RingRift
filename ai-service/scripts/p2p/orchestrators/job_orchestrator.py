@@ -735,10 +735,26 @@ class JobOrchestrator(BaseOrchestrator):
                     elif "training" in job_type_str:
                         training_pids.add(str(pid))
 
-            if stale_job_ids and jobs_lock is not None:
-                with jobs_lock:
+            if stale_job_ids:
+                # Feb 2026: Clean up stale jobs from underlying local_jobs dict
+                # regardless of whether we used JobSnapshot or lock-based path.
+                # Previously only cleaned up in lock-based path, leaving stale
+                # jobs in the snapshot that caused phantom training_jobs counts.
+                underlying_jobs = getattr(self._p2p, "local_jobs", local_jobs)
+                underlying_lock = getattr(self._p2p, "jobs_lock", jobs_lock)
+                if underlying_lock is not None:
+                    with underlying_lock:
+                        for job_id in stale_job_ids:
+                            underlying_jobs.pop(job_id, None)
+                else:
                     for job_id in stale_job_ids:
-                        local_jobs.pop(job_id, None)
+                        underlying_jobs.pop(job_id, None)
+                # Refresh the snapshot to reflect cleaned state
+                if job_snapshot_obj is not None:
+                    try:
+                        job_snapshot_obj.update(underlying_jobs)
+                    except (TypeError, AttributeError):
+                        pass
         except (ValueError, AttributeError):
             pass
 
@@ -766,8 +782,10 @@ class JobOrchestrator(BaseOrchestrator):
                                 excluded_pids.update(out.stdout.strip().split())
                         except (subprocess.SubprocessError, subprocess.TimeoutExpired, OSError):
                             pass
-                    # Exclude shell processes (Claude wrappers that contain "selfplay" in args)
-                    for shell_pattern in ("/bin/zsh", "/bin/bash", "/bin/sh"):
+                    # Exclude shell, screen, and tmux processes that match job patterns
+                    # Feb 2026: screen sessions like "train_square8_2p" were causing
+                    # phantom training_jobs counts via pgrep -f "train_"
+                    for shell_pattern in ("/bin/zsh", "/bin/bash", "/bin/sh", "SCREEN", "tmux"):
                         try:
                             out = subprocess.run(
                                 ["pgrep", "-f", shell_pattern],

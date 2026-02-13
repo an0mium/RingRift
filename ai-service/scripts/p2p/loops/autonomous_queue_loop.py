@@ -44,13 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 # Default configuration constants
-# Jan 5, 2026: Reduced thresholds for faster fallback during leader transitions
-# Previously: 5 min no-leader, 2 min starvation, 60s stable leader
-# Jan 13, 2026: Further reduced for aggressive GPU utilization
-# Previously: 60s no-leader, 30s starvation - GPU nodes sat idle too long
-# Now: 15s no-leader, 10s starvation - ensures GPUs start working within 25s
-# This eliminates extended idle periods during leader elections or queue drains
-DEFAULT_NO_LEADER_THRESHOLD_SECONDS = 15.0  # 15s without leader (was 60s)
+DEFAULT_NO_LEADER_THRESHOLD_SECONDS = 15.0
 DEFAULT_QUEUE_STARVATION_THRESHOLD = 10  # Queue depth below which is "starved"
 DEFAULT_QUEUE_STARVATION_DURATION_SECONDS = 10.0  # 10s of starvation (was 30s)
 DEFAULT_HEALTHY_QUEUE_DEPTH = 50  # Queue depth above which is "healthy"

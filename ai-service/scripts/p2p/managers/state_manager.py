@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.config.coordination_defaults import SQLiteDefaults
+from scripts.p2p.db_helpers import p2p_db_connection
 
 # Dec 28, 2025: Phase 7 - Peer health state persistence
 @dataclass
@@ -225,21 +226,11 @@ class StateManager:
             return True
         return False
 
-    def _db_connect(self) -> sqlite3.Connection:
-        """Create a database connection with proper settings.
-
-        Uses WAL mode for concurrent access and extended timeout for busy handling.
-        Timeouts are configurable via RINGRIFT_SQLITE_* environment variables.
-        """
-        conn = sqlite3.connect(str(self.db_path), timeout=SQLiteDefaults.WRITE_TIMEOUT)
-        # Use WRITE_TIMEOUT * 1000 for busy_timeout (P2P state is critical infrastructure)
-        busy_timeout_ms = int(SQLiteDefaults.WRITE_TIMEOUT * 1000)
-        conn.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
-        return conn
-
     @contextlib.contextmanager
     def _db_connection(self, *, read_only: bool = False):
         """Context manager for database connections with guaranteed cleanup.
+
+        Uses p2p_db_connection for centralized fd limiting.
 
         Args:
             read_only: If True, uses READ_TIMEOUT instead of WRITE_TIMEOUT.
@@ -253,13 +244,10 @@ class StateManager:
                 cursor.execute("SELECT * FROM peers")
         """
         timeout = SQLiteDefaults.READ_TIMEOUT if read_only else SQLiteDefaults.WRITE_TIMEOUT
-        conn = sqlite3.connect(str(self.db_path), timeout=timeout)
-        try:
+        with p2p_db_connection(self.db_path, timeout=timeout) as conn:
             busy_timeout_ms = int(timeout * 1000)
             conn.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
             yield conn
-        finally:
-            conn.close()
 
     def _invalidate_stale_lease(
         self, leader_state: PersistedLeaderState, node_id: str

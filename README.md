@@ -224,6 +224,22 @@ and `src/shared/types/websocket.ts`. The list below is a non-exhaustive subset.
 
 ---
 
+## Distributed Training Architecture
+
+RingRift trains neural network AI opponents using a P2P mesh network of ~41 GPU nodes across multiple cloud providers. The training pipeline follows an AlphaZero-style loop:
+
+1. **Selfplay** generates games on GPU workers using MCTS or heuristic play
+2. **Export** converts game databases to training arrays
+3. **Train** updates the neural network with supervised learning
+4. **Evaluate** tests the model in a gauntlet against baselines
+5. **Promote** distributes the improved model back to all nodes for the next round
+
+The system runs autonomously for 48+ hours with automatic leader election, failure recovery, and adaptive selfplay scheduling. Five feedback loops continuously adjust training parameters based on Elo velocity, data quality, and regression detection.
+
+For a hands-on introduction, see [`ai-service/docs/QUICK_START_TRAINING.md`](ai-service/docs/QUICK_START_TRAINING.md) to train a model locally. For the full architecture, see [`ai-service/docs/architecture/DISTRIBUTED_TRAINING.md`](ai-service/docs/architecture/DISTRIBUTED_TRAINING.md).
+
+---
+
 ## Production Deployment
 
 ```bash

@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from scripts.p2p.db_helpers import p2p_db_connection
 from .base import BaseLoop
 
 if TYPE_CHECKING:
@@ -351,10 +352,9 @@ class TournamentDataPipelineLoop(BaseLoop):
             import sqlite3
 
             def _read_stats() -> DatabaseStats:
-                conn = sqlite3.connect(str(db_path), timeout=10.0)
-                cursor = conn.cursor()
+                with p2p_db_connection(db_path, timeout=10.0) as conn:
+                    cursor = conn.cursor()
 
-                try:
                     # Get game count
                     cursor.execute(
                         "SELECT COUNT(*) FROM games WHERE status = 'completed'"
@@ -388,11 +388,6 @@ class TournamentDataPipelineLoop(BaseLoop):
                     # Get total moves
                     cursor.execute("SELECT COUNT(*) FROM moves")
                     stats.total_moves = cursor.fetchone()[0]
-
-                except sqlite3.Error:
-                    pass
-                finally:
-                    conn.close()
 
                 return stats
 

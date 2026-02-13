@@ -38,6 +38,17 @@
     <key>KeepAlive</key>
     <true/>
 
+    <key>SoftResourceLimits</key>
+    <dict>
+      <key>NumberOfFiles</key>
+      <integer>65536</integer>
+    </dict>
+    <key>HardResourceLimits</key>
+    <dict>
+      <key>NumberOfFiles</key>
+      <integer>65536</integer>
+    </dict>
+
     <key>StandardOutPath</key>
     <string>__RINGRIFT_AI_SERVICE_DIR__/logs/p2p_orchestrator/p2p_orchestrator.launchd.out</string>
     <key>StandardErrorPath</key>

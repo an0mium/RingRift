@@ -21,7 +21,7 @@ import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -1003,6 +1003,67 @@ class TestUnifiedDataRegistry:
         new_time = catalog._last_discovery
 
         assert new_time > old_time
+
+    @pytest.mark.asyncio
+    async def test_discover_leader_url_from_host_port(self, catalog):
+        """Test leader discovery constructs URL from host/port/scheme fields."""
+        registry = UnifiedDataRegistry(catalog=catalog)
+
+        mock_status = {
+            "node_id": "local-mac",
+            "leader_id": "hetzner-cpu1",
+            "peers": {
+                "hetzner-cpu1": {
+                    "host": "100.94.174.19",
+                    "port": 8770,
+                    "scheme": "http",
+                    "node_id": "hetzner-cpu1",
+                }
+            },
+        }
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value=mock_status)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(return_value=mock_resp)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            url = await registry._discover_leader_url()
+
+        assert url == "http://100.94.174.19:8770"
+
+    @pytest.mark.asyncio
+    async def test_discover_leader_url_self_is_leader(self, catalog):
+        """Test leader discovery returns localhost when self is leader."""
+        registry = UnifiedDataRegistry(catalog=catalog)
+
+        mock_status = {
+            "node_id": "local-mac",
+            "leader_id": "local-mac",
+            "peers": {},
+        }
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.json = AsyncMock(return_value=mock_status)
+        mock_resp.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_resp.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(return_value=mock_resp)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            url = await registry._discover_leader_url()
+
+        assert url == "http://localhost:8770"
 
 
 class TestCacheInvalidation:

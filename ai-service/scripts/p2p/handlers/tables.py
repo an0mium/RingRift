@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from scripts.p2p.db_helpers import p2p_db_connection
 from .base import BaseP2PHandler
 from .timeout_decorator import handler_timeout, HANDLER_TIMEOUT_GOSSIP
 
@@ -101,26 +102,24 @@ class TableHandlersMixin(BaseP2PHandler):
 
         def _fetch_elo_data() -> list[tuple[Any, ...]]:
             """Blocking SQLite query - runs in thread pool."""
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
+            with p2p_db_connection(db_path) as conn:
+                cursor = conn.cursor()
 
-            query = """
-                SELECT model_id, rating, games_played, wins, losses
-                FROM elo_ratings
-                WHERE games_played >= 10
-            """
-            params: list[Any] = []
+                query = """
+                    SELECT model_id, rating, games_played, wins, losses
+                    FROM elo_ratings
+                    WHERE games_played >= 10
+                """
+                params: list[Any] = []
 
-            if nn_only:
-                query += " AND (model_id LIKE '%nn%' OR model_id LIKE '%NN%' OR model_id LIKE '%baseline%')"
+                if nn_only:
+                    query += " AND (model_id LIKE '%nn%' OR model_id LIKE '%NN%' OR model_id LIKE '%baseline%')"
 
-            query += " ORDER BY rating DESC LIMIT ?"
-            params.append(limit)
+                query += " ORDER BY rating DESC LIMIT ?"
+                params.append(limit)
 
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            conn.close()
-            return rows
+                cursor.execute(query, params)
+                return cursor.fetchall()
 
         # Run blocking SQLite in thread pool to avoid blocking event loop
         rows = await asyncio.to_thread(_fetch_elo_data)
@@ -438,22 +437,20 @@ class TableHandlersMixin(BaseP2PHandler):
                 db_path: str, status: str | None
             ) -> list[tuple[Any, ...]]:
                 """Fetch A/B test rows - runs in thread pool."""
-                conn = sqlite3.connect(db_path)
-                cursor = conn.cursor()
-                if status:
-                    cursor.execute(
-                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                        "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT 100",
-                        (status,),
-                    )
-                else:
-                    cursor.execute(
-                        "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
-                        "FROM ab_tests ORDER BY created_at DESC LIMIT 100"
-                    )
-                rows = cursor.fetchall()
-                conn.close()
-                return rows
+                with p2p_db_connection(db_path) as conn:
+                    cursor = conn.cursor()
+                    if status:
+                        cursor.execute(
+                            "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                            "FROM ab_tests WHERE status = ? ORDER BY created_at DESC LIMIT 100",
+                            (status,),
+                        )
+                    else:
+                        cursor.execute(
+                            "SELECT test_id, name, board_type, num_players, model_a, model_b, status, winner, created_at "
+                            "FROM ab_tests ORDER BY created_at DESC LIMIT 100"
+                        )
+                    return cursor.fetchall()
 
             rows = await asyncio.to_thread(_fetch_abtest_rows, str(self.db_path), status_filter)
 

@@ -383,7 +383,6 @@ class JobManager(EventSubscriptionMixin):
         "gumbel-mcts", "gumbel-mcts-only", "gumbel", "gpu-gumbel",
         "policy-only", "nn-descent", "descent-only", "nn-minimax",
         "diverse",  # These resolve to GPU modes
-        # Note: "mixed" removed - now has dedicated path using MixedOpponentSelfplayRunner
     }
 
     # GPU-required engine modes (require CUDA or MPS) - December 2025
@@ -3962,15 +3961,6 @@ class JobManager(EventSubscriptionMixin):
     # =========================================================================
     # Job Lifecycle and Metrics
     # =========================================================================
-    # NOTE: The following methods were removed Dec 2025 as dead code:
-    # - run_parity_validation() - placeholder stub, never called
-    # - run_npz_export() - placeholder stub, never called
-    # - get_job_count_for_node() - no production callers
-    # - get_selfplay_job_count_for_node() - no production callers
-    # - get_training_job_count_for_node() - no production callers
-    # - get_all_jobs() - no production callers
-    # Use orchestrator's job tracking or SelfplayScheduler for job counts.
-
     def cleanup_completed_jobs(self) -> int:
         """Clean up completed jobs from tracking.
 

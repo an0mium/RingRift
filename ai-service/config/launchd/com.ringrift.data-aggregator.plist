@@ -36,5 +36,16 @@
     <!-- Throttle restarts if it crashes -->
     <key>ThrottleInterval</key>
     <integer>30</integer>
+
+    <key>SoftResourceLimits</key>
+    <dict>
+      <key>NumberOfFiles</key>
+      <integer>65536</integer>
+    </dict>
+    <key>HardResourceLimits</key>
+    <dict>
+      <key>NumberOfFiles</key>
+      <integer>65536</integer>
+    </dict>
   </dict>
 </plist>

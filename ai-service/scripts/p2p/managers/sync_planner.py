@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from app.config.coordination_defaults import PeerDefaults, SQLiteDefaults
+from scripts.p2p.db_helpers import p2p_db_connection
 from scripts.p2p.p2p_mixin_base import EventSubscriptionMixin
 
 if TYPE_CHECKING:
@@ -522,16 +523,12 @@ class SyncPlanner(EventSubscriptionMixin):
 
     def _count_sqlite_games(self, file_path: Path) -> int:
         """Count games in a SQLite database."""
-        db_conn = None
         try:
-            db_conn = sqlite3.connect(str(file_path), timeout=SQLiteDefaults.READ_TIMEOUT)
-            cursor = db_conn.execute("SELECT COUNT(*) FROM games")
-            return cursor.fetchone()[0]
-        except (sqlite3.Error, IndexError):
+            with p2p_db_connection(file_path, timeout=SQLiteDefaults.READ_TIMEOUT) as db_conn:
+                cursor = db_conn.execute("SELECT COUNT(*) FROM games")
+                return cursor.fetchone()[0]
+        except (sqlite3.Error, IndexError, TimeoutError):
             return 0
-        finally:
-            if db_conn:
-                db_conn.close()
 
     # ============================================
     # Cluster Manifest Aggregation

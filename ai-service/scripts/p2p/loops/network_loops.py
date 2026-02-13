@@ -30,9 +30,11 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import random
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -261,9 +263,13 @@ class TailscaleRecoveryLoop(BaseLoop):
         self._recovery_attempts: dict[str, int] = {}
         self._last_recovery: dict[str, float] = {}
         self._recoveries_count = 0
+        self._starting_state_since: float | None = None
 
     async def _run_once(self) -> None:
         """Check Tailscale health and recover if needed."""
+        # Check local Tailscale for stuck "Starting" state
+        await self._check_local_starting_state()
+
         status = self._get_tailscale_status()
         if not status:
             return
@@ -308,6 +314,94 @@ class TailscaleRecoveryLoop(BaseLoop):
                         except Exception as e:
                             logger.error(f"[TailscaleRecovery] Failed callback error: {e}")
 
+    async def _check_local_starting_state(self) -> None:
+        """Detect and recover from Tailscale stuck in 'Starting' state.
+
+        Runs `tailscale status --json` to check BackendState. If it reports
+        "Starting" for longer than 120 seconds, restarts the tailscaled
+        service using the platform-appropriate command.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "tailscale", "status", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        except FileNotFoundError:
+            # tailscale binary not installed
+            return
+        except asyncio.TimeoutError:
+            logger.warning("[TailscaleRecovery] tailscale status --json timed out")
+            return
+        except OSError as e:
+            logger.warning(f"[TailscaleRecovery] Failed to run tailscale status: {e}")
+            return
+
+        if proc.returncode != 0:
+            return
+
+        try:
+            ts_status = json.loads(stdout)
+        except (json.JSONDecodeError, ValueError):
+            return
+
+        backend_state = ts_status.get("BackendState", "")
+
+        if backend_state == "Starting":
+            now = time.time()
+            if self._starting_state_since is None:
+                self._starting_state_since = now
+                logger.info(
+                    "[TailscaleRecovery] Tailscale BackendState is 'Starting', "
+                    "will restart if it persists > 120s"
+                )
+                return
+
+            elapsed = now - self._starting_state_since
+            if elapsed <= 120:
+                return
+
+            # Stuck in Starting for > 2 minutes - restart tailscaled
+            logger.warning(
+                f"[TailscaleRecovery] Tailscale stuck in 'Starting' for "
+                f"{elapsed:.0f}s, restarting tailscaled"
+            )
+            try:
+                if sys.platform == "darwin":
+                    restart_proc = await asyncio.create_subprocess_exec(
+                        "launchctl", "kickstart", "-k",
+                        "system/com.tailscale.tailscaled",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                else:
+                    restart_proc = await asyncio.create_subprocess_exec(
+                        "systemctl", "restart", "tailscaled",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                await asyncio.wait_for(restart_proc.communicate(), timeout=30)
+                logger.info(
+                    "[TailscaleRecovery] tailscaled restart command issued "
+                    f"(exit code {restart_proc.returncode})"
+                )
+            except (asyncio.TimeoutError, OSError) as e:
+                logger.warning(
+                    f"[TailscaleRecovery] Failed to restart tailscaled: {e}"
+                )
+
+            # Reset timer regardless of success so we don't spam restarts
+            self._starting_state_since = None
+        else:
+            # Not in Starting state - reset tracker
+            if self._starting_state_since is not None:
+                logger.info(
+                    "[TailscaleRecovery] Tailscale BackendState recovered from "
+                    f"'Starting' to '{backend_state}'"
+                )
+            self._starting_state_since = None
+
     async def _attempt_recovery(self, node_id: str) -> bool:
         """Attempt to recover Tailscale on a node."""
         logger.info(f"[TailscaleRecovery] Attempting recovery on {node_id}")
@@ -321,7 +415,6 @@ class TailscaleRecoveryLoop(BaseLoop):
 
             if result.returncode == 0:
                 # Check if it came back online
-                import json
                 try:
                     status = json.loads(result.stdout)
                     if status.get("Self", {}).get("Online", False):

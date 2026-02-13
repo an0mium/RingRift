@@ -80,7 +80,12 @@
     <dict>
         <!-- Max open files -->
         <key>NumberOfFiles</key>
-        <integer>4096</integer>
+        <integer>65536</integer>
+    </dict>
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>65536</integer>
     </dict>
 
     <!-- Timeout for graceful shutdown (seconds) -->

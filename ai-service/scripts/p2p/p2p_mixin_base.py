@@ -47,6 +47,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from scripts.p2p.db_helpers import p2p_db_connection
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
     from threading import RLock
@@ -256,19 +258,19 @@ class P2PMixinBase:
                 logger.debug(f"[{self.MIXIN_TYPE}] No db_path available")
                 return None
 
-            conn = sqlite3.connect(str(db_path), timeout=timeout)
-            cursor = conn.cursor()
-            cursor.execute(query, params)
+            with p2p_db_connection(db_path, timeout=timeout) as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, params)
 
-            if fetch:
-                result = cursor.fetchall()
-            else:
-                result = cursor.rowcount
+                if fetch:
+                    result = cursor.fetchall()
+                else:
+                    result = cursor.rowcount
 
-            if commit:
-                conn.commit()
+                if commit:
+                    conn.commit()
 
-            return result
+                return result
 
         except sqlite3.Error as e:
             verbose = getattr(self, "verbose", False)
@@ -278,9 +280,6 @@ class P2PMixinBase:
         except Exception as e:
             logger.warning(f"[{self.MIXIN_TYPE}] Unexpected DB error: {e}")
             return None
-        finally:
-            if conn:
-                conn.close()
 
     @contextlib.contextmanager
     def _db_connection(
@@ -289,6 +288,7 @@ class P2PMixinBase:
     ) -> "Generator[sqlite3.Connection | None, None, None]":
         """Context manager for database connections.
 
+        Uses p2p_db_connection for centralized fd limiting.
         Provides automatic connection cleanup. Yields None if connection fails.
 
         Args:
@@ -304,15 +304,14 @@ class P2PMixinBase:
                     cursor.execute("SELECT * FROM peers")
                     conn.commit()
         """
-        conn = None
         try:
             db_path = getattr(self, "db_path", None)
             if db_path is None:
                 yield None
                 return
 
-            conn = sqlite3.connect(str(db_path), timeout=timeout)
-            yield conn
+            with p2p_db_connection(db_path, timeout=timeout) as conn:
+                yield conn
 
         except sqlite3.Error as e:
             verbose = getattr(self, "verbose", False)
@@ -322,9 +321,6 @@ class P2PMixinBase:
         except Exception as e:
             logger.warning(f"[{self.MIXIN_TYPE}] Unexpected connection error: {e}")
             yield None
-        finally:
-            if conn:
-                conn.close()
 
     def _ensure_table(
         self,

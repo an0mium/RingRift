@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
+from scripts.p2p.db_helpers import p2p_db_connection
+
 if TYPE_CHECKING:
     pass
 
@@ -134,16 +136,14 @@ class TrainingControlHandlersMixin:
                 })
 
             def _query_training_history():
-                conn = sqlite3.connect(db_path)
-                conn.row_factory = sqlite3.Row
+                with p2p_db_connection(db_path, row_factory=True) as conn:
 
-                # Check if training_history table exists
-                cursor = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name='training_history'"
-                )
-                if not cursor.fetchone():
-                    conn.close()
-                    return None, "training_history table not found"
+                    # Check if training_history table exists
+                    cursor = conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='training_history'"
+                    )
+                    if not cursor.fetchone():
+                        return None, "training_history table not found"
 
                 since = time.time() - (days * 86400)
 
@@ -179,7 +179,6 @@ class TrainingControlHandlersMixin:
 
                 cursor = conn.execute(query, params)
                 rows = [dict(row) for row in cursor.fetchall()]
-                conn.close()
                 return rows, None
 
             # Run blocking SQLite in thread

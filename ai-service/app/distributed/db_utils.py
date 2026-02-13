@@ -275,6 +275,55 @@ class SQLiteConnectionLimiter:
 
         return leaks
 
+    def auto_reclaim(self, threshold_seconds: float = 300.0) -> int:
+        """Force-release leaked connection slots as defense-in-depth.
+
+        Finds connections open longer than threshold and forcibly reclaims
+        their slots, decrementing the active count so new connections can
+        proceed. This handles cases where connection paths bypass the
+        normal release() flow.
+
+        Args:
+            threshold_seconds: Consider connections open longer than this as leaks
+
+        Returns:
+            Number of reclaimed connection slots
+        """
+        if self._disabled:
+            return 0
+
+        leaks = self.detect_leaks(threshold_seconds)
+        if not leaks:
+            return 0
+
+        reclaimed = 0
+        with self._condition:
+            for leak in leaks:
+                slot_id = leak["slot_id"]
+                if slot_id in self._active_slots:
+                    slot = self._active_slots.pop(slot_id)
+                    reclaimed += 1
+                    logger.warning(
+                        f"Auto-reclaimed leaked SQLite connection slot: "
+                        f"db_path={slot.db_path}, age={leak['age_seconds']}s, "
+                        f"thread={slot.thread_name}"
+                    )
+
+            if reclaimed > 0:
+                # Reset threshold warning if we drop below
+                if len(self._active_slots) < self.WARN_THRESHOLD:
+                    self._warned_at_threshold = False
+                # Wake up any waiters blocked on connection limit
+                self._condition.notify_all()
+
+        if reclaimed > 0:
+            logger.info(
+                f"Auto-reclaimed {reclaimed} leaked connection slot(s) "
+                f"(threshold: {threshold_seconds}s)"
+            )
+
+        return reclaimed
+
     def get_stats(self) -> dict:
         """Get connection limiter statistics."""
         with self._lock:

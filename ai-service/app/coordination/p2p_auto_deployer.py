@@ -303,11 +303,11 @@ class P2PAutoDeployer:
         except Exception as e:
             logger.debug(f"Failed to get P2P voters: {e}")
 
-        # Build peer URLs from voter hosts
+        # Build peer URLs from voter hosts (prefer Tailscale IP for P2P mesh)
         for voter in voter_nodes[:5]:  # Max 5 peers
             if voter in self._hosts:
                 host_info = self._hosts[voter]
-                host = host_info.get("ssh_host")
+                host = host_info.get("tailscale_ip") or host_info.get("ssh_host")
                 if host:
                     peers.append(f"http://{host}:{self.config.p2p_port}")
 

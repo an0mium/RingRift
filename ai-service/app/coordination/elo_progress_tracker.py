@@ -207,6 +207,19 @@ class EloProgressTracker:
         if model_id.lower() in baseline_names:
             return True
 
+        # Feb 2026: Reject composite participant IDs that contain harness types.
+        # These look like "canonical_square8_2p:heuristic:d2:p1" and come from
+        # evaluation events where participant_id is used instead of model_id.
+        # Recording these corrupts Elo progress (heuristic baseline Elo != NN Elo).
+        if ":" in model_id:
+            parts = model_id.split(":")
+            if len(parts) >= 2 and parts[1].lower() in baseline_names:
+                logger.warning(
+                    f"[EloProgress] Rejecting composite baseline ID: '{model_id}' "
+                    f"(harness type '{parts[1]}' is a baseline, not an NN model)"
+                )
+                return False
+
         # Validate model path matches config
         if self._is_model_path(model_id):
             detected_config = self._extract_config_from_path(model_id)

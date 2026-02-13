@@ -169,7 +169,13 @@ class OrchestratorContext:
             auth_headers=getattr(orchestrator, "_auth_headers", None),
 
             # Idle detection callbacks
-            auto_start_selfplay=getattr(orchestrator, "_auto_start_selfplay", None),
+            # Feb 2026: _auto_start_selfplay was removed from orchestrator Jan 28.
+            # Wire to selfplay_scheduler.auto_start_selfplay which has the same signature.
+            auto_start_selfplay=getattr(
+                getattr(orchestrator, "selfplay_scheduler", None),
+                "auto_start_selfplay",
+                None,
+            ),
             handle_zombie_detected=getattr(orchestrator, "_handle_zombie_detected", None),
 
             # Job management callbacks

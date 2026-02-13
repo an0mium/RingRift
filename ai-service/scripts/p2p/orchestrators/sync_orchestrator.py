@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from scripts.p2p.db_helpers import p2p_db_connection
 from scripts.p2p.orchestrators.base_orchestrator import BaseOrchestrator, HealthCheckResult
 from scripts.p2p.constants import (
     P2P_DATA_SYNC_BASE,
@@ -898,23 +899,10 @@ class SyncOrchestrator(BaseOrchestrator):
         Returns:
             Number of games imported.
         """
-        try:
-            from app.coordination.database_utils import safe_db_connection
-        except ImportError:
-            # Fallback context manager if database_utils not available
-            from contextlib import contextmanager
-
-            @contextmanager
-            def safe_db_connection(db_path: Path):
-                conn = sqlite3.connect(str(db_path), timeout=30.0)
-                try:
-                    yield conn
-                finally:
-                    conn.close()
-
         # Phase 3.4 Dec 29, 2025: Use context managers to prevent connection leaks
-        with safe_db_connection(validated_db) as src_conn, \
-             safe_db_connection(canonical_db) as dst_conn:
+        # Feb 2026: Use p2p_db_connection for centralized fd limiting
+        with p2p_db_connection(validated_db) as src_conn, \
+             p2p_db_connection(canonical_db) as dst_conn:
 
             # Ensure destination tables exist
             dst_conn.execute("""

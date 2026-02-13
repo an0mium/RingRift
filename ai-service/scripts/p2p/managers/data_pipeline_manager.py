@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from scripts.p2p.db_helpers import p2p_db_connection
+
 if TYPE_CHECKING:
     pass
 
@@ -45,11 +47,11 @@ def open_jsonl_file(path: Path):
 
 
 def safe_db_connection(db_path: Path, timeout: float = 5.0):
-    """Context manager for safe SQLite database connection."""
-    conn = sqlite3.connect(str(db_path), timeout=timeout)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
-    return conn
+    """Context manager for safe SQLite database connection.
+
+    Note: This is a thin wrapper around p2p_db_connection for backward compatibility.
+    """
+    return p2p_db_connection(db_path, timeout=timeout)
 
 
 # ============================================================================
@@ -413,14 +415,11 @@ class DataPipelineManager:
             (games_added, newly_converted_file_keys)
         """
         db_path = games_dir / f"jsonl_converted_{board_key}.db"
-        conn = None
         games_added = 0
         converted = []
 
         try:
-            conn = sqlite3.connect(str(db_path), timeout=30.0)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
+          with p2p_db_connection(db_path, timeout=30.0) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS games (
@@ -517,9 +516,6 @@ class DataPipelineManager:
 
         except Exception as e:  # noqa: BLE001
             logger.error(f"creating DB for {board_key}: {e}")
-        finally:
-            if conn:
-                conn.close()
 
         return games_added, converted
 

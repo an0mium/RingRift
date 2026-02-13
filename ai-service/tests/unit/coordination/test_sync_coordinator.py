@@ -1,17 +1,29 @@
-"""Tests for Sync Coordinator module.
+"""Tests for Sync Coordinator module (DEPRECATED).
 
 Tests the centralized sync scheduling system that manages data synchronization
 across all distributed hosts in the RingRift cluster.
+
+Note: The coordination sync_coordinator has been archived to
+deprecated/_deprecated_sync_coordinator.py (February 2026). These tests
+are retained for backward compatibility verification.
 """
 
 import sqlite3
 import tempfile
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+# Suppress deprecation warning from the archived module
+warnings.filterwarnings(
+    "ignore",
+    message="app.coordination.sync_coordinator is deprecated",
+    category=DeprecationWarning,
+)
 
 from app.coordination.sync_coordinator import (
     CRITICAL_STALE_THRESHOLD_SECONDS,
@@ -563,7 +575,7 @@ class TestModuleFunctions:
         """Reset scheduler singleton for clean tests."""
         SyncScheduler.reset_instance()
         with patch.object(SyncScheduler, '_load_host_config'):
-            with patch("app.coordination.sync_coordinator.DEFAULT_COORDINATOR_DB", temp_db_path):
+            with patch("app.coordination.deprecated._deprecated_sync_coordinator.DEFAULT_COORDINATOR_DB", temp_db_path):
                 yield
         SyncScheduler.reset_instance()
 
@@ -734,7 +746,7 @@ class TestEventWiring:
         SyncScheduler.reset_instance()
 
         with patch.object(SyncScheduler, '_load_host_config'):
-            with patch("app.coordination.sync_coordinator.DEFAULT_COORDINATOR_DB", temp_db_path):
+            with patch("app.coordination.deprecated._deprecated_sync_coordinator.DEFAULT_COORDINATOR_DB", temp_db_path):
                 # Import the wire function
                 from app.coordination.sync_coordinator import wire_sync_events
 
@@ -773,7 +785,7 @@ class TestBackpressure:
 
     def test_check_sync_backpressure_no_monitor(self, scheduler):
         """Should handle missing queue monitor gracefully."""
-        with patch("app.coordination.sync_coordinator.HAS_QUEUE_MONITOR", False):
+        with patch("app.coordination.deprecated._deprecated_sync_coordinator.HAS_QUEUE_MONITOR", False):
             result = scheduler.check_sync_backpressure()
             assert result["should_throttle"] is False
             assert result["should_stop"] is False
@@ -782,10 +794,10 @@ class TestBackpressure:
 
     def test_check_sync_backpressure_no_pressure(self, scheduler):
         """Should return no backpressure when queues are healthy."""
-        with patch("app.coordination.sync_coordinator.HAS_QUEUE_MONITOR", True), \
-             patch("app.coordination.sync_coordinator.should_stop_production", return_value=False), \
-             patch("app.coordination.sync_coordinator.should_throttle_production", return_value=False), \
-             patch("app.coordination.sync_coordinator.get_throttle_factor", return_value=1.0):
+        with patch("app.coordination.deprecated._deprecated_sync_coordinator.HAS_QUEUE_MONITOR", True), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.should_stop_production", return_value=False), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.should_throttle_production", return_value=False), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.get_throttle_factor", return_value=1.0):
             result = scheduler.check_sync_backpressure()
             assert result["should_throttle"] is False
             assert result["should_stop"] is False
@@ -793,10 +805,10 @@ class TestBackpressure:
 
     def test_check_sync_backpressure_throttle(self, scheduler):
         """Should indicate throttling when soft limit exceeded."""
-        with patch("app.coordination.sync_coordinator.HAS_QUEUE_MONITOR", True), \
-             patch("app.coordination.sync_coordinator.should_stop_production", return_value=False), \
-             patch("app.coordination.sync_coordinator.should_throttle_production", return_value=True), \
-             patch("app.coordination.sync_coordinator.get_throttle_factor", return_value=0.5):
+        with patch("app.coordination.deprecated._deprecated_sync_coordinator.HAS_QUEUE_MONITOR", True), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.should_stop_production", return_value=False), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.should_throttle_production", return_value=True), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.get_throttle_factor", return_value=0.5):
             result = scheduler.check_sync_backpressure()
             assert result["should_throttle"] is True
             assert result["should_stop"] is False
@@ -804,10 +816,10 @@ class TestBackpressure:
 
     def test_check_sync_backpressure_stop(self, scheduler):
         """Should indicate stop when hard limit exceeded."""
-        with patch("app.coordination.sync_coordinator.HAS_QUEUE_MONITOR", True), \
-             patch("app.coordination.sync_coordinator.should_stop_production", return_value=True), \
-             patch("app.coordination.sync_coordinator.should_throttle_production", return_value=True), \
-             patch("app.coordination.sync_coordinator.get_throttle_factor", return_value=0.0):
+        with patch("app.coordination.deprecated._deprecated_sync_coordinator.HAS_QUEUE_MONITOR", True), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.should_stop_production", return_value=True), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.should_throttle_production", return_value=True), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.get_throttle_factor", return_value=0.0):
             result = scheduler.check_sync_backpressure()
             assert result["should_throttle"] is True
             assert result["should_stop"] is True
@@ -851,7 +863,7 @@ class TestBackpressure:
 
     def test_report_sync_queue_depth_no_monitor(self, scheduler):
         """Should handle missing queue monitor gracefully."""
-        with patch("app.coordination.sync_coordinator.HAS_QUEUE_MONITOR", False):
+        with patch("app.coordination.deprecated._deprecated_sync_coordinator.HAS_QUEUE_MONITOR", False):
             # Should not raise
             scheduler.report_sync_queue_depth(100)
 
@@ -862,8 +874,8 @@ class TestBackpressure:
         scheduler.update_host_state("host1", estimated_unsynced=50)
         scheduler.update_host_state("host2", estimated_unsynced=100)
 
-        with patch("app.coordination.sync_coordinator.HAS_QUEUE_MONITOR", True), \
-             patch("app.coordination.sync_coordinator.report_queue_depth") as mock_report:
+        with patch("app.coordination.deprecated._deprecated_sync_coordinator.HAS_QUEUE_MONITOR", True), \
+             patch("app.coordination.deprecated._deprecated_sync_coordinator.report_queue_depth") as mock_report:
             scheduler.report_sync_queue_depth()
             mock_report.assert_called_once()
             # Should report sum of unsynced games

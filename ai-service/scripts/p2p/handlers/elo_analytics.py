@@ -19,26 +19,12 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
+from scripts.p2p.db_helpers import p2p_db_connection as safe_db_connection
+
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
-
-
-# Import safe_db_connection for connection leak prevention
-try:
-    from app.db.safe_connection import safe_db_connection
-except ImportError:
-    from contextlib import contextmanager
-
-    @contextmanager
-    def safe_db_connection(db_path):
-        """Fallback context manager for SQLite connections."""
-        conn = sqlite3.connect(str(db_path))
-        try:
-            yield conn
-        finally:
-            conn.close()
 
 
 class EloAnalyticsHandlersMixin:

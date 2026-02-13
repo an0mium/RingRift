@@ -213,11 +213,8 @@ class LoopTimeouts:
     CONVERGENCE_TIMEOUT: float = 120.0       # Post-healing convergence check
     PARTITION_DISCOVERY: float = 30.0        # Peer discovery during healing
 
-    # Peer management
-    # Jan 29, 2026: Now derived from app.config.timeout_profile.TimeoutProfile for consistency.
-    # This eliminates timeout mismatches that caused split-brain (18s disagreement window).
-    # Previously: manual updates from 60s → 90s → 120s → 150s → 180s caused drift.
-    PEER_DEAD_TIMEOUT: float = _PEER_DEAD_TIMEOUT_FROM_PROFILE  # Derived from TimeoutProfile
+    # Peer management (derived from TimeoutProfile for consistency)
+    PEER_DEAD_TIMEOUT: float = _PEER_DEAD_TIMEOUT_FROM_PROFILE
 
     # Sync and transfer
     SYNC_LOCK: float = 120.0                 # Sync operation lock
