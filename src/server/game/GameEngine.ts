@@ -6,13 +6,10 @@ import type {
   TimeControl,
   Position,
   RingStack,
-  Territory,
-  LineInfo,
   GameHistoryEntry,
 } from '../../shared/engine';
 import {
   BOARD_CONFIGS,
-  getEffectiveLineLengthThreshold,
   positionToString,
   calculateCapHeight,
   computeRingEliminationVictoryThreshold,
@@ -22,8 +19,6 @@ import {
   filterProcessableTerritoryRegions,
   replaceMapContents,
   replaceArrayContents,
-  applyTerritoryRegion,
-  canProcessTerritoryRegion,
   enumerateProcessTerritoryRegionMoves,
   applyForcedEliminationForPlayer,
   enumerateProcessLineMoves,
@@ -47,8 +42,6 @@ import {
 } from '../../shared/engine';
 import type {
   GameResult,
-  LineOrderChoice,
-  LineRewardChoice,
   RingEliminationChoice,
   RegionOrderChoice,
   PlayerChoiceResponseFor,
@@ -1165,7 +1158,7 @@ export class GameEngine {
   private _debugUseInternalHelpers(): void {
     // These void-accesses mark the helpers as "used" from the compiler's
     // perspective without invoking them.
-    void this.processLineFormations;
+    // processLineFormations removed Feb 2026 (deprecation cleanup)
     void this.getValidLineProcessingMoves;
     void this.getValidTerritoryProcessingMoves;
 
@@ -1550,190 +1543,10 @@ export class GameEngine {
   private getValidTerritoryProcessingMoves(playerNumber: number): Move[] {
     return enumerateProcessTerritoryRegionMoves(this.gameState, playerNumber);
   }
-  /**
-   * DIAGNOSTICS-ONLY (legacy): process all line formations with graduated rewards.
-   * Rule Reference: Section 11.2, 11.3
-   *
-   * For exact required length (4 for 8x8, 5 for 19x19/hex):
-   *   - Collapse all markers
-   *   - Eliminate one ring from any controlled stack
-   *
-   * For longer lines (5+ for 8x8, 6+ for 19x19/hex):
-   *   - Option 1: Collapse all + eliminate one ring
-   *   - Option 2: Collapse required markers only, no elimination
-   *
-   * Canonical line processing is now handled via applyProcessLineDecision /
-   * applyChooseLineRewardDecision in src/shared/engine/lineDecisionHelpers.ts,
-   * surfaced through the shared orchestrator and move-driven decision phases.
-   *
-   * @deprecated Phase 4 legacy path — use lineDecisionHelpers + shared orchestrator instead.
-   * This method will be removed once all tests migrate to orchestrator-backed flows.
-   * See Wave 5.4 in TODO.md for deprecation timeline.
-   *
-   * Ownership / deprecation:
-   * - Called directly by legacy scenario suites (for example
-   *   tests/scenarios/RulesMatrix.GameEngine.test.ts) which snapshot the
-   *   behaviour of the pre-orchestrator line pipeline.
-   * - New code should drive line processing via the shared
-   *   applyProcessLineDecision / applyChooseLineRewardDecision helpers and
-   *   TurnEngineAdapter instead of using this method.
-   * - Once the RulesMatrix and other parity suites have been fully migrated
-   *   to move-driven/orchestrator flows, this helper can be removed.
-   */
-
-  private async processLineFormations(): Promise<void> {
-    const requiredLength = getEffectiveLineLengthThreshold(
-      this.gameState.boardType,
-      this.gameState.players.length,
-      this.gameState.rulesOptions
-    );
-
-    // Keep processing until no more (eligible) lines exist
-    while (true) {
-      const allLines = this.boardManager.findAllLines(this.gameState.board);
-      if (allLines.length === 0) break;
-
-      // Only consider lines for the moving player that meet the effective
-      // threshold (e.g. 4-in-a-row for 2p 8x8, base length otherwise).
-      const playerLines = allLines.filter(
-        (line) =>
-          line.player === this.gameState.currentPlayer && line.positions.length >= requiredLength
-      );
-      if (playerLines.length === 0) break;
-
-      let lineToProcess: LineInfo;
-
-      if (!this.interactionManager || playerLines.length === 1) {
-        // No interaction manager wired yet, or only one choice: keep current behaviour
-        lineToProcess = playerLines[0];
-      } else {
-        const interaction = this.requireInteractionManager();
-
-        const choice: LineOrderChoice = {
-          id: generateUUID(),
-          gameId: this.gameState.id,
-          playerNumber: this.gameState.currentPlayer,
-          type: 'line_order',
-          prompt: 'Choose which line to process first',
-          options: playerLines.map((line, index) => {
-            const lineKey = line.positions.map((p) => positionToString(p)).join('|');
-            return {
-              lineId: String(index),
-              markerPositions: line.positions,
-              /**
-               * Stable identifier for the canonical 'process_line' Move that
-               * would process this line when enumerated via
-               * getValidLineProcessingMoves. This lets transports/AI map this
-               * choice option directly onto a Move.id.
-               */
-              moveId: `process-line-${index}-${lineKey}`,
-            };
-          }),
-        };
-
-        const response: PlayerChoiceResponseFor<LineOrderChoice> =
-          await interaction.requestChoice(choice);
-        const selected = response.selectedOption;
-        const index = parseInt(selected.lineId, 10);
-        lineToProcess = playerLines[index] ?? playerLines[0];
-      }
-
-      await this.processOneLine(lineToProcess, requiredLength);
-      // After processing one line, loop will re-evaluate remaining lines
-    }
-  }
-
-  /**
-   * Process a single line formation
-   * Rule Reference: Section 11.2
-   *
-   * @deprecated Phase 4 legacy path — use applyProcessLineDecision / applyChooseLineRewardDecision
-   * in src/shared/engine/lineDecisionHelpers.ts via the shared orchestrator instead.
-   * This method will be removed once all tests migrate to orchestrator-backed flows.
-   * See Wave 5.4 in TODO.md for deprecation timeline.
-   *
-   * Ownership / deprecation:
-   * - Internal to the legacy line-processing pipeline; invoked by
-   *   processLineFormations() and never called by production hosts.
-   * - Behaviour is covered indirectly by RulesMatrix.* and other legacy
-   *   parity suites; new tests should prefer exercising the shared
-   *   lineDecisionHelpers surface instead.
-   */
-  private async processOneLine(line: LineInfo, requiredLength: number): Promise<void> {
-    const lineLength = line.positions.length;
-
-    if (lineLength === requiredLength) {
-      // Exact required length: Must collapse all and eliminate ring/cap
-      this.collapseLineMarkers(line.positions, line.player);
-      await this.eliminatePlayerRingOrCapWithChoice(line.player);
-    } else if (lineLength > requiredLength) {
-      // Longer than required: player chooses Option 1 or Option 2 when an
-      // interaction manager is available; otherwise, preserve current
-      // behaviour and default to Option 2 (collapse minimum only, no elimination).
-      if (!this.interactionManager) {
-        const markersToCollapse = line.positions.slice(0, requiredLength);
-        this.collapseLineMarkers(markersToCollapse, line.player);
-        return;
-      }
-
-      const interaction = this.requireInteractionManager();
-
-      // Pre-compute canonical decision moves so we can attach moveIds to the choice
-      const validMoves = this.getValidLineProcessingMoves(this.gameState.currentPlayer);
-      const lineKey = line.positions.map((p) => positionToString(p)).join('|');
-
-      const option1Move = validMoves.find(
-        (m) =>
-          m.type === 'choose_line_option' &&
-          m.id.includes(lineKey) &&
-          m.collapsedMarkers?.length === line.positions.length
-      );
-
-      const option2Move = validMoves.find(
-        (m) =>
-          m.type === 'choose_line_option' &&
-          m.id.includes(lineKey) &&
-          m.collapsedMarkers?.length === requiredLength
-      );
-
-      const choice: LineRewardChoice = {
-        id: generateUUID(),
-        gameId: this.gameState.id,
-        playerNumber: this.gameState.currentPlayer,
-        type: 'line_reward_option',
-        prompt: 'Choose line reward option',
-        options: ['option_1_collapse_all_and_eliminate', 'option_2_min_collapse_no_elimination'],
-        moveIds: {
-          ...(option1Move?.id ? { option_1_collapse_all_and_eliminate: option1Move.id } : {}),
-          ...(option2Move?.id ? { option_2_min_collapse_no_elimination: option2Move.id } : {}),
-        },
-      };
-
-      const response: PlayerChoiceResponseFor<LineRewardChoice> =
-        await interaction.requestChoice(choice);
-      const selected = response.selectedOption;
-
-      if (selected === 'option_1_collapse_all_and_eliminate') {
-        this.collapseLineMarkers(line.positions, line.player);
-        await this.eliminatePlayerRingOrCapWithChoice(line.player);
-      } else {
-        const markersToCollapse = line.positions.slice(0, requiredLength);
-        this.collapseLineMarkers(markersToCollapse, line.player);
-      }
-    }
-  }
-
-  /**
-   * Collapse marker positions to player's color territory
-   * Rule Reference: Section 11.2 - Markers collapse to colored spaces
-   */
-  private collapseLineMarkers(positions: Position[], player: number): void {
-    for (const pos of positions) {
-      this.boardManager.setCollapsedSpace(pos, player, this.gameState.board);
-    }
-    // Update player's territory count
-    this.updatePlayerTerritorySpaces(player, positions.length);
-  }
+  // Deprecated line-processing methods (processLineFormations, processOneLine)
+  // removed Feb 2026. Line processing now uses the shared orchestrator via
+  // applyProcessLineDecision / applyChooseLineRewardDecision in
+  // lineDecisionHelpers.ts.
 
   /**
    * Eliminate entire cap from player's controlled stacks
@@ -1818,80 +1631,6 @@ export class GameEngine {
   }
 
   /**
-   * Eliminate entire stack cap using the player choice system when available.
-   * All controlled stacks are eligible, including height-1 standalone rings
-   * (per RR-CANON-R022/R145).
-   * Falls back to default behaviour when no interaction manager is wired.
-   */
-  private async eliminatePlayerRingOrCapWithChoice(player: number): Promise<void> {
-    const playerStacks = this.boardManager.getPlayerStacks(this.gameState.board, player);
-
-    if (playerStacks.length === 0) {
-      // Mirror the hand-elimination behaviour from eliminatePlayerRingOrCap
-      const playerState = this.gameState.players.find((p) => p.playerNumber === player);
-      if (playerState && playerState.ringsInHand > 0) {
-        playerState.ringsInHand--;
-        this.gameState.totalRingsEliminated++;
-        if (!this.gameState.board.eliminatedRings[player]) {
-          this.gameState.board.eliminatedRings[player] = 0;
-        }
-        this.gameState.board.eliminatedRings[player]++;
-        this.updatePlayerEliminatedRings(player, 1);
-      }
-      return;
-    }
-
-    if (!this.interactionManager || playerStacks.length === 1) {
-      // No manager or only one stack: use default behaviour
-      this.eliminatePlayerRingOrCap(player);
-      return;
-    }
-
-    const interaction = this.requireInteractionManager();
-
-    // This method is called for territory elimination, so context is 'territory'
-    const eliminationContext = 'territory' as const;
-
-    const choice: RingEliminationChoice = {
-      id: generateUUID(),
-      gameId: this.gameState.id,
-      playerNumber: player,
-      type: 'ring_elimination',
-      eliminationContext,
-      prompt:
-        'Territory cost: You must eliminate your ENTIRE CAP from an eligible stack outside the region.',
-      options: playerStacks.map((stack) => {
-        const stackKey = positionToString(stack.position);
-        return {
-          stackPosition: stack.position,
-          capHeight: stack.capHeight,
-          totalHeight: stack.stackHeight,
-          // Territory elimination removes entire cap (RR-CANON-R145)
-          ringsToEliminate: stack.capHeight,
-          /**
-           * Stable identifier for the canonical 'eliminate_rings_from_stack'
-           * Move that would eliminate from this stack when enumerated via
-           * RuleEngine.getValidMoves during the territory_processing phase.
-           * This lets transports/AI map this choice option directly onto a
-           * Move.id in the unified Move model.
-           */
-          moveId: `eliminate-${stackKey}`,
-        };
-      }),
-    };
-
-    const response: PlayerChoiceResponseFor<RingEliminationChoice> =
-      await interaction.requestChoice(choice);
-    const selected = response.selectedOption;
-
-    const selectedKey = positionToString(selected.stackPosition);
-    const chosenStack =
-      playerStacks.find((s) => positionToString(s.position) === selectedKey) || playerStacks[0];
-
-    this.eliminateFromStack(chosenStack, player);
-  }
-
-  /**
    * Update player's eliminatedRings counter
    */
   private updatePlayerEliminatedRings(playerNumber: number, count: number): void {
@@ -1901,161 +1640,10 @@ export class GameEngine {
     }
   }
 
-  /**
-   * Update player's territorySpaces counter
-   */
-  private updatePlayerTerritorySpaces(playerNumber: number, count: number): void {
-    const player = this.gameState.players.find((p) => p.playerNumber === playerNumber);
-    if (player) {
-      player.territorySpaces += count;
-    }
-  }
-
-  /**
-   * Check if player can process a disconnected region
-   * Rule Reference: Section 12.2 - Self-Elimination Prerequisite
-   *
-   * Player must have at least one ring/cap outside the region before processing
-   */
-  private canProcessDisconnectedRegion(region: Territory, player: number): boolean {
-    // Thin wrapper around the shared self-elimination prerequisite helper
-    // so GameEngine-based flows (legacy automatic and move-driven decision
-    // phases) stay aligned with the canonical territoryProcessing module.
-    return canProcessTerritoryRegion(this.gameState.board, region, { player });
-  }
-
-  /**
-   * Core territory-processing helper shared by both legacy
-   * choice-driven flows and the move-driven decision model.
-   *
-   * This applies the geometric consequences of processing a
-   * disconnected region (eliminating all rings in the region,
-   * collapsing spaces and border markers, and crediting all
-   * eliminations/territory to the moving player) but does **not**
-   * perform the mandatory self-elimination step. That final
-   * Self-elimination is handled via explicit eliminate_rings_from_stack
-   * decision Moves surfaced by RuleEngine after this helper completes,
-   * so the self-elimination is represented as a canonical Move.
-   *
-   * @deprecated Phase 4 legacy path — use applyProcessTerritoryRegionDecision
-   * in src/shared/engine/territoryDecisionHelpers.ts via the shared orchestrator instead.
-   * This method will be removed once all tests migrate to orchestrator-backed flows.
-   * See Wave 5.4 in TODO.md for deprecation timeline.
-   *
-   * DO NOT REMOVE - used for parity testing (TerritoryCore.GameEngine_vs_Sandbox.test.ts).
-   * See P20.3-2 for deprecation timeline.
-   */
-  private processDisconnectedRegionCore(region: Territory, movingPlayer: number): void {
-    // Delegate the geometric core (internal eliminations + region/border
-    // collapse) to the shared engine helper so that backend GameEngine,
-    // sandbox engine, and rules-layer tests share a single source of truth
-    // for territory semantics.
-    const outcome = applyTerritoryRegion(this.gameState.board, region, { player: movingPlayer });
-
-    // Replace the board with the processed clone from the shared helper.
-    this.gameState = {
-      ...this.gameState,
-      board: outcome.board,
-    };
-
-    // Apply per-player territory gain at the GameState level. Under current
-    // rules all territory gain from disconnected regions is credited to the
-    // moving player.
-    const territoryGain = outcome.territoryGainedByPlayer[movingPlayer] ?? 0;
-    if (territoryGain > 0) {
-      this.updatePlayerTerritorySpaces(movingPlayer, territoryGain);
-    }
-
-    // Apply internal elimination deltas to GameState.totalRingsEliminated and
-    // the moving player's eliminatedRings counter. The BoardState-level
-    // bookkeeping (board.eliminatedRings) has already been updated by the
-    // shared helper.
-    const internalElims = outcome.eliminatedRingsByPlayer[movingPlayer] ?? 0;
-    if (internalElims > 0) {
-      this.gameState.totalRingsEliminated += internalElims;
-      this.updatePlayerEliminatedRings(movingPlayer, internalElims);
-    }
-  }
-
-  /**
-   * Process a single disconnected region
-   * Rule Reference: Section 12.2 - Processing steps
-   *
-   * @deprecated Phase 4 legacy path — use applyProcessTerritoryRegionDecision
-   * in src/shared/engine/territoryDecisionHelpers.ts via the shared orchestrator instead.
-   * This method will be removed once all tests migrate to orchestrator-backed flows.
-   * See Wave 5.4 in TODO.md for deprecation timeline.
-   *
-   * Ownership / deprecation:
-   * - Internal to the legacy territory-processing pipeline; invoked by
-   *   processDisconnectedRegions() and not used by production hosts.
-   * - Covered by legacy territory-disconnection suites; new callers should
-   *   use move-driven territory decisions via TurnEngineAdapter.
-   */
-  private async processOneDisconnectedRegion(
-    region: Territory,
-    movingPlayer: number
-  ): Promise<void> {
-    // Apply the geometric/core consequences. Self-elimination is now handled
-    // via explicit eliminate_rings_from_stack decisions in move-driven mode.
-    this.processDisconnectedRegionCore(region, movingPlayer);
-  }
-  /**
-   * Test-only helper: process all eligible disconnected regions for the
-   * current player using the legacy territory-processing pipeline
-   * (processOneDisconnectedRegion).
-   *
-   * This mirrors the behaviour exercised by the RulesMatrix territory
-   * scenarios, but is implemented purely
-   * in terms of {@link processDisconnectedRegionCore} and the shared
-   * territory helpers so it stays aligned with RR‑CANON‑R140–R145 and
-   * the TS/Python engines.
-   *
-   * Production hosts do not call this method; it exists solely for
-   * parity/scenario suites and diagnostic harnesses.
-   *
-   * @deprecated Phase 4 legacy path — use applyProcessTerritoryRegionDecision
-   * in src/shared/engine/territoryDecisionHelpers.ts via the shared orchestrator instead.
-   * This method will be removed once all tests migrate to orchestrator-backed flows.
-   * See Wave 5.4 in TODO.md for deprecation timeline.
-   *
-   * Ownership / deprecation:
-   * - Used by legacy parity/scenario suites (for example
-   *   tests/scenarios/RulesMatrix.Comprehensive.test.ts) to exercise the
-   *   pre-orchestrator territory pipeline.
-   * - New territory tests should drive decisions via the shared
-   *   territoryDecisionHelpers + TurnEngineAdapter instead of calling this.
-   */
-  public async processDisconnectedRegions(): Promise<void> {
-    const movingPlayer = this.gameState.currentPlayer;
-
-    // Drive the legacy pipeline until no further eligible regions remain
-    // for the moving player. After each collapse we recompute the
-    // candidate set so that the self-elimination prerequisite (Q23 /
-    // RR‑CANON‑R143) is evaluated against the updated board.
-    while (this.gameState.gameStatus === 'active') {
-      const disconnected: Territory[] =
-        this.boardManager.findDisconnectedRegions(this.gameState.board, movingPlayer) ?? [];
-
-      if (disconnected.length === 0) {
-        break;
-      }
-
-      const eligible = disconnected.filter((region) =>
-        this.canProcessDisconnectedRegion(region, movingPlayer)
-      );
-
-      if (eligible.length === 0) {
-        break;
-      }
-
-      // For these legacy tests we process regions in the order returned
-      // by BoardManager. Region-order choice semantics (Q20 / RR‑CANON‑R144)
-      // are covered by the dedicated move-driven region-order suites.
-      const regionToProcess = eligible[0];
-      await this.processOneDisconnectedRegion(regionToProcess, movingPlayer);
-    }
-  }
+  // Deprecated territory-processing methods (processDisconnectedRegionCore,
+  // processOneDisconnectedRegion, processDisconnectedRegions) removed Feb 2026.
+  // Territory processing now uses the shared orchestrator via
+  // applyProcessTerritoryRegionDecision in territoryDecisionHelpers.ts.
 
   /**
    * Advance game through phases according to RingRift rules
@@ -2811,21 +2399,11 @@ export class GameEngine {
    * same forced-elimination / skip semantics the TurnEngine would have
    * applied earlier if the blocked state had been detected on time.
    *
-   * @deprecated Phase 4 legacy path — use orchestrator-backed TurnEngineAdapter
-   * and shared turnLogic/advanceTurnAndPhase flows instead. This resolver will
-   * be removed once all tests migrate to orchestrator-backed decision lifecycles.
-   * See Wave 5.4 in TODO.md for deprecation timeline.
-   *
-   * Ownership / deprecation:
-   * - Still invoked from getValidMoves() as a last-resort production safety
-   *   net for ACTIVE_NO_MOVES states.
-   * - Used by a number of diagnostic/parity suites
-   *   (for example ForcedEliminationAndStalemate, FullGameFlow.*, AI
-   *   simulation debug tests, and RuleEngine.placement.shared tests) to
-   *   exercise forced-elimination behaviour.
-   * - New hosts should rely on TurnEngine/advanceTurnAndPhase to avoid
-   *   entering blocked interactive phases in the first place, and only use
-   *   this helper from tests.
+   * Note: Still invoked from getValidMoves() as a last-resort production
+   * safety net for ACTIVE_NO_MOVES states. Also used by diagnostic/parity
+   * suites (ForcedEliminationAndStalemate, FullGameFlow, AI simulation).
+   * New hosts should rely on TurnEngine/advanceTurnAndPhase to avoid
+   * entering blocked interactive phases in the first place.
    */
   public resolveBlockedStateForCurrentPlayerForTesting(): void {
     if (this.gameState.gameStatus !== 'active') {
@@ -3042,13 +2620,9 @@ export class GameEngine {
    * This is used by AI simulation/diagnostic harnesses so they do not
    * treat these internal bookkeeping phases as "no legal move" stalls.
    *
-   * @deprecated Phase 4 legacy path — use orchestrator-backed TurnEngineAdapter
-   * and shared decision lifecycle (see docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
-   * instead. This method will be removed once all tests migrate to
-   * orchestrator-backed flows. See Wave 5.4 in TODO.md for deprecation timeline.
-   *
-   * DO NOT REMOVE - still called internally by makeMove() legacy path and in parity tests.
-   * See P20.3-2 for deprecation timeline.
+   * Note: Still called internally by makeMove() legacy path and in parity tests.
+   * New code should use orchestrator-backed TurnEngineAdapter and the shared
+   * decision lifecycle instead.
    */
   public async stepAutomaticPhasesForTesting(): Promise<void> {
     // First, handle line_processing and territory_processing automatic phases

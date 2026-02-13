@@ -1,12 +1,4 @@
-import { GameEngine } from '../../src/server/game/GameEngine';
-import {
-  BoardState,
-  BoardType,
-  GameState,
-  Move,
-  Player,
-  Position,
-} from '../../src/shared/types/game';
+import { BoardState, BoardType, GameState, Player, Position } from '../../src/shared/types/game';
 import {
   pos,
   addStack,
@@ -15,9 +7,8 @@ import {
   createTestPlayer,
   createTestGameState,
 } from '../utils/fixtures';
-import {
-  processDisconnectedRegionCoreOnBoard,
-} from '../../src/client/sandbox/sandboxTerritory';
+import { processDisconnectedRegionCoreOnBoard } from '../../src/client/sandbox/sandboxTerritory';
+import { applyTerritoryRegion } from '../../src/shared/engine/territoryProcessing';
 import {
   snapshotFromGameState,
   snapshotsEqual,
@@ -28,9 +19,9 @@ import {
 /**
  * Territory core-processing parity tests (C3)
  *
- * These tests compare the backend GameEngine.processDisconnectedRegionCore
- * helper against the sandboxTerritory.processDisconnectedRegionCoreOnBoard
- * helper in isolation. Both paths start from identical board + player
+ * These tests compare the shared applyTerritoryRegion helper against the
+ * sandboxTerritory.processDisconnectedRegionCoreOnBoard helper in isolation.
+ * Both paths start from identical board + player
  * fixtures and apply the same geometric operation:
  *
  *   - Eliminate all rings inside the disconnected region,
@@ -45,8 +36,6 @@ import {
  */
 
 describe('Territory core processing parity (GameEngine vs Sandbox)', () => {
-  const timeControl = { initialTime: 600, increment: 0, type: 'blitz' as const };
-
   interface TerritoryCoreFixture {
     name: string;
     boardType: BoardType;
@@ -91,12 +80,7 @@ describe('Territory core processing parity (GameEngine vs Sandbox)', () => {
     const board = createTestBoard(boardType);
     const players: Player[] = [createTestPlayer(1), createTestPlayer(2)];
 
-    const regionSpaces: Position[] = [
-      pos(2, 2),
-      pos(2, 3),
-      pos(3, 2),
-      pos(3, 3),
-    ];
+    const regionSpaces: Position[] = [pos(2, 2), pos(2, 3), pos(3, 2), pos(3, 3)];
 
     // Victim stacks inside region.
     regionSpaces.forEach((p) => addStack(board, p, victimPlayer, 2));
@@ -199,19 +183,7 @@ describe('Territory core processing parity (GameEngine vs Sandbox)', () => {
     const sandboxBoard = cloneBoard(fixture.initialBoard);
     const sandboxPlayers = clonePlayers(fixture.initialPlayers);
 
-    // --- Backend core path via GameEngine.processDisconnectedRegionCore ---
-    const backendEngine = new GameEngine(
-      'territory-core-parity',
-      boardType,
-      // Players passed to the constructor are immediately replaced by our
-      // test fixture state below; they are only needed to configure
-      // BoardManager/RuleEngine.
-      clonePlayers(fixture.initialPlayers),
-      timeControl,
-      false
-    );
-    const backendAny: any = backendEngine;
-
+    // --- Backend core path via shared applyTerritoryRegion ---
     const backendState: GameState = createTestGameState({
       boardType,
       board: backendBoard,
@@ -220,23 +192,35 @@ describe('Territory core processing parity (GameEngine vs Sandbox)', () => {
       totalRingsEliminated: 0,
     });
 
-    backendAny.gameState = backendState;
-
-    // Territory core helper expects a Territory-like object; only spaces are
-    // relevant for the core collapse/elimination logic.
     const region = {
       spaces: regionSpaces,
       controllingPlayer: movingPlayer,
       isDisconnected: true,
     };
 
-    backendAny.processDisconnectedRegionCore(region, movingPlayer);
+    // Call the shared territory helper directly (previously went through
+    // GameEngine.processDisconnectedRegionCore, which was a thin wrapper).
+    const outcome = applyTerritoryRegion(backendState.board, region, { player: movingPlayer });
 
-    const backendAfter = backendEngine.getGameState();
-    const backendSnapshot = snapshotFromGameState(
-      'backend-territory-core',
-      backendAfter
-    );
+    const backendAfterState: GameState = {
+      ...backendState,
+      board: outcome.board,
+    };
+
+    const territoryGain = outcome.territoryGainedByPlayer[movingPlayer] ?? 0;
+    if (territoryGain > 0) {
+      const player = backendAfterState.players.find((p) => p.playerNumber === movingPlayer);
+      if (player) player.territorySpaces += territoryGain;
+    }
+
+    const internalElims = outcome.eliminatedRingsByPlayer[movingPlayer] ?? 0;
+    if (internalElims > 0) {
+      backendAfterState.totalRingsEliminated += internalElims;
+      const player = backendAfterState.players.find((p) => p.playerNumber === movingPlayer);
+      if (player) player.eliminatedRings += internalElims;
+    }
+
+    const backendSnapshot = snapshotFromGameState('backend-territory-core', backendAfterState);
 
     // --- Sandbox core path via processDisconnectedRegionCoreOnBoard ---
     const sandboxInitial: GameState = createTestGameState({
@@ -259,35 +243,28 @@ describe('Territory core processing parity (GameEngine vs Sandbox)', () => {
       board: sandboxCoreResult.board,
       players: sandboxCoreResult.players,
       totalRingsEliminated:
-        sandboxInitial.totalRingsEliminated +
-        sandboxCoreResult.totalRingsEliminatedDelta,
+        sandboxInitial.totalRingsEliminated + sandboxCoreResult.totalRingsEliminatedDelta,
     };
 
-    const sandboxSnapshot = snapshotFromGameState(
-      'sandbox-territory-core',
-      sandboxAfter
-    );
+    const sandboxSnapshot = snapshotFromGameState('sandbox-territory-core', sandboxAfter);
 
     return { backendSnapshot, sandboxSnapshot };
   }
 
   const fixtures: TerritoryCoreFixture[] = [buildFixtureA(), buildFixtureB()];
 
-  test.each(fixtures)(
-    '%s',
-    (fixture) => {
-      const { backendSnapshot, sandboxSnapshot } = runCoreParityForFixture(fixture);
+  test.each(fixtures)('%s', (fixture) => {
+    const { backendSnapshot, sandboxSnapshot } = runCoreParityForFixture(fixture);
 
-      if (!snapshotsEqual(backendSnapshot, sandboxSnapshot)) {
-        const diff = diffSnapshots(backendSnapshot, sandboxSnapshot);
-        // eslint-disable-next-line no-console
-        console.error('[TerritoryCore.GameEngine_vs_Sandbox] snapshot mismatch', {
-          fixture: fixture.name,
-          diff,
-        });
-      }
+    if (!snapshotsEqual(backendSnapshot, sandboxSnapshot)) {
+      const diff = diffSnapshots(backendSnapshot, sandboxSnapshot);
 
-      expect(snapshotsEqual(backendSnapshot, sandboxSnapshot)).toBe(true);
+      console.error('[TerritoryCore.GameEngine_vs_Sandbox] snapshot mismatch', {
+        fixture: fixture.name,
+        diff,
+      });
     }
-  );
+
+    expect(snapshotsEqual(backendSnapshot, sandboxSnapshot)).toBe(true);
+  });
 });

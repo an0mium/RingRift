@@ -27,11 +27,10 @@ import { lineRewardRuleScenarios, LineRewardRuleScenario } from './rulesMatrix';
  * path.
  */
 
-// Skip these legacy tests when orchestrator adapter is enabled
-const ORCHESTRATOR_ENABLED = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true';
-const describeOrSkip = ORCHESTRATOR_ENABLED ? describe.skip : describe;
-
-describeOrSkip('RulesMatrix → GameEngine line-reward scenarios (backend)', () => {
+// Legacy tests that called the now-removed processLineFormations() method.
+// Line processing semantics are covered by GameEngine.lines.scenarios.test.ts
+// via the orchestrator path.
+describe.skip('RulesMatrix → GameEngine line-reward scenarios (backend)', () => {
   const timeControl: TimeControl = { initialTime: 600, increment: 0, type: 'blitz' };
 
   const basePlayers: Player[] = [

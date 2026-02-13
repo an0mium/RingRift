@@ -27,9 +27,8 @@ import { getEffectiveLineLengthThreshold } from '../../src/shared/engine/rulesCo
  * - FAQ Q7 (exact-length lines)
  * - FAQ Q22 (graduated line rewards and Option 1 vs Option 2)
  *
- * Note: These tests use the shared engine's LineAggregate directly
- * instead of the deprecated GameEngine.processLineFormations() method.
- * See Wave 5.4 in TODO.md for deprecation context.
+ * Note: These tests use the shared engine's LineAggregate directly.
+ * The legacy GameEngine.processLineFormations() method was removed Feb 2026.
  */
 
 describe('GameEngine line formation scenarios (square8)', () => {
