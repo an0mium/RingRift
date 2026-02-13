@@ -61,7 +61,8 @@ class AutoExportConfig:
     export_cooldown_seconds: int = 60  # 1 minute
     # Maximum concurrent exports - Jan 2026: Increased from 2 to 4 for better parallelism
     # Feb 2026: Made env-configurable, reduced default on coordinator to prevent OOM
-    max_concurrent_exports: int = int(os.environ.get("RINGRIFT_MAX_CONCURRENT_EXPORTS", "4"))
+    max_concurrent_exports: int = int(os.environ.get("RINGRIFT_MAX_CONCURRENT_EXPORTS",
+        "2" if os.environ.get("RINGRIFT_IS_COORDINATOR", "").lower() == "true" else "4"))
     # Maximum workers per export subprocess (None = use export_replay_dataset default)
     # Feb 2026: On coordinator nodes, cap workers to prevent multiprocessing fan-out OOM
     max_export_workers: int | None = None
