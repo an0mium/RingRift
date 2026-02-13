@@ -107,15 +107,14 @@ async def test_aria2_pull_file_success():
     with patch(
         "app.distributed.aria2_transport.Aria2Transport",
         return_value=mock_transport,
-    ):
+    ), patch("pathlib.Path.mkdir"):
         local_path = Path("/tmp/test_downloads")
-        with patch.object(local_path, "mkdir"):
-            success, bytes_dl, error = await aria2_pull_file(
-                http_url="http://node-1:8770/data/file.db",
-                local_path=local_path,
-                filename="file.db",
-                expected_checksum="abc123",
-            )
+        success, bytes_dl, error = await aria2_pull_file(
+            http_url="http://node-1:8770/data/file.db",
+            local_path=local_path,
+            filename="file.db",
+            expected_checksum="abc123",
+        )
 
         assert success is True
         assert bytes_dl == 1048576
