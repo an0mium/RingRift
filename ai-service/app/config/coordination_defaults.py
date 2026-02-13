@@ -2551,12 +2551,14 @@ class SelfplayPriorityWeightDefaults:
     ELO_VELOCITY_WEIGHT: float = _env_float("RINGRIFT_ELO_VELOCITY_WEIGHT", 0.15)
     TRAINING_NEED_WEIGHT: float = _env_float("RINGRIFT_TRAINING_NEED_WEIGHT", 0.10)
     EXPLORATION_BOOST_WEIGHT: float = _env_float("RINGRIFT_EXPLORATION_BOOST_WEIGHT", 0.10)
-    # Session 17.42: Increased 0.10→0.40 to give curriculum weights more influence
-    # Previously hexagonal configs got 0% allocation despite 1.4 weights because
-    # curriculum factor (1.4-1.0)*0.10=0.04 was overwhelmed by data_deficit (0.25)
-    CURRICULUM_WEIGHT: float = _env_float("RINGRIFT_CURRICULUM_WEIGHT", 0.40)
+    # Feb 2026: Swapped CURRICULUM_WEIGHT and DATA_DEFICIT_WEIGHT.
+    # With idle detection fixed (41e49eadc), GPU nodes are now active.
+    # The old 0.40 curriculum weight caused hex8/square8 to monopolize allocation
+    # while square19 got only 5% of games. Boosting data_deficit helps underserved
+    # configs (hexagonal_4p: 318 games, square19_4p: 592) catch up.
+    CURRICULUM_WEIGHT: float = _env_float("RINGRIFT_CURRICULUM_WEIGHT", 0.25)
     IMPROVEMENT_BOOST_WEIGHT: float = _env_float("RINGRIFT_IMPROVEMENT_BOOST_WEIGHT", 0.15)
-    DATA_DEFICIT_WEIGHT: float = _env_float("RINGRIFT_DATA_DEFICIT_WEIGHT", 0.25)
+    DATA_DEFICIT_WEIGHT: float = _env_float("RINGRIFT_DATA_DEFICIT_WEIGHT", 0.40)
     QUALITY_WEIGHT: float = _env_float("RINGRIFT_QUALITY_WEIGHT", 0.15)
     VOI_WEIGHT: float = _env_float("RINGRIFT_VOI_WEIGHT", 0.20)
     # January 2026 Sprint 10: Diversity weight for maximizing opponent variety
