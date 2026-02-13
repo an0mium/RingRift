@@ -170,6 +170,15 @@ class UnifiedRegistryBase(ABC, Generic[T]):
                 # Enable WAL mode for better concurrency
                 self._connection.execute("PRAGMA journal_mode=WAL")
                 self._connection.execute("PRAGMA synchronous=NORMAL")
+                # February 2026: Limit SQLite memory usage to prevent OOM on coordinator.
+                # Default cache_size is -2000 (2 MB). With 20+ databases open and
+                # multi-GB game DBs, total cache can balloon. Cap at 64 MB per connection.
+                self._connection.execute("PRAGMA cache_size=-65536")  # 64 MB
+                # Limit memory-mapped I/O to prevent OS from mapping entire multi-GB DBs
+                self._connection.execute("PRAGMA mmap_size=67108864")  # 64 MB
+                # Checkpoint WAL when it exceeds 64 MB (default is 1000 pages ≈ 4 MB)
+                # This prevents WAL files from growing unboundedly on busy databases
+                self._connection.execute("PRAGMA wal_autocheckpoint=4000")
 
                 # Initialize schema
                 self._init_schema()

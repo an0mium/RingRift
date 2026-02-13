@@ -68,6 +68,10 @@ class MaintenanceConfig:
     # Database maintenance
     db_vacuum_interval_hours: float = 168.0  # Weekly
     db_maintenance_enabled: bool = True
+    # February 2026: Skip VACUUM on databases larger than this threshold (bytes).
+    # VACUUM requires ~2x the DB size in memory+disk. On a 128 GB coordinator with
+    # 11 GB databases, this causes OOM kernel panics.
+    db_vacuum_max_size_bytes: int = 500 * 1024 * 1024  # 500 MB
 
     # Game archival
     archive_games_older_than_days: int = 30
@@ -488,6 +492,7 @@ class MaintenanceDaemon(HandlerBase):
             db_paths.append(manifest_db)
 
         vacuumed = 0
+        skipped_large = 0
         for db_path in db_paths:
             if self.config.dry_run:
                 logger.info(f"[Maintenance] DRY RUN: Would VACUUM {db_path.name}")
@@ -496,6 +501,18 @@ class MaintenanceDaemon(HandlerBase):
             try:
                 # Get size before
                 size_before = db_path.stat().st_size
+
+                # February 2026: Skip VACUUM on large databases to prevent OOM.
+                # VACUUM requires ~2x DB size in memory+disk I/O. An 11 GB VACUUM
+                # caused 34 GB of disk writes and kernel panics on the coordinator.
+                if size_before > self.config.db_vacuum_max_size_bytes:
+                    skipped_large += 1
+                    logger.info(
+                        f"[Maintenance] Skipping VACUUM for {db_path.name} "
+                        f"({size_before / 1024 / 1024:.0f} MB > "
+                        f"{self.config.db_vacuum_max_size_bytes / 1024 / 1024:.0f} MB limit)"
+                    )
+                    continue
 
                 # December 2025: Run blocking VACUUM in thread pool to avoid blocking event loop
                 def _vacuum_sync(path: str) -> None:
@@ -519,8 +536,11 @@ class MaintenanceDaemon(HandlerBase):
                 logger.warning(f"[Maintenance] Failed to VACUUM {db_path}: {e}")
 
         self._maintenance_stats.databases_vacuumed += vacuumed
-        if vacuumed:
-            logger.info(f"[Maintenance] VACUUM completed: {vacuumed} databases")
+        if vacuumed or skipped_large:
+            logger.info(
+                f"[Maintenance] VACUUM completed: {vacuumed} databases vacuumed"
+                + (f", {skipped_large} skipped (too large)" if skipped_large else "")
+            )
 
     async def _archive_old_games(self) -> None:
         """Archive games older than threshold to cold storage.

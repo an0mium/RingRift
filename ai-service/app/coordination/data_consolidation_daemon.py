@@ -31,6 +31,7 @@ from app.coordination.event_emission_helpers import safe_emit_event
 from app.coordination.health_check_helper import HealthCheckHelper
 from app.coordination.contracts import CoordinatorStatus
 from app.config.thresholds import SQLITE_TIMEOUT, SQLITE_CONNECT_TIMEOUT
+from app.utils.sqlite_utils import connect_safe
 from app.db.game_replay import SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
@@ -736,9 +737,8 @@ class DataConsolidationDaemon(HandlerBase):
         source_conn = None
         target_conn = None
         try:
-            source_conn = sqlite3.connect(str(source_db), timeout=SQLITE_TIMEOUT)
-            source_conn.row_factory = sqlite3.Row
-            target_conn = sqlite3.connect(str(target_db), timeout=SQLITE_TIMEOUT)
+            source_conn = connect_safe(source_db, timeout=SQLITE_TIMEOUT)
+            target_conn = connect_safe(target_db, timeout=SQLITE_TIMEOUT, row_factory=None)
 
             # January 2026: Temporarily disable enforce_moves_on_insert trigger
             # The trigger requires moves to exist before game insert, but we need

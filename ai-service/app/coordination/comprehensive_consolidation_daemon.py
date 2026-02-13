@@ -41,6 +41,7 @@ from app.coordination.event_utils import make_config_key
 from app.coordination.event_emission_helpers import safe_emit_event
 from app.utils.game_discovery import GameDiscovery, DatabaseInfo, ALL_BOARD_TYPES, ALL_PLAYER_COUNTS
 from app.config.thresholds import SQLITE_TIMEOUT
+from app.utils.sqlite_utils import connect_safe
 from app.db.game_replay import SCHEMA_VERSION
 
 logger = logging.getLogger(__name__)
@@ -560,9 +561,8 @@ class ComprehensiveConsolidationDaemon(HandlerBase):
         target_conn = None
 
         try:
-            source_conn = sqlite3.connect(str(source_db), timeout=SQLITE_TIMEOUT)
-            source_conn.row_factory = sqlite3.Row
-            target_conn = sqlite3.connect(str(target_db), timeout=SQLITE_TIMEOUT)
+            source_conn = connect_safe(source_db, timeout=SQLITE_TIMEOUT)
+            target_conn = connect_safe(target_db, timeout=SQLITE_TIMEOUT, row_factory=None)
 
             # Get target columns
             target_cursor = target_conn.execute("PRAGMA table_info(games)")
