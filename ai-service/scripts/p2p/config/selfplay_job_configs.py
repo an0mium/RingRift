@@ -293,15 +293,22 @@ def get_gumbel_configs() -> list[dict[str, Any]]:
 # These profiles are used for weighted random sampling on idle GPU nodes.
 # Each profile has a 'weight' for selection probability and targets different
 # aspects of game understanding for high-quality training data.
+#
+# Feb 2026: Rebalanced weights. hex8_2p was getting 41% of all jobs while
+# large-board configs (square19, hexagonal) shared just 9%. Combined with
+# lower games-per-job on large boards (200 for square19, 100 for hexagonal
+# vs 1000 for small boards), this created a 240:1 effective game production
+# ratio that starved 6 configs for 20-33 days. New weights give large boards
+# ~6.5% each (3-4x boost) and cut hex8_2p from 41% to 16%.
 
 DIVERSE_PROFILES: list[dict[str, Any]] = [
-    # High-quality neural-guided profiles (50% of games)
+    # High-quality neural-guided profiles
     {
         "engine_mode": "gumbel-mcts",
         "board_type": "hex8",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.18,
+        "weight": 0.06,
         "description": "Gumbel MCTS 2P hex8 - highest quality",
     },
     {
@@ -309,7 +316,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hex8",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.12,
+        "weight": 0.04,
         "description": "Policy-only 2P hex8 - fast NN inference",
     },
     {
@@ -317,7 +324,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "square8",
         "num_players": 2,
         "profile": "aggressive",
-        "weight": 0.08,
+        "weight": 0.05,
         "description": "NNUE-guided 2P square - aggressive style",
     },
     {
@@ -333,10 +340,10 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hex8",
         "num_players": 2,
         "profile": "territorial",
-        "weight": 0.06,
+        "weight": 0.02,
         "description": "MCTS 2P hex8 - territorial focus",
     },
-    # MaxN/BRS multiplayer profiles (15% of games)
+    # MaxN/BRS multiplayer profiles
     # Benchmarks show: MaxN >> Descent in 3P/4P, MaxN ≈ BRS
     {
         "engine_mode": "maxn",
@@ -370,13 +377,13 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "weight": 0.03,
         "description": "BRS 4P square - territorial multiplayer",
     },
-    # GPU-accelerated throughput profiles (25% of games)
+    # Throughput profiles
     {
         "engine_mode": "heuristic-only",
         "board_type": "hex8",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.10,
+        "weight": 0.03,
         "description": "GPU heuristic 2P hex8 - fast throughput",
     },
     {
@@ -384,7 +391,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "square8",
         "num_players": 2,
         "profile": "defensive",
-        "weight": 0.07,
+        "weight": 0.04,
         "description": "GPU heuristic 2P square - defensive style",
     },
     {
@@ -395,13 +402,13 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "weight": 0.05,
         "description": "GPU heuristic 4P hex8 - large multiplayer",
     },
-    # Exploration profiles (10% of games)
+    # Exploration profiles
     {
         "engine_mode": "mixed",
         "board_type": "square19",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.04,
+        "weight": 0.06,
         "description": "Mixed 2P large board - strategic depth",
     },
     {
@@ -417,16 +424,18 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "square8",
         "num_players": 4,
         "profile": "territorial",
-        "weight": 0.05,
+        "weight": 0.04,
         "description": "Policy 4P square - territory control",
     },
-    # Large board profiles (square19, hexagonal) - lighter engines for feasible throughput
+    # Large board profiles (square19, hexagonal) - boosted for fair allocation
+    # These configs need higher weights to compensate for fewer games-per-job
+    # (200 for square19, 100 for hexagonal vs 1000 for small boards)
     {
         "engine_mode": "heuristic-only",
         "board_type": "square19",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.03,
+        "weight": 0.06,
         "description": "Heuristic 2P square19 - fast large board",
     },
     {
@@ -434,7 +443,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hexagonal",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.03,
+        "weight": 0.07,
         "description": "Heuristic 2P hexagonal - fast large board",
     },
     {
@@ -442,7 +451,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "square19",
         "num_players": 3,
         "profile": "balanced",
-        "weight": 0.02,
+        "weight": 0.07,
         "description": "BRS 3P square19 - multiplayer large board",
     },
     {
@@ -450,7 +459,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hexagonal",
         "num_players": 3,
         "profile": "balanced",
-        "weight": 0.02,
+        "weight": 0.07,
         "description": "BRS 3P hexagonal - multiplayer large board",
     },
     {
@@ -458,7 +467,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "square19",
         "num_players": 4,
         "profile": "balanced",
-        "weight": 0.02,
+        "weight": 0.07,
         "description": "MaxN 4P square19 - high quality 4-player",
     },
     {
@@ -466,7 +475,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hexagonal",
         "num_players": 4,
         "profile": "balanced",
-        "weight": 0.02,
+        "weight": 0.07,
         "description": "MaxN 4P hexagonal - high quality 4-player",
     },
     # Full diversity profiles - Minimax (2P paranoid search), Descent (stochastic), Random (baseline)
@@ -475,7 +484,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hex8",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.02,
+        "weight": 0.01,
         "description": "NN-Minimax 2P hex8 - deep alpha-beta search",
     },
     {
@@ -491,7 +500,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hex8",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.01,
+        "weight": 0.005,
         "description": "NN-Descent 2P hex8 - stochastic exploration",
     },
     {
@@ -507,7 +516,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "hex8",
         "num_players": 2,
         "profile": "balanced",
-        "weight": 0.005,
+        "weight": 0.003,
         "description": "Random 2P hex8 - baseline diversity",
     },
     {
@@ -515,7 +524,7 @@ DIVERSE_PROFILES: list[dict[str, Any]] = [
         "board_type": "square8",
         "num_players": 4,
         "profile": "balanced",
-        "weight": 0.005,
+        "weight": 0.003,
         "description": "Random 4P square - multiplayer baseline",
     },
 ]
