@@ -21,6 +21,7 @@ const HelpPage = lazy(() => import('./pages/HelpPage'));
 
 // Auth pages are lightweight and frequently first-loaded, keep synchronous
 import HomePage from './pages/HomePage';
+import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
@@ -125,6 +126,9 @@ function App() {
         />
         <Suspense fallback={<PageLoader />}>
           <Routes>
+            {/* Public landing page for unauthenticated visitors */}
+            {!user && <Route path="/" element={<LandingPage />} />}
+
             {/* Public routes */}
             <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
             <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
