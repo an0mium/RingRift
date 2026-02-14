@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Allow: /sandbox
+Allow: /help
+Disallow: /game/
+Disallow: /spectate/
+Disallow: /profile
+Disallow: /lobby
+
+Sitemap: https://ringrift.ai/sitemap.xml

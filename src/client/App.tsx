@@ -18,6 +18,7 @@ const SandboxGameHost = lazy(() =>
   import('./pages/SandboxGameHost').then((m) => ({ default: m.SandboxGameHost }))
 );
 const HelpPage = lazy(() => import('./pages/HelpPage'));
+const JoinByInvitePage = lazy(() => import('./pages/JoinByInvitePage'));
 
 // Auth pages are lightweight and frequently first-loaded, keep synchronous
 import HomePage from './pages/HomePage';
@@ -144,6 +145,8 @@ function App() {
             <Route path="/sandbox" element={<SandboxGameHost />} />
             <Route path="/help" element={<HelpPage />} />
             <Route path="/help/:topic" element={<HelpPage />} />
+            {/* Public invite link - resolves code and joins game */}
+            <Route path="/join/:inviteCode" element={<JoinByInvitePage />} />
             {/* Public spectator route (read-only, backend host) */}
             <Route path="/spectate/:gameId" element={<BackendGameHostRoute />} />
 

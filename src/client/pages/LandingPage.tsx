@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom';
 import { ButtonLink } from '../components/ui/ButtonLink';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 export default function LandingPage() {
+  useDocumentTitle();
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 app-bg">
       {/* Hero */}

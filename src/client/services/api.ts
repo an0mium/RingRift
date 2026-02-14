@@ -385,6 +385,26 @@ export const gameApi = {
     return response.data;
   },
 
+  async getGameByInvite(inviteCode: string): Promise<{
+    id: string;
+    inviteCode: string;
+    boardType: string;
+    maxPlayers: number;
+    status: string;
+    isRated: boolean;
+    playerCount: number;
+    players: { id: string; username: string; rating: number }[];
+    createdAt: string;
+  }> {
+    const response = await api.get(`/games/invite/${inviteCode}`);
+    return response.data.data.game;
+  },
+
+  async joinByInvite(inviteCode: string): Promise<{ id: string }> {
+    const response = await api.post(`/games/invite/${inviteCode}/join`);
+    return response.data.data.game;
+  },
+
   async leaveGame(gameId: string): Promise<void> {
     await api.post(`/games/${gameId}/leave`);
   },

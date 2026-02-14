@@ -2,7 +2,13 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { SettingsModal } from '../../src/client/components/SettingsModal';
+import { SoundProvider } from '../../src/client/contexts/SoundContext';
 import * as AccessibilityContext from '../../src/client/contexts/AccessibilityContext';
+
+// Wrapper that provides SoundContext for SettingsModal (which renders SoundSettingsPanel)
+function Wrapper({ children }: { children: React.ReactNode }) {
+  return <SoundProvider>{children}</SoundProvider>;
+}
 
 // Mock the useAccessibility hook used by AccessibilitySettingsPanel
 const mockSetPreference = jest.fn();
@@ -41,31 +47,33 @@ describe('SettingsModal', () => {
 
   describe('Rendering', () => {
     it('does not render when isOpen is false', () => {
-      const { container } = render(<SettingsModal isOpen={false} onClose={jest.fn()} />);
+      const { container } = render(<SettingsModal isOpen={false} onClose={jest.fn()} />, {
+        wrapper: Wrapper,
+      });
 
       expect(container.firstChild).toBeNull();
     });
 
     it('renders when isOpen is true', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
     it('displays Settings title', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByText('Settings')).toBeInTheDocument();
     });
 
     it('displays close button', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByRole('button', { name: /close settings/i })).toBeInTheDocument();
     });
 
     it('contains AccessibilitySettingsPanel', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       // AccessibilitySettingsPanel should be rendered
       expect(screen.getByText('Accessibility')).toBeInTheDocument();
@@ -75,7 +83,7 @@ describe('SettingsModal', () => {
   describe('Close Behavior', () => {
     it('calls onClose when close button is clicked', () => {
       const onClose = jest.fn();
-      render(<SettingsModal isOpen={true} onClose={onClose} />);
+      render(<SettingsModal isOpen={true} onClose={onClose} />, { wrapper: Wrapper });
 
       const closeButton = screen.getByRole('button', { name: /close settings/i });
       fireEvent.click(closeButton);
@@ -85,7 +93,7 @@ describe('SettingsModal', () => {
 
     it('calls onClose when backdrop is clicked', () => {
       const onClose = jest.fn();
-      render(<SettingsModal isOpen={true} onClose={onClose} />);
+      render(<SettingsModal isOpen={true} onClose={onClose} />, { wrapper: Wrapper });
 
       const dialog = screen.getByRole('dialog');
       const overlay = dialog.parentElement;
@@ -99,7 +107,7 @@ describe('SettingsModal', () => {
 
     it('calls onClose when Escape key is pressed', () => {
       const onClose = jest.fn();
-      render(<SettingsModal isOpen={true} onClose={onClose} />);
+      render(<SettingsModal isOpen={true} onClose={onClose} />, { wrapper: Wrapper });
 
       fireEvent.keyDown(document, { key: 'Escape' });
 
@@ -109,13 +117,15 @@ describe('SettingsModal', () => {
 
   describe('Body Scroll Lock', () => {
     it('sets body overflow to hidden when modal opens', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(document.body.style.overflow).toBe('hidden');
     });
 
     it('resets body overflow when modal closes', () => {
-      const { rerender } = render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      const { rerender } = render(<SettingsModal isOpen={true} onClose={jest.fn()} />, {
+        wrapper: Wrapper,
+      });
 
       expect(document.body.style.overflow).toBe('hidden');
 
@@ -125,7 +135,9 @@ describe('SettingsModal', () => {
     });
 
     it('cleans up body overflow on unmount', () => {
-      const { unmount } = render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      const { unmount } = render(<SettingsModal isOpen={true} onClose={jest.fn()} />, {
+        wrapper: Wrapper,
+      });
 
       expect(document.body.style.overflow).toBe('hidden');
 
@@ -137,7 +149,7 @@ describe('SettingsModal', () => {
 
   describe('Focus Management', () => {
     it('focuses close button when modal opens', async () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       await waitFor(() => {
         const closeButton = screen.getByRole('button', { name: /close settings/i });
@@ -148,7 +160,7 @@ describe('SettingsModal', () => {
 
   describe('Focus Trap', () => {
     it('traps focus within the modal on Tab', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const modal = screen.getByRole('dialog');
       const focusableElements = modal.querySelectorAll<HTMLElement>(
@@ -159,7 +171,7 @@ describe('SettingsModal', () => {
     });
 
     it('cycles focus on Tab at end of modal', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const modal = screen.getByRole('dialog');
       const focusableElements = modal.querySelectorAll<HTMLElement>(
@@ -180,7 +192,7 @@ describe('SettingsModal', () => {
     });
 
     it('cycles focus on Shift+Tab at start of modal', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const modal = screen.getByRole('dialog');
       const focusableElements = modal.querySelectorAll<HTMLElement>(
@@ -202,20 +214,20 @@ describe('SettingsModal', () => {
 
   describe('ARIA Attributes', () => {
     it('has role="dialog"', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
     it('has aria-modal="true"', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const dialog = screen.getByRole('dialog');
       expect(dialog).toHaveAttribute('aria-modal', 'true');
     });
 
     it('has aria-labelledby pointing to title', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const dialog = screen.getByRole('dialog');
       expect(dialog).toHaveAttribute('aria-labelledby', 'settings-modal-title');
@@ -228,31 +240,31 @@ describe('SettingsModal', () => {
 
   describe('Settings Integration', () => {
     it('renders high contrast toggle', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByText('High Contrast Mode')).toBeInTheDocument();
     });
 
     it('renders reduce motion toggle', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByText('Reduce Motion')).toBeInTheDocument();
     });
 
     it('renders large text toggle', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByText('Large Text')).toBeInTheDocument();
     });
 
     it('renders color vision mode selector', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByText('Color Vision Mode')).toBeInTheDocument();
     });
 
     it('allows changing settings', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const highContrastToggle = screen.getByRole('switch', { name: /high contrast mode/i });
       fireEvent.click(highContrastToggle);
@@ -261,7 +273,7 @@ describe('SettingsModal', () => {
     });
 
     it('allows resetting settings', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const resetButton = screen.getByText('Reset to defaults');
       fireEvent.click(resetButton);
@@ -272,7 +284,7 @@ describe('SettingsModal', () => {
 
   describe('Modal Styling', () => {
     it('has backdrop with blur effect', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       const dialog = screen.getByRole('dialog');
       const overlay = dialog.parentElement;
@@ -280,13 +292,13 @@ describe('SettingsModal', () => {
     });
 
     it('has rounded modal content', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByRole('dialog')).toHaveClass('rounded-xl');
     });
 
     it('has max-width constraint', () => {
-      render(<SettingsModal isOpen={true} onClose={jest.fn()} />);
+      render(<SettingsModal isOpen={true} onClose={jest.fn()} />, { wrapper: Wrapper });
 
       expect(screen.getByRole('dialog')).toHaveClass('max-w-lg');
     });
@@ -295,7 +307,9 @@ describe('SettingsModal', () => {
   describe('Edge Cases', () => {
     it('handles rapid open/close', () => {
       const onClose = jest.fn();
-      const { rerender } = render(<SettingsModal isOpen={true} onClose={onClose} />);
+      const { rerender } = render(<SettingsModal isOpen={true} onClose={onClose} />, {
+        wrapper: Wrapper,
+      });
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
 
@@ -308,7 +322,7 @@ describe('SettingsModal', () => {
 
     it('does not call onClose multiple times on repeated Escape presses', () => {
       const onClose = jest.fn();
-      render(<SettingsModal isOpen={true} onClose={onClose} />);
+      render(<SettingsModal isOpen={true} onClose={onClose} />, { wrapper: Wrapper });
 
       fireEvent.keyDown(document, { key: 'Escape' });
       fireEvent.keyDown(document, { key: 'Escape' });

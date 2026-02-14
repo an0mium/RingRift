@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { authApi, gameApi, userApi } from '../services/api';
 import { User } from '../../shared/types/user';
 import { Game, GameResult } from '../../shared/types/game';
@@ -21,6 +22,7 @@ interface RatingHistoryEntry {
 }
 
 export default function ProfilePage() {
+  useDocumentTitle('Profile');
   const { user: currentUser } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
   const [recentGames, setRecentGames] = useState<RecentGame[]>([]);

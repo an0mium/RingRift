@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 export default function HomePage() {
   const { user } = useAuth();
+  useDocumentTitle('Home');
 
   return (
     <div className="container mx-auto px-4 py-10 space-y-8">

@@ -1,14 +1,18 @@
 import React, { useState, FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
 import { InlineAlert } from '../components/ui/InlineAlert';
 import { extractErrorMessage, extractErrorCode } from '../utils/errorReporting';
 
 export default function LoginPage() {
+  useDocumentTitle('Login');
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const redirectTo = (location.state as { from?: string } | null)?.from || '/';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -28,8 +32,9 @@ export default function LoginPage() {
 
     try {
       await login(email, password, rememberMe);
-      // On successful login, redirect to the main app shell (home/lobby).
-      navigate('/');
+      // Redirect to the page the user was trying to reach (e.g. /join/:code),
+      // or fall back to the main app shell.
+      navigate(redirectTo);
     } catch (error: unknown) {
       const errorCode = extractErrorCode(error);
       const serverMessage = extractErrorMessage(error, '');

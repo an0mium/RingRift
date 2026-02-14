@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { VictoryModal, type RematchStatus } from '../components/VictoryModal';
 import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
@@ -98,6 +98,42 @@ function renderGameHeader(gameState: GameState) {
   );
 }
 
+function InviteLinkBanner({ inviteCode }: { inviteCode: string }) {
+  const [copied, setCopied] = useState(false);
+  const inviteUrl = `${window.location.origin}/join/${inviteCode}`;
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const textArea = document.createElement('textarea');
+      textArea.value = inviteUrl;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [inviteUrl]);
+
+  return (
+    <div className="mt-4 p-4 bg-slate-800/70 rounded-xl border border-emerald-500/30 max-w-lg">
+      <p className="text-sm text-slate-300 mb-2">Share this link to invite a friend:</p>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 px-3 py-2 bg-slate-900 rounded text-sm text-emerald-300 truncate">
+          {inviteUrl}
+        </code>
+        <Button type="button" variant="outline" size="sm" onClick={handleCopy}>
+          {copied ? 'Copied!' : 'Copy'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export interface BackendGameHostProps {
   /** Game id from the route (e.g. /game/:gameId or /spectate/:gameId) */
   gameId: string;
@@ -115,7 +151,9 @@ export interface BackendGameHostProps {
  */
 export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeGameId }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+  const inviteCode = (location.state as { inviteCode?: string } | null)?.inviteCode;
   const {
     pendingRematchRequest,
     requestRematch,
@@ -923,6 +961,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-2xl font-bold mb-2">Connecting to game…</h1>
         <p className="text-sm text-gray-500">Game ID: {routeGameId}</p>
+        {inviteCode && <InviteLinkBanner inviteCode={inviteCode} />}
       </div>
     );
   }

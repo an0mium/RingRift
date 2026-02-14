@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { userApi } from '../services/api';
 import { User } from '../../shared/types/user';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 export default function LeaderboardPage() {
+  useDocumentTitle('Leaderboard');
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

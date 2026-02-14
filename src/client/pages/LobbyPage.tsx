@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { io, Socket } from 'socket.io-client';
 import { gameApi } from '../services/api';
 import { BoardType, CreateGameRequest, Game } from '../../shared/types/game';
@@ -84,6 +85,41 @@ function getSocketBaseUrl(): string {
   }
 
   return 'http://localhost:3000';
+}
+
+function CopyInviteLinkButton({ inviteCode }: { inviteCode: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    const url = `${window.location.origin}/join/${inviteCode}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for non-HTTPS contexts
+      const textArea = document.createElement('textarea');
+      textArea.value = url;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [inviteCode]);
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={handleCopy}
+      title="Copy invite link to clipboard"
+    >
+      {copied ? 'Copied!' : 'Copy Invite Link'}
+    </Button>
+  );
 }
 
 function GameCard({
@@ -180,6 +216,10 @@ function GameCard({
           <Button type="button" variant="danger" size="sm" onClick={() => onCancel(game.id)}>
             Cancel
           </Button>
+        )}
+
+        {isCreator && game.status === 'waiting' && game.inviteCode && (
+          <CopyInviteLinkButton inviteCode={game.inviteCode} />
         )}
 
         <Button
@@ -451,6 +491,7 @@ function sortGames(games: Game[], sortBy: SortOption): Game[] {
 }
 
 export default function LobbyPage() {
+  useDocumentTitle('Lobby');
   const navigate = useNavigate();
   const [form, setForm] = useState<FormState>(defaultForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -661,7 +702,7 @@ export default function LobbyPage() {
 
     try {
       const game = await createGameFromForm(form);
-      navigate(`/game/${game.id}`);
+      navigate(`/game/${game.id}`, { state: { inviteCode: game.inviteCode } });
     } catch (error: unknown) {
       setError(extractErrorMessage(error, 'Failed to create game'));
     } finally {
