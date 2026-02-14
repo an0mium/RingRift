@@ -276,9 +276,9 @@ describe('gameViewModels', () => {
       expect(vm.weirdState?.type).toBe('active-no-moves-movement');
       expect(vm.weirdState?.tone).toBe('warning');
       // Avoid brittle exact copy matches; assert on the key semantic:
-      // forced elimination removes stack caps when the player has no real moves.
-      expect(vm.weirdState?.body).toMatch(/forced[- ]elimination/i);
-      expect(vm.weirdState?.body).toMatch(/remove\s+caps?/i);
+      // when the player has no moves, rings are removed from the top of stacks.
+      expect(vm.weirdState?.body).toMatch(/no(where to go|moves available)/i);
+      expect(vm.weirdState?.body).toMatch(/removed from the top/i);
     });
 
     it('sets decisionPhase.canSkip for territory region_order choices that include a skip option', () => {

@@ -689,7 +689,7 @@ describe('VictoryModal – rematch states', () => {
       />
     );
 
-    expect(screen.getByText('Rematch accepted! Joining new game...')).toBeInTheDocument();
+    expect(screen.getByText('Rematch on! Joining new game...')).toBeInTheDocument();
   });
 
   it('shows declined message when rematch is declined', () => {
@@ -710,7 +710,7 @@ describe('VictoryModal – rematch states', () => {
       />
     );
 
-    expect(screen.getByText('Rematch declined')).toBeInTheDocument();
+    expect(screen.getByText('Opponent declined the rematch')).toBeInTheDocument();
   });
 
   it('shows expired message with request button when rematch expired', () => {
@@ -732,8 +732,8 @@ describe('VictoryModal – rematch states', () => {
       />
     );
 
-    expect(screen.getByText('Rematch request expired')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Request Rematch/i })).toBeInTheDocument();
+    expect(screen.getByText('Rematch offer expired')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Play Again\?/i })).toBeInTheDocument();
   });
 
   it('shows accept/decline buttons when opponent requests rematch', () => {
@@ -817,7 +817,7 @@ describe('VictoryModal – rematch states', () => {
       />
     );
 
-    expect(screen.getByRole('button', { name: /Request Rematch/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Play Again\?/i })).toBeInTheDocument();
   });
 
   it('invokes telemetry-friendly teaching overlay from weird-state link and closes modal', async () => {

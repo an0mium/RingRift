@@ -6,38 +6,38 @@ import {
 
 const CANONICAL_LABELS: Record<string, string> = {
   place_ring: 'Place Ring',
-  skip_placement: 'Skip Placement',
-  no_placement_action: 'No Placement Action',
-  move_stack: 'Move Stack',
+  skip_placement: 'Pass',
+  no_placement_action: 'No Action',
+  move_stack: 'Move',
   overtaking_capture: 'Capture',
   continue_capture_segment: 'Continue Capture',
   chain_capture: 'Chain Capture',
-  skip_capture: 'Skip Capture',
-  no_movement_action: 'No Movement Action',
-  process_line: 'Process Line',
-  choose_line_option: 'Line Option',
-  no_line_action: 'No Line Action',
-  choose_territory_option: 'Territory Option',
+  skip_capture: 'End Capture',
+  no_movement_action: 'No Action',
+  process_line: 'Score Line',
+  choose_line_option: 'Line Reward',
+  no_line_action: 'No Action',
+  choose_territory_option: 'Claim Territory',
   skip_territory_processing: 'Skip Territory',
-  no_territory_action: 'No Territory Action',
-  eliminate_rings_from_stack: 'Eliminate Rings',
-  forced_elimination: 'Forced Elimination',
+  no_territory_action: 'No Action',
+  eliminate_rings_from_stack: 'Remove Ring',
+  forced_elimination: 'Sacrifice',
   swap_sides: 'Swap Sides',
   recovery_slide: 'Recovery',
   skip_recovery: 'Skip Recovery',
 };
 
 const LEGACY_LABELS: Record<LegacyMoveType, string> = {
-  move_ring: 'Move Ring',
+  move_ring: 'Move',
   build_stack: 'Build Stack',
   choose_line_reward: 'Line Reward',
-  process_territory_region: 'Territory Process',
-  line_formation: 'Line Formation',
-  territory_claim: 'Territory Claim',
+  process_territory_region: 'Claim Territory',
+  line_formation: 'Line Scored',
+  territory_claim: 'Territory Claimed',
 };
 
 const LEGACY_CATEGORY_LABELS: Partial<Record<LegacyMoveType, string>> = {
-  line_formation: 'Line Processing',
+  line_formation: 'Line',
   territory_claim: 'Territory',
 };
 
@@ -65,7 +65,7 @@ export function getMoveCategoryLabel(moveType: MoveType): string {
       return 'Placement';
     case 'skip_placement':
     case 'no_placement_action':
-      return 'Placement (no action)';
+      return 'Placement (pass)';
     case 'move_stack':
     case 'no_movement_action':
       return 'Movement';
@@ -73,19 +73,19 @@ export function getMoveCategoryLabel(moveType: MoveType): string {
     case 'continue_capture_segment':
       return 'Capture';
     case 'skip_capture':
-      return 'Skip Capture';
+      return 'End Capture';
     case 'process_line':
     case 'choose_line_option':
     case 'no_line_action':
-      return 'Line Processing';
+      return 'Line';
     case 'eliminate_rings_from_stack':
-      return 'Eliminate Rings';
+      return 'Remove Ring';
     case 'choose_territory_option':
     case 'skip_territory_processing':
     case 'no_territory_action':
       return 'Territory';
     case 'forced_elimination':
-      return 'Forced Elimination';
+      return 'Sacrifice';
     case 'swap_sides':
       return 'Swap Sides';
     case 'recovery_slide':

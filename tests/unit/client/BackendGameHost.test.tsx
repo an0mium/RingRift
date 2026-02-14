@@ -53,6 +53,13 @@ jest.mock('react-hot-toast', () => {
 jest.mock('react-router-dom', () => ({
   // Only mock what we actually use here
   useNavigate: () => mockNavigate,
+  useLocation: () => ({
+    pathname: '/game/game-123',
+    state: null,
+    search: '',
+    hash: '',
+    key: 'default',
+  }),
 }));
 
 jest.mock('@/client/contexts/AuthContext', () => ({
@@ -425,7 +432,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     );
 
     // Instruction text should reflect movement phase
-    expect(screen.getByText('Select a stack to move.')).toBeInTheDocument();
+    expect(screen.getByText('Select one of your stacks to move.')).toBeInTheDocument();
   });
 
   it('treats non-player connections as spectators, blocks move submission, and shows spectator UX and evaluation panel', () => {
@@ -481,7 +488,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     expect(mockSubmitMove).not.toHaveBeenCalled();
 
     // Selection panel should communicate that moves are disabled while spectating.
-    expect(screen.getByText('Moves disabled while spectating.')).toBeInTheDocument();
+    expect(screen.getByText('Spectating — moves are disabled.')).toBeInTheDocument();
 
     // HUD should show a prominent spectator banner.
     expect(screen.getByText(/Spectator Mode/i)).toBeInTheDocument();
@@ -521,7 +528,7 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     // Ring placement instruction
     expect(
-      screen.getByText('Place rings on an empty cell or on top of an existing stack.')
+      screen.getByText('Place a ring on an empty space or on top of a stack.')
     ).toBeInTheDocument();
 
     // Auto-highlighted placement targets should be visible
@@ -534,9 +541,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     mockGameState = lineState;
     rerender(<BackendGameHost gameId="game-123" />);
 
-    expect(
-      screen.getByText('Line processing – choose how to resolve your completed line.')
-    ).toBeInTheDocument();
+    expect(screen.getByText('You formed a line! Choose how to score it.')).toBeInTheDocument();
 
     // Third render: territory_processing phase with a victory result
     const victory: GameResult = {
@@ -560,7 +565,7 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     // Territory instruction
     expect(
-      screen.getByText('Territory processing – resolve disconnected regions.')
+      screen.getByText('Territory captured! Choose which region to claim.')
     ).toBeInTheDocument();
 
     // Victory modal should be open (Return to Lobby button visible)
@@ -571,7 +576,7 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     expect(screen.queryByText('Return to Lobby')).not.toBeInTheDocument();
     // Text comes from getGameOverBannerText; assert the specific banner text for clarity.
-    expect(screen.getByText(/Game over – victory by territory control\./i)).toBeInTheDocument();
+    expect(screen.getByText(/Victory! Territory dominance achieved\./i)).toBeInTheDocument();
   });
 
   it('displays last-player-standing victories clearly in VictoryModal', () => {
@@ -607,9 +612,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     const { rerender } = render(<BackendGameHost gameId="game-123" />);
 
     // Instruction for line_processing
-    expect(
-      screen.getByText('Line processing – choose how to resolve your completed line.')
-    ).toBeInTheDocument();
+    expect(screen.getByText('You formed a line! Choose how to score it.')).toBeInTheDocument();
 
     // Transition to chain_capture with a pending capture_direction choice
     const stateChain: GameState = { ...stateLine, currentPhase: 'chain_capture' as GamePhase };
@@ -625,9 +628,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     rerender(<BackendGameHost gameId="game-123" />);
 
     // Instruction for chain_capture
-    expect(
-      screen.getByText('Chain capture in progress – select next capture target.')
-    ).toBeInTheDocument();
+    expect(screen.getByText('Keep jumping! Select your next capture target.')).toBeInTheDocument();
 
     // Transition to territory_processing and clear choice
     const stateTerritory: GameState = {
@@ -641,7 +642,7 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     // Instruction for territory_processing
     expect(
-      screen.getByText('Territory processing – resolve disconnected regions.')
+      screen.getByText('Territory captured! Choose which region to claim.')
     ).toBeInTheDocument();
 
     // Event log should reflect the phase progression in order.
@@ -1328,7 +1329,7 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     // HUD should surface an attention-toned status chip and a small skip hint badge.
     const statusChip = screen.getByTestId('hud-decision-status-chip');
-    expect(statusChip).toHaveTextContent('Territory claimed – choose region to process or skip');
+    expect(statusChip).toHaveTextContent('Territory claimed — choose a region to claim or skip');
 
     const skipHint = screen.getByTestId('hud-decision-skip-hint');
     expect(skipHint).toBeInTheDocument();

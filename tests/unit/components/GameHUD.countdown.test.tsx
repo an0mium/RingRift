@@ -156,7 +156,7 @@ describe('GameHUD decision countdown', () => {
     expect(timer).toBeInTheDocument();
     expect(timer).toHaveAttribute('data-severity', 'warning');
     expect(timer).toHaveAttribute('data-server-capped', 'true');
-    expect(screen.getByText(/Server deadline/i)).toBeInTheDocument();
+    expect(screen.getByText(/Time limit/i)).toBeInTheDocument();
     // The countdown shows 0:04 - check within the timer element
     expect(timer).toHaveTextContent('0:04');
   });

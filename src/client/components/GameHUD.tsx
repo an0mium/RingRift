@@ -89,17 +89,17 @@ function DecisionPhaseBanner({ vm }: { vm: HUDDecisionPhaseViewModel }) {
           : 'font-mono text-xs text-slate-100';
 
   const pillRingClass = isServerCapped ? 'ring-1 ring-amber-300/80' : '';
-  const pillLabel = isServerCapped ? 'Server deadline' : 'Time';
+  const pillLabel = isServerCapped ? 'Time limit' : 'Time';
 
   // Build comprehensive aria-label for the decision phase banner
-  const bannerAriaLabelParts = [`Decision phase: ${label}`];
+  const bannerAriaLabelParts = [`Your decision: ${label}`];
   if (description) {
     bannerAriaLabelParts.push(description);
   }
   if (countdownLabel) {
     bannerAriaLabelParts.push(`Time remaining: ${countdownLabel}`);
     if (severity === 'critical') {
-      bannerAriaLabelParts.push('Time is running out!');
+      bannerAriaLabelParts.push('Hurry!');
     }
   }
   const bannerAriaLabel = bannerAriaLabelParts.join('. ');

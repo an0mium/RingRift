@@ -510,7 +510,7 @@ function RematchSection({
   if (rematchStatus?.status === 'accepted') {
     return (
       <div className="px-6 py-3 bg-green-900/50 border border-green-600 rounded-lg text-green-200 text-center">
-        Rematch accepted! Joining new game...
+        Rematch on! Joining new game...
       </div>
     );
   }
@@ -519,7 +519,7 @@ function RematchSection({
   if (rematchStatus?.status === 'declined') {
     return (
       <div className="px-6 py-3 bg-red-900/50 border border-red-600 rounded-lg text-red-200 text-center">
-        Rematch declined
+        Opponent declined the rematch
       </div>
     );
   }
@@ -529,10 +529,10 @@ function RematchSection({
     return (
       <div className="flex flex-col items-center gap-2">
         <div className="px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-300 text-sm">
-          Rematch request expired
+          Rematch offer expired
         </div>
         <Button type="button" size="lg" onClick={onRequestRematch}>
-          Request Rematch
+          Play Again?
         </Button>
       </div>
     );
@@ -585,7 +585,7 @@ function RematchSection({
   // No pending request - show request button
   return (
     <Button type="button" size="lg" onClick={onRequestRematch}>
-      Request Rematch
+      Play Again?
     </Button>
   );
 }
@@ -609,9 +609,7 @@ function TrainingSubmissionSection({
           <span className="text-lg">&#10003;</span>
           <span className="font-medium">Thanks for contributing!</span>
         </div>
-        <p className="text-sm text-green-300/80 mt-1">
-          Your game has been submitted to help improve the AI.
-        </p>
+        <p className="text-sm text-green-300/80 mt-1">Your game is helping train the AI. Thanks!</p>
       </div>
     );
   }

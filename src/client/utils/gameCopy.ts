@@ -3,21 +3,21 @@ import type { GameResult } from '../../shared/types/game';
 export function getGameOverBannerText(reason: GameResult['reason']): string {
   switch (reason) {
     case 'ring_elimination':
-      return 'Game over – victory by ring elimination.';
+      return 'Victory! All opponent rings eliminated.';
     case 'territory_control':
-      return 'Game over – victory by territory control.';
+      return 'Victory! Territory dominance achieved.';
     case 'last_player_standing':
-      return 'Game over – victory by last player standing.';
+      return 'Victory! Last player standing wins.';
     case 'game_completed':
-      return 'Game over – structural stalemate. Winner decided by tiebreak ladder: territory spaces, eliminated rings (including rings in hand), markers, then last real action.';
+      return 'Game over — no moves remain. Winner decided by score: territory, then rings eliminated, then markers.';
     case 'timeout':
-      return 'Game over – victory on time.';
+      return 'Victory! Opponent ran out of time.';
     case 'resignation':
-      return 'Game over – victory by resignation.';
+      return 'Victory! Opponent resigned.';
     case 'abandonment':
-      return 'Game over – game abandoned.';
+      return 'Game abandoned.';
     case 'draw':
-      return 'Game over – draw.';
+      return 'Draw — evenly matched!';
     default:
       return 'Game over.';
   }

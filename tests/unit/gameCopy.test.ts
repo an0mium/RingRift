@@ -3,13 +3,13 @@ import type { GameResult } from '../../src/shared/types/game';
 
 describe('getGameOverBannerText', () => {
   const cases: Array<[GameResult['reason'], string]> = [
-    ['ring_elimination', 'Game over – victory by ring elimination.'],
-    ['territory_control', 'Game over – victory by territory control.'],
-    ['last_player_standing', 'Game over – victory by last player standing.'],
-    ['timeout', 'Game over – victory on time.'],
-    ['resignation', 'Game over – victory by resignation.'],
-    ['abandonment', 'Game over – game abandoned.'],
-    ['draw', 'Game over – draw.'],
+    ['ring_elimination', 'Victory! All opponent rings eliminated.'],
+    ['territory_control', 'Victory! Territory dominance achieved.'],
+    ['last_player_standing', 'Victory! Last player standing wins.'],
+    ['timeout', 'Victory! Opponent ran out of time.'],
+    ['resignation', 'Victory! Opponent resigned.'],
+    ['abandonment', 'Game abandoned.'],
+    ['draw', 'Draw — evenly matched!'],
   ];
 
   it.each(cases)('returns expected copy for reason %s', (reason, expected) => {

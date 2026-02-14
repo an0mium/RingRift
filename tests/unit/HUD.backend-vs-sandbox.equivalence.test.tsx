@@ -313,8 +313,8 @@ describe('HUD backend vs sandbox equivalence', () => {
     // Phase semantics (label, description, celebratory "Line Formation" styling)
     expect(backendHud.phase.phaseKey).toBe('line_processing');
     expect(sandboxHud.phase.phaseKey).toBe('line_processing');
-    expect(backendHud.phase.label).toBe('Line Formation');
-    expect(sandboxHud.phase.label).toBe('Line Formation');
+    expect(backendHud.phase.label).toBe('Line Scored!');
+    expect(sandboxHud.phase.label).toBe('Line Scored!');
     expect(backendHud.phase.description).toBe(sandboxHud.phase.description);
     expect(backendHud.phase.icon).toBe(sandboxHud.phase.icon);
     expect(backendHud.phase.colorClass).toBe(sandboxHud.phase.colorClass);
@@ -435,8 +435,8 @@ describe('HUD equivalence – movement phase (no decision)', () => {
     // Phase semantics should match (labels from gameViewModels)
     expect(backendHud.phase.phaseKey).toBe('movement');
     expect(sandboxHud.phase.phaseKey).toBe('movement');
-    expect(backendHud.phase.label).toBe('Movement Phase');
-    expect(sandboxHud.phase.label).toBe('Movement Phase');
+    expect(backendHud.phase.label).toBe('Move');
+    expect(sandboxHud.phase.label).toBe('Move');
     expect(backendHud.phase.description).toBe(sandboxHud.phase.description);
     expect(backendHud.phase.actionHint).toBe(sandboxHud.phase.actionHint);
     expect(backendHud.phase.spectatorHint).toBe(sandboxHud.phase.spectatorHint);
@@ -562,10 +562,10 @@ describe('HUD equivalence – territory_processing phase with region_order decis
     expect(backendDecision?.statusChip?.tone).toBe('attention');
     expect(sandboxDecision?.statusChip?.tone).toBe('attention');
     expect(backendDecision?.statusChip?.text).toBe(
-      'Territory claimed – choose region to process or skip'
+      'Territory claimed — choose a region to claim or skip'
     );
     expect(sandboxDecision?.statusChip?.text).toBe(
-      'Territory claimed – choose region to process or skip'
+      'Territory claimed — choose a region to claim or skip'
     );
   });
 
@@ -605,8 +605,8 @@ describe('HUD equivalence – territory_processing phase with region_order decis
     expect(chips).toHaveLength(2);
 
     const [backendChip, sandboxChip] = chips;
-    expect(backendChip.textContent).toBe('Territory claimed – choose region to process or skip');
-    expect(sandboxChip.textContent).toBe('Territory claimed – choose region to process or skip');
+    expect(backendChip.textContent).toBe('Territory claimed — choose a region to claim or skip');
+    expect(sandboxChip.textContent).toBe('Territory claimed — choose a region to claim or skip');
 
     const skipHints = getAllByTestId('hud-decision-skip-hint');
     expect(skipHints).toHaveLength(2);
@@ -637,9 +637,9 @@ describe('HUD equivalence – line_processing phase with ring_elimination decisi
       })
     );
 
-    // Phase should show celebratory "Line Formation" styling
-    expect(backendHud.phase.label).toBe('Line Formation');
-    expect(sandboxHud.phase.label).toBe('Line Formation');
+    // Phase should show celebratory "Line Scored!" styling
+    expect(backendHud.phase.label).toBe('Line Scored!');
+    expect(sandboxHud.phase.label).toBe('Line Scored!');
     expect(backendHud.phase.icon).toBe('✨');
     expect(sandboxHud.phase.icon).toBe('✨');
 
@@ -654,7 +654,7 @@ describe('HUD equivalence – line_processing phase with ring_elimination decisi
     // Ring elimination should have a status chip with attention tone
     expect(backendDecision?.statusChip).toBeDefined();
     expect(backendDecision?.statusChip?.tone).toBe('attention');
-    expect(backendDecision?.statusChip?.text).toContain('eliminate');
+    expect(backendDecision?.statusChip?.text).toContain('remove a ring');
   });
 
   it('renders equivalent time-pressure chip for ring_elimination at warning threshold', () => {

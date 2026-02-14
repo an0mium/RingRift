@@ -578,7 +578,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   });
   const boardInteractionMessage = (() => {
     if (!isPlayer) {
-      return 'Moves disabled while spectating.';
+      return 'Spectating — moves are disabled.';
     }
     if (!isConnectionActive) {
       return connectionStatus === 'reconnecting' || connectionStatus === 'connecting'
@@ -586,7 +586,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         : 'Disconnected from server.';
     }
     if (victoryState) {
-      return 'Game completed.';
+      return 'Game over!';
     }
     return null;
   })();
@@ -614,21 +614,21 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
     switch (gameState.currentPhase) {
       case 'ring_placement':
-        return 'Place rings on an empty cell or on top of an existing stack.';
+        return 'Place a ring on an empty space or on top of a stack.';
       case 'movement':
-        return 'Select a stack to move.';
+        return 'Select one of your stacks to move.';
       case 'capture':
-        return 'Select a stack to capture with.';
+        return 'Jump over an opponent to capture their top ring.';
       case 'chain_capture':
-        return 'Chain capture in progress – select next capture target.';
+        return 'Keep jumping! Select your next capture target.';
       case 'line_processing':
-        return 'Line processing – choose how to resolve your completed line.';
+        return 'You formed a line! Choose how to score it.';
       case 'territory_processing':
-        return 'Territory processing – resolve disconnected regions.';
+        return 'Territory captured! Choose which region to claim.';
       case 'forced_elimination':
-        return 'No legal moves available – select a stack to eliminate from.';
+        return 'No moves available — choose a stack to sacrifice from.';
       default:
-        return 'Make your move.';
+        return 'Your turn — make your move.';
     }
   };
 

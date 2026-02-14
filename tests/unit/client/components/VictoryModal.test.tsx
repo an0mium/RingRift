@@ -98,9 +98,7 @@ function createFinalStats(
 /**
  * Create a minimal VictoryViewModel
  */
-function createVictoryViewModel(
-  overrides: Partial<VictoryViewModel> = {}
-): VictoryViewModel {
+function createVictoryViewModel(overrides: Partial<VictoryViewModel> = {}): VictoryViewModel {
   const winner = createPlayerViewModel(1, { isUserPlayer: false });
   const finalStats = [
     createFinalStats(1, { isWinner: true, player: winner }),
@@ -130,9 +128,7 @@ function createVictoryViewModel(
 /**
  * Create a GameResult object
  */
-function createGameResult(
-  overrides: Partial<GameResult> = {}
-): GameResult {
+function createGameResult(overrides: Partial<GameResult> = {}): GameResult {
   return {
     reason: 'ring_elimination',
     winner: 1,
@@ -585,7 +581,7 @@ describe('VictoryModal', () => {
       const props = createDefaultProps({ onRequestRematch });
       render(<VictoryModal {...props} />);
 
-      expect(screen.getByRole('button', { name: /Request Rematch/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Play Again\?/i })).toBeInTheDocument();
     });
 
     it('calls onRequestRematch when Request Rematch button is clicked', () => {
@@ -593,7 +589,7 @@ describe('VictoryModal', () => {
       const props = createDefaultProps({ onRequestRematch });
       render(<VictoryModal {...props} />);
 
-      fireEvent.click(screen.getByRole('button', { name: /Request Rematch/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Play Again\?/i }));
       expect(onRequestRematch).toHaveBeenCalledTimes(1);
     });
 
@@ -682,7 +678,7 @@ describe('VictoryModal', () => {
       const props = createDefaultProps({ onRequestRematch: jest.fn(), rematchStatus });
       render(<VictoryModal {...props} />);
 
-      expect(screen.getByText(/Rematch accepted!/i)).toBeInTheDocument();
+      expect(screen.getByText(/Rematch on!/i)).toBeInTheDocument();
     });
 
     it('shows declined message when rematch is declined', () => {
@@ -693,7 +689,7 @@ describe('VictoryModal', () => {
       const props = createDefaultProps({ onRequestRematch: jest.fn(), rematchStatus });
       render(<VictoryModal {...props} />);
 
-      expect(screen.getByText(/Rematch declined/i)).toBeInTheDocument();
+      expect(screen.getByText(/Opponent declined the rematch/i)).toBeInTheDocument();
     });
 
     it('shows expired message and new request button when rematch expires', () => {
@@ -705,8 +701,8 @@ describe('VictoryModal', () => {
       const props = createDefaultProps({ onRequestRematch, rematchStatus });
       render(<VictoryModal {...props} />);
 
-      expect(screen.getByText(/Rematch request expired/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Request Rematch/i })).toBeInTheDocument();
+      expect(screen.getByText(/Rematch offer expired/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Play Again\?/i })).toBeInTheDocument();
     });
   });
 

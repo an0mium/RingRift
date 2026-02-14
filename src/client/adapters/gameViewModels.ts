@@ -532,61 +532,62 @@ export function getPlayerColors(
 
 export const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
   ring_placement: {
-    label: 'Ring Placement',
-    description: 'Place your rings on the board to build stacks',
+    label: 'Place Rings',
+    description: 'Add rings to the board to build or take over stacks',
     colorClass: 'bg-blue-500',
     icon: '🎯',
-    actionHint: 'Click an empty cell or your own stack to place rings',
-    spectatorHint: 'Player is placing rings on the board',
+    actionHint: 'Click an empty space to place, or click a stack to take it over',
+    spectatorHint: 'Player is placing rings',
   },
   movement: {
-    label: 'Movement Phase',
-    description: 'Move a stack or initiate a capture',
+    label: 'Move',
+    description:
+      'Slide a stack along a straight line — it must travel at least as far as its height',
     colorClass: 'bg-green-500',
     icon: '⚡',
-    actionHint: 'Select your stack, then click a destination to move',
+    actionHint: 'Select your stack, then click where to move it',
     spectatorHint: 'Player is choosing a move',
   },
   capture: {
-    label: 'Capture Phase',
-    description: 'Jump over opponent stacks to capture rings',
+    label: 'Capture',
+    description: 'Jump over an opponent stack to steal their top ring',
     colorClass: 'bg-orange-500',
     icon: '⚔️',
-    actionHint: 'Select your stack, then jump over an opponent to capture',
-    spectatorHint: 'Player is executing a capture',
+    actionHint: 'Click a landing space beyond an opponent stack to capture it',
+    spectatorHint: 'Player is capturing',
   },
   chain_capture: {
-    label: 'Chain Capture',
-    description: 'Continue capturing with the same stack',
+    label: 'Keep Capturing!',
+    description: 'Your stack can keep jumping — chain captures are mandatory while possible',
     colorClass: 'bg-orange-500',
     icon: '🔗',
-    actionHint: 'Click the next target to continue capturing, or end chain',
-    spectatorHint: 'Player is continuing a chain capture',
+    actionHint: 'Click the next target to continue your capture chain',
+    spectatorHint: 'Player is continuing a capture chain',
   },
   line_processing: {
-    label: 'Line Processing',
-    description: 'A line of 5+ rings was formed – choose your reward',
+    label: 'Line Formed!',
+    description: 'Your markers formed a scoring line — collapse it into permanent territory',
     colorClass: 'bg-purple-500',
     icon: '📏',
-    actionHint: 'Choose which line to process and your reward',
-    spectatorHint: 'Player is choosing a line reward',
+    actionHint: 'Choose which line to score and your reward',
+    spectatorHint: 'Player is scoring a line',
   },
   territory_processing: {
-    label: 'Territory Processing',
-    description: 'Disconnected regions detected – resolve ownership',
+    label: 'Territory Captured!',
+    description: 'A region has been cut off — claim it as your territory',
     colorClass: 'bg-pink-500',
     icon: '🏰',
-    actionHint: 'Choose which region to process first',
-    spectatorHint: 'Player is resolving territory',
+    actionHint: 'Choose which region to claim first',
+    spectatorHint: 'Player is claiming territory',
   },
   forced_elimination: {
-    label: 'Forced Elimination',
+    label: 'Blocked!',
     description:
-      'Player has stacks but no legal placements, movements, or captures and must eliminate from a stack.',
+      'No moves available — you must sacrifice the top of one of your stacks to continue',
     colorClass: 'bg-red-600',
     icon: '💥',
-    actionHint: 'Choose which stack to sacrifice when prompted',
-    spectatorHint: 'Player is paying a forced elimination cost',
+    actionHint: 'Choose which stack to sacrifice from',
+    spectatorHint: 'Player must sacrifice a stack — no moves available',
   },
   game_over: {
     label: 'Game Over',
@@ -837,11 +838,10 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
   if (gameState.currentPhase === 'line_processing') {
     const lineCount = gameState.board.formedLines?.length ?? 0;
     if (lineCount > 0) {
-      subPhaseDetail = `Processing ${lineCount} line${lineCount !== 1 ? 's' : ''}`;
+      subPhaseDetail = `Scoring ${lineCount} line${lineCount !== 1 ? 's' : ''}`;
     }
   } else if (gameState.currentPhase === 'territory_processing') {
-    subPhaseDetail =
-      'Processing disconnected regions; you must eliminate one outside ring per region.';
+    subPhaseDetail = 'Claiming disconnected regions — each costs one ring from your stacks.';
   }
 
   // When a line-related decision is active during line/territory processing,
@@ -861,8 +861,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     if (isLineDecisionKind) {
       phase = {
         ...phase,
-        label: 'Line Formation',
-        description: 'Resolve completed lines and select any elimination rewards.',
+        label: 'Line Scored!',
+        description: 'Your line is being scored — choose your reward.',
         colorClass: 'bg-amber-500',
         icon: '✨',
       };
@@ -906,15 +906,15 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       const elimContext = elimChoice.eliminationContext;
       let chipText: string;
       if (elimContext === 'territory') {
-        chipText = 'Territory claimed – select stack for mandatory elimination';
+        chipText = 'Territory claimed — pick a stack to remove a ring from';
       } else if (elimContext === 'line') {
-        chipText = 'Line reward – select stack to eliminate one ring';
+        chipText = 'Line reward — pick a stack to remove a ring from';
       } else if (elimContext === 'forced') {
-        chipText = 'Forced elimination – select stack cap to eliminate';
+        chipText = 'No moves — pick a stack to sacrifice from';
       } else if (elimContext === 'recovery') {
-        chipText = 'Recovery – select stack to extract buried ring';
+        chipText = 'Recovery — pick a stack to free a buried ring';
       } else {
-        chipText = 'Select stack cap to eliminate';
+        chipText = 'Pick a stack to remove a ring from';
       }
       statusChip = {
         text: chipText,
@@ -922,7 +922,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       };
     } else if (vm.kind === 'territory_region_order') {
       statusChip = {
-        text: 'Territory claimed – choose region to process or skip',
+        text: 'Territory claimed — choose a region to claim or skip',
         tone: 'attention',
       };
     }
@@ -991,8 +991,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     ) {
       weirdState = {
         type: 'structural-stalemate',
-        title: 'Structural stalemate',
-        body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends here and the final score is computed from territory and eliminated rings.',
+        title: 'Stalemate',
+        body: 'Nobody can move! The board is locked. Final scores are based on territory and eliminated rings.',
         tone: 'critical',
       };
     } else if (
@@ -1005,8 +1005,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         type: 'last-player-standing',
         title: 'Last Player Standing',
         body: key.startsWith('game_end.lps.with_anm_fe')
-          ? 'The game ended because only one player could make real moves for a full round. Other players were blocked or could only perform forced eliminations, which do not count as real moves for Last Player Standing.'
-          : 'The game ended because only one player could make real moves for a full round of turns.',
+          ? 'Only one player could still make moves for a full round. Everyone else was blocked — the last player standing wins!'
+          : 'Only one player could still make moves for a full round of turns — they win!',
         tone: 'warning',
       };
     }
@@ -1019,10 +1019,10 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
         weirdState = {
           type: weird.type,
-          title: isUser ? 'You have no legal moves this turn' : `${label} has no legal moves`,
+          title: isUser ? 'You have no moves this turn' : `${label} has no moves`,
           body: isUser
-            ? 'You control stacks but have no legal real moves this turn (no placements, movements, or captures). Because of that, the forced-elimination rule will remove caps from your stacks until a real move becomes available or your stacks run out.'
-            : `${label} controls stacks but has no legal real moves this turn (no placements, movements, or captures). Because of that, the forced-elimination rule will remove caps from their stacks until a real move becomes available or their stacks run out.`,
+            ? 'You have stacks but nowhere to go this turn. Rings will be removed from the top of your stacks until you can move again.'
+            : `${label} has stacks but nowhere to go. Rings will be removed from the top of their stacks until they can move again.`,
           tone: 'warning',
         };
         break;
@@ -1031,8 +1031,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
         weirdState = {
           type: weird.type,
-          title: isUser ? 'No legal line actions available' : `${label} has no line actions`,
-          body: 'There are no valid line actions to take. The game will auto-resolve this phase and move on according to the line-processing rules.',
+          title: isUser ? 'No line actions right now' : `${label} has no line actions`,
+          body: 'Nothing to do here — the game will advance automatically.',
           tone: 'info',
         };
         break;
@@ -1041,10 +1041,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
         weirdState = {
           type: weird.type,
-          title: isUser
-            ? 'No legal territory actions available'
-            : `${label} has no territory actions`,
-          body: 'There are no valid territory or self-elimination actions to take. The game will auto-resolve this phase and move on according to the territory rules.',
+          title: isUser ? 'No territory actions right now' : `${label} has no territory actions`,
+          body: 'Nothing to do here — the game will advance automatically.',
           tone: 'info',
         };
         break;
@@ -1054,11 +1052,11 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
         weirdState = {
           type: weird.type,
           title: isUser
-            ? 'Forced elimination is shrinking your stacks'
-            : 'Forced elimination is shrinking their stacks',
+            ? 'Your stacks are being sacrificed'
+            : `${label}'s stacks are being sacrificed`,
           body: isUser
-            ? 'Because you control stacks but have no legal real moves on some of your turns (no placements, movements, or captures), forced elimination repeatedly removes caps from your stacks. Each removal permanently eliminates rings and counts toward Ring Elimination.'
-            : `Because ${label} controls stacks but has no legal real moves on some of their turns (no placements, movements, or captures), forced elimination repeatedly removes caps from their stacks. Each removal permanently eliminates rings and counts toward Ring Elimination.`,
+            ? 'You have stacks but no moves available. Rings are being removed from the top of your stacks each turn. Each removed ring is permanently eliminated.'
+            : `${label} has stacks but no moves available. Rings are being removed from the top of their stacks each turn. Each removed ring is permanently eliminated.`,
           tone: 'warning',
         };
         break;
@@ -1066,8 +1064,8 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       case 'structural-stalemate': {
         weirdState = {
           type: weird.type,
-          title: 'Structural stalemate',
-          body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends here and the final score is computed from territory and eliminated rings.',
+          title: 'Stalemate',
+          body: 'Nobody can move! The board is locked. Final scores are based on territory and eliminated rings.',
           tone: 'critical',
         };
         break;

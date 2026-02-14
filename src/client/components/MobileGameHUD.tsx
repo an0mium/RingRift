@@ -79,12 +79,12 @@ function MobileWeirdStateBanner({
     weirdState.type === 'last-player-standing'
       ? 'Last Player Standing'
       : weirdState.type === 'forced-elimination'
-        ? 'Forced Elimination'
+        ? 'Blocked!'
         : weirdState.type === 'structural-stalemate'
-          ? 'Structural stalemate'
+          ? 'Stalemate'
           : weirdState.type.startsWith('active-no-moves')
-            ? 'No Legal Moves'
-            : 'Rules notice';
+            ? 'No Moves'
+            : 'Notice';
 
   const icon = weirdState.tone === 'critical' ? '⚠️' : weirdState.tone === 'warning' ? '⚠️' : 'ℹ️';
 

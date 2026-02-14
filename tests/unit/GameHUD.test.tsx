@@ -564,7 +564,7 @@ describe('GameHUD', () => {
       const countdownPill = screen.getByTestId('decision-phase-countdown');
       expect(countdownPill).toHaveAttribute('data-severity', 'critical');
       expect(countdownPill).toHaveAttribute('data-server-capped', 'true');
-      expect(countdownPill).toHaveTextContent('Server deadline');
+      expect(countdownPill).toHaveTextContent('Time limit');
     });
 
     it('applies normal severity when more than 10 seconds remain', () => {
@@ -1052,10 +1052,8 @@ describe('GameHUD', () => {
 
       const weirdBanner = screen.getByTestId('hud-weird-state-banner');
       expect(weirdBanner).toBeInTheDocument();
-      expect(weirdBanner).toHaveTextContent(/Structural stalemate/i);
-      expect(weirdBanner).toHaveTextContent(
-        /No legal placements, movements, captures, or forced eliminations/i
-      );
+      expect(weirdBanner).toHaveTextContent(/Stalemate/i);
+      expect(weirdBanner).toHaveTextContent(/Nobody can move/i);
       expect(screen.getByTestId('hud-weird-state-help')).toBeInTheDocument();
     });
 
